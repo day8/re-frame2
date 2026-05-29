@@ -33,7 +33,8 @@
   ordering relative to db mutation is contract (Spec 005 §Cancellation
   cascade D6-D8: emit `:rf.machine/destroyed` BEFORE db mutation so
   in-flight trace consumers see the destroy signal while the handler
-  still resolves; unregister the handler LAST).")
+  still resolves; unregister the handler LAST)."
+  (:require [re-frame.machines.paths :as paths]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -46,7 +47,7 @@
   (when actor-id
     (some (fn [[sid mid]]
             (when (= mid actor-id) sid))
-          (get-in db [:rf/runtime :machines :system-ids]))))
+          (get-in db (paths/system-id-path)))))
 
 (defn teardown-actor
   "Apply the unified app-db teardown projection to `db`. Returns a tuple
@@ -79,23 +80,23 @@
         track?       (and parent-id invoke-id)
         ;; (1)+(2)+(3): the three primary slot mutations.
         new-db       (cond-> db
-                       actor-id     (update-in [:rf/runtime :machines :snapshots]
+                       actor-id     (update-in (paths/snapshot-path)
                                                dissoc actor-id)
-                       released-sid (update-in [:rf/runtime :machines :system-ids]
+                       released-sid (update-in (paths/system-id-path)
                                                dissoc released-sid)
-                       track?       (update-in [:rf/runtime :machines :spawned parent-id]
+                       track?       (update-in (paths/spawned-path parent-id)
                                                 dissoc invoke-id))
         ;; (4a): prune the per-parent `:spawned` map if empty.
         new-db       (cond-> new-db
                        (and track?
-                            (empty? (get-in new-db [:rf/runtime :machines :spawned parent-id])))
-                       (update-in [:rf/runtime :machines :spawned] dissoc parent-id))
+                            (empty? (get-in new-db (paths/spawned-path parent-id))))
+                       (update-in (paths/spawned-path) dissoc parent-id))
         ;; (4b): prune the `[:rf/runtime :machines :spawned]` slot if
         ;; empty (lazy-allocation mirror — :snapshots and :system-ids
         ;; stay present per fixture contract).
         new-db       (cond-> new-db
                        (and (contains? (get-in new-db [:rf/runtime :machines])
                                        :spawned)
-                            (empty? (get-in new-db [:rf/runtime :machines :spawned])))
+                            (empty? (get-in new-db (paths/spawned-path))))
                        (update-in [:rf/runtime :machines] dissoc :spawned))]
     [new-db released-sid]))

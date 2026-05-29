@@ -24,6 +24,7 @@
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
@@ -126,7 +127,7 @@
   (let [initial-snap (when spec
                        (parallel/build-initial-snapshot
                          spec {:bootstrap-pending? true}))
-        existing     (when system-id (get-in db-after-alloc [:rf/runtime :machines :system-ids system-id]))]
+        existing     (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))]
     (if (and spec (not (data-validation/validate-spawn-data!
                          spawned-id spec initial-snap)))
       :rejected
@@ -146,9 +147,9 @@
         (frame/swap-frame-db! frame-id
                               (fn [_db]
                                 (cond-> db-after-alloc
-                                  spec      (assoc-in [:rf/runtime :machines :snapshots spawned-id] initial-snap)
-                                  system-id (assoc-in [:rf/runtime :machines :system-ids system-id] spawned-id)
-                                  track?    (assoc-in [:rf/runtime :machines :spawned parent-id invoke-id] spawned-id))))
+                                  spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                                  system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                                  track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
         (when system-id
           (trace/emit! :rf.machine :rf.machine/system-id-bound
                        {:frame      frame-id
@@ -313,7 +314,7 @@
         join-state (:join-state args)
         children   (:children join-state)]
     (frame/swap-frame-db! frame-id assoc-in
-                          [:rf/runtime :machines :spawned parent-id invoke-id] join-state)
+                          (paths/spawned-path parent-id invoke-id) join-state)
     (trace/emit! :rf.machine :rf.machine.spawn-all/started
                  {:machine-id parent-id
                   :spawn-id  invoke-id

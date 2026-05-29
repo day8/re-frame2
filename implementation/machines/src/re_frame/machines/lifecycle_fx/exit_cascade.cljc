@@ -40,6 +40,7 @@
   (:require [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.result :as result]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
@@ -77,7 +78,7 @@
   [frame-id actor-id]
   (when actor-id
     (let [db       (frame/frame-app-db-value frame-id)
-          snapshot (when db (get-in db [:rf/runtime :machines :snapshots actor-id]))
+          snapshot (when db (get-in db (paths/snapshot-path actor-id)))
           machine  (resolve-machine-spec actor-id)]
       (when (and snapshot machine)
         (let [r (parallel/run-active-exit-cascade machine snapshot)]
@@ -102,7 +103,7 @@
               ;; swap-frame-db! per destroy.
               (when (not= snapshot new-snap)
                 (frame/swap-frame-db! frame-id
-                                      (fn [d] (assoc-in d [:rf/runtime :machines :snapshots actor-id] new-snap))))
+                                      (fn [d] (assoc-in d (paths/snapshot-path actor-id) new-snap))))
               ;; (5) Fire the `:exit`-emitted fx via the standard fx
               ;; interpreter. Use the frame's `:platform` (defaults to
               ;; :client) so platform-gated fx behave consistently with

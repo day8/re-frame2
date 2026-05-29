@@ -31,6 +31,7 @@
   lookup."
   (:require [re-frame.machines.parallel :as parallel]
             [re-frame.machines.path-walk :as path-walk]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -261,7 +262,7 @@
             child-extra (vec (drop 2 inner-event))
             ;; Read the live join state from app-db (the seed was written
             ;; by :rf.machine/spawn-all-init on entry).
-            join-state (get-in db [:rf/runtime :machines :spawned parent-id invoke-id])]
+            join-state (get-in db (paths/spawned-path parent-id invoke-id))]
         (cond
           ;; Pure-call snapshot: no app-db join state seeded yet — fall
           ;; through to no-op (the runtime tracks join state via the fx
@@ -313,5 +314,5 @@
                                      child-id child-extra resolution)
             (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                           child-id child-extra resolution)]
-              {:db (assoc-in db [:rf/runtime :machines :spawned parent-id invoke-id] join-state'')
+              {:db (assoc-in db (paths/spawned-path parent-id invoke-id) join-state'')
                :fx fx})))))))

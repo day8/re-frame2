@@ -25,6 +25,7 @@
   the action-effect path enforces (Spec 005:463), surfaced as
   `:rf.error/machine-action-wrote-db`."
   (:require [re-frame.frame :as frame]
+            [re-frame.machines.paths :as paths]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -60,7 +61,7 @@
             (fn [db]
               ;; No-op merge target when the snapshot is absent — never
               ;; conjure a snapshot for a destroyed / unknown actor.
-              (if (contains? (get-in db [:rf/runtime :machines :snapshots]) machine-id)
-                (update-in db [:rf/runtime :machines :snapshots machine-id] merge clean-patch)
+              (if (contains? (get-in db (paths/snapshot-path)) machine-id)
+                (update-in db (paths/snapshot-path machine-id) merge clean-patch)
                 db))))))
     nil))

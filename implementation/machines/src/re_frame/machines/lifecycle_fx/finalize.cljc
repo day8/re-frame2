@@ -36,6 +36,7 @@
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.result :as result]
             [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
@@ -141,7 +142,7 @@
                         ;; teardown projection (e.g. `:on-done` reading
                         ;; the child via `[:rf/runtime :machines :snapshots]`) sees the
                         ;; final state's writes.
-                        (assoc-in db [:rf/runtime :machines :snapshots machine-id] next-snapshot)
+                        (assoc-in db (paths/snapshot-path machine-id) next-snapshot)
                         db)
         _             (when (not exit-ok?)
                         (trace/emit-error! :rf.error/machine-action-exception
@@ -182,7 +183,7 @@
         spawn-spec  (when (and parent-meta invoke-id)
                       (find-spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)
-        parent-path [:rf/runtime :machines :snapshots parent-id]
+        parent-path (paths/snapshot-path parent-id)
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
         ;; (D6 ordering).
         _ (trace/emit! :rf.machine :rf.machine/done
