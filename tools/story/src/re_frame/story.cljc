@@ -112,6 +112,14 @@
             ;; `promote-run-artifact!` (the explicit-only registration path)
             ;; below (spec/017 §Promotion — Promotion bridge).
             [re-frame.story.promotion   :as promotion]
+            ;; rf2-5x1wt.31 — generated / property-style runs that emit
+            ;; seed-bearing run artifacts (+ shrink) and a fault-lattice
+            ;; sweep. Re-exported as `check-property!` / `sweep-faults!`
+            ;; below (spec/017 §Generated runs and artifacts). Builds
+            ;; read-only on `.7` replay + the `:seed` / `:shrink-path`
+            ;; artifact slots; a generated failure feeds the promotion
+            ;; bridge unchanged (artifacts first, curated promotion only).
+            [re-frame.story.generate    :as generate]
             ;; rf2-5x1wt.19 — the ONE unified run-result + the assertion /
             ;; check record shapes + the clojure.test report projection.
             ;; Re-exported as `run-result` / `result-status` /
@@ -1159,6 +1167,40 @@
   registered variant id."
   [artifact opts]
   (promotion/promote-run-artifact! artifact opts))
+
+;; ---- generated / property-style runs (rf2-5x1wt.31) ---------------------
+;;
+;; Per spec/017 §Generated runs and artifacts — a property over N generated
+;; event programs that emits a SEED-bearing `:rf.test/run-artifact` for every
+;; run and, on falsification, a SHRUNK failing artifact (carrying its `:seed`
+;; + `:shrink-path`) ready to feed the promotion bridge. Artifacts first;
+;; curated promotion only. Generator-agnostic (a caller `gen-fn` of the seed)
+;; over a pure seedable PRNG; the fault-lattice sweep replays one base program
+;; across `:fx-decisions` fault cells using the existing fx-override world
+;; input — no new fault-injection contract.
+
+(defn check-property!
+  "Per spec/017 §Generated runs and artifacts — run a property over `:num-tests`
+  generated event programs and, on FAILURE, return the shrunk, seed-bearing
+  failing `:rf.test/run-artifact`. `gen-fn` is a pure `(fn [seed]
+  event-program)`; `opts` MAY carry `:seed` (the reproducible root seed),
+  `:num-tests`, `:shrink?`, `:fx-decisions` (the world the property runs
+  against), `:hooks` / `:frame-config`. Returns `{:status :pass …}` or
+  `{:status :fail :seed … :shrink-path … :artifact <run-artifact> …}`; the
+  `:artifact` feeds `promote-run-artifact!` for a curated regression variant."
+  [gen-fn opts]
+  (generate/check-property! gen-fn opts))
+
+(defn sweep-faults!
+  "Per spec/017 §Fault lattice sweep — replay `base-program` across a
+  `fault-lattice` of `:fx-decisions` cells (each cell a fault — an fx override
+  that fails / delays / mis-replies) and collect one seed-bearing
+  `:rf.test/run-artifact` per cell. Derived from the existing fx-override
+  world input + run-artifact surface; no new fault-injection contract. `opts`
+  MAY carry `:seed` / `:hooks` / `:frame-config`. Returns `{:cells [{:cell
+  :status :artifact :result} …] :failing [cell-id …]}`."
+  [base-program fault-lattice opts]
+  (generate/sweep-faults! base-program fault-lattice opts))
 
 ;; ---- semantic diff over run artifacts (rf2-5x1wt.9) ---------------------
 ;;

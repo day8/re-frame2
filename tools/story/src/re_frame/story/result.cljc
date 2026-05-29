@@ -334,6 +334,147 @@
      :unconsumed         unconsumed}))
 
 ;; ===========================================================================
+;; CAUSAL / CASCADE EXPECTATIONS  (spec/017 §Causal and cascade assertions,
+;; rf2-5x1wt.31)
+;; ===========================================================================
+;;
+;; `:rf.assert/caused` and `:rf.assert/no-cascade-rerender` PROJECT a
+;; cause→effect relationship from the SAME reactive evidence the tape already
+;; carries — the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the
+;; dispatching cascade's `:cause-event-id` (Spec 009), surfaced in the
+;; `evidence/reactive-counts` `:by-cause` projection (rf2-5x1wt.30). They are
+;; tape-evaluated like `:rf.assert/schema-error`: NOT dispatched into the
+;; frame, NOT a parallel accumulator — the tape is the source of truth
+;; (spec/017 §Risks — "evidence projections drift").
+;;
+;; The measured COUNT for a causal expectation is read off `:reactive-counts`:
+;;
+;;   surface [:any]      → the cause's total (sub-recomputes + view-renders)
+;;                         from `(:by-cause rc)`;
+;;   surface [:sub sid]  → the cause's sub-recomputes whose sub-id is `sid`;
+;;   surface [:view vid] → the cause's view-renders whose view-id is `vid`.
+;;
+;; A `[:sub …]` / `[:view …]` surface needs per-(cause × surface) counts that
+;; `:by-cause` (cause-keyed totals) does not carry, so the matcher re-projects
+;; them from the already-projected `:sub-runs` / `:renders` rows
+;; (`evidence/sub-runs` / `renders`) — the SAME rows `:by-cause` counts,
+;; filtered to the named cause AND surface. No new evidence stream.
+
+(defn- causal-count
+  "The measured effect COUNT for a causal `expectation` against the run's
+  projected `evidence` (the `evidence/project-evidence` output). Pure data →
+  data. Reads ONLY the already-projected reactive rows — `:reactive-counts`
+  for the `[:any]` cause total, the `:sub-runs` / `:renders` rows for a named
+  `:sub` / `:view` surface. Returns 0 when the cause produced no matching
+  effect."
+  [{:keys [event surface] :as _expectation} evidence]
+  (let [rc (:reactive-counts evidence)]
+    (case (first surface)
+      :any  (let [{:keys [sub-recomputes view-renders]
+                   :or   {sub-recomputes 0 view-renders 0}}
+                  (get (:by-cause rc) event)]
+              (+ sub-recomputes view-renders))
+      :sub  (let [sid (second surface)]
+              (count (filter (fn [r] (and (= event (:cause-event-id r))
+                                          (= sid (:sub-id r))))
+                             (:sub-runs evidence))))
+      :view (let [vid (second surface)]
+              (count (filter (fn [r] (and (= event (:cause-event-id r))
+                                          (= vid (or (:view-id r)
+                                                     (when (vector? (:render-key r))
+                                                       (first (:render-key r)))))))
+                             (:renders evidence))))
+      0)))
+
+(defn- causal-in-bounds?
+  "True iff `n` satisfies the expectation's `[:min :max]` count bounds (an
+  absent `:max` is unbounded above). Pure data → data."
+  [{:keys [min max] :as _expectation} n]
+  (and (>= n (or min 0))
+       (or (nil? max) (<= n max))))
+
+(defn causal-record
+  "Mint the unified assertion record for ONE causal expectation (spec/017
+  §Causal and cascade assertions, §Run result — Assertion record). Pure
+  data → data.
+
+  `n` is the measured effect count (`causal-count`). `reactive?` is whether
+  the run carried ANY reactive evidence (a `:reactive-counts` slot). The
+  verdict, in precedence:
+
+  - a degenerate atom that names no `:event` → `:fail` (it asserts nothing
+    measurable);
+  - NO reactive evidence → `:cannot-run` — the run never exercised the
+    reactive substrate, so the cause→effect relationship could not be
+    measured (fail closed; NEVER a silent pass against an empty projection,
+    §Causal and cascade assertions);
+  - else the expectation passes iff `n` is within the `[:min :max]` bounds.
+
+  The record carries the declared spec as `:expected` and the measured count
+  + bounds as `:actual` so a failing / refused expectation reads
+  diagnostically."
+  [{:keys [atom id spec event surface min max] :as expectation} n reactive?]
+  (let [degenerate? (nil? event)
+        in-bounds?  (causal-in-bounds? expectation n)
+        status      (cond
+                      degenerate?            :fail
+                      (not reactive?)        :cannot-run
+                      in-bounds?             :pass
+                      :else                  :fail)]
+    {:assertion   id
+     :payload     (vec (rest atom))
+     :passed?     (= :pass status)
+     :status      status
+     :cannot-run? (= :cannot-run status)
+     :expected    spec
+     :actual      {:event event :surface surface :count n :min min :max max}
+     :reason      (cond
+                    degenerate?
+                    (str (name id) " names no :event — a causal assertion MUST "
+                         "name the cause event-id it projects")
+                    (not reactive?)
+                    (str (name id) " requires reactive evidence, but the run "
+                         "carried no :rf.sub/run / :rf.view/rendered rows — "
+                         ":cannot-run (run under the :cljs-reactive runner)")
+                    in-bounds?
+                    (str "event " (pr-str event) " caused " n " "
+                         (pr-str surface) " effect(s), within bounds "
+                         "[" min " " (or max "∞") "]")
+                    :else
+                    (str "event " (pr-str event) " caused " n " "
+                         (pr-str surface) " effect(s), outside expected bounds "
+                         "[" min " " (or max "∞") "]"))}))
+
+(defn match-causal-expectations
+  "Evaluate declared causal / cascade expectations against the run's
+  projected reactive `evidence` (spec/017 §Causal and cascade assertions,
+  rf2-5x1wt.31). Pure data → data — the boundary the `run-result` assembly
+  consumes.
+
+  `causal-atoms` is the vector of declared `[:rf.assert/caused …]` /
+  `[:rf.assert/no-cascade-rerender …]` atoms; `evidence` is the
+  `evidence/project-evidence` output (the SINGLE reactive source — the
+  `:reactive-counts` / `:sub-runs` / `:renders` projections, never a second
+  accumulator). Returns `{:records [assertion-record …]}`, one per declared
+  expectation.
+
+  Note these are PURE expectations, NOT agreement-floor signals: an
+  over-render is a `:fail` of a `:rf.assert/no-cascade-rerender` declaration,
+  not a tape-floor failure on its own (`evidence/tape-shows-failure?` does not
+  read reactive counts). A run with NO reactive rows (no `:reactive-counts`
+  slot) resolves each causal expectation to `:cannot-run` — fail closed, never
+  a silent pass against an empty projection (this is the matcher's own
+  fail-closed guard; it mirrors the post-run `:reactive-counts` evidence-slot
+  check (`requirements/validate-evidence`) so the verdict is correct even
+  where that check is not separately invoked)."
+  [causal-atoms evidence]
+  (let [reactive? (contains? evidence :reactive-counts)]
+    {:records (mapv (fn [a]
+                      (let [exp (assertions/causal-expectation a)]
+                        (causal-record exp (causal-count exp evidence) reactive?)))
+                    (or causal-atoms []))}))
+
+;; ===========================================================================
 ;; THE UNIFIED RUN RESULT  (spec/017 §Run result)
 ;; ===========================================================================
 
@@ -369,6 +510,20 @@
                           exactly-consumed selectors are excused from the
                           agreement floor. The minted schema-error records
                           are appended to `:assertions`.
+  - `:causal-expectations` — the vector of declared `:rf.assert/caused` /
+                          `:rf.assert/no-cascade-rerender` atoms (from the
+                          plan's `[:expect :assertions]` + checks + in-script
+                          `[:assert …]` checkpoints). Tape-evaluated against
+                          the projected `:reactive-counts` `:by-cause` /
+                          `:sub-runs` / `:renders` projection (§Causal and
+                          cascade assertions, rf2-5x1wt.31) — NOT dispatched,
+                          NOT a parallel accumulator. The minted records are
+                          appended to `:assertions`. These are PURE
+                          expectations, not floor signals (an over-render is a
+                          `:fail` of the declaration, not a tape-floor
+                          failure); a run with no reactive rows is caught
+                          upstream by the `:reactive-counts` fail-closed
+                          evidence-slot check (`:cannot-run`).
   - `:consumed-selectors` — additional schema-violation selectors to excuse
                           from the agreement floor (§Schema rule), unioned
                           with whatever `:schema-expectations` consumed. A
@@ -391,7 +546,7 @@
   green while the tape is red, and the verdict is computed from the
   PROJECTED evidence, not a sibling accumulator."
   [{:keys [epoch-tape assertions script check->atoms consumed-selectors
-           schema-expectations unmet app-db]
+           schema-expectations causal-expectations unmet app-db]
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
         evidence-slots (evidence/project-evidence tape {:script script})
@@ -404,8 +559,18 @@
         ;; while an UNCONSUMED violation keeps its selector OUT of the set so
         ;; the floor still fails the run on it.
         schema-match   (match-schema-expectations schema-expectations tape)
-        records        (into (assertion-records assertions)
-                             (:records schema-match))
+        ;; Causal / cascade expectations (§Causal and cascade assertions,
+        ;; rf2-5x1wt.31): project each declared `:rf.assert/caused` /
+        ;; `:rf.assert/no-cascade-rerender` against the SAME reactive
+        ;; evidence the tape already carries (`:reactive-counts` `:by-cause`,
+        ;; `:sub-runs`, `:renders`). Pure expectations, NOT floor signals —
+        ;; the minted records join `:assertions` and the verdict reads them
+        ;; through `aggregate-status`. A run with no reactive rows is caught
+        ;; upstream by the `:reactive-counts` fail-closed evidence-slot check.
+        causal-match   (match-causal-expectations causal-expectations evidence-slots)
+        records        (-> (assertion-records assertions)
+                           (into (:records schema-match))
+                           (into (:records causal-match)))
         checks         (check-records check->atoms records)
         consumed       (into (or consumed-selectors #{})
                              (:consumed-selectors schema-match))

@@ -428,6 +428,41 @@
                (concat terminal check-atoms script-atoms)))
     (catch #?(:clj Throwable :cljs :default) _ [])))
 
+(defn- plan-assertion-atoms
+  "Collect EVERY declared assertion atom for a normalized PLAN, across the
+  three positions in the ONE assertion-atom vocabulary (mirroring
+  `plan-schema-expectations`): the terminal `[:expect :assertions]`, the
+  expanded `[:expect :checks]` atoms, and the in-script `[:assert …]`
+  checkpoints of the executed script. Pure aside from the check expansion's
+  registrar reads; tolerant (any failure yields no atoms). Used to feed the
+  tape-evaluated expectation matchers (`:rf.assert/caused` /
+  `:rf.assert/no-cascade-rerender`, rf2-5x1wt.31) that — like
+  `:rf.assert/schema-error` — carry NO `reg-event-fx` handler and so must be
+  collected from the plan, not the `:rf.story/assertions` accumulator."
+  [plan executed-script]
+  (try
+    (let [terminal     (vec (get-in plan [:expect :assertions]))
+          check-atoms  (mapcat val (plan-checks plan))
+          script-atoms (into []
+                             (keep (fn [step]
+                                     (when (and (vector? step)
+                                                (= :assert (first step)))
+                                       (second step))))
+                             (or executed-script []))]
+      (vec (concat terminal check-atoms script-atoms)))
+    (catch #?(:clj Throwable :cljs :default) _ [])))
+
+(defn- plan-causal-expectations
+  "Collect every declared `:rf.assert/caused` / `:rf.assert/no-cascade-
+  rerender` atom for a normalized PLAN (rf2-5x1wt.31, spec/017 §Causal and
+  cascade assertions). These are tape-evaluated against the projected
+  `:reactive-counts` `:by-cause` projection (NOT dispatched into the frame,
+  NOT a parallel accumulator), so — like `:rf.assert/schema-error` —
+  collecting the DECLARED atoms here is the single path that feeds the
+  result boundary's causal matcher (`result/match-causal-expectations`)."
+  [plan executed-script]
+  (filterv assertions/causal? (plan-assertion-atoms plan executed-script)))
+
 (defn- record-result-map
   "Build the unified run-result returned by `run-variant` (rf2-5x1wt.19,
   spec/017 §Run result + §Unified run result). Gathers whatever the
@@ -487,6 +522,15 @@
                     ;; dispatched — collected from the plan, not the
                     ;; `:rf.story/assertions` accumulator.
                     :schema-expectations (plan-schema-expectations
+                                           plan executed-script)
+                    ;; rf2-5x1wt.31 — the declared causal / cascade
+                    ;; expectations (`:rf.assert/caused` /
+                    ;; `:rf.assert/no-cascade-rerender`), tape-evaluated
+                    ;; against the projected `:reactive-counts` `:by-cause`
+                    ;; projection (§Causal and cascade assertions). Like the
+                    ;; schema-error expectations they are tape-evaluated, NOT
+                    ;; dispatched — collected from the plan.
+                    :causal-expectations (plan-causal-expectations
                                            plan executed-script)
                     ;; rf2-q5jw4 — the per-requirement `:cannot-run` refusals
                     ;; the runner could not even attempt (above). Folded into

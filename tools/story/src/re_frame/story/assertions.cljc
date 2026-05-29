@@ -800,6 +800,129 @@
      :selector (schema-error-selector spec)}))
 
 ;; ---------------------------------------------------------------------------
+;; Causal / cascade assertions — `:rf.assert/caused` +
+;; `:rf.assert/no-cascade-rerender` (rf2-5x1wt.31, spec/017 §Causal and
+;; cascade assertions). NET-NEW, tape-evaluated like `:rf.assert/schema-error`.
+;;
+;; Both PROJECT a cause→effect relationship from the SAME reactive evidence
+;; the framework already retains in the epoch tape — the `:rf.sub/run` /
+;; `:rf.view/rendered` rows stamped with the dispatching cascade's
+;; `:cause-event-id` (Spec 009 §`:rf.sub/cause-event-id`, surfaced in the
+;; `re-frame.story.play.evidence/reactive-counts` `:by-cause` projection,
+;; rf2-5x1wt.30). They add NO new trace op-type and NO new accumulator — the
+;; tape is the source of truth (spec/017 §Risks — "evidence projections
+;; drift: use the epoch tape as source of truth").
+;;
+;; Like `:rf.assert/schema-error` they carry NO `reg-event-fx` handler: they
+;; are not dispatched into the frame, they are evaluated in the result
+;; boundary (`re-frame.story.result/match-causal-expectations`) against the
+;; projected `:reactive-counts`. They require the `:reactive-counts`
+;; capability (the `:cljs-reactive` runner; `:cannot-run` under
+;; `:headless` / `:hiccup`), so a run with NO reactive rows fails closed via
+;; the post-run evidence-slot check — never a silent pass.
+;;
+;; The declared atom is `[:rf.assert/caused spec]` / `[:rf.assert/no-cascade-
+;; rerender spec]`, where `spec` names the CAUSE event and (optionally) the
+;; EFFECT surface + a count bound:
+;;
+;;   {:event   <event-id>      ; the cause — the dispatching cascade's event-id
+;;    :sub      <sub-id>        ; optional effect surface: a recomputed sub
+;;    :view     <view-id>      ; optional effect surface: a rendered view
+;;    :min      <int>          ; lower bound on the effect count (default 1 for
+;;                             ;   :caused — "at least one"; default 0 for
+;;                             ;   :no-cascade-rerender)
+;;    :max      <int>}         ; upper bound on the effect count (default 0 for
+;;                             ;   :no-cascade-rerender — "no rerender"; absent
+;;                             ;   = unbounded for :caused)
+;;
+;; The two ids share ONE spec parser + ONE bound model; they differ only in
+;; their DEFAULT bound (`:caused` defaults to `{:min 1}` — the cause produced
+;; the effect; `:no-cascade-rerender` defaults to `{:max 0}` — the cause did
+;; NOT over-render). An author MAY override either bound on either id.
+;; ---------------------------------------------------------------------------
+
+(def ^:const id-caused              :rf.assert/caused)
+(def ^:const id-no-cascade-rerender :rf.assert/no-cascade-rerender)
+
+(def causal-assertion-ids
+  "The causal / cascade assertion family (rf2-5x1wt.31, NET-NEW). Both are
+  tape-evaluated against the `:reactive-counts` `:by-cause` projection (NOT
+  dispatched into the frame, NOT a parallel accumulator) and require the
+  `:reactive-counts` capability via the requirement registry
+  (`re-frame.story.requirements/assertion-capabilities`)."
+  #{id-caused
+    id-no-cascade-rerender})
+
+(defn causal?
+  "True iff `assertion-atom` is a `[:rf.assert/caused …]` or
+  `[:rf.assert/no-cascade-rerender …]` declaration. Pure data → data."
+  [assertion-atom]
+  (contains? causal-assertion-ids (assertion-atom-id assertion-atom)))
+
+(defn causal-spec
+  "The spec map of a `[:rf.assert/caused spec]` / `[:rf.assert/no-cascade-
+  rerender spec]` atom (the second element), or `{}` when the atom carries
+  none. Pure data → data. A bare `[:rf.assert/caused]` (no spec) is
+  degenerate — it names no cause, so the matcher fails it readably rather
+  than vacuously passing."
+  [assertion-atom]
+  (let [s (nth (vec assertion-atom) 1 nil)]
+    (if (map? s) s {})))
+
+(defn causal-effect-surface
+  "The effect surface a causal `spec` measures — `[:sub sub-id]` when it
+  names a `:sub`, `[:view view-id]` when it names a `:view`, or `[:any]`
+  (the cause's total recompute+render count) when it names neither. Pure
+  data → data. `:sub` takes precedence over `:view` when both are present
+  (an author measuring a specific sub recompute)."
+  [{:keys [sub view] :as _spec}]
+  (cond
+    (some? sub)  [:sub sub]
+    (some? view) [:view view]
+    :else        [:any]))
+
+(defn causal-bounds
+  "The effective `{:min :max}` count bounds for a causal expectation, applying
+  the per-id DEFAULT then the author override. Pure data → data.
+  `assertion-id` selects the default:
+  `:rf.assert/caused` → `{:min 1}` (the cause produced the effect at least
+  once; `:max` absent = unbounded); `:rf.assert/no-cascade-rerender` →
+  `{:min 0 :max 0}` (the cause produced NO such effect). An explicit `:min`
+  / `:max` in `spec` overrides its default; an explicit `:exactly n` pins
+  both bounds to `n`."
+  [assertion-id {:keys [min max exactly] :as _spec}]
+  (let [defaults (if (= assertion-id id-no-cascade-rerender)
+                   {:min 0 :max 0}
+                   {:min 1})]
+    (cond-> defaults
+      (some? exactly) (assoc :min exactly :max exactly)
+      (some? min)     (assoc :min min)
+      (some? max)     (assoc :max max))))
+
+(defn causal-expectation
+  "Project a declared causal assertion atom into its expectation record —
+  the shape the result boundary's causal matcher
+  (`re-frame.story.result/match-causal-expectations`) evaluates against the
+  projected `:reactive-counts`. Pure data → data.
+
+  Returns `{:atom atom :id id :spec spec :event cause-event-id
+            :surface [:sub|:view|:any …] :min n :max n-or-nil}`. `:event` is
+  the cause the expectation names (nil for a degenerate bare atom — the
+  matcher fails it); `:surface` is the effect surface measured; `:min` /
+  `:max` are the effective count bounds (`causal-bounds`)."
+  [assertion-atom]
+  (let [id    (assertion-atom-id assertion-atom)
+        spec  (causal-spec assertion-atom)
+        {:keys [min max]} (causal-bounds id spec)]
+    {:atom    assertion-atom
+     :id      id
+     :spec    spec
+     :event   (:event spec)
+     :surface (causal-effect-surface spec)
+     :min     min
+     :max     max}))
+
+;; ---------------------------------------------------------------------------
 ;; Boot — register the seven canonical handlers
 ;; ---------------------------------------------------------------------------
 
