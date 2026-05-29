@@ -2503,11 +2503,15 @@ pass and are throwaway; a failing one is the interesting case. Generated runs
 **emit artifacts FIRST**: every generated run produces a `:rf.test/run-artifact`
 carrying the `:seed` it was generated from (and, for a shrunk failure, the
 `:shrink-path`), so a generated failure is replayable off-CI and promotable
-into a curated regression variant (§Promotion). The `:seed` / `:shrink-path`
-artifact slots already exist (§Artifacts — Run artifact); the generated-run
-producer fills them. **Curated promotion only** — a generated failure becomes
-a named variant ONLY through the explicit `promote-run-artifact!` call
-(§Promotion), never automatically.
+into a curated regression variant (§Promotion). The artifact also carries the
+CONCRETE `:event-program` — the host-portable tagged-step data — and
+cross-host replay (author on a CLJS browser, CI gate on JVM) rides THAT
+program, not the raw `:seed` (the `:seed` reproduces the program only WITHIN
+the host that generated it — see §Generator-agnostic). The `:seed` /
+`:shrink-path` artifact slots already exist (§Artifacts — Run artifact); the
+generated-run producer fills them. **Curated promotion only** — a generated
+failure becomes a named variant ONLY through the explicit
+`promote-run-artifact!` call (§Promotion), never automatically.
 
 The base ships in `re-frame.story.generate`, re-exported as
 `story/check-property!` (the property entry point) + `story/sweep-faults!`
@@ -2522,8 +2526,23 @@ steps, or bare event vectors the artifact coerces). This namespace bundles
 generator, a hand-rolled state-machine walk, a recorded-interaction fuzzer)
 is the caller's, by wrapping its draw in a `gen-fn`. The seed sequence is a
 pure, seedable splitmix64 PRNG (`seed-seq`), so a property over N seeds is
-fully reproducible: the same root seed replays the same N programs. Recording
-the root `:seed` on the result makes the whole run reproducible.
+reproducible WITHIN A HOST: on the same host, the same root seed replays the
+same N programs, and recording the root `:seed` on the result reproduces the
+whole run there.
+
+**Seed reproducibility is within-host; cross-host replay rides the recorded
+`:event-program`.** `next-seed`'s exact 64-bit bit-pattern differs JVM↔CLJS:
+the JVM mixes with native wrapping `long` arithmetic, while CLJS computes the
+mix in `js/BigInt` and then truncates the result into the JS safe-integer
+range (a JS `number` cannot hold 64 exact bits). The same root `:seed` therefore
+unfolds DIFFERENT program seeds on the two hosts, so a recorded bare `:seed`
+reproduces a failure only on the host that produced it. This is intentional —
+the value proposition does NOT depend on cross-host seed portability, because
+every emitted artifact carries the CONCRETE `:event-program` (host-portable
+tagged-step data); a promoted regression replays that program verbatim on any
+host (§Promotion / §Run artifact and replay). The recorded `:seed` is
+provenance — "this is the seed that drew this program on this host" — not the
+cross-host reproducer.
 
 ### Shrinking — deterministic program-prefix delta-debug
 

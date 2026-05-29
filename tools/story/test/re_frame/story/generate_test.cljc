@@ -29,9 +29,16 @@
 ;; ===========================================================================
 
 (deftest seed-sequence-is-reproducible
-  (testing "the same root seed yields the SAME sequence (reproducibility)"
+  ;; rf2-f3ofr — seed-reproducibility is WITHIN-host: `next-seed`'s bit-pattern
+  ;; differs JVM↔CLJS (CLJS truncates the splitmix64 mix into MAX_SAFE_INTEGER),
+  ;; so a recorded bare `:seed` reproduces a run only on the host that produced
+  ;; it. Within a host the sequence is fully deterministic (asserted here);
+  ;; cross-host replay rides the recorded concrete `:event-program` (asserted in
+  ;; `generated-failure-promotes-through-the-existing-bridge`). The spec
+  ;; (spec/017 §Generator-agnostic) now qualifies the claim as within-host.
+  (testing "WITHIN a host the same root seed yields the SAME sequence (reproducibility)"
     (is (= (generate/seed-seq 12345 8) (generate/seed-seq 12345 8))
-        "a property run replays identically from its recorded :seed"))
+        "a property run replays identically from its recorded :seed on the same host"))
   (testing "different root seeds diverge"
     (is (not= (generate/seed-seq 1 8) (generate/seed-seq 2 8))))
   (testing "seed-seq length + the root seed is never reused as a program seed"
@@ -176,7 +183,15 @@
       (is (= (:seed artifact) (get-in plan [:run-artifact :seed]))
           "the curated plan's provenance carries the falsifying seed")
       (is (contains? (:run-artifact plan) :event-program)
-          "the source link is replayable (carries the event program)"))))
+          "the source link is replayable (carries the event program)")
+      ;; rf2-f3ofr — the CONCRETE :event-program (host-portable tagged-step
+      ;; data) is the cross-host reproducer, NOT the within-host-only :seed.
+      ;; The promoted plan must carry enough program to replay the failure on
+      ;; ANY host (CLJS author → JVM CI), so a non-empty tagged-step vector is
+      ;; the genuine cross-host bridge.
+      (is (let [prog (get-in plan [:run-artifact :event-program])]
+            (and (vector? prog) (seq prog) (every? vector? prog)))
+          "the cross-host reproducer is the concrete tagged-step program, not the seed"))))
 
 ;; ===========================================================================
 ;; HEADLESS: fault lattice sweep
@@ -209,3 +224,32 @@
       ;; The :save-fails cell errored → it is in :failing.
       (is (some #{:save-fails} (:failing res))
           "the faulted cell falsifies and is reported in :failing"))))
+
+;; rf2-4cdhy — sweep-faults! accepts a fault-lattice as EITHER a map
+;; {cell-id fx-decisions} OR a seq of [cell-id fx-decisions] pairs, and both
+;; produce identical sweeps cell-for-cell (the collapsed `(seq fault-lattice)`
+;; handles both — a map seqs to its entry pairs, a pair-seq seqs to its pairs).
+(deftest sweep-faults-accepts-map-and-pair-seq-equivalently
+  (testing "a map lattice and the same lattice as a [cell-id fx] pair-seq sweep identically"
+    (rf/reg-fx :app.fx/save {:platforms #{:client :server}} (fn [_ _] :ok))
+    (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
+               (fn [_ _] (throw (ex-info "fault: save failed" {}))))
+    (rf/reg-event-fx :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
+    (let [base        [[:dispatch [:app/save]]]
+          ;; The SAME lattice in both shapes, in the same cell order.
+          as-map      {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
+          as-pair-seq [[:healthy {}] [:save-fails {:app.fx/save :app.fx/save-broken}]]
+          from-map    (generate/sweep-faults! base as-map      {:seed 7})
+          from-seq    (generate/sweep-faults! base as-pair-seq {:seed 7})
+          cell-shape  (fn [c] {:cell (:cell c)
+                               :status (:status c)
+                               :fx-decisions (:fx-decisions (:artifact c))})]
+      (is (= (mapv cell-shape (:cells from-map))
+             (mapv cell-shape (:cells from-seq)))
+          "both shapes sweep the same cells, in the same order, with the same faults")
+      (is (= (:failing from-map) (:failing from-seq))
+          "both shapes report the same failing cell ids")
+      (is (= [:healthy :save-fails] (mapv :cell (:cells from-seq)))
+          "the pair-seq preserves authored cell order")
+      (is (some #{:save-fails} (:failing from-seq))
+          "the faulted cell falsifies under the pair-seq shape too"))))
