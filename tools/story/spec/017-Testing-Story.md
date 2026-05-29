@@ -1262,6 +1262,84 @@ Equivalent inline plans and registered variants SHOULD be testable as a
 runner, they MUST produce the same final app-db and assertion records
 after `canonicalize`.
 
+## Invariant sentinels
+
+The epoch tape is also the substrate for **invariant sentinels** — the
+"this MUST hold after every committed epoch" assertion form (NewTestStory
+§A1 / §A2). Two surfaces share one notion of an invariant: a live
+fixture (`with-invariants`) and a pure post-hoc utility
+(`first-bad-epoch`). Both live in `re-frame.story.invariants`; the
+fixture USES the utility for its "which epoch failed?" reporting so the
+live and post-hoc verdicts agree by construction.
+
+### What an invariant is
+
+An invariant is a predicate that MUST hold after every committed epoch.
+It reads one `:rf/epoch-record` — its settled `:db-after`, its
+`:trigger-event`, its `:trace-events` — and answers "is the world still
+well-formed here?". Authors MAY express an invariant as:
+
+- a bare 1-arg fn `(fn [epoch] truthy?)` over the whole epoch record;
+- a `{:id … :check (fn [epoch] …)}` map (`:pred` is accepted as an alias
+  for `:check`);
+- a `[:db path pred]` / `[:db path = expected]` data shorthand for the
+  common "a value at an app-db path satisfies a predicate / equals a
+  literal" case — so the most frequent invariant stays data-shaped
+  (matching the §Story-variant data-shaped posture) and carries
+  `:path` / `:expected` / `:actual` onto the violation report.
+
+### `with-invariants` — the live sentinel
+
+```clojure
+(test/with-invariants [invariant-spec …] body…)
+```
+
+`with-invariants` registers ONE epoch listener (via
+`re-frame.core/register-epoch-listener!`) before `body` runs, checks
+every invariant after EACH committed epoch, and on exit unregisters the
+listener — even if `body` throws. It:
+
+- reports each violation through `clojure.test` / `cljs.test` (via
+  `do-report`, the same non-throwing channel
+  `re-frame.test-support/assert-path-equals` uses), so a violation
+  registers a counted failure;
+- reports each violation **exactly once per failing epoch** — a
+  re-fire of the same record (a back-filled render re-notify, §Run
+  result) is de-duplicated on the `[invariant-id epoch-id]` key;
+- reports a `:pass` for every invariant that held across the run, so a
+  green sentinel is visible rather than silent;
+- **NEVER throws from the epoch listener**: a violated OR a broken
+  (throwing) predicate is caught and reported, and the run continues.
+  Isolation is twofold — `register-epoch-listener!` already isolates
+  listener exceptions (Spec 009 §`register-epoch-listener!`), and the
+  per-epoch check itself catches predicate exceptions and reports them
+  as violations carrying the isolated `:error`.
+
+The sentinel observes every frame's epochs for the duration of `body`;
+scope an invariant to one frame by reading `(:frame epoch)` inside its
+`:check`. It works with fresh and destroyed frames: a frame destroyed
+mid-`body` simply commits no further epochs, and the listener is removed
+on the way out regardless.
+
+### `first-bad-epoch` — the pure post-hoc utility
+
+```clojure
+(test/first-bad-epoch epoch-tape invariant)
+```
+
+`first-bad-epoch` is **pure** — a retained epoch tape and an invariant
+(any of the authored shapes above) in, a result map or `nil` out. It
+walks the tape forward and returns the **first** epoch where the
+invariant fails, enriched with the spec's named slots — the failing
+`:epoch` record verbatim, the `:trigger-event`, a shallow top-level
+`:db-diff` (the set of changed app-db keys), and the epoch's
+`:trace-events` when retained — or `nil` when the invariant holds across
+the whole tape. An empty (or `nil`) tape returns `nil`; a failure in the
+first epoch returns that epoch. Because it never touches the runtime, it
+runs under `clojure -M:test` with no host, and the future Story UI
+first-bad-epoch view (§Story UI requirements) reads exactly this
+projection.
+
 ## Story UI requirements
 
 P1 Story UI MUST:

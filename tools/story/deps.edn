@@ -47,6 +47,17 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {;; rf2-try1x — silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+                       ;; rf2-5x1wt.5 — the invariant-sentinel fixture
+                       ;; (`re-frame.story.invariants`) registers a live
+                       ;; epoch listener via `re-frame.core/register-epoch-
+                       ;; listener!`, which is a no-op unless the epoch
+                       ;; artefact is on the classpath. The top-level CLJS
+                       ;; build already carries `epoch/src` (shadow-cljs.edn);
+                       ;; this test-only dep gives the JVM `clojure -M:test`
+                       ;; gate the same live epoch surface so the sentinel's
+                       ;; fresh/destroyed-frame coverage actually exercises
+                       ;; the listener path.
+                       day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
