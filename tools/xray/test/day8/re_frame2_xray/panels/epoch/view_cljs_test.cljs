@@ -1871,6 +1871,65 @@
             (is (nil? chip)
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
+(deftest first-run-container-sub-renders-added-chrome-test
+  (testing "rf2-kp7bw — a first-run subscription whose value is a
+            CONTAINER (map / vector / set) renders the whole subtree
+            with `:added` chrome, parity with scalar first-runs. Pre-fix
+            the container branch consulted only `:before` (nil on a
+            first run), so the inspector mounted plain — no diff mode,
+            no added signal — while every scalar sibling painted
+            `:added`. The fix passes `:added? true` to the edn-inspector
+            (edn-inspector §10.0.13), which synthesises the prior side
+            as the engine's missing-sentinel so the projection
+            classifies the root op as `:added`.
+
+            Canonical case: the `[:rf/route]` map sub on a /counter
+            view-mount epoch — a first run returning a map."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [route-map {:id :counter :params {} :query {} :transition :idle}
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :rf/route :sub-vec [:rf/route]
+                          :inputs nil :changed? true :first-run? true
+                          :before nil :after route-map}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            ;; The container branch mounts the canonical edn-inspector;
+            ;; the realized widget root + descendants stamp
+            ;; `data-rf-diff-op` with the classified op. `find-all-by-
+            ;; attr` walks through (realizes) the form-2 component, so
+            ;; the inspector's projection is actually computed.
+            added-nodes    (th/find-all-by-attr tree :data-rf-diff-op "added")
+            modified-nodes (th/find-all-by-attr tree :data-rf-diff-op "modified")]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-sub-row-0"))
+            "the first-run container sub row renders")
+        (is (pos? (count added-nodes))
+            "the first-run container subtree paints `:added` chrome
+             (the inspector entered diff mode via `:added?`, not a
+             plain mount)")
+        (is (zero? (count modified-nodes))
+            "the first-run is `:added`, never a `:modified` type-flip
+             (engine missing-sentinel discipline — NOT the edn-inspector
+             `::missing` keyword, which would project `:modified`)")))))
+
+(deftest first-run-empty-container-sub-still-added-test
+  (testing "rf2-kp7bw — the inverse case: a first-run sub returning an
+            EMPTY container (`{}` / `[]`) still reads `:added`. The
+            engine reports root `:added` for `(missing-sentinel, {})`."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :app/empty-map :sub-vec [:app/empty-map]
+                          :inputs nil :changed? true :first-run? true
+                          :before nil :after {}}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            added-nodes (th/find-all-by-attr tree :data-rf-diff-op "added")]
+        (is (pos? (count added-nodes))
+            "a first-run EMPTY container still reads `:added`")))))
+
 ;; ---- rf2-zuh3p — SUBSCRIPTIONS per-row violations attach inline ----------
 
 (deftest subscriptions-row-violations-attach-inline-test

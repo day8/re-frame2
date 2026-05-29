@@ -2992,13 +2992,25 @@
           "← was "
           [:span {:data-rf-xray-subs-leaf-was "1"}
            [ei/mini before 40]]]])
+      ;; rf2-kp7bw — a CONTAINER-valued sub return. On a first run
+      ;; (`first-run?`, no prior cache entry) the inspector renders the
+      ;; whole subtree as `:added` via the `:added?` opt (edn-inspector
+      ;; §10.0.13) — parity with the scalar branch's row-level `:added`
+      ;; chrome above. Pre-fix the container branch consulted ONLY
+      ;; `:before`, which is nil on a first run, so the inspector
+      ;; mounted plain (no diff mode, no added signal) while every
+      ;; scalar sibling painted `:added`. Canonical case: the
+      ;; `[:rf/route]` map sub on a /counter view-mount epoch. An
+      ;; explicit prior value (`some? before`) is a genuine diff and
+      ;; takes precedence over the first-run signal.
       [:div {:style subs-value-cell-fill-style}
        [ei/edn-inspector after
         (cond-> {:panel-id :rf.xray.epoch/subs-value
                  :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
                  :default-expanded-depth 3
                  :full-with-diff? true}
-          (some? before) (assoc :before before))]])))
+          (some? before)                 (assoc :before before)
+          (and first-run? (nil? before)) (assoc :added? true))]])))
 
 (defn- sub-coord
   "Pull the registered sub's source coord off
