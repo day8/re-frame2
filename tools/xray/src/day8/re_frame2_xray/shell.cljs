@@ -108,6 +108,7 @@
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.pills :as filter-pills]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
@@ -140,6 +141,32 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale layout sans-stack mono-stack
                      duration-css motion]]))
+
+;; ---- shell frame-id (rf2-lnluk) -----------------------------------------
+;;
+;; The shell's app-db lives in a frame. The PRODUCTION singleton mounts
+;; against `:rf/xray` (the sibling of the host's `:rf/default`); that
+;; keyword is the ONLY permitted bare `:rf/xray` literal in the
+;; render-tree per the rf2-1w07r EPIC — every other affordance resolves
+;; its frame from React-context or a captured dispatcher.
+;;
+;; Testbeds that mount N shells side-by-side (the panel-gallery
+;; `:variants-grid`, a Story workspace) pass DISTINCT frame-ids so each
+;; cell's app-db (focused epoch, selected tab, theme) is isolated.
+;; `shell-view` takes the frame-id as an opt (default `default-frame-id`)
+;; and wraps the chrome in `[frame-provider {:frame that-id}]`. Handlers
+;; register GLOBALLY once under `:rf.xray/*` (the registry is process-
+;; global, not per-frame), so only the frame-id for app-db isolation
+;; threads through — no per-instance handler re-registration.
+;; The Var lives in the dependency-free `defaults` seam (so the
+;; low-level `views/resizable-table` widget can read it without a
+;; require cycle); re-exported here as `shell/default-frame-id` for the
+;; mount + testbed call sites that thread the shell's frame.
+(def default-frame-id
+  "Production singleton frame-id for the Xray shell — re-export of
+  `defaults/default-frame-id`. The single permitted bare `:rf/xray`
+  render-tree literal (rf2-1w07r)."
+  defaults/default-frame-id)
 
 ;; ---- tab inventory ------------------------------------------------------
 ;;
@@ -2219,18 +2246,36 @@
 ;; ---- shell view ----------------------------------------------------------
 
 (rf/reg-view shell-view
-  "The full Xray shell — wraps the 4-layer chrome in a `:rf/xray`
-  frame-provider so descendant `subscribe` / `dispatch` resolve to
-  the isolated frame. Default `:inline` mode renders in normal
-  document flow inside the app-provided right layout host. `:overlay`
-  and `:popout` remain available debug/manual modes.
+  "The full Xray shell — wraps the 4-layer chrome in a frame-provider
+  so descendant `subscribe` / `dispatch` resolve to the isolated
+  frame. Default `:inline` mode renders in normal document flow inside
+  the app-provided right layout host. `:overlay` and `:popout` remain
+  available debug/manual modes.
+
+  ## `:frame-id` opt (rf2-lnluk) — de-singletoned shell frame
+
+  The shell's app-db lives in a frame. The PRODUCTION singleton mounts
+  against `default-frame-id` (`:rf/xray`) — pass no `:frame-id` and the
+  production behaviour is unchanged. Testbeds that mount N shells
+  side-by-side (the panel-gallery `:variants-grid`, a Story workspace)
+  pass DISTINCT `:frame-id`s so each cell's state (focused epoch,
+  selected tab, theme) is fully isolated — driving one shell does not
+  move the others.
+
+  The frame-id flows two ways: it parameterizes the wrapping
+  `[frame-provider {:frame frame-id}]` (so every reg-view descendant
+  resolves to it through React-context), AND it backs the few
+  out-of-render subscribes/dispatches `shell-view` itself issues from
+  OUTSIDE its own provider (the modal-positioning + mode reads below).
+  Handlers register GLOBALLY once under `:rf.xray/*`; only the frame-id
+  for app-db isolation threads through (no per-instance registration).
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
   shell region. The shell-view itself sits OUTSIDE its own frame-
   provider (it's the mount root) so React-context inside `shell-view`'s
   body still resolves to the default — every subscribing child is its
-  own reg-view component so the surrounding `:rf/xray` Provider
-  reaches them via React context.
+  own reg-view component so the surrounding Provider reaches them via
+  React context.
 
   ## `:modal-positioning` opt (rf2-om6fa)
 
@@ -2247,13 +2292,14 @@
   outer `<div>`, so the contract is satisfied out of the box.
 
   Note: with `:absolute` positioning the modals are visually contained
-  per-cell, but the open-state flags (`:rf.xray/<modal>-open?`)
-  still live in the process-global `:rf/xray` frame. Opening Settings
-  in one cell opens Settings in every cell that mounts the shell
-  against the same frame. Frame-scoping is the follow-on fix —
-  see the bead trail."
-  [& [{:keys [mode modal-positioning]
-       :or   {mode :inline modal-positioning :fixed}}]]
+  per-cell. Per rf2-lnluk the open-state flags (`:rf.xray/<modal>-
+  open?`) are now also per-instance — pass a distinct `:frame-id` per
+  cell and opening Settings in one cell opens Settings in that cell
+  only. (Cells that share a frame-id still share state — that's the
+  contract: one frame, one app-db.)"
+  [& [{:keys [mode modal-positioning frame-id]
+       :or   {mode :inline modal-positioning :fixed
+              frame-id default-frame-id}}]]
   ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
   ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
   ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
@@ -2269,24 +2315,27 @@
   ;; children mount and read the sub on this same render pass; without
   ;; sync the first paint of a fresh shell would render every modal's
   ;; backdrop at the default `:fixed` before the async router drains.
-  ;; Sub + dispatch route via `:rf/xray` so the read/write lands on
-  ;; Xray's app-db (`shell-view` itself sits OUTSIDE the
+  ;; Sub + dispatch route via the instance `frame-id` so the read/write
+  ;; lands on THIS shell's app-db (`shell-view` itself sits OUTSIDE the
   ;; `frame-provider` in the tree below — the React-context tier
-  ;; doesn't reach this call site, hence the explicit frame arg).
-  (let [current-positioning @(rf/subscribe :rf/xray [:rf.xray/modal-positioning])]
+  ;; doesn't reach this call site, hence the explicit frame arg). Per
+  ;; rf2-lnluk the explicit frame is the instance `frame-id`, not a
+  ;; `:rf/xray` literal — N shells stay isolated.
+  (let [current-positioning @(rf/subscribe frame-id [:rf.xray/modal-positioning])]
     (when (not= current-positioning modal-positioning)
       (rf/dispatch-sync [:rf.xray/set-modal-positioning modal-positioning]
-                        {:frame :rf/xray})))
+                        {:frame frame-id})))
   ;; rf2-ad7zx.13 / spec/022 — the lens mode (`:rf.xray/mode` =
   ;; :dynamic | :static) drives the `mode-dynamic` / `mode-static`
   ;; root class, which still gates functional behaviour (motion / pulse
   ;; dampening in Static). Post rf2-ad7zx.13 the Figma export carries a
   ;; SINGLE accent (GitHub blue) — the mode class no longer re-points
   ;; `--rf-xray-accent`, so the chrome accent is the same blue in both
-  ;; modes. Subscribed via the explicit `:rf/xray` frame (same shape
+  ;; modes. Subscribed via the explicit instance `frame-id` (same shape
   ;; as the modal-positioning read above — `shell-view` sits outside
-  ;; its own frame-provider).
-  (let [lens-mode @(rf/subscribe :rf/xray [:rf.xray/mode])]
+  ;; its own frame-provider; rf2-lnluk threads the instance frame, not
+  ;; a `:rf/xray` literal).
+  (let [lens-mode @(rf/subscribe frame-id [:rf.xray/mode])]
    ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
    ;; source-coord walk has a DOM node to annotate (Spec 006
    ;; §Source-coord annotation; would otherwise warn-once because the
@@ -2349,9 +2398,10 @@
                             :box-shadow "rgba(0, 0, 0, 0.4) -8px 0 24px"}))}
     ;; rf2-uu3lp — frame-provider sits INSIDE the outer `<div>` (the
     ;; `<div>` carries the source-coord annotation as the DOM root).
-    ;; Every subscribing child below is wrapped so the `:rf/xray`
-    ;; frame flows through React-context.
-    [rf/frame-provider {:frame :rf/xray}
+    ;; Every subscribing child below is wrapped so the instance
+    ;; `frame-id` flows through React-context (rf2-lnluk — the provider
+    ;; frame is the parameterized instance frame, default `:rf/xray`).
+    [rf/frame-provider {:frame frame-id}
     ;; Left-edge horizontal resize handle (rf2-x8h9y) — only renders
     ;; in `:inline` (right-rail) mode. Position-absolute pins it to
     ;; the LEFT edge of this flex container; the outer div is

@@ -112,22 +112,54 @@ mechanism, locked under rf2-tijr (2026-05-12):
 Every Xray mount fn (the master `mount-shell!` and every per-panel
 `mount-<panel>!` per [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel
 contract) opens with an internal `[rf/frame-provider {:frame
-:rf/xray} ...]`. Descendant subscriptions and dispatches re-anchor
-to the `:rf/xray` frame, *not* the host's `:rf/default` (or whatever
-frame the host's tree is providing). Consequences:
+<frame-id>} ...]`. Descendant subscriptions and dispatches re-anchor
+to that frame, *not* the host's `:rf/default` (or whatever frame the
+host's tree is providing). Consequences:
 
-- **App-db isolated.** `:rf.xray/buffer-cleared` writes touch
-  `:rf/xray`'s db; the host app-db is untouched.
+- **App-db isolated.** `:rf.xray/buffer-cleared` writes touch the
+  shell frame's db; the host app-db is untouched.
 - **Subs isolated.** A panel sub like `:rf.xray/trace-buffer` reads
-  `:rf/xray`'s db.
+  the shell frame's db.
 - **Dispatches isolated.** Events fired from inside the shell run on
-  `:rf/xray`'s event queue and interceptor chain.
-- **Machines isolated.** Xray's machines live in `:rf/xray` and
+  the shell frame's event queue and interceptor chain.
+- **Machines isolated.** Xray's machines live in the shell frame and
   don't share state with host machines.
 
-Host code never sees `:rf/xray`; the wrapper is an implementation
-detail of the mount-fn surface. Story (and any other host) embeds
-Xray with no awareness of the frame split.
+Host code never sees the shell frame; the wrapper is an
+implementation detail of the mount-fn surface. Story (and any other
+host) embeds Xray with no awareness of the frame split.
+
+### Parameterized shell frame-id — N isolated instances (rf2-1w07r)
+
+The shell frame is **parameterized**, not a hard singleton. `shell-
+view` takes a `:frame-id` opt; `ensure-xray-frame!` takes an optional
+`frame-id`. Both default to `defaults/default-frame-id` (`:rf/xray`) —
+the **production singleton** path passes nothing and the in-app shell
+behaves exactly as before.
+
+Testbeds that mount **N shells side-by-side** (the panel-gallery
+`:variants-grid`, a Story workspace) pass a DISTINCT `:frame-id` per
+cell. Each cell's app-db — focused epoch, selected tab, theme, modal
+open-state — is then fully isolated: driving one shell does not move
+the others. This is the framework-native pattern the per-panel gallery
+mounts already prove (each resolves its frame from the Story per-
+variant `frame-provider` via React context); the parameterized shell
+brings the full chrome onto the same footing.
+
+`defaults/default-frame-id` (`:rf/xray`) is the **only** permitted bare
+`:rf/xray` literal in the render tree. Every out-of-render dispatch
+(affordance click handlers, raw window listeners, components rendered
+outside their own provider) resolves to the surrounding **instance**
+frame via a captured frame-aware dispatcher (`reg-view`'s injected
+`(dispatcher)` / `rf/frame-bound-fn` closing over `(rf/current-frame)`
+at render time) — never a literal and never a bare global `rf/dispatch`.
+A `:rf/xray`-literal / global-dispatch guard rejects regressions (see
+[`017-Test-Coverage-Matrix.md`](./017-Test-Coverage-Matrix.md)).
+
+Handlers register **globally once** under `:rf.xray/*` (the registrar
+is process-global — see the next section). A second shell instance does
+NOT re-register handlers; only its frame-id for app-db isolation
+threads through `ensure-xray-frame!`'s first-mount seed hooks.
 
 ### Registry-key isolation via `:rf.xray/*` prefix
 

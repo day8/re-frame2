@@ -53,7 +53,8 @@
             [cljs.reader :as reader]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as frame]
+            [day8.re-frame2-xray.defaults :as defaults]))
 
 (def ^:private gutter-width-px 4)
 (def ^:private min-col-width-px 24)
@@ -281,7 +282,7 @@
 ;; ---- hydration ----------------------------------------------------------
 
 (defn hydrate!
-  "Lift the persisted column-widths slot into `:rf/xray`'s app-db.
+  "Lift the persisted column-widths slot into the shell frame's app-db.
 
   Mirrors `frame-switcher/hydrate!` / `static-machines/hydrate!`:
   re-entrant; safe to call from `install!` (preload-time, before the
@@ -297,14 +298,21 @@
       losing state — the localStorage value is still readable at
       the second call.
 
+  `frame-id` (rf2-lnluk) defaults to the production singleton
+  `defaults/default-frame-id` (`:rf/xray`). A second shell instance
+  passes its own frame-id (threaded by `ensure-xray-frame!`'s first-
+  mount hook) so the durable column-widths land on that instance's
+  app-db.
+
   Returns nil. No-op when localStorage has no stored map."
-  []
-  (let [loaded (load)]
-    (when (and (seq loaded)
-               (some? (frame/frame :rf/xray)))
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray.column-widths/hydrate loaded]))
-      nil)))
+  ([] (hydrate! defaults/default-frame-id))
+  ([frame-id]
+   (let [loaded (load)]
+     (when (and (seq loaded)
+                (some? (frame/frame frame-id)))
+       (rf/with-frame frame-id
+         (rf/dispatch-sync [:rf.xray.column-widths/hydrate loaded]))
+       nil))))
 
 ;; ---- Pointer plumbing ----------------------------------------------------
 
