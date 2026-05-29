@@ -2530,6 +2530,7 @@
 
 ;; =========================================================================
 ;; rf2-h71e0 — zoom-into-node + breadcrumb navigation
+;; (gesture reworked rf2-zl4rs — double-click / Enter, no glyph)
 ;; =========================================================================
 ;;
 ;; The zoom feature turns the inspector into a focused window onto an
@@ -2539,16 +2540,22 @@
 ;; path from the original root; each segment is clickable for one-tap
 ;; zoom-to-that-depth.
 ;;
+;; rf2-zl4rs — zoom-in is a node-local gesture (double-click / Enter)
+;; on the container itself; there is NO `⊙` glyph button. Zoom applies
+;; in the SINGLE full+diff renderer (re-root value always, before too
+;; when present). Esc + breadcrumb still zoom out.
+;;
 ;; Tests under this section cover:
 ;;
 ;; - Pure helpers: `zoom-key`, `resolve-zoom-path`, `resolve-zoom-into`.
 ;; - Event reducers: `:zoom-to`, `:zoom-up`, `:zoom-reset`.
 ;; - Public widget plumbing: `:zoomable?` opts emit data-attrs +
-;;   breadcrumb + the `⊙` affordance on containers; default (no opt)
-;;   leaves the renderer unchanged.
+;;   breadcrumb + the double-click / Enter zoom-trigger attrs on
+;;   containers; default (no opt) leaves the renderer unchanged.
 ;; - Per-mount keying: two side-by-side mounts zoom independently;
 ;;   stable `:site-id` survives unmount/remount.
-;; - Diff suppression: diff mode (`:before`) ignores an active zoom.
+;; - Single full+diff renderer: a zoom re-roots BOTH value and before;
+;;   no glyph renders.
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -2671,14 +2678,59 @@
       (is (nil? (:data-rf-zoomed attrs))
           "no zoom active yet — :data-rf-zoomed is still absent"))))
 
-(deftest zoomable-renders-affordance-on-containers
-  ;; When zoomable? is on, the recursive renderer emits a `⊙` button
-  ;; next to every non-root container. We probe render-node directly
-  ;; with a `zoom-path-prefix` of [] to confirm the affordance appears
-  ;; at child paths (not at the root).
+;; ---- zoom GESTURE — double-click / Enter, no glyph (rf2-zl4rs) -----------
+;;
+;; rf2-zl4rs removed the `⊙` glyph button entirely; zoom-in is now a
+;; node-local gesture on the container's own outer div. These tests
+;; assert: (a) NO `⊙` / zoom-affordance glyph renders anywhere; (b) the
+;; non-root container carries the `data-rf-zoom-target` + handlers; (c)
+;; the root + opt-off cases carry no zoom target; (d) double-click +
+;; Enter both dispatch the canonical zoom-to through the captured
+;; dispatcher with the absolute path.
+
+(defn- zoom-target-nodes
+  "Every hiccup node carrying `data-rf-zoom-target=1`."
+  [tree]
+  (filter (fn [n]
+            (and (vector? n)
+                 (map? (second n))
+                 (= "1" (:data-rf-zoom-target (second n)))))
+          (walk-hiccup tree)))
+
+(defn- glyph-nodes
+  "Every hiccup node whose string content is the legacy `⊙` zoom glyph,
+  plus any `data-rf-affordance=zoom` button — the surfaces rf2-zl4rs
+  removed. Used to assert their TOTAL ABSENCE."
+  [tree]
+  (filter (fn [n]
+            (and (vector? n)
+                 (or (= "⊙" (last n))
+                     (and (map? (second n))
+                          (= "zoom" (:data-rf-affordance (second n)))))))
+          (walk-hiccup tree)))
+
+(deftest zoomable-emits-no-glyph-button
+  ;; The `⊙` glyph + the `data-rf-affordance=zoom` button are GONE
+  ;; (rf2-zl4rs). The recursive walker emits neither, at any depth.
   (let [v {:a {:nested 1} :b 2}
-        ;; Drive render-node with a `:default-expanded-depth 8` so the
-        ;; container expands and the `:a` child gets a header row.
+        h (ei/render-node {:value v
+                           :panel-id :p
+                           :mount-id "m"
+                           :path []
+                           :depth 0
+                           :expansion-map {}
+                           :zoomable? true
+                           :zoom-path-prefix []
+                           :opts {:default-expanded-depth 8}})]
+    (is (empty? (glyph-nodes h))
+        "rf2-zl4rs — no `⊙` glyph / zoom-affordance button renders")))
+
+(deftest zoomable-marks-non-root-containers-as-zoom-targets
+  ;; With zoomable? on, every non-root container's outer div carries the
+  ;; zoom-trigger attrs (data-rf-zoom-target + tab-index + aria-label +
+  ;; handlers). We probe render-node directly with a `zoom-path-prefix`
+  ;; of [] to confirm the child container `:a` is a target.
+  (let [v {:a {:nested 1} :b 2}
         h (ei/render-node {:value v
                            :panel-id :p
                            :mount-id "m"
@@ -2688,15 +2740,23 @@
                            :zoomable? true
                            :zoom-path-prefix []
                            :opts {:default-expanded-depth 8}})
-        affordance (find-attr h :data-rf-affordance "zoom")]
-    (is (some? affordance)
-        "the recursive walker emits a zoom affordance on a non-root container")
-    (is (= "⊙" (last affordance))
-        "the affordance glyph is `⊙` (focus / aim-cursor semantic)")))
+        targets (zoom-target-nodes h)]
+    (is (seq targets)
+        "a non-root container is marked as a zoom target")
+    (let [attrs (-> targets first second)]
+      (is (= 0 (:tab-index attrs))
+          "the target is keyboard-focusable (tab-index 0)")
+      (is (string? (:aria-label attrs))
+          "the target carries an aria-label — preserves the removed
+           button's screen-reader affordance")
+      (is (fn? (:on-double-click attrs))
+          "double-click handler present")
+      (is (fn? (:on-key-down attrs))
+          "key-down handler present (Enter zooms in)"))))
 
-(deftest zoomable-skips-affordance-at-root
-  ;; The root displayed node (relative path `[]`) does NOT carry a
-  ;; zoom affordance — zooming into the current root is a no-op.
+(deftest zoomable-skips-zoom-target-at-root
+  ;; The root displayed node (relative path `[]`) is NOT a zoom target —
+  ;; zooming into the current root is a no-op.
   (let [v {:a 1 :b 2}
         h (ei/render-node {:value v
                            :panel-id :p
@@ -2706,20 +2766,14 @@
                            :expansion-map {}
                            :zoomable? true
                            :zoom-path-prefix []
-                           :opts {:default-expanded-depth 0}})
-        all-zoom-buttons (filter (fn [n]
-                                   (and (vector? n)
-                                        (map? (second n))
-                                        (= "zoom" (:data-rf-affordance (second n)))))
-                                 (walk-hiccup h))]
+                           :opts {:default-expanded-depth 0}})]
     ;; With depth-0 expansion the root is collapsed → only one node
-    ;; renders. If the root had emitted an affordance we'd see one
-    ;; button; we expect zero.
-    (is (zero? (count all-zoom-buttons))
-        "root container at relative-path [] does NOT render a zoom button")))
+    ;; renders. The root must NOT be a zoom target.
+    (is (zero? (count (zoom-target-nodes h)))
+        "root container at relative-path [] is NOT a zoom target")))
 
-(deftest zoomable-skips-affordance-when-opt-off
-  ;; `:zoomable? false` (the default) suppresses the affordance even on
+(deftest zoomable-skips-zoom-target-when-opt-off
+  ;; `:zoomable? false` (the default) suppresses the gesture even on
   ;; deep nested containers.
   (let [v {:a {:b {:c 1}}}
         h (ei/render-node {:value v
@@ -2728,96 +2782,131 @@
                            :path []
                            :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 8}})
-        all-zoom-buttons (filter (fn [n]
-                                   (and (vector? n)
-                                        (map? (second n))
-                                        (= "zoom" (:data-rf-affordance (second n)))))
-                                 (walk-hiccup h))]
-    (is (zero? (count all-zoom-buttons))
-        "with :zoomable? off no node emits a zoom affordance")))
+                           :opts {:default-expanded-depth 8}})]
+    (is (zero? (count (zoom-target-nodes h)))
+        "with :zoomable? off no node is a zoom target")
+    (is (empty? (glyph-nodes h))
+        "and certainly no glyph")))
 
 (defn- with-captured-dispatch-spy
-  "Build the affordance with a captured-dispatcher STUB as its
-  `:dispatch-fn`, click it, and capture the dispatched event vector
-  WITHOUT spinning up the router. `make-btn` is `(fn [spy] hiccup)`.
-  Returns the captured single-arg event vector.
+  "Build the zoom-trigger attrs with a captured-dispatcher STUB as its
+  `:dispatch-fn`, FIRE the named gesture, and capture the dispatched
+  event vector WITHOUT spinning up the router. `make-attrs` is
+  `(fn [spy] attrs-map)`; `gesture` is `:on-double-click` or
+  `:on-key-down`; `evt` is the synthetic DOM event (nil → a stub that
+  satisfies the Enter predicate). Returns `{:event ... :attrs ...}`.
 
-  Per rf2-r0o63 — the post-fix `zoom-affordance-button` dispatches
-  through the SUPPLIED frame-aware dispatcher (the one the surrounding
-  `reg-view` body captured via `(rf/dispatcher)`), NOT a bare
-  `rf/dispatch` with a `{:frame :rf/xray}` literal. The dispatcher
-  closure already bound the instance frame at render time; this stub
-  stands in for it."
-  [make-btn]
-  (let [captured (atom nil)
-        spy      (fn [ev] (reset! captured ev))
-        h        (make-btn spy)
-        on-click (-> h second :on-click)]
-    (on-click nil)
-    {:event @captured :on-click on-click}))
+  Per rf2-r0o63 — the gesture dispatches through the SUPPLIED frame-aware
+  dispatcher (the one the surrounding `reg-view` body captured via
+  `(rf/dispatcher)`), NOT a bare `rf/dispatch` with a `{:frame :rf/xray}`
+  literal. The dispatcher closure already bound the instance frame at
+  render time; this stub stands in for it."
+  ([make-attrs] (with-captured-dispatch-spy make-attrs :on-double-click nil))
+  ([make-attrs gesture evt]
+   (let [captured (atom nil)
+         spy      (fn [ev] (reset! captured ev))
+         attrs    (make-attrs spy)
+         handler  (get attrs gesture)
+         ;; Enter handler needs a key-bearing event; dblclick ignores it.
+         event    (or evt
+                      (when (= gesture :on-key-down)
+                        (js-obj "key" "Enter"
+                                "ctrlKey" false "metaKey" false
+                                "altKey" false "shiftKey" false
+                                "preventDefault" (fn [])
+                                "stopPropagation" (fn []))))]
+     (handler event)
+     {:event @captured :attrs attrs})))
 
-(deftest zoom-affordance-button-dispatches-zoom-to-with-absolute-path
-  (let [{:keys [event on-click]}
+(deftest zoom-trigger-double-click-dispatches-zoom-to-with-absolute-path
+  (let [{:keys [event attrs]}
         (with-captured-dispatch-spy
           (fn [spy]
-            (ei/zoom-affordance-button
+            (ei/zoom-trigger-attrs
               {:dispatch-fn   spy
                :panel-id      :p
                :mount-id      "m"
-               :absolute-path [:a :b :c]
-               :testid        "rf-xray-edn-inspector-zoom-aff"})))]
-    (is (some? on-click) "button carries an on-click handler")
+               :absolute-path [:a :b :c]})))]
+    (is (fn? (:on-double-click attrs)) "carries a double-click handler")
     (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b :c]] event)
-        "click dispatches the canonical zoom-to event with the absolute path")))
+        "double-click dispatches the canonical zoom-to with the absolute path")))
 
-(deftest zoom-affordance-button-onclick-dispatches-through-captured-dispatcher
-  ;; rf2-r0o63 — supersedes the rf2-kcaiz pin. The zoom-affordance click
-  ;; handler dispatches through the SUPPLIED frame-aware dispatcher (the
-  ;; one the surrounding reg-view body captured via `(rf/dispatcher)` at
-  ;; render time), so the zoom-slot write lands on the instance frame.
-  ;; The captured closure bound the frame synchronously during render,
-  ;; so React's synthetic-event timing popping the dynamic context after
-  ;; render does NOT leak the dispatch — and no `:rf/xray` literal
-  ;; entrenches the singleton (N shells stay isolated).
-  (testing "rf2-r0o63 — clicking the zoom-affordance dispatches
-            `[:rf.xray.edn-inspector/zoom-to ...]` through the captured
-            dispatcher (single-arg event vector; frame baked into the
-            closure, not a `{:frame :rf/xray}` literal)"
+(deftest zoom-trigger-enter-key-dispatches-zoom-to
+  ;; rf2-zl4rs — Enter on the focused node is the keyboard a11y path the
+  ;; removed glyph button used to provide.
+  (let [{:keys [event]}
+        (with-captured-dispatch-spy
+          (fn [spy]
+            (ei/zoom-trigger-attrs
+              {:dispatch-fn   spy
+               :panel-id      :p
+               :mount-id      "m"
+               :absolute-path [:a :b]}))
+          :on-key-down nil)]
+    (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b]] event)
+        "Enter dispatches the canonical zoom-to with the absolute path")))
+
+(deftest zoom-trigger-enter-ignores-modifiers-and-other-keys
+  ;; A bare Enter zooms; Ctrl/Cmd/Alt/Shift+Enter and non-Enter keys do
+  ;; NOT — so Esc-zoom-out + the spine bindings (j/k/L/G) pass through.
+  (let [mk (fn [opts]
+             (js-obj "key" (:key opts)
+                     "ctrlKey" (boolean (:ctrl? opts))
+                     "metaKey" (boolean (:meta? opts))
+                     "altKey"  (boolean (:alt? opts))
+                     "shiftKey" (boolean (:shift? opts))
+                     "preventDefault" (fn [])
+                     "stopPropagation" (fn [])))]
+    (doseq [evt [(mk {:key "Enter" :ctrl? true})
+                 (mk {:key "Enter" :meta? true})
+                 (mk {:key "Enter" :alt? true})
+                 (mk {:key "Enter" :shift? true})
+                 (mk {:key "Escape"})
+                 (mk {:key "j"})
+                 (mk {:key "k"})]]
+      (let [{:keys [event]}
+            (with-captured-dispatch-spy
+              (fn [spy]
+                (ei/zoom-trigger-attrs
+                  {:dispatch-fn spy :panel-id :p :mount-id "m"
+                   :absolute-path [:a]}))
+              :on-key-down evt)]
+        (is (nil? event)
+            (str "key " (.-key evt) " (modifiers held: "
+                 (.-ctrlKey evt) (.-metaKey evt) (.-altKey evt) (.-shiftKey evt)
+                 ") must NOT trigger zoom"))))))
+
+(deftest zoom-trigger-dispatches-through-captured-dispatcher
+  ;; rf2-r0o63 — supersedes the rf2-kcaiz pin. The gesture dispatches
+  ;; through the SUPPLIED frame-aware dispatcher so the zoom-slot write
+  ;; lands on the instance frame — single-arg event vector, frame baked
+  ;; into the closure, NOT a `{:frame :rf/xray}` literal.
+  (testing "rf2-r0o63 — the zoom gesture dispatches a single-arg
+            `[:rf.xray.edn-inspector/zoom-to ...]` (no `{:frame :rf/xray}`)"
     (let [{:keys [event]}
           (with-captured-dispatch-spy
             (fn [spy]
-              (ei/zoom-affordance-button
+              (ei/zoom-trigger-attrs
                 {:dispatch-fn   spy
                  :panel-id      :rf.xray/app-db
                  :mount-id      "m-1"
-                 :absolute-path [:cart :items 0]
-                 :testid        "x"})))
+                 :absolute-path [:cart :items 0]})))
           [event-id panel-id mount-id path] event]
-      (is (= :rf.xray.edn-inspector/zoom-to event-id)
-          "canonical event id")
-      (is (= :rf.xray/app-db panel-id)
-          "panel-id flows through as second positional arg")
-      (is (= "m-1" mount-id)
-          "mount-id flows through as third positional arg")
-      (is (= [:cart :items 0] path)
-          "absolute path flows through as fourth positional arg")
+      (is (= :rf.xray.edn-inspector/zoom-to event-id) "canonical event id")
+      (is (= :rf.xray/app-db panel-id) "panel-id flows through")
+      (is (= "m-1" mount-id) "mount-id flows through")
+      (is (= [:cart :items 0] path) "absolute path flows through")
       (is (= 4 (count event))
-          "rf2-r0o63 — dispatch is a single-arg event vector; the frame
-           is captured in the dispatcher closure, not a `{:frame :rf/xray}`
-           literal at the call site"))))
+          "rf2-r0o63 — single-arg event vector; the frame is captured in
+           the dispatcher closure, not a `{:frame :rf/xray}` literal"))))
 
-(deftest zoom-affordance-composes-prefix-and-relative-path
-  ;; The renderer threads the absolute path = (into zoom-path-prefix path)
-  ;; into the affordance — so when the operator is already zoomed at
-  ;; `[:rf/runtime :machines :snapshots]` and clicks the affordance on the
-  ;; nested `:ws/connection` container (relative path `[:ws/connection]`),
-  ;; the dispatch carries the FULL absolute path
-  ;; `[:rf/runtime :machines :snapshots :ws/connection]`.
+(deftest zoom-trigger-composes-prefix-and-relative-path
+  ;; render-container threads the absolute path = (into zoom-path-prefix
+  ;; path) into the gesture — so when the operator is already zoomed at
+  ;; `[:rf/runtime :machines :snapshots]` and double-clicks the nested
+  ;; `:ws/connection` container (relative path `[:ws/connection]`), the
+  ;; dispatch carries the FULL absolute path.
   (let [v {:ws/connection {:state :open}}
-        ;; Drive the renderer with a non-trivial zoom-path-prefix to
-        ;; simulate "we're already zoomed into machine snapshots and
-        ;; looking at its child :ws/connection".
         h (ei/render-node {:value v
                            :panel-id :p
                            :mount-id "m"
@@ -2827,25 +2916,21 @@
                            :zoomable? true
                            :zoom-path-prefix [:rf/runtime :machines :snapshots]
                            :opts {:default-expanded-depth 8}})
-        affordance (find-attr h :data-rf-affordance "zoom")]
-    (is (some? affordance)
-        "the recursive walker emits a zoom affordance on the displayed root's
-         children even when `:zoom-path-prefix` is non-empty")
-    (is (= "zoom" (-> affordance second :data-rf-affordance))
-        "data-rf-affordance attribute is 'zoom'")
-    ;; Confirm via integration: re-build the affordance the same way
-    ;; render-container does, mirroring the zoom-path-prefix + path
-    ;; composition.
+        targets (zoom-target-nodes h)]
+    (is (seq targets)
+        "the child container is a zoom target even when zoom-path-prefix
+         is non-empty")
+    ;; Confirm via the factory directly, mirroring render-container's
+    ;; (into zoom-path-prefix path) composition.
     (let [composed (vec (concat [:rf/runtime :machines :snapshots] [:ws/connection]))
           {:keys [event]}
           (with-captured-dispatch-spy
             (fn [spy]
-              (ei/zoom-affordance-button
+              (ei/zoom-trigger-attrs
                 {:dispatch-fn   spy
                  :panel-id      :p
                  :mount-id      "m"
-                 :absolute-path composed
-                 :testid        "x"})))]
+                 :absolute-path composed})))]
       (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
               [:rf/runtime :machines :snapshots :ws/connection]]
              event)
@@ -2991,12 +3076,13 @@
            whole point of zoom"))
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
-(deftest widget-diff-mode-suppresses-zoom
-  ;; Diff mode (`:before` present) renders the FULL value regardless of
-  ;; an active zoom path — the diff path's force-expand-over-changes
-  ;; logic and zoom's hide-everything-outside the subtree are
-  ;; conflicting intents. Operator viewing a diff sees the whole value;
-  ;; non-diff browse can zoom.
+(deftest widget-diff-mode-zooms-and-reroots-both-halves
+  ;; rf2-zl4rs — zoom now applies in the SINGLE full+diff renderer.
+  ;; A zoom in diff mode re-roots `value` AND `before` onto the same
+  ;; subtree, so the operator focuses the changed subtree with its diff
+  ;; annotations intact — siblings outside the subtree are hidden, and
+  ;; the re-rooted before still feeds the projection so the change paints.
+  ;; (Supersedes the rf2-h71e0 "diff suppresses zoom" behaviour.)
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
         _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
@@ -3011,11 +3097,18 @@
                                       :header   [:span "app-db"]})
         attrs  (-> h second)
         text   (collect-text h)]
-    (is (nil? (:data-rf-zoomed attrs))
-        ":data-rf-zoomed absent in diff mode even when zoom-slot is populated")
-    (is (re-find #":sibling" text)
-        "diff mode renders the FULL value (siblings outside the would-be
-         zoom subtree are visible)")
+    (is (= "1" (:data-rf-zoomed attrs))
+        ":data-rf-zoomed=1 in diff mode — zoom applies in the unified renderer")
+    (is (= (pr-str [:nested]) (:data-rf-zoom-path attrs))
+        ":data-rf-zoom-path carries the stored path even with a :before")
+    (is (re-find #":deep" text)
+        "the zoomed subtree's leaf renders in the body")
+    (is (not (re-find #":sibling" text))
+        "siblings OUTSIDE the zoom subtree are hidden — even in diff mode")
+    (is (re-find #"42" text) "the after-side leaf value renders")
+    (is (re-find #"41" text)
+        "the re-rooted before's prior leaf renders too — diff annotation
+         survives the zoom (before re-rooted along the same path)")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest zoom-persists-across-mount-unmount-via-site-id

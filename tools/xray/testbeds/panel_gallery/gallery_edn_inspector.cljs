@@ -230,8 +230,9 @@
 
   ;; ----- opts demos ---------------------------------------------------
   (story/reg-variant :story.xray.edn-inspector/opts-zoomable
-    {:doc        "`:zoomable? true` (rf2-h71e0) — each container
-                 gains a `⊙` zoom button beside the expand triangle."
+    {:doc        "`:zoomable? true` (rf2-h71e0; gesture rf2-zl4rs) —
+                 double-click a container (or press Enter while it is
+                 focused) to re-root the inspector onto it. No glyph."
      :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-zoomable)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
