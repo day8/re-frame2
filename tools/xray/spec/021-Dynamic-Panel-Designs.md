@@ -3134,6 +3134,15 @@ carries:
   labelled region is the correct shape for a composite node.
 - `:data-rf-zoom-target "1"` — DOM hook for tooling / tests.
 
+**Triangle owns its own double-click (rf2-6nw3g).** The nested
+`role="button"` expand triangle toggles on `:on-click` (which already
+`stopPropagation`s each click). It additionally carries an
+`:on-double-click` that `preventDefault`s + `stopPropagation`s and
+dispatches **nothing** — so a double-click _on the triangle_ never
+bubbles to the container's `:on-double-click` zoom. Zoom-in only fires
+on a double-click in the container body **outside** the triangle; the
+triangle is purely an expand/collapse control.
+
 **Breadcrumb structure** — when a zoom is active, a row above the body
 renders `<home> › <seg1> › <seg2> › …`. Each segment is a clickable
 button; click dispatches `:zoom-to` with a TRUNCATED prefix of the zoom
