@@ -80,46 +80,10 @@
   (testing "discovery returns the empty vector when nothing is registered"
     (is (= [] (ci/variants-with-play-scripts)))))
 
-;; ---- play-script-summary -------------------------------------------------
-
-(deftest summary-from-map-body
-  (testing "summary derives name + script-len + auto-run? from the body"
-    (swap! registrar/kind->id->body assoc-in
-           [:variant :story.s/named]
-           {:play-script {:name      "happy-path"
-                          :auto-run? false
-                          :script    [[:dispatch [:a]]
-                                      [:wait 0]
-                                      [:assert-db [:k] 1]]}})
-    (is (= {:variant-id :story.s/named
-            :name       "happy-path"
-            :script-len 3
-            :auto-run?  false}
-           (ci/play-script-summary :story.s/named)))))
-
-(deftest summary-from-bare-vector-body
-  (testing "summary defaults :auto-run? to true when the body is bare"
-    (swap! registrar/kind->id->body assoc-in
-           [:variant :story.s/bare]
-           {:play-script [[:dispatch [:foo]]]})
-    (let [s (ci/play-script-summary :story.s/bare)]
-      (is (= :story.s/bare (:variant-id s)))
-      (is (= 1 (:script-len s)))
-      (is (true? (:auto-run? s)))
-      (is (nil? (:name s))))))
-
-(deftest summary-missing-variant-yields-empty-spec
-  (testing "summary for an unknown variant returns the empty-script shape"
-    (is (= {:variant-id :story.s/missing
-            :name       nil
-            :script-len 0
-            :auto-run?  true}
-           (ci/play-script-summary :story.s/missing)))))
-
 ;; ---- ci-context ----------------------------------------------------------
 
 (deftest ci-context-shape
-  (testing "ci-context bundles the variant list + per-variant summaries"
+  (testing "ci-context bundles the variant list + per-play rows"
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.c/a]
            {:play-script [[:dispatch [:a]]]})
@@ -128,9 +92,11 @@
            {:play-script {:script [[:wait 0]] :auto-run? false :name "b"}})
     (let [ctx (ci/ci-context)]
       (is (= [:story.c/a :story.c/b] (:variants ctx)))
-      (is (= 2 (count (:summaries ctx))))
-      (is (= :story.c/a (:variant-id (first (:summaries ctx)))))
-      (is (= "b"        (:name       (second (:summaries ctx))))))))
+      (is (not (contains? ctx :summaries))
+          "the legacy per-variant :summaries projection is dropped (rf2-k9u0h)")
+      (is (= 2 (count (:rows ctx))))
+      (is (= :story.c/a (:variant-id (first (:rows ctx)))))
+      (is (= "b"        (:name       (second (:rows ctx))))))))
 
 ;; ---- terminal? -----------------------------------------------------------
 
@@ -237,7 +203,7 @@
           "bare scripts default :auto-run? to true (legacy contract)"))))
 
 (deftest ci-context-includes-rows
-  (testing "ci-context exposes the per-play rows alongside :variants + :summaries"
+  (testing "ci-context exposes the per-play rows alongside :variants"
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.ctx/multi]
            {:plays [{:name "a" :script [[:dispatch [:foo]]]}
@@ -247,23 +213,9 @@
            {:play-script {:name "lone" :script [[:dispatch [:baz]]]}})
     (let [ctx (ci/ci-context)]
       (is (= [:story.ctx/multi :story.ctx/single] (:variants ctx)))
-      ;; summaries are per-VARIANT (multi-play uses its first play).
-      (is (= 2 (count (:summaries ctx))))
       ;; rows are per-PLAY — multi(2) + single(1) = 3 rows.
       (is (= 3 (count (:rows ctx))))
       (is (= [[:story.ctx/multi  "a"]
               [:story.ctx/multi  "b"]
               [:story.ctx/single "lone"]]
              (mapv (fn [r] [(:variant-id r) (:play-key r)]) (:rows ctx)))))))
-
-(deftest summary-from-plays-uses-first-play
-  (testing "play-script-summary on a :plays variant reports the first play"
-    (swap! registrar/kind->id->body assoc-in
-           [:variant :story.s/multi]
-           {:plays [{:name "first-play"  :script [[:dispatch [:a]] [:wait 0]]}
-                    {:name "second-play" :script [[:dispatch [:b]]]}]})
-    (let [s (ci/play-script-summary :story.s/multi)]
-      (is (= :story.s/multi   (:variant-id s)))
-      (is (= "first-play"     (:name s)))
-      (is (= 2                (:script-len s)))
-      (is (true?              (:auto-run? s))))))

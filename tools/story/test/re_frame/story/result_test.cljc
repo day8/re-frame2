@@ -45,14 +45,15 @@
 ;; ===========================================================================
 
 (deftest assertion-record-stamps-status-and-source
-  (testing "a raw accumulator entry gains a derived :status + :source alias"
+  (testing "a raw accumulator entry gains a derived :status + :source (renamed from :source-coord)"
     (let [raw {:assertion :rf.assert/path-equals :payload [[:k] 1]
                :passed? true :expected 1 :actual 1
                :source-coord {:file "x.cljs" :line 3}}
           rec (result/assertion-record raw)]
       (is (= :pass (:status rec)))
-      (is (= {:file "x.cljs" :line 3} (:source rec)) ":source-coord aliased to :source")
-      (is (= {:file "x.cljs" :line 3} (:source-coord rec)) "original slot kept")
+      (is (= {:file "x.cljs" :line 3} (:source rec)) ":source-coord renamed to :source")
+      (is (not (contains? rec :source-coord))
+          "the unified record emits ONLY :source — the legacy :source-coord slot is dropped (rf2-k9u0h)")
       (is (= :rf.assert/path-equals (:assertion rec)))))
   (testing "a failing entry → :fail; a record carrying its own :status is left"
     (is (= :fail (:status (result/assertion-record {:passed? false}))))

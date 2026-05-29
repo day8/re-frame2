@@ -75,7 +75,9 @@
    (replay-script! frame-id spec nil))
   ([frame-id spec done-cb]
    (when (and config/enabled? frame-id spec)
-     (runner-events/run! frame-id spec done-cb))))
+     ;; The 4-arity multi-play form: the play-key is the hand-built
+     ;; spec's :name (nil for an unnamed script).
+     (runner-events/run! frame-id (:name spec) spec done-cb))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: export from a recorder snapshot
