@@ -25,7 +25,9 @@
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.plan :as plan]
             [re-frame.story.runtime :as runtime]
+            [re-frame.story.sub-overrides :as sub-overrides]
             [re-frame.story.ui.assertion-strip :as assertion-strip]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
@@ -287,6 +289,47 @@
     (or (:component variant-body)
         (:component story-body))))
 
+;; ---- view-state subscription overrides (rf2-5x1wt.13) -------------------
+;;
+;; A variant whose goal is rendering / design exploration MAY author
+;; `:sub-overrides` — a map of exact subscription query vectors → data
+;; values the renderer surfaces for them (spec/017 §View-state
+;; subscription overrides). At render the canvas resolves the variant's
+;; override map (arg-substituting `[:arg key]` placeholders against the
+;; effective args, the SAME one-level substitution the plan compiler uses)
+;; and binds it through `sub-overrides/with-overrides*` for the view-
+;; render extent. A Story-rendered view's subscribed reads that route
+;; through `sub-overrides/read` then surface the override; the binding
+;; never touches app-db or `compute-sub`, so it cannot satisfy a
+;; subscription assertion (`:rf.assert/sub-equals`).
+
+(defn- resolve-sub-overrides
+  "Return the variant's resolved `:sub-overrides` map (exact query
+  vectors → values, `[:arg key]` placeholders substituted against
+  `eff-args`), or nil when the variant authors none. Pure-ish: reuses the
+  plan compiler's `substitute-args` so the render-path resolution matches
+  the plan-path resolution exactly."
+  [variant-id eff-args]
+  (let [body (registrar/handler-meta :variant variant-id)
+        ovr  (:sub-overrides body)]
+    (when (seq ovr)
+      (plan/substitute-args ovr (or eff-args {}) (atom [])))))
+
+(defn sub-overrides-scope
+  "A Reagent component that binds the variant's resolved `:sub-overrides`
+  map for its child's render extent so a Story-rendered view's subscribed
+  reads (routed through `re-frame.story.sub-overrides/read`) surface the
+  override. The binding is established INSIDE this component's render fn —
+  not at the caller's hiccup-construction time — so it is live when React
+  renders the wrapped subtree (a `binding` at hiccup-construction time
+  would have unwound before the deferred child render).
+
+  When the variant authors no overrides the map is nil; every `read`
+  then misses and the view reads its real subscription, so this wrapper
+  is render-transparent in the common case."
+  [overrides child]
+  (sub-overrides/with-overrides* overrides (fn [] child)))
+
 ;; ---- decorated-view wrapper ---------------------------------------------
 
 (defn safe-decorated-view
@@ -454,6 +497,9 @@
                           (get-in @state/shell-state-atom
                                   [:cell-overrides variant-id])})
         assertions     (runtime/read-assertions variant-id)
+        ;; rf2-5x1wt.13 — resolve the variant's view-state subscription
+        ;; overrides (arg-substituted) for the render-path binding below.
+        sub-ovr        (resolve-sub-overrides variant-id eff-args)
         substrates     (variant-substrate-set variant-id)
         multi?         (and variant-id (> (count substrates) 1))
         ;; rf2-0s4p1 — skeleton gating. The lifecycle machine reports
@@ -562,10 +608,14 @@
            [frame-provider-ns-safe {:frame variant-id}
             [:div {:key (str "variant-root:" (pr-str variant-id))
                    :data-rf-story-variant-root (pr-str variant-id)}
-             (safe-decorated-view
-               [resolved-view eff-args]
-               (:hiccup decorator-pack)
-               eff-args)]]
+             ;; rf2-5x1wt.13 — bind the variant's resolved view-state
+             ;; subscription overrides for the view-render extent (a no-op
+             ;; wrapper when the variant authors none).
+             [sub-overrides-scope sub-ovr
+              (safe-decorated-view
+                [resolved-view eff-args]
+                (:hiccup decorator-pack)
+                eff-args)]]]
            [:div {:style (:empty styles)}
             (str ":component " (pr-str view-id) " is not registered as a view")])))
      (render-errors (:errors decorator-pack))

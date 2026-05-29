@@ -531,6 +531,63 @@ legitimate, but it must be labelled. In the normalized plan, top-level
 is computed from the resolved world inputs, so authors SHOULD NOT have to
 type it.
 
+**Compiler contract (as implemented).** The plan compiler
+(`re-frame.story.plan`):
+
+1. **Resolves `[:arg key]` placeholders inside the override VALUES** (and
+   keys), through the same one-level `substitute-args` pass setup / script
+   / network use. A placeholder referencing an undeclared arg FAILS plan
+   construction with `:rf.error/story-missing-arg` — the override value is
+   not exempt from the args contract.
+2. **Composes through fragments + the parent chain.** A composed fragment
+   MAY contribute `:sub-overrides`; fragment maps merge in declared order,
+   then the variant chain (where `:extends` context flowed down) wins per
+   query key. The result is one flat `{query-vector value}` map.
+3. **Validates each resolved value against the subscription's OUTPUT
+   schema** when one is on file (via the `:sub-lookup` opt — a `(sub-id) →
+   sub-meta` fn / map, defaulting to the framework `:sub` registrar; the
+   schema rides on the sub-metadata `:schema` slot). This is the
+   subscription-output contract, **distinct** from the view-arg/props
+   schema (§View arg schemas — sharp boundary). A value that violates a
+   present output schema FAILS plan construction **before render** with
+   `:rf.error/story-sub-override-invalid`, whose ex-data carries the
+   offending `:violations` (each `{:query-v :sub-id :value :schema
+   :explain}`). A sub with no output schema soft-passes; with no validator
+   threaded the value-against-schema check soft-passes (the host-free
+   floor — the same convention the view-arg malformed-value check uses).
+4. **Lowers the resolved map to `[:world :render :sub-overrides]`** and
+   **marks `[:world :fidelity]`** with `:sub-overrides`. `:fidelity` is a
+   SET drawn from `#{:real-setup :db-seed :sub-overrides}`, computed from
+   the world inputs: `:real-setup` when setup events / a script drive real
+   state, `:db-seed` when a schema-checked app-db seed is present
+   (reserved world slot), `:sub-overrides` when any override resolves. A
+   pure design variant yields `#{:sub-overrides}`; a hybrid carries both.
+   Because `:fidelity` lives in `:world`, it participates in `:plan-hash`.
+
+| Plan slot | Meaning |
+|---|---|
+| `[:world :render :sub-overrides]` | the resolved `{query-vector value}` map, `[:arg]` placeholders substituted |
+| `[:world :fidelity]` | the resolved fidelity-ladder set (present when non-empty) |
+| `[:explain :sub-overrides]` | `{:overrides … :validation {:status :ok :violations []}}` — overrides are visible in explain |
+| `[:explain :fidelity]` | the same fidelity set, surfaced for docs / review |
+
+**Render-path read + the honesty rule.** Overrides feed the RENDER PATH
+only. The render-path resolver (`re-frame.story.sub-overrides`) binds the
+variant's resolved override map for the view-render extent; a Story-
+rendered view's subscribed reads that route through `sub-overrides/read`
+surface the override on an **exact** query-vector match (`=` on the whole
+vector — no prefix / sub-id fuzzing, so an override never leaks into a
+sibling query the author did not name; a `nil`-valued override is a
+genuine hit). The resolver never writes app-db and never calls
+`compute-sub`. That boundary is what keeps `:rf.assert/sub-equals` honest:
+the assertion evaluates a sub through `compute-sub` against the frame's
+app-db snapshot (`re-frame.story.assertions/evaluate-sub-equals`), which
+the resolver does not touch — so a `:sub-overrides` value does NOT satisfy
+a subscription assertion. Subscription correctness is proven by real setup
+events, a schema-checked app-db seed, or `compute-sub`, never by an
+override (unless a future assertion explicitly opts into override-source
+semantics).
+
 ### Network stubs
 
 Top-level `:network` lowers to `[:world :network]` and then to the
