@@ -150,31 +150,37 @@
                     its own surface chrome, so `:card?` is usually
                     redundant when `:header` is present).
 
-  - `:zoomable?`     (optional, default false) — rf2-h71e0; when true
-                    every container in the tree renders a `⊙` zoom-
-                    affordance button next to the expand triangle.
-                    Click dispatches
+  - `:zoomable?`     (optional, default false) — rf2-h71e0; gesture
+                    reworked rf2-zl4rs. When true every non-root
+                    container becomes a zoom-in TARGET: double-click
+                    (or Enter while the node is keyboard-focused)
+                    re-roots the inspector onto that node. There is no
+                    longer a `⊙` glyph button — the gesture lives on
+                    the container itself, which carries `tab-index 0` +
+                    an `aria-label` so the keyboard + screen-reader
+                    affordance the glyph button used to provide is
+                    preserved. The gesture dispatches
                     `[:rf.xray.edn-inspector/zoom-to panel-id mount-id
                     absolute-path]`, which stores the absolute path
                     under `:rf.xray.edn-inspector/zoom` keyed by
                     `[panel-id site-or-mount-id]`. The widget then
-                    renders ONLY the subtree at that path, with a
-                    breadcrumb row above the body showing the path
-                    from the original root (each segment clickable for
-                    one-tap zoom-up).
+                    re-roots onto that subtree, with a breadcrumb row
+                    above the body showing the path from the original
+                    root (each segment clickable for one-tap zoom-up).
                     Esc (when the widget has focus AND a zoom is
                     active) pops one level off the zoom stack.
-                    Composes with `:popup-affordance?` (both
-                    affordances render side-by-side — they serve
-                    different intents: zoom = focus here; popup = open
-                    in new pane). Diff mode (`:before` present)
-                    suppresses zoom resolution — the diff path's
-                    force-expand-over-changed-descendants logic and
-                    zoom's hide-everything-outside-the-subtree are
-                    conflicting intents; operators view diffs over the
-                    full value. Per-mount keying matches the
-                    expansion-slot pattern; pass a stable `:site-id`
-                    to survive a panel-leave-and-return round-trip.
+                    Zoom applies in the SINGLE full+diff renderer
+                    (rf2-e28r3 / rf2-zl4rs): the re-root walks `value`
+                    always and `before` too when a pre-image is present,
+                    so the diff rail / chip / inline annotations paint
+                    relative to the zoomed subtree. A zoom into a wholly
+                    `:added` subtree re-roots both halves so the whole
+                    subtree reads `:added`; a stale path falls back to
+                    the full value. Composes with `:popup-affordance?`
+                    (popup = open in new pane; zoom = focus here).
+                    Per-mount keying matches the expansion-slot pattern;
+                    pass a stable `:site-id` to survive a panel-leave-
+                    and-return round-trip.
 
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
@@ -353,14 +359,16 @@
       db)))
 
 ;; =========================================================================
-;; zoom-into-node + breadcrumb navigation (rf2-h71e0)
+;; zoom-into-node + breadcrumb navigation (rf2-h71e0; gesture reworked rf2-zl4rs)
 ;; =========================================================================
 ;;
 ;; Zoom turns the inspector into a focused window onto an arbitrary subtree.
-;; Operator clicks the `⊙` zoom affordance on any container; that node
-;; becomes the root of the displayed tree. A breadcrumb trail at the top
-;; shows the path from the original root; clicking any segment zooms back
-;; to that level.
+;; Operator double-clicks any container (or presses Enter while it is
+;; keyboard-focused, rf2-zl4rs); that node becomes the root of the displayed
+;; tree. There is no separate `⊙` glyph button — the gesture lives on the
+;; container itself. A breadcrumb trail at the top shows the path from the
+;; original root; clicking any segment zooms back to that level. Esc zooms
+;; out one level.
 ;;
 ;; State shape mirrors `expansion-slot` — keyed by `[panel-id site-or-
 ;; mount-id]` so two side-by-side mounts zoom independently and a stable
@@ -1593,11 +1601,14 @@
 
 (declare render-inline-recursive)
 
-;; rf2-h71e0 — forward declaration for the zoom affordance button
-;; rendered inside `render-container`'s header row. The definition
-;; lives further down alongside the breadcrumb component + popup
-;; affordance (all three are top-level chrome surfaces).
-(declare zoom-affordance-button)
+;; rf2-zl4rs — forward declaration for the per-node zoom-trigger
+;; attribute factory. Zoom-in is now a node-local gesture (double-click
+;; / Enter) on the container itself rather than a separate `⊙` glyph
+;; button; the factory composes the `:on-double-click` + `:on-key-down`
+;; + a11y attrs that render-container merges onto each zoomable
+;; container's outer div. Defined below alongside the breadcrumb
+;; component.
+(declare zoom-trigger-attrs)
 
 (defn- render-inline-pair
   "Render a single map / record entry `[k v]` as a key+value sequence
@@ -1671,13 +1682,18 @@
    - diff? / before — when diff? true the renderer paints gutter rows,
                       annotates changed leaves, and force-expands the
                       ancestor chain over any changed descendant.
-   - zoomable? / zoom-path-prefix — when zoomable? true (rf2-h71e0), the
-                                    container renders a `⊙` zoom-in
-                                    affordance next to the expand
-                                    triangle. zoom-path-prefix is the
-                                    absolute path of the CURRENT zoom
+   - zoomable? / zoom-path-prefix — when zoomable? true (rf2-h71e0,
+                                    gesture reworked rf2-zl4rs), every
+                                    non-root container becomes a zoom-in
+                                    target: double-click (or Enter while
+                                    focused) re-roots the inspector onto
+                                    that node. There is no separate
+                                    glyph button — the container's own
+                                    outer div carries the gesture
+                                    handlers + a11y. zoom-path-prefix is
+                                    the absolute path of the CURRENT zoom
                                     root within the original value; the
-                                    affordance dispatches with `(into
+                                    gesture dispatches with `(into
                                     zoom-path-prefix path)` so the
                                     zoom-slot stores the full path."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
@@ -1793,28 +1809,29 @@
                         (if diff?
                           (children-of-pair before value kind)
                           (children-of value)))
-        ;; rf2-h71e0 — zoom affordance is rendered next to the expand
-        ;; triangle on every non-empty container at a NON-ROOT relative
-        ;; path. The root (`[]`) skips the affordance because zooming
-        ;; into the current zoom root is a no-op. The button dispatches
-        ;; with the ABSOLUTE path = `(into zoom-path-prefix path)` so
-        ;; the zoom-slot stores the full path from the original root.
-        zoom-button   (when (and zoomable?
+        ;; rf2-zl4rs — zoom-in is a node-local gesture (double-click /
+        ;; Enter) on every non-empty container at a NON-ROOT relative
+        ;; path. The root (`[]`) skips the gesture because zooming into
+        ;; the current zoom root is a no-op; empty containers have no
+        ;; meaningful subtree to focus. The handlers dispatch with the
+        ;; ABSOLUTE path = `(into zoom-path-prefix path)` so the zoom-slot
+        ;; stores the full path from the original root. The attrs merge
+        ;; onto the container's outer div below (nil when not zoomable).
+        zoom-attrs    (when (and zoomable?
                                  (not empty?)
                                  (seq path))
-                        (zoom-affordance-button
+                        (zoom-trigger-attrs
                           {:dispatch-fn   dispatch-fn
                            :panel-id      panel-id
                            :mount-id      mount-id
-                           :absolute-path (into (vec zoom-path-prefix) path)
-                           :testid        (str (testid-for panel-id mount-id path)
-                                               "-zoom-affordance")}))]
-    [:div {:data-testid (testid-for panel-id mount-id path)
-           :data-rf-kind (name kind)
-           :data-rf-expanded (if expanded? "1" "0")
-           :data-rf-diff-op (when diff? (name op))
-           :style {:font-family mono-stack
-                   :line-height 1.4}}
+                           :absolute-path (into (vec zoom-path-prefix) path)}))]
+    [:div (merge {:data-testid (testid-for panel-id mount-id path)
+                  :data-rf-kind (name kind)
+                  :data-rf-expanded (if expanded? "1" "0")
+                  :data-rf-diff-op (when diff? (name op))
+                  :style {:font-family mono-stack
+                          :line-height 1.4}}
+                 zoom-attrs)
      ;; ---- header row ---------------------------------------------------
      [:div {:style {:display "flex"
                     :align-items "baseline"
@@ -1840,7 +1857,6 @@
                          ;; -height).
                          :style triangle-style}
                   "▸"]]
-          zoom-button (conj zoom-button)
           true        (conj (bracket kind :open value))
           true        (conj [:span {:style (token-style :text-tertiary)} "…"])
           true        (conj (bracket kind :close value)))
@@ -1882,17 +1898,10 @@
                                          true (conj (render-scalar cv)))))
                                    pairs))
                           [(bracket kind :close value)]))))]
-          (if zoom-button
-            ;; rf2-h71e0 — wrap the inline render in a flex span so the
-            ;; zoom button sits next to (and aligned with) the inline
-            ;; content. The inline-fit path has no toggle triangle, so
-            ;; the affordance leads.
-            [:span {:style {:display "inline-flex"
-                            :align-items "baseline"
-                            :gap "4px"}}
-             zoom-button
-             inline-render]
-            inline-render))
+          ;; rf2-zl4rs — the inline-fit row has no separate zoom glyph;
+          ;; the zoom gesture lives on the container's outer div (handlers
+          ;; merged above), so the inline render passes through unwrapped.
+          inline-render)
 
         ;; Default — toggle glyph + open bracket (when expanded) OR summary.
         expanded?
@@ -1906,7 +1915,6 @@
                          ;; `triangle-style`.
                          :style triangle-style}
                   "▾"]]
-          zoom-button (conj zoom-button)
           true        (conj (bracket kind :open value)))
 
         :else
@@ -1940,7 +1948,6 @@
                           :data-rf-diff-chip-count (str n-changes)
                           :style r3-chip-style}
                    (str n-changes "∆")])
-            zoom-button (conj zoom-button)
             true        (conj (collapsed-summary value kind)))))]
 
      ;; ---- body — children rendered indented -----------------------------
@@ -2544,17 +2551,21 @@
    :opacity       0.6})
 
 ;; =========================================================================
-;; zoom affordance + breadcrumb (rf2-h71e0)
+;; zoom trigger + breadcrumb (rf2-h71e0; gesture reworked rf2-zl4rs)
 ;; =========================================================================
 ;;
 ;; Two surfaces:
 ;;
-;; 1. `zoom-affordance-button` — inline `⊙` button rendered next to the
-;;    expand triangle on every container when `:zoomable? true`. Click
-;;    dispatches `:zoom-to` with the node's ABSOLUTE path from the
-;;    original root (the renderer's per-node `:path` is RELATIVE to the
-;;    current zoom root, so the dispatch composes `zoom-path-prefix` +
-;;    `path` before storing).
+;; 1. `zoom-trigger-attrs` — the gesture attrs render-container merges
+;;    onto every non-root container's outer div when `:zoomable? true`.
+;;    Double-click (or Enter while the node is keyboard-focused) re-roots
+;;    the inspector onto that node. The dispatch carries the node's
+;;    ABSOLUTE path from the original root (the renderer's per-node
+;;    `:path` is RELATIVE to the current zoom root, so the caller composes
+;;    `zoom-path-prefix` + `path` before passing it in). There is no
+;;    separate `⊙` glyph button (rf2-zl4rs): the container itself is the
+;;    target, with `tab-index 0` + an `aria-label` carrying the keyboard +
+;;    screen-reader affordance the button used to provide.
 ;;
 ;; 2. `zoom-breadcrumbs` — segmented nav at the top of the inspector
 ;;    when the zoom path is non-empty. First segment is the `:header`
@@ -2563,89 +2574,82 @@
 ;;    `:zoom-to` with a TRUNCATED path so clicking segment N pops the
 ;;    zoom back to N levels deep.
 
-(def ^:private zoom-affordance-glyph
-  ;; `⊙` (circled-dot) reads as "focus / aim cursor at this node" — the
-  ;; mental model the bead body identified (Chrome devtools' object
-  ;; inspector + nav, IDE nav-to-symbol). Visually distinct from the
-  ;; popup affordance (`↗` — "open in new pane"), the expand triangles
-  ;; (`▸`/`▾` — toggle), and the breadcrumb separator (`›`). Single
-  ;; codepoint, theme-token coloured.
-  "⊙")
-
 (def ^:private breadcrumb-separator
   ;; `›` (single right-pointing angle) reads as nav direction — same
   ;; convention as file-browser breadcrumbs + IDE path bars. Distinct
   ;; from `→` (transition / arrow) and `>` (greater-than / blockquote).
   "›")
 
-(def ^:private zoom-affordance-button-style
-  {:background    "transparent"
-   :border        "none"
-   :color         (:text-tertiary tokens)
-   :font-size     "13px"
-   :line-height   1
-   :cursor        "pointer"
-   :padding       "0 4px"
-   :margin        "0"
-   :border-radius "3px"
-   ;; Subtle by default — matches the popup affordance's resting opacity
-   ;; so the operator's eye reads "secondary affordance" at both glyphs.
-   ;; Theme-aware via the token resolution.
-   :opacity       0.55
-   :display       "inline-flex"
-   :align-items   "center"
-   :user-select   "none"})
+(defn zoom-trigger-attrs
+  "Gesture attrs for a single zoomable container — merged onto the
+  container's outer div by `render-container`. Returns a map carrying:
 
-(defn zoom-affordance-button
-  "Inline `⊙` zoom-in button. Renders next to the expand triangle on
-  containers when `:zoomable? true`. Click dispatches `:zoom-to` with
-  the absolute path from the original root (composed by the caller as
-  `(into zoom-path-prefix path)`).
+   - `:on-double-click` — double-click re-roots the inspector onto this
+     node. `preventDefault` (suppresses the browser's native dblclick
+     text-selection) + `stopPropagation` (so a dblclick deep in the tree
+     zooms to the INNERMOST container, not an ancestor).
+   - `:on-key-down` — Enter (no modifiers) on the focused node re-roots,
+     same as the double-click; other keys pass through untouched so the
+     surrounding spine bindings (j/k/L/G) and Esc-zoom-out keep working.
+   - `:tab-index 0` + `:aria-label` — the node is keyboard-focusable and
+     announces itself as a zoom target, preserving the a11y the removed
+     `⊙` button provided. We deliberately do NOT set `role \"button\"`:
+     the container already nests its own `role=\"button\"` expand
+     triangle, and a button-inside-button role is an ARIA nesting
+     violation. A focusable labelled region is the correct shape for a
+     composite node whose double-click / Enter zooms in.
+   - `:data-rf-zoom-target \"1\"` — DOM hook for tooling / tests.
 
   ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-kcaiz pin)
 
-  The zoom-to event dispatches through the lexically-captured
-  `dispatch-fn` — the frame-aware dispatcher the surrounding `reg-view`
-  body bound via `(rf/dispatcher)` at render time. The closure captured
-  `(current-frame)` synchronously during render, so it dispatches into
-  the SURROUNDING instance frame even though the click fires later
-  (after React's synthetic-event timing has popped the dynamic frame
-  context). This is the same shape as `on-toggle` — the zoom slot is
-  per-frame, so the write must land on the instance frame, not a
-  `:rf/xray` literal.
-
-  This supersedes the rf2-kcaiz fix, which pinned the frame to a bare
-  `:rf/xray` literal at call time. That worked for the single-instance
-  shell but entrenched the singleton: two shells on one page would both
-  write the global `:rf/xray` zoom-slot and clobber each other.
-  Capturing the dispatcher keeps N instances isolated.
+  Both gestures dispatch through the lexically-captured `dispatch-fn` —
+  the frame-aware dispatcher the surrounding `reg-view` body bound via
+  `(rf/dispatcher)` at render time. The closure captured the instance
+  frame synchronously during render, so the dispatch lands on the
+  SURROUNDING instance frame even though the gesture fires later (after
+  React's synthetic-event timing has popped the dynamic frame context).
+  This is the same shape as `on-toggle` — the zoom slot is per-frame, so
+  the write must land on the instance frame, NOT a `:rf/xray` literal
+  (which would entrench the singleton: two shells on one page would both
+  write the global zoom-slot and clobber each other).
 
   `dispatch-fn` falls back to `rf/dispatch*` when absent (pure-render
-  tests that drive the button without a `reg-view` ancestor).
+  tests that drive the gesture without a `reg-view` ancestor).
 
-  Public so unit tests can drive the button without mounting."
-  [{:keys [panel-id mount-id absolute-path testid dispatch-fn]}]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
-    [:button
-     {:data-testid        testid
-      :data-rf-affordance "zoom"
-      :aria-label         "Zoom into this node"
-      :title              "Zoom into this node"
-      :on-click           (fn [^js e]
+  Public so unit tests can drive the gesture without mounting."
+  [{:keys [panel-id mount-id absolute-path dispatch-fn]}]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+        path        (vec absolute-path)
+        zoom!       (fn []
+                      ;; rf2-r0o63 — dispatch through the captured
+                      ;; frame-aware dispatcher so the zoom-slot write
+                      ;; lands on the SURROUNDING instance frame. N shells
+                      ;; stay isolated; no `:rf/xray` literal.
+                      (dispatch-fn
+                        [:rf.xray.edn-inspector/zoom-to
+                         panel-id mount-id path]))]
+    {:data-rf-zoom-target "1"
+     :tab-index           0
+     :aria-label          (str "Zoom into " (pr-str path))
+     :title               "Double-click or press Enter to zoom into this node"
+     :on-double-click     (fn [^js e]
                             (when e
+                              ;; Suppress the native double-click text
+                              ;; selection + stop the event reaching an
+                              ;; ancestor container (innermost wins).
                               (.preventDefault e)
                               (.stopPropagation e))
-                            ;; rf2-r0o63 — dispatch through the
-                            ;; captured frame-aware dispatcher so the
-                            ;; zoom-slot write lands on the SURROUNDING
-                            ;; instance frame (captured at render time).
-                            ;; N shells stay isolated; no `:rf/xray`
-                            ;; literal entrenching the singleton.
-                            (dispatch-fn
-                              [:rf.xray.edn-inspector/zoom-to
-                               panel-id mount-id (vec absolute-path)]))
-      :style              zoom-affordance-button-style}
-     zoom-affordance-glyph]))
+                            (zoom!))
+     :on-key-down         (fn [^js e]
+                            (when (and e
+                                       (= "Enter" (.-key e))
+                                       (not (.-ctrlKey e))
+                                       (not (.-metaKey e))
+                                       (not (.-altKey e))
+                                       (not (.-shiftKey e)))
+                              (.preventDefault e)
+                              (.stopPropagation e)
+                              (zoom!)))}))
 
 (defn- breadcrumb-segment-label
   "Render a single path-segment label using the syntax-palette colour
@@ -3040,16 +3044,24 @@
             ;; active zoom. The slot is per-frame (same `:rf/xray`
             ;; pattern as `expansion-slot`); the per-mount key is
             ;; `[panel-id effective-id]` (effective-id is `site-id` if
-            ;; supplied, else the auto-mount-id). Diff mode ALSO ignores
-            ;; zoom (`zoom-active?` short-circuits when `diff?` is true)
-            ;; because the diff path's force-expand-over-changed-
-            ;; descendants logic + zoom's hide-everything-outside the
-            ;; subtree are conflicting intents. Operators view diffs
-            ;; over the FULL value; non-diff browse can zoom.
+            ;; supplied, else the auto-mount-id).
+            ;;
+            ;; rf2-zl4rs — zoom now applies in the SINGLE full+diff
+            ;; renderer (rf2-e28r3). When a zoom is active the inspector
+            ;; re-roots `value` along the path ALWAYS, and re-roots
+            ;; `before` the same way ONLY when a pre-image is present
+            ;; (diff mode). The projection is recomputed over the
+            ;; re-rooted pair below, so the diff rail / chip / inline
+            ;; annotations paint relative to the zoomed subtree exactly
+            ;; as they do at the root. A stale path (mutated out from
+            ;; under the zoom) falls back to the full value via
+            ;; `resolve-zoom-into`. (The earlier rf2-h71e0 design
+            ;; suppressed zoom whenever a `before` was present; that
+            ;; conflict is resolved by re-rooting both halves together.)
             zoom-map      (when zoomable? @(subscribe [zoom-slot]))
             zoom-path     (resolve-zoom-path zoom-map panel-id
                                              (or site-id mount-id))
-            zoom-active?  (and zoomable? (not diff?) (seq zoom-path))
+            zoom-active?  (and zoomable? (seq zoom-path))
             displayed-value
             (if zoom-active?
               (resolve-zoom-into value zoom-map panel-id

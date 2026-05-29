@@ -3081,7 +3081,7 @@ internal:
 Consumer adoption is per-panel and case-by-case; this section
 documents the contract, not a blanket migration.
 
-#### §10.0.11 `:zoomable?` opt — zoom-into-node + breadcrumb (rf2-h71e0)
+#### §10.0.11 `:zoomable?` opt — zoom-into-node + breadcrumb (rf2-h71e0; gesture reworked rf2-zl4rs)
 
 Dense app-db trees force the operator to scroll past chrome AND every
 intermediate level just to see one deep subtree. Sticky expansion
@@ -3090,27 +3090,49 @@ fully expanded the surrounding tree consumes screen real-estate and
 visual attention.
 
 Zoom-into-node turns the inspector into a focused window onto an
-arbitrary subtree. The operator clicks the `⊙` zoom affordance on any
-container; that node becomes the root of the displayed tree. A
-breadcrumb trail at the top shows the path from the original root;
-clicking any segment zooms back to that level. Anchors to known mental
-models — Chrome devtools' object inspector + nav, React devtools'
+arbitrary subtree. The operator **double-clicks** any container (or
+presses **Enter** while it is keyboard-focused); that node becomes the
+root of the displayed tree. A breadcrumb trail at the top shows the
+path from the original root; clicking any segment zooms back to that
+level. Anchors to known mental models — file-explorer double-click-to-
+descend, Chrome devtools' object inspector + nav, React devtools'
 selected-component focus, IDE nav-to-symbol + back, file browsers'
 breadcrumb drill-in.
 
-**Surface** — one new opt on the existing `[edn-inspector value opts]`:
+> **rf2-zl4rs gesture rework.** The earlier rf2-h71e0 design rendered a
+> separate `⊙` glyph button next to every container's expand triangle.
+> That glyph is **removed**: it crowded the header row, no-op'd in diff
+> mode, and added a second per-container interactive control. Zoom-in is
+> now a gesture on the container **itself** (double-click / Enter), with
+> the focusability + ARIA label the glyph button used to carry moved
+> onto the container. The same rework makes zoom apply in the single
+> full+diff renderer (see the `:before` composition note below).
 
-| `:zoomable?` value | Behaviour                                                                               |
-|--------------------|-----------------------------------------------------------------------------------------|
-| `false` (default)  | No affordance, no breadcrumb — widget renders as today (back-compat).                   |
-| `true`             | Every non-empty non-root container gets a `⊙` affordance; breadcrumb renders if zoomed. |
+**Surface** — one opt on the existing `[edn-inspector value opts]`:
 
-**Affordance glyph** — `⊙` (circled-dot, U+2299). Reads as "focus / aim
-cursor at this node" — visually distinct from the popup affordance (`↗`,
-"open in new pane"), the expand triangles (`▸`/`▾`), and the breadcrumb
-separator (`›`). Single codepoint, theme-token coloured (`:text-tertiary`
-at 0.55 resting opacity, hover bumps to `:text-secondary` via the
-`data-rf-affordance="zoom"` selector in the global stylesheet).
+| `:zoomable?` value | Behaviour                                                                                                  |
+|--------------------|------------------------------------------------------------------------------------------------------------|
+| `false` (default)  | No zoom target, no breadcrumb — widget renders as today (back-compat).                                     |
+| `true`             | Every non-empty non-root container is a double-click / Enter zoom target; breadcrumb renders if zoomed.    |
+
+**Gesture** — no glyph. Each non-empty non-root container's outer div
+carries:
+
+- `:on-double-click` — re-roots onto that node. `preventDefault`
+  suppresses the browser's native dblclick text-selection;
+  `stopPropagation` ensures a double-click deep in the tree zooms the
+  INNERMOST container rather than an ancestor.
+- `:on-key-down` — bare **Enter** (no Ctrl/Cmd/Alt/Shift) re-roots, same
+  as the double-click. Every other key passes through untouched, so the
+  Esc-zoom-out handler and the global spine bindings (Space/L/j/k/G) are
+  never swallowed.
+- `:tab-index 0` + `:aria-label "Zoom into <path>"` — keyboard-focusable
+  and screen-reader-announced, preserving the a11y the removed glyph
+  button provided. `role="button"` is deliberately NOT set: the
+  container already nests its own `role="button"` expand triangle, and a
+  button-inside-button role is an ARIA nesting violation — a focusable
+  labelled region is the correct shape for a composite node.
+- `:data-rf-zoom-target "1"` — DOM hook for tooling / tests.
 
 **Breadcrumb structure** — when a zoom is active, a row above the body
 renders `<home> › <seg1> › <seg2> › …`. Each segment is a clickable
@@ -3153,30 +3175,47 @@ Pure helpers `resolve-zoom-path` + `resolve-zoom-into` project the
 map for a given mount into either the stored path vector or the
 resolved sub-value (used by the widget's render-time `get-in` walk).
 
-**Keyboard navigation** — Esc (when the widget has focus AND a zoom is
-active) dispatches `:zoom-up`. The handler is installed on the outer
-container only while `zoom-active?` is true, so unzoomed mounts let
-Esc bubble unchanged. Coordinates with the popup widget's Esc-closes-
-top (rf2-7sdja): the popup's own keydown handler lives on its
-backdrop + dialog and `stopPropagation`s, so an open popup intercepts
-Esc first; subsequent Esc presses (no popup) reach the inspector's
-handler and zoom up.
+**Keyboard navigation** — two node-local + widget-level bindings:
+
+- **Enter** (zoom IN) — pressing Enter while a non-root container is
+  keyboard-focused re-roots onto that node (the gesture's keyboard half;
+  the a11y replacement for clicking the removed glyph). The handler
+  lives on each zoomable container; it matches bare Enter only and
+  `stopPropagation`s on a match so the keypress doesn't double-fire.
+- **Esc** (zoom OUT) — when the widget has focus AND a zoom is active,
+  Esc dispatches `:zoom-up`. The handler is installed on the outer
+  widget container only while `zoom-active?` is true, so unzoomed mounts
+  let Esc bubble unchanged. Coordinates with the popup widget's
+  Esc-closes-top (rf2-7sdja): the popup's own keydown handler lives on
+  its backdrop + dialog and `stopPropagation`s, so an open popup
+  intercepts Esc first; subsequent Esc presses (no popup) reach the
+  inspector's handler and zoom up.
+
+Esc-zoom-out is now active in diff mode too (zoom applies in the single
+full+diff renderer — see the `:before` note below).
 
 **Composition with other opts** —
 
-- **`:popup-affordance?`** — independent. Both affordances render
-  side-by-side when both opts are present — they serve different
-  intents (zoom = focus here without opening a new pane; popup = open
-  the value in a roomier modal). Inside a popup the inner inspector
-  recurses with `:popup-affordance? false` (§10.0.7.2) but
+- **`:popup-affordance?`** — independent. The popup affordance + the
+  zoom gesture coexist (popup = open the value in a roomier modal; zoom
+  = focus here without opening a new pane). Inside a popup the inner
+  inspector recurses with `:popup-affordance? false` (§10.0.7.2) but
   `:zoomable?` survives the recursion so the popup body is itself
   zoom-navigable.
-- **`:before` (diff mode)** — zoom is SUPPRESSED in diff mode. The
-  widget self-detects (`zoom-active? = zoomable? AND NOT diff? AND
-  zoom-path non-empty`) and renders the full value with the gutter
-  glyphs as today. Rationale: diff's force-expand-over-changed-
-  descendants logic and zoom's hide-everything-outside-the-subtree are
-  conflicting intents; operators view diffs over the full value.
+- **`:before` (diff mode)** — zoom applies in the single full+diff
+  renderer (rf2-zl4rs supersedes the earlier rf2-h71e0 "diff suppresses
+  zoom"). When a zoom is active the widget re-roots `value` along the
+  stored path ALWAYS, and re-roots `before` the same way when a
+  pre-image is present; the projection is recomputed over the re-rooted
+  `(before, value)` pair, so the diff rail / `[N∆]` chip / inline
+  `← was X` annotations paint relative to the zoomed subtree exactly as
+  they do at the root. Edge cases: a zoom into a wholly-`:added` subtree
+  re-roots both halves so the whole subtree reads `:added` (the
+  re-rooted before stays the missing-sentinel and the projection
+  classifies the subtree green); a stale path (mutated out from under
+  the zoom) falls back to the full value via `resolve-zoom-into`. So
+  `zoom-active? = zoomable? AND zoom-path non-empty` — the `NOT diff?`
+  clause is gone.
 - **`:header`** — the hiccup feeds the breadcrumb home segment when
   zoomed (`home-label`).
 - **`:default-expanded-depth`** / **`:max-depth`** — applied to the
@@ -3205,9 +3244,10 @@ handler and zoom up.
 - **Inspector-card titles / chip mounts** — single-level renders never
   need zoom.
 
-**Skipped affordance** — the root of the displayed subtree (relative
-path `[]`) never renders the affordance; zooming into the current
-zoom root is a no-op. The renderer composes the absolute path as
+**Skipped target** — the root of the displayed subtree (relative
+path `[]`) and any empty container are never zoom targets; zooming into
+the current zoom root (or into a container with no subtree to focus) is
+a no-op. The renderer composes the absolute path as
 `(into zoom-path-prefix path)` so the dispatched `:zoom-to` carries the
 full path from the ORIGINAL root, not the currently-displayed root.
 

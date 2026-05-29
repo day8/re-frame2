@@ -226,9 +226,11 @@
     ;; to render plainly. `:card?` + `:zoomable?` are constant across
     ;; both cases (rf2-63ie5 gives each top-level mount discrete card
     ;; chrome; rf2-h71e0 makes App-DB the canonical zoom-into-node
-    ;; consumer — the widget self-suppresses zoom resolution whenever a
-    ;; before is present because diff's force-expand-over-changes logic
-    ;; and zoom's hide-everything-outside-the-subtree conflict).
+    ;; consumer — double-click / Enter on a container re-roots the
+    ;; inspector onto it, rf2-zl4rs). Zoom now applies in the single
+    ;; full+diff renderer: when a before is present the widget re-roots
+    ;; BOTH value and before along the zoom path, so the diff annotations
+    ;; paint relative to the focused subtree.
     [ei/edn-inspector
      (f/display-value value)
      (cond-> {:panel-id :rf.xray/app-db
