@@ -177,10 +177,12 @@
 ;; ---- terminal-state helpers ---------------------------------------------
 
 (defn terminal?
-  "True iff `state` represents a run that has reached `:pass` or
-  `:fail`. Pure data → data."
+  "True iff `state` represents a run that has reached a terminal verdict —
+  `:pass` / `:fail` / `:cannot-run` (rf2-5x1wt.19 — `:cannot-run` is the
+  unified distinct THIRD status, spec/017 §`:cannot-run`). Pure data →
+  data."
   [state]
-  (boolean (#{:pass :fail} (:status state))))
+  (boolean (#{:pass :fail :cannot-run} (:status state))))
 
 (defn project-state
   "Project a runner state map into the small shape the CI runner

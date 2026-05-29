@@ -377,11 +377,16 @@
   recognises, in order, so the step-debugger walks the same sequence the
   auto-run path executes.
 
-  Pure data → data; works on JVM + CLJS."
+  Pure data → data; works on JVM + CLJS.
+
+  rf2-5x1wt.19 — the script is FOLDED (`assertions/fold-script`) so the
+  stepper walks the SAME canonical `[:assert …]` checkpoints the auto-run
+  path drives: a shipping `:assert-db` / `:assert-dom` step is rewritten to
+  the one assertion atom before the stepper executes it."
   [variant-id]
   (let [body (registrar/handler-meta :variant variant-id)
         spec (runner/parse-spec (:play-script body))]
-    (vec (:script spec))))
+    (assertions/fold-script (vec (:script spec)))))
 
 (defn play-stepper-active?
   [frame-id]

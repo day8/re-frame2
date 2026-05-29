@@ -209,10 +209,15 @@
       (story/destroy-variant! :story.stepper/v))))
 
 (deftest play-stepper-walks-every-step-type
-  (testing "rf2-ee38b.3: the step-debugger walks ALL step types — :wait,
-            :assert-db, :assert-dom, :click, :type — not just the dispatch
-            steps the legacy variant-play-events projection surfaced. The
-            cursor/total count every step and assert outcomes surface."
+  (testing "rf2-ee38b.3 / rf2-5x1wt.19: the step-debugger walks ALL step
+            types — :wait, :assert-db, :assert-dom, :click, :type — not
+            just the dispatch steps the legacy variant-play-events
+            projection surfaced. The cursor/total count every step and
+            assert outcomes surface. Per rf2-5x1wt.19 the stepper consumes
+            the FOLDED plan: a shipping :assert-db / :assert-dom step is
+            rewritten to the canonical [:assert assertion-atom] checkpoint,
+            so the recorded step type is :assert and the slot record carries
+            the canonical :rf.assert/path-equals (no synthetic :rf.assert/db)."
     (rf/reg-event-db :st/set-n (fn [db [_ v]] (assoc db :n v)))
     (story/reg-variant :story.stepper/full
       {:events []
@@ -228,7 +233,7 @@
       (loaders/start-loaders! :story.stepper/full)
       (loaders/finish-loaders! :story.stepper/full)
       (play/begin-stepper! :story.stepper/full)
-      ;; The substrate seeds the FULL six-step script.
+      ;; The substrate seeds the FULL six-step folded script.
       (is (= 6 (count (:remaining (get @play/stepper-state :story.stepper/full))))
           "all six steps (incl. :wait / :assert-* / :click) are queued")
       ;; Walk every step.
@@ -238,15 +243,21 @@
         (is (= 6 (count results)) "one result recorded per step")
         (is (= :dispatch-sync (:type (nth results 0))))
         (is (= :wait          (:type (nth results 1))))
+        ;; rf2-5x1wt.19 — folded :assert-db / :assert-dom steps are :assert
+        ;; checkpoints now.
+        (is (= :assert (:type (nth results 2))))
         (is (true?  (:passed? (nth results 2))) ":assert-db [:n] 5 passes")
+        (is (= :assert (:type (nth results 3))))
         (is (false? (:passed? (nth results 3))) ":assert-db [:n] 99 fails")
         (is (:skipped? (nth results 4)) ":assert-dom records :skipped? (no DOM)"))
-      ;; The failing :assert-db landed in the :rf.story/assertions slot.
+      ;; The failing :assert-db landed in the :rf.story/assertions slot as
+      ;; the CANONICAL :rf.assert/path-equals record (rf2-5x1wt.19).
       (let [slot (story/read-assertions :story.stepper/full)]
-        (is (some (fn [r] (and (= :rf.assert/db (:assertion r))
+        (is (some (fn [r] (and (= :rf.assert/path-equals (:assertion r))
                                (false? (:passed? r))))
                   slot)
-            "the stepped rich-DSL :assert-db failure reached the slot too"))
+            "the stepped folded :assert-db failure reached the slot as the
+             canonical :rf.assert/path-equals record"))
       (play/end-stepper! :story.stepper/full)
       (story/destroy-variant! :story.stepper/full))))
 

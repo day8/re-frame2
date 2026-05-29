@@ -107,8 +107,23 @@
             ;; `promote-run-artifact!` (the explicit-only registration path)
             ;; below (spec/017 §Promotion — Promotion bridge).
             [re-frame.story.promotion   :as promotion]
+            ;; rf2-5x1wt.19 — the ONE unified run-result + the assertion /
+            ;; check record shapes + the clojure.test report projection.
+            ;; Re-exported as `run-result` / `result-status` /
+            ;; `result-passed?` and backs the `story/is` bridge below
+            ;; (spec/017 §Run result + §Unified run result).
+            [re-frame.story.result      :as result]
+            ;; rf2-5x1wt.19 — `story/is` blocks on the JVM run promise +
+            ;; chains the CLJS one (the headless-test bridge).
+            [re-frame.story.async       :as async]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
+            ;; rf2-5x1wt.19 — `story/is` bridges per-assertion run-result
+            ;; reports to clojure.test / cljs.test (spec/017 §Public
+            ;; execution API — the three verbs). `do-report` is the one
+            ;; seam both flavours expose for programmatic test reporting.
+            #?(:clj  [clojure.test :as test]
+               :cljs [cljs.test    :as test])
             ;; Runtime modules — args resolution, decorators.
             [re-frame.story.args        :as args]
             [re-frame.story.decorators  :as decorators]
@@ -1174,6 +1189,121 @@
   canonical `:rf.assert/*` event ids registered at boot."
   []
   assertions/canonical-assertion-ids)
+
+;; ---- unified run-result + the three verbs (rf2-5x1wt.19) ----------------
+;;
+;; Per spec/017 §Run result + §Unified run result + §Public execution API:
+;; ONE run-result shape, and `story/is` bridges it to clojure.test /
+;; cljs.test at per-assertion granularity. The pure result assembly + the
+;; report projection live in `re-frame.story.result`; these are the public
+;; re-exports + the impure `is` emission.
+
+(defn run-result
+  "Per spec/017 §Run result + §Unified run result — assemble the ONE
+  unified run-result from a run's evidence + accumulated assertions + plan
+  slots. Pure data → data; the single boundary every runner / Test mode /
+  CI / `clojure.test` / MCP consumes so they cannot disagree about what
+  happened. `parts` carries `:epoch-tape` / `:assertions` / `:script` /
+  `:check->atoms` / `:consumed-selectors` / `:unmet` / `:app-db` and the
+  identity / timing slots (see `re-frame.story.result/run-result`)."
+  [parts]
+  (result/run-result parts))
+
+(defn result-status
+  "Per spec/017 §Run result — the unified verdict of a run-result:
+  `:pass` | `:fail` | `:cannot-run` | `:error`."
+  [result]
+  (:status result))
+
+(defn result-passed?
+  "Per spec/017 §Run result — true iff the run-result's `:status` is
+  `:pass`. A `:cannot-run` is NOT a pass (the runner proved nothing)."
+  [result]
+  (result/passed? result))
+
+(defn result->reports
+  "Per spec/017 §Public execution API — project a unified `result` into the
+  ordered vector of clojure.test report maps (`{:type :pass|:fail|:error
+  …}`), one per assertion record plus a run-level report when the verdict
+  is not covered by a single assertion (a tape-floor `:fail`, a run-level
+  `:cannot-run`, or a vacuous-green `:pass`). Pure data → data — the same
+  projection `story/is` emits, exposed for tooling that wants the reports
+  without firing `do-report`."
+  [result]
+  (result/result->reports result))
+
+(defn run
+  "Per spec/017 §Public execution API — the `run` verb. Run `target` and
+  return a promise/future of the unified run-result (`run-result`). A
+  keyword `target` is a registered variant; map (inline-plan) targets land
+  with rf2-5x1wt.20. `opts` is the run/is opts map (`:runner` /
+  `:frame-binding` / `:platform` …); the default runner is `:headless`.
+
+  Today this delegates to the variant lifecycle (`run-variant`), which
+  returns the unified shape. The verb name is the stable public surface —
+  it does NOT leak the variant-vs-plan authoring distinction (spec/017
+  §Public execution API)."
+  ([target]      (run target nil))
+  ([target opts] (lifecycle/run-variant target opts)))
+
+(defn- emit-reports!
+  "Fire `clojure.test` / `cljs.test` `do-report` for each report map in
+  `reports` (the `result->reports` projection). Pure side-effect — used by
+  `is`. Each report's `:message` already names the assertion + target, so
+  `do-report` lands one pass/fail/error per assertion in the active test
+  run's tally."
+  [_target reports]
+  (doseq [r reports]
+    (test/do-report r))
+  nil)
+
+(defn is
+  "Per spec/017 §Public execution API — the `is` verb. Run `target` and
+  REPORT each assertion to clojure.test / cljs.test at per-assertion
+  granularity (spec/017 §Run result — `story/is` reports per assertion).
+
+  On the JVM (the canonical headless test gate) `is` runs the target,
+  BLOCKS until it resolves, fires one `clojure.test` report per assertion
+  (plus a run-level report for a tape-floor `:fail` / run-level
+  `:cannot-run` / vacuous-green `:pass`), and returns the unified
+  run-result. On CLJS — where the run is async and the caller cannot block
+  — `is` returns the run promise; chain `then` (or use `cljs.test`'s async
+  `(async done …)` form) and call `(story/report-result! result)` when it
+  resolves. `report-result!` is the pure-report seam both runtimes share.
+
+  A `target` that is ALREADY a unified run-result map (a `:status`-bearing
+  map) is reported directly — the sync path for tests that ran the variant
+  themselves (e.g. via `deref-blocking`)."
+  ([target] (is target nil))
+  ([target opts]
+   (cond
+     ;; Already a unified result — report it synchronously.
+     (and (map? target) (contains? target :status) (contains? target :assertions))
+     (do (emit-reports! (:variant/id target) (result/result->reports target))
+         target)
+
+     :else
+     (let [p (run target opts)]
+       #?(:clj
+          (let [result (async/deref-blocking p 30000)]
+            (emit-reports! target (result/result->reports result))
+            result)
+          :cljs
+          ;; CLJS run is async; report when it resolves and hand the
+          ;; promise back so a `(cljs.test/async done …)` test can await it.
+          (async/then p (fn [result]
+                          (emit-reports! target (result/result->reports result))
+                          result)))))))
+
+(defn report-result!
+  "Per spec/017 §Public execution API — fire the per-assertion clojure.test
+  / cljs.test reports for an ALREADY-RESOLVED unified `result`. The pure-
+  report seam `story/is` uses; call it directly in a CLJS
+  `(cljs.test/async done …)` test once the `story/run` promise resolves.
+  Returns the result."
+  [result]
+  (emit-reports! (:variant/id result) (result/result->reports result))
+  result)
 
 (defn execute-play!
   "Per IMPL-SPEC §5.4 phase 4 — run the play sequence against a variant

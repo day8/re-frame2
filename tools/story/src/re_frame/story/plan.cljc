@@ -1023,6 +1023,29 @@
                          (str "re-frame2-story: " opt-key " must be a fn or a map")
                          {opt-key lookup})))
 
+(defn expand-checks
+  "Expand a plan's `:expect :checks` ids into the
+  `{check-id [assertion-atom …]}` map the unified run-result groups its
+  check records by (rf2-5x1wt.19, spec/017 §Total resolution order step 8
+  — \"expand checks into grouped assertions\"; §Checks — a failed check
+  shows BOTH the check id AND the underlying records). Pure data → data.
+
+  `check-ids` is the plan's resolved `[:expect :checks]` vector (check
+  identity preserved); `check-lookup` is a 1-arg fn `(check-id) →
+  check-body` OR a `{check-id → check-body}` map resolving each check's
+  registration body (its `:assertions` slot is the assertion atoms the
+  check packs). Defaults to the Story side-table `:check` kind. An
+  unregistered check id maps to an empty atom vector (it groups nothing —
+  the run-level aggregation still sees any ungrouped records), so a missing
+  check never throws at result-assembly time."
+  ([check-ids] (expand-checks check-ids nil))
+  ([check-ids check-lookup]
+   (let [lookup (coerce-kind-lookup :check-lookup check-lookup default-check-lookup)]
+     (into {}
+           (map (fn [cid]
+                  [cid (vec (:assertions (lookup cid)))]))
+           (or check-ids [])))))
+
 (defn compile-body
   "Compile a raw variant `body` (the child) registered under `id` into a
   normalized plan. `lookup` is a 1-arg fn returning raw parent bodies.

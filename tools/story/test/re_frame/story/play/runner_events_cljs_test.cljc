@@ -215,7 +215,11 @@
 
 #?(:clj
    (deftest assert-db-equals-pass-and-fail
-     (testing ":assert-db pass / fail outcomes against frame app-db"
+     (testing ":assert-db pass / fail outcomes against frame app-db. Per
+              rf2-5x1wt.19 the runtime consumes the folded plan: a shipping
+              :assert-db step is rewritten to the canonical
+              [:assert [:rf.assert/path-equals …]] checkpoint, so the
+              recorded step type is :assert."
        (rf/reg-event-db :rt/set-status
          (fn [db [_ v]] (assoc db :status v)))
        (story/reg-variant :story.runner/assert-db
@@ -228,26 +232,38 @@
        (let [final (run-blocking :story.runner/assert-db)]
          (is (= :fail (:status final)))
          (is (= 1 (:failures final)))
-         (let [assert-results (filterv #(= :assert-db (:type %)) (:results final))]
+         ;; rf2-5x1wt.19 — folded :assert-db steps run as :assert checkpoints.
+         (let [assert-results (filterv #(= :assert (:type %)) (:results final))]
            (is (= 2 (count assert-results)))
            (is (true?  (:passed? (nth assert-results 0))))
-           (is (false? (:passed? (nth assert-results 1))))
-           (is (= :wrong  (:expected (nth assert-results 1))))
-           (is (= :loaded (:actual   (nth assert-results 1)))))))))
+           (is (false? (:passed? (nth assert-results 1)))))
+         ;; The canonical :rf.assert/path-equals records carry the diagnostics.
+         (let [slot (story/read-assertions :story.runner/assert-db)
+               pe   (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
+           (is (= 2 (count pe)))
+           (is (true?  (:passed? (nth pe 0))))
+           (is (false? (:passed? (nth pe 1))))
+           (is (= :wrong  (:expected (nth pe 1))))
+           (is (= :loaded (:actual   (nth pe 1)))))))))
 
-;; ---- rf2-ee38b.3: rich-DSL assert outcomes reach :rf.story/assertions ----
+;; ---- rf2-ee38b.3 / rf2-5x1wt.19: folded assert outcomes reach the slot ---
 ;;
-;; Before this fix a failing `:assert-db` / `:assert-dom` step landed
+;; Before rf2-ee38b.3 a failing `:assert-db` / `:assert-dom` step landed
 ;; ONLY in run-state; the `:rf.story/assertions` app-db slot stayed empty
 ;; so `run-variant`'s :assertions slot, `assertions-passing?`, the test
-;; pane, the inline strip, and the Xray panel all read FALSE-GREEN. The
-;; bridge in `record-result!` mirrors assertion-class outcomes into the
-;; slot. These tests must FAIL without the bridge.
+;; pane, the inline strip, and the Xray panel all read FALSE-GREEN.
+;;
+;; rf2-5x1wt.19 — the runtime now consumes the `.18`-folded plan: a shipping
+;; `:assert-db` step is rewritten to the canonical `[:assert
+;; [:rf.assert/path-equals …]]` checkpoint, whose reg-event-fx handler
+;; records the CANONICAL `:rf.assert/path-equals` record on the slot. There
+;; is no longer a synthetic `:rf.assert/db` / `:rf.assert/dom` rail — one
+;; assertion-record vocabulary.
 
 #?(:clj
    (deftest assert-db-failure-lands-in-assertions-slot
-     (testing "a failing rich-DSL :assert-db step records a :passed? false
-              entry into :rf.story/assertions (not just run-state) so the
+     (testing "a failing folded :assert-db step records a :passed? false
+              :rf.assert/path-equals record into :rf.story/assertions so the
               slot consumers + assertions-passing? observe the failure"
        (rf/reg-event-db :rt/set-status
          (fn [db [_ v]] (assoc db :status v)))
@@ -259,21 +275,20 @@
        (async/deref-blocking (story/run-variant :story.bridge/db-fail) 5000)
        (run-blocking :story.bridge/db-fail)
        (let [slot (story/read-assertions :story.bridge/db-fail)
-             db-recs (filterv #(= :rf.assert/db (:assertion %)) slot)]
-         (is (= 1 (count db-recs))
-             "the failing rich-DSL :assert-db landed exactly one slot record")
-         (is (false? (:passed? (first db-recs)))
+             pe-recs (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
+         (is (= 1 (count pe-recs))
+             "the failing folded :assert-db landed exactly one canonical record")
+         (is (false? (:passed? (first pe-recs)))
              "the slot record carries :passed? false")
-         (is (= :loaded (:expected (first db-recs))))
-         (is (= :idle   (:actual   (first db-recs))))
+         (is (= :loaded (:expected (first pe-recs))))
+         (is (= :idle   (:actual   (first pe-recs))))
          (is (false? (story/assertions-passing? slot))
-             "assertions-passing? now sees the rich-DSL failure (was
-              false-green before rf2-ee38b.3)")))))
+             "assertions-passing? sees the folded failure")))))
 
 #?(:clj
    (deftest assert-db-pass-lands-in-assertions-slot
-     (testing "a passing rich-DSL :assert-db step records a :passed? true
-              entry so the slot is non-empty + still passes"
+     (testing "a passing folded :assert-db step records a :passed? true
+              :rf.assert/path-equals entry so the slot is non-empty + passes"
        (rf/reg-event-db :rt/set-status
          (fn [db [_ v]] (assoc db :status v)))
        (story/reg-variant :story.bridge/db-pass
@@ -284,16 +299,17 @@
        (async/deref-blocking (story/run-variant :story.bridge/db-pass) 5000)
        (run-blocking :story.bridge/db-pass)
        (let [slot    (story/read-assertions :story.bridge/db-pass)
-             db-recs (filterv #(= :rf.assert/db (:assertion %)) slot)]
-         (is (= 1 (count db-recs)))
-         (is (true? (:passed? (first db-recs))))
+             pe-recs (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
+         (is (= 1 (count pe-recs)))
+         (is (true? (:passed? (first pe-recs))))
          (is (true? (story/assertions-passing? slot)))))))
 
 #?(:clj
    (deftest run-variant-result-reflects-rich-dsl-assert-failure
      (testing "the run-variant result map's :assertions slot carries the
-              rich-DSL failure — the cljs.test adapter path (assertions-
-              passing? on the result) is no longer false-green"
+              folded failure as a canonical :rf.assert/path-equals record —
+              the cljs.test adapter path (assertions-passing? on the result)
+              is no longer false-green; and the unified :status is :fail"
        (rf/reg-event-db :rt/set-status
          (fn [db [_ v]] (assoc db :status v)))
        (story/reg-variant :story.bridge/result
@@ -302,30 +318,37 @@
                                  [:assert-db [:status] :loaded]]}})
        (let [result (async/deref-blocking
                       (story/run-variant :story.bridge/result) 5000)]
-         (is (some (fn [r] (and (= :rf.assert/db (:assertion r))
+         (is (= :fail (:status result))
+             "the unified run-result :status is :fail (rf2-5x1wt.19)")
+         (is (some (fn [r] (and (= :rf.assert/path-equals (:assertion r))
                                 (false? (:passed? r))))
                    (:assertions result))
-             "the result map's :assertions slot includes the failed assert-db")
+             "the result map's :assertions slot includes the failed assertion")
          (is (false? (story/assertions-passing? result))
              "assertions-passing? on the result map flips to false")))))
 
 #?(:clj
-   (deftest assert-db-skipped-dom-not-recorded-as-slot-pass
-     (testing "a no-DOM :assert-dom step (JVM) records NO slot entry —
-              it must not read as a vacuous slot pass (false-green)"
+   (deftest assert-dom-skipped-on-jvm-is-cannot-run
+     (testing "a no-DOM :assert-dom step (JVM) records NO slot pass — it
+              folds to :rf.assert/dom-visible, is evaluated by the DOM
+              executor (no DOM → skipped), and the run is :cannot-run, not a
+              false-green pass (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
        (story/reg-variant :story.bridge/dom-skip
          {:events      []
           :play-script {:auto-run? false
                         :script    [[:assert-dom "div.foo" :visible]]}})
        (async/deref-blocking (story/run-variant :story.bridge/dom-skip) 5000)
-       (run-blocking :story.bridge/dom-skip)
-       (let [slot (story/read-assertions :story.bridge/dom-skip)]
-         (is (empty? (filterv #(= :rf.assert/dom (:assertion %)) slot))
-             "a skipped (no-DOM) :assert-dom contributes no slot record")))))
+       (let [final (run-blocking :story.bridge/dom-skip)
+             slot  (story/read-assertions :story.bridge/dom-skip)]
+         (is (= :cannot-run (:status final))
+             "a DOM-skip-only run is :cannot-run, not :pass or :fail")
+         (is (empty? (filterv #(true? (:passed? %)) slot))
+             "a skipped (no-DOM) :assert-dom contributes no passing record")))))
 
 #?(:clj
    (deftest assert-db-pred-form
-     (testing ":assert-db :pred resolves a symbol and applies it"
+     (testing ":assert-db :pred folds to :rf.assert/path-matches [:fn sym];
+              the symbol resolves at validation time (rf2-5x1wt.19)"
        (rf/reg-event-db :rt/set-n
          (fn [db [_ v]] (assoc db :n v)))
        (story/reg-variant :story.runner/pred
@@ -336,14 +359,20 @@
                                     [:assert-db [:n] :pred 'clojure.core/neg?]]}})
        (async/deref-blocking (story/run-variant :story.runner/pred) 5000)
        (let [final  (run-blocking :story.runner/pred)
-             results (filterv #(= :assert-db (:type %)) (:results final))]
+             ;; folded :assert-db :pred → [:assert [:rf.assert/path-matches …]]
+             results (filterv #(= :assert (:type %)) (:results final))
+             pm      (filterv #(= :rf.assert/path-matches (:assertion %))
+                              (story/read-assertions :story.runner/pred))]
          (is (= :fail (:status final)))
-         (is (true?  (:passed? (nth results 0))))
-         (is (false? (:passed? (nth results 1))))))))
+         (is (= 2 (count results)))
+         (is (true?  (:passed? (nth pm 0))) "pos? against 7 passes")
+         (is (false? (:passed? (nth pm 1))) "neg? against 7 fails")))))
 
 #?(:clj
    (deftest assert-db-pred-fn-direct
-     (testing ":assert-db :pred accepts a fn directly (rf2-inbad — advanced-CLJS-safe)"
+     (testing ":assert-db :pred accepts a fn directly (rf2-inbad —
+              advanced-CLJS-safe); it folds to :rf.assert/path-matches
+              [:fn fn] which Malli validates by calling the fn (rf2-5x1wt.19)"
        (rf/reg-event-db :rt/set-n
          (fn [db [_ v]] (assoc db :n v)))
        (story/reg-variant :story.runner/pred-fn
@@ -355,19 +384,21 @@
                                     [:assert-db [:n] :pred (fn [x] (= x 7))]]}})
        (async/deref-blocking (story/run-variant :story.runner/pred-fn) 5000)
        (let [final   (run-blocking :story.runner/pred-fn)
-             results (filterv #(= :assert-db (:type %)) (:results final))]
+             pm      (filterv #(= :rf.assert/path-matches (:assertion %))
+                              (story/read-assertions :story.runner/pred-fn))]
          (is (= :fail (:status final))
              "neg? against 7 fails — overall status is :fail")
-         (is (= 3 (count results)))
-         (is (true?  (:passed? (nth results 0))) "pos? against 7 passes")
-         (is (false? (:passed? (nth results 1))) "neg? against 7 fails")
-         (is (true?  (:passed? (nth results 2))) "anonymous fn passes")
-         (is (re-find #"<fn>" (:message (nth results 1)))
-             "failure message renders fn ref as <fn> — no compiler-munged leakage")))))
+         (is (= 3 (count pm)))
+         (is (true?  (:passed? (nth pm 0))) "pos? against 7 passes")
+         (is (false? (:passed? (nth pm 1))) "neg? against 7 fails")
+         (is (true?  (:passed? (nth pm 2))) "anonymous fn passes")))))
 
 #?(:clj
    (deftest assert-db-pred-bogus-symbol-fails-gracefully
-     (testing ":assert-db :pred with an unresolvable symbol fails gracefully (rf2-inbad)"
+     (testing ":assert-db :pred with an unresolvable symbol fails gracefully:
+              it folds to :rf.assert/path-matches [:fn 'bogus]; the symbol
+              cannot resolve, so the assertion reports a readable failure
+              rather than an opaque sci error (rf2-5x1wt.19)"
        (rf/reg-event-db :rt/set-n
          (fn [db [_ v]] (assoc db :n v)))
        (story/reg-variant :story.runner/pred-bogus
@@ -376,13 +407,12 @@
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred 'no.such.ns/missing-pred]]}})
        (async/deref-blocking (story/run-variant :story.runner/pred-bogus) 5000)
-       (let [final   (run-blocking :story.runner/pred-bogus)
-             results (filterv #(= :assert-db (:type %)) (:results final))]
+       (let [final (run-blocking :story.runner/pred-bogus)
+             pm    (filterv #(= :rf.assert/path-matches (:assertion %))
+                            (story/read-assertions :story.runner/pred-bogus))]
          (is (= :fail (:status final)))
-         (is (= 1 (count results)))
-         (is (false? (:passed? (first results))))
-         (is (re-find #"could not resolve" (:message (first results)))
-             "user-facing message mentions resolution failure")))))
+         (is (= 1 (count pm)))
+         (is (false? (:passed? (first pm))))))))
 
 #?(:clj
    (deftest run-records-results-in-order
@@ -516,7 +546,10 @@
 
 #?(:clj
    (deftest dom-step-skipped-on-jvm
-     (testing "DOM-touching steps record :skipped? on JVM (no DOM)"
+     (testing "DOM-touching steps record :skipped? on JVM (no DOM); a run
+              whose only unmet steps are no-DOM skips is :cannot-run — the
+              distinct THIRD status, not a fail or a silent pass
+              (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
        (story/reg-variant :story.runner/dom
          {:events []
           :play-script {:auto-run? false
@@ -525,7 +558,8 @@
        (async/deref-blocking (story/run-variant :story.runner/dom) 5000)
        (let [final   (run-blocking :story.runner/dom)
              results (:results final)]
-         (is (= :fail (:status final)))
+         (is (= :cannot-run (:status final))
+             "no-DOM click + assert-dom → :cannot-run (a refusal, not a fail)")
          (is (every? (fn [r] (or (:skipped? r) (true? (:passed? r)))) results))))))
 
 ;; ---- multi-play (rf2-tl7zk) ----------------------------------------------

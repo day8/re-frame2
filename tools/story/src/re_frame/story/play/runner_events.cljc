@@ -146,9 +146,36 @@
     (registrar/handler-meta :variant variant-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
+;; ---- folded-plan consumption (rf2-5x1wt.19) ------------------------------
+;;
+;; The runtime CONSUMES the `.18`-folded plan: every play's script is folded
+;; through `assertions/fold-script` at resolution time, so a shipping
+;; `:assert-db` / `:assert-dom` step is rewritten to the canonical
+;; `[:assert assertion-atom]` checkpoint BEFORE the run loop drives it
+;; (spec/017 §Assertions — one atom, two positions; NewTestStory rf2-5x1wt.19
+;; §B5.9). The `.18` worker deferred runtime consumption to this bead; this
+;; is where it lands. After folding, `exec-step!` only ever sees the ONE
+;; assertion atom in its `[:assert …]` checkpoint position — there is no
+;; longer a synthetic `:rf.assert/db` / `:rf.assert/dom` rail (a folded
+;; `:assert-db` dispatches the real `:rf.assert/path-equals` handler; a
+;; folded `:assert-dom` routes through the DOM executor recording a
+;; canonical `:rf.assert/dom-*` record). One assertion-record vocabulary,
+;; not two.
+
+(defn- fold-spec
+  "Fold a parsed play spec's `:script` through `assertions/fold-script` so
+  shipping `:assert-db` / `:assert-dom` steps become canonical
+  `[:assert …]` checkpoints (rf2-5x1wt.19). Pure data → data; preserves
+  `:auto-run?` / `:name`."
+  [spec]
+  (cond-> spec
+    (contains? spec :script) (update :script assertions/fold-script)))
+
 (defn variant-play-script
-  "Resolve the `:play-script` body on `variant-id` and parse it. Returns
-  the normalised spec map per `runner/parse-spec`. Variants without
+  "Resolve the `:play-script` body on `variant-id`, parse it, and FOLD its
+  script (rf2-5x1wt.19). Returns the normalised spec map per
+  `runner/parse-spec` with every shipping `:assert-db` / `:assert-dom` step
+  rewritten to the canonical `[:assert …]` checkpoint. Variants without
   `:play-script` return `{:script [] :auto-run? true}`.
 
   Note (rf2-tl7zk): variants declaring `:plays` resolve to the FIRST
@@ -158,14 +185,15 @@
   [variant-id]
   (let [body  (handler-meta variant-id)
         plays (runner/variant-body->plays body)]
-    (cond
-      ;; Multi-play (:plays slot) — default to the first play.
-      (and (seq plays) (contains? body :plays))
-      (first plays)
+    (fold-spec
+      (cond
+        ;; Multi-play (:plays slot) — default to the first play.
+        (and (seq plays) (contains? body :plays))
+        (first plays)
 
-      ;; Single-script (:play-script slot) — legacy path.
-      :else
-      (runner/parse-spec (when body (:play-script body))))))
+        ;; Single-script (:play-script slot) — legacy path.
+        :else
+        (runner/parse-spec (when body (:play-script body)))))))
 
 ;; ---- multi-play warning (one-shot) ---------------------------------------
 
@@ -208,13 +236,17 @@
                (contains? body :play-script)
                (contains? body :plays))
       (warn-both-slots-once! variant-id))
-    (runner/variant-body->plays body)))
+    ;; rf2-5x1wt.19 — FOLD every resolved play's script so the runtime
+    ;; consumes the `.18`-folded plan: `:assert-db` / `:assert-dom` steps
+    ;; become canonical `[:assert …]` checkpoints before the run loop.
+    (mapv fold-spec (runner/variant-body->plays body))))
 
 (defn resolve-play
-  "Resolve a `(variant-id, play-key)` pair to the parsed play spec, or
-  nil. `play-key` may be nil — meaning 'the default play' (first
+  "Resolve a `(variant-id, play-key)` pair to the parsed, FOLDED play spec,
+  or nil. `play-key` may be nil — meaning 'the default play' (first
   entry for multi-play, the single script for `:play-script`).
-  rf2-tl7zk multi-play."
+  rf2-tl7zk multi-play. The script is folded (rf2-5x1wt.19) via
+  `variant-plays`."
   [variant-id play-key]
   (let [plays (variant-plays variant-id)]
     (if (nil? play-key)
@@ -273,7 +305,6 @@
 ;; ---- step executors ------------------------------------------------------
 
 (declare read-frame-db)
-(declare record-assertion-slot!)
 
 (defn- assertion-count
   "Count of records currently in the frame's `:rf.story/assertions`. Tolerant."
@@ -410,11 +441,13 @@
   compilation — the closure compiler mangles author namespace names,
   so the munged-dotted-name walk won't find them. The advanced-safe
   authoring path is to pass the predicate as a FN DIRECTLY in the
-  `:assert-db [path] :pred <fn>` step; the runner short-circuits the
-  resolver in that case (see `exec-assert-db!`).
+  `:wait-until [:db path :pred <fn>]` predicate (or the `:assert-db …
+  :pred <fn>` form, which folds to `:rf.assert/path-matches [:fn fn]`);
+  the resolver is only reached for the symbol escape-hatch.
 
   rf2-inbad: this fn remains for the symbol-form escape hatch (JVM
-  tests + :dev CLJS) but is NOT the primary authoring path."
+  tests + :dev CLJS) — used by `[:wait-until [:db … :pred sym]]` — but is
+  NOT the primary authoring path."
   [sym]
   (when sym
     (try
@@ -447,61 +480,61 @@
     (fn? ref)     "<fn>"
     :else         (pr-str ref)))
 
-(defn- exec-assert-db!
-  [frame-id idx step]
-  (let [{:keys [path mode expected pred-ref pred-fn?]} (runner/step-assert-db step)
-        db (read-frame-db frame-id)]
-    (case mode
-      :equals
-      (let [actual (get-in db path)]
-        (if (= expected actual)
-          (runner/step-pass idx step)
-          (runner/step-fail idx step
-                            {:expected expected
-                             :actual   actual
-                             :message  (str "assert-db " (pr-str path)
-                                            " — expected " (pr-str expected)
-                                            ", got " (pr-str actual))})))
+;; ---- DOM-family assertion atom executor (rf2-5x1wt.19) -------------------
+;;
+;; The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
+;; `:rf.assert/dom-text`) is the fold target for the shipping `:assert-dom`
+;; step (`.18`). It has no reg-event-fx handler yet (the DOM runner that
+;; PROVES it lands later — the `:dom` capability is wired now via
+;; `requirements`), so an `[:assert [:rf.assert/dom-* …]]` checkpoint is
+;; EVALUATED directly through the DOM executor (`dom/assert-visible` /
+;; `dom/assert-text`) and records a CANONICAL `:rf.assert/dom-*` record on
+;; the frame's `:rf.story/assertions` slot. There is no synthetic
+;; `:rf.assert/dom` id — the canonical folded id is the one recorded.
 
-      :pred
-      ;; rf2-inbad: prefer the fn-direct path (advanced-CLJS-safe). Fall
-      ;; back to symbol resolution for the JVM / :dev CLJS escape hatch.
-      (let [pred-fn (if pred-fn? pred-ref (resolve-predicate pred-ref))
-            label   (pred-label pred-ref)
-            actual  (get-in db path)]
-        (cond
-          (nil? pred-fn)
-          (runner/step-fail idx step
-                            {:message (str "assert-db :pred — could not resolve "
-                                           label
-                                           " (symbol resolution is fragile under"
-                                           " advanced CLJS; pass the predicate as a"
-                                           " fn directly to avoid this)")})
+(def ^:private dom-atom->mode
+  "Map a DOM-family assertion id to the `dom/assert-visible` mode it
+  evaluates. `:rf.assert/dom-text` is handled separately (it calls
+  `dom/assert-text`)."
+  {:rf.assert/dom-visible :visible
+   :rf.assert/dom-hidden  :hidden})
 
-          :else
-          (try
-            (if (pred-fn actual)
-              (runner/step-pass idx step)
-              (runner/step-fail idx step
-                                {:expected (str "predicate " label " returns truthy")
-                                 :actual   actual
-                                 :message  (str "assert-db " (pr-str path)
-                                                " — predicate " label " returned false")}))
-            (catch #?(:clj Throwable :cljs :default) e
-              (runner/step-fail idx step
-                                {:message (str "assert-db :pred " label " threw — "
-                                               #?(:clj (.getMessage ^Throwable e)
-                                                  :cljs (str e)))}))))))))
-
-(defn- exec-assert-dom!
-  [_frame-id idx step]
-  (let [{:keys [selector mode text]} (runner/step-assert-dom step)
-        result (if (= :text mode)
-                 (dom/assert-text selector text)
-                 (dom/assert-visible selector mode))]
-    (if (:passed? result)
-      (runner/step-pass idx step)
-      (runner/step-fail idx step result))))
+(defn- exec-assert-dom-atom!
+  "Evaluate a folded DOM-family assertion atom `[:rf.assert/dom-* selector
+  & args]` at this checkpoint (rf2-5x1wt.19). Drives the DOM executor,
+  records the CANONICAL `:rf.assert/dom-*` record on the frame slot (so the
+  unified result's `:assertions` carries the real folded id, not a
+  synthetic one), and returns the runner step-result. A no-DOM headless
+  context records a `{:skipped? true}` step — `:cannot-run` at assertion
+  granularity (the slot mirror keeps it OUT of the recorded outcomes so it
+  is not a vacuous pass), never a silent green."
+  [frame-id idx step atom-v]
+  (let [aid      (first atom-v)
+        selector (nth atom-v 1 nil)
+        result   (if (= :rf.assert/dom-text aid)
+                   (dom/assert-text selector (nth atom-v 2 nil))
+                   (dom/assert-visible selector (get dom-atom->mode aid :visible)))]
+    ;; Record the canonical DOM-family assertion record on the slot (unless
+    ;; the step was a no-DOM skip — a skip proved nothing, so it must not
+    ;; read as a vacuous pass).
+    (when-not (:skipped? result)
+      (assertions/record!
+        frame-id
+        (cond-> {:assertion    aid
+                 :passed?      (boolean (:passed? result))
+                 :payload      (vec (rest atom-v))
+                 :source-coord (:source (registrar/handler-meta :variant frame-id))}
+          (contains? result :expected) (assoc :expected (:expected result))
+          (contains? result :actual)   (assoc :actual   (:actual result))
+          (:message result)            (assoc :reason   (:message result)))))
+    (cond
+      (:skipped? result) (runner/step-fail idx step
+                                           {:skipped? true
+                                            :message  (or (:message result)
+                                                          (str "no DOM — cannot prove "
+                                                               (pr-str atom-v)))})
+      (:passed? result)  (runner/step-pass idx step)
+      :else              (runner/step-fail idx step result))))
 
 (defn- exec-click!
   [_frame-id idx step]
@@ -556,53 +589,62 @@
       (runner/step-fail idx step
                         {:message (str "focus failed — no node matched " (pr-str selector))}))))
 
+(declare exec-assert-dom-atom!)
+
 (defn- exec-assert!
   "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint
   (rf2-5x1wt.17). Evaluates the wrapped assertion atom at THIS point in
   the script (spec/017 §Inline script assertions vs terminal
-  assertions). In headless this dispatches the `:rf.assert/*` event
-  through `settled-boundary` — the runner's headless implementation rail
-  (`re-frame.story.assertions`) — then reads the freshly recorded
-  outcome from the frame's `:rf.story/assertions` slot and projects it
-  into a runner step-pass / step-fail. So the checkpoint records an
-  assertion AT THIS POINT, and a failing checkpoint flips the play's
-  terminal status to `:fail`.
+  assertions). This is the SINGLE in-script assertion executor — after
+  the `.18` fold the runtime consumes (rf2-5x1wt.19), a shipping
+  `:assert-db` / `:assert-dom` step has already been rewritten to this
+  `[:assert …]` checkpoint, so there is no longer a parallel `:assert-db`
+  / `:assert-dom` executor minting synthetic `:rf.assert/db` /
+  `:rf.assert/dom` records.
 
-  The wrapped atom is dispatched as the event vector, so the standard
-  `:rf.assert/*` reg-event-fx handler records the `:passed?` record on
-  the frame's app-db. We bridge that record back into the runner step
-  stream (the SAME bridge `dispatch-step-result` uses for the
-  `:dispatch-sync [:rf.assert/*]` rail), so the in-script `[:assert …]`
-  and a terminal assertion produce the same assertion-record shape."
+  Two atom families:
+
+  - The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
+    `:rf.assert/dom-text`) has no reg-event-fx handler yet (the DOM runner
+    that proves it lands later); it is EVALUATED directly through the DOM
+    executor (`exec-assert-dom-atom!`), recording a canonical
+    `:rf.assert/dom-*` record on the slot.
+  - Every other `:rf.assert/*` atom dispatches the event through
+    `settled-boundary` — the standard reg-event-fx handler records the
+    `:passed?` record on the frame's `:rf.story/assertions` slot — and we
+    bridge that record back into the runner step stream so a failing
+    checkpoint flips the play's terminal status to `:fail`."
   [frame-id idx step]
-  (let [atom-v   (runner/step-assertion step)
-        prev     (assertion-count frame-id)
-        required (boundary/step-required-boundary step)
-        hooks    (current-flush-hooks frame-id)
-        settle   (try
-                   (boundary/dispatch-and-settle! frame-id atom-v hooks required step)
-                   (catch #?(:clj Throwable :cljs :default) e
-                     {:status :error
-                      :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
-                      :step   step}))]
-    (play/drain-pending-exceptions! frame-id :phase-4-play)
-    (or (boundary-result->step idx step settle)
-        ;; The wrapped :rf.assert/* handler recorded its outcome on the
-        ;; frame's :rf.story/assertions slot. Read what landed since the
-        ;; pre-dispatch count and surface it as the checkpoint's result.
-        (let [all   (vec (:rf.story/assertions (read-frame-db frame-id)))
-              new   (subvec all (min prev (count all)))
-              rec   (last new)]
-          (cond
-            (nil? rec)            (runner/step-skip idx step)
-            (false? (:passed? rec))
-            (runner/step-fail idx step
-                              {:expected (:expected rec)
-                               :actual   (:actual rec)
-                               :message  (or (:reason rec)
-                                             (str (:assertion rec) " "
-                                                  (pr-str (:payload rec)) " failed"))})
-            :else                 (runner/step-pass idx step))))))
+  (let [atom-v (runner/step-assertion step)]
+    (if (contains? assertions/dom-assertion-ids (first atom-v))
+      (exec-assert-dom-atom! frame-id idx step atom-v)
+      (let [prev     (assertion-count frame-id)
+            required (boundary/step-required-boundary step)
+            hooks    (current-flush-hooks frame-id)
+            settle   (try
+                       (boundary/dispatch-and-settle! frame-id atom-v hooks required step)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         {:status :error
+                          :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
+                          :step   step}))]
+        (play/drain-pending-exceptions! frame-id :phase-4-play)
+        (or (boundary-result->step idx step settle)
+            ;; The wrapped :rf.assert/* handler recorded its outcome on the
+            ;; frame's :rf.story/assertions slot. Read what landed since the
+            ;; pre-dispatch count and surface it as the checkpoint's result.
+            (let [all   (vec (:rf.story/assertions (read-frame-db frame-id)))
+                  new   (subvec all (min prev (count all)))
+                  rec   (last new)]
+              (cond
+                (nil? rec)            (runner/step-skip idx step)
+                (false? (:passed? rec))
+                (runner/step-fail idx step
+                                  {:expected (:expected rec)
+                                   :actual   (:actual rec)
+                                   :message  (or (:reason rec)
+                                                 (str (:assertion rec) " "
+                                                      (pr-str (:payload rec)) " failed"))})
+                :else                 (runner/step-pass idx step))))))))
 
 (defn- queue-empty?
   "True iff `frame-id`'s event queue has drained (rf2-5x1wt.17). Under a
@@ -664,20 +706,33 @@
   Pure-shape return — the run-state mutation is the caller's job.
 
   `:wait` is special-cased OUT of this fn — it requires an async
-  yield (`setTimeout` / `Thread/sleep`) the driver schedules around."
+  yield (`setTimeout` / `Thread/sleep`) the driver schedules around.
+
+  rf2-5x1wt.19 — the runtime consumes the `.18`-folded plan: every script
+  is folded at resolution time (`runner-events/variant-plays` /
+  `play/variant-play-steps`), so a shipping `:assert-db` / `:assert-dom`
+  step has already become the canonical `[:assert assertion-atom]`
+  checkpoint by the time it reaches here. A raw `:assert-db` / `:assert-dom`
+  (a hand-built step that bypassed resolution) is folded inline as a
+  belt-and-braces guard so there is ONE in-script assertion executor and
+  ONE assertion-record vocabulary — never a synthetic `:rf.assert/db` /
+  `:rf.assert/dom` rail."
   [frame-id idx step]
-  (case (runner/step-type step)
-    :dispatch       (exec-dispatch!      frame-id idx step)
-    :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
-    :assert         (exec-assert!        frame-id idx step)
-    :assert-db      (exec-assert-db!     frame-id idx step)
-    :assert-dom     (exec-assert-dom!    frame-id idx step)
-    :wait-until     (exec-wait-until!    frame-id idx step)
-    :click          (exec-click!         frame-id idx step)
-    :type           (exec-type!          frame-id idx step)
-    :focus          (exec-focus!         frame-id idx step)
-    :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
-    (runner/unknown-step idx step)))
+  (let [stype (runner/step-type step)]
+    (case stype
+      :dispatch       (exec-dispatch!      frame-id idx step)
+      :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
+      :assert         (exec-assert!        frame-id idx step)
+      ;; A raw shipping assertion step that escaped folding — fold it inline
+      ;; to the canonical checkpoint and run the ONE assert executor.
+      (:assert-db
+       :assert-dom)   (exec-assert! frame-id idx (assertions/fold-assert-step step))
+      :wait-until     (exec-wait-until!    frame-id idx step)
+      :click          (exec-click!         frame-id idx step)
+      :type           (exec-type!          frame-id idx step)
+      :focus          (exec-focus!         frame-id idx step)
+      :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
+      (runner/unknown-step idx step))))
 
 ;; ---- single-step driver (rf2-ee38b.3 — step-debugger re-base) ------------
 ;;
@@ -709,7 +764,9 @@
                    (runner/step-exception idx step
                                           #?(:clj  (.getMessage ^Throwable e)
                                              :cljs (str e)))))]
-    (record-assertion-slot! frame-id step result)
+    ;; rf2-5x1wt.19 — `exec-step!` (via `exec-assert!`) already wrote the
+    ;; canonical assertion record onto `:rf.story/assertions`; no synthetic
+    ;; slot mirror here.
     (emit-trace! frame-id nil idx step result)
     result))
 
@@ -725,87 +782,33 @@
                (f)
                nil)))
 
-;; ---- assertion-slot bridge (rf2-ee38b.3 / rf2-uhq5j extension) ----------
+;; ---- assertion-slot recording (rf2-5x1wt.19) ----------------------------
 ;;
-;; Rich-DSL `:assert-db` / `:assert-dom` step outcomes used to land ONLY
-;; in the runner's `run-state` atom. The `:rf.story/assertions` app-db
-;; slot — read by `run-variant`'s result map, `assertions-passing?`, the
-;; test-mode pane, the inline assertion strip, and the Xray assertions
-;; panel — never saw them, so a failing rich-DSL assertion read as a
-;; false GREEN through every slot consumer (only the toolbar chip + the
-;; CI/Playwright runner, which read `run-state` directly, observed it).
+;; ONE assertion-record vocabulary. After the runtime consumes the `.18`-
+;; folded plan (`variant-plays` / `variant-play-steps` fold every script),
+;; every in-script assertion arrives as the canonical `[:assert
+;; assertion-atom]` checkpoint, and `exec-assert!` is the SOLE recorder:
 ;;
-;; The `:rf.assert/*` events (which ride `:dispatch-sync` steps) DO write
-;; the slot via their reg-event-fx handlers, so the contract was silently
-;; style-dependent. We close the gap by mirroring every assertion-class
-;; step result into `:rf.story/assertions` — the same record shape the
-;; `:rf.assert/*` handlers + the runtime's exception projection use.
-
-(def ^:const assert-db-id
-  "Synthetic assertion id stamped on `:rf.story/assertions` records for
-  rich-DSL `:assert-db` steps. In the `:rf.assert/*` reserved namespace
-  so `predicates/assertion-id?` and the pane's status logic treat it
-  uniformly with the canonical seven."
-  :rf.assert/db)
-
-(def ^:const assert-dom-id
-  "Synthetic assertion id for rich-DSL `:assert-dom` steps."
-  :rf.assert/dom)
-
-(defn- assertion-step-record
-  "Project an assertion-class step-result (`:assert-db` / `:assert-dom`)
-  into the `:rf.story/assertions` record shape. Returns nil for non-
-  assertion-class steps (`:dispatch` / `:wait` / `:click` / ...), whose
-  pass/fail is already represented by the `:rf.assert/*` records their
-  dispatched events recorded.
-
-  Returns nil for the `[:assert …]` in-script checkpoint too
-  (rf2-5x1wt.17): that step DISPATCHES its wrapped `:rf.assert/*` atom,
-  whose reg-event-fx handler ALREADY recorded a canonical assertion
-  record on the slot — mirroring the step result on top would double-
-  count. The checkpoint's slot record IS the wrapped atom's record.
-
-  A `:skipped?` DOM step (no-DOM JVM context) is NOT recorded as a
-  failure — the step couldn't run, so it contributes no assertion
-  outcome to the slot (matching the run-state's `:passed? false` +
-  `:skipped? true` shape, which `finish` already tolerates)."
-  [frame-id step result]
-  (let [stype (runner/step-type step)]
-    (when (contains? #{:assert-db :assert-dom} stype)
-      (let [aid (case stype
-                  :assert-db  assert-db-id
-                  :assert-dom assert-dom-id)]
-        (cond->
-          {:assertion    aid
-           :passed?      (boolean (:passed? result))
-           :payload      (vec (rest step))
-           :source-coord (:source (registrar/handler-meta :variant frame-id))}
-          (contains? result :expected) (assoc :expected (:expected result))
-          (contains? result :actual)   (assoc :actual   (:actual result))
-          (:message result)            (assoc :reason   (:message result))
-          (:skipped? result)           (assoc :skipped? true))))))
-
-(defn- record-assertion-slot!
-  "Mirror an assertion-class step result into the frame's
-  `:rf.story/assertions` slot so every slot consumer agrees with the
-  run-state. No-op for non-assertion steps and for skipped DOM steps
-  (which record no outcome)."
-  [frame-id step result]
-  (when-let [rec (assertion-step-record frame-id step result)]
-    ;; A skipped DOM step ran but produced no pass/fail — keep it out of
-    ;; the slot so it doesn't read as a vacuous pass (slot consumers treat
-    ;; `:passed? true` as a pass).
-    (when-not (:skipped? rec)
-      (assertions/record! frame-id rec)))
-  nil)
+;;   - a non-DOM `:rf.assert/*` atom dispatches its reg-event-fx handler,
+;;     which writes the canonical record onto `:rf.story/assertions`;
+;;   - a DOM-family atom is evaluated by `exec-assert-dom-atom!`, which
+;;     writes a canonical `:rf.assert/dom-*` record.
+;;
+;; There is no longer a synthetic `:rf.assert/db` / `:rf.assert/dom` slot-
+;; mirror bridge: the folded checkpoint's OWN record IS the slot record, so
+;; mirroring the step-result on top would double-count. `record-result!`
+;; therefore only updates the run-state + emits the trace event; the slot
+;; write already happened inside `exec-assert!`. This is the move that
+;; collapsed the documented "false GREEN" — run-state and the
+;; `:rf.story/assertions` slot now derive from the ONE canonical record.
 
 (defn- record-result!
-  "Append `result` to the run-state for `frame-id`, mirror assertion-
-  class outcomes into the `:rf.story/assertions` app-db slot, and emit
-  the trace event."
+  "Append `result` to the run-state for `frame-id` and emit the per-step
+  trace event. The `:rf.story/assertions` slot write already happened
+  inside `exec-assert!` (the canonical folded-atom record), so this no
+  longer mirrors a synthetic record on top (rf2-5x1wt.19)."
   [frame-id play-key name idx step result]
   (update-state! frame-id play-key runner/record-step-result result)
-  (record-assertion-slot! frame-id step result)
   (emit-trace! frame-id name idx step result)
   nil)
 
