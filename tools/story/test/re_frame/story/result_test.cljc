@@ -318,6 +318,129 @@
       (is (= :fail (:status r)) "rollback to a clean db does NOT hide the tape violation")
       (is (= 1 (count (:schema-violations r)))))))
 
+;; ===========================================================================
+;; CAUSAL / CASCADE EXPECTATIONS (rf2-5x1wt.31, §Causal and cascade assertions)
+;; ===========================================================================
+;;
+;; The matcher reads the SAME reactive evidence the tape already carries —
+;; the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the dispatching
+;; cascade's `:cause-event-id` (rf2-5x1wt.30 `evidence/reactive-counts`). A
+;; reactive epoch is one whose sub-runs / renders carry `:cause-event-id`.
+
+(defn- reactive-epoch
+  "An epoch carrying reactive rows attributed to `cause` — `n-subs` sub
+  recomputes of `sub-id` and `n-renders` renders of `view-id`."
+  [cause sub-id n-subs view-id n-renders]
+  (epoch {:trigger-event [cause]
+          :sub-runs (vec (repeat n-subs {:sub-id sub-id :recomputed? true
+                                         :cause-event-id cause}))
+          :renders  (vec (repeat n-renders {:render-key [view-id 0]
+                                            :cause-event-id cause}))}))
+
+(deftest causal-caused-passes-when-the-cause-produced-the-effect
+  (testing ":rf.assert/caused {:event e} passes when e caused >= 1 reactive effect"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :pass (:status r)))
+      (is (= :pass (:status rec)))
+      (is (= 2 (get-in rec [:actual :count])) "1 sub + 1 render = 2 total effects")))
+
+  (testing ":rf.assert/caused {:event e :sub s} measures the named sub only"
+    (let [tape [(reactive-epoch :counter/inc :total 3 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :counter/inc :sub :total}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :pass (:status rec)))
+      (is (= 3 (get-in rec [:actual :count])) "3 recomputes of :total")))
+
+  (testing ":rf.assert/caused {:event e :view v} measures the named view only"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :counter/inc :view :counter}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :pass (:status rec)))
+      (is (= 2 (get-in rec [:actual :count])) "2 renders of :counter"))))
+
+(deftest causal-caused-fails-when-the-cause-did-not-produce-the-effect
+  (testing ":rf.assert/caused for an event that caused no reactive effect FAILS"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :other/event}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :fail (:status r)))
+      (is (= :fail (:status rec)))
+      (is (= 0 (get-in rec [:actual :count])))))
+
+  (testing "a degenerate :rf.assert/caused (no :event) FAILS readably"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :fail (:status rec)))
+      (is (re-find #"names no :event" (:reason rec))))))
+
+(deftest causal-no-cascade-rerender-bounds
+  (testing ":rf.assert/no-cascade-rerender passes when the event caused NO effect"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :unrelated/event}]]})
+          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
+                              (:assertions r)))]
+      (is (= :pass (:status rec)) "unrelated event caused 0 effects, within [0 0]")))
+
+  (testing ":rf.assert/no-cascade-rerender FAILS when the event over-rendered"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
+          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
+                              (:assertions r)))]
+      (is (= :fail (:status r)))
+      (is (= :fail (:status rec)))
+      (is (= 3 (get-in rec [:actual :count])))))
+
+  (testing "an explicit :max bound on :no-cascade-rerender admits N renders"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter :max 2}]]})
+          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
+                              (:assertions r)))]
+      (is (= :pass (:status rec)) "2 renders within the explicit [0 2] bound"))))
+
+(deftest causal-against-non-reactive-run-is-cannot-run
+  (testing "a causal assertion against a run with NO reactive rows resolves
+            :cannot-run (fail closed — never a silent pass)"
+    ;; A bare dispatch-only tape carries no :reactive-counts slot.
+    (let [tape [(epoch {:effects [{:fx-id :db :outcome :ok}]})]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :cannot-run (:status rec)))
+      (is (= :cannot-run (:status r)) "the run aggregates to :cannot-run")
+      (is (re-find #"requires reactive evidence" (:reason rec))))))
+
+(deftest causal-expectations-are-not-floor-signals
+  (testing "an over-render does NOT trip the agreement floor on its own —
+            only a declared :no-cascade-rerender judges it"
+    ;; A reactive tape with no schema/effect failure + NO causal expectation
+    ;; is a clean :pass, even with many renders.
+    (let [tape [(reactive-epoch :counter/inc :total 5 :counter 9)]
+          r    (result/run-result {:epoch-tape tape})]
+      (is (= :pass (:status r)) "renders alone are not a tape failure"))))
+
 ;; ---- projections AGREE with the tape (§B5) -------------------------------
 
 (deftest result-projections-agree-with-the-tape

@@ -1192,6 +1192,47 @@ not a new core seam — so these assertions run under the `:cljs-reactive`
 runner (and `:cannot-run` under `:headless` / `:hiccup`, which do not
 flush reactions).
 
+#### Causal and cascade assertions (rf2-5x1wt.31)
+
+`:rf.assert/caused` and `:rf.assert/no-cascade-rerender` are **causal**
+assertions: they project a CAUSE→EFFECT relationship from the SAME reactive
+evidence the tape already carries — the `:rf.sub/run` / `:rf.view/rendered`
+rows stamped with the dispatching cascade's `:cause-event-id` (Spec 009
+§`:rf.sub/cause-event-id`), surfaced in the `reactive-counts` `:by-cause`
+projection. They add **no new trace op-type and no new accumulator** — the
+tape is the source of truth (§Risks — evidence projections drift).
+
+Like `:rf.assert/schema-error` they carry NO `reg-event-fx` handler: they are
+NOT dispatched into the frame. They are **tape-evaluated** in the result
+boundary (`re-frame.story.result/match-causal-expectations`) against the
+projected `:reactive-counts` / `:sub-runs` / `:renders`. The declared atom
+names the cause event and (optionally) the effect surface + a count bound:
+
+```clojure
+[:rf.assert/caused              {:event :counter/inc :sub :total}]      ; e recomputed :total ≥ 1
+[:rf.assert/caused              {:event :counter/inc :view :badge :exactly 1}]
+[:rf.assert/no-cascade-rerender {:event :unrelated/event}]              ; e caused 0 effects
+[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter :max 2}]
+```
+
+- `:event` (required) is the **cause** — the dispatching cascade's event-id.
+  An atom that names no `:event` FAILS (a causal assertion that asserts
+  nothing measurable).
+- `:sub` / `:view` (optional) select the **effect surface** measured: the
+  recompute count of the named sub, or the render count of the named view.
+  Absent, the surface is the cause's total recompute + render count.
+- `:min` / `:max` / `:exactly` bound the effect count. The per-id DEFAULT is
+  `:rf.assert/caused` → `{:min 1}` (the cause produced the effect at least
+  once) and `:rf.assert/no-cascade-rerender` → `{:min 0 :max 0}` (the cause
+  did NOT over-render); an author MAY override either bound.
+
+These are PURE expectations, **not** agreement-floor signals — an over-render
+is a `:fail` of a declared `:rf.assert/no-cascade-rerender`, not a tape-floor
+failure on its own (`tape-shows-failure?` does not read reactive counts). A
+run with NO reactive rows is caught upstream by the `:reactive-counts`
+fail-closed evidence-slot check (it reports `:cannot-run`, never a silent
+pass against an empty projection).
+
 There is no `:rf.assert/no-schema-errors` author surface — schema-clean
 is the knob-free floor (§Schema rule), so the only schema author surface
 is `:rf.assert/schema-error`. Additional assertions MAY be added for
@@ -2454,6 +2495,75 @@ with no runtime; the headless replay path settles synchronously to a fixed
 point via the headless flush-hooks, so the live-frame replay also runs
 headless.
 
+## Generated runs and artifacts
+
+A property-style Story run GENERATES an event program from a seed, replays it
+(§Run artifact and replay), and judges the result. Most generated programs
+pass and are throwaway; a failing one is the interesting case. Generated runs
+**emit artifacts FIRST**: every generated run produces a `:rf.test/run-artifact`
+carrying the `:seed` it was generated from (and, for a shrunk failure, the
+`:shrink-path`), so a generated failure is replayable off-CI and promotable
+into a curated regression variant (§Promotion). The `:seed` / `:shrink-path`
+artifact slots already exist (§Artifacts — Run artifact); the generated-run
+producer fills them. **Curated promotion only** — a generated failure becomes
+a named variant ONLY through the explicit `promote-run-artifact!` call
+(§Promotion), never automatically.
+
+The base ships in `re-frame.story.generate`, re-exported as
+`story/check-property!` (the property entry point) + `story/sweep-faults!`
+(the fault-lattice sweep below).
+
+### Generator-agnostic; reproducible from the seed
+
+A generated run is driven by a caller-supplied `gen-fn` — a pure
+`(fn [seed] event-program)` returning a deterministic event program (tagged
+steps, or bare event vectors the artifact coerces). This namespace bundles
+**no generator library**; the CHOICE of generator (a `clojure.test.check`
+generator, a hand-rolled state-machine walk, a recorded-interaction fuzzer)
+is the caller's, by wrapping its draw in a `gen-fn`. The seed sequence is a
+pure, seedable splitmix64 PRNG (`seed-seq`), so a property over N seeds is
+fully reproducible: the same root seed replays the same N programs. Recording
+the root `:seed` on the result makes the whole run reproducible.
+
+### Shrinking — deterministic program-prefix delta-debug
+
+When a generated program FAILS (`:fail` / `:error`; a `:cannot-run` is
+inconclusive, not a falsification), `shrink-program!` searches for a SMALLER
+failing program by deterministic delta-debugging over the event program: it
+drops step windows (largest chunks first, then finer) and keeps any reduction
+that STILL fails, until no single-step removal keeps the failure. The
+`:shrink-path` records the ordered sequence of KEPT reductions, so a consumer
+sees how the minimal failing case was reached. Shrinking reuses the SAME
+replay path as the original run, so a shrunk artifact replays identically; a
+`:max-replays` cap bounds the search (a partial shrink is still a smaller,
+valid artifact).
+
+### Fault lattice sweep
+
+A fault lattice sweep (`sweep-faults!`) replays ONE base program across a
+small lattice of FAULT cells, where each cell is a different `:fx-decisions`
+map — the **same fx-override world input** `replay-run-artifact` already
+reapplies, and the same surface the `:network` world slot lowers to. A
+"fault" is just an fx override that fails / delays / mis-replies; there is
+**no new fault-injection contract surface**. The sweep collects one
+seed-bearing `:rf.test/run-artifact` per cell (each carrying its faulted
+`:fx-decisions` so it replays against the same fault) and reports the cells
+whose run FAILED, so an author can see which fault states falsify the program
+and promote any cell's artifact (§Promotion). The `:cannot-run` policy is the
+runner's existing one — a cell whose program cannot run under the chosen
+runner refuses, it does not falsify.
+
+### Pure / JVM-testable
+
+The seed PRNG (`next-seed` / `seed-seq`), the failure predicate (`failing?`),
+the shrink candidate enumeration (`drop-candidates`), and seed-bearing
+artifact construction (`generated-artifact`) are pure data → data and run
+under `clojure -M:test` with no host. The run / shrink / sweep DRIVERS
+(`check-property!`, `shrink-program!`, `sweep-faults!`) replay into fresh
+`:rf.test.replay/*` frames (torn down by the replay path), so the JVM gate
+exercises the full generated-run → artifact → promotion flow against a live
+frame synchronously.
+
 ## Determinism gate
 
 The determinism gate answers one question: does this plan / artifact
@@ -2957,6 +3067,13 @@ P1 is complete when:
   pretending to prove real subscription logic;
 - visual and a11y assertions are first-class runner-tiered assertions (a
   hosted visual review service remains out of scope);
+- causal / cascade assertions (`:rf.assert/caused` /
+  `:rf.assert/no-cascade-rerender`) project cause→effect from the existing
+  `:cause-event-id` reactive evidence (no new trace op-type, no second
+  accumulator); generated / property-style runs emit seed-bearing
+  `:rf.test/run-artifact`s with shrink data and a fault-lattice sweep over the
+  existing fx-override world input; a generated failure promotes through the
+  existing curated bridge with its seed + source link preserved;
 - the unit-test cookbook ships, and the Story play/script CI gate stays
   green.
 
