@@ -104,6 +104,7 @@
   tests."
   (:require [re-frame.story.args         :as args]
             [re-frame.story.registrar    :as registrar]
+            [re-frame.story.requirements :as requirements]
             [re-frame.story.malli-schema :as msu]
             [re-frame.story.play.runner  :as runner]
             [re-frame.registrar          :as framework-registrar]))
@@ -331,59 +332,26 @@
    :assertions (vec (or assertions []))})
 
 ;; ============================================================================
-;; Required-runner inference (coarse foundation)
+;; Required-runner inference
 ;; ============================================================================
 ;;
-;; The full capability-token registry is a later bead. This foundation
-;; emits the *initial* required-runner set from a small static map of the
-;; step/assertion ids the shipping grammar already carries. Per §Runner
-;; model — capability is a SET of tokens, not a tier scalar.
-
-(def ^:private step-capabilities
-  "Capability tokens a script step requires, keyed by step tag."
-  {:dispatch       #{:app-db}
-   :dispatch-sync  #{:app-db}
-   :wait           #{}
-   :wait-until     #{}
-   :assert-db      #{:app-db}
-   :assert         #{:app-db}
-   :assert-dom     #{:dom}
-   :click          #{:dom}
-   :type           #{:dom}
-   :focus          #{:dom}})
-
-(def ^:private assertion-capabilities
-  "Capability tokens a terminal assertion id requires. Coarse first cut;
-  the per-assertion registry (rf2 runner-requirements) supersedes this."
-  {:rf.assert/path-equals    #{:app-db}
-   :rf.assert/path-matches   #{:app-db}
-   :rf.assert/sub-equals     #{:app-db}
-   :rf.assert/dispatched?    #{:app-db}
-   :rf.assert/state-is       #{:app-db}
-   :rf.assert/no-warnings    #{:app-db}
-   :rf.assert/effect-emitted #{:app-db}
-   :rf.assert/schema-error   #{:app-db}
-   :rf.assert/dom-visible    #{:dom}
-   :rf.assert/dom-hidden     #{:dom}
-   :rf.assert/dom-text       #{:dom}
-   :rf.assert/visual-snapshot #{:pixels}
-   :rf.assert/a11y           #{:a11y-engine}})
-
-(defn- step-tokens [step]
-  (get step-capabilities (when (vector? step) (first step)) #{}))
-
-(defn- assertion-tokens [assertion]
-  (get assertion-capabilities (when (vector? assertion) (first assertion)) #{}))
+;; The capability-token registry + cost-ordered concrete runners + the
+;; per-step / per-assertion requirement maps live in
+;; `re-frame.story.requirements` (rf2-5x1wt.16) — the single home so the
+;; runner-selection, `:cannot-run` refusal, and post-run evidence-slot
+;; validation all read ONE source of truth. The plan compiler computes the
+;; `:required-runner` slot through that registry. Per §Runner requirements
+;; — capability is a SET of tokens, not a tier scalar.
 
 (defn- compute-required-runner
   "Union the capability tokens demanded by every setup step, script step,
-  and terminal assertion. `:headless` work needs no token (the empty set
-  resolves to the default `:headless` runner)."
+  and terminal assertion, through the `re-frame.story.requirements` registry
+  (§Runner requirements). `:headless` work contributes the empty set (which
+  resolves to the cheapest `:headless` runner). An in-script `[:assert …]`
+  checkpoint's wrapped-atom tokens are folded by `requirements/step-tokens`,
+  so the script vector alone carries them."
   [setup script assertions]
-  (reduce into #{}
-          (concat (map step-tokens setup)
-                  (map step-tokens script)
-                  (map assertion-tokens assertions))))
+  (requirements/plan-required-runner setup script assertions))
 
 ;; ============================================================================
 ;; View arg schemas (rf2-5x1wt.12)
