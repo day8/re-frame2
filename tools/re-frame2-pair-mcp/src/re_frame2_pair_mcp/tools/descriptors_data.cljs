@@ -205,17 +205,20 @@
   {:name "discover-app"
    :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing. "
                      "Examples: "
-                     "1. Default build: {} -> {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app}. "
-                     "2. Named build: {:build \"app\"} -> same shape against the named build. "
+                     "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :note \"...auto-selected it.\"}. "
+                     "2. Named build: {:build \"app\"} -> {:ok? true ... :build-id :app}, no auto-selection (explicit build honoured verbatim). "
                      "3. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
    :typicalTokens 200
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:build {:type "string"
-                                      :description (str "shadow-cljs build id (default: app). Colon-tolerant: "
+                                      :description (str "shadow-cljs build id. Colon-tolerant: "
                                                         "\"examples/step-deck\" and \":examples/step-deck\" "
-                                                        "resolve identically (rf2-8ohwv).")}}
+                                                        "resolve identically (rf2-8ohwv). "
+                                                        "Omit it when exactly one build is running — discover-app "
+                                                        "auto-selects it and notes the choice (rf2-v70kv). "
+                                                        "Falls back to app when none can be inferred.")}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------

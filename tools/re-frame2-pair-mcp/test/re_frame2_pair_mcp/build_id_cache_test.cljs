@@ -27,6 +27,7 @@
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.discover-app :as discover-app]
+            [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
@@ -246,3 +247,118 @@
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
     (is (contains? @conn :resolved-build-id))
     (is (nil? (:resolved-build-id @conn)))))
+
+;; ---------------------------------------------------------------------------
+;; Single-build auto-selection (rf2-v70kv).
+;;
+;; discover-app used to default an omitted :build to :app; on a checkout
+;; where :app isn't the running watch, the first no-arg call failed by
+;; construction. When EXACTLY ONE build runs, discover-app now selects it
+;; and notes the choice. Zero/many running keeps the existing diagnostic
+;; (which lists the running builds) — never a silent most-recently-active
+;; pick.
+;; ---------------------------------------------------------------------------
+
+(defn- with-running-builds!
+  "Stub `probe/running-builds` to resolve to `running-vec` and
+  `nrepl/cljs-eval-value` to resolve to `health` (the runtime probe +
+  health call). Restores both in `.finally`."
+  [running-vec health body-fn]
+  (let [orig-running probe/running-builds
+        orig-eval    nrepl/cljs-eval-value]
+    (set! probe/running-builds (fn [_conn] (js/Promise.resolve running-vec)))
+    (set! nrepl/cljs-eval-value
+          (fn
+            ([_c _b _f] (js/Promise.resolve health))
+            ([_c _b _f _o] (js/Promise.resolve health))))
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn []
+                    (set! probe/running-builds orig-running)
+                    (set! nrepl/cljs-eval-value orig-eval))))))
+
+(deftest discover-app-auto-selects-the-single-running-build
+  ;; No :build arg, exactly one running build → discover-app selects it,
+  ;; notes the auto-selection, caches it, and echoes :auto-selected-build.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime-probe-cache! conn :examples/step-deck)]
+      (-> (with-running-builds! [:examples/step-deck] healthy-health
+            (fn [] (discover-app/discover-app conn (tu/args->js {}))))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                (is (true? (:ok? edn)))
+                (is (= :examples/step-deck (:build-id edn))
+                    "auto-selected the single running build")
+                (is (= :examples/step-deck (:auto-selected-build edn))
+                    "result flags the auto-selection")
+                (is (re-find #"auto-selected" (:note edn))
+                    "note explains the auto-selection")
+                (is (= :examples/step-deck (:resolved-build-id @conn))
+                    "auto-selected build is cached for follow-up calls"))
+              (done)))))))
+
+(deftest discover-app-no-arg-does-not-auto-select-when-many-run
+  ;; Two running builds, no :build arg → NO auto-select. The build falls
+  ;; back to the :app default and the diagnostic surfaces the running
+  ;; list (here: the build is running per the stub, so we assert the
+  ;; payload is NOT auto-selected against :app rather than step-deck).
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime-probe-cache! conn :app)]
+      (-> (with-running-builds! [:testbeds/panel-gallery :examples/step-deck]
+                                healthy-health
+            (fn [] (discover-app/discover-app conn (tu/args->js {}))))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                ;; The default :app is probed (the stub answers health for
+                ;; any build) — the point is no SILENT pick of one of the
+                ;; two ambiguous builds.
+                (is (not (contains? edn :auto-selected-build))
+                    "must NOT auto-select when multiple builds run")
+                (is (= :app (:build-id edn))
+                    "falls back to the :app default, not a guessed build"))
+              (done)))))))
+
+(deftest discover-app-explicit-build-skips-auto-select
+  ;; An explicit :build arg is honoured verbatim — auto-select never
+  ;; fires, even though only one OTHER build is running.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime-probe-cache! conn :my-app)]
+      (-> (with-running-builds! [:examples/step-deck] healthy-health
+            (fn [] (discover-app/discover-app conn (tu/args->js {:build "my-app"}))))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                (is (= :my-app (:build-id edn))
+                    "explicit build used verbatim")
+                (is (not (contains? edn :auto-selected-build))
+                    "explicit build is not an auto-selection"))
+              (done)))))))
+
+(deftest auto-select-single-build-returns-pair
+  ;; Unit-pin the probe helper directly: exactly-one → [build true];
+  ;; zero/many → [nil false].
+  (async done
+    (let [conn (fresh-conn)
+          orig probe/running-builds]
+      (set! probe/running-builds (fn [_] (js/Promise.resolve [:only])))
+      (-> (probe/auto-select-single-build conn)
+          (.then (fn [[b auto?]]
+                   (is (= :only b))
+                   (is (true? auto?))
+                   (set! probe/running-builds (fn [_] (js/Promise.resolve [:a :b])))
+                   (probe/auto-select-single-build conn)))
+          (.then (fn [[b auto?]]
+                   (is (nil? b))
+                   (is (false? auto?))
+                   (set! probe/running-builds (fn [_] (js/Promise.resolve [])))
+                   (probe/auto-select-single-build conn)))
+          (.then (fn [[b auto?]]
+                   (is (nil? b))
+                   (is (false? auto?))))
+          (.finally (fn [] (set! probe/running-builds orig)))
+          (.then (fn [_] (done)))))))
