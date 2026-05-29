@@ -417,10 +417,11 @@
 
 ;; ---- run-state state machine ---------------------------------------------
 
-(def ^:const status-idle    :idle)
-(def ^:const status-running :running)
-(def ^:const status-pass    :pass)
-(def ^:const status-fail    :fail)
+(def ^:const status-idle       :idle)
+(def ^:const status-running    :running)
+(def ^:const status-pass       :pass)
+(def ^:const status-fail       :fail)
+(def ^:const status-cannot-run :cannot-run)
 
 (defn initial-state
   "Build the initial state map for a run. Pure data → data.
@@ -474,18 +475,42 @@
              (some? (:passed? result)))
         (update :failures inc))))
 
-(defn finish
-  "Transition `state` to the terminal `:pass` / `:fail` status.
+(defn- cannot-run-step?
+  "True iff a step-result is a `:cannot-run` refusal — a capability /
+  boundary refusal (`:cannot-run?`) or a no-DOM skip (`:skipped?`). These
+  are the distinct THIRD status (spec/017 §`:cannot-run`): the step could
+  not be attempted, not a genuine fail."
+  [r]
+  (boolean (or (:cannot-run? r) (:skipped? r))))
 
-  - If any step recorded an exception or any assertion failed → `:fail`.
+(defn finish
+  "Transition `state` to the terminal `:pass` / `:fail` / `:cannot-run`
+  status (rf2-5x1wt.19 — `:cannot-run` is the unified distinct THIRD
+  status, spec/017 §`:cannot-run`).
+
+  - A genuine failure (an exception, or a failing assertion that is NOT a
+    `:cannot-run` refusal) → `:fail`.
+  - Else, when the ONLY non-pass step-results are `:cannot-run` refusals
+    (a capability / boundary refusal or a no-DOM skip) → `:cannot-run`.
   - Otherwise → `:pass`.
 
-  Pure data → data."
+  This mirrors the variant-level aggregation rule
+  (`requirements/aggregate-status`): a run whose only unmet expectations
+  are refusals is itself `:cannot-run`, never a silent pass. Pure data →
+  data."
   [state now-ms]
-  (let [failed? (or (pos? (:failures state 0))
-                    (some #(some? (:exception %)) (:results state)))]
+  (let [results       (:results state)
+        exception?    (some #(some? (:exception %)) results)
+        real-failures (filter (fn [r] (and (false? (:passed? r))
+                                            (not (cannot-run-step? r))))
+                              results)
+        refusals      (filter cannot-run-step? results)
+        status        (cond
+                        (or exception? (seq real-failures)) status-fail
+                        (seq refusals)                      status-cannot-run
+                        :else                               status-pass)]
     (assoc state
-           :status      (if failed? status-fail status-pass)
+           :status      status
            :finished-ms now-ms)))
 
 (defn done?
@@ -504,10 +529,11 @@
   the status chip and the trace banner."
   [{:keys [status step-idx total]}]
   (case status
-    :idle    "IDLE"
-    :running (str "RUNNING (step " (inc step-idx) "/" total ")")
-    :pass    (str "PASS (" total " steps)")
-    :fail    (str "FAIL (" step-idx "/" total " steps)")
+    :idle       "IDLE"
+    :running    (str "RUNNING (step " (inc step-idx) "/" total ")")
+    :pass       (str "PASS (" total " steps)")
+    :fail       (str "FAIL (" step-idx "/" total " steps)")
+    :cannot-run (str "CANNOT-RUN (" total " steps)")
     (str status)))
 
 (defn assertion?

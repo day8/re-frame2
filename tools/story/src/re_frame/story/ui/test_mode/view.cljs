@@ -113,15 +113,26 @@
         result (:result slot)]
     (when result
       (let [summary (shell-state/aggregate-summary (:assertions result))
-            {:keys [total passed failed skipped all-passed?]} summary
-            pill-style (cond
-                         (zero? total)  (:pill-empty styles)
-                         all-passed?    (:pill-pass styles)
-                         :else          (:pill-fail styles))
-            pill-text  (cond
-                         (zero? total) "no assertions recorded"
-                         all-passed?   (str passed " passed")
-                         :else         (str failed " failed of " total))]
+            {:keys [total passed failed cannot-run skipped all-passed?]} summary
+            cannot-run (or cannot-run 0)
+            ;; rf2-5x1wt.19 — prefer the unified run-level `:status` so a
+            ;; tape-floor `:fail` / a `:cannot-run` refusal renders even when
+            ;; the assertion counts alone would read green.
+            status     (or (:status result)
+                           (cond (zero? total)      :pending
+                                 all-passed?        :pass
+                                 (pos? cannot-run)  :cannot-run
+                                 :else              :fail))
+            pill-style (case status
+                         :pass       (:pill-pass styles)
+                         :cannot-run (:pill-empty styles)
+                         (:pending)  (:pill-empty styles)
+                         (:pill-fail styles))
+            pill-text  (case status
+                         :pass       (str passed " passed")
+                         :cannot-run (str cannot-run " cannot-run of " total)
+                         (:pending)  "no assertions recorded"
+                         (str failed " failed of " total))]
         [:div {:style     (:section styles)
                :data-test "story-test-summary-section"}
          [:div {:style (:section-h styles)} "Summary"]
@@ -135,7 +146,9 @@
            "  "
            [:span {:style (:count-fail styles)} (str "✗ " failed " failed")]
            "  "
-           [:span {:style (:count-skip styles)} (str "⊘ " skipped " skipped")]]]]))))
+           ;; rf2-5x1wt.19 — the distinct THIRD status, rendered (spec/017
+           ;; §`:cannot-run` — Story UI MUST render `:cannot-run` distinctly).
+           [:span {:style (:count-skip styles)} (str "⊘ " cannot-run " cannot-run")]]]]))))
 
 (defn- tick-style-for
   "Pick the style map for a single tick based on `status`."

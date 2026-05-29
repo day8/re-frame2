@@ -90,7 +90,12 @@
             :selected-step nil})
     (let [summary (-> (state/aggregate-summary (:assertions result))
                       (assoc :ran-at-ms  now
-                             :elapsed-ms (:elapsed-ms result)))]
+                             :elapsed-ms (:elapsed-ms result)
+                             ;; rf2-5x1wt.19 — thread the unified run-level
+                             ;; `:status` so the sidebar dot reflects a
+                             ;; tape-floor `:fail` / `:cannot-run` refusal
+                             ;; the assertion counts alone might miss.
+                             :status     (:status result)))]
       (state/swap-state! state/record-test-run variant-id summary))))
 
 (defn select-step!

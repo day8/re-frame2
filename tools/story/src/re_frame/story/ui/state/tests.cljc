@@ -48,72 +48,109 @@
 ;; surfaces.
 
 (def test-run-statuses
-  "Canonical run-state ids, in render order.
+  "Canonical run-state ids, in render order (rf2-5x1wt.19 adds
+  `:cannot-run` — the unified result's distinct THIRD status, spec/017
+  §`:cannot-run`).
 
-  - `:pass`     last run: every assertion passed (and at least one assertion).
-  - `:fail`     last run: ≥1 assertion failed.
-  - `:running`  run currently in flight.
-  - `:pending`  no run recorded yet (or run produced zero assertions)."
-  [:pass :fail :running :pending])
+  - `:pass`        last run: every assertion passed (and at least one assertion).
+  - `:fail`        last run: ≥1 assertion failed.
+  - `:cannot-run`  last run: the only unmet expectations were ones the
+                   runner could not even attempt (a refusal, not a pass).
+  - `:running`     run currently in flight.
+  - `:pending`     no run recorded yet (or run produced zero assertions)."
+  [:pass :fail :cannot-run :running :pending])
 
 (defn mark-test-running
   "Stamp `variant-id` as :running. Idempotent."
   [state variant-id]
   (assoc-in state [:tests :runs variant-id] {:status :running}))
 
+(defn- record-status
+  "The unified verdict for ONE assertion record (rf2-5x1wt.19): the
+  record's own `:status` when present (the unified shape), else derived
+  from `:passed?` / `:skipped?` / `:cannot-run?`. Pure data → data — a
+  local mirror so this leaf needs no require into `re-frame.story.result`
+  (which would loop through the runtime)."
+  [{:keys [status passed? skipped? cannot-run?] :as _record}]
+  (cond
+    (keyword? status)  status
+    cannot-run?        :cannot-run
+    skipped?           :cannot-run
+    (true? passed?)    :pass
+    (false? passed?)   :fail
+    :else              :pass))
+
 (defn aggregate-summary
   "Walk `assertions` (the vector pulled off a `run-variant` result map)
-  and produce the aggregated pass/fail/skip counts:
+  and produce the aggregated pass/fail/cannot-run counts:
 
       {:total       <n>
        :passed      <n>
        :failed      <n>
+       :cannot-run  <n>
        :skipped     <n>
        :all-passed? <bool>}
 
-  `:skipped` counts records carrying `:assertion :rf.assert/skipped` —
-  re-frame2's v1 runtime doesn't emit this id, but the slot stays open
-  so spec/004 additions flow through without a pane refactor.
-  `:all-passed?` is true iff `:total > 0 AND :failed = 0 AND :skipped = 0`.
+  rf2-5x1wt.19 — buckets by each record's unified `:status` (spec/017
+  §Run result), so a `:cannot-run` assertion (a runner refusal — the
+  distinct THIRD status) is counted distinctly and NOT folded into
+  `:failed`. `:skipped` is the alias count kept for the legacy
+  `:rf.assert/skipped` id (re-frame2's runtime doesn't emit it, but the
+  slot stays open). `:all-passed?` is true iff `:total > 0 AND :failed = 0
+  AND :cannot-run = 0 AND :skipped = 0` — a refusal is NOT all-green.
 
   Lives here (not `test-mode.pure`) so both the test-mode pane AND the
   sidebar / chrome-level test widget can call one canonical fold
   without a require cycle (sidebar can't require test-mode, which
   would loop back through shell-state). Pure data → data; JVM-testable."
   [assertions]
-  (let [items     (or assertions [])
-        skipped?  (fn [r] (= :rf.assert/skipped (:assertion r)))
-        skipped   (count (filter skipped? items))
-        active    (remove skipped? items)
-        passed    (count (filter :passed? active))
-        failed    (- (count active) passed)
-        total     (count items)]
+  (let [items      (or assertions [])
+        legacy-skip? (fn [r] (= :rf.assert/skipped (:assertion r)))
+        skipped    (count (filter legacy-skip? items))
+        active     (remove legacy-skip? items)
+        buckets    (frequencies (map record-status active))
+        passed     (get buckets :pass 0)
+        cannot-run (get buckets :cannot-run 0)
+        ;; :fail + :error both count as failures for the headline tally.
+        failed     (+ (get buckets :fail 0) (get buckets :error 0))
+        total      (count items)]
     {:total       total
      :passed      passed
      :failed      failed
+     :cannot-run  cannot-run
      :skipped     skipped
-     :all-passed? (and (pos? total) (zero? failed) (zero? skipped))}))
+     :all-passed? (and (pos? total) (zero? failed) (zero? cannot-run) (zero? skipped))}))
 
 (defn record-test-run
   "Write the aggregate of a `run-variant` result into `[:tests :runs]`.
 
   `summary` is the map returned by `aggregate-summary` —
-  `{:total :passed :failed :skipped :all-passed?}` — extended with
-  optional `:ran-at-ms` and `:elapsed-ms`. A run that recorded zero
-  assertions lands as `:pending` (rather than `:pass`/`:fail`) so the
-  sidebar dot reads grey — the variant ran but produced no signal."
+  `{:total :passed :failed :cannot-run :skipped :all-passed?}` — extended
+  with optional `:ran-at-ms` / `:elapsed-ms` and (rf2-5x1wt.19) the run's
+  unified `:status` (so the sidebar dot reflects the run-level verdict,
+  including a tape-floor `:fail` or a `:cannot-run` refusal that the
+  assertion counts alone might miss).
+
+  Status precedence: an explicit run `:status` wins; otherwise it is
+  derived from the counts — zero assertions → `:pending` (grey — ran but
+  no signal); all-passed → `:pass`; any `:cannot-run` (and no fail) →
+  `:cannot-run`; else → `:fail`."
   [state variant-id summary]
-  (let [{:keys [total passed failed skipped all-passed?
-                ran-at-ms elapsed-ms]} (or summary {})
+  (let [{:keys [total passed failed cannot-run skipped all-passed?
+                ran-at-ms elapsed-ms status]} (or summary {})
         status (cond
+                 (contains? #{:pass :fail :cannot-run :error} status)
+                 (if (= :error status) :fail status)   ; :error reads as :fail on the dot
                  (zero? (or total 0)) :pending
                  all-passed?          :pass
+                 (pos? (or cannot-run 0)) :cannot-run
                  :else                :fail)]
     (assoc-in state [:tests :runs variant-id]
               {:status     status
                :total      (or total 0)
                :passed     (or passed 0)
                :failed     (or failed 0)
+               :cannot-run (or cannot-run 0)
                :skipped    (or skipped 0)
                :ran-at-ms  ran-at-ms
                :elapsed-ms elapsed-ms})))
@@ -139,15 +176,18 @@
       {:total      <count of variant-ids>
        :passed     <count whose last run was :pass>
        :failed     <count whose last run was :fail>
+       :cannot-run <count whose last run was :cannot-run>
        :running    <count currently in flight>
        :pending    <count with no recorded run>
-       :all-green? <bool — total > 0 AND failed = 0 AND running = 0
-                          AND pending = 0>}
+       :all-green? <bool — total > 0 AND failed = 0 AND cannot-run = 0
+                          AND running = 0 AND pending = 0>}
 
-  Pure data → data; the JVM corpus exercises it against a fixture map
-  without booting Reagent. `all-green?` mirrors `aggregate-summary`'s
-  `:all-passed?` — true only when every variant has a recorded green
-  run; a sea of `:pending` reads as 'not green yet', not 'all green'."
+  rf2-5x1wt.19 — `:cannot-run` (the unified distinct THIRD status) is
+  counted distinctly; a refusal is NOT green. Pure data → data; the JVM
+  corpus exercises it against a fixture map without booting Reagent.
+  `all-green?` mirrors `aggregate-summary`'s `:all-passed?` — true only
+  when every variant has a recorded green run; a sea of `:pending` reads
+  as 'not green yet', not 'all green'."
   [state variant-ids]
   (let [runs    (get-in state [:tests :runs])
         ;; Single O(N) frequencies pass — read each variant's status
@@ -155,18 +195,21 @@
         buckets (frequencies
                   (map (fn [vid] (or (get-in runs [vid :status]) :pending))
                        variant-ids))
-        total   (count variant-ids)
-        passed  (get buckets :pass    0)
-        failed  (get buckets :fail    0)
-        running (get buckets :running 0)
-        pending (get buckets :pending 0)]
+        total      (count variant-ids)
+        passed     (get buckets :pass       0)
+        failed     (get buckets :fail       0)
+        cannot-run (get buckets :cannot-run 0)
+        running    (get buckets :running    0)
+        pending    (get buckets :pending    0)]
     {:total      total
      :passed     passed
      :failed     failed
+     :cannot-run cannot-run
      :running    running
      :pending    pending
      :all-green? (and (pos? total)
                       (zero? failed)
+                      (zero? cannot-run)
                       (zero? running)
                       (zero? pending))}))
 

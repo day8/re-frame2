@@ -1,0 +1,270 @@
+(ns re-frame.story.result-test
+  "Tests for the ONE unified run-result + the assertion / check record
+  shapes + the clojure.test report projection (NewTestStory rf2-5x1wt.19,
+  `tools/story/spec/017-Testing-Story.md` §Run result + §Unified run
+  result).
+
+  Every fn under test is PURE data → data, so the whole suite runs under
+  `clojure -M:test` with no host: raw assertion accumulator entries +
+  projected epoch evidence + plan slots in, the unified run-result /
+  records / reports out. The §B5 acceptance bullets:
+
+  - a passing variant yields `:status :pass`;
+  - a failing assertion yields `:status :fail`;
+  - cannot-run yields `:status :cannot-run`;
+  - check records group assertions;
+  - schema / warning / effect projections AGREE with the epoch tape;
+  - `story/is` reports per assertion (`result->reports`)."
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.story.result   :as result]
+            [re-frame.story.play.evidence :as evidence]
+            [re-frame.story.requirements  :as requirements]))
+
+;; ===========================================================================
+;; STATUS — the four verdicts, derived from one field
+;; ===========================================================================
+
+(deftest record-status-derivation
+  (testing "an explicit :status on the record wins"
+    (is (= :cannot-run (result/record-status {:status :cannot-run :passed? true}))))
+  (testing ":passed? true/false → :pass / :fail"
+    (is (= :pass (result/record-status {:passed? true})))
+    (is (= :fail (result/record-status {:passed? false}))))
+  (testing ":cannot-run? / legacy :skipped? → :cannot-run (the THIRD status)"
+    (is (= :cannot-run (result/record-status {:passed? false :cannot-run? true})))
+    (is (= :cannot-run (result/record-status {:passed? false :skipped? true}))))
+  (testing "an exception / error → :error"
+    (is (= :error (result/record-status {:passed? false :exception true})))
+    (is (= :error (result/record-status {:passed? false :error {:msg "boom"}}))))
+  (testing "a record with no outcome is vacuously :pass (the duality)"
+    (is (= :pass (result/record-status {:assertion :rf.assert/x})))))
+
+;; ===========================================================================
+;; ASSERTION RECORD — the `.18` atom shape + a unified :status
+;; ===========================================================================
+
+(deftest assertion-record-stamps-status-and-source
+  (testing "a raw accumulator entry gains a derived :status + :source alias"
+    (let [raw {:assertion :rf.assert/path-equals :payload [[:k] 1]
+               :passed? true :expected 1 :actual 1
+               :source-coord {:file "x.cljs" :line 3}}
+          rec (result/assertion-record raw)]
+      (is (= :pass (:status rec)))
+      (is (= {:file "x.cljs" :line 3} (:source rec)) ":source-coord aliased to :source")
+      (is (= {:file "x.cljs" :line 3} (:source-coord rec)) "original slot kept")
+      (is (= :rf.assert/path-equals (:assertion rec)))))
+  (testing "a failing entry → :fail; a record carrying its own :status is left"
+    (is (= :fail (:status (result/assertion-record {:passed? false}))))
+    (is (= :cannot-run (:status (result/assertion-record
+                                  {:status :cannot-run :passed? false}))))))
+
+;; ===========================================================================
+;; CHECK RECORD — group assertions under their check id
+;; ===========================================================================
+
+(deftest check-records-group-by-atom-id-and-payload
+  (testing "a check groups exactly the records its atoms produced (id+payload)"
+    (let [records [{:assertion :rf.assert/path-equals :payload [[:a] 1] :status :pass}
+                   {:assertion :rf.assert/no-warnings  :payload []      :status :pass}
+                   {:assertion :rf.assert/path-equals :payload [[:b] 2] :status :fail}]
+          check->atoms {:check/clean [[:rf.assert/no-warnings]]
+                        :check/a     [[:rf.assert/path-equals [:a] 1]]}
+          recs (result/check-records check->atoms records)]
+      (is (= 2 (count recs)))
+      (let [clean (first (filter #(= :check/clean (:check %)) recs))
+            a     (first (filter #(= :check/a (:check %)) recs))]
+        (is (= :pass (:status clean)))
+        (is (= 1 (count (:assertions clean))))
+        (is (= :rf.assert/no-warnings (:assertion (first (:assertions clean)))))
+        (is (= :pass (:status a)))
+        ;; the [:b] 2 path-equals record is NOT grouped under :check/a
+        ;; (different payload) — payload disambiguates same-id assertions.
+        (is (= 1 (count (:assertions a)))))))
+
+  (testing "a failing check shows the check id AND the failing record"
+    (let [records [{:assertion :rf.assert/path-equals :payload [[:s] :x] :status :fail
+                    :expected :x :actual :y}]
+          recs (result/check-records {:check/state [[:rf.assert/path-equals [:s] :x]]}
+                                     records)
+          c    (first recs)]
+      (is (= :check/state (:check c)))
+      (is (= :fail (:status c)))
+      (is (= :y (:actual (first (:assertions c)))))))
+
+  (testing "an unmatched check atom groups nothing (the assertion never ran)"
+    (let [recs (result/check-records {:check/missing [[:rf.assert/path-equals [:z] 9]]}
+                                     [])]
+      (is (= :pass (:status (first recs))) "an empty group is vacuously :pass")
+      (is (empty? (:assertions (first recs)))))))
+
+;; ===========================================================================
+;; RUN RESULT — the unified shape + the agreement floor
+;; ===========================================================================
+
+(defn- epoch
+  "Build a minimal `:rf/epoch-record` for the projection tests."
+  [m]
+  (merge {:epoch-id (gensym "e") :outcome :ok :trace-events []
+          :effects [] :sub-runs [] :renders []}
+         m))
+
+(deftest passing-variant-yields-pass
+  (testing "a passing assertion set + clean tape → :status :pass (§B5)"
+    (let [r (result/run-result
+              {:variant/id :story.x/v
+               :epoch-tape [(epoch {})]
+               :assertions [{:assertion :rf.assert/path-equals :passed? true}]
+               :script     [[:dispatch [:e]]]})]
+      (is (= :pass (:status r)))
+      (is (= :story.x/v (:variant/id r)))
+      (is (vector? (:assertions r)))
+      (is (= :pass (:status (first (:assertions r))))))))
+
+(deftest failing-assertion-yields-fail
+  (testing "a failing assertion → :status :fail (§B5)"
+    (let [r (result/run-result
+              {:epoch-tape [(epoch {})]
+               :assertions [{:assertion :rf.assert/path-equals :passed? true}
+                            {:assertion :rf.assert/path-equals :passed? false}]})]
+      (is (= :fail (:status r))))))
+
+(deftest cannot-run-yields-cannot-run
+  (testing "a run whose only unmet expectation is :cannot-run → :cannot-run (§B5)"
+    (let [refusal (requirements/requirement-refusal
+                    #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
+                    :runner-lacks-capability :headless)
+          r (result/run-result
+              {:epoch-tape [(epoch {})]
+               :assertions [{:assertion :rf.assert/path-equals :passed? true}]
+               :unmet      [refusal]})]
+      (is (= :cannot-run (:status r)))
+      (is (= [refusal] (:cannot-run r)) "the refusal surfaces on :cannot-run")))
+  (testing "a :cannot-run assertion record (no real fail) → :cannot-run"
+    (let [r (result/run-result
+              {:assertions [{:assertion :rf.assert/dom-visible
+                             :status :cannot-run :passed? false}]})]
+      (is (= :cannot-run (:status r))))))
+
+(deftest error-outranks-fail
+  (testing "an :error assertion record → :status :error (precedence)"
+    (let [r (result/run-result
+              {:assertions [{:assertion :rf.assert/x :passed? false}
+                            {:assertion :rf.error/exception :passed? false
+                             :exception true}]})]
+      (is (= :error (:status r))))))
+
+;; ---- the agreement floor: no green while the tape is red -----------------
+
+(deftest tape-floor-flips-green-to-fail
+  (testing "a passing assertion set CANNOT report :pass while the tape carries
+            a schema violation (the agreement floor — §Run-result evidence
+            projection)"
+    (let [tape [(epoch {:trace-events
+                        [{:operation :rf.error/schema-validation-failure
+                          :tags {:where :event :failing-id :checkout/submit}}]})]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
+      (is (= :fail (:status r))
+          "a clean assertion set + a red tape is :fail, not a false GREEN")
+      ;; the projection AGREES with the tape (§B5 — projections agree)
+      (is (= 1 (count (:schema-violations r))))
+      (is (= [:event :checkout/submit] (:selector (first (:schema-violations r))))))))
+
+(deftest consumed-schema-violation-does-not-trip-the-floor
+  (testing "a schema violation the run EXACTLY consumed does not flip a pass"
+    (let [sel  [:event :checkout/submit]
+          tape [(epoch {:trace-events
+                        [{:operation :rf.error/schema-validation-failure
+                          :tags {:where :event :failing-id :checkout/submit}}]})]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :assertions [{:assertion :rf.assert/schema-error :passed? true}]
+                  :consumed-selectors #{sel}})]
+      (is (= :pass (:status r))
+          "the consumed violation is excused — the floor does not trip"))))
+
+;; ---- projections AGREE with the tape (§B5) -------------------------------
+
+(deftest result-projections-agree-with-the-tape
+  (testing "the run-result's schema / warning / effect / render slots ARE the
+            evidence projection of the tape (one source of truth — §B5)"
+    (let [tape [(epoch {:trace-events
+                        [{:operation :rf.error/schema-validation-failure
+                          :tags {:where :app-db :failing-id :db :registered-path [:k] :path [:k]}}
+                         {:op-type :warn :operation :rf.warn/x :tags {:category :perf}}]
+                        :effects [{:fx-id :http :outcome :ok}]
+                        :renders [{:view :v}]})]
+          r        (result/run-result {:epoch-tape tape})
+          expected (evidence/project-evidence tape nil)]
+      (is (= (:schema-violations expected) (:schema-violations r)))
+      (is (= (:warnings expected)          (:warnings r)))
+      (is (= (:effects expected)           (:effects r)))
+      (is (= (:renders expected)           (:renders r)))
+      ;; tape carries a schema violation → the run is :fail by the floor
+      (is (= :fail (:status r))))))
+
+(deftest zero-assertion-clean-run-is-vacuously-green
+  (testing "a run with no assertions + a clean tape is :pass (the duality)"
+    (is (= :pass (:status (result/run-result {:epoch-tape [(epoch {})]}))))
+    (is (= :pass (:status (result/run-result {}))))))
+
+;; ===========================================================================
+;; clojure.test / cljs.test BRIDGE PROJECTION — story/is reports per assertion
+;; ===========================================================================
+
+(deftest result->reports-one-per-assertion
+  (testing "story/is emits one report per assertion record (§B5)"
+    (let [r       (result/run-result
+                    {:assertions [{:assertion :rf.assert/path-equals :payload [[:a] 1]
+                                   :passed? true}
+                                  {:assertion :rf.assert/path-equals :payload [[:b] 2]
+                                   :passed? false :expected 2 :actual 3}]})
+          reports (result/result->reports r)]
+      (is (= 2 (count reports)) "one report per assertion")
+      (is (= :pass (:type (first reports))))
+      (is (= :fail (:type (second reports))))
+      (is (= 2 (:expected (second reports))))
+      (is (= 3 (:actual (second reports)))))))
+
+(deftest result->reports-cannot-run-reports-fail
+  (testing "a :cannot-run assertion reports :fail (the runner proved nothing —
+            never a silent pass)"
+    (let [r       (result/run-result
+                    {:assertions [{:assertion :rf.assert/visual-snapshot
+                                   :status :cannot-run :passed? false
+                                   :reason "needs :browser"}]})
+          reports (result/result->reports r)]
+      (is (= :fail (:type (first reports))))
+      (is (re-find #":cannot-run" (:message (first reports)))))))
+
+(deftest result->reports-zero-assertion-pass-emits-one-pass
+  (testing "a vacuous-green run emits ONE run-level pass so the test sees a
+            positive signal"
+    (let [reports (result/result->reports (result/run-result {}))]
+      (is (= 1 (count reports)))
+      (is (= :pass (:type (first reports)))))))
+
+(deftest result->reports-tape-floor-fail-emits-run-level-report
+  (testing "when the tape floor flipped a green assertion set to :fail, a
+            run-level report carries the floor failure (not silently dropped)"
+    (let [tape [(epoch {:trace-events
+                        [{:operation :rf.error/schema-validation-failure
+                          :tags {:where :event :failing-id :x}}]})]
+          r       (result/run-result
+                    {:epoch-tape tape
+                     :assertions [{:assertion :rf.assert/path-equals :passed? true}]})
+          reports (result/result->reports r)]
+      (is (= :fail (:status r)))
+      ;; one per-assertion pass + one run-level floor fail
+      (is (= 2 (count reports)))
+      (is (= :pass (:type (first reports))))
+      (is (= :fail (:type (last reports))))
+      (is (re-find #"unconsumed failure" (:message (last reports)))))))
+
+(deftest passed?-only-pass
+  (testing "result/passed? is true ONLY for :pass — :cannot-run is not a pass"
+    (is (true?  (result/passed? {:status :pass})))
+    (is (false? (result/passed? {:status :fail})))
+    (is (false? (result/passed? {:status :cannot-run})))
+    (is (false? (result/passed? {:status :error})))))

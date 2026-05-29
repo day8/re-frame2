@@ -55,7 +55,8 @@
     `:passed? true` (used by Stage 5's `run-variant` test entry, and by
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the set of registered event ids."
-  (:require [re-frame.core               :as rf]
+  (:require [clojure.string              :as str]
+            [re-frame.core               :as rf]
             [re-frame.elision            :as elision]
             [re-frame.interop            :as interop]
             [re-frame.subs               :as subs]
@@ -310,22 +311,76 @@
                       " at " (pr-str path)
                       " but got "  (pr-str actual)))}))
 
+(defn- resolve-sym-pred
+  "Resolve a predicate symbol to a callable fn. JVM uses
+  `requiring-resolve`; CLJS resolves via a best-effort `goog.global` walk
+  on munged dotted names (fragile under advanced compilation — the fn-
+  direct authoring path is advanced-safe). Returns nil on miss. Mirrors
+  `re-frame.story.play.runner-events/resolve-predicate`; kept here so the
+  `[:fn sym]` schema fold (rf2-5x1wt.18 `:assert-db :pred` form) resolves
+  at validation time without a require into the impure runner-events ns."
+  [sym]
+  (when sym
+    (try
+      #?(:clj
+         (when-let [v (requiring-resolve (symbol sym))]
+           (when (var? v) @v))
+         :cljs
+         (let [ns-part (namespace sym) name-part (name sym)]
+           (when (and ns-part name-part)
+             (let [parts (-> (str ns-part "." name-part)
+                             (str/replace #"-" "_")
+                             (str/split #"\."))]
+               (loop [obj js/window ks parts]
+                 (cond
+                   (nil? obj)  nil
+                   (empty? ks) (when (fn? obj) obj)
+                   :else       (recur (aget obj (first ks)) (rest ks))))))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn- resolve-fn-schema
+  "Rewrite a `[:fn sym]` schema (the rf2-5x1wt.18 `:assert-db :pred` fold's
+  symbol form) into `[:fn resolved-fn]` so Malli can validate it without
+  sci (`[:fn 'sym]` needs sci — unavailable). A `[:fn fn]` (the fn-direct
+  fold) and every non-`:fn` schema pass through unchanged. Pure-ish — the
+  symbol resolution is the only runtime read. Returns the (possibly
+  resolved) schema, or `::unresolved-pred` when the symbol could not be
+  resolved (so `malli-validate` can report a useful failure rather than
+  letting Malli throw an opaque sci error)."
+  [schema]
+  (if (and (vector? schema) (= :fn (first schema)) (symbol? (second schema)))
+    (if-let [f (resolve-sym-pred (second schema))]
+      [:fn f]
+      ::unresolved-pred)
+    schema))
+
 (defn- malli-validate
   "Best-effort Malli validation. Returns `[passed? explanation]`. Malli
   is a Story dep (per tools/story/deps.edn) so the require resolves on
   both runtimes; production `:advanced` builds with Story disabled DCE
-  the entire assertion vocabulary anyway."
+  the entire assertion vocabulary anyway.
+
+  rf2-5x1wt.19 — a `[:fn sym]` schema (the `:assert-db :pred` symbol fold,
+  §B5.9) is resolved to `[:fn resolved-fn]` first (`resolve-fn-schema`),
+  because Malli's `[:fn 'sym]` form needs sci (unavailable). An
+  unresolvable symbol reports a readable failure rather than an opaque
+  sci error."
   [schema value]
-  (try
-    (let [ok? (boolean (malli/validate schema value))
-          ex  (when-not ok?
-                (try (malli/explain schema value)
-                     (catch #?(:clj Throwable :cljs :default) _ nil)))]
-      [ok? (when ex (pr-str ex))])
-    (catch #?(:clj Throwable :cljs :default) e
-      [false (str "malli validation threw: "
-                  #?(:clj (.getMessage ^Throwable e)
-                     :cljs (str e)))])))
+  (let [schema (resolve-fn-schema schema)]
+    (if (= ::unresolved-pred schema)
+      [false (str "could not resolve :pred symbol in schema "
+                  "(symbol resolution is fragile under advanced CLJS; "
+                  "pass the predicate as a fn directly to avoid this)")]
+      (try
+        (let [ok? (boolean (malli/validate schema value))
+              ex  (when-not ok?
+                    (try (malli/explain schema value)
+                         (catch #?(:clj Throwable :cljs :default) _ nil)))]
+          [ok? (when ex (pr-str ex))])
+        (catch #?(:clj Throwable :cljs :default) e
+          [false (str "malli validation threw: "
+                      #?(:clj (.getMessage ^Throwable e)
+                         :cljs (str e)))])))))
 
 (defn- evaluate-path-matches
   [frame-id db [path schema]]

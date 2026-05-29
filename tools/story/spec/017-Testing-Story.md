@@ -1544,6 +1544,86 @@ already hashes `:epoch-tape` alongside the projected `:schema-violations` /
 `:warnings` / `:effects`, so a divergent projection perturbs the
 run-equivalence hash.
 
+### Unified run result {#unified-run-result}
+
+There is **one run-result shape**, assembled by **one boundary** —
+`re-frame.story.result/run-result` (re-exported as `story/run-result`).
+Before unification three result vocabularies coexisted and could disagree
+(the documented "false GREEN"): the runtime's `:lifecycle`-keyed map, the
+play runner's per-step `run-state` machine, and `replay-result`'s tape-
+projected shape. They are now folded onto the ONE shape, derived — wherever
+the tape carries the evidence — from `evidence/project-evidence` (the single
+tape projection; there is **no parallel accumulator**). The judgement slots
+(`:assertions` / `:checks`) fold the `:rf.story/assertions` accumulator (the
+ONE non-tape input — an assertion verdict is the one fact the tape does not
+carry); every evidential slot is a `.4` projection.
+
+**The three record shapes carry a unified `:status`.** Each assertion record
+and check record carries `:status ∈ #{:pass :fail :cannot-run :error}`
+alongside the `.18` atom / accumulator fields, so the run aggregation reads
+ONE field. `result/record-status` derives it: an explicit `:status` wins;
+else `:cannot-run?` / a no-DOM `:skipped?` → `:cannot-run` (the §`:cannot-run`
+rule generalizes the shipping `:skipped?`); `:exception` / `:error` →
+`:error`; `:passed?` true/false → `:pass` / `:fail`; a record with no
+outcome is vacuously `:pass` (the §Story-as-test duality).
+
+**Check records group assertions.** `result/check-records` pairs the plan's
+expanded `{check-id [assertion-atom …]}` (via `plan/expand-checks`, §Total
+resolution order step 8) against the run's evaluated records — each check id
+groups the records its atoms produced (matched by assertion id **and**
+payload, so two same-id assertions in one check disambiguate), and the
+check's `:status` aggregates its group. A failed check shows BOTH the check
+id AND the underlying records (§Checks).
+
+**The verdict — the aggregation rule, stated once.**
+`requirements/aggregate-status` is the ONE rule over the assertion records +
+the `:cannot-run` refusals: `:error` > `:fail` > `:cannot-run` > `:pass`.
+The agreement floor (`tape-shows-failure?`) then escalates a would-be
+`:pass` to `:fail` when the tape carries unconsumed failure evidence — so a
+run NEVER reads green while the tape is red, and the verdict derives from the
+PROJECTED evidence, not a sibling accumulator. A run whose only unmet
+expectations are `:cannot-run` is itself `:cannot-run` (a refusal, never a
+silent pass); a zero-assertion clean run is `:pass` (vacuously green).
+
+**The runtime consumes the folded plan.** The `.18` fold (`:assert-db` /
+`:assert-dom` → the canonical `[:assert assertion-atom]` checkpoint) is
+applied at script-resolution time (`runner-events/variant-plays` /
+`variant-play-script` / `play/variant-play-steps` all run
+`assertions/fold-script`), so the runtime drives the ONE assertion atom in
+its checkpoint position — there is **no synthetic `:rf.assert/db` /
+`:rf.assert/dom` rail**. A folded `:assert-db` dispatches the real
+`:rf.assert/path-equals` (or, for the `:pred` form, `:rf.assert/path-matches`
+wrapping a `[:fn …]` schema — a `[:fn sym]` symbol resolves at validation
+time) handler, which records the canonical record; a folded `:assert-dom` is
+evaluated by the DOM executor and records a canonical `:rf.assert/dom-*`
+record. One assertion-record vocabulary, one recorder.
+
+**Test mode and CI consume the unified result.** The Story Test mode
+aggregation (`ui.state.tests/aggregate-summary` / `record-test-run` /
+`test-summary`) buckets by each record's unified `:status` and counts
+`:cannot-run` distinctly (the sidebar dot renders pass / fail / cannot-run /
+running / pending). The CI runner's terminal-state read recognizes
+`:cannot-run` as a terminal verdict (`ci-runner/terminal?`), and the play
+runner's `finish` computes `:pass` / `:fail` / `:cannot-run` by the same
+aggregation rule (a run whose only non-pass steps are refusals is
+`:cannot-run`).
+
+**The `story/is` → clojure.test / cljs.test bridge.** `(story/is target
+opts)` runs `target` and REPORTS each assertion to clojure.test / cljs.test
+at per-assertion granularity. The pure projection
+`result/result->reports` turns a unified result into the ordered vector of
+report maps — one `{:type :pass|:fail|:error …}` per assertion record, plus
+a trailing run-level report when the verdict is not covered by a single
+assertion (a tape-floor `:fail`, a run-level `:cannot-run`, or a vacuous-
+green `:pass` so a zero-assertion run still emits one positive signal). A
+`:cannot-run` assertion reports `:fail` (the runner proved nothing — never a
+silent pass). On the JVM (the canonical headless test gate) `story/is`
+blocks on the run promise and fires `clojure.test/do-report` synchronously,
+returning the unified result; on CLJS — where the run is async — it returns
+the promise (chain `then`, or use the `cljs.test` `(async done …)` form and
+call `story/report-result!` when it resolves). `report-result!` is the pure-
+report seam both runtimes share.
+
 ## Public execution API — the three verbs
 
 The primary API is **three verbs** dispatching on target type — a keyword

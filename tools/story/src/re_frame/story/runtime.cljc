@@ -38,6 +38,7 @@
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
+            [re-frame.epoch           :as epoch]
             [re-frame.story.args      :as args]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async     :as async]
@@ -46,9 +47,11 @@
             [re-frame.story.frames    :as frames]
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
+            [re-frame.story.plan      :as plan]
             [re-frame.story.play      :as play]
             [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.result    :as result]
             [re-frame.interop         :as interop]
             [re-frame.trace           :as trace]
             ;; rf2-qwm0a — listener API lives in
@@ -64,9 +67,12 @@
   rather than an exception. The shape matches a successful run with
   no registrations to act on."
   [variant-id]
-  {:frame           variant-id
+  {:status          :pass            ; rf2-5x1wt.19 — the unified verdict; a
+                                     ; no-registration run is vacuously green
+   :frame           variant-id
    :app-db          {}
    :assertions      []
+   :checks          []
    :rendered-hiccup nil
    :elapsed-ms      0
    :snapshot        nil
@@ -315,20 +321,57 @@
 ;; used to be. The named-phase decomposition also gives tests a finer entry
 ;; surface: a primed ctx can be fed into a single phase fn in isolation.
 
+(defn- variant-checks
+  "Resolve a variant's `:checks` ids into the
+  `{check-id [assertion-atom …]}` map the unified result groups by
+  (rf2-5x1wt.19). Reads the variant body's `:checks` and expands each
+  through the Story side-table `:check` kind (`plan/expand-checks`).
+  Tolerant — any resolution failure yields an empty map (checks then
+  group nothing; the run-level aggregation still sees ungrouped records)."
+  [variant-id]
+  (try
+    (let [body (frames/variant-body variant-id)]
+      (plan/expand-checks (:checks body)))
+    (catch #?(:clj Throwable :cljs :default) _ {})))
+
 (defn- record-result-map
-  "Build the result map returned by `run-variant`. Pure data; gathers
-  whatever the runtime accumulated against the variant's frame."
-  [variant-id decorator-stack effective-args snapshot start-ms]
-  (let [app-db (rf/get-frame-db variant-id)]
-    {:frame           variant-id
-     :app-db          (or app-db {})
-     :assertions      (or (:rf.story/assertions app-db) [])
-     :rendered-hiccup nil       ;; Stage 4 fills this in
-     :elapsed-ms      (- (interop/now-ms) start-ms)
-     :snapshot        snapshot
-     :decorators      decorator-stack
-     :effective-args  effective-args
-     :lifecycle       (loaders/current-state variant-id)}))
+  "Build the unified run-result returned by `run-variant` (rf2-5x1wt.19,
+  spec/017 §Run result + §Unified run result). Gathers whatever the
+  runtime accumulated against the variant's frame and assembles the ONE
+  shared shape via `result/run-result`:
+
+  - the evidential slots (`:status` floor, `:epoch-tape`,
+    `:schema-violations`, `:warnings`, `:effects`, `:sub-runs`,
+    `:renders`, `:narrative`) are PROJECTED from the retained epoch tape
+    (`.4`'s `evidence/project-evidence`, via `result/run-result`) — NOT a
+    parallel accumulator;
+  - the judgement slots (`:assertions` / `:checks`) fold the
+    `:rf.story/assertions` accumulator (the ONE non-tape input) into
+    unified records + groups them under their check ids;
+  - the top-level `:status` is the unified verdict.
+
+  The legacy `:lifecycle` / `:frame` / `:snapshot` / `:decorators` /
+  `:effective-args` / `:rendered-hiccup` slots are PRESERVED (API stable,
+  spec/017 §1a — `:status` is NET-NEW alongside `:lifecycle`), so existing
+  consumers keep reading their slots while the unified shape lands."
+  [{:keys [variant-id decorator-stack effective-args snapshot executed-script]} start-ms]
+  (let [app-db   (rf/get-frame-db variant-id)
+        tape     (vec (epoch/epoch-history variant-id))
+        unified  (result/run-result
+                   {:variant/id   variant-id
+                    :epoch-tape   tape
+                    :assertions   (or (:rf.story/assertions app-db) [])
+                    :script       executed-script
+                    :check->atoms (variant-checks variant-id)
+                    :app-db       (or app-db {})
+                    :elapsed-ms   (- (interop/now-ms) start-ms)})]
+    (merge unified
+           {:frame           variant-id
+            :rendered-hiccup nil       ;; Stage 4 fills this in
+            :snapshot        snapshot
+            :decorators      decorator-stack
+            :effective-args  effective-args
+            :lifecycle       (loaders/current-state variant-id)})))
 
 (defn- prepare-context
   "Resolve the per-run inputs that every phase needs: the decorator
@@ -381,8 +424,11 @@
   ctx)
 
 (defn- run-phase-4!
-  "Phase 4: run the play-script. Returns the play-promise — the
-  orchestrator chains `then` on it to know when to build the result.
+  "Phase 4: run the play-script. Returns `[ctx' play-promise]` — `ctx'`
+  carries `:executed-script` (the folded steps the auto-plays ran, for the
+  unified result's two-level narrative — rf2-5x1wt.19), and the
+  orchestrator chains `then` on the promise to know when to build the
+  result.
 
   rf2-0wrud (2026-05-20): drives the rich-DSL `:play-script` runner via
   `runner-events/run!`. Variants without `:play-script` / `:plays`
@@ -391,56 +437,68 @@
   by wrapping each entry in `[:dispatch-sync <event-vec>]` inside a
   `:play-script` body.
 
+  rf2-5x1wt.19 — `runner-events/variant-plays` now returns FOLDED play
+  scripts (shipping `:assert-db` / `:assert-dom` rewritten to the canonical
+  `[:assert …]` checkpoint), so the runtime consumes the `.18`-folded plan
+  and the executed-script narrative carries the one assertion atom.
+
   Phase 3 (render) is Stage 4's UI-shell concern and is not driven
   from this orchestrator."
-  [{:keys [variant-id loaders-complete?]}]
+  [{:keys [variant-id loaders-complete?] :as ctx}]
   (if-not loaders-complete?
-    (async/resolved (read-assertions variant-id))
-    (let [plays (runner-events/variant-plays variant-id)
+    [ctx (async/resolved (read-assertions variant-id))]
+    (let [plays      (runner-events/variant-plays variant-id)
           auto-plays (filterv (fn [p] (and (:auto-run? p)
                                             (seq (:script p))))
-                              plays)]
+                              plays)
+          ;; The folded steps the auto-plays ran, concatenated in order —
+          ;; the script the unified result's two-level narrative spans.
+          executed   (vec (mapcat :script auto-plays))
+          ctx'       (assoc ctx :executed-script executed)]
       (if (empty? auto-plays)
-        (async/resolved (read-assertions variant-id))
-        (async/promise
-          (fn [resolve]
-            ;; Run each auto-play sequentially. The `:rf.assert/*` events
-            ;; dispatched-sync from `[:dispatch-sync ...]` steps record
-            ;; into `:rf.story/assertions` on the frame via the standard
-            ;; assertion handlers. Once every auto-play has finished, the
-            ;; orchestrator builds the result map from the frame's
-            ;; accumulated assertions.
-            (letfn [(step! [remaining]
-                      (if (empty? remaining)
-                        (resolve (read-assertions variant-id))
-                        (let [spec (first remaining)]
-                          (runner-events/run! variant-id (:name spec) spec
-                                              (fn [_state]
-                                                (step! (rest remaining)))))))]
-              (step! auto-plays))))))))
+        [ctx' (async/resolved (read-assertions variant-id))]
+        [ctx'
+         (async/promise
+           (fn [resolve]
+             ;; Run each auto-play sequentially. The `:rf.assert/*` events
+             ;; the folded `[:assert …]` checkpoints dispatch record into
+             ;; `:rf.story/assertions` on the frame via the standard
+             ;; assertion handlers. Once every auto-play has finished, the
+             ;; orchestrator builds the result map from the frame's
+             ;; accumulated assertions.
+             (letfn [(step! [remaining]
+                       (if (empty? remaining)
+                         (resolve (read-assertions variant-id))
+                         (let [spec (first remaining)]
+                           (runner-events/run! variant-id (:name spec) spec
+                                               (fn [_state]
+                                                 (step! (rest remaining)))))))]
+               (step! auto-plays))))]))))
 
 (defn- finalise-run!
   "Build and deliver the result map once phase 4's promise settles.
   Stage 5 (rf2-h8et) makes this chain load-bearing: `execute-play!`
   resolves the promise to the assertions vector, and we want the
   result map to read the post-play app-db."
-  [resolve play-promise {:keys [variant-id decorator-stack effective-args snapshot]} start-ms]
+  [resolve play-promise ctx start-ms]
   (-> play-promise
       (async/then
         (fn [_]
-          (resolve (record-result-map variant-id decorator-stack
-                                      effective-args snapshot start-ms))
+          (resolve (record-result-map ctx start-ms))
           nil))))
 
 (defn- handle-run-error!
   "Catch-branch for the orchestrator: record the exception as a
   phase-0-setup assertion (covers any sync throw from the phase chain),
   transition the lifecycle machine to `:error`, then resolve with the
-  best result map we can build from whatever the run accumulated."
+  best result map we can build from whatever the run accumulated. The
+  recorded `:rf.error/exception` assertion (`:passed? false`) flows into
+  the unified result's `:assertions`, so the aggregation reports `:fail`
+  (the error record is a failed expectation) even when the tape is sparse."
   [resolve variant-id e start-ms]
   (record-error! variant-id :phase-0-setup nil e)
   (loaders/error! variant-id (ex-data e))
-  (resolve (record-result-map variant-id nil nil nil start-ms)))
+  (resolve (record-result-map {:variant-id variant-id} start-ms)))
 
 (defn- unknown-variant-result
   "The error result returned when `frames/variant-body` finds no
@@ -448,9 +506,11 @@
   branch of `run-variant` reads as a single expression."
   [variant-id]
   (assoc (empty-result variant-id)
-         :lifecycle :error
+         :status     :error
+         :lifecycle  :error
          :assertions [{:assertion  :rf.error/unknown-variant
                        :variant-id variant-id
+                       :status     :error
                        :passed?    false}]))
 
 (defn run-variant
@@ -489,8 +549,8 @@
                                         run-phase-0!
                                         run-phase-1!
                                         run-phase-2!)
-                       play-promise (run-phase-4! ctx)]
-                   (finalise-run! resolve play-promise ctx start-ms))
+                       [ctx' play-promise] (run-phase-4! ctx)]
+                   (finalise-run! resolve play-promise ctx' start-ms))
                  (catch #?(:clj Throwable :cljs :default) e
                    (handle-run-error! resolve variant-id e start-ms)))))))))))
 
