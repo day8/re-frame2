@@ -178,7 +178,11 @@
   `story.foo/bar` still inherits `story.foo`'s preconditions; the
   variant-chain + composed-fragment setup comes from the plan, where
   `:extends` setup APPENDS root→child and `:setup` / `:events` are both
-  lowered to the one slot (spec/017 §Merge rules)."
+  lowered to the one slot (spec/017 §Merge rules).
+
+  An INLINE plan (rf2-5x1wt.20) has no parent story (it is unregistered),
+  so `story-id` resolves nil and only the plan's own `[:world :setup]`
+  drives phase 2 — the plan is already the complete setup program."
   [variant-id plan]
   (let [story-id     (args/parent-story-id variant-id)
         story-body   (when story-id (registrar/handler-meta :story story-id))
@@ -236,13 +240,20 @@
   machine that's already terminal-for-mount. Both helpers would
   silently no-op (the `:ready` node only accepts `:errored`), but
   routing past them keeps the phase reads honest: `current-state`
-  stays `:ready` end-to-end."
-  [variant-id]
-  (if (= :ready (loaders/current-state variant-id))
+  stays `:ready` end-to-end.
+
+  rf2-5x1wt.20 — the loader BODY (`:loaders` + `:loaders-complete-when`)
+  defaults to the registered variant body but MAY be supplied explicitly,
+  so the inline-plan path (which has no registration) feeds the loader
+  slots the compiler carried onto the plan's `:world`. The default keeps
+  the registered path reading the side-table verbatim."
+  ([variant-id] (run-loaders! variant-id (frames/variant-body variant-id)))
+  ([variant-id loader-body]
+   (if (= :ready (loaders/current-state variant-id))
     ;; Events-only fast-path (rf2-043cm). Lifecycle already terminal-
     ;; for-mount; the loader cascade has nothing to do.
     true
-    (let [variant-body (frames/variant-body variant-id)
+    (let [variant-body loader-body
           loader-events (or (:loaders variant-body) [])]
       (loaders/start-loaders! variant-id)
       (capture-phase-errors
@@ -267,7 +278,7 @@
             true)
           (do
             (record-loader-incomplete! variant-id variant-body)
-            false))))))
+            false)))))))
 
 ;; ---- error recording -----------------------------------------------------
 
@@ -365,44 +376,47 @@
 ;; used to be. The named-phase decomposition also gives tests a finer entry
 ;; surface: a primed ctx can be fed into a single phase fn in isolation.
 
-(defn- variant-checks
-  "Resolve a variant's `:checks` ids into the
+(defn- plan-checks
+  "Resolve a normalized PLAN's `[:expect :checks]` ids into the
   `{check-id [assertion-atom …]}` map the unified result groups by
-  (rf2-5x1wt.19). Reads the variant body's `:checks` and expands each
-  through the Story side-table `:check` kind (`plan/expand-checks`).
-  Tolerant — any resolution failure yields an empty map (checks then
-  group nothing; the run-level aggregation still sees ungrouped records)."
-  [variant-id]
+  (rf2-5x1wt.19). Expands each check id through the Story side-table
+  `:check` kind (`plan/expand-checks`). Sourcing the check ids from the
+  plan (rather than re-reading the variant body) means a REGISTERED
+  variant and an INLINE plan (rf2-5x1wt.20 — unregistered) resolve their
+  checks identically: the compiler already merged inherited + composed
+  check ids into `[:expect :checks]`. Tolerant — any resolution failure
+  yields an empty map (checks then group nothing; the run-level
+  aggregation still sees ungrouped records)."
+  [plan]
   (try
-    (let [body (frames/variant-body variant-id)]
-      (plan/expand-checks (:checks body)))
+    (plan/expand-checks (get-in plan [:expect :checks]))
     (catch #?(:clj Throwable :cljs :default) _ {})))
 
-(defn- variant-schema-expectations
-  "Collect every declared `[:rf.assert/schema-error spec]` atom for
-  `variant-id` (rf2-5x1wt.21, spec/017 §Schema rule). These declare the
+(defn- plan-schema-expectations
+  "Collect every declared `[:rf.assert/schema-error spec]` atom for a
+  normalized PLAN (rf2-5x1wt.21, spec/017 §Schema rule). These declare the
   EXPECTED schema violations the result boundary exactly-consumes against
   the projected tape evidence — so a missing/different violation fails the
-  run, an exactly-expected violation passes. Pure aside from the registrar
-  reads; tolerant (any resolution failure yields no expectations, so the
-  strict floor — every violation fails — applies).
+  run, an exactly-expected violation passes. Pure aside from the check
+  expansion's registrar reads; tolerant (any failure yields no
+  expectations, so the strict floor — every violation fails — applies).
 
-  Sources, all in the ONE assertion-atom vocabulary:
+  Sources, all in the ONE assertion-atom vocabulary, all read off the
+  compiled plan so a registered variant and an inline plan share the path:
 
-  - the variant body's terminal `:assertions` (own-only verdict);
-  - the expanded `:checks` assertion atoms (an inheritable schema
-    expectation rides a check, §Checks);
+  - the plan's terminal `[:expect :assertions]` (own-only verdict);
+  - the expanded `[:expect :checks]` assertion atoms (an inheritable
+    schema expectation rides a check, §Checks);
   - the auto-play `executed-script`'s in-script `[:assert …]` checkpoints
     (a mid-script schema expectation).
 
   `:rf.assert/schema-error` is NOT dispatched into the frame (it has no
   reg-event-fx handler — it is tape-evaluated), so collecting the DECLARED
   atoms here is the single path that feeds the consumption matcher."
-  [variant-id executed-script]
+  [plan executed-script]
   (try
-    (let [body          (frames/variant-body variant-id)
-          terminal      (vec (:assertions body))
-          check-atoms   (mapcat val (variant-checks variant-id))
+    (let [terminal      (vec (get-in plan [:expect :assertions]))
+          check-atoms   (mapcat val (plan-checks plan))
           script-atoms  (into []
                               (keep (fn [step]
                                       (when (and (vector? step)
@@ -432,8 +446,12 @@
   The legacy `:lifecycle` / `:frame` / `:snapshot` / `:decorators` /
   `:effective-args` / `:rendered-hiccup` slots are PRESERVED (API stable,
   spec/017 §1a — `:status` is NET-NEW alongside `:lifecycle`), so existing
-  consumers keep reading their slots while the unified shape lands."
-  [{:keys [variant-id decorator-stack effective-args snapshot executed-script]} start-ms]
+  consumers keep reading their slots while the unified shape lands.
+
+  Checks + schema-expectations are sourced from the compiled `:plan`
+  (rf2-5x1wt.20), so a registered variant and an INLINE plan assemble the
+  same result through one path."
+  [{:keys [variant-id decorator-stack effective-args snapshot executed-script plan]} start-ms]
   (let [app-db   (rf/get-frame-db variant-id)
         ;; rf2-5x1wt.19 follow-through — read the epoch tape through the
         ;; late-bound `re-frame.core/epoch-history` facade (mirroring
@@ -449,14 +467,14 @@
                     :epoch-tape          tape
                     :assertions          (or (:rf.story/assertions app-db) [])
                     :script              executed-script
-                    :check->atoms        (variant-checks variant-id)
+                    :check->atoms        (plan-checks plan)
                     ;; rf2-5x1wt.21 — the declared `:rf.assert/schema-error`
                     ;; expectations, EXACT-consumed against the projected
                     ;; tape violations (§Schema rule). Tape-evaluated, NOT
-                    ;; dispatched — collected from the body, not the
+                    ;; dispatched — collected from the plan, not the
                     ;; `:rf.story/assertions` accumulator.
-                    :schema-expectations (variant-schema-expectations
-                                           variant-id executed-script)
+                    :schema-expectations (plan-schema-expectations
+                                           plan executed-script)
                     :app-db              (or app-db {})
                     :elapsed-ms          (- (interop/now-ms) start-ms)})]
     (merge unified
@@ -517,9 +535,17 @@
 
 (defn- run-phase-1!
   "Phase 1: drive loaders to completion. Thin wrapper that returns
-  `ctx` so the orchestrator stays a clean threaded pipeline."
-  [{:keys [variant-id] :as ctx}]
-  (assoc ctx :loaders-complete? (run-loaders! variant-id)))
+  `ctx` so the orchestrator stays a clean threaded pipeline.
+
+  rf2-5x1wt.20 — the loader body defaults to the registered variant body
+  (`run-loaders!` 1-arity); an inline run threads `:loader-body` on the
+  ctx (the plan's `:world` loader slots), so an inline plan's loaders run
+  through the SAME phase fn without reading the side-table."
+  [{:keys [variant-id loader-body] :as ctx}]
+  (assoc ctx :loaders-complete?
+         (if (contains? ctx :loader-body)
+           (run-loaders! variant-id loader-body)
+           (run-loaders! variant-id))))
 
 (defn- run-phase-2!
   "Phase 2: dispatch the plan's `[:world :setup]` (+ the parent story's
@@ -728,6 +754,162 @@
                    (finalise-run! resolve play-promise ctx' start-ms))
                  (catch #?(:clj Throwable :cljs :default) e
                    (handle-run-error! resolve variant-id e start-ms)))))))))))
+
+;; ---- inline plan execution (rf2-5x1wt.20) --------------------------------
+;;
+;; An inline plan (spec/017 §Inline plan) is an executable plan MAP that is
+;; NOT registered as a Story variant: it MUST NOT appear in Story
+;; navigation, it MAY compose registered fragments + checks, and it MUST
+;; return the SAME run-result shape as a registered variant. `story/run`,
+;; `story/is`, and `story/explain` already accept a map target (the verbs
+;; dispatch on target type — a keyword is a registry lookup, a map is an
+;; inline plan); `variant-plan` / `explain` compile a map directly
+;; (rf2-5x1wt.24). This is the RUN path for a map target.
+;;
+;; The design reuses the registered run pipeline rather than forking it:
+;;
+;;   - the plan is compiled once (`plan/variant-plan` accepts the map);
+;;   - an ANONYMOUS frame id is minted in the reserved `:rf.story.inline/*`
+;;     namespace (NEVER a registered variant id, so navigation can't surface
+;;     it and a concurrent registered run can't collide);
+;;   - the decorator stack is resolved from the plan's `[:world :decorators]`
+;;     refs (registry-free — the variant/story side-table is not read);
+;;   - the SAME phase fns (`run-phase-1!` / `run-phase-2!` / `run-phase-4!`)
+;;     drive loaders → setup → script, all sourced from the plan;
+;;   - `record-result-map` assembles the one unified result from the plan +
+;;     the frame's accumulated assertions + the epoch tape;
+;;   - the anonymous frame is torn down once the run resolves.
+
+(defonce ^:private inline-frame-counter (atom 0))
+
+(defn- mint-inline-frame-id
+  "Mint a fresh anonymous frame id for an inline-plan run, in the reserved
+  `:rf.story.inline/*` namespace (spec/Conventions.md §Reserved
+  namespaces). A monotonic counter keeps concurrent inline runs on
+  distinct frames; the id is never a registered variant id, so an inline
+  run can never collide with — or appear alongside — a navigable variant."
+  []
+  (keyword "rf.story.inline" (str "plan-" (swap! inline-frame-counter inc))))
+
+(defn- prepare-inline-context
+  "Resolve the per-run inputs an inline-plan run needs from its COMPILED
+  `plan` (rf2-5x1wt.20). Registry-free twin of `prepare-context`:
+
+  - `:variant-id`      — the minted anonymous frame id (the run's frame);
+  - `:plan`            — the supplied compiled plan, threaded down the
+                          phases unchanged (it is already normalized);
+  - `:decorator-stack` — `decorators/resolve-decorator-refs` over the
+                          plan's `[:world :decorators]` refs (the compiler
+                          merged the variant chain + composed fragments
+                          into that vector);
+  - `:effective-args`  — the plan's `[:world :effective-args]` (resolved at
+                          compile time);
+  - `:loader-body`     — the loader slots (`:loaders` /
+                          `:loaders-complete-when`) the compiler carried
+                          onto `:world`, so phase 1 runs the inline plan's
+                          loaders without a registry read;
+  - `:snapshot`        — nil; an unregistered inline plan has no navigable
+                          snapshot identity.
+
+  Pure aside from the decorator-body registrar reads (a decorator is a
+  registered artefact even when the plan is not)."
+  [frame-id plan]
+  {:variant-id      frame-id
+   :plan            plan
+   :decorator-stack (decorators/resolve-decorator-refs
+                      (get-in plan [:world :decorators] []))
+   :effective-args  (get-in plan [:world :effective-args] {})
+   :loader-body     {:loaders               (get-in plan [:world :loaders])
+                     :loaders-complete-when (get-in plan [:world :loaders-complete-when])}
+   :snapshot        nil})
+
+(defn- inline-events-only?
+  "True iff the inline `plan` drives no loaders / loaders-complete-when and
+  carries no `:frame-setup` decorators — so the lifecycle takes the
+  `:pre-mount → :ready` fast-path (rf2-043cm). Mirrors
+  `loaders/events-only-variant?`, reading the loader slots off the plan's
+  `:world` rather than a registered body."
+  [plan decorator-stack]
+  (and (empty? (get-in plan [:world :loaders]))
+       (nil?   (get-in plan [:world :loaders-complete-when]))
+       (empty? (:frame-setup decorator-stack))))
+
+(defn- run-inline-phase-0!
+  "Phase 0 for an inline run: allocate the ANONYMOUS frame from the plan
+  (registry-free), then seed the assertion accumulators + install the
+  play-runner trace listener — the same ordering `run-phase-0!` uses so
+  loader-phase events are captured."
+  [{:keys [variant-id plan decorator-stack] :as ctx}]
+  (frames/allocate-inline! variant-id
+                           decorator-stack
+                           (get-in plan [:world :frame :fx-overrides])
+                           (inline-events-only? plan decorator-stack))
+  (assertions/reset-trace-accumulators! variant-id)
+  (play/install-trace-listener! variant-id)
+  ctx)
+
+(defn run-inline-plan
+  "Execute an inline plan MAP (rf2-5x1wt.20, spec/017 §Inline plan) and
+  return a promise/future of the unified run-result — the SAME shape a
+  registered variant run returns.
+
+  `inline-plan` is the inline plan body (a map). `opts` is the run opts
+  threaded to the plan compiler (`:lookup` / `:fragment-lookup` /
+  `:check-lookup` / `:view-lookup` / `:sub-lookup` / `:validator-fns` — so
+  the plan MAY compose REGISTERED fragments + checks, or thread explicit
+  lookups for a host-free run). The plan is compiled ONCE, run against a
+  fresh anonymous frame, and the frame is torn down when the run resolves.
+
+  A plan-construction failure (an unknown composed fragment, a missing
+  `[:arg …]`, a misplaced `[:assert …]` in setup, …) surfaces as the same
+  structured `:rf.error/story-*` error result a registered variant's
+  malformed plan produces — the frame is never allocated in that case.
+
+  The inline plan is NOT registered in the Story side-table; it is absent
+  from Story navigation by construction (no registration + an anonymous
+  frame stamped `:rf/inline?`)."
+  ([inline-plan] (run-inline-plan inline-plan nil))
+  ([inline-plan opts]
+   (if-not config/enabled?
+     (async/resolved (empty-result (:variant/id inline-plan)))
+     (let [start-ms     (interop/now-ms)
+           compile-opts (select-keys opts [:lookup :fragment-lookup :check-lookup
+                                           :view-lookup :sub-lookup :validator-fns])
+           ;; Compile the plan up front so a construction failure (an
+           ;; unknown composed fragment, a missing `[:arg …]`, an
+           ;; `[:assert …]` in setup, …) is projected directly — no frame
+           ;; is allocated, mirroring `plan-error-result`'s frame-free shape.
+           plan-or-err  (try {:plan (plan/variant-plan inline-plan compile-opts)}
+                          (catch #?(:clj Throwable :cljs :default) e {:error e}))]
+       (if-let [e (:error plan-or-err)]
+         (async/resolved (plan-error-result (:variant/id inline-plan) e))
+         (let [plan     (:plan plan-or-err)
+               frame-id (mint-inline-frame-id)]
+           (async/promise
+             (fn [resolve]
+               (try
+                 (let [ctx          (-> (prepare-inline-context frame-id plan)
+                                        run-inline-phase-0!
+                                        run-phase-1!
+                                        run-phase-2!)
+                       [ctx' play-promise] (run-phase-4! ctx)]
+                   (-> play-promise
+                       (async/then
+                         (fn [_]
+                           (let [result (record-result-map ctx' start-ms)]
+                             (frames/destroy-inline!
+                               frame-id (:decorator-stack ctx')
+                               (get-in plan [:world :loaders-teardown]))
+                             (resolve result))
+                           nil))))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (record-error! frame-id :phase-0-setup nil e)
+                   (loaders/error! frame-id (ex-data e))
+                   (let [result (record-result-map
+                                  {:variant-id frame-id :plan plan} start-ms)]
+                     (try (frames/destroy-inline! frame-id nil nil)
+                       (catch #?(:clj Throwable :cljs :default) _ nil))
+                     (resolve result))))))))))))
 
 ;; ---- reset-variant -------------------------------------------------------
 

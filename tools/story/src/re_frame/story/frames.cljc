@@ -485,6 +485,91 @@
       (apply-frame-setup! variant-id (:frame-setup decorator-stack))
       variant-id)))
 
+;; ---- inline-plan allocation (rf2-5x1wt.20) -------------------------------
+;;
+;; An inline plan (spec/017 §Inline plan) is an executable plan map that is
+;; NOT registered as a Story variant — so `allocate!`'s side-table reads
+;; (the `variant-body` lookup for the events-only classification, the
+;; decorator-stack resolution from the variant/story `:decorators` slots)
+;; have nothing to read. `allocate-inline!` is the registry-free twin:
+;; everything it needs is already on the compiled plan + the supplied
+;; decorator stack (resolved from the plan's `[:world :decorators]` refs via
+;; `decorators/resolve-decorator-refs`). The allocated frame is stamped
+;; `:rf/inline? true` so tools / navigation can tell an inline run's frame
+;; apart from a registered variant's frame — an inline plan MUST NOT appear
+;; in Story navigation.
+
+(defn- inline-frame-config
+  "Construct the `reg-frame` config map for an inline-plan frame. Mirrors
+  `variant-frame-config` but stamps `:rf/inline? true` (the inline run's
+  anonymous frame is never a navigable variant)."
+  [frame-id fx-overrides]
+  (cond-> {:doc        (str "Inline-plan frame for " frame-id ".")
+           :preset     :story
+           :rf/story?  true
+           :rf/inline? true
+           :rf/variant frame-id}
+    (seq fx-overrides) (assoc :fx-overrides fx-overrides)))
+
+(defn allocate-inline!
+  "Allocate an anonymous frame for an inline plan run (rf2-5x1wt.20,
+  spec/017 §Inline plan). Registry-free twin of `allocate!`:
+
+  - `frame-id` — the anonymous frame id the runtime minted (NOT a
+    registered variant id);
+  - `decorator-stack` — `decorators/resolve-decorator-refs` over the plan's
+    `[:world :decorators]` refs (the runtime resolves it upstream);
+  - `plan-fx-overrides` — the plan's `[:world :frame :fx-overrides]` lowered
+    map (e.g. the managed-HTTP stub the compiler folded `:network` into);
+  - `events-only?` — whether the plan drives no loaders / frame-setup, so
+    the lifecycle takes the `:pre-mount → :ready` fast-path (rf2-043cm).
+
+  Registers the `:fx-override`-decorator stubs, drives the lifecycle by the
+  supplied shape, applies any `:frame-setup` decorators' `:init` events, and
+  returns the frame-id. The frame's effective `:fx-overrides` is the
+  decorator-stack's materialised stubs UNDER the plan's lowered map (the
+  plan map wins — it already merged the author/network overrides). Does NOT
+  register anything in the Story side-table."
+  [frame-id decorator-stack plan-fx-overrides events-only?]
+  (when config/enabled?
+    (install-canonical-frame-events!)
+    (let [fx-stack     (decorators/fx-overrides-map (:fx-override decorator-stack))
+          decor-fx     (register-fx-overrides! fx-stack)
+          fx-overrides (merge decor-fx plan-fx-overrides)
+          config-map   (inline-frame-config frame-id fx-overrides)]
+      (rf/reg-frame frame-id config-map)
+      (if events-only?
+        (loaders/mount-ready! frame-id)
+        (loaders/mount!       frame-id))
+      (apply-frame-setup! frame-id (:frame-setup decorator-stack))
+      frame-id)))
+
+(defn destroy-inline!
+  "Tear down an inline-plan frame (rf2-5x1wt.20). The registry-free twin of
+  `destroy!`: an inline frame has no registered body, so the side-table
+  reads `destroy!` makes (the variant `:loaders-teardown`, the decorator
+  re-resolution) have nothing to read. `decorator-stack` is the SAME stack
+  `allocate-inline!` was handed; `loaders-teardown` is the plan's
+  `[:world :loaders-teardown]` events (empty for the common headless case).
+
+  Walks `:loaders-teardown` then the `:frame-setup` decorators' `:teardown`
+  events (reverse-declaration order), then `destroy-frame!`. Exceptions are
+  caught and projected as `:rf.error/exception` records the same way
+  `destroy!` does; the walk never aborts."
+  [frame-id decorator-stack loaders-teardown]
+  (when config/enabled?
+    (loaders/clear-watchers! frame-id)
+    (clear-stub-call-log! frame-id)
+    (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
+      (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (when (seq loaders-teardown)
+      (try (apply-loaders-teardown! frame-id loaders-teardown)
+        (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (try (apply-frame-teardown! frame-id (:frame-setup decorator-stack))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    (rf/destroy-frame! frame-id)
+    nil))
+
 ;; ---- destruction ----------------------------------------------------------
 
 (defn destroy!

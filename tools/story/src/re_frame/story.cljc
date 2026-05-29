@@ -1346,17 +1346,30 @@
 
 (defn run
   "Per spec/017 §Public execution API — the `run` verb. Run `target` and
-  return a promise/future of the unified run-result (`run-result`). A
-  keyword `target` is a registered variant; map (inline-plan) targets land
-  with rf2-5x1wt.20. `opts` is the run/is opts map (`:runner` /
-  `:frame-binding` / `:platform` …); the default runner is `:headless`.
+  return a promise/future of the unified run-result (`run-result`).
 
-  Today this delegates to the variant lifecycle (`run-variant`), which
-  returns the unified shape. The verb name is the stable public surface —
-  it does NOT leak the variant-vs-plan authoring distinction (spec/017
-  §Public execution API)."
+  `target` dispatches on type (spec/017 §three verbs):
+
+  - a **keyword** is a registered variant id — resolved through the Story
+    side-table and run through the variant lifecycle;
+  - a **map** is an INLINE plan (rf2-5x1wt.20, spec/017 §Inline plan) —
+    compiled, run against a fresh anonymous frame, and torn down on
+    resolve. An inline plan is NOT registered in the side-table and is
+    absent from Story navigation; it MAY compose registered fragments +
+    checks (thread `:fragment-lookup` / `:check-lookup` in `opts` for a
+    host-free run, or rely on the side-table). It returns the SAME unified
+    run-result shape a registered variant returns.
+
+  `opts` is the run/is opts map (`:runner` / `:frame-binding` /
+  `:platform` …, plus the plan-compiler seams for a map target); the
+  default runner is `:headless`. The verb name is the stable public
+  surface — it does NOT leak the variant-vs-plan authoring distinction
+  (spec/017 §Public execution API)."
   ([target]      (run target nil))
-  ([target opts] (lifecycle/run-variant target opts)))
+  ([target opts]
+   (if (map? target)
+     (lifecycle/run-inline-plan target opts)
+     (lifecycle/run-variant target opts))))
 
 ;; ---- variant-plan / explain / render-variant (rf2-5x1wt.24) -------------
 ;;
@@ -1431,6 +1444,13 @@
   "Per spec/017 §Public execution API — the `is` verb. Run `target` and
   REPORT each assertion to clojure.test / cljs.test at per-assertion
   granularity (spec/017 §Run result — `story/is` reports per assertion).
+
+  `target` dispatches the same way `story/run` does: a keyword is a
+  registered variant; a map (without a `:status` / `:assertions` pair) is
+  an INLINE plan (rf2-5x1wt.20) — compiled + run against a fresh anonymous
+  frame, then reported per assertion. (A map that ALREADY carries a
+  `:status` + `:assertions` is treated as an already-resolved run-result
+  and reported directly — the sync path, below.)
 
   On the JVM (the canonical headless test gate) `is` runs the target,
   BLOCKS until it resolves, fires one `clojure.test` report per assertion

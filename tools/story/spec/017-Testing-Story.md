@@ -279,6 +279,41 @@ Story variant. Inline plans MUST NOT appear in Story navigation. They
 MAY compose registered fragments and checks. They MUST return the same
 run-result shape as registered variants.
 
+**Execution (rf2-5x1wt.20).** All three verbs accept a map target as well
+as a keyword: `(story/run inline-plan opts)` / `(story/is inline-plan
+opts)` / `(story/explain inline-plan)`. `variant-plan` / `explain` compile
+a map directly (the compiler accepts an unregistered map — rf2-5x1wt.24).
+The RUN path (`story/run` / `story/is` for a map target) is the
+registry-free twin of the registered-variant lifecycle, and reuses it
+rather than forking it:
+
+1. the plan is compiled ONCE (`variant-plan` accepts the map; `opts` MAY
+   thread `:fragment-lookup` / `:check-lookup` / `:lookup` so the plan can
+   compose REGISTERED fragments + checks, or run host-free);
+2. an ANONYMOUS frame id is minted in the reserved `:rf.story.inline/*`
+   namespace — never a registered variant id, so navigation can't surface
+   it and a concurrent registered run can't collide; the frame is stamped
+   `:rf/inline? true`;
+3. the decorator stack is resolved from the plan's already-merged
+   `[:world :decorators]` refs (the variant/story side-table is NOT read);
+4. the SAME phase pipeline (loaders → setup → script) drives the run, all
+   sourced from the plan — `[:world :setup]`, `[:world :scripts]`,
+   `[:world :frame :fx-overrides]`, `[:expect :checks]` / `[:expect
+   :assertions]`;
+5. the one unified run-result is assembled from the plan + the frame's
+   accumulated assertions + the epoch tape (the same `run-result`
+   boundary), so an inline plan and a registered variant describing the
+   same behaviour produce equivalent app-db + assertion records after
+   `canonicalize` (the metamorphic relation);
+6. the anonymous frame is torn down when the run resolves; nothing is
+   registered.
+
+A plan-construction failure for a map target (an unknown composed
+fragment, a missing `[:arg …]`, a misplaced `[:assert …]` in setup, …)
+surfaces as the SAME structured `:rf.error/story-*` error result a
+registered variant's malformed plan produces — the frame is never
+allocated.
+
 ### Run artifact
 
 A run artifact is the low-level evidence emitted by generated tests,

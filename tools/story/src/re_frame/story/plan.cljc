@@ -1326,6 +1326,12 @@
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
                        (contains? ctx :loaders)     (assoc :loaders (:loaders ctx))
+                       ;; rf2-5x1wt.20 — carry `:loaders-complete-when` onto
+                       ;; the plan's `:world` (it inherits through `:extends`
+                       ;; into `ctx`) so the inline-plan run path (which has
+                       ;; no registered body) drives phase-1 loaders + the
+                       ;; completion predicate from the plan alone.
+                       (contains? ctx :loaders-complete-when) (assoc :loaders-complete-when (:loaders-complete-when ctx))
                        (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
                        (contains? ctx :decorators)  (assoc :decorators (:decorators ctx))
                        (contains? ctx :modes)       (assoc :modes (:modes ctx))

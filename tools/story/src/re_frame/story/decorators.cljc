@@ -196,6 +196,8 @@
   [r]
   (or (kind->bucket (:kind (:body r))) :unknown-kind))
 
+(declare resolve-decorator-refs)
+
 (defn resolve-decorators
   "Per IMPL-SPEC §5.3 — collect, classify, and order the decorator stack
   for the variant. Returns:
@@ -225,35 +227,52 @@
   ([variant-id]
    (resolve-decorators variant-id nil))
   ([variant-id _opts]
-   (let [refs       (collect-decorator-refs variant-id)
-         resolved   (mapv resolve-ref refs)
-         {:keys [hiccup frame-setup fx-override errors]}
-         (reduce
-           (fn [acc r]
-             (if (:error r)
-               (update acc :errors conj (:error r))
-               (case (classify-kind r)
-                 :hiccup       (update acc :hiccup       conj r)
-                 :frame-setup  (update acc :frame-setup  conj r)
-                 :fx-override  (update acc :fx-override  conj r)
-                 :unknown-kind (update acc :errors conj
-                                       {:rf.error :rf.error/decorator-unknown-kind
-                                        :id       (:id r)
-                                        :kind     (:kind (:body r))
-                                        :reason   (str "decorator " (:id r)
-                                                       " has unrecognised :kind "
-                                                       (pr-str (:kind (:body r))))}))))
-           {:hiccup [] :frame-setup [] :fx-override [] :errors []}
-           resolved)]
-     {:hiccup        hiccup
-      :frame-setup   frame-setup
-      :fx-override   fx-override
-      :errors        errors
-      :fingerprints  (into {}
-                           (keep (fn [r] (when (nil? (:error r))
-                                           [(:id r)
-                                            (decorator-fingerprint (:id r))])))
-                           resolved)})))
+   (resolve-decorator-refs (collect-decorator-refs variant-id))))
+
+(defn resolve-decorator-refs
+  "Resolve, classify, and order a supplied vector of `[decorator-id & args]`
+  refs into the same `{:hiccup :frame-setup :fx-override :errors
+  :fingerprints}` shape `resolve-decorators` returns — but WITHOUT reading
+  the variant/story side-table for the ref collection.
+
+  `resolve-decorators` is the registered-variant front door: it collects
+  the global + story + variant refs from the side-table, then delegates
+  here. The inline-plan runtime path (rf2-5x1wt.20) calls this directly
+  with the plan's already-resolved `[:world :decorators]` refs (which the
+  compiler merged from the variant chain + composed fragments), so an
+  inline plan that is absent from the side-table still gets its decorator
+  stack classified the same way. The decorator BODIES are still looked up
+  against the `:decorator` registry (a decorator is a registered artefact;
+  only the variant's ref LIST differs between the two paths)."
+  [refs]
+  (let [resolved   (mapv resolve-ref refs)
+        {:keys [hiccup frame-setup fx-override errors]}
+        (reduce
+          (fn [acc r]
+            (if (:error r)
+              (update acc :errors conj (:error r))
+              (case (classify-kind r)
+                :hiccup       (update acc :hiccup       conj r)
+                :frame-setup  (update acc :frame-setup  conj r)
+                :fx-override  (update acc :fx-override  conj r)
+                :unknown-kind (update acc :errors conj
+                                      {:rf.error :rf.error/decorator-unknown-kind
+                                       :id       (:id r)
+                                       :kind     (:kind (:body r))
+                                       :reason   (str "decorator " (:id r)
+                                                      " has unrecognised :kind "
+                                                      (pr-str (:kind (:body r))))}))))
+          {:hiccup [] :frame-setup [] :fx-override [] :errors []}
+          resolved)]
+    {:hiccup        hiccup
+     :frame-setup   frame-setup
+     :fx-override   fx-override
+     :errors        errors
+     :fingerprints  (into {}
+                          (keep (fn [r] (when (nil? (:error r))
+                                          [(:id r)
+                                           (decorator-fingerprint (:id r))])))
+                          resolved)}))
 
 ;; ---- hiccup application --------------------------------------------------
 
