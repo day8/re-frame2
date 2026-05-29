@@ -143,17 +143,62 @@
 
 ;; ---- phase-2 events execution --------------------------------------------
 
-(defn- run-events!
-  "Phase 2: dispatch every event in `:events` (story-level concat
-  variant-level) into the variant's frame, draining between each. Per
-  IMPL-SPEC §5.4 phase 2."
-  [variant-id]
-  (let [variant-body (frames/variant-body variant-id)
-        story-id     (args/parent-story-id variant-id)
+(defn- setup-step->event
+  "Extract the event vector a normalized `[:world :setup]` step carries.
+  Per spec/017 §Setup, setup steps are settled dispatches — the plan
+  compiler coerces every authored setup entry (bare event vector OR a
+  tagged `[:dispatch …]` / `[:dispatch-sync …]`) into a tagged dispatch
+  step, and an `[:assert …]` in setup is rejected at plan-compile time
+  (`re-frame.story.plan/reject-assert-in-setup!`). So a setup step is
+  always `[:dispatch event-vector]` / `[:dispatch-sync event-vector]`;
+  this returns the wrapped event vector (or the step itself when a
+  bare event vector slipped through an out-of-band path)."
+  [step]
+  (cond
+    (and (vector? step)
+         (#{:dispatch :dispatch-sync} (first step))
+         (vector? (second step)))
+    (second step)
+
+    ;; Defensive: a bare event vector (an out-of-band plan that bypassed
+    ;; coercion). Treat it as the event itself.
+    (and (vector? step) (keyword? (first step)))
+    step
+
+    :else nil))
+
+(defn- plan-setup-events
+  "The phase-2 event vectors for a run: the parent STORY's `:events`
+  (resolved by id-grammar, NOT part of the variant plan — the plan
+  compiler only resolves the `:extends` chain + composed fragments)
+  prepended to the NORMALIZED PLAN's `[:world :setup]` steps
+  (rf2-5x1wt.22, §B8 — phase 2 consumes the plan's `:setup`).
+
+  The story-level events keep their existing id-grammar resolution so
+  `story.foo/bar` still inherits `story.foo`'s preconditions; the
+  variant-chain + composed-fragment setup comes from the plan, where
+  `:extends` setup APPENDS root→child and `:setup` / `:events` are both
+  lowered to the one slot (spec/017 §Merge rules)."
+  [variant-id plan]
+  (let [story-id     (args/parent-story-id variant-id)
         story-body   (when story-id (registrar/handler-meta :story story-id))
         story-events (or (:events story-body) [])
-        var-events   (or (:events variant-body) [])
-        all-events   (concat story-events var-events)]
+        plan-setup   (get-in plan [:world :setup] [])]
+    (vec (concat story-events
+                 (keep setup-step->event plan-setup)))))
+
+(defn- run-events!
+  "Phase 2: dispatch every phase-2 event into the variant's frame,
+  draining between each. Per IMPL-SPEC §5.4 phase 2.
+
+  rf2-5x1wt.22 (§B8) — the variant-chain + composed-fragment setup now
+  comes from the NORMALIZED PLAN's `[:world :setup]` (the tagged dispatch
+  steps the compiler lowered `:setup` / `:events` into), routed through
+  `plan-setup-events`. The parent story's `:events` (resolved by id
+  grammar, not part of the plan) are prepended. The `dispatch-sync` +
+  per-event exception-drain semantics are preserved verbatim."
+  [variant-id plan]
+  (let [all-events (plan-setup-events variant-id plan)]
     (capture-phase-errors
       variant-id :phase-2-events
       (fn []
@@ -423,17 +468,30 @@
             :lifecycle       (loaders/current-state variant-id)})))
 
 (defn- prepare-context
-  "Resolve the per-run inputs that every phase needs: the decorator
-  stack, the effective args, and the identity snapshot. Returns a map;
-  pure aside from the registrar reads.
+  "Resolve the per-run inputs that every phase needs: the NORMALIZED
+  PLAN, the decorator stack, the effective args, and the identity
+  snapshot. Returns a map; pure aside from the registrar reads.
+
+  rf2-5x1wt.22 (§B8 — Runtime Migration) — the shipping run-variant path
+  now routes through the variant-plan compiler (`re-frame.story.plan`).
+  `prepare-context` compiles the normalized plan ONCE and threads it
+  down the phase pipeline (spec/017 §Variant plan — every registered
+  variant MUST be normalized before execution). Phase 2 consumes the
+  plan's `[:world :setup]` (the tagged setup steps); phase 4 consumes
+  its `[:world :scripts]` (the named scripts — `:plays` preserved). A
+  plan-construction failure (an unknown variant, a missing `[:arg …]`,
+  a misplaced `[:assert …]` in setup, …) throws here; the orchestrator's
+  try/catch (`handle-run-error!`) projects it onto the run result so the
+  error reports the same way it did before the routing.
 
   rf2-0wrud (2026-05-20): the legacy `:play` event-vector slot was
-  removed; phase-4 reads `:play-script` (parsed via the runner) and
-  drives the rich-DSL step executor through `runner-events/run!`."
+  removed; phase-4 drives the rich-DSL step executor through
+  `runner-events/run!`."
   [variant-id variant-body opts]
   (let [{:keys [active-modes]} opts]
     {:variant-id      variant-id
      :variant-body    variant-body
+     :plan            (plan/variant-plan variant-id)
      :decorator-stack (decorators/resolve-decorators variant-id
                                                      {:active-modes active-modes})
      :effective-args  (args/resolve-args variant-id opts)
@@ -464,11 +522,12 @@
   (assoc ctx :loaders-complete? (run-loaders! variant-id)))
 
 (defn- run-phase-2!
-  "Phase 2: dispatch every `:events` entry, then mark events complete
-  on the lifecycle machine."
-  [{:keys [variant-id loaders-complete?] :as ctx}]
+  "Phase 2: dispatch the plan's `[:world :setup]` (+ the parent story's
+  `:events`), then mark events complete on the lifecycle machine.
+  rf2-5x1wt.22 (§B8) — setup is sourced from the normalized plan."
+  [{:keys [variant-id loaders-complete? plan] :as ctx}]
   (when loaders-complete?
-    (run-events! variant-id)
+    (run-events! variant-id plan)
     (loaders/finish-events! variant-id))
   ctx)
 
@@ -486,17 +545,25 @@
   by wrapping each entry in `[:dispatch-sync <event-vec>]` inside a
   `:play-script` body.
 
-  rf2-5x1wt.19 — `runner-events/variant-plays` now returns FOLDED play
-  scripts (shipping `:assert-db` / `:assert-dom` rewritten to the canonical
-  `[:assert …]` checkpoint), so the runtime consumes the `.18`-folded plan
-  and the executed-script narrative carries the one assertion atom.
+  rf2-5x1wt.19 — the resolved play scripts are FOLDED (shipping
+  `:assert-db` / `:assert-dom` rewritten to the canonical `[:assert …]`
+  checkpoint), so the executed-script narrative carries the one
+  assertion atom.
+
+  rf2-5x1wt.22 (§B8) — the play set now comes from the NORMALIZED PLAN's
+  `[:world :scripts]` (the named scripts the compiler's `normalize-scripts`
+  produces — `:plays` preserved as named scripts, spec/017 §Public
+  vocabulary), NOT a second `runner-events/variant-plays` read of the
+  registered body. The compiler already coerces + folds every script, so
+  the plan's `:scripts` carry the `{:script :auto-run? :name}` shape the
+  runner drives directly.
 
   Phase 3 (render) is Stage 4's UI-shell concern and is not driven
   from this orchestrator."
-  [{:keys [variant-id loaders-complete?] :as ctx}]
+  [{:keys [variant-id loaders-complete? plan] :as ctx}]
   (if-not loaders-complete?
     [ctx (async/resolved (read-assertions variant-id))]
-    (let [plays      (runner-events/variant-plays variant-id)
+    (let [plays      (get-in plan [:world :scripts] [])
           auto-plays (filterv (fn [p] (and (:auto-run? p)
                                             (seq (:script p))))
                               plays)
@@ -536,6 +603,45 @@
           (resolve (record-result-map ctx start-ms))
           nil))))
 
+(defn- plan-construction-error?
+  "True iff `e` is a plan-construction failure — an `ex-info` whose
+  ex-data carries a `:rf.error/id` (the marker `re-frame.story.plan/fail!`
+  stamps on every `:rf.error/story-*` failure). rf2-5x1wt.22 (§B8): the
+  runtime compiles the plan in `prepare-context`, BEFORE the frame is
+  allocated, so a malformed variant (a missing `[:arg …]`, an `[:assert …]`
+  in `:setup`, a `:compose` of an unknown fragment, …) throws here. Such
+  an error cannot be recorded onto a frame (none exists yet), so it is
+  projected directly into a structured error result (`plan-error-result`)
+  rather than routed through `handle-run-error!` (which assumes an
+  allocated frame)."
+  [e]
+  (boolean (:rf.error/id (ex-data e))))
+
+(defn- exception-message [e]
+  #?(:clj  (.getMessage ^Throwable e)
+     :cljs (str e)))
+
+(defn- plan-error-result
+  "The error result returned when `re-frame.story.plan/variant-plan`
+  FAILS to compile the variant (rf2-5x1wt.22, §B8). The frame is not
+  allocated when plan construction throws, so the result is built
+  directly from the exception — mirroring `unknown-variant-result`'s
+  frame-free shape. The `:rf.error/story-*` id rides the assertion record
+  so tools surface the plan failure the same way a registration failure
+  surfaces."
+  [variant-id e]
+  (assoc (empty-result variant-id)
+         :status     :error
+         :lifecycle  :error
+         :assertions [{:assertion  (or (:rf.error/id (ex-data e))
+                                       :rf.error/story-plan-invalid)
+                       :variant-id variant-id
+                       :status     :error
+                       :passed?    false
+                       :reason     (exception-message e)
+                       :error      {:message (exception-message e)
+                                    :data    (ex-data e)}}]))
+
 (defn- handle-run-error!
   "Catch-branch for the orchestrator: record the exception as a
   phase-0-setup assertion (covers any sync throw from the phase chain),
@@ -543,11 +649,21 @@
   best result map we can build from whatever the run accumulated. The
   recorded `:rf.error/exception` assertion (`:passed? false`) flows into
   the unified result's `:assertions`, so the aggregation reports `:fail`
-  (the error record is a failed expectation) even when the tape is sparse."
+  (the error record is a failed expectation) even when the tape is sparse.
+
+  rf2-5x1wt.22 (§B8) — a plan-construction failure (thrown in
+  `prepare-context`, before frame allocation) cannot be recorded onto a
+  frame, so it is projected directly via `plan-error-result`. Every other
+  throw lands after the frame exists and routes through the frame-bound
+  record/transition path."
   [resolve variant-id e start-ms]
-  (record-error! variant-id :phase-0-setup nil e)
-  (loaders/error! variant-id (ex-data e))
-  (resolve (record-result-map {:variant-id variant-id} start-ms)))
+  (if (and (plan-construction-error? e)
+           (= :pre-mount (loaders/current-state variant-id)))
+    (resolve (plan-error-result variant-id e))
+    (do
+      (record-error! variant-id :phase-0-setup nil e)
+      (loaders/error! variant-id (ex-data e))
+      (resolve (record-result-map {:variant-id variant-id} start-ms)))))
 
 (defn- unknown-variant-result
   "The error result returned when `frames/variant-body` finds no
