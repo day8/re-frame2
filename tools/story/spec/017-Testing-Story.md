@@ -1404,6 +1404,109 @@ preconditions. The recorder/codegen output SHOULD share this contract, so
 a recorded interaction and a promoted failure are indistinguishable as
 authored variants.
 
+## Run artifact and replay
+
+The `:rf.test/run-artifact` shape (§Artifacts — Run artifact) is the
+serializable, data-shaped record of ONE run: enough to replay it
+deterministically and to project the same evidence a fresh run would
+produce. Replay lives **below** Story — it runs without the Story UI — and
+is the foundation the determinism gate and semantic diff build on. The
+base schema + the replay function ship in the
+`re-frame.story.artifact` namespace.
+
+### The base schema
+
+A run artifact is a map carrying:
+
+```clojure
+{:artifact/kind :rf.test/run-artifact  ; the discriminating tag
+ :seed          optional
+ :event-program [step …]               ; the dispatch program (setup ⧺ script)
+ :fx-decisions  {fx-id override}       ; the fx overrides reapplied on replay
+ :epoch-tape    [epoch-record …]       ; the captured tape, when retained
+ :trace         [trace-event …]        ; optional flat trace
+ :result        run-result             ; the projected run-result (§Run result)
+ :shrink-path   optional
+ :created-at    instant-or-string
+ :source        optional}
+```
+
+- `:artifact/kind` is `:rf.test/run-artifact`, distinguishing a run
+  artifact from a normalized plan or a curated variant body.
+- `:event-program` is a vector of **tagged** script steps — the same
+  grammar the play runner executes (§Script step grammar). A bare event
+  vector lifts to `[:dispatch …]` through the runner's `coerce-script`, so
+  a recorder MAY hand a flat event list and get a legal program. Setup and
+  script fold into ONE ordered program (setup first); replay re-runs the
+  whole program, then projects the captured tape.
+- `:fx-decisions` is the `{fx-id override}` map of fx decisions applied at
+  capture time — the same shape the dispatch `:fx-overrides` opt and the
+  per-frame frame-config `:fx-overrides` slot carry (Spec 002
+  §`:fx-overrides`). Replay REAPPLIES them, so a run that stubbed an HTTP
+  effect replays against the same stub rather than firing the live effect.
+
+`re-frame.story.artifact/make-run-artifact` is the **pure** constructor
+(data → data, JVM-runnable): it coerces the `:event-program`, folds
+optional `:setup` / `:script` sugar into it, stamps `:artifact/kind`, and
+defaults `:fx-decisions` to `{}`. `run-artifact?` is the recogniser (the
+`:artifact/kind` tag plus a vector `:event-program`). `program-events`
+projects the artifact to its ordered dispatched event vectors (for
+promotion + diagnostics).
+
+### `replay-run-artifact`
+
+```clojure
+(story/replay-run-artifact artifact)
+(story/replay-run-artifact artifact opts)
+;; -> run-result (§Run result)
+```
+
+Replay MUST:
+
+- **Replay the dispatch program into a FRESH frame** — a unique
+  `:rf.test.replay/*` frame allocated for the replay (or the caller's
+  `:frame`), so the replay never observes a sibling run's app-db. A frame
+  the replay allocated is torn down before return; a caller-supplied
+  `:frame` is left intact (the caller owns its lifecycle).
+- **Reapply the fx decisions / overrides** — the artifact's
+  `:fx-decisions` ride the per-call `:fx-overrides` on every replayed
+  dispatch, routed through the **same** `settled-boundary`
+  (§Script and `settled-boundary`) a live run uses. Replay never reaches
+  for `dispatch-sync` directly; the boundary's `:cannot-run` / `:error`
+  refusals fire unchanged, so a step that needs a richer boundary than the
+  replay runner provides refuses rather than under-flushing.
+- **Capture a NEW epoch tape** — read from `re-frame.core/epoch-history`
+  after the program settles, NOT the artifact's captured tape. The replay
+  proves what the program does NOW.
+- **Return the shared run-result shape** (§Run result) — the tape is
+  projected through the single evidence boundary
+  (`re-frame.story.play.evidence/project-evidence`,
+  §Run-result evidence projection), so `:status`, `:epoch-tape`,
+  `:schema-violations`, `:warnings`, `:effects`, `:sub-runs`, `:renders`,
+  and the two-level `:narrative` all derive from ONE tape. The result
+  carries a back-link `:run-artifact` to the replayed source.
+
+The replay `:status` follows the agreement floor
+(§Run-result evidence projection): `:cannot-run` if any step refused,
+`:error` if any step or the tape errored, `:fail` if the tape carries
+unconsumed failure evidence, `:pass` otherwise — computed from the
+PROJECTED evidence and the per-step settle outcomes, never a sibling
+accumulator, so a replay cannot read green while the tape is red.
+
+`opts` MAY carry `:frame` (replay into a caller-owned frame),
+`:hooks` (richer settled-boundary flush-hooks — a `:dom` adapter declares
+`:provides :dom`; the fx decisions still wrap its `:dispatch!`), and
+`:frame-config` (extra `reg-frame` config for the allocated frame).
+
+The replay result is **stable + canonicalizable** (§Canonicalization): it
+feeds cleanly through `canonicalize` / `run-hash`, so the determinism gate
+(`test/assert-deterministic`) and semantic diff (`test/diff-run-artifacts`)
+build directly on it. Construction and result projection are pure, so the
+artifact schema + the result shape are exercised under `clojure -M:test`
+with no runtime; the headless replay path settles synchronously to a fixed
+point via the headless flush-hooks, so the live-frame replay also runs
+headless.
+
 ## Relationship to the workshop surface (storytelling is in-scope)
 
 Story is a **workshop**, not only a test engine. The shipping authoring
