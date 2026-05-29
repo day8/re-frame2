@@ -54,6 +54,43 @@
    :ambiguous-frame?           false})
 
 ;; ---------------------------------------------------------------------------
+;; `wire/arg-build` — colon tolerance (rf2-8ohwv).
+;; ---------------------------------------------------------------------------
+
+(deftest arg-build-tolerates-a-leading-colon
+  ;; rf2-8ohwv: the human-facing hint shows the colon form
+  ;; (`--build=:examples/step-deck`) but the MCP arg used to want the bare
+  ;; form — a leading colon double-prepended into the malformed
+  ;; `::examples/step-deck` and failed the round-trip. Both forms must now
+  ;; resolve to the SAME keyword, and a doubled colon must never reach the
+  ;; resolver.
+  (let [conn (fresh-conn)]
+    (is (= :examples/step-deck
+           (wire/arg-build conn (tu/args->js {:build "examples/step-deck"})))
+        "bare form")
+    (is (= :examples/step-deck
+           (wire/arg-build conn (tu/args->js {:build ":examples/step-deck"})))
+        "colon form resolves identically")
+    (is (= (wire/arg-build conn (tu/args->js {:build "examples/step-deck"}))
+           (wire/arg-build conn (tu/args->js {:build ":examples/step-deck"})))
+        "the two forms are indistinguishable post-coercion")))
+
+(deftest arg-build-colon-tolerance-on-bare-build
+  ;; The non-namespaced case the original `keyword` mishandled too:
+  ;; `:app` → `::app` (a `user`-ns keyword) → probes a build that doesn't
+  ;; exist. Both forms must land on `:app`.
+  (let [conn (fresh-conn)]
+    (is (= :app (wire/arg-build conn (tu/args->js {:build "app"}))))
+    (is (= :app (wire/arg-build conn (tu/args->js {:build ":app"}))))))
+
+(deftest arg-build-explicit-predicate-sees-either-colon-form
+  ;; Explicitness keys on arg PRESENCE, not coercion shape — both the
+  ;; bare and colon forms count as a deliberate `:build`.
+  (let [conn (fresh-conn)]
+    (is (true? (wire/arg-build-explicit? conn (tu/args->js {:build "app"}))))
+    (is (true? (wire/arg-build-explicit? conn (tu/args->js {:build ":app"}))))))
+
+;; ---------------------------------------------------------------------------
 ;; `wire/arg-build` — cache lookup precedence.
 ;; ---------------------------------------------------------------------------
 
