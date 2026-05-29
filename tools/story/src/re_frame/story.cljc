@@ -1204,10 +1204,28 @@
   slots. Pure data → data; the single boundary every runner / Test mode /
   CI / `clojure.test` / MCP consumes so they cannot disagree about what
   happened. `parts` carries `:epoch-tape` / `:assertions` / `:script` /
-  `:check->atoms` / `:consumed-selectors` / `:unmet` / `:app-db` and the
-  identity / timing slots (see `re-frame.story.result/run-result`)."
+  `:check->atoms` / `:schema-expectations` / `:consumed-selectors` /
+  `:unmet` / `:app-db` and the identity / timing slots (see
+  `re-frame.story.result/run-result`).
+
+  `:schema-expectations` (the declared `:rf.assert/schema-error` atoms) are
+  EXACT-matched against the tape's projected schema violations (§Schema
+  rule): each consumes one matching violation, a missing expected violation
+  fails the run, and any unconsumed violation fails the run via the
+  agreement floor — there is NO `:rf.assert/no-schema-errors` knob."
   [parts]
   (result/run-result parts))
+
+(defn match-schema-expectations
+  "Per spec/017 §Schema rule — EXACT multiset match of declared
+  `:rf.assert/schema-error` atoms against the tape's projected schema
+  violations. Pure data → data. Returns `{:records [assertion-record …]
+  :consumed-selectors #{…} :unmatched [expectation …] :unconsumed
+  [violation …]}` (see `re-frame.story.result/match-schema-expectations`).
+  Exposed for tooling / MCP that wants to inspect the consumption pairing
+  directly."
+  [schema-expectations epoch-tape]
+  (result/match-schema-expectations schema-expectations epoch-tape))
 
 (defn result-status
   "Per spec/017 §Run result — the unified verdict of a run-result:

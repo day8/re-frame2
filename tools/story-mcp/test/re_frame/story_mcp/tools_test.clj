@@ -543,9 +543,12 @@
   (let [r (invoke "list-assertions" {})
         s (:structuredContent r)]
     (is (success? r))
-    (is (= 7 (count (:canonical s))))
+    ;; rf2-5x1wt.21 — the seven dispatched assertions PLUS the tape-evaluated
+    ;; :rf.assert/schema-error (the EXPECTED-schema-violation declaration).
+    (is (= 8 (count (:canonical s))))
     (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
-    (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))))
+    (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))
+    (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))))
 
 (deftest variant-edn-roundtrips
   (testing "variant->edn returns readable EDN text"
@@ -733,11 +736,13 @@
       (is (true? (:has-more? s))))))
 
 (deftest list-assertions-canonical-doc-stays-full
-  (testing "the canonical assertion-doc vector is bounded (7) so it never paginates"
+  (testing "the canonical assertion-doc vector is bounded (8) so it never paginates"
     (let [r (invoke "list-assertions" {:limit 3})
           s (:structuredContent r)]
       (is (success? r))
-      (is (= 7 (count (:canonical s)))
+      ;; rf2-5x1wt.21 — eight: the seven dispatched + the tape-evaluated
+      ;; :rf.assert/schema-error.
+      (is (= 8 (count (:canonical s)))
           "the canonical-doc vec is the bounded reference; not subject to pagination")
       (is (<= (count (:registered s)) 3) ":registered honours :limit"))))
 

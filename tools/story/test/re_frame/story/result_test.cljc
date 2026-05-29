@@ -184,6 +184,140 @@
       (is (= :pass (:status r))
           "the consumed violation is excused — the floor does not trip"))))
 
+;; ===========================================================================
+;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule, rf2-5x1wt.21)
+;; ===========================================================================
+
+(defn- schema-epoch
+  "A `:rf/epoch-record` carrying one schema-validation-failure trace for
+  surface `where` / `failing-id`, with optional extra `tags`."
+  ([where failing-id] (schema-epoch where failing-id nil))
+  ([where failing-id extra-tags]
+   (epoch {:trace-events
+           [{:operation :rf.error/schema-validation-failure
+             :tags (merge {:where where :failing-id failing-id} extra-tags)}]})))
+
+(deftest match-schema-expectations-pairs-exactly
+  (testing "an expected schema violation is consumed → :pass record, in the set"
+    (let [tape [(schema-epoch :event :checkout/submit)]
+          m    (result/match-schema-expectations
+                 [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
+                 tape)]
+      (is (= 1 (count (:records m))))
+      (is (= :pass (:status (first (:records m)))))
+      (is (= #{[:event :checkout/submit]} (:consumed-selectors m)))
+      (is (empty? (:unmatched m)))
+      (is (empty? (:unconsumed m)))))
+
+  (testing "a MISSING expected violation → :fail record (the expected violation
+            never happened — §Schema rule step 3)"
+    (let [m (result/match-schema-expectations
+              [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
+              [(epoch {})])]                          ; clean tape, no violation
+      (is (= :fail (:status (first (:records m)))))
+      (is (= 1 (count (:unmatched m))))
+      (is (empty? (:consumed-selectors m)))))
+
+  (testing "a DIFFERENT violation than expected → expectation unmatched (:fail)
+            AND the emitted violation is left unconsumed (§Schema rule)"
+    (let [tape [(schema-epoch :event :other/event)]
+          m    (result/match-schema-expectations
+                 [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
+                 tape)]
+      (is (= :fail (:status (first (:records m)))) "expected violation never emitted")
+      (is (= 1 (count (:unconsumed m))) "the different violation is unconsumed")
+      (is (= [:event :other/event] (:selector (first (:unconsumed m)))))
+      (is (empty? (:consumed-selectors m)))))
+
+  (testing "an UNEXPECTED violation (no expectation declared) is left unconsumed"
+    (let [m (result/match-schema-expectations [] [(schema-epoch :cofx :load/session)])]
+      (is (empty? (:records m)))
+      (is (= 1 (count (:unconsumed m))))
+      (is (empty? (:consumed-selectors m)))))
+
+  (testing "N expectations of one selector consume N violations (multiset)"
+    (let [tape [(schema-epoch :event :x) (schema-epoch :event :x)]
+          m    (result/match-schema-expectations
+                 [[:rf.assert/schema-error {:where :event :event :x}]
+                  [:rf.assert/schema-error {:where :event :event :x}]]
+                 tape)]
+      (is (every? #(= :pass (:status %)) (:records m)))
+      (is (empty? (:unconsumed m)))
+      (is (= #{[:event :x]} (:consumed-selectors m))))
+    (testing "one expectation against two same-selector violations leaves one
+              unconsumed (multiset, not set)"
+      (let [tape [(schema-epoch :event :x) (schema-epoch :event :x)]
+            m    (result/match-schema-expectations
+                   [[:rf.assert/schema-error {:where :event :event :x}]]
+                   tape)]
+        (is (= 1 (count (filter #(= :pass (:status %)) (:records m)))))
+        (is (= 1 (count (:unconsumed m))) "the second violation is unconsumed"))))
+
+  (testing "a bare [:rf.assert/schema-error] wildcard consumes any one violation"
+    (let [m (result/match-schema-expectations
+              [[:rf.assert/schema-error]]
+              [(schema-epoch :app-db :db {:registered-path [:k] :path [:k]})])]
+      (is (= :pass (:status (first (:records m)))))
+      (is (empty? (:unconsumed m)))
+      (is (= #{[:app-db [:k] [:k]]} (:consumed-selectors m)))))
+
+  (testing "a concrete expectation is paired before a wildcard, so the wildcard
+            does not starve the concrete match"
+    (let [tape [(schema-epoch :cofx :a) (schema-epoch :event :b)]
+          m    (result/match-schema-expectations
+                 [[:rf.assert/schema-error]                              ; wildcard
+                  [:rf.assert/schema-error {:where :event :event :b}]]   ; concrete
+                 tape)]
+      (is (every? #(= :pass (:status %)) (:records m)))
+      (is (empty? (:unconsumed m)))
+      (is (= #{[:event :b] [:cofx :a]} (:consumed-selectors m))))))
+
+(deftest run-result-schema-expectations-wiring
+  (testing "an EXPECTED schema violation passes the run (exactly consumed)"
+    (let [r (result/run-result
+              {:epoch-tape [(schema-epoch :event :checkout/submit)]
+               :schema-expectations
+               [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
+      (is (= :pass (:status r)))
+      (is (= 1 (count (filter #(= :rf.assert/schema-error (:assertion %))
+                              (:assertions r)))))
+      (is (= 1 (count (:schema-violations r))) "the violation is still projected")))
+
+  (testing "an UNEXPECTED schema violation FAILS the run (no expectation)"
+    (let [r (result/run-result
+              {:epoch-tape [(schema-epoch :event :checkout/submit)]})]
+      (is (= :fail (:status r)) "the floor fails the run on the unconsumed violation")))
+
+  (testing "a MISSING expected violation FAILS the run (the :fail record)"
+    (let [r (result/run-result
+              {:epoch-tape [(epoch {})]
+               :schema-expectations
+               [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
+      (is (= :fail (:status r)))
+      (is (= :fail (:status (first (filter #(= :rf.assert/schema-error (:assertion %))
+                                           (:assertions r))))))))
+
+  (testing "a DIFFERENT violation than expected STILL FAILS (both: missing
+            expected → :fail record AND the emitted one is unconsumed → floor)"
+    (let [r (result/run-result
+              {:epoch-tape [(schema-epoch :event :other/event)]
+               :schema-expectations
+               [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
+      (is (= :fail (:status r)))))
+
+  (testing "final app-db ROLLBACK does not hide the violation — the tape retains
+            it even when the epoch outcome is :ok and app-db is clean"
+    (let [tape [(epoch {:db-after {:clean true}        ; rolled-back, acceptable db
+                        :outcome  :ok
+                        :trace-events
+                        [{:operation :rf.error/schema-validation-failure
+                          :tags {:where :event :failing-id :checkout/submit
+                                 :rollback? true}}]})]
+          ;; no expectation declared → the retained violation fails the run
+          r    (result/run-result {:epoch-tape tape :app-db {:clean true}})]
+      (is (= :fail (:status r)) "rollback to a clean db does NOT hide the tape violation")
+      (is (= 1 (count (:schema-violations r)))))))
+
 ;; ---- projections AGREE with the tape (§B5) -------------------------------
 
 (deftest result-projections-agree-with-the-tape

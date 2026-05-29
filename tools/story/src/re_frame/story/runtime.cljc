@@ -333,6 +333,41 @@
       (plan/expand-checks (:checks body)))
     (catch #?(:clj Throwable :cljs :default) _ {})))
 
+(defn- variant-schema-expectations
+  "Collect every declared `[:rf.assert/schema-error spec]` atom for
+  `variant-id` (rf2-5x1wt.21, spec/017 §Schema rule). These declare the
+  EXPECTED schema violations the result boundary exactly-consumes against
+  the projected tape evidence — so a missing/different violation fails the
+  run, an exactly-expected violation passes. Pure aside from the registrar
+  reads; tolerant (any resolution failure yields no expectations, so the
+  strict floor — every violation fails — applies).
+
+  Sources, all in the ONE assertion-atom vocabulary:
+
+  - the variant body's terminal `:assertions` (own-only verdict);
+  - the expanded `:checks` assertion atoms (an inheritable schema
+    expectation rides a check, §Checks);
+  - the auto-play `executed-script`'s in-script `[:assert …]` checkpoints
+    (a mid-script schema expectation).
+
+  `:rf.assert/schema-error` is NOT dispatched into the frame (it has no
+  reg-event-fx handler — it is tape-evaluated), so collecting the DECLARED
+  atoms here is the single path that feeds the consumption matcher."
+  [variant-id executed-script]
+  (try
+    (let [body          (frames/variant-body variant-id)
+          terminal      (vec (:assertions body))
+          check-atoms   (mapcat val (variant-checks variant-id))
+          script-atoms  (into []
+                              (keep (fn [step]
+                                      (when (and (vector? step)
+                                                 (= :assert (first step)))
+                                        (second step))))
+                              (or executed-script []))]
+      (filterv assertions/schema-error?
+               (concat terminal check-atoms script-atoms)))
+    (catch #?(:clj Throwable :cljs :default) _ [])))
+
 (defn- record-result-map
   "Build the unified run-result returned by `run-variant` (rf2-5x1wt.19,
   spec/017 §Run result + §Unified run result). Gathers whatever the
@@ -365,13 +400,20 @@
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
         tape     (vec (rf/epoch-history variant-id))
         unified  (result/run-result
-                   {:variant/id   variant-id
-                    :epoch-tape   tape
-                    :assertions   (or (:rf.story/assertions app-db) [])
-                    :script       executed-script
-                    :check->atoms (variant-checks variant-id)
-                    :app-db       (or app-db {})
-                    :elapsed-ms   (- (interop/now-ms) start-ms)})]
+                   {:variant/id          variant-id
+                    :epoch-tape          tape
+                    :assertions          (or (:rf.story/assertions app-db) [])
+                    :script              executed-script
+                    :check->atoms        (variant-checks variant-id)
+                    ;; rf2-5x1wt.21 — the declared `:rf.assert/schema-error`
+                    ;; expectations, EXACT-consumed against the projected
+                    ;; tape violations (§Schema rule). Tape-evaluated, NOT
+                    ;; dispatched — collected from the body, not the
+                    ;; `:rf.story/assertions` accumulator.
+                    :schema-expectations (variant-schema-expectations
+                                           variant-id executed-script)
+                    :app-db              (or app-db {})
+                    :elapsed-ms          (- (interop/now-ms) start-ms)})]
     (merge unified
            {:frame           variant-id
             :rendered-hiccup nil       ;; Stage 4 fills this in

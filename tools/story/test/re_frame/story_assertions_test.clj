@@ -62,11 +62,17 @@
       (is (contains? events :rf.assert/dispatched?))
       (is (contains? events :rf.assert/state-is))
       (is (contains? events :rf.assert/no-warnings))
-      (is (contains? events :rf.assert/effect-emitted)))))
+      (is (contains? events :rf.assert/effect-emitted))))
+  (testing ":rf.assert/schema-error is NOT a reg-event-fx handler (rf2-5x1wt.21)
+            — it is tape-evaluated, not dispatched into the frame"
+    (let [events (re-frame.registrar/registrations :event)]
+      (is (not (contains? events :rf.assert/schema-error))))))
 
 (deftest canonical-assertion-ids-set-exported
-  (testing "canonical-assertion-ids returns the seven"
-    (is (= 7 (count (story/canonical-assertion-ids))))
+  (testing "canonical-assertion-ids returns the seven dispatched handlers PLUS
+            the tape-evaluated :rf.assert/schema-error (rf2-5x1wt.21)"
+    (is (= 8 (count (story/canonical-assertion-ids))))
+    (is (contains? (story/canonical-assertion-ids) :rf.assert/schema-error))
     (is (= assertions/canonical-assertion-ids
            (story/canonical-assertion-ids)))))
 
@@ -342,3 +348,57 @@
     (is (false? (assertions/assertion-event? [:rf.story/something])))
     (is (false? (assertions/assertion-event? nil)))
     (is (false? (assertions/assertion-event? [])))))
+
+;; ===========================================================================
+;; :rf.assert/schema-error — the EXPECTED schema-violation declaration
+;; (rf2-5x1wt.21, spec/017 §Schema rule). Pure selector parsing — the
+;; declared expectation's surface selector MUST mirror the projected
+;; violation's selector so the multiset matcher pairs them.
+;; ===========================================================================
+
+(deftest schema-error-recognised-and-known
+  (testing ":rf.assert/schema-error is recognised but is NOT one of the seven
+            dispatched handlers"
+    (is (assertions/assertion-id-known? :rf.assert/schema-error))
+    (is (assertions/schema-error? [:rf.assert/schema-error {:where :event :event :x}]))
+    (is (assertions/schema-error? [:rf.assert/schema-error]))
+    (is (not (assertions/schema-error? [:rf.assert/path-equals [:k] 1])))))
+
+(deftest schema-error-selector-mirrors-violation-selector
+  (testing "the declared expectation's selector matches evidence/violation-selector
+            key-for-key per surface (so the matcher pairs them)"
+    ;; :event (+ optional :path)
+    (is (= [:event :checkout/submit]
+           (assertions/schema-error-selector {:where :event :event :checkout/submit})))
+    (is (= [:event :checkout/submit [:cart]]
+           (assertions/schema-error-selector {:where :event :event :checkout/submit
+                                              :path [:cart]})))
+    ;; :cofx / :fx-args
+    (is (= [:cofx :load/session]
+           (assertions/schema-error-selector {:where :cofx :cofx :load/session})))
+    (is (= [:fx-args :http/get]
+           (assertions/schema-error-selector {:where :fx-args :fx-args :http/get})))
+    ;; :sub-return / :app-db / :machine-data
+    (is (= [:sub-return :auth/state [:auth/state]]
+           (assertions/schema-error-selector {:where :sub-return :sub-return :auth/state
+                                              :query-v [:auth/state]})))
+    (is (= [:app-db [:auth] [:auth :token]]
+           (assertions/schema-error-selector {:where :app-db :registered-path [:auth]
+                                              :path [:auth :token]})))
+    (is (= [:machine-data :checkout/fsm :entry]
+           (assertions/schema-error-selector {:where :machine-data :machine-id :checkout/fsm
+                                              :phase :entry}))))
+  (testing "a bare / where-less spec selects the [:any] wildcard"
+    (is (= [:any] (assertions/schema-error-selector {})))
+    (is (= [:any] (assertions/schema-error-selector {:event :x}))))
+  (testing "an unrecognised surface keys by [:where failing-id] (open fallback)"
+    (is (= [:custom/surface :some-id]
+           (assertions/schema-error-selector {:where :custom/surface :failing-id :some-id})))))
+
+(deftest schema-error-expectation-projection
+  (testing "schema-error-expectation carries the atom, spec, and selector"
+    (let [a   [:rf.assert/schema-error {:where :event :event :x}]
+          exp (assertions/schema-error-expectation a)]
+      (is (= a (:atom exp)))
+      (is (= {:where :event :event :x} (:spec exp)))
+      (is (= [:event :x] (:selector exp))))))
