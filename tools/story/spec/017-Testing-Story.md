@@ -169,6 +169,84 @@ to author `:setup`, `:args`, `:argtypes`, `:sub-overrides`, `:checks`,
 and `:assertions` at the top level; the plan compiler lowers them into
 this shape and `explain` shows both source and normalized locations.
 
+### Compiler API and normalization contract
+
+The compiler is a **pure data → data** function (so it is JVM-runnable
+and host-free) exposed through three entry points:
+
+```clojure
+(story/variant-plan target)        ; -> normalized plan
+(story/variant-plan target opts)
+(story/explain       target)       ; -> the plan's :explain map
+(story/explain       target opts)
+```
+
+`target` is a keyword (a registered variant id, resolved through the
+Story side-table) or a map (an inline plan body, with an optional
+`:variant/id`). `opts` MAY carry `:lookup` — a `(variant-id) →
+raw-body` fn or a `{variant-id → raw-body}` map — used to resolve
+`:extends` parents and the keyword target; it defaults to the
+side-table. Because `:lookup` accepts raw bodies, the compiler owns
+parent-chain resolution rather than depending on registration-time
+merge.
+
+**Normalization (author spelling → normalized slot):**
+
+| Author key | Normalized slot |
+|---|---|
+| `:setup` / `:events` | `[:world :setup]` (both spellings; `:setup` is the target) |
+| `:script` / `:play-script` / `:plays` | `:script` (the primary play); the full named-play set is preserved under `[:world :scripts]` so `:plays` is not dropped |
+| `:checks` | `[:expect :checks]` |
+| `:assertions` | `[:expect :assertions]` |
+| `:args` / `:argtypes` | `[:world :args]` / `[:world :argtypes]` |
+| `:sub-overrides` | `[:world :render :sub-overrides]` |
+| `:network` / `:fx-overrides` | `[:world :network]` / `[:world :frame :fx-overrides]` |
+| platforms / tags / workshop slots (`:decorators`, `:modes`, `:viewport`, …) | preserved under `:world` (and top-level `:tags`) |
+
+Script steps lower through the shipping coercion (bare event-vector
+shorthand lifts to `[:dispatch …]`; the `:dispatch` / `:dispatch-sync`
+/ `:wait` / `:assert-*` tag grammar is preserved verbatim), so the
+normalized `:script` matches what the runner executes.
+
+**Parent chain (`:extends`).** The compiler resolves the chain root to
+child and applies the §`:extends` principle — context flows down,
+verdict is local:
+
+- `:setup` **appends** root → child (a common silent-regression site);
+- world context (`:args` / `:argtypes` deep-merge; frame/render/network/
+  workshop slots) and `:checks` **inherit** root → child;
+- ordinary terminal `:assertions` and `:script` are **child-only**;
+- `:tags` union.
+
+**Args and `[:arg key]`.** `:args` resolve through the deep-merge
+precedence chain (later/closer-to-child wins). Every `[:arg key]`
+placeholder in setup, script, and sub-overrides is substituted before
+the plan is returned; a placeholder referencing an undeclared arg
+**fails** plan construction with `:rf.error/story-missing-arg`. `explain`
+records each substitution as `{:key … :value …}`.
+
+**Cycle/unknown detection.** A missing keyword target fails with
+`:rf.error/story-unknown-variant`; an unregistered `:extends` parent
+with `:rf.error/story-extends-unknown`; a repeated id (or a chain past
+the depth cap) with `:rf.error/story-extends-cycle` /
+`:rf.error/story-extends-chain-too-long`.
+
+**Required runner (initial).** The compiler computes an initial
+`:required-runner` capability **set** by unioning the tokens each setup
+step, script step, and terminal assertion declares (app-db work needs no
+token and resolves to `:headless`; DOM steps/assertions add `:dom`,
+visual adds `:pixels`, etc.). This is a coarse first cut; the
+per-assertion capability registry (a later bead) supersedes the static
+map without reshaping the plan.
+
+**Explain data.** `(story/explain target)` returns the plan's `:explain`
+map: source chain, parent chain, field-level merge decisions, resolved
+args + substitutions, final setup order and script order, checks and
+terminal assertions, required runner, platforms, tags, and source
+coords. Strict-conflict resolution and composed-fragment/check
+explanation (§Conflict resolution) are filled in by the composition
+bead; the foundation emits an empty `:compose` slot.
+
 ### Inline plan
 
 An inline plan is an executable plan map that is not registered as a
