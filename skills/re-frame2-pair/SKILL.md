@@ -122,6 +122,15 @@ discover-app
 
 This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame2-pair.runtime` namespace was loaded by the consumer's `:devtools :preloads` (see §Setup above).
 
+**Arg forms (don't guess; rf2-cg37y).** Each arg has one expected shape:
+
+| Arg | Form | Examples |
+|---|---|---|
+| `build` | bare build id; a leading colon is also tolerated (rf2-8ohwv) | `"examples/step-deck"` or `":examples/step-deck"` — identical |
+| `frame` / `frames` | keyword **with** the colon | `":rf/default"`, `":step-deck"`, `[":rf/default" ":rf/xray"]` |
+
+**Output representation.** discover-app reports every build/frame id (`:build-id`, `:frames`, `:running-builds`) as a **full keyword** (`:rf/default`, `:examples/step-deck`) in the canonical EDN result, and its `:note` / `:hint` prose uses the same colon form — one representation throughout. (Hosts that surface the `:structuredContent` JSON view will show the colon stripped — `"rf/default"` — that's the documented lossy JSON projection; read the EDN text for the id exactly as you'd type it back into a `:frame` arg.)
+
 If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 
 **Port discovery (canonical MCP transport).** On the first tool call the MCP server discovers the live shadow-cljs nREPL via a five-step cascade — `--port-file <abs>` flag, then `$SHADOW_CLJS_NREPL_PORT` env var, then **MCP `roots/list`** asking the agent host for its open workspace roots and walking each for `shadow-cljs.edn` + `.shadow-cljs/nrepl.port` (rf2-3grub — the zero-config primary path), then shadow's HTTP probe at `:9630/api/project-info` (rf2-umoz2), then a CWD-relative scan. Multiple running shadow builds in the workspace trigger an `elicitation/create` prompt so the user picks the project to attach to. Shadow restarts are absorbed transparently — every subsequent tool call re-reads the cached port file and reconnects if it changed.

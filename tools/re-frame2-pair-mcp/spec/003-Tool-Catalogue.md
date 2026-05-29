@@ -292,6 +292,18 @@ build-id is cached on the conn-atom (`:resolved-build-id`, rf2-l9ixp);
 subsequent tool calls may omit the `:build` arg — see
 [`API.md` §Build-id resolution](./API.md#build-id-resolution).
 
+**Id representation (rf2-cg37y).** Every build/frame id discover-app
+surfaces — `:build-id`, `:frames`, and the diagnostic `:running-builds`
+— is a **full keyword** (`:rf/default`, `:examples/step-deck`) in the
+canonical EDN `:content` text slot, and the embedded `:note` / `:hint`
+strings re-state them in the same colon form. One representation
+throughout that slot, so a first-time caller never has to guess which
+field uses which form. The sibling `:structuredContent` JSON slot is the
+documented lossy projection (`clj->js` drops the leading colon —
+`["rf/default"]`); it is the SDK-friendly fallback, not the canonical
+form. Read the EDN text when you want the id exactly as you would type
+it back into a `:frame` arg.
+
 On a precondition failure the response is `:ok? false` with a
 `:reason` keyword. The runtime ships into the app via shadow-cljs
 `:preloads`; the server probes
