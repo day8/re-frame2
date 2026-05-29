@@ -97,8 +97,9 @@
                              (let [v    (.. e -target -value)
                                    mode (keyword v)]
                                (when (not= mode active-mode)
-                                 (rf/dispatch [:rf.xray/set-mode mode]
-                                              {:frame :rf/xray}))))
+                                 ;; rf2-nesy9 — reg-view-injected
+                                 ;; frame-aware dispatch.
+                                 (dispatch [:rf.xray/set-mode mode]))))
               :style       {:background    (:bg-2 tokens)
                             :color         (:text-primary tokens)
                             :border        (str "1px solid " (:border-default tokens))

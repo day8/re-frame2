@@ -215,8 +215,12 @@
   "Right-icons cluster — `⚙` settings · `✕` close. Same content as the
   Dynamic ribbon (`shell.cljs/ribbon-right-icons`) but inlined here so
   the Static shell stays self-contained and we don't form a cycle by
-  reaching back into the Dynamic ns."
-  []
+  reaching back into the Dynamic ns.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `ribbon` reg-view body so the settings / close clicks land on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [icon-style {:background     "transparent"
                     :border         "none"
                     :color          (:text-secondary tokens)
@@ -228,13 +232,13 @@
      [:button {:data-testid "rf-xray-static-icon-settings"
                :title       "Settings (,)"
                :aria-label  "Open Xray settings"
-               :on-click    #(rf/dispatch [:rf.xray/settings-open] {:frame :rf/xray})
+               :on-click    #(dispatch [:rf.xray/settings-open])
                :style       icon-style}
       "⚙"]
      [:button {:data-testid "rf-xray-static-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :aria-label  "Close Xray"
-               :on-click    #(rf/dispatch [:rf.xray/close-shell] {:frame :rf/xray})
+               :on-click    #(dispatch [:rf.xray/close-shell])
                :style       icon-style}
       "✕"]]))
 
@@ -284,7 +288,7 @@
     [frame-switcher/frame-switcher-view]
     [mode-pill/mode-pill]]
    [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-    [ribbon-right-icons]]])
+    [ribbon-right-icons dispatch]]])
 
 ;; ---- L3 tab bar (Static) ------------------------------------------------
 
@@ -297,7 +301,11 @@
   B), the tab carries `role='tab'` + `aria-selected` so assistive
   tech reads it as a tab, not a generic button."
   [{:keys [id label mnem active?]}]
-  (let [glyph    (if active? "◉" "○")
+  ;; rf2-nesy9 — render-time frame capture so the deferred select-tab
+  ;; click dispatches into the surrounding instance frame (the tab
+  ;; renders inside the `tab-bar` reg-view), not a `:rf/xray` literal.
+  (let [frame    (rf/current-frame)
+        glyph    (if active? "◉" "○")
         color    (if active? (:text-primary tokens) (:text-secondary tokens))
         ;; rf2-plajx — mirror the Dynamic tab-button pattern: stable
         ;; tab-id + matching tabpanel id so the L4 panel's
@@ -309,8 +317,9 @@
               :role          "tab"
               :aria-selected (if active? "true" "false")
               :aria-controls panel-id
-              :on-click      #(rf/dispatch [:rf.xray.static/select-tab id]
-                                           {:frame :rf/xray})
+              :on-click      (fn [_]
+                               (rf/dispatch [:rf.xray.static/select-tab id]
+                                            {:frame frame}))
               :title         (str label " (" mnem ")")
               :aria-label    (str "Static " label " tab")
               :style {:background    "transparent"
