@@ -9,6 +9,7 @@
   Build-id resolution lives here too — `default-build-id` reads
   `SHADOW_CLJS_BUILD_ID` from `process.env`, falling back to `:app`."
   (:require [applied-science.js-interop :as j]
+            [re-frame.mcp-base.args :as base-args]
             [re-frame.mcp-base.envelope :as base-envelope]))
 
 ;; ---------------------------------------------------------------------------
@@ -134,6 +135,17 @@
        (same lifecycle as `:probed-builds`).
     3. `SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
+  The explicit `:build` arg is coerced via
+  `re-frame.mcp-base.args/fresh-keyword` (rf2-8ohwv), which strips a
+  leading colon: `\"examples/step-deck\"` and `\":examples/step-deck\"`
+  resolve identically. A bare `keyword` on the colon form would mint the
+  malformed `::examples/step-deck` (`cljs-eval` then renders it
+  `\"::examples/step-deck\"` and probes a build that doesn't exist) — the
+  failed-round-trip footgun the human-facing hint's colon form invited.
+  `fresh-keyword` is the right primitive here: the build-id is a
+  runtime-bounded read path resolving against shadow's finite running-
+  build registry, so the per-id intern cost is capped.
+
   1-arity (`(arg-build args)`) is the legacy entry — used by call sites
   that have no `conn` in scope (notably `args.cljs`'s frame/build
   parsing). It SKIPS the conn cache and falls straight through to the
@@ -141,7 +153,7 @@
   2-arity."
   ([args] (arg-build nil args))
   ([conn args]
-   (or (arg-keyword args :build)
+   (or (base-args/fresh-keyword (arg args :build))
        (conn-resolved-build-id conn)
        (default-build-id))))
 
@@ -165,7 +177,7 @@
   with no `conn` in scope; it sees only the per-call arg."
   ([args] (arg-build-explicit? nil args))
   ([conn args]
-   (or (some? (arg-keyword args :build))
+   (or (some? (arg args :build))
        (some? (conn-resolved-build-id conn)))))
 
 ;; ---------------------------------------------------------------------------

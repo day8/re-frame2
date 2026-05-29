@@ -282,7 +282,9 @@ Verify the shadow-cljs nREPL is reachable, confirm the
 shadow-cljs `:devtools :preloads`, and return a health summary. Run
 first every session.
 
-**Args**: `build` (string, optional, default `"app"`).
+**Args**: `build` (string, optional, default `"app"`). Colon-tolerant
+(rf2-8ohwv) — `"examples/step-deck"` and `":examples/step-deck"` resolve
+to the same build id; a doubled colon never reaches the resolver.
 
 **Returns**: an `:ok? true` map with `:debug-enabled?`, `:frames`,
 `:coord-annotation-enabled?`, `:build-id`. On success the resolved

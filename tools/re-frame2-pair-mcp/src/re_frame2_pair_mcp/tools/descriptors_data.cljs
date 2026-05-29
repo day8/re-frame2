@@ -213,7 +213,9 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:build {:type "string"
-                                      :description "shadow-cljs build id (default: app)"}}
+                                      :description (str "shadow-cljs build id (default: app). Colon-tolerant: "
+                                                        "\"examples/step-deck\" and \":examples/step-deck\" "
+                                                        "resolve identically (rf2-8ohwv).")}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
