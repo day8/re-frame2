@@ -76,16 +76,23 @@
 
 (def async-yield-step-types
   "Steps that put work on an async queue the runner cannot directly
-  flush — `:dispatch` (re-frame router), `:click` / `:type` (synthetic
-  DOM events whose handlers re-enter the dispatch chain), and `:wait`
-  (the runner sleeps explicitly). The driver yields one tick AFTER these
-  steps so the queued effects drain before the next step runs.
+  flush — `:click` / `:type` (synthetic DOM events whose handlers
+  re-enter the dispatch chain) and `:wait` (the runner sleeps
+  explicitly). The driver yields one tick AFTER these steps so the
+  queued effects drain before the next step runs.
 
-  Steps NOT in this set (`:dispatch-sync`, `:assert-db`, `:assert-dom`)
-  are pure-synchronous on CLJS — yielding between them is what allowed
-  concurrent `auto-run!` calls to interleave and overshoot counter
-  increments in the Playwright matrix (rf2-ftow6)."
-  #{:dispatch :click :type :wait})
+  `:dispatch` is NOT in this set as of rf2-5x1wt.2: a `[:dispatch …]`
+  step now settles through `settled-boundary` (spec/017) — in headless
+  the `dispatch-sync*` run-to-fixed-point drain — so it is synchronous
+  at the step boundary, exactly like `:dispatch-sync`. Yielding between
+  synchronous steps is what let concurrent `auto-run!` calls interleave
+  and overshoot counter increments in the Playwright matrix (rf2-ftow6);
+  settling `:dispatch` synchronously removes that hazard for the queued
+  authoring form too.
+
+  Steps NOT in this set (`:dispatch`, `:dispatch-sync`, `:assert-db`,
+  `:assert-dom`) recur synchronously on CLJS."
+  #{:click :type :wait})
 
 (declare step-type)
 
