@@ -1551,8 +1551,13 @@ async function runTwentyEventBurst(page) {
   await toolbar.locator('[data-toolbar-mode=":Mode.app/light"]').click(); // 11
   await toolbar.locator('[data-test="story-toolbar-reset"]').click(); // 12
 
-  await page.getByRole('button', { name: /^share$/i }).first().click(); // 13
-  await page.getByRole('button', { name: /^close$/i }).first().click(); // 14
+  // rf2-5fyo3: the per-variant Share popover (open/close) that events
+  // 13-14 used to drive was retired by rf2-ymnfx — the live address-bar
+  // URL is the share surface now (and the Share-URL probe asserts it).
+  // Substitute the backgrounds-menu open/close popover so the burst
+  // still exercises a real open-then-dismiss chrome interaction.
+  await toolbar.locator('[data-test="story-toolbar-backgrounds"]').click(); // 13
+  await page.locator('[data-test="story-backgrounds-backdrop"]').click(); // 14
 
   await toolbar.locator('[data-test="story-toolbar-rec"]').click(); // 15
   await expectVisible(page.locator('[data-test="story-recorder-overlay"]'), 5000);

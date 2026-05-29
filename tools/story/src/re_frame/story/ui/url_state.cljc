@@ -38,10 +38,13 @@
   toggle) → `pushState` so the browser back-button restores the prior
   view.
 
-  Cell-override edits are NOT pushed/replaced here — they're handled
-  by the existing share-URL surface (the share popover) on demand.
-  Threading every keystroke into the URL is too chatty for an
-  interactive controls panel.
+  Cell-override edits on the focused variant ARE pushed (rf2-5fyo3):
+  the share popover that once owned override serialisation was retired
+  (rf2-ymnfx), so the live address bar is the only surface that shares
+  overrides. `url-relevant-slots-changed?` compares the focused
+  variant's overrides slice, and `params-from-state` serialises it into
+  the `overrides=` param — a teammate pasting the URL lands on the same
+  override set. Overrides on non-focused variants stay off the URL.
 
   ## Idempotence
 
@@ -115,6 +118,16 @@
 
 ;; ---- diff predicate -----------------------------------------------------
 
+(defn- focused-overrides
+  "The cell-overrides slice for the currently-focused variant — the
+  same projection `params-from-state` serialises into the `overrides=`
+  param. Returns nil when no variant is focused so an overrides change
+  on a non-focused variant never triggers a push (only the focused
+  variant's overrides ride the URL)."
+  [shell]
+  (when-let [vid (:selected-variant shell)]
+    (get-in shell [:cell-overrides vid])))
+
 (defn url-relevant-slots-changed?
   "True iff any URL-encoded slot differs between two shell-state maps.
   Pure data → data; the state-watcher uses this to skip pushState when
@@ -122,8 +135,13 @@
 
   Compared slots: `:selected-variant`, `:selected-workspace`,
   `:active-mode-tab`, `:active-modes`, `:viewport`, `:background`,
-  `:tag-filter`, `:substrate`. Cell-overrides are NOT included — they
-  ride the share popover, not the live URL."
+  `:tag-filter`, `:substrate`, plus the focused variant's
+  cell-overrides slice. The overrides slice is variant-scoped (the URL
+  carries the focused variant's overrides, per `params-from-state`); a
+  controls edit on the focused variant must push so the live address
+  bar round-trips the override (rf2-5fyo3 — the share popover that used
+  to own override serialisation was retired by rf2-ymnfx, so the live
+  URL is now the only override-sharing surface)."
   [old new]
   (or (not= (:selected-variant   old) (:selected-variant   new))
       (not= (:selected-workspace old) (:selected-workspace new))
@@ -132,7 +150,8 @@
       (not= (:viewport           old) (:viewport           new))
       (not= (:background         old) (:background         new))
       (not= (:tag-filter         old) (:tag-filter         new))
-      (not= (:substrate          old) (:substrate          new))))
+      (not= (:substrate          old) (:substrate          new))
+      (not= (focused-overrides   old) (focused-overrides   new))))
 
 ;; ---- hydrator: URL params → shell-state apply ---------------------------
 

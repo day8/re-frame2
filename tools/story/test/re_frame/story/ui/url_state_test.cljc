@@ -145,14 +145,11 @@
         {:active-modes [:m/dark]})))
 
 (deftest url-relevant-slots-changed-ignores-non-url-slots
-  (testing "changes to non-URL slots (hot-reload-tick, cell-overrides,
-            fingerprints, panel-visibility) do NOT trigger a push"
+  (testing "changes to non-URL slots (hot-reload-tick, fingerprints,
+            panel-visibility) do NOT trigger a push"
     (is (not (us/url-relevant-slots-changed?
                {:selected-variant :foo/a :hot-reload-tick 0}
                {:selected-variant :foo/a :hot-reload-tick 99})))
-    (is (not (us/url-relevant-slots-changed?
-               {:selected-variant :foo/a :cell-overrides {}}
-               {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}})))
     (is (not (us/url-relevant-slots-changed?
                {:selected-variant :foo/a :fingerprints {}}
                {:selected-variant :foo/a :fingerprints {:foo/a {:dec :h}}})))
@@ -161,6 +158,29 @@
                 :panel-visibility {:trace true}}
                {:selected-variant :foo/a
                 :panel-visibility {:trace false}})))))
+
+(deftest url-relevant-slots-changed-detects-focused-overrides-change
+  (testing "rf2-5fyo3 — a controls edit on the FOCUSED variant changes
+            its cell-overrides slice and MUST trigger a push so the
+            live address bar round-trips the override (the share popover
+            that used to own override serialisation was retired)"
+    (is (us/url-relevant-slots-changed?
+          {:selected-variant :foo/a :cell-overrides {}}
+          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}))
+    (is (us/url-relevant-slots-changed?
+          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}
+          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 2}}}))))
+
+(deftest url-relevant-slots-changed-ignores-unfocused-overrides-change
+  (testing "rf2-5fyo3 — overrides on a NON-focused variant stay off the
+            URL (the URL carries only the focused variant's overrides)"
+    (is (not (us/url-relevant-slots-changed?
+               {:selected-variant :foo/a :cell-overrides {:foo/b {:x 1}}}
+               {:selected-variant :foo/a :cell-overrides {:foo/b {:x 2}}})))
+    (testing "no focused variant — overrides edits never push"
+      (is (not (us/url-relevant-slots-changed?
+                 {:selected-variant nil :cell-overrides {}}
+                 {:selected-variant nil :cell-overrides {:foo/a {:x 1}}}))))))
 
 ;; ---- apply-parsed-to-state ----------------------------------------------
 
