@@ -1569,6 +1569,19 @@
     (dispatch-fn [:rf.xray.edn-inspector/toggle-node
                   panel-id mount-id path rendered-expanded?])))
 
+(defn- swallow-dblclick
+  "`:on-double-click` for the `▸`/`▾` toggle glyph (rf2-6nw3g). The
+  triangle's `:on-click` already toggles + `stopPropagation`s each
+  click, but a double-click on the glyph still emits a `dblclick` that
+  would bubble to the enclosing zoomable container's `:on-double-click`
+  zoom (`zoom-trigger-attrs`). Swallowing it here lets the triangle own
+  its own gesture — zoom only fires on a double-click OUTSIDE the
+  triangle — and `preventDefault` suppresses the native text-selection."
+  [^js e]
+  (when e
+    (.preventDefault e)
+    (.stopPropagation e)))
+
 (defn- collapsed-summary
   "Right-of-triangle summary for a collapsed collection. Shows an
   inline preview if any first elements fit; falls back to the
@@ -1848,6 +1861,7 @@
         depth-capped?
         (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
                  [:span {:on-click   toggle-fn
+                         :on-double-click swallow-dblclick
                          :role       "button"
                          :tabIndex   0
                          :aria-expanded false
@@ -1907,6 +1921,7 @@
         expanded?
         (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
                  [:span {:on-click   toggle-fn
+                         :on-double-click swallow-dblclick
                          :role       "button"
                          :tabIndex   0
                          :aria-expanded true
@@ -1932,6 +1947,7 @@
                               (not (#{:added :removed} op)))]
           (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
                    [:span {:on-click   toggle-fn
+                           :on-double-click swallow-dblclick
                            :role       "button"
                            :tabIndex   0
                            :aria-expanded false

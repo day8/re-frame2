@@ -2939,6 +2939,62 @@
           "rf2-r0o63 — composed-path dispatch is ALSO a single-arg event
            vector through the captured dispatcher (no `:rf/xray` literal)"))))
 
+;; ---- rf2-6nw3g — the toggle triangle owns its double-click gesture -------
+;;
+;; A zoomable container's outer div carries `:on-double-click -> zoom-to`
+;; (zoom-trigger-attrs). The `▸`/`▾` toggle glyph nested inside dispatches
+;; toggle on `:on-click`. Before the fix the glyph had no `:on-double-click`
+;; guard, so a double-click on the TRIANGLE fired toggle twice (net visual
+;; no-op, two dispatches) AND its `dblclick` bubbled to the container's zoom.
+;; The fix adds `swallow-dblclick` (preventDefault + stopPropagation, no
+;; dispatch) so the triangle owns its gesture: zoom only fires on a
+;; double-click OUTSIDE the triangle, and a single click still toggles.
+
+(defn- stub-evt
+  "A synthetic-event stub that records `preventDefault` / `stopPropagation`
+  invocations into the supplied atom map `{:prevented? false :stopped? false}`."
+  [spy]
+  (js-obj "preventDefault"  (fn [] (swap! spy assoc :prevented? true))
+          "stopPropagation" (fn [] (swap! spy assoc :stopped? true))))
+
+(deftest toggle-glyph-double-click-is-swallowed-no-zoom
+  ;; Render a NON-ROOT, collapsed, zoomable container so BOTH the toggle
+  ;; glyph and the container's zoom-trigger attrs are present.
+  (let [dispatched (atom [])
+        dispatch-fn (fn [ev] (swap! dispatched conj ev))
+        v   {:a 1 :b 2 :c 3 :d 4 :e 5}
+        h   (ei/render-node {:value v
+                             :panel-id :p
+                             :mount-id "m"
+                             :path [:parent]
+                             :depth 5
+                             :expansion-map {}
+                             :zoomable? true
+                             :dispatch-fn dispatch-fn
+                             :opts {:default-expanded-depth 1}})
+        tog (find-attr h :data-testid "rf-xray-edn-inspector-p-m-:parent-toggle")
+        on-click (-> tog second :on-click)
+        on-dblclick (-> tog second :on-double-click)]
+    (is (some? tog) "the collapsed container renders a toggle glyph")
+    (is (seq (zoom-target-nodes h))
+        "the non-root container is also a zoom target (gesture lives on the
+         outer div, which the dblclick must NOT reach)")
+    (testing "the toggle glyph carries a double-click swallow guard"
+      (is (fn? on-dblclick) "toggle glyph must carry an :on-double-click")
+      (let [spy (atom {:prevented? false :stopped? false})]
+        (on-dblclick (stub-evt spy))
+        (is (:prevented? @spy)
+            "preventDefault — suppresses the native text-selection")
+        (is (:stopped? @spy)
+            "stopPropagation — the dblclick never bubbles to the container's zoom")
+        (is (empty? @dispatched)
+            "the swallow dispatches NOTHING (no zoom-to, no toggle)")))
+    (testing "a single click still toggles (existing behaviour preserved)"
+      (on-click nil)
+      (is (= [[:rf.xray.edn-inspector/toggle-node :p "m" [:parent] false]]
+             @dispatched)
+          "one click dispatches exactly one canonical toggle event"))))
+
 ;; ---- breadcrumb ----------------------------------------------------------
 
 (deftest breadcrumb-nil-when-no-zoom
