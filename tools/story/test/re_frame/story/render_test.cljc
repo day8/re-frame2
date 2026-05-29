@@ -275,12 +275,42 @@
       (is (= :error (:status r)))
       (is (= :test/boom (get-in r [:error :data :rf.error/id]))))))
 
+(deftest render-variant-host-throw-carries-prepared-slots
+  ;; rf2-jh42p — on the host-render-throw path, prepare-render already
+  ;; produced :plan / :plan-hash / :effective-args, so the :error result
+  ;; MUST thread them onto the documented shape rather than dropping them.
+  ;; Pre-fix these slots are absent (this test fails); post-fix they ride.
+  (testing "a host-render throw projects to :error WITH the prepared plan
+            context (spec/017 §Args — :plan/:plan-hash/:effective-args)"
+    (render/install-render-host!
+      (fn [_] (throw (ex-info "boom" {:rf.error/id :test/boom}))))
+    (let [body {:component :view.button/primary :args {:label "Go"}}
+          r    (render/render-variant
+                 :story.button/primary
+                 {:lookup {:story.button/primary body}})]
+      (is (= :error (:status r)))
+      (is (= :story.button/primary (:frame r)))
+      (is (= {:label "Go"} (:effective-args r)))
+      (is (string? (:plan-hash r)))
+      (is (map? (:plan r)))
+      (testing "the threaded :plan-hash matches the prepared plan's hash"
+        (let [prep (render/prepare-render
+                     :story.button/primary
+                     {:lookup {:story.button/primary body}})]
+          (is (= (:plan-hash prep) (:plan-hash r))))))))
+
 (deftest render-variant-unknown-variant-is-error
   (testing "an unknown keyword target throws in the compiler → :error"
     (let [r (render/render-variant :story.nope/missing {:lookup {}})]
       (is (= :error (:status r)))
       (is (= :rf.error/story-unknown-variant
-             (get-in r [:error :data :rf.error/id]))))))
+             (get-in r [:error :data :rf.error/id])))
+      (testing "plan-CONSTRUCTION throw carries no plan slots (none prepared)"
+        ;; The frame-free shape (spec/017): plan construction threw before a
+        ;; plan/effective-args existed, so only :frame + :error ride.
+        (is (not (contains? r :plan)))
+        (is (not (contains? r :plan-hash)))
+        (is (not (contains? r :effective-args)))))))
 
 ;; ===========================================================================
 ;; Inline-plan map target (§B10 — render-variant for BOTH registered +

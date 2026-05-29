@@ -285,11 +285,24 @@
   rf2-9kpsq — the `:error` sub-map is the shared
   `re-frame.story.error/throwable->error-map` projection (was a drifted
   copy that dropped `:stack`; consolidation restores the canonical
-  `{:message :stack :data}` shape)."
-  [target e]
-  {:status :error
-   :frame  (when (keyword? target) target)
-   :error  (story-error/throwable->error-map e)})
+  `{:message :stack :data}` shape).
+
+  rf2-jh42p — when the throw happened AFTER `prepare-render` succeeded
+  (the host render fn threw), the prepared `:plan` / `:plan-hash` /
+  `:effective-args` already exist, so thread them onto the result to match
+  the documented shape (spec/017 §Args — P1 render API: those slots are
+  always present once prepared). The `:frame` slot prefers the prepared
+  frame id (an inline-map target has no keyword frame, but the plan still
+  resolved one) and falls back to the keyword target. When `prepared` is
+  nil (plan CONSTRUCTION threw — no plan exists), only `:frame` + `:error`
+  carry, as before."
+  ([target e] (error-result target e nil))
+  ([target e prepared]
+   (cond-> {:status :error
+            :frame  (or (:frame prepared) (when (keyword? target) target))
+            :error  (story-error/throwable->error-map e)}
+     prepared (merge (select-keys prepared
+                                  [:plan :plan-hash :effective-args])))))
 
 (defn render-variant
   "Render `target`'s active workshop view from its normalized variant plan
@@ -344,8 +357,11 @@
                  (-> (select-keys prepared
                                   [:plan :plan-hash :frame :effective-args :validation])
                      (assoc :status :rendered :rendered rendered)))
+               ;; Host render threw — `prepared` already carries
+               ;; :plan/:plan-hash/:effective-args, so thread them onto the
+               ;; :error result (rf2-jh42p) rather than dropping the context.
                (catch #?(:clj Throwable :cljs :default) e
-                 (error-result target e)))
+                 (error-result target e prepared)))
              ;; No host render hook (the bare JVM / a pre-boot CLJS build):
              ;; the render-prep is complete, but nothing can paint the view.
              (cannot-run-result prepared :no-render-host))

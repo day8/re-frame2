@@ -1004,9 +1004,7 @@
   ([variant-id done-cb]
    (when config/enabled?
      (let [plays      (variant-plays variant-id)
-           auto-plays (filterv (fn [p] (and (:auto-run? p)
-                                            (seq (:script p))))
-                               plays)]
+           auto-plays (runner/auto-runnable-plays plays)]
        (cond
          (empty? auto-plays)
          nil
