@@ -505,18 +505,42 @@
 (def ^:const id-no-warnings     :rf.assert/no-warnings)
 (def ^:const id-effect-emitted  :rf.assert/effect-emitted)
 
+;; ---------------------------------------------------------------------------
+;; Schema-error — the EXPECTED schema violation (rf2-5x1wt.21, NET-NEW)
+;;
+;; `:rf.assert/schema-error` declares that the run is EXPECTED to emit one
+;; schema validation failure on a named surface. Unlike the seven app-db /
+;; trace-bus assertions it is NOT a `reg-event-fx` handler dispatched into
+;; the frame — it carries no app-db semantics. It is a TAPE-evaluated
+;; expectation: the runner pairs each declared `:rf.assert/schema-error`
+;; against the projected `:rf.error/schema-validation-failure` evidence
+;; (`re-frame.story.play.evidence/schema-violations`) by an EXACT
+;; multiset-consumption match (spec/017 §Schema rule), so the verdict +
+;; assertion record are minted in the result boundary (`result.cljc`), not
+;; here. There is deliberately NO `:rf.assert/no-schema-errors` — a
+;; schema-clean run is the knob-free runner FLOOR (the agreement floor in
+;; `evidence/tape-shows-failure?`), refined by these expectations rather
+;; than an opt-in.
+;; ---------------------------------------------------------------------------
+
+(def ^:const id-schema-error    :rf.assert/schema-error)
+
 (def canonical-assertion-ids
-  "Per spec/007 line 304 — the canonical seven assertion event ids,
-  registered at Story boot. These are the SHIPPING seven the fold
-  preserves (rf2-5x1wt.18, spec/017 §Assertions — one atom, two
-  positions)."
+  "The canonical assertion event ids the P1 vocabulary recognises. The
+  SHIPPING seven (spec/007 line 304) the `.18` fold preserves, PLUS the
+  NET-NEW `:rf.assert/schema-error` (rf2-5x1wt.21, spec/017 §Schema rule —
+  the EXPECTED-schema-violation declaration). `:rf.assert/schema-error` is
+  recognised (so plan construction accepts it) but is NOT installed as a
+  `reg-event-fx` handler: it is tape-evaluated in the result boundary, not
+  dispatched into the frame (see the section comment above)."
   #{id-path-equals
     id-path-matches
     id-sub-equals
     id-dispatched
     id-state-is
     id-no-warnings
-    id-effect-emitted})
+    id-effect-emitted
+    id-schema-error})
 
 ;; ---------------------------------------------------------------------------
 ;; DOM assertion family — the fold target for the shipping `:assert-dom`
@@ -657,6 +681,83 @@
   (when (and (vector? assertion-atom) (pos? (count assertion-atom)))
     (let [h (first assertion-atom)]
       (when (keyword? h) h))))
+
+;; ---------------------------------------------------------------------------
+;; Schema-error expectation — parse the declared atom into its surface
+;; selector (rf2-5x1wt.21, spec/017 §Schema rule)
+;;
+;; The declared atom is `[:rf.assert/schema-error {:where <surface> …}]`.
+;; The spec map's `:where` chooses the surface; the surface-specific keys
+;; key the EXPECTATION's selector, which the result boundary pairs against
+;; a projected violation's `:selector` (`evidence/violation-selector`) by an
+;; exact multiset match. The two selector builders MUST agree key-for-key —
+;; `evidence/violation-selector` keys a PROJECTED VIOLATION (read from the
+;; trace `:tags`), this keys a DECLARED EXPECTATION (read from the author's
+;; spec map) — so the same surface produces the same vector on both sides:
+;;
+;;     {:where :event :event id}                         → [:event id]
+;;     {:where :event :event id :path p}                 → [:event id p]
+;;     {:where :cofx :cofx id}                           → [:cofx id]
+;;     {:where :fx-args :fx-args id}                     → [:fx-args id]
+;;     {:where :sub-return :sub-return id :query-v qv}   → [:sub-return id qv]
+;;     {:where :app-db :registered-path rp :path p}      → [:app-db rp p]
+;;     {:where :machine-data :machine-id m :phase phase} → [:machine-data m phase]
+;;
+;; A `:where` the matcher does not special-case keys by `[:where failing]`
+;; where `failing` is the surface-named id slot (mirroring
+;; `evidence/violation-selector`'s open-surface fallback), so a novel
+;; surface still pairs by a stable, distinct selector.
+
+(defn schema-error?
+  "True iff `assertion-atom` is a `[:rf.assert/schema-error …]` declaration.
+  Pure data → data."
+  [assertion-atom]
+  (= id-schema-error (assertion-atom-id assertion-atom)))
+
+(defn schema-error-spec
+  "The expectation spec map of a `[:rf.assert/schema-error spec]` atom (the
+  second element), or `{}` when the atom carries no spec (a bare
+  `[:rf.assert/schema-error]` expects ANY one violation — keyed `[:any]`).
+  Pure data → data."
+  [assertion-atom]
+  (let [s (nth (vec assertion-atom) 1 nil)]
+    (if (map? s) s {})))
+
+(defn schema-error-selector
+  "The surface SELECTOR a declared `:rf.assert/schema-error` expectation
+  pairs on — mirroring `evidence/violation-selector` so a declared
+  expectation and a projected violation produce the SAME vector for the same
+  surface (rf2-5x1wt.21, spec/017 §Schema rule). Pure data → data.
+
+  `spec` is the expectation map (`schema-error-spec`). An empty spec (a bare
+  `[:rf.assert/schema-error]`) selects `[:any]` — the wildcard that consumes
+  any one violation regardless of surface. An unrecognised `:where` keys by
+  `[:where failing-id]` (the open-surface fallback)."
+  [spec]
+  (let [{:keys [where event cofx fx-args sub-return query-v
+                registered-path path machine-id phase failing-id]} spec]
+    (cond
+      (empty? spec)        [:any]
+      (nil? where)         [:any]
+      (= :event where)     (cond-> [:event event]
+                             (some? path) (conj path))
+      (= :cofx where)      [:cofx cofx]
+      (= :fx-args where)   [:fx-args fx-args]
+      (= :sub-return where) [:sub-return sub-return query-v]
+      (= :app-db where)    [:app-db registered-path path]
+      (= :machine-data where) [:machine-data machine-id phase]
+      :else                [where failing-id])))
+
+(defn schema-error-expectation
+  "Project a declared `[:rf.assert/schema-error spec]` atom into its
+  expectation record `{:atom atom :spec spec :selector selector}` — the
+  shape the result boundary's exact-consumption matcher pairs against the
+  projected violations (rf2-5x1wt.21). Pure data → data."
+  [assertion-atom]
+  (let [spec (schema-error-spec assertion-atom)]
+    {:atom     assertion-atom
+     :spec     spec
+     :selector (schema-error-selector spec)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot — register the seven canonical handlers

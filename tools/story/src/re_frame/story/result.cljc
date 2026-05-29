@@ -59,7 +59,8 @@
   `re-frame.core` / the DOM, so the whole assembly runs under
   `clojure -M:test`. The runner reads the tape + the accumulator and hands
   the vectors here; the assembly never touches the runtime."
-  (:require [re-frame.story.play.evidence :as evidence]
+  (:require [re-frame.story.assertions    :as assertions]
+            [re-frame.story.play.evidence :as evidence]
             [re-frame.story.requirements  :as requirements]))
 
 ;; ===========================================================================
@@ -199,6 +200,140 @@
         (or check->atoms [])))
 
 ;; ===========================================================================
+;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule, rf2-5x1wt.21)
+;; ===========================================================================
+;;
+;; The §Schema-rule invariant: any emitted
+;; `:rf.error/schema-validation-failure` MUST fail the run UNLESS exactly
+;; consumed by an expected `:rf.assert/schema-error`, even if recovery /
+;; rollback leaves the final app-db acceptable. There is NO
+;; `:rf.assert/no-schema-errors` knob — a schema-clean run is the FLOOR
+;; (`evidence/tape-shows-failure?`), and these expectations REFINE it.
+;;
+;; Matching is an EXACT MULTISET pairing (spec/017 §Schema rule steps 1-4):
+;;
+;;   1. The projected violations (`evidence/schema-violations`, the SINGLE
+;;      source — no second accumulator) are keyed by their `:selector`.
+;;   2. Each declared `[:rf.assert/schema-error spec]` consumes EXACTLY ONE
+;;      matching violation; N declared of a selector consume N. A bare
+;;      `[:rf.assert/schema-error]` (the `[:any]` wildcard) consumes any one
+;;      still-unconsumed violation.
+;;   3. A declared expectation that matches NO (remaining) violation FAILS
+;;      (a failed assertion record — the expected violation never happened).
+;;   4. Any violation left UNCONSUMED fails the run (the agreement floor,
+;;      since its selector is NOT in `:consumed-selectors`).
+;;
+;; The walk pairs concrete (non-wildcard) expectations FIRST, then wildcards
+;; against whatever remains — so a wildcard never starves a concrete
+;; expectation of its specific match. This keeps the multiset semantics
+;; deterministic regardless of declaration order.
+
+(defn- pair-expectations
+  "Pair `expectations` (the projected `:rf.assert/schema-error`
+  expectation records, `assertions/schema-error-expectation`) against
+  `violations` (the projected `evidence/schema-violations`) by exact
+  multiset selector match. Pure data → data.
+
+  Returns `{:matched [{:expectation … :violation …} …]
+            :unmatched [expectation …]      ; expected, no violation
+            :unconsumed [violation …]}`     ; emitted, not expected
+
+  Concrete (non-`[:any]`) expectations consume a same-selector violation
+  first; `[:any]` wildcards then consume any remaining violation. A
+  consumed violation is removed from the pool so N expectations of a
+  selector consume exactly N violations (multiset, not set)."
+  [expectations violations]
+  (let [wildcard? (fn [e] (= [:any] (:selector e)))
+        concrete  (remove wildcard? expectations)
+        wildcards (filter wildcard? expectations)
+        ;; pool of still-unconsumed violations, in tape order
+        step      (fn [{:keys [pool matched unmatched]} exp pred]
+                    (let [[before [hit & after]] (split-with (complement pred) pool)]
+                      (if hit
+                        {:pool      (vec (concat before after))
+                         :matched   (conj matched {:expectation exp :violation hit})
+                         :unmatched unmatched}
+                        {:pool      pool
+                         :matched   matched
+                         :unmatched (conj unmatched exp)})))
+        ;; concrete: match by identical selector
+        after-conc (reduce (fn [acc exp]
+                             (step acc exp #(= (:selector exp) (:selector %))))
+                           {:pool (vec violations) :matched [] :unmatched []}
+                           concrete)
+        ;; wildcards: match any remaining violation
+        after-wild (reduce (fn [acc exp] (step acc exp (constantly true)))
+                           after-conc
+                           wildcards)]
+    {:matched    (:matched after-wild)
+     :unmatched  (:unmatched after-wild)
+     :unconsumed (:pool after-wild)}))
+
+(defn schema-error-record
+  "Mint the unified assertion record for ONE declared
+  `:rf.assert/schema-error` expectation (spec/017 §Schema rule, §Run
+  result — Assertion record). Pure data → data.
+
+  `matched-violation` is the violation the expectation consumed, or nil
+  when it matched none. A matched expectation is `:pass` (the expected
+  violation happened and was exactly consumed); an unmatched expectation is
+  `:fail` (the expected violation never happened — a MISSING expected
+  schema violation fails the run, §Schema rule step 3). The record carries
+  the declared spec as `:expected` and the matched violation's selector as
+  `:actual` so a failing expectation reads diagnostically."
+  [{:keys [atom spec selector] :as _expectation} matched-violation]
+  (let [passed? (some? matched-violation)]
+    {:assertion assertions/id-schema-error
+     :payload   (vec (rest atom))
+     :passed?   passed?
+     :status    (if passed? :pass :fail)
+     :expected  spec
+     :actual    (when matched-violation (:selector matched-violation))
+     :reason    (if passed?
+                  (str "expected schema violation " (pr-str selector)
+                       " was emitted and exactly consumed")
+                  (str "expected schema violation " (pr-str selector)
+                       " but no matching :rf.error/schema-validation-failure "
+                       "was emitted during the run"))}))
+
+(defn match-schema-expectations
+  "EXACT-consumption match of declared `:rf.assert/schema-error`
+  expectations against the tape's projected schema violations (spec/017
+  §Schema rule, rf2-5x1wt.21). Pure data → data — the boundary the
+  `run-result` assembly consumes.
+
+  `schema-expectations` is the vector of declared `:rf.assert/schema-error`
+  ATOMS (`[:rf.assert/schema-error spec]`); `epoch-tape` is the retained
+  `:rf/epoch-record` vector (the SINGLE violation source — projected via
+  `evidence/schema-violations`, never a second accumulator). Returns:
+
+      {:records             [assertion-record …]  ; one per declared expectation
+       :consumed-selectors  #{selector …}         ; selectors EXACTLY consumed
+       :unmatched           [expectation …]       ; expected, never emitted
+       :unconsumed          [violation …]}         ; emitted, not expected
+
+  `:consumed-selectors` is the set the agreement floor
+  (`evidence/tape-shows-failure?`) subtracts so an EXACTLY-consumed
+  violation does not trip the floor. A violation left unconsumed keeps its
+  selector OUT of the set, so the floor still fails the run on it (§Schema
+  rule step 4). A `:fail` record for each unmatched expectation fails the
+  run on a MISSING expected violation (step 3)."
+  [schema-expectations epoch-tape]
+  (let [violations  (evidence/schema-violations epoch-tape)
+        exps        (mapv assertions/schema-error-expectation
+                          (or schema-expectations []))
+        {:keys [matched unmatched unconsumed]} (pair-expectations exps violations)
+        records     (into (mapv (fn [{:keys [expectation violation]}]
+                                  (schema-error-record expectation violation))
+                                matched)
+                          (mapv (fn [exp] (schema-error-record exp nil))
+                                unmatched))]
+    {:records            records
+     :consumed-selectors (into #{} (map (comp :selector :violation)) matched)
+     :unmatched          unmatched
+     :unconsumed         unconsumed}))
+
+;; ===========================================================================
 ;; THE UNIFIED RUN RESULT  (spec/017 §Run result)
 ;; ===========================================================================
 
@@ -223,10 +358,22 @@
                           `:narrative` projection (`.4`).
   - `:check->atoms`     — `{check-id [assertion-atom …]}`, the plan's
                           expanded checks, grouped into `:checks`.
-  - `:consumed-selectors` — the schema-violation selectors the run's
-                          `:rf.assert/schema-error` expectations consumed
-                          (excused from the agreement floor, §Schema rule).
-                          Defaults to `#{}` (the strict floor).
+  - `:schema-expectations` — the vector of declared `:rf.assert/schema-error`
+                          atoms (`[:rf.assert/schema-error spec]`, from the
+                          plan's `[:expect :assertions]` + in-script
+                          `[:assert …]` checkpoints). EXACT-matched against
+                          the tape's projected violations (§Schema rule):
+                          each consumes one matching violation, an
+                          unmatched expectation yields a `:fail` record
+                          (a MISSING expected violation fails the run), and
+                          exactly-consumed selectors are excused from the
+                          agreement floor. The minted schema-error records
+                          are appended to `:assertions`.
+  - `:consumed-selectors` — additional schema-violation selectors to excuse
+                          from the agreement floor (§Schema rule), unioned
+                          with whatever `:schema-expectations` consumed. A
+                          pure escape hatch for callers that pre-compute the
+                          match; defaults to `#{}` (the strict floor).
   - `:unmet`            — the per-requirement `:cannot-run` refusals for
                           expectations the runner could not attempt
                           (`requirements/unmet-assertions` /
@@ -244,13 +391,24 @@
   green while the tape is red, and the verdict is computed from the
   PROJECTED evidence, not a sibling accumulator."
   [{:keys [epoch-tape assertions script check->atoms consumed-selectors
-           unmet app-db]
+           schema-expectations unmet app-db]
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
         evidence-slots (evidence/project-evidence tape {:script script})
-        records        (assertion-records assertions)
+        ;; EXACT schema-error consumption (§Schema rule, rf2-5x1wt.21): pair
+        ;; each declared `:rf.assert/schema-error` against the tape's
+        ;; projected violations. The minted records (a `:pass` for each
+        ;; matched expectation, a `:fail` for each unmatched — a MISSING
+        ;; expected violation FAILS the run) join the assertion records; the
+        ;; exactly-consumed selectors excuse those violations from the floor,
+        ;; while an UNCONSUMED violation keeps its selector OUT of the set so
+        ;; the floor still fails the run on it.
+        schema-match   (match-schema-expectations schema-expectations tape)
+        records        (into (assertion-records assertions)
+                             (:records schema-match))
         checks         (check-records check->atoms records)
-        consumed       (or consumed-selectors #{})
+        consumed       (into (or consumed-selectors #{})
+                             (:consumed-selectors schema-match))
         unmet          (vec (or unmet []))
         base-status    (requirements/aggregate-status records unmet)
         tape-red?      (evidence/tape-shows-failure? tape consumed)

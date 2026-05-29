@@ -204,8 +204,14 @@
         (result/text-result (result/pr-edn payload) payload)))))
 
 (def canonical-assertion-docs
-  "Per spec/007 line 304 + IMPL-SPEC §3.5 the canonical seven
-  assertions' arities."
+  "Per spec/007 line 304 + IMPL-SPEC §3.5 the seven dispatched canonical
+  assertions' arities, PLUS the tape-evaluated `:rf.assert/schema-error`
+  (rf2-5x1wt.21, spec/017 §Schema rule). `:rf.assert/schema-error` is the
+  one canonical assertion that is NOT dispatched into the frame — it
+  declares an EXPECTED schema violation the runner exact-consumes against
+  the projected epoch-tape evidence (a run FAILS on any schema violation
+  unless it is exactly expected+consumed; there is no `:no-schema-errors`
+  knob)."
   [{:id :rf.assert/path-equals
     :payload "[path expected]"
     :semantics "(= (get-in @app-db path) expected)"}
@@ -226,7 +232,12 @@
     :semantics "No :warning trace events since play start"}
    {:id :rf.assert/effect-emitted
     :payload "[fx-id (optional pred)]"
-    :semantics "fx-id emitted during play?"}])
+    :semantics "fx-id emitted during play?"}
+   {:id :rf.assert/schema-error
+    :payload "[{:where surface …}]"
+    :semantics (str "Declares an EXPECTED schema violation on a surface "
+                    "(tape-evaluated, not dispatched). The run fails on any "
+                    "schema violation unless exactly expected+consumed.")}])
 
 (defn tool-list-assertions
   "Docs: the `:rf.assert/*` canonical vocabulary + arity docs.

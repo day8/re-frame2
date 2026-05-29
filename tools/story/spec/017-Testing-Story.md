@@ -1183,6 +1183,53 @@ UI already reads.
 [:rf.assert/schema-error {:where :event :event :checkout/submit}]
 ```
 
+### The schema-violation invariant {#schema-violation-invariant}
+
+The invariant is implemented as a **refinement of the agreement floor**, not
+an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
+
+- **`:rf.assert/schema-error` is recognised but NOT dispatched.** It is in
+  `assertions/canonical-assertion-ids` (so plan construction accepts it) and
+  requires the `:schema` capability token, but it is **not** installed as a
+  `reg-event-fx` handler — it carries no app-db semantics. It declares an
+  EXPECTED violation that the result boundary evaluates against the
+  projected epoch-tape evidence, never a dispatched event into the frame.
+  There is deliberately no `:rf.assert/no-schema-errors`: a schema-clean run
+  is the knob-free FLOOR, refined by these expectations.
+
+- **Exact consumption is a pure multiset match.**
+  `result/match-schema-expectations` pairs the declared
+  `:rf.assert/schema-error` atoms against the tape's projected violations
+  (`evidence/schema-violations` — the SINGLE source; no second accumulator):
+  each declared atom's surface selector (`assertions/schema-error-selector`,
+  which mirrors `evidence/violation-selector` key-for-key) consumes exactly
+  one same-selector violation; a bare `[:rf.assert/schema-error]` is the
+  `[:any]` wildcard that consumes any one remaining violation. Concrete
+  expectations pair before wildcards so a wildcard never starves a concrete
+  match, and a consumed violation leaves the pool so N expectations of a
+  selector consume exactly N violations. It returns the schema-error
+  assertion records, the exactly-consumed selectors, the unmatched
+  expectations, and the unconsumed violations.
+
+- **`run-result` wires the verdict.** A declared expectation that matched a
+  violation mints a `:pass` record; an **unmatched** expectation mints a
+  `:fail` record — a *missing* expected violation fails the run. The
+  exactly-consumed selectors are passed to the agreement floor
+  (`evidence/tape-shows-failure?`'s `consumed-selectors`), so an
+  exactly-expected violation does **not** trip the floor, while any
+  **unconsumed** violation keeps its selector OUT of that set and the floor
+  fails the run on it. A *different* violation than expected therefore fails
+  twice over (a `:fail` record for the missing expected violation AND the
+  floor on the emitted-but-unexpected one).
+
+**Rollback does not hide a violation.** The floor reads the retained epoch
+*tape*, not the final app-db. A handler whose schema validation failed but
+whose recovery/rollback left the final app-db acceptable still emitted a
+`:rf.error/schema-validation-failure` trace into its epoch's `:trace-events`,
+and that trace stays on the tape regardless of the `:ok` epoch outcome or the
+clean final db. So the run fails unless the violation is exactly
+expected+consumed — the rollback cannot mask it.
+
 ## Runner model
 
 ### Runner kinds and capabilities
