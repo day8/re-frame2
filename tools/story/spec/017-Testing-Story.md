@@ -942,6 +942,60 @@ must change the hash, volatile fields must not, and existing snapshot
 identity baselines must have a deliberate migration path before consumers
 beyond determinism/diff are wired.
 
+### Concrete primitive contract
+
+The primitive lives in `re-frame.story.fingerprint` (NOT
+`re-frame.story.canonical`, the vocabulary installer). The former
+`re-frame.story.identity` `canonical-form` / `content-hash` hashing is
+folded into it; `re-frame.story.identity` now re-exports those two vars
+from the fingerprint ns, so there is exactly one canonical path.
+
+The public surface, all routed through one projection + one hash:
+
+| Fn | Meaning |
+|---|---|
+| `canonicalize` | The single canonical projection of any Story value: strip the volatile-field set + `:rf.story/*` accumulator keys recursively, reconcile `:variant-id` → `:variant/id`, then impose total per-slot ordering. Re-exported as `story/canonicalize`. |
+| `content-hash` | 8-char-hex hash of the **ordered** value with NO volatile strip — the low primitive the snapshot tuple hashes, so snapshot identity is byte-stable across the fold. |
+| `canonical-hash` | 8-char-hex hash of the `canonicalize`d (stripped) projection — the determinism / semantic-diff / run-equivalence hash. |
+| `plan-hash` | `canonical-hash` over `plan-hash-input-keys` (`[:story/id :world :script :expect :required-runner :tags]`). |
+| `run-hash` | `canonical-hash` over `run-hash-input-keys` (`[:status :app-db :epoch-tape :assertions :checks :effects :schema-violations :warnings :sub-overrides :fidelity]`). |
+
+The volatile-field set stripped by `canonicalize` is
+`{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
+:plan-hash :run-hash}` — `:run-hash` is the symmetric companion to
+`:plan-hash` (a run-result carries its own `:run-hash`, which must not
+feed a re-canonicalization of that result). Ordering is: maps key-sorted
+by the canonicalised key's `pr-str`; sets element-sorted; vectors/seqs
+(effects, epochs, trace events) keep producer order, which the producer
+emits deterministically (effects in emission order, epochs in dispatch
+order) — so reordering effects or epochs is a *semantic* change that
+perturbs the canonical value.
+
+`plan-hash` and `run-hash` are the same `canonical-hash` primitive applied
+to enumerated slices; there is no second hash implementation. The
+metamorphic relation holds: an inline plan and the normalized plan of a
+registered variant describing the same behaviour produce the same
+`plan-hash` regardless of provenance slots (`:plan/id`, `:variant/id`,
+`:source-chain`, `:explain`, `:evidence`).
+
+**Snapshot-identity migration path.** The fold is a pure relocation of the
+hashing code, not a version bump. Snapshot identity hashes its tuple
+through the strip-free `content-hash`, so the snapshot content-hash is
+**byte-identical** to the pre-fold value and existing visual-regression
+baselines stay valid with no re-stamp. The volatile strip + `:variant-id`
+reconciliation apply only on the `canonicalize` / `canonical-hash` path
+(determinism, diff, `:plan-hash`, `:run-hash`); the snapshot tuple keeps
+its `:variant-id` slot exactly as before. A `content-hash` consumer keeps
+variant-id sensitivity; a `canonical-hash` consumer treats variant-id as
+volatile.
+
+The adversarial corpus ships in
+`re-frame.story-fingerprint-test` (JVM, the full corpus) and
+`re-frame.story-fingerprint-cljs-test` (host-portability): paired
+volatile-only twins MUST canonicalize `=` and hash equal; paired
+single-field semantic twins (app-db, effect, assertion verdict, status,
+epoch db-after, warning) MUST canonicalize `not=` and hash unequal.
+
 ## Unit and integration testing adjustments
 
 The general testing-substrate counterpart of these additions

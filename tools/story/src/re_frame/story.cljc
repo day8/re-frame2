@@ -79,6 +79,12 @@
             ;; Phase-2 cohesive internal nss — own the implementation
             ;; weight for query / canonical-boot / lifecycle surfaces.
             [re-frame.story.canonical   :as canonical]
+            ;; rf2-5x1wt.3 — the single canonical projection + fingerprint
+            ;; primitive. Re-exported as `canonicalize` / `content-hash` /
+            ;; `plan-hash` / `run-hash` below so every downstream call site
+            ;; routes through one path (NOT `re-frame.story.canonical`,
+            ;; which installs the canonical *vocabulary*).
+            [re-frame.story.fingerprint :as fingerprint]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
             ;; Runtime modules — args resolution, decorators.
@@ -850,6 +856,48 @@
   :content-hash \"<8-char hex>\"}`."
   ([variant-id]       (lifecycle/snapshot-identity variant-id))
   ([variant-id opts]  (lifecycle/snapshot-identity variant-id opts)))
+
+;; ---- canonicalization / fingerprinting (rf2-5x1wt.3) --------------------
+;;
+;; The single canonical projection + hashing primitive lives in
+;; `re-frame.story.fingerprint`. These are the public re-exports per
+;; tools/story/spec/017-Testing-Story.md §Canonicalization. Determinism,
+;; semantic-diff, snapshot-identity, `:plan-hash`, `:run-hash`, and the
+;; inline-plan-to-registered-variant metamorphic relation all consume them.
+
+(defn canonicalize
+  "Per spec/017 §Canonicalization — the single canonical projection. Strip
+  volatile fields + `:rf.story/*` accumulator keys, reconcile
+  `:variant-id` → `:variant/id`, and impose total per-slot ordering on any
+  Story value (run-result, epoch slice, plan, or snapshot tuple).
+  Equivalent values canonicalize `=`; a semantic difference perturbs the
+  result."
+  [x]
+  (fingerprint/canonicalize x))
+
+(defn canonical-hash
+  "8-char-hex hash of the `canonicalize`d projection of `x` — the
+  determinism / semantic-diff / run-equivalence hash."
+  [x]
+  (fingerprint/canonical-hash x))
+
+(defn content-hash
+  "8-char-hex content hash of the exact value `x` (ordered, no volatile
+  strip) — the low primitive snapshot identity hashes."
+  [x]
+  (fingerprint/content-hash x))
+
+(defn plan-hash
+  "`:plan-hash` over the enumerated normalized-plan input slice. Routes
+  through the same primitive as `run-hash`."
+  [plan]
+  (fingerprint/plan-hash plan))
+
+(defn run-hash
+  "`:run-hash` over the canonical epoch/run slice of a run-result. Routes
+  through the same primitive as `plan-hash`."
+  [result]
+  (fingerprint/run-hash result))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-

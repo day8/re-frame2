@@ -1,6 +1,6 @@
 (ns re-frame.story.identity
-  "Snapshot-identity content-hashing. Per IMPL-SPEC §5.6 + spec/007
-  §Variant snapshot identity.
+  "Snapshot-identity. Per IMPL-SPEC §5.6 + spec/007 §Variant snapshot
+  identity.
 
   Every variant has a stable **snapshot identity** — a content hash
   over the canonicalised `(variant × resolved-args × decorators ×
@@ -8,6 +8,36 @@
   regression services key against `[variant-id content-hash]` — when
   the body changes, the hash changes; when it doesn't, the hash is
   stable across hosts and runs.
+
+  ## Migration path (rf2-5x1wt.3 — single canonical primitive)
+
+  The canonical projection + hashing that used to live here
+  (`canonical-form` / `content-hash`) has been **folded into the single
+  fingerprinting primitive** `re-frame.story.fingerprint`, per
+  tools/story/spec/017-Testing-Story.md §Canonicalization. There is now
+  exactly one canonical path; `:plan-hash`, `:run-hash`, determinism, and
+  semantic-diff share it with snapshot identity.
+
+  This ns keeps its public surface (`snapshot-tuple`, `snapshot-identity`,
+  and the back-compat `canonical-form` / `content-hash` re-exports) so the
+  shipping watch-mode + visual-regression call sites keep working
+  unchanged. Snapshot identity hashes its tuple through the fingerprint
+  `content-hash` low primitive, which is the **strip-free** ordered hash:
+  same `:rf/snapshot-canonical-v1` first slot, same ordering, same
+  8-char-hex `hash`. The snapshot content-hash is therefore
+  **byte-identical** to the pre-fold value — existing visual-regression
+  baselines stay valid and no re-stamp is required. The migration is a
+  pure relocation of the hashing code into the single primitive, not a
+  value change.
+
+  The volatile-field strip + `:variant-id` → `:variant/id` reconciliation
+  live in the fingerprint `canonicalize` path that backs determinism /
+  semantic-diff / `:plan-hash` / `:run-hash`; they do NOT touch the
+  strip-free snapshot `content-hash`, so the snapshot tuple keeps its
+  `:variant-id` slot exactly as before. The deliberate path for any *new*
+  consumer is to call `re-frame.story.fingerprint/canonicalize` (or
+  `content-hash` / `canonical-hash` / `plan-hash` / `run-hash`) directly
+  rather than these re-exports.
 
   ## What's in the hash
 
@@ -54,111 +84,35 @@
   the first slot of the hashed structure, so future canonical-form
   revisions can introduce `:rf/snapshot-canonical-v2` without breaking
   v1 baselines."
-  (:require [re-frame.late-bind       :as late-bind]
-            [re-frame.story.args      :as args]
-            [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.late-bind         :as late-bind]
+            [re-frame.story.args        :as args]
+            [re-frame.story.fingerprint :as fingerprint]
+            [re-frame.story.registrar   :as registrar]))
 
-;; ---- canonicalisation ----------------------------------------------------
+;; ---- canonicalisation + hash (folded into fingerprint) -------------------
+;;
+;; rf2-5x1wt.3 — the canonical projection + the 8-char-hex content hash
+;; now live in the single primitive `re-frame.story.fingerprint`. These
+;; vars are thin re-exports so the shipping watch-mode + visual-regression
+;; call sites (and the JVM/CLJS runtime tests that assert on them) keep
+;; their import surface. New consumers should call the fingerprint ns
+;; directly. The hash is byte-identical to the pre-fold value.
 
-(defprotocol Canonicalise
-  "Render a value into a canonical form: stable key order in maps,
-  stable element order in sets, terminal types (strings, keywords,
-  numbers, booleans, nil) unchanged. Returns a value that round-trips
-  through `pr-str` deterministically across hosts."
-  (-canon [x]))
+(def canonical-form
+  "Back-compat re-export of `re-frame.story.fingerprint/canonical-form`.
+  The single canonical projection now lives in the fingerprint ns; this
+  alias keeps the shipping import surface. New code should call
+  `re-frame.story.fingerprint/canonicalize` (which also strips volatile
+  fields) directly."
+  fingerprint/canonical-form)
 
-;; Shared canon bodies (rf2-ee38b.3) — the typed map/set cases AND the
-;; Object/default fallback must canonicalise maps + sets identically.
-;; Lifting the bodies into one private fn each keeps the two paths in
-;; lockstep instead of carrying verbatim copies.
-
-(defn- canon-map-entries
-  "Map canon: sort by the canonicalised key (via `pr-str` of the
-  canon-key) then flatten into a `[k v k v ...]` vector. Symmetric
-  across JVM + CLJS because `pr-str` over canonical scalars is
-  host-identical."
-  [m]
-  (let [entries (->> m
-                     (map (fn [[k v]] [(-canon k) (-canon v)]))
-                     (sort-by (fn [[k _]] (pr-str k))))]
-    (into [] (mapcat identity) entries)))
-
-(defn- canon-set
-  "Set canon: sort canonicalised elements by their `pr-str` into a
-  stable vector."
-  [s]
-  (vec (sort-by pr-str (map -canon s))))
-
-(extend-protocol Canonicalise
-  nil
-  (-canon [_] nil)
-
-  #?(:clj  java.lang.Boolean :cljs boolean)
-  (-canon [x] x)
-
-  #?(:clj  java.lang.Number  :cljs number)
-  (-canon [x] x)
-
-  #?(:clj  java.lang.String  :cljs string)
-  (-canon [x] x)
-
-  #?(:clj  clojure.lang.Keyword :cljs Keyword)
-  (-canon [x] x)
-
-  #?(:clj  clojure.lang.Symbol  :cljs Symbol)
-  (-canon [x] x)
-
-  #?(:clj  clojure.lang.IPersistentMap  :cljs IMap)
-  (-canon [x] (canon-map-entries x))
-
-  #?(:clj  clojure.lang.IPersistentVector :cljs PersistentVector)
-  (-canon [x] (mapv -canon x))
-
-  #?(:clj  clojure.lang.IPersistentList :cljs List)
-  (-canon [x] (mapv -canon x))
-
-  #?(:clj  clojure.lang.IPersistentSet  :cljs PersistentHashSet)
-  (-canon [x] (canon-set x))
-
-  #?(:clj  Object             :cljs default)
-  (-canon [x]
-    ;; Fallback for ISeq / LazySeq / etc — realise into a vector with
-    ;; canonical recursion. `pr-str` over the result is deterministic.
-    (cond
-      (sequential? x) (mapv -canon x)
-      (set? x)        (canon-set x)
-      (map? x)        (canon-map-entries x)
-      :else           x)))
-
-(defn canonical-form
-  "Return a canonical-form representation of `x`. Maps are vectors of
-  `[k v k v ...]` sorted by key; sets are vectors sorted by element;
-  vectors recurse; scalars unchanged. The resulting tree round-trips
-  through `pr-str` deterministically across hosts."
-  [x]
-  (-canon x))
-
-;; ---- per-host hash --------------------------------------------------------
-
-(defn content-hash
-  "Stable string hash of `x` (post-canonicalisation). Returns a
-  lowercase hex string of fixed width (8 chars — 32-bit `hash`).
-
-  Per IMPL-SPEC §5.6 the canonical form is keyed by
-  `:rf/snapshot-canonical-v1` so future canonical-form revisions can
-  bump the version without breaking baselines."
-  [x]
-  (let [canon (canonical-form [:rf/snapshot-canonical-v1 x])
-        s     (pr-str canon)
-        h     #?(:clj  (bit-and 0xffffffff (hash s))
-                 :cljs (unsigned-bit-shift-right (hash s) 0))
-        hex   #?(:clj  (format "%08x" h)
-                 :cljs (let [s (.toString h 16)
-                             pad (- 8 (.-length s))]
-                         (if (pos? pad)
-                           (str (apply str (repeat pad "0")) s)
-                           s)))]
-    hex))
+(def content-hash
+  "Back-compat re-export of `re-frame.story.fingerprint/content-hash`.
+  The single content-hash primitive now lives in the fingerprint ns; this
+  alias keeps the shipping import surface and is byte-identical to the
+  former local implementation (same `:rf/snapshot-canonical-v1` first
+  slot, same ordering, same 8-char-hex `hash`)."
+  fingerprint/content-hash)
 
 ;; ---- snapshot tuple -------------------------------------------------------
 
