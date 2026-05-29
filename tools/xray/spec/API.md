@@ -175,6 +175,17 @@ implementation reality — ~40 symbols across 6 namespaces).
 (xray/target-frame)        ;; Return the host frame Xray is currently targeting.
 (xray/set-target-frame! :app/main)
 
+;; Story → Xray focus (rf2-crtmq). A host (Story) directs an already-embedded
+;; Xray surface to focus a specific panel + epoch + cascade + app-db path from
+;; a narrative beat / failed assertion / inspect command. Separate from
+;; open-full-Xray (above). One-way command; Story owns the action, Xray owns
+;; panel semantics. Full contract: 008-Embedding-Contract.md §Host-facing focus API.
+(xray/focus! {:frame :checkout :panel :app-db :epoch-id 42
+              :path [:checkout :state]
+              :source {:kind :story/assertion}})
+(xray/focus! :checkout {:panel :trace})   ;; positional host-frame form
+xray/valid-focus-panels                   ;; the 7 valid :panel ids
+
 (xray/load-theme css-string)
 ;; Programmatically swap the palette: injects `css-string` as a dedicated
 ;; <style> override appended last to <head> (so it wins on authoring order).
@@ -201,7 +212,8 @@ authoritative list.
 
 | Namespace | Source | Public surfaces |
 |---|---|---|
-| `day8.re-frame2-xray.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
+| `day8.re-frame2-xray.core` | `core.cljs` | The canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `focus!` + `valid-focus-panels` (the Story→Xray focus entry point, rf2-crtmq), `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
+| `day8.re-frame2-xray.focus` | `focus.cljc` | The host-facing **focus command** API (rf2-crtmq): `focus!` (the entry point, re-exported through `core`), `focus-command->dispatches` (pure command→`:rf.xray/*`-events translation; JVM-runnable), and `valid-panels` (the 7-tab vocabulary). The channel Story uses to focus an embedded Xray panel/epoch/path from a beat or assertion. Full contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Host-facing focus API. |
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Xray's preload and wants to take the chord back. |

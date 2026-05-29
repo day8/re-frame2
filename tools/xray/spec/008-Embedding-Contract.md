@@ -96,6 +96,124 @@ What Xray owns:
   persisted via Xray's own localStorage slots.
 - **Live updates** from the trace bus / epoch history.
 
+## Host-facing focus API (rf2-crtmq)
+
+The embed contract above is **structural** — how a host mounts the
+shell + surrenders keybinding capture. The complementary surface is
+**focus**: a host (Story) directing an already-embedded Xray surface
+to focus a specific panel + epoch + cascade + app-db path, driven from
+a narrative beat, a failed assertion, a canvas inspect command, or a
+docs/test link.
+
+This is a **small one-way focus command, not a two-way embedding
+protocol** (StoryUI decision register §D3). It preserves the ownership
+boundary:
+
+- **Story owns the narrative / action** — it builds the command (which
+  panel, which epoch, which path) plus opaque `:source` provenance, and
+  calls `focus!`.
+- **Xray owns the diagnostic state + panel semantics** — it receives
+  the command and routes each field to the canonical `:rf.xray/*` spine
+  / tab / path / frame event. Xray decides what each focus *means*.
+
+It introduces **no second Xray runtime model.** Every command field
+maps to an EXISTING write surface; the API is a thin composer over
+them.
+
+### Entry point
+
+`day8.re-frame2-xray.focus/focus!` (re-exported as
+`day8.re-frame2-xray.core/focus!`). Two arities, exactly §D3's worked
+shape:
+
+```clojure
+(core/focus! command)             ; the command's own :frame scopes
+(core/focus! host-frame command)  ; host-frame becomes :frame when the
+                                  ; command omits one (explicit wins)
+```
+
+`focus!` fires into Xray's own `:rf/xray` shell frame (via
+`re-frame.core/with-frame defaults/default-frame-id` — the same
+no-surrounding-frame seam `runtime.cljs` mutations and `share.cljs`'s
+on-load restore use). The host never names Xray's internal frame; the
+channel is the command, not the frame split.
+
+This is **separate from open-full-Xray.** Mounting / opening /
+popping-out the whole shell stays in `mount.cljs` (`open!` /
+`open-overlay!` / `popout!`); `focus!` assumes the surface is already
+embedded and only focuses-a-panel-on-a-beat. Per §D3:
+"opening/pop-out of the full Xray shell is current; focusing a
+panel/beat/path is [the new surface]."
+
+### Command shape (the contract)
+
+```clojure
+{:frame       <frame-id>   ; the HOST frame Xray should observe (optional)
+ :panel       <tab-id>     ; which L4 tab to surface (one of the 7 below)
+ :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
+ :dispatch-id <id>         ; cascade root to pin the spine to
+ :path        [<k> ...]    ; app-db path to highlight in the App-db panel
+ :source      {...}        ; OPAQUE provenance — Xray echoes it back, never reads it
+ :sync?       <bool>}      ; control: dispatch-sync (test rigs / same-tick flows)
+```
+
+Every field is optional; an empty command is a well-formed no-op focus.
+`:panel` accepts the 7 canonical tab ids (the
+`day8.re-frame2-xray.focus/valid-panels` set, also re-exported as
+`core/valid-focus-panels`):
+
+```
+#{:epoch :app-db :views :trace :machines :routes :issues}
+```
+
+(internal registry keys per [`007-UX-IA.md`](./007-UX-IA.md) §The
+4-layer chrome L3). The `:source` map is host-agnostic provenance —
+§D3's worked shape is `{:kind :story/assertion :variant/id … :assertion/id …}`,
+but Xray treats it as opaque, which is what keeps the channel
+host-agnostic: it carries Story's intent without Xray knowing it's
+Story.
+
+### Field → canonical write surface
+
+| Command field | Canonical Xray write | Owner |
+|---|---|---|
+| `:frame`       | `:rf.xray/select-frame <frame-id>` | [`007-UX-IA.md`](./007-UX-IA.md) §Frame slot contract |
+| `:panel`       | `:rf.xray/select-tab <tab-id>`     | spine tab slot |
+| `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
+| `:dispatch-id` | `:rf.xray/focus-cascade <id> <frame>` | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
+| `:path`        | `:rf.xray/focus-slice-path <path>` | App-db panel slice focus |
+
+Dispatch order is **frame-first** so the per-frame epoch ring re-seeds
+(`:rf.xray/set-frame` clears the pinned dispatch-id + re-seeds
+`:epoch-history`) before any epoch / cascade pin resolves; then the
+spine pin, then the tab + path. When BOTH `:dispatch-id` and
+`:epoch-id` are supplied the cascade pin wins (it carries the frame and
+the spine derives the settling epoch from it); `:epoch-id` alone is the
+lighter selector for callers that only have an epoch.
+
+### Return shape
+
+`focus!` returns a data-shaped result mirroring `runtime.cljs`'s
+`{:ok? …}` idiom:
+
+```clojure
+{:ok? true  :applied [[:rf.xray/select-frame :checkout] …] :source {…}}
+{:ok? false :reason :unknown-panel :given :app-bd :valid #{…} :hint "…"}
+```
+
+Unknown panel is the **one rejected case** — a typo'd selector would
+otherwise silently land the L4 unknown-tab stub. Every other field is
+permissive (a missing epoch / evicted cascade degrades through the
+spine's existing placeholder UX, not an error).
+
+### Status
+
+`CURRENT` (rf2-crtmq). The Story-UI **consumption** of this API —
+wiring narrative beats / assertion rows to call `focus!` — is owned by
+the StoryUI render-shell work and is NOT part of this contract. The
+command + entry point are the contract; how a host invokes it is the
+host's surface.
+
 ## State isolation (Option-C frame-provider)
 
 Xray's shell mounts **inside the host's React tree** so embedding is
@@ -206,9 +324,11 @@ that needs it, not in a central shim layer.
   [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract for
   internal use (shell composition, tests, future tools); it carries
   one `opts` key — `:frame` — and is not a host-facing embed contract.
-- **No two-way binding.** The host doesn't push state into Xray
-  beyond the configure! slots; Xray doesn't push state back to the
-  host.
+- **No two-way binding.** Beyond the `configure!` slots and the
+  one-way **focus command** (§Host-facing focus API — the host pushes
+  a focus *intent*, not arbitrary state, and Xray owns what it means),
+  the host doesn't push state into Xray; Xray never pushes state back
+  to the host.
 - **No standalone styling overrides.** The embedded shell uses
   Xray's theme tokens. The host can wrap the shell in a container
   that overrides CSS variables (`--rf-xray-font-size`,
