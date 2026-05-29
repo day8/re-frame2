@@ -89,6 +89,10 @@
             ;; Re-exported as `project-evidence` below so every downstream
             ;; run-result slot derives from ONE tape (NewTestStory §A0c).
             [re-frame.story.play.evidence :as evidence]
+            ;; rf2-5x1wt.7 — the `:rf.test/run-artifact` schema + replay.
+            ;; Re-exported as `make-run-artifact` / `run-artifact?` /
+            ;; `replay-run-artifact` below (spec/017 §Run artifact and replay).
+            [re-frame.story.artifact    :as artifact]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
             ;; Runtime modules — args resolution, decorators.
@@ -929,6 +933,36 @@
   expected schema failures. Pure data → data."
   ([epoch-tape]                     (evidence/tape-shows-failure? epoch-tape))
   ([epoch-tape consumed-selectors]  (evidence/tape-shows-failure? epoch-tape consumed-selectors)))
+
+;; ---- run artifact + replay (rf2-5x1wt.7) --------------------------------
+;;
+;; Per spec/017 §Run artifact and replay — the serializable
+;; `:rf.test/run-artifact` record + the function that replays it into a
+;; fresh frame, reapplies the fx decisions, captures a NEW epoch tape, and
+;; returns the shared run-result shape. Lives below Story (runs without the
+;; UI); the determinism gate + semantic diff build on it.
+
+(defn make-run-artifact
+  "Per spec/017 §Run artifact and replay — pure constructor for a
+  `:rf.test/run-artifact`. Coerces the `:event-program`, folds optional
+  `:setup` / `:script` sugar into it, stamps `:artifact/kind`, and defaults
+  `:fx-decisions`. Pure data → data."
+  [parts]
+  (artifact/make-run-artifact parts))
+
+(defn run-artifact?
+  "Per spec/017 §Run artifact and replay — true iff `x` is a
+  `:rf.test/run-artifact` map (the kind tag plus a vector `:event-program`)."
+  [x]
+  (artifact/run-artifact? x))
+
+(defn replay-run-artifact
+  "Per spec/017 §Run artifact and replay — replay a `:rf.test/run-artifact`
+  into a FRESH frame, reapplying the fx decisions, capturing a NEW epoch
+  tape, and returning the shared run-result shape (§Run result). `opts` MAY
+  carry `:frame` / `:hooks` / `:frame-config`."
+  ([art]      (artifact/replay-run-artifact art))
+  ([art opts] (artifact/replay-run-artifact art opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-
