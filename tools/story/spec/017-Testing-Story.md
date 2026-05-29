@@ -2192,6 +2192,21 @@ If `test:story-play-scripts` is renamed, docs and package scripts MUST be
 updated together. Browser-tier visual/a11y gates MUST run only variants
 whose assertions require them, or a deliberate selected subset.
 
+### Failed-run artifacts in CI
+
+A failed plan run MAY emit its `:rf.test/run-artifact` (§Artifacts — Run
+artifact, §Run artifact and replay) so the failure is replayable off-CI.
+The artifact is the serializable, data-shaped record of the one run —
+seed, event program, fx decisions, epoch tape, trace, and run-result —
+enough to replay it deterministically (§Run artifact and replay) and to
+feed the determinism gate (§Determinism gate) and the semantic diff
+(§Semantic diff). A gate MAY capture the artifact for a failed run and
+upload it as a CI artifact; it MAY also be promoted into a curated
+regression variant via `story/promote-run-artifact!` (§Promotion). The
+substrate GUARANTEES the artifact exists and is canonicalizable; wiring
+an upload step into a specific workflow gate is a CI-mechanics decision,
+NOT part of this spec.
+
 ### Browser-tier gate policy (rf2-5x1wt.28)
 
 The structural-a11y check (`:rf.assert/a11y-structural`, `:hiccup`) carries
