@@ -268,12 +268,15 @@
   "Hiccup for the row's right-click context menu. Pure rendering;
   state lives in `:rf.xray/row-context-menu`. Rendered at the
   shell-view root so the menu floats above the L2 list's
-  overflow-hidden clipping."
-  []
+  overflow-hidden clipping.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `RowContextMenu` `reg-view` body so the menu actions land on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  [dispatch]
   (when-let [menu @(rf/subscribe [:rf.xray/row-context-menu])]
     (let [{:keys [event-id x y]} menu
-          close! (fn [] (rf/dispatch [:rf.xray/close-row-context-menu]
-                                     {:frame :rf/xray}))]
+          close! (fn [] (dispatch [:rf.xray/close-row-context-menu]))]
       [:<>
        ;; Invisible backdrop catches outside-click → close. Sized to
        ;; the full viewport with a z-index just below the menu so the
@@ -314,8 +317,7 @@
         [:li
          [:button {:data-testid "rf-xray-row-context-menu-mute"
                    :on-click    (fn [_e]
-                                  (rf/dispatch [:rf.xray/mute-event-id event-id]
-                                               {:frame :rf/xray})
+                                  (dispatch [:rf.xray/mute-event-id event-id])
                                   (close!))
                    :title       (str "Mute " event-id " — hide from spine; reversible")
                    :style       (menu-item-style)}
@@ -323,8 +325,7 @@
         [:li
          [:button {:data-testid "rf-xray-row-context-menu-hide-event-type"
                    :on-click    (fn [_e]
-                                  (rf/dispatch [:rf.xray/hide-event-type event-id]
-                                               {:frame :rf/xray})
+                                  (dispatch [:rf.xray/hide-event-type event-id])
                                   (close!))
                    :title       "Open the OUT-filter popup pre-filled with this event-id"
                    :style       (menu-item-style)}
@@ -333,9 +334,12 @@
 (rf/reg-view RowContextMenu
   "The row context menu — rendered at the shell-view root so the
   popover floats above the L2 list's clipping. Per rf2-in6l2
-  `reg-view`-registered so subscribes resolve to `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`.
+
+  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch` so
+  menu actions land on the surrounding instance frame."
   []
-  (row-context-menu))
+  (row-context-menu dispatch))
 
 ;; ---- Modal --------------------------------------------------------------
 
@@ -369,7 +373,7 @@
    :color           (:text-primary tokens)})
 
 (defn- header
-  []
+  [dispatch]
   [:div {:style {:display "flex"
                  :align-items "center"
                  :justify-content "space-between"}}
@@ -384,7 +388,7 @@
    [:button
     {:data-testid "rf-xray-mute-manager-close"
      :aria-label  "Close muted-events manager"
-     :on-click    #(rf/dispatch [:rf.xray/close-mute-manager] {:frame :rf/xray})
+     :on-click    #(dispatch [:rf.xray/close-mute-manager])
      :style       {:background "transparent"
                    :border "none"
                    :color (:text-tertiary tokens)
@@ -404,7 +408,7 @@
    "No events are currently muted. Right-click an event row in the spine to mute it."])
 
 (defn- mute-row
-  [event-id]
+  [dispatch event-id]
   [:li {:data-testid (str "rf-xray-mute-manager-row-" (str event-id))
         :style {:display "flex"
                 :align-items "center"
@@ -424,8 +428,7 @@
                    :min-width 0}}
     (str event-id)]
    [:button {:data-testid (str "rf-xray-mute-manager-unmute-" (str event-id))
-             :on-click    #(rf/dispatch [:rf.xray/unmute-event-id event-id]
-                                        {:frame :rf/xray})
+             :on-click    #(dispatch [:rf.xray/unmute-event-id event-id])
              :title       (str "Unmute " event-id)
              :style       {:background    "transparent"
                            :border        (str "1px solid " (:border-default tokens))
@@ -438,7 +441,7 @@
     "Unmute"]])
 
 (defn- list-section
-  [muted-ids]
+  [dispatch muted-ids]
   (into [:ul {:data-testid "rf-xray-mute-manager-list"
               :style {:list-style "none"
                       :margin 0
@@ -449,13 +452,12 @@
                       :overflow-y "auto"
                       :max-height "44vh"}}]
         (for [id (sort-by str muted-ids)]
-          ^{:key (str id)} [mute-row id])))
+          ^{:key (str id)} [mute-row dispatch id])))
 
 (defn- clear-all-button
-  []
+  [dispatch]
   [:button {:data-testid "rf-xray-mute-manager-clear-all"
-            :on-click    #(rf/dispatch [:rf.xray/clear-muted-event-ids]
-                                       {:frame :rf/xray})
+            :on-click    #(dispatch [:rf.xray/clear-muted-event-ids])
             :title       "Unmute every event-id"
             :style       {:background    "transparent"
                           :border        (str "1px solid " (:border-subtle tokens))
@@ -469,8 +471,13 @@
    "Unmute all"])
 
 (defn dialog
-  "The mute manager dialog body. Pure hiccup."
-  []
+  "The mute manager dialog body. Pure hiccup.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `Modal` `reg-view` body — threaded to header / rows / clear-all so
+  unmute actions land on the surrounding instance frame, not a
+  `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [muted @(rf/subscribe [:rf.xray/muted-event-ids])]
     [:div (merge
             ;; rf2-7389r — WAI-ARIA dialog contract. `:ref`
@@ -486,16 +493,15 @@
              :on-click    (fn [^js e] (.stopPropagation e))
              :on-key-down (fn [^js e]
                             (when (= "Escape" (.-key e))
-                              (rf/dispatch [:rf.xray/close-mute-manager]
-                                           {:frame :rf/xray})))
+                              (dispatch [:rf.xray/close-mute-manager])))
              :style       (dialog-style)})
-     (header)
+     (header dispatch)
      (if (empty? muted)
        (empty-state)
        [:<>
-        (list-section muted)
+        (list-section dispatch muted)
         [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-         (clear-all-button)]])]))
+         (clear-all-button dispatch)]])]))
 
 (rf/reg-view Modal
   "The mute manager modal. Renders only when
@@ -507,10 +513,9 @@
     (let [positioning @(rf/subscribe [:rf.xray/modal-positioning])]
       [:div {:data-testid "rf-xray-mute-manager-backdrop"
              :data-rf-xray-modal-positioning (name (or positioning :fixed))
-             :on-click    #(rf/dispatch [:rf.xray/close-mute-manager]
-                                        {:frame :rf/xray})
+             :on-click    #(dispatch [:rf.xray/close-mute-manager])
              :style       (backdrop-style positioning)}
-       (dialog)])))
+       (dialog dispatch)])))
 
 ;; ---- ribbon indicator (mounted from shell.cljs) -------------------------
 
@@ -520,12 +525,14 @@
   chip that opens the unmute manager modal.
 
   Mounted inline in the L1 ribbon next to the REDACTED indicator —
-  surfaces the mute state without claiming a permanent ribbon slot."
-  [muted-count]
+  surfaces the mute state without claiming a permanent ribbon slot.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body."
+  [dispatch muted-count]
   (when (pos? muted-count)
     [:button {:data-testid "rf-xray-ribbon-mute-indicator"
-              :on-click    #(rf/dispatch [:rf.xray/open-mute-manager]
-                                         {:frame :rf/xray})
+              :on-click    #(dispatch [:rf.xray/open-mute-manager])
               :title       (str muted-count
                                 " event-"
                                 (if (= 1 muted-count) "id" "ids")

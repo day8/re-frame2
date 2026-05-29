@@ -1254,7 +1254,7 @@
       ;; REDACTED indicator. Both are silent-by-default surfaces that
       ;; only paint when their count is positive. Click → unmute
       ;; manager modal.
-      [spine-filters/ribbon-mute-indicator muted-count]
+      [spine-filters/ribbon-mute-indicator dispatch muted-count]
       [ribbon-redacted-indicator redacted-count]
       ;; rf2-xawwb — theme toggle (sun/moon) sits before the settings/close
       ;; icons per the Figma-Make chrome-ribbon right cluster.
