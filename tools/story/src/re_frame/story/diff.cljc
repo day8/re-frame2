@@ -33,10 +33,14 @@
                            (`re-frame.story.play.evidence/violation-selector`);
   - `:trace-ops`         — the trace `:operation` sequence (the causal op
                            spine), as an ordered alignment of the two;
-  - `:sub-runs`          — subscription / view facts when available (the
-                           per-epoch sub-run rows the evidence boundary
-                           projects);
   - `:status`            — the top-level run status, when it differs.
+
+  The facet set is EXACTLY the canonical run-slice
+  (`fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
+  nothing outside it. `:sub-runs` is deliberately NOT in that slice
+  (over-recomputed evidence, not a determinism input), so it carries NO
+  `diff-runs` facet; `diff-sub-runs` survives only as a standalone diagnostic
+  fn (rf2-e6uod / rf2-5l0a5).
 
   ## A readable diff, not a data dump
 
@@ -78,9 +82,11 @@
   ## Pure / JVM-testable
 
   The facet diff fns (`diff-app-db`, `diff-effects`, `diff-schema-violations`,
-  `diff-trace-ops`, `diff-sub-runs`) and the assembler (`diff-runs`) are pure
-  data → data: two run-results in, a readable diff out. `diff-run-artifacts`
-  is the thin replay-then-`diff-runs` wrapper for the artifact inputs."
+  `diff-trace-ops`, …) and the assembler (`diff-runs`) are pure data → data:
+  two run-results in, a readable diff out. `diff-sub-runs` is pure too but is
+  diagnostic-only — not wired into `diff-runs` (it is outside the `:same?`
+  slice). `diff-run-artifacts` is the thin replay-then-`diff-runs` wrapper for
+  the artifact inputs."
   (:require [clojure.set                  :as set]
             [re-frame.story.artifact      :as artifact]
             [re-frame.story.fingerprint   :as fingerprint]
@@ -99,13 +105,29 @@
 
 (defn- leaf-paths
   "Every leaf path through a nested map, paired with its value. A non-map
-  value is a leaf at its own path; an EMPTY map is a leaf (its emptiness is
-  semantic — `{:k {}}` vs `{:k {:a 1}}` differs at `[:k]`). Pure data →
-  data; returns `{[path …] value}`."
+  value is a leaf at its own path; a NON-ROOT empty map is a leaf (its
+  emptiness is semantic — `{:k {}}` vs `{:k {:a 1}}` differs at `[:k]`). Pure
+  data → data; returns `{[path …] value}`.
+
+  The ROOT is special-cased (rf2-bd6ei): an empty root map contributes NO
+  leaf at all, so an app-db cleared to `{}` does not read as a spurious
+  `{[] {}}` root leaf (which would surface as `:added`/`:removed` at the
+  nonsensical `[]` path). A populated-vs-empty difference still diffs
+  correctly — the populated side's leaves are `:removed`/`:added`, the empty
+  side simply contributes nothing."
   [x]
   (letfn [(walk [prefix v acc]
-            (if (and (map? v) (seq v))
+            (cond
+              ;; A non-empty map recurses into its entries.
+              (and (map? v) (seq v))
               (reduce-kv (fn [a k vv] (walk (conj prefix k) vv a)) acc v)
+              ;; An EMPTY map at the root is not a leaf — contribute nothing,
+              ;; so a `{}` app-db yields no spurious `[]` root leaf. At a
+              ;; non-root prefix the empty map IS a semantic leaf.
+              (and (map? v) (empty? v) (empty? prefix))
+              acc
+              ;; A scalar, or a (non-root) empty map, is a leaf at its path.
+              :else
               (assoc acc prefix v)))]
     (walk [] x {})))
 
@@ -199,10 +221,18 @@
   (multiset-delta (:effects baseline) (:effects current)))
 
 (defn diff-sub-runs
-  "Multiset delta over the two runs' projected `:sub-runs` rows — the
-  subscription / view facts, when available (spec §Semantic diff). Pure
-  data → data; `nil` when the sub-run multisets match (including when both
-  runs carry no sub-runs), else `{:only-baseline […] :only-current […]}`."
+  "DIAGNOSTIC-ONLY multiset delta over the two runs' projected `:sub-runs`
+  rows — the subscription / view facts, when available. Pure data → data;
+  `nil` when the sub-run multisets match (including when both runs carry no
+  sub-runs), else `{:only-baseline […] :only-current […]}`.
+
+  NOT part of the `:same?` judgement and NOT registered in `facet-fns`
+  (rf2-e6uod / rf2-5l0a5). `:sub-runs` is deliberately excluded from
+  `fingerprint/run-hash-input-keys` — sub-runs are over-recomputed evidence,
+  not a determinism input — so a `:sub-runs`-only delta does NOT make
+  `diff-runs` report `:same? false`, exactly as the determinism gate and the
+  golden verdict treat it. This fn exists for callers that want to inspect the
+  view-fact delta directly; it deliberately does not flow through `diff-runs`."
   [baseline current]
   (multiset-delta (:sub-runs baseline) (:sub-runs current)))
 
@@ -517,14 +547,23 @@
   difference). A new facet is added here once and flows into `diff-runs` and
   `:facets` automatically.
 
-  EVERY behavioural slot in `re-frame.story.fingerprint/run-hash-input-keys`
-  (the slice `:same?` is judged over) is covered by a facet here, so a diff
-  the gate calls different always localises WHERE. `:trace-ops` covers the
-  `:epoch-tape` slot's causal op spine; `:sub-runs` is NOT a slice key (it is
-  diagnostic, excluded from the run-hash slice — rf2-e6uod) but is kept as a
-  useful view-fact facet. Any residual divergence with no specific facet is
-  caught by `diff-runs`' coarse slice-key fallback (the non-empty-`:facets`
-  invariant)."
+  INVARIANT — facet-set == canonical slice keys. The facet names here are
+  EXACTLY `re-frame.story.fingerprint/run-hash-input-keys`, the slice
+  `:same?` is judged over (`:trace-ops` is the readable projection of the
+  `:epoch-tape` slot's causal op spine, so it stands in for `:epoch-tape`).
+  Two consequences both matter:
+
+  - every slice slot is covered, so a diff the gate calls different always
+    localises WHERE (any residual gap is caught by `diff-runs`' coarse
+    slice-key fallback — the non-empty-`:facets` invariant);
+  - NO facet sits OUTSIDE the slice. `:sub-runs` is deliberately excluded from
+    the run-hash slice (over-recomputed evidence, not a determinism input —
+    rf2-e6uod / rf2-5l0a5), so it is NOT registered here: a `:sub-runs`-only
+    delta does not perturb the `:same?` slice, so a facet for it could never
+    fire through `diff-runs` (it would be dead code that overstated coverage
+    and disagreed with the determinism gate / golden verdict). `diff-sub-runs`
+    survives as a standalone diagnostic fn (call it directly), NOT as part of
+    the `:same?` judgement."
   (array-map
     :status            diff-status
     :app-db            (fn [b c] (diff-app-db (:app-db b) (:app-db c)))
@@ -535,8 +574,7 @@
     :warnings          diff-warnings
     :trace-ops         diff-trace-ops
     :sub-overrides     diff-sub-overrides
-    :fidelity          diff-fidelity
-    :sub-runs          diff-sub-runs))
+    :fidelity          diff-fidelity))
 
 (defn diff-runs
   "Diff two run-results — the PURE core (spec §Semantic diff). Pure data →

@@ -7,7 +7,9 @@
   build:
 
   - PURE: the facet diffs (`diff-app-db`, `diff-effects`,
-    `diff-schema-violations`, `diff-trace-ops`, `diff-sub-runs`) and the
+    `diff-schema-violations`, `diff-trace-ops`, …) and the diagnostic-only
+    `diff-sub-runs` (NOT wired into `diff-runs` — outside the `:same?` slice,
+    rf2-e6uod / rf2-5l0a5) and the
     assembler (`diff-runs`) over HAND-BUILT run-results — the §A5 acceptance
     bullets:
       • a small readable diff for an app-db change;
@@ -26,8 +28,9 @@
             [re-frame.frame     :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.artifact :as artifact]
-            [re-frame.story.diff     :as diff]))
+            [re-frame.story.artifact    :as artifact]
+            [re-frame.story.diff        :as diff]
+            [re-frame.story.fingerprint :as fingerprint]))
 
 ;; ===========================================================================
 ;; PURE: app-db delta  (§A5 — a small readable diff for an app-db change)
@@ -58,7 +61,35 @@
     (let [d (diff/diff-app-db {:user {:profile {:age 30}}}
                               {:user {:profile {:age 31}}})]
       (is (= [{:path [:user :profile :age] :baseline 30 :current 31}]
-             (:changed d))))))
+             (:changed d)))))
+
+  ;; rf2-bd6ei — a run that clears app-db to {} must not emit a spurious root
+  ;; leaf {:path [] :current {}} / {:path [] :baseline {}}; the real
+  ;; populated-vs-empty difference must still diff correctly.
+  (testing "current cleared to {} reports the removed key, NOT a spurious [] leaf"
+    (let [d (diff/diff-app-db {:a 1} {})]
+      (is (= [{:path [:a] :baseline 1}] (:removed d))
+          "the populated baseline's key is :removed")
+      (is (nil? (:added d))
+          "NO spurious {:path [] :current {}} root leaf for the empty side")
+      (is (= #{:removed} (set (keys d)))
+          "only the genuine difference, nothing at the [] root")))
+
+  (testing "baseline empty {} vs populated current is the symmetric case"
+    (let [d (diff/diff-app-db {} {:a 1})]
+      (is (= [{:path [:a] :current 1}] (:added d)))
+      (is (nil? (:removed d))
+          "NO spurious {:path [] :baseline {}} root leaf for the empty side")
+      (is (= #{:added} (set (keys d))))))
+
+  (testing "a NON-ROOT empty map is STILL a semantic leaf ({:k {}} vs {:k {:a 1}})"
+    (let [d (diff/diff-app-db {:k {}} {:k {:a 1}})]
+      (is (= [{:path [:k :a] :current 1}] (:added d)))
+      (is (= [{:path [:k] :baseline {}}] (:removed d))
+          "the [:k] empty-map leaf is preserved — only the ROOT is special-cased")))
+
+  (testing "two empty roots are equal — no delta"
+    (is (nil? (diff/diff-app-db {} {})))))
 
 ;; ===========================================================================
 ;; PURE: effect-only diff  (§A5 — an effect-only diff)
@@ -147,7 +178,8 @@
           "current is a proper prefix — only the length differs"))))
 
 (deftest diff-sub-runs-multiset-delta
-  (testing "a sub-run only one side produced surfaces as a view fact diff"
+  (testing "diff-sub-runs is a DIAGNOSTIC fn — called directly it still
+            reports a view-fact delta (rf2-e6uod / rf2-5l0a5)"
     (let [d (diff/diff-sub-runs
               {:sub-runs [{:query [:visible-todos] :value 3}]}
               {:sub-runs [{:query [:visible-todos] :value 5}]})]
@@ -342,6 +374,49 @@
           d    (diff/diff-runs base cur)]
       (is (false? (:same? d)))
       (is (= #{:fidelity} (:facets d))))))
+
+;; ===========================================================================
+;; PURE: facet-set == canonical slice keys (rf2-e6uod / rf2-5l0a5)
+;; — the diff's facet set is EXACTLY the run-hash slice :same? is judged over,
+;;   so no facet is dead (fires on a slot outside the slice) and no slice slot
+;;   is uncovered. `:trace-ops` is the readable projection of the `:epoch-tape`
+;;   slot, so it stands in for it 1:1 in the equality.
+;; ===========================================================================
+
+(deftest facet-set-equals-canonical-slice
+  (testing "facet-fns keys == run-hash-input-keys (with :trace-ops ⇄ :epoch-tape)"
+    (let [facet-names (set (keys diff/facet-fns))
+          slice-keys  (set fingerprint/run-hash-input-keys)]
+      (is (= (disj facet-names :trace-ops)
+             (disj slice-keys :epoch-tape))
+          "the facet set and the canonical slice are the SAME surface — the
+           only naming difference is :trace-ops (the readable :epoch-tape
+           projection) standing in for :epoch-tape")
+      (is (contains? facet-names :trace-ops)
+          ":trace-ops covers the :epoch-tape slice slot")
+      (is (contains? slice-keys :epoch-tape))))
+
+  (testing ":sub-runs is NOT a facet — it is deliberately outside the slice"
+    (is (not (contains? (set (keys diff/facet-fns)) :sub-runs))
+        ":sub-runs carries no diff-runs facet (over-recomputed evidence, not a
+         determinism input)")
+    (is (not (contains? (set fingerprint/run-hash-input-keys) :sub-runs))
+        ":sub-runs is excluded from the run-hash slice — the facet set honors
+         that exclusion rather than overstating coverage")))
+
+(deftest diff-runs-sub-runs-only-delta-is-same
+  (testing "two runs differing ONLY in :sub-runs diff to {:same? true} — the
+            :sub-runs delta does NOT decide :same? (it is outside the slice,
+            rf2-e6uod / rf2-5l0a5)"
+    (let [base {:status :pass :app-db {:n 1}
+                :sub-runs [{:query [:visible-todos] :value 3}]}
+          cur  (assoc base :sub-runs [{:query [:visible-todos] :value 5}])
+          d    (diff/diff-runs base cur)]
+      (is (= {:same? true} d)
+          "a pure :sub-runs delta is behaviourally identical to the gate — so
+           diff-runs agrees with the determinism / golden verdict")
+      (is (not (contains? (:facets d) :sub-runs))
+          "no :sub-runs facet ever fires through diff-runs"))))
 
 ;; ===========================================================================
 ;; PURE: the non-empty-:facets INVARIANT (rf2-rv9tt — the masterpiece guarantee)

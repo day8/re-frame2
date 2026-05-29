@@ -2724,11 +2724,19 @@ what counts as the same run. The pure provenance a run-result also carries
 
 Each facet is projected independently and contributes to the result **only
 when it differs**, so the diff localises *where* two runs parted and stays
-small:
+small.
 
-Every behavioural slot in the run-**slice** (`run-hash-input-keys`, the
-surface `:same?` is judged over) is covered by a facet, so a diff the gate
-calls different always localises *where*:
+**INVARIANT — the facet set IS the canonical slice.** The `diff-runs` facet
+names are EXACTLY `run-hash-input-keys`, the slice `:same?` is judged over
+(`:trace-ops` is the readable projection of the `:epoch-tape` slot's causal op
+spine, so it stands in for `:epoch-tape` 1:1). This is bidirectional and both
+directions are load-bearing: every slice slot is covered (so a diff the gate
+calls different always localises *where*), AND no facet sits *outside* the
+slice (so no facet is dead — a facet for a slot the `:same?` judgement ignores
+could never fire through `diff-runs`, and would overstate coverage while
+disagreeing with the determinism gate / golden verdict). `:status` is in both
+the facet set and the slice; it is listed last below as the headline a reader
+wants first.
 
 - `:app-db` — a readable key-path delta of the final app-db
   (`:added` / `:removed` / `:changed`, each entry a `{:path … :baseline …
@@ -2766,11 +2774,18 @@ calls different always localises *where*:
   (`:only-baseline` / `:only-current`) — the rungs one run rested on and the
   other did not (e.g. a baseline using `:real-setup` vs a current that fell
   back to `:sub-overrides`);
-- `:sub-runs` — a multiset delta over the projected subscription / view
-  facts, when available (a diagnostic facet — `:sub-runs` is **not** in the
-  run-slice, so it never decides `:same?`);
 - `:status` — the top-level run status, when it differs (a `:pass` → `:fail`
   flip is the headline a reader wants first).
+
+`:sub-runs` is **not** a facet. It is deliberately excluded from the run-slice
+(`run-hash-input-keys`) — sub-runs are over-recomputed evidence, not a
+determinism input — so a `:sub-runs`-only delta does not perturb the `:same?`
+judgement, exactly as the determinism gate and the golden verdict treat it.
+Wiring a `:sub-runs` facet into `diff-runs` would make it dead code (it could
+never fire on a pure sub-runs delta) and would let the diff overstate coverage
+relative to the slice it shares with the gate. `diff-sub-runs` survives as a
+standalone **diagnostic** fn for callers that want to inspect the view-fact
+delta directly; it is not part of the `:same?` judgement.
 
 **The non-empty-`:facets` invariant.** A `:same? false` diff ALWAYS carries a
 non-empty `:facets`. The per-surface facets above cover every run-slice slot,
@@ -2793,8 +2808,10 @@ volatile noise.
 
 The facet diff fns (`diff-app-db`, `diff-assertions`, `diff-checks`,
 `diff-effects`, `diff-schema-violations`, `diff-warnings`, `diff-trace-ops`,
-`diff-sub-overrides`, `diff-fidelity`, `diff-sub-runs`) and the assembler
+`diff-sub-overrides`, `diff-fidelity`) and the assembler
 (`diff-runs`) are pure data → data — two run-results in, a readable diff out
+(the diagnostic-only `diff-sub-runs` is pure too but is not wired into
+`diff-runs` — it is outside the `:same?` slice)
 — and run under
 `clojure -M:test` with no runtime; only the artifact-replay entry path is
 impure, and when both inputs are run-results `diff-run-artifacts` is itself
