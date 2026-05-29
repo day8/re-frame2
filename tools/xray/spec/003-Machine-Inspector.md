@@ -479,9 +479,13 @@ One implementation, one elkjs layout pass — re-used by Xray, Story
 host-app drop-in that wants the chart without Xray's panel chrome.
 
 The Mermaid text emitter lives at
-`implementation/machines/src/re_frame/machines/mermaid.cljc` so the
-framework can re-export `(rf/machine->mermaid <id>)` without a
-tool-jar dependency.
+`tools/machines-viz/src/day8/re_frame2_machines_viz/mermaid.cljc`
+(namespace `day8.re-frame2-machines-viz.mermaid`) per rf2-sqhqu — it
+is a tool-side code-gen concern, so the runtime `machines` artefact
+stays pure-engine. Hosts that want Markdown-paste Mermaid require the
+machines-viz tool jar; the framework does not re-export the emitter
+(no `rf/machine->mermaid` at framework level — see machines-viz
+`DESIGN-RATIONALE.md` §Lock).
 
 ```
 tools/xray/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
@@ -1094,7 +1098,7 @@ overflow menu) surfaces a **Copy machine as…** sub-menu:
 |---|---|
 | **PNG** | Rasterised chart at 2x DPR, transparent background, current-state highlight included. Copied to clipboard as an image. |
 | **SVG** | Vector chart with embedded fonts (so it renders identically when pasted into a doc or a Figma frame), current-state highlight included. Copied to clipboard as `image/svg+xml`. |
-| **Mermaid text** | Markdown-friendly Mermaid block. Emitted by `(rf/machine->mermaid <id>)` (lives in `implementation/machines/`). Copied as plain text. |
+| **Mermaid text** | Markdown-friendly Mermaid block. Emitted by `day8.re-frame2-machines-viz.mermaid/emit` (lives in `tools/machines-viz/` per rf2-sqhqu). Copied as plain text. |
 
 Inspired by Stately Visualizer's registry-style share. Use cases:
 dropping a chart into a pull-request description, into a design doc,

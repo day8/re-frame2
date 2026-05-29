@@ -39,12 +39,12 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
 - **Mermaid `stateDiagram-v2` exporter** — per
   [rf2-deo2i](../../../.beads/) and
   [`API.md`](API.md) §Mermaid `stateDiagram-v2`. Implemented at
-  `implementation/machines/src/re_frame/machines/mermaid.cljc`
-  (namespace `re-frame.machines.mermaid`) — rf2-ee38b.21 corrected the
-  prior `src/day8/re_frame2_machines_viz/mermaid.cljc` claim; the
-  emitter lives under `implementation/machines/` per
-  [`000-Vision.md`](000-Vision.md) §Static renderer, NOT under this
-  tool. Covers the read-only diagram surface enumerated in
+  `src/day8/re_frame2_machines_viz/mermaid.cljc` (namespace
+  `day8.re-frame2-machines-viz.mermaid`). rf2-sqhqu relocated the
+  emitter out of the runtime `machines` artefact and into this tool
+  jar so the runtime artefact stays pure-engine — apps that want
+  Mermaid require this tool, apps that don't pay nothing. Covers the
+  read-only diagram surface enumerated in
   [`000-Vision.md`](000-Vision.md) §item 5 (single-state machines,
   composite states, parallel regions, transition labels, entry/exit
   actions, action/`do` labels, `invoke-all` row layout). JVM + CLJS
@@ -100,7 +100,8 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
   (`_rfMvChartState` — topology + active-state NAME + summary counts,
   never runtime `:data`). PNG/SVG are browser-DOM rasterisers; the
   Mermaid + share-URL paths delegate to
-  `re-frame.machines.mermaid/emit` and `share/encode-share-url`. CLJS
+  `day8.re-frame2-machines-viz.mermaid/emit` and
+  `share/encode-share-url`. CLJS
   tests cover the seam-derivation + delegation paths (the canvas / SVG
   DOM rasterisation is browser-only).
 

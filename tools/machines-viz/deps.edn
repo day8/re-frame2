@@ -29,12 +29,13 @@
          ;; brings its own substrate adapter on the consumer side.
          day8/re-frame2 {:local/root "../../implementation/core"}
 
-         ;; rf2-8d7w1 — the `export` namespace's `chart-as-mermaid`
-         ;; delegates to the canonical Mermaid emitter, which lives in
-         ;; the machines artefact (`re-frame.machines.mermaid` per
-         ;; rf2-yamkm) rather than under this tool. `machines` depends
-         ;; only on `core`, so there is no dependency cycle.
-         day8/re-frame2-machines {:local/root "../../implementation/machines"}
+         ;; rf2-sqhqu — the Mermaid emitter
+         ;; (`day8.re-frame2-machines-viz.mermaid`) now lives in THIS
+         ;; tool jar, so machines-viz no longer depends on the runtime
+         ;; `machines` artefact (the runtime artefact is now
+         ;; pure-engine). `export`'s `chart-as-mermaid` delegates to the
+         ;; local emitter; the chart consumes only the framework's
+         ;; public `rf/machine-meta` surface from `core` above.
 
          ;; rf2-8d7w1 — share-URL encoding is EDN → transit-write →
          ;; base64url (Principles §EDN-first on the wire; Lock #3).

@@ -273,8 +273,8 @@ emitter**:
 
 The **fourth surface** is the existing Mermaid
 `stateDiagram-v2` emitter
-(`re-frame.machines.mermaid` per rf2-deo2i / rf2-yamkm — pure
-text-to-SVG via the Mermaid DSL):
+(`day8.re-frame2-machines-viz.mermaid` per rf2-deo2i; relocated into
+this tool jar per rf2-sqhqu — pure text-to-SVG via the Mermaid DSL):
 
 4. **Mermaid static surface — docs prose, README, AI-pair chat
    replies.** Same emitter, different consumption — a fenced
@@ -319,8 +319,10 @@ The v1.0 `MachineChart` is built on:
   (rf2-gpzb4) — Mike's override of the 2026-05-19 hand-rolled-
   SVG lock after the polish-within-current-stack path repeatedly
   failed to reach the Stately Studio quality bar.
-- **Static renderer: Mermaid** (already shipped, per the rf2-yamkm
-  relocation to `implementation/machines/src/re_frame/machines/mermaid.cljc`).
+- **Static renderer: Mermaid** (already shipped, at
+  `src/day8/re_frame2_machines_viz/mermaid.cljc` per the rf2-sqhqu
+  relocation into this tool jar — the runtime `machines` artefact is
+  now pure-engine).
   Stays in its lane: text-to-SVG via the `stateDiagram-v2` DSL for
   Markdown-embed cases; not extended into interactive territory.
 
@@ -332,7 +334,7 @@ same model.
 
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
-| Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`re-frame.machines.mermaid`) |
+| Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`day8.re-frame2-machines-viz.mermaid`) |
 | xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters, browser-side visual-pin tests) |
 
 ### Alternatives rejected (with reasons)

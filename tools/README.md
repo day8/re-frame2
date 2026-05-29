@@ -261,9 +261,10 @@ not created up-front.
   A likely separate MCP surface for machine viz. Confirmed separation
   pending the first cut. (The chart-component role originally scoped
   to `tools/machines-viz/` was superseded by Xray's Machine Inspector
-  panel per PR #1400/#1402/#1407; the pure Mermaid emitter relocated
-  to `implementation/machines/src/re_frame/machines/mermaid.cljc` per
-  rf2-yamkm.)
+  panel per PR #1400/#1402/#1407; the pure Mermaid emitter lives at
+  `tools/machines-viz/src/day8/re_frame2_machines_viz/mermaid.cljc`
+  per rf2-sqhqu — a tool-side concern, so the runtime `machines`
+  artefact stays pure-engine.)
 
 ## Distinction from `skills/`
 
