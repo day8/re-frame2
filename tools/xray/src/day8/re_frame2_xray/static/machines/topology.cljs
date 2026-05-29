@@ -89,7 +89,9 @@
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
   ;; internally by xyflow inside `mv-chart/MachineChart`; the
   ;; host-side layout-or-fallback dance is gone.
-  (let [engine "xyflow+elkjs"]
+  ;; rf2-nesy9 — render-time frame capture for the deferred state-click.
+  (let [frame  (rf/current-frame)
+        engine "xyflow+elkjs"]
     [:div {:data-testid    "rf-xray-static-machines-topology-chart"
            :data-machine-id (str machine-id)
            :data-layout-engine engine
@@ -111,7 +113,7 @@
        (fn [path]
          (rf/dispatch [:rf.xray.static.machines/state-clicked
                        {:machine-id machine-id :path path}]
-                      {:frame :rf/xray}))}]]))
+                      {:frame frame}))}]]))
 
 ;; ---- chart toolbar (open in popout) -------------------------------------
 
@@ -122,12 +124,14 @@
   geometry lands in a follow-on bead (sibling of the second-window
   rf2-u3qm1 work)."
   [machine-id]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture for the deferred popout click.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid "rf-xray-static-machines-topology-popout"
     :on-click    (fn [_]
                    (rf/dispatch
                      [:rf.xray.static.machines/open-chart-popout machine-id]
-                     {:frame :rf/xray}))
+                     {:frame frame}))
     :title       "Open chart in pop-out window"
     :aria-label  (str "Open the chart for " machine-id
                       " in a pop-out window")
@@ -140,7 +144,7 @@
             :font-size     (:micro type-scale)
             :padding       "1px 8px"
             :white-space   "nowrap"}}
-   "↗ Pop out"])
+   "↗ Pop out"]))
 
 (defn- source-coord-chip [source-coord]
   (when (some? source-coord)

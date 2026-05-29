@@ -38,6 +38,7 @@
   their `:each` fixture."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.static.machines.helpers :as h]))
 
 (def selection-key
@@ -159,8 +160,11 @@
   goes through the standard queue and is replayed against the new
   frame on the first dispatch-cycle."
   []
+  ;; rf2-nesy9 — init-time hydration targets the production Xray shell
+  ;; frame via the named `defaults/default-frame-id` Var (production-
+  ;; singleton seam), not a `{:frame :rf/xray}` literal.
   (rf/dispatch [:rf.xray.static.machines/hydrate
                 {:selected-id    (load-selected-id)
                  :sub-mode-by-id (load-sub-mode-by-id)}]
-               {:frame :rf/xray})
+               {:frame defaults/default-frame-id})
   nil)

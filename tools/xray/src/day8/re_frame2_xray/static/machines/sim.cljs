@@ -319,7 +319,10 @@
 
 (defn- pending-event-input
   [machine-id pending-event suggestions]
-  (let [datalist-id (str "rf-xray-static-machines-sim-events-"
+  ;; rf2-nesy9 — render-time frame capture (rendered inside the Sim
+  ;; reg-view), not a `:rf/xray` literal.
+  (let [frame       (rf/current-frame)
+        datalist-id (str "rf-xray-static-machines-sim-events-"
                          (name machine-id))]
     [:div {:style {:display "flex" :flex-direction "column" :gap "4px"}}
      [:label {:style {:color (:text-tertiary tokens)
@@ -339,7 +342,7 @@
                         [:rf.xray.static.machines/sim-set-pending-event
                          {:machine-id machine-id
                           :text (-> e .-target .-value)}]
-                        {:frame :rf/xray}))
+                        {:frame frame}))
        :style       {:background (:bg-3 tokens)
                      :border (str "1px solid " (:border-default tokens))
                      :color (:text-primary tokens)
@@ -354,7 +357,9 @@
 
 (defn- pending-data-input
   [machine-id pending-data]
-  [:div {:style {:display "flex" :flex-direction "column" :gap "4px"}}
+  ;; rf2-nesy9 — render-time frame capture.
+  (let [frame (rf/current-frame)]
+   [:div {:style {:display "flex" :flex-direction "column" :gap "4px"}}
    [:label {:style {:color (:text-tertiary tokens)
                     :font-family sans-stack
                     :font-size "10px"
@@ -371,7 +376,7 @@
                       [:rf.xray.static.machines/sim-set-pending-data
                        {:machine-id machine-id
                         :text (-> e .-target .-value)}]
-                      {:frame :rf/xray}))
+                      {:frame frame}))
      :style       {:background (:bg-3 tokens)
                    :border (str "1px solid " (:border-default tokens))
                    :color (:text-primary tokens)
@@ -379,11 +384,13 @@
                    :border-radius "4px"
                    :font-family mono-stack
                    :font-size "11px"
-                   :resize "vertical"}}]])
+                   :resize "vertical"}}]]))
 
 (defn- step-button
   [machine-id pending-event pending-data]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid "rf-xray-static-machines-sim-step-button"
     :on-click    (fn [_]
                    (let [event-parsed (sim-h/parse-event-vector pending-event)]
@@ -414,7 +421,7 @@
                            [:rf.xray.static.machines/sim-step
                             {:machine-id machine-id
                              :event event-v}]
-                           {:frame :rf/xray})))))
+                           {:frame frame})))))
     :style       {:background (:yellow tokens)
                   :border "none"
                   ;; rf2-5kfxe.4 — dark text on yellow uses :bg-1
@@ -427,16 +434,18 @@
                   :font-family sans-stack
                   :font-size "12px"
                   :font-weight 600}}
-   "Step ▶︎"])
+   "Step ▶︎"]))
 
 (defn- reset-button
   [machine-id]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid "rf-xray-static-machines-sim-reset-button"
     :on-click    (fn [_]
                    (rf/dispatch [:rf.xray.static.machines/sim-reset
                                  {:machine-id machine-id}]
-                                {:frame :rf/xray}))
+                                {:frame frame}))
     :style       {:background (:bg-3 tokens)
                   :border (str "1px solid " (:border-default tokens))
                   :color (:text-primary tokens)
@@ -445,22 +454,24 @@
                   :cursor "pointer"
                   :font-family sans-stack
                   :font-size "12px"}}
-   "Reset"])
+   "Reset"]))
 
 (defn- exit-button
   "Exit Sim — disposes the per-machine sim slot AND flips the strip's
   sub-mode back to `:topology`. The two dispatches both target
   `:rf/xray` so the post-click state shows the Topology body."
   [machine-id]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid "rf-xray-static-machines-sim-exit-button"
     :on-click    (fn [_]
                    (rf/dispatch [:rf.xray.static.machines/sim-stop
                                  {:machine-id machine-id}]
-                                {:frame :rf/xray})
+                                {:frame frame})
                    (rf/dispatch [:rf.xray.static.machines/set-sub-mode
                                  machine-id :topology]
-                                {:frame :rf/xray}))
+                                {:frame frame}))
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-subtle tokens))
                   :color (:text-tertiary tokens)
@@ -469,18 +480,20 @@
                   :cursor "pointer"
                   :font-family sans-stack
                   :font-size "12px"}}
-   "Exit Sim"])
+   "Exit Sim"]))
 
 (defn- available-transition-row
   [machine-id pending-event {:keys [event target guard?]}]
-  [:li
+  ;; rf2-nesy9 — render-time frame capture.
+  (let [frame (rf/current-frame)]
+   [:li
    {:data-testid (str "rf-xray-static-machines-sim-available-" (name event))
     :on-click    (fn [_]
                    (rf/dispatch
                      [:rf.xray.static.machines/sim-set-pending-event
                       {:machine-id machine-id
                        :text (str event)}]
-                     {:frame :rf/xray}))
+                     {:frame frame}))
     :style       {:display "flex"
                   :justify-content "space-between"
                   :align-items "center"
@@ -505,7 +518,7 @@
            (keyword? target) (str target)
            (vector? target)  (pr-str target)
            :else             (str target))
-         (when guard? " [guard]"))]])
+         (when guard? " [guard]"))]]))
 
 (defn- available-transitions-list
   [machine-id pending-event transitions]
@@ -678,7 +691,8 @@
   Pure hiccup (Xray rf2-tijr convention) — subscribes/dispatches
   resolve against `:rf/xray` via the shell's frame-provider."
   [{:keys [machine-id definition]}]
-  (let [current     @(rf/subscribe
+  (let [frame       (rf/current-frame)
+        current     @(rf/subscribe
                        [:rf.xray.static.machines/sim-current-state])
         last-trans  @(rf/subscribe
                        [:rf.xray.static.machines/sim-last-transition])]
@@ -711,7 +725,7 @@
              [:rf.xray.static.machines/sim-chart-edge-clicked
               {:machine-id machine-id
                :event-id   event-id}]
-             {:frame :rf/xray})))}]]))
+             {:frame frame})))}]]))
 
 ;; ---- body (mounted from definition_detail.cljs) ------------------------
 
@@ -739,14 +753,17 @@
   audit trail. The chart and rail read the SAME sim-state, so clicking
   an edge and clicking a Step button are interchangeable."
   [{:keys [machine-id definition]}]
-  (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
+  (let [frame (rf/current-frame)
+        sim   @(rf/subscribe [:rf.xray.static.machines/sim-state])]
     (when (and (some? machine-id)
                (some? definition)
                (nil? sim))
+      ;; rf2-nesy9 — auto-start fires during render; capture the
+      ;; surrounding frame rather than pinning the `:rf/xray` singleton.
       (rf/dispatch [:rf.xray.static.machines/sim-start
                     {:machine-id machine-id
                      :definition definition}]
-                   {:frame :rf/xray}))
+                   {:frame frame}))
     (cond
       ;; No machine to drive sim against.
       (nil? machine-id)

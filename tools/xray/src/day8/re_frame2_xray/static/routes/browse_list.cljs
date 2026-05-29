@@ -62,7 +62,10 @@
   `routing-helpers/filter-rows`. State on
   `:rf.xray.static.routes/query`."
   [query total-routes filtered?]
-  [:div {:data-testid "rf-xray-static-routes-search"
+  ;; rf2-nesy9 — render-time frame capture (rendered inside the routes
+  ;; browse-list reg-view), not a `:rf/xray` literal.
+  (let [frame (rf/current-frame)]
+   [:div {:data-testid "rf-xray-static-routes-search"
          :style       {:display       "flex"
                        :align-items   "center"
                        :gap           "8px"
@@ -82,7 +85,7 @@
             :on-change   (fn [e]
                            (rf/dispatch [:rf.xray.static.routes/set-query
                                          (-> e .-target .-value)]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
             :style       {:flex          1
                           :background    (:bg-3 tokens)
                           :color         (:text-primary tokens)
@@ -100,7 +103,7 @@
     (cond
       filtered?              "match"
       (= 1 total-routes)     "1 route"
-      :else                  (str total-routes " routes"))]])
+      :else                  (str total-routes " routes"))]]))
 
 (defn- route-row
   "One row in the flat catalogue. No marker chip, no `:here` glyph —
@@ -217,7 +220,9 @@
   preview projection."
   [{:keys [silent? routes total-routes filtered? query] :as _data}
    {:keys [expanded sim-open routes-map]}]
-  (cond
+  ;; rf2-nesy9 — render-time frame capture for the deferred row-toggle.
+  (let [frame (rf/current-frame)]
+   (cond
     silent?
     (empty-state)
 
@@ -243,4 +248,4 @@
                  :on-toggle  (fn [_]
                                (rf/dispatch [:rf.xray.static.routes/toggle-row
                                              (:route-id row)]
-                                            {:frame :rf/xray}))}])))]))
+                                            {:frame frame}))}])))])))

@@ -131,10 +131,13 @@
   strip is the same DOM as the Dynamic sub-strip (muscle-memory
   consistency), but Cascade is dimmed + Sim is a placeholder."
   [{:keys [machine-id sub-mode live-count]}]
-  (let [set-mode! (fn [mode]
+  ;; rf2-nesy9 — render-time frame capture so the deferred sub-mode
+  ;; clicks dispatch into the surrounding instance frame.
+  (let [frame     (rf/current-frame)
+        set-mode! (fn [mode]
                     (rf/dispatch
                       [:rf.xray.static.machines/set-sub-mode machine-id mode]
-                      {:frame :rf/xray}))]
+                      {:frame frame}))]
     [:div {:data-testid "rf-xray-static-machines-sub-strip"
            :role        "tablist"
            :aria-label  "Machine inspection mode"

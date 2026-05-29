@@ -24,6 +24,7 @@
   Sim engine + share-URL contract today (per `panels/machine_inspector.
   cljs/select-machine-id`)."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]))
 
@@ -35,27 +36,31 @@
   fire (so the user lands on Dynamic Machines) but the selection
   dispatch is suppressed (no value to write).
 
-  All three dispatches target `:rf/xray` so the Static-mode chrome
-  reads the new mode + tab slots."
-  [machine-id]
-  (rf/dispatch [:rf.xray/set-mode :dynamic] {:frame :rf/xray})
-  (rf/dispatch [:rf.xray/select-tab :machines] {:frame :rf/xray})
-  (when (some? machine-id)
-    (rf/dispatch [:rf.xray/select-machine-id machine-id] {:frame :rf/xray}))
-  nil)
+  `frame` (rf2-nesy9) is the surrounding instance frame captured by the
+  caller at render time so the three dispatches land on it, not a
+  `{:frame :rf/xray}` literal. Defaults to `defaults/default-frame-id`
+  (the production shell) for callers that don't capture a frame."
+  ([machine-id] (dispatch-jump! machine-id defaults/default-frame-id))
+  ([machine-id frame]
+   (rf/dispatch [:rf.xray/set-mode :dynamic] {:frame frame})
+   (rf/dispatch [:rf.xray/select-tab :machines] {:frame frame})
+   (when (some? machine-id)
+     (rf/dispatch [:rf.xray/select-machine-id machine-id] {:frame frame}))
+   nil))
 
 (defn dispatch-jump-sync!
   "Test-only synchronous variant of `dispatch-jump!`. Production code
   paths through the async `dispatch-jump!` because UI clicks are
   inherently async; tests bypass the queue so post-dispatch assertions
   read the new slots without a flush."
-  [machine-id]
-  (rf/dispatch-sync [:rf.xray/set-mode :dynamic] {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/select-tab :machines] {:frame :rf/xray})
-  (when (some? machine-id)
-    (rf/dispatch-sync [:rf.xray/select-machine-id machine-id]
-                      {:frame :rf/xray}))
-  nil)
+  ([machine-id] (dispatch-jump-sync! machine-id defaults/default-frame-id))
+  ([machine-id frame]
+   (rf/dispatch-sync [:rf.xray/set-mode :dynamic] {:frame frame})
+   (rf/dispatch-sync [:rf.xray/select-tab :machines] {:frame frame})
+   (when (some? machine-id)
+     (rf/dispatch-sync [:rf.xray/select-machine-id machine-id]
+                       {:frame frame}))
+   nil))
 
 (defn pill
   "Render the right-pane Instances pill. Sits inside the 4-mode sub-
@@ -66,7 +71,10 @@
   Per the bead's §Instances mode the Static surface stays static —
   this pill is a JUMP affordance, not a mode the right pane renders."
   [{:keys [machine-id live-count active?]}]
-  (let [label  "Instances"
+  ;; rf2-nesy9 — capture the surrounding instance frame at render time
+  ;; so the deferred JUMP dispatches into it, not a `:rf/xray` literal.
+  (let [frame  (rf/current-frame)
+        label  "Instances"
         suffix (when (and (number? live-count) (pos? live-count))
                  (str " " live-count))]
     [:button
@@ -75,7 +83,7 @@
       :data-live-count (str (or live-count 0))
       :role        "tab"
       :aria-selected (if active? "true" "false")
-      :on-click    (fn [_] (dispatch-jump! machine-id))
+      :on-click    (fn [_] (dispatch-jump! machine-id frame))
       :title       (str "Open " machine-id " in Dynamic Machines tab"
                         " (mnemonic: i)")
       :aria-label  (str "Instances — JUMPs to Dynamic Machines tab. "

@@ -103,7 +103,9 @@
   §4.4 — fires the cross-link event the registry installs so the
   user lands on the Dynamic Routing lens scoped to this route."
   [route-id]
-  [:button {:data-testid (str "rf-xray-static-routes-jump-runtime-"
+  ;; rf2-nesy9 — render-time frame capture for the deferred jump click.
+  (let [frame (rf/current-frame)]
+   [:button {:data-testid (str "rf-xray-static-routes-jump-runtime-"
                               (subs (pr-str route-id) 1))
             :on-click    (fn [e]
                            ;; Prevent the row-toggle click from
@@ -111,7 +113,7 @@
                            (.stopPropagation e)
                            (rf/dispatch [:rf.xray.static.routes/jump-to-dynamic
                                          route-id]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
             :title       "Open Dynamic Routing scoped to this route"
             :style       {:background    "transparent"
                           :border        (str "1px solid " (:accent tokens))
@@ -123,20 +125,22 @@
                           :font-size     "10px"
                           :cursor        "pointer"
                           :white-space   "nowrap"}}
-   "→ Dynamic"])
+   "→ Dynamic"]))
 
 (defn- sim-nav-toggle
   "The hermetic 'Simulate navigation' button. Toggles the
   `simulate_nav/preview` surface below it. State lives in the
   per-row preview-open set on `:rf.xray.static.routes/sim-nav-open`."
   [route-id sim-open?]
-  [:button {:data-testid (str "rf-xray-static-routes-sim-nav-toggle-"
+  ;; rf2-nesy9 — render-time frame capture for the deferred toggle click.
+  (let [frame (rf/current-frame)]
+   [:button {:data-testid (str "rf-xray-static-routes-sim-nav-toggle-"
                               (subs (pr-str route-id) 1))
             :on-click    (fn [e]
                            (.stopPropagation e)
                            (rf/dispatch [:rf.xray.static.routes/toggle-sim-nav
                                          route-id]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
             :style       {:background    (if sim-open? (:bg-active tokens) "transparent")
                           :border        (str "1px solid " (:accent tokens))
                           :border-radius "3px"
@@ -147,7 +151,7 @@
                           :font-weight   500
                           :cursor        "pointer"
                           :white-space   "nowrap"}}
-   (if sim-open? "Hide preview" "Simulate navigation")])
+   (if sim-open? "Hide preview" "Simulate navigation")]))
 
 (defn- source-coord-chip
   "Render the `:rf.route/registered-at` source coord when present."
