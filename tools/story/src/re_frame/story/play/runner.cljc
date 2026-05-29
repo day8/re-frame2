@@ -22,13 +22,46 @@
   A bare vector is also accepted: `:play-script [[:dispatch [...]] ...]`
   — equivalent to `{:script <vector>}` with `:auto-run? true`.
 
-  ## Step types
+  ## The tagged step grammar (spec/017 §Script step grammar)
+
+  P1 uses ONE tagged step grammar across `:setup` and `:script`. Every
+  step declares its minimum runner; the boundary ladder
+  (`re-frame.story.play.settled-boundary`) governs settlement and the
+  capability registry (`re-frame.story.requirements`) governs which
+  runner can prove it. Bare event-vector shorthand is NOT the public form
+  — it is normalized to `[:dispatch event-vector]` during migration
+  (`coerce-script`) because an app event genuinely named `:dispatch` /
+  `:click` / `:wait` / `:focus` would otherwise be silently
+  un-dispatchable (a reserved-word hazard).
+
+  `[:wait-until predicate-spec]` advances when a queue/state predicate
+  becomes true, so it is DETERMINISTIC (the determinism gate accepts it;
+  only bare `[:wait ms]` is refused). The predicate-spec is one of
+  `[:db path expected]`, `[:db path :pred fn]`, or `[:queue-empty]`. A
+  predicate that never becomes true TIMES OUT READABLY with a step-fail,
+  never a silent pass.
+
+  `[:assert [:rf.assert/id & args]]` evaluates the assertion atom at this
+  exact point in the script (the ONE assertion atom in its mid-script
+  checkpoint position; the terminal `:assertions` slot is the other). In
+  headless the checkpoint dispatches the wrapped `:rf.assert/*` event
+  (the runner's headless implementation rail) and surfaces the recorded
+  outcome. `[:assert …]` is REJECTED in `:setup` at plan-compile time
+  (`re-frame.story.plan`): setup establishes preconditions, it does not
+  judge.
+
+  `[:focus selector]` / `[:click selector]` / `[:type selector text]` /
+  `[:assert-dom …]` are DOM steps; under a headless runner they refuse
+  with `:cannot-run` (the capability registry requires `:dom`), and they
+  run under a `:dom` / `:browser` runner.
 
   | Step                               | Semantics                                                     |
   |------------------------------------|---------------------------------------------------------------|
-  | `[:dispatch event-vec]`            | `rf/dispatch` (async) into the frame                          |
-  | `[:dispatch-sync event-vec]`       | `rf/dispatch-sync` (synchronous) into the frame               |
-  | `[:wait ms]`                       | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM)            |
+  | `[:dispatch event-vec]`            | settled dispatch — drain through `settled-boundary`           |
+  | `[:dispatch-sync event-vec]`       | low-level synchronous dispatch escape (not the author form)   |
+  | `[:wait-until predicate-spec]`     | deterministic settle-on-condition (queue/state)               |
+  | `[:wait ms]`                       | bounded wall-clock sleep — the explicit determinism opt-out   |
+  | `[:assert assertion-vector]`       | in-script checkpoint assertion (illegal in `:setup`)          |
   | `[:assert-db path value]`          | Assert `(= (get-in @app-db path) value)`                      |
   | `[:assert-db path :pred fn-or-sym]`| Assert custom predicate — `fn` is preferred (works under advanced CLJS); `symbol` is the JVM/dev escape hatch (resolved at run time, fragile under advanced CLJS munging) |
   | `[:assert-dom selector :visible]`  | Assert selector resolves to a visible DOM node                |
@@ -36,6 +69,7 @@
   | `[:assert-dom selector :text txt]` | Assert selector's text-content matches `txt`                  |
   | `[:click selector]`                | Synthetic click event at selector                             |
   | `[:type selector text]`            | Synthetic `input` event at selector with `text`               |
+  | `[:focus selector]`                | Synthetic focus event at selector                             |
 
   Steps run sequentially. A failed `:assert-*` step is RECORDED — the
   run continues so the user sees all failures, not just the first
@@ -65,19 +99,25 @@
 ;; ---- step-type vocabulary ------------------------------------------------
 
 (def step-types
-  "The canonical step-type tags the runner recognises."
-  #{:dispatch :dispatch-sync :wait
-    :assert-db :assert-dom
-    :click :type})
+  "The canonical step-type tags the runner recognises — the one tagged
+  step grammar across `:setup` and `:script` (spec/017 §Script step
+  grammar, rf2-5x1wt.17). `:assert` is the in-script checkpoint atom
+  (the wrapped `:rf.assert/*` assertion); `:wait-until` is the
+  deterministic settle-on-condition; `:focus` is the DOM focus step."
+  #{:dispatch :dispatch-sync :wait :wait-until
+    :assert :assert-db :assert-dom
+    :click :type :focus})
 
 (def assertion-step-types
-  "Steps whose outcome contributes to the play's pass/fail status."
-  #{:assert-db :assert-dom})
+  "Steps whose outcome contributes to the play's pass/fail status —
+  including the `[:assert …]` in-script checkpoint (rf2-5x1wt.17), which
+  evaluates a `:rf.assert/*` atom at this exact point in the script."
+  #{:assert :assert-db :assert-dom})
 
 (def async-yield-step-types
   "Steps that put work on an async queue the runner cannot directly
-  flush — `:click` / `:type` (synthetic DOM events whose handlers
-  re-enter the dispatch chain) and `:wait` (the runner sleeps
+  flush — `:click` / `:type` / `:focus` (synthetic DOM events whose
+  handlers re-enter the dispatch chain) and `:wait` (the runner sleeps
   explicitly). The driver yields one tick AFTER these steps so the
   queued effects drain before the next step runs.
 
@@ -90,9 +130,14 @@
   settling `:dispatch` synchronously removes that hazard for the queued
   authoring form too.
 
-  Steps NOT in this set (`:dispatch`, `:dispatch-sync`, `:assert-db`,
-  `:assert-dom`) recur synchronously on CLJS."
-  #{:click :type :wait})
+  `:wait-until` is NOT here either: in headless the predicate is checked
+  synchronously once the preceding dispatch has settled (rf2-5x1wt.17),
+  so it recurs synchronously like the assertion steps. A richer runner's
+  bounded poll handles its own scheduling.
+
+  Steps NOT in this set (`:dispatch`, `:dispatch-sync`, `:wait-until`,
+  `:assert`, `:assert-db`, `:assert-dom`) recur synchronously on CLJS."
+  #{:click :type :focus :wait})
 
 (declare step-type)
 
@@ -138,6 +183,37 @@
                       (and (= 2 (count step))
                            (number? (nth step 1))
                            (not (neg? (nth step 1)))))
+    ;; `[:wait-until predicate-spec]` — deterministic settle-on-condition.
+    ;; The predicate-spec is `[:db path expected]`, `[:db path :pred fn]`,
+    ;; or `[:queue-empty]` (rf2-5x1wt.17). A 2-arity vector whose payload
+    ;; is itself a tagged predicate-spec vector.
+    :wait-until     (boolean
+                      (and (= 2 (count step))
+                           (let [pspec (nth step 1)]
+                             (and (vector? pspec)
+                                  (pos? (count pspec))
+                                  (case (first pspec)
+                                    :db          (or
+                                                   ;; [:db path expected]
+                                                   (and (= 3 (count pspec))
+                                                        (vector? (nth pspec 1))
+                                                        (not= :pred (nth pspec 2)))
+                                                   ;; [:db path :pred fn-or-sym]
+                                                   (and (= 4 (count pspec))
+                                                        (vector? (nth pspec 1))
+                                                        (= :pred (nth pspec 2))
+                                                        (let [r (nth pspec 3)]
+                                                          (or (fn? r) (symbol? r)))))
+                                    :queue-empty (= 1 (count pspec))
+                                    false)))))
+    ;; `[:assert assertion-vector]` — the in-script checkpoint atom. The
+    ;; wrapped form is a `:rf.assert/*` event vector (rf2-5x1wt.17).
+    :assert         (boolean
+                      (and (= 2 (count step))
+                           (let [a (nth step 1)]
+                             (and (vector? a)
+                                  (pos? (count a))
+                                  (keyword? (first a))))))
     :assert-db      (boolean
                       (and (>= (count step) 3)
                            (vector? (nth step 1))
@@ -170,6 +246,9 @@
                       (and (= 3 (count step))
                            (string? (nth step 1))
                            (string? (nth step 2))))
+    :focus          (boolean
+                      (and (= 2 (count step))
+                           (string? (nth step 1))))
     false))
 
 ;; ---- legacy bare-event-vector lift --------------------------------------
@@ -493,6 +572,8 @@
     :dispatch       (str "dispatch " (pr-str (second step)))
     :dispatch-sync  (str "dispatch-sync " (pr-str (second step)))
     :wait           (str "wait " (second step) "ms")
+    :wait-until     (str "wait-until " (pr-str (second step)))
+    :assert         (str "assert " (pr-str (second step)))
     :assert-db      (cond
                       (and (= 4 (count step)) (= :pred (nth step 2)))
                       (let [ref (nth step 3)]
@@ -515,6 +596,7 @@
     :click          (str "click " (pr-str (second step)))
     :type           (str "type "  (pr-str (second step))
                          " " (pr-str (nth step 2)))
+    :focus          (str "focus " (pr-str (second step)))
     (str "unknown " (pr-str step))))
 
 ;; ---- script validation --------------------------------------------------
@@ -559,13 +641,14 @@
 ;; ---- selector helpers ---------------------------------------------------
 
 (defn step-selector
-  "Return the DOM selector string from a `:click` / `:type` /
+  "Return the DOM selector string from a `:click` / `:type` / `:focus` /
   `:assert-dom` step, or nil. Used by the UI's click-to-highlight
   failing-element affordance."
   [step]
   (case (step-type step)
     :click       (nth step 1 nil)
     :type        (nth step 1 nil)
+    :focus       (nth step 1 nil)
     :assert-dom  (nth step 1 nil)
     nil))
 
@@ -583,6 +666,38 @@
   [step]
   (when (= :wait (step-type step))
     (nth step 1 nil)))
+
+(defn step-assertion
+  "Return the wrapped `:rf.assert/*` assertion atom from an
+  `[:assert assertion-vector]` checkpoint step, or nil (rf2-5x1wt.17).
+  This is the ONE assertion atom in its in-script position — the same
+  vector the terminal `:assertions` slot carries."
+  [step]
+  (when (= :assert (step-type step))
+    (nth step 1 nil)))
+
+(defn step-wait-until
+  "Decompose a `[:wait-until predicate-spec]` step into
+  `{:kind :db|:queue-empty :path <vec> :mode :equals|:pred :expected <val>
+  :pred-ref <fn-or-sym> :pred-fn? <bool>}` (rf2-5x1wt.17). Returns nil
+  for a non-`:wait-until` step.
+
+  - `[:db path expected]`       → `{:kind :db :path … :mode :equals :expected …}`
+  - `[:db path :pred fn-or-sym]`→ `{:kind :db :path … :mode :pred :pred-ref … :pred-fn? …}`
+  - `[:queue-empty]`            → `{:kind :queue-empty}`"
+  [step]
+  (when (= :wait-until (step-type step))
+    (let [pspec (nth step 1 nil)]
+      (case (first pspec)
+        :db          (let [path (nth pspec 1)]
+                       (if (and (= 4 (count pspec)) (= :pred (nth pspec 2)))
+                         (let [ref (nth pspec 3)]
+                           {:kind :db :path path :mode :pred
+                            :pred-ref ref :pred-fn? (fn? ref)})
+                         {:kind :db :path path :mode :equals
+                          :expected (nth pspec 2)}))
+        :queue-empty {:kind :queue-empty}
+        nil))))
 
 (defn step-assert-db
   "Decompose an `:assert-db` step into `{:path <vec> :mode :equals|:pred

@@ -535,6 +535,129 @@
       (runner/step-fail idx step
                         {:message (str "type failed — no node matched " (pr-str selector))}))))
 
+(defn- exec-focus!
+  "Execute a `[:focus selector]` step — a DOM focus event (rf2-5x1wt.17).
+  Parallels `exec-click!`: a no-DOM headless runner records a
+  `{:skipped? true}` no-op (the capability registry already refuses the
+  step at preflight, so this is the belt-and-braces runtime guard); a
+  DOM/browser runner fires the synthetic focus and records a step-skip."
+  [_frame-id idx step]
+  (let [selector (runner/step-selector step)]
+    (cond
+      (not (dom/dom-available?))
+      (runner/step-fail idx step
+                        {:skipped? true
+                         :message  (str "no DOM — cannot focus " (pr-str selector))})
+
+      (dom/focus! selector)
+      (runner/step-skip idx step)
+
+      :else
+      (runner/step-fail idx step
+                        {:message (str "focus failed — no node matched " (pr-str selector))}))))
+
+(defn- exec-assert!
+  "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint
+  (rf2-5x1wt.17). Evaluates the wrapped assertion atom at THIS point in
+  the script (spec/017 §Inline script assertions vs terminal
+  assertions). In headless this dispatches the `:rf.assert/*` event
+  through `settled-boundary` — the runner's headless implementation rail
+  (`re-frame.story.assertions`) — then reads the freshly recorded
+  outcome from the frame's `:rf.story/assertions` slot and projects it
+  into a runner step-pass / step-fail. So the checkpoint records an
+  assertion AT THIS POINT, and a failing checkpoint flips the play's
+  terminal status to `:fail`.
+
+  The wrapped atom is dispatched as the event vector, so the standard
+  `:rf.assert/*` reg-event-fx handler records the `:passed?` record on
+  the frame's app-db. We bridge that record back into the runner step
+  stream (the SAME bridge `dispatch-step-result` uses for the
+  `:dispatch-sync [:rf.assert/*]` rail), so the in-script `[:assert …]`
+  and a terminal assertion produce the same assertion-record shape."
+  [frame-id idx step]
+  (let [atom-v   (runner/step-assertion step)
+        prev     (assertion-count frame-id)
+        required (boundary/step-required-boundary step)
+        hooks    (current-flush-hooks frame-id)
+        settle   (try
+                   (boundary/dispatch-and-settle! frame-id atom-v hooks required step)
+                   (catch #?(:clj Throwable :cljs :default) e
+                     {:status :error
+                      :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
+                      :step   step}))]
+    (play/drain-pending-exceptions! frame-id :phase-4-play)
+    (or (boundary-result->step idx step settle)
+        ;; The wrapped :rf.assert/* handler recorded its outcome on the
+        ;; frame's :rf.story/assertions slot. Read what landed since the
+        ;; pre-dispatch count and surface it as the checkpoint's result.
+        (let [all   (vec (:rf.story/assertions (read-frame-db frame-id)))
+              new   (subvec all (min prev (count all)))
+              rec   (last new)]
+          (cond
+            (nil? rec)            (runner/step-skip idx step)
+            (false? (:passed? rec))
+            (runner/step-fail idx step
+                              {:expected (:expected rec)
+                               :actual   (:actual rec)
+                               :message  (or (:reason rec)
+                                             (str (:assertion rec) " "
+                                                  (pr-str (:payload rec)) " failed"))})
+            :else                 (runner/step-pass idx step))))))
+
+(defn- queue-empty?
+  "True iff `frame-id`'s event queue has drained (rf2-5x1wt.17). Under a
+  settled-boundary runner the preceding `[:dispatch …]` step ran the
+  router to a FIXED POINT (`settled-boundary` — the `dispatch-sync*`
+  run-to-completion drain in headless), so by the time a following
+  `[:wait-until [:queue-empty]]` is evaluated the queue is, by contract,
+  drained. The predicate is the explicit, readable settle-on-drain form;
+  it is satisfied whenever the runner has reached the settled boundary,
+  which the step driver guarantees before this step runs. Returns true."
+  [_frame-id]
+  ;; The settled-boundary contract (re-frame.story.play.settled-boundary)
+  ;; guarantees the queue has drained to a fixed point before the next
+  ;; step executes; there is no partial-drain state to observe here.
+  true)
+
+(defn- wait-until-satisfied?
+  "Evaluate a decomposed `:wait-until` predicate against `frame-id`'s
+  current state (rf2-5x1wt.17). Pure-ish — reads the frame snapshot, no
+  dispatch. Returns a boolean."
+  [frame-id {:keys [kind path mode expected pred-ref pred-fn?]}]
+  (case kind
+    :db          (let [db     (read-frame-db frame-id)
+                       actual (get-in db path)]
+                   (case mode
+                     :equals (= expected actual)
+                     :pred   (let [f (if pred-fn? pred-ref (resolve-predicate pred-ref))]
+                               (boolean (and f (try (f actual)
+                                                    (catch #?(:clj Throwable :cljs :default) _ false)))))
+                     false))
+    :queue-empty (queue-empty? frame-id)
+    false))
+
+(defn- exec-wait-until!
+  "Execute a `[:wait-until predicate-spec]` step (rf2-5x1wt.17) — the
+  DETERMINISTIC settle-on-condition. In headless the preceding
+  `[:dispatch …]` already drained to a fixed point, so the predicate is
+  checked once synchronously: satisfied → step-skip (advance);
+  unsatisfied → step-fail TIMING OUT READABLY with the unmet
+  predicate-spec, NEVER a silent pass. (A richer DOM/browser runner that
+  needs to await an async flush re-checks under a bounded poll; that
+  poll is the adapter caller's concern — the headless contract is the
+  one-shot deterministic check this fn implements.)"
+  [frame-id idx step]
+  (let [pspec   (runner/step-wait-until step)]
+    (if (wait-until-satisfied? frame-id pspec)
+      (runner/step-skip idx step)
+      (runner/step-fail idx step
+                        {:cannot-run? false
+                         :expected (nth step 1)
+                         :message  (str "wait-until " (pr-str (nth step 1))
+                                        " never became true (deterministic "
+                                        "queue/state predicate did not hold "
+                                        "after the preceding dispatch settled)")}))))
+
 (defn exec-step!
   "Execute ONE step against `frame-id`. Returns a step-result record
   (per `runner/step-pass` / `step-fail` / `step-skip` / `step-exception`).
@@ -546,10 +669,13 @@
   (case (runner/step-type step)
     :dispatch       (exec-dispatch!      frame-id idx step)
     :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
+    :assert         (exec-assert!        frame-id idx step)
     :assert-db      (exec-assert-db!     frame-id idx step)
     :assert-dom     (exec-assert-dom!    frame-id idx step)
+    :wait-until     (exec-wait-until!    frame-id idx step)
     :click          (exec-click!         frame-id idx step)
     :type           (exec-type!          frame-id idx step)
+    :focus          (exec-focus!         frame-id idx step)
     :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
     (runner/unknown-step idx step)))
 
@@ -633,13 +759,19 @@
   pass/fail is already represented by the `:rf.assert/*` records their
   dispatched events recorded.
 
+  Returns nil for the `[:assert …]` in-script checkpoint too
+  (rf2-5x1wt.17): that step DISPATCHES its wrapped `:rf.assert/*` atom,
+  whose reg-event-fx handler ALREADY recorded a canonical assertion
+  record on the slot — mirroring the step result on top would double-
+  count. The checkpoint's slot record IS the wrapped atom's record.
+
   A `:skipped?` DOM step (no-DOM JVM context) is NOT recorded as a
   failure — the step couldn't run, so it contributes no assertion
   outcome to the slot (matching the run-state's `:passed? false` +
   `:skipped? true` shape, which `finish` already tolerates)."
   [frame-id step result]
   (let [stype (runner/step-type step)]
-    (when (contains? runner/assertion-step-types stype)
+    (when (contains? #{:assert-db :assert-dom} stype)
       (let [aid (case stype
                   :assert-db  assert-db-id
                   :assert-dom assert-dom-id)]

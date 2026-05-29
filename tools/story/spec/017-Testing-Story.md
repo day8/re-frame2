@@ -720,6 +720,90 @@ un-dispatchable — a reserved-word hazard precisely in the slot where it
 bites hardest. `explain` therefore shows identical normalized forms for
 setup and script.
 
+#### Script step runner
+
+The tagged grammar is executed by the play runner: the pure step
+vocabulary + state machine in `re-frame.story.play.runner`
+(`step-types` / `step-arity-ok?` / `coerce-script` / `step-assertion` /
+`step-wait-until`) and the impure step executor in
+`re-frame.story.play.runner-events` (`exec-step!`). The runner is the
+single executor across the live canvas auto-run, the interactive
+step-debugger, and the headless run / replay paths; it does not branch
+on caller.
+
+- **Migration normalization.** Bare event-vector shorthand
+  (`[:my/event …]`) is the MIGRATION form, not the P1 public grammar.
+  `coerce-script` lifts a bare event vector to `[:dispatch event-vector]`;
+  an already-tagged step round-trips unchanged. The plan compiler
+  (`re-frame.story.plan`) applies this same coercion to BOTH `:setup` and
+  `:script`, so `[:world :setup]` and `:script` carry tagged steps
+  uniformly. Because every tag in the grammar (`:dispatch`,
+  `:wait-until`, `:wait`, `:assert`, `:focus`, …) is a known step,
+  `coerce-script` never lifts one — a tagged step is never re-wrapped as
+  a `[:dispatch [:assert …]]`.
+- **`[:dispatch event-vector]`** dispatches the event and settles to
+  `settled-boundary` (the §Concrete contract surface
+  `dispatch-and-settle!`). In `:headless` this is the `dispatch-sync*`
+  run-to-fixed-point drain, so the event has committed by the time the
+  step returns; a richer runner adds reactive / DOM flushes through its
+  flush-hooks.
+- **`[:wait-until predicate-spec]`** advances when a queue/state predicate
+  becomes true. It is DETERMINISTIC (the determinism gate accepts it;
+  only bare `[:wait ms]` is refused, §Determinism gate). The
+  predicate-spec is one of:
+  - `[:db path expected]` — `(= (get-in @app-db path) expected)`;
+  - `[:db path :pred fn-or-sym]` — `(pred (get-in @app-db path))` (a fn
+    is preferred / advanced-CLJS-safe; a symbol is the JVM/dev escape
+    hatch);
+  - `[:queue-empty]` — the frame's event queue has drained, which the
+    settled boundary guarantees before the next step runs.
+
+  In headless the preceding `[:dispatch …]` already settled to a fixed
+  point, so the predicate is checked once synchronously. A predicate that
+  never becomes true TIMES OUT READABLY — a step-fail carrying the unmet
+  predicate-spec — NEVER a silent pass.
+- **`[:wait ms]`** is the bounded wall-clock sleep, the explicit
+  determinism OPT-OUT. The determinism gate (`assert-deterministic`)
+  REFUSES a program containing a bare `[:wait ms]` with `:cannot-run`
+  rather than running it flakily. `[:wait-until pred]` is the
+  deterministic alternative and SHOULD be preferred.
+- **`[:assert assertion-vector]`** evaluates a `:rf.assert/*` assertion
+  atom at THIS exact point in the script — the in-script checkpoint
+  position of the one assertion atom (§Inline script assertions vs
+  terminal assertions). In headless the runner dispatches the wrapped
+  `:rf.assert/*` event (its headless implementation rail —
+  `re-frame.story.assertions`), and the standard reg-event-fx handler
+  records the canonical assertion record on the frame's
+  `:rf.story/assertions` slot. The checkpoint surfaces that record as the
+  step's pass/fail; it records EXACTLY ONE assertion (the wrapped atom's
+  handler is the sole recorder — the assertion-slot mirror that
+  `:assert-db` / `:assert-dom` use is skipped for `[:assert …]` to avoid
+  double-counting). `[:assert …]` is REJECTED in `:setup` at
+  plan-compile time (see below).
+- **`[:focus selector]`** (with `[:click …]` / `[:type …]` /
+  `[:assert-dom …]`) is a DOM step. It requires the `:dom` capability
+  token (§Requirement inference) and the `:dom` settled boundary
+  (§Concrete contract surface). Under a `:headless` runner it REFUSES
+  with `:cannot-run` (a no-DOM step records a skip, never a silent pass);
+  under a `:dom` / `:browser` runner it fires the synthetic focus event.
+
+**`[:assert …]` is illegal in `:setup`.** The plan compiler REJECTS an
+`[:assert …]` checkpoint in `:setup` (or its shipping `:events` spelling)
+at plan-compile time with `:rf.error/story-assert-in-setup`. Setup
+establishes preconditions; it does not judge. The author resolves the
+error by moving the assertion to `:script` (as an `[:assert …]`
+checkpoint) or to the terminal `:assertions` slot. The reject runs on the
+fully-resolved setup (inherited ⧺ composed ⧺ own), so a misplaced verdict
+surfaces before any run — the same way the other `:rf.error/story-*` plan
+errors do.
+
+**Source metadata is preserved for narrative projection.** The runner
+keeps the script step on every step-result and trace record, and the
+evidence projection (`re-frame.story.play.evidence/narrative`) attributes
+each contiguous run of committed epochs to the script step whose dispatch
+opened it — so the script spans project over the epoch beats (the spine
+the epoch-narrative work consumes).
+
 ### Inline script assertions vs terminal assertions
 
 An assertion inside `:script` (via `[:assert …]`) is a **checkpoint**: it

@@ -403,11 +403,14 @@
 ;; ---- :play-script step DSL (rf2-8i2a9) -----------------------------------
 
 (def PlayStep
-  "A single step in a rich `:play-script` body. Recognised tags:
+  "A single step in a rich `:script` body — the one tagged step grammar
+  (spec/017 §Script step grammar). Recognised tags:
 
-  - `[:dispatch event-vec]`              — async dispatch into the frame
-  - `[:dispatch-sync event-vec]`         — synchronous dispatch
-  - `[:wait ms]`                         — sleep N ms
+  - `[:dispatch event-vec]`              — settled dispatch (settled-boundary)
+  - `[:dispatch-sync event-vec]`         — synchronous dispatch escape
+  - `[:wait-until predicate-spec]`       — deterministic settle-on-condition
+  - `[:wait ms]`                         — sleep N ms (determinism opt-out)
+  - `[:assert assertion-vec]`            — in-script `:rf.assert/*` checkpoint
   - `[:assert-db path value]`            — equality assertion
   - `[:assert-db path :pred fn-sym]`     — predicate assertion
   - `[:assert-dom selector :visible]`    — DOM presence assertion
@@ -415,10 +418,11 @@
   - `[:assert-dom selector :text txt]`   — DOM text-content assertion
   - `[:click selector]`                  — synthetic click
   - `[:type selector text]`              — synthetic input
+  - `[:focus selector]`                  — synthetic focus
 
   Plain event vectors are ALSO accepted at the script level — the
-  runner lifts them to `[:dispatch <event-vec>]` for ergonomic
-  authoring sugar.
+  runner lifts them to `[:dispatch <event-vec>]` as MIGRATION shorthand
+  (spec/017 §Script step grammar — not the P1 public form).
 
   Schema is left loose here (`[:vector :any]` + first-element keyword)
   so authors get clear runner error messages rather than schema

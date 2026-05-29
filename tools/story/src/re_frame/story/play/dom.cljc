@@ -144,6 +144,35 @@
                    true)
                false))))
 
+(defn focus!
+  "Focus the element matched by `selector-or-node` and dispatch a
+  synthetic `focus` + `focusin` event so handlers wired to either
+  observe it (rf2-5x1wt.17). Returns true on success, false on
+  no-such-node or no-DOM. JVM → false.
+
+  `[:focus selector]` is a DOM step (spec/017 §Script step grammar): a
+  headless runner refuses it with `:cannot-run` (the capability registry
+  requires `:dom`); under a `:dom` / `:browser` runner it runs here."
+  [selector-or-node]
+  #?(:clj  false
+     :cljs (let [node (cond
+                        (string? selector-or-node) (query selector-or-node)
+                        (some?  selector-or-node)  selector-or-node
+                        :else                      nil)]
+             (if (some? node)
+               (do
+                 ;; Native `.focus()` moves the document's active element;
+                 ;; the synthetic events make the transition observable to
+                 ;; handlers bound to either `focus` (non-bubbling) or
+                 ;; `focusin` (bubbling).
+                 (try (.focus node) (catch :default _ nil))
+                 (try (.dispatchEvent node (js/Event. "focus"   #js {:bubbles false :cancelable false}))
+                      (catch :default _ nil))
+                 (try (.dispatchEvent node (js/Event. "focusin" #js {:bubbles true  :cancelable false}))
+                      (catch :default _ nil))
+                 true)
+               false))))
+
 ;; ---- assertion helpers --------------------------------------------------
 
 (defn assert-visible

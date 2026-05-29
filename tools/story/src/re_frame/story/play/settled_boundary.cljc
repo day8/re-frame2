@@ -120,6 +120,7 @@
    :dispatch-sync  :headless
    :wait           :headless
    :wait-until     :headless
+   :assert         :headless   ; in-script checkpoint — the wrapped atom may need more (e.g. DOM); its capability tokens, not its boundary, gate that
    :assert-db      :headless
    :assert-dom     :dom
    :click          :dom

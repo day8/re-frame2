@@ -160,10 +160,20 @@
 ;; ---- shipping-vocabulary normalization ----------------------------------
 
 (deftest events-normalizes-to-world-setup
-  (testing "shipping :events lowers to [:world :setup]"
+  (testing "shipping :events lowers to [:world :setup], bare event vectors
+            lifting to tagged [:dispatch …] (rf2-5x1wt.17 migration
+            normalization — bare shorthand is the migration form, not the
+            P1 public grammar)"
     (let [m {:story.legacy/e {:events [[:counter/init 3]]}}
           p (plan-of :story.legacy/e m)]
-      (is (= [[:counter/init 3]] (get-in p [:world :setup]))))))
+      (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup])))))
+  (testing "already-tagged setup steps round-trip unchanged"
+    (let [m {:story.legacy/e2 {:setup [[:dispatch [:counter/init 3]]
+                                       [:dispatch-sync [:counter/seed]]]}}
+          p (plan-of :story.legacy/e2 m)]
+      (is (= [[:dispatch [:counter/init 3]]
+              [:dispatch-sync [:counter/seed]]]
+             (get-in p [:world :setup]))))))
 
 (deftest play-script-normalizes-to-script
   (testing "shipping :play-script lowers to :script (bare vectors lift to :dispatch)"
