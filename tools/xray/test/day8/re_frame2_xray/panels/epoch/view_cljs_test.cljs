@@ -1828,6 +1828,49 @@
             (is (nil? chip)
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
+(deftest active-sub-row-mounts-coord-chip-when-meta-resolves-test
+  (testing "rf2-aesni — the ACTIVE SUBSCRIPTIONS row's sub-name cell
+            routes through `coord-chip/coord-chip` to surface a
+            functional click-to-source affordance for the reg-sub
+            (parity with the disposed-subs + views rows). Pre-fix the
+            active cell rendered a bare decorative `(icons/external-
+            link)` glyph with no coord resolution + no click handler —
+            it never dispatched `:rf.xray/open-in-editor`.
+
+            The chip's <button> mounts when `(rf/handler-meta :sub
+            sub-id)` resolves a `:file` coord. CLJS macro-form `reg-sub`
+            captures `:file`/`:line` at the test call-site so the
+            integration round-trip is testable here."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/reg-sub :rf.aesni-fixture/items
+        (fn [db _] (get db :items [])))
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta :sub :rf.aesni-fixture/items)
+                                            :file string?))
+            ;; A parameterized sub-vec drives the LABEL but the coord
+            ;; lookup must still key off `sub-id` (the registration
+            ;; keyword) — that is the rf2-aesni invariant.
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :rf.aesni-fixture/items
+                          :sub-vec [:rf.aesni-fixture/items 5]
+                          :inputs nil :changed? true :before 1 :after 2}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-sub-row-0"))
+            "the active sub row itself renders")
+        (let [chip (th/find-by-testid tree "rf-xray-epoch-sub-row-coord-0")]
+          (if meta-resolved?
+            (do
+              (is (some? chip)
+                  "coord chip mounts when reg-sub captured a source coord")
+              (is (= :button (first chip))
+                  "chip mounts as a clickable <button> (not a dead glyph)")
+              (is (fn? (:on-click (second chip)))
+                  "chip carries an on-click handler that dispatches open-in-editor"))
+            (is (nil? chip)
+                "coord chip drops out cleanly when no coord is resolvable")))))))
+
 ;; ---- rf2-zuh3p — SUBSCRIPTIONS per-row violations attach inline ----------
 
 (deftest subscriptions-row-violations-attach-inline-test

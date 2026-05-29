@@ -1794,6 +1794,15 @@ into a single canonical home at
   overlay (rf2-xjgdk audit F4 hoist).
 - **Accessibility.** Native `<button>` (Enter / Space activate),
   `aria-label "open in editor"`, inline SVG `aria-hidden`.
+- **SUBSCRIPTIONS call-sites (rf2-aesni).** The active SUBSCRIPTIONS
+  table's sub-name cell mounts `coord-chip` (testid
+  `rf-xray-epoch-sub-row-coord-<i>`), exact parity with the
+  disposed-subs (`…-sub-disposed-row-coord-<i>`) + UNMOUNTED VIEWS
+  rows. The coord lookup keys off the row's `sub-id` keyword even
+  when a parameterized `sub-vec` (`[:counter/greater-than? 5]`)
+  drives the displayed label, so the chip resolves the sub's
+  REGISTRATION coord. Pre-fix this cell rendered a bare decorative
+  `external-link` glyph with no coord resolution + no click handler.
 
 **`coord-chip` vs `open_in_editor/open-chip`** — two surfaces co-
 exist by design. `coord-chip` (the dispatch-based button used inside
