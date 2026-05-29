@@ -585,7 +585,11 @@
   `collapsed?` is the current state; click flips it via the
   `:set-chart-collapsed` event with mode `:toggle`."
   [{:keys [machine-id collapsed?]}]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture so the deferred toggle click
+  ;; dispatches into the surrounding instance frame, not a `:rf/xray`
+  ;; literal. Rendered inside the machine-inspector Panel reg-view.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid (str "rf-xray-machine-chart-toggle-"
                       (machine-id-suffix machine-id))
     :data-machine-id (str machine-id)
@@ -598,7 +602,7 @@
                 (rf/dispatch
                   [:rf.xray.machine-canvas/set-chart-collapsed
                    {:machine-id machine-id :mode :toggle}]
-                  {:frame :rf/xray}))
+                  {:frame frame}))
     :style {:background "transparent"
             :border "none"
             :color (:text-secondary tokens)
@@ -613,7 +617,7 @@
             :gap "6px"}}
    [:span {:style {:font-size "10px"}}
     (if collapsed? "▸" "▾")]
-   [:span "Chart"]])
+   [:span "Chart"]]))
 
 (defn- chart-collapsed-summary
   "One-line summary that replaces the expanded chart when the operator
@@ -674,7 +678,10 @@
   ;; is GONE. xyflow + elkjs now own positioning end-to-end inside
   ;; `mv-chart/MachineChart`; the panel only computes the from/to
   ;; node-ids for the focused-event lens highlight.
-  (let [from-id    (when from-state (chart-layout/highlight-id from-state))
+  (let [;; rf2-nesy9 — render-time frame capture for the deferred
+        ;; right-click filter dispatch.
+        frame      (rf/current-frame)
+        from-id    (when from-state (chart-layout/highlight-id from-state))
         to-id      (when to-state   (chart-layout/highlight-id to-state))
         engine     "xyflow+elkjs"
         collapsed? @(rf/subscribe
@@ -713,7 +720,7 @@
                                     (.preventDefault e)
                                     (rf/dispatch
                                       [:rf.xray/filter-by-machine machine-id]
-                                      {:frame :rf/xray})))
+                                      {:frame frame})))
                :title "Right-click to filter the event list to this machine"
                ;; OUTER header — ribbon background + slightly larger
                ;; font than nested headers (issue #7 differential).
@@ -852,7 +859,7 @@
                                          [:rf.xray/machine-state-clicked
                                           {:machine-id machine-id
                                            :path       path}]
-                                         {:frame :rf/xray}))
+                                         {:frame frame}))
                  :show-after-rings?  true}]])])))
      ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — snapshot drill-in. Each
      ;; per-machine section renders the BEFORE / AFTER snapshot maps
@@ -881,7 +888,9 @@
   the epoch history to the prior / next epoch that ALSO touched the
   focused machine. Disabled when no machine is in scope."
   [machine-id]
-  (when machine-id
+  ;; rf2-nesy9 — render-time frame capture for the deferred nav clicks.
+  (let [frame (rf/current-frame)]
+   (when machine-id
     [:div {:data-testid "rf-xray-machine-inspector-prev-next-nav"
            :data-machine-id (str machine-id)
            :style {:display "flex"
@@ -892,7 +901,7 @@
       {:data-testid "rf-xray-machine-inspector-prev"
        :on-click    (fn [_]
                       (rf/dispatch [:rf.xray/machine-focus-prev]
-                                   {:frame :rf/xray}))
+                                   {:frame frame}))
        :title       (str "Previous event touching " (h/format-machine-id machine-id))
        :style       {:background "transparent"
                      :border (str "1px solid " (:border-default tokens))
@@ -907,7 +916,7 @@
       {:data-testid "rf-xray-machine-inspector-next"
        :on-click    (fn [_]
                       (rf/dispatch [:rf.xray/machine-focus-next]
-                                   {:frame :rf/xray}))
+                                   {:frame frame}))
        :title       (str "Next event touching " (h/format-machine-id machine-id))
        :style       {:background "transparent"
                      :border (str "1px solid " (:border-default tokens))
@@ -917,7 +926,7 @@
                      :padding "3px 10px"
                      :border-radius "10px"
                      :cursor "pointer"}}
-      "Next ▶"]]))
+      "Next ▶"]])))
 
 ;; ---- focused-event view + blank state ----------------------------------
 
@@ -1012,10 +1021,12 @@
 (defn- share-button
   "Top-right Share button in the panel toolbar."
   []
-  [:button
+  ;; rf2-nesy9 — render-time frame capture for the deferred share click.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid "rf-xray-machine-inspector-share-button"
     :on-click    (fn [_]
-                   (rf/dispatch [:rf.xray/share-modal-open] {:frame :rf/xray}))
+                   (rf/dispatch [:rf.xray/share-modal-open] {:frame frame}))
     :title       "Share this view (URL with focus + mode + scrubber)"
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-default tokens))
@@ -1027,7 +1038,7 @@
                   :border-radius "10px"
                   :cursor "pointer"
                   :white-space "nowrap"}}
-   "⤴ Share"])
+   "⤴ Share"]))
 
 ;; ---- public view --------------------------------------------------------
 

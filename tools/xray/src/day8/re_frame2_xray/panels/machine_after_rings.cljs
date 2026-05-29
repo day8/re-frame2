@@ -81,6 +81,7 @@
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as mv-after-rings]
@@ -188,12 +189,16 @@
 ;; can tune up if many-timer scenarios show jank.
 
 (defonce ^:private tick-state
-  ;; `{:running? bool :last-now-ms long}`
+  ;; `{:running? bool :last-now-ms long :frame <frame-id>}`
   ;;   :running? — true while a rAF is queued and undrained.
   ;;   :last-now-ms — last bumped value; the next tick can skip-frame
   ;;     if (- now last) < *tick-min-delta-ms*.
+  ;;   :frame — rf2-nesy9: the surrounding instance frame captured by
+  ;;     the overlay reg-view at `kick-tick!` time, so the off-render
+  ;;     rAF tick dispatch lands on it (defaults to default-frame-id).
   (atom {:running?    false
-         :last-now-ms 0}))
+         :last-now-ms 0
+         :frame       defaults/default-frame-id}))
 
 (def ^:dynamic *tick-min-delta-ms*
   "Minimum gap (ms) between consecutive `:rf.xray/timer-tick`
@@ -235,7 +240,12 @@
           due?     (or (zero? *tick-min-delta-ms*)
                        (>= (- now last-now) *tick-min-delta-ms*))]
       (when due?
-        (rf/dispatch [:rf.xray/timer-tick now] {:frame :rf/xray})
+        ;; rf2-nesy9 — the rAF tick loop runs outside the render scope;
+        ;; dispatch into the frame captured at `kick-tick!` (the
+        ;; surrounding instance frame at the time the overlay armed the
+        ;; clock), not a `{:frame :rf/xray}` literal.
+        (rf/dispatch [:rf.xray/timer-tick now]
+                     {:frame (:frame @tick-state)})
         (swap! tick-state assoc :last-now-ms now))
       (if (rings-h/needs-ticking? timers scrub)
         (raf! tick-loop!)
@@ -248,13 +258,21 @@
 (defn kick-tick!
   "Start the rAF tick loop iff not already running. Idempotent —
   callers (the rings overlay component, mounted per render) call this
-  on every render; the `:running?` sentinel prevents duplicate loops."
-  []
-  (when (compare-and-set!
-          tick-state
-          (assoc @tick-state :running? false)
-          (assoc @tick-state :running? true))
-    (raf! tick-loop!)))
+  on every render; the `:running?` sentinel prevents duplicate loops.
+
+  `frame` (rf2-nesy9) is the surrounding instance frame the overlay
+  reg-view captured at render; stashed so the off-render tick dispatch
+  lands on it. Defaults to `defaults/default-frame-id` for the test
+  seam / direct callers."
+  ([] (kick-tick! defaults/default-frame-id))
+  ([frame]
+   ;; Record the captured frame before arming so `tick-loop!` reads it.
+   (swap! tick-state assoc :frame frame)
+   (when (compare-and-set!
+           tick-state
+           (assoc @tick-state :running? false)
+           (assoc @tick-state :running? true))
+     (raf! tick-loop!))))
 
 (defn stop-tick!
   "Force-stop the rAF tick loop. Tests use this to reset between
@@ -279,14 +297,16 @@
   "Wire a ring's hover into the Xray timer-hover slot. The overlay
   passes the bearing node-id back; we re-resolve the timer identity
   from the live spec list so the slot carries the full
-  `(machine-id, state, epoch)` tuple a follow-on rich tooltip wants."
-  [specs node-id]
+  `(machine-id, state, epoch)` tuple a follow-on rich tooltip wants.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `AfterRingsOverlay` reg-view body."
+  [dispatch specs node-id]
   (when-let [spec (some (fn [s] (when (= node-id (:node-id s)) s)) specs)]
-    (rf/dispatch [:rf.xray/timer-hover
-                  {:machine-id (:machine-id spec)
-                   :state      (:state spec)
-                   :epoch      (:epoch spec)}]
-                 {:frame :rf/xray})))
+    (dispatch [:rf.xray/timer-hover
+               {:machine-id (:machine-id spec)
+                :state      (:state spec)
+                :epoch      (:epoch spec)}])))
 
 (rf/reg-view AfterRingsOverlay
   "Mounts the focused machine's `:after` countdown rings over the
@@ -334,6 +354,11 @@
   (let [timers @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
         now    @(rf/subscribe [:rf.xray/now-ms])
         scrub  @(rf/subscribe [:rf.xray/machine-scrubber-position])
+        ;; rf2-nesy9 — capture the surrounding instance frame so the
+        ;; off-render rAF clock + the hover/leave callbacks dispatch
+        ;; into it (not a `:rf/xray` literal). `frame` arms the rAF loop
+        ;; via kick-tick!; `dispatch` is the reg-view-injected dispatcher.
+        frame  (rf/current-frame)
         ;; Kick the rAF loop iff ticking is needed (live mode + at
         ;; least one armed timer). Cheap to call per render — the
         ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
@@ -341,7 +366,7 @@
         ;; O(rings × charts)); the machines-viz overlay runs no clock
         ;; of its own — it just re-measures the DOM when `:tick` bumps.
         _      (when (rings-h/needs-ticking? timers scrub)
-                 (kick-tick!))
+                 (kick-tick! frame))
         specs  (rings-h/timers->ring-specs
                  timers chart-layout/highlight-id now)]
     (when (seq specs)
@@ -355,10 +380,9 @@
          ;; cadence, driven by THIS ns's clock, not the overlay's).
          :tick       now
          :testid     "rf-xray-machine-inspector-after-rings-overlay"
-         :on-hover   (fn [node-id] (timer-hovered! specs node-id))
+         :on-hover   (fn [node-id] (timer-hovered! dispatch specs node-id))
          :on-leave   (fn [_node-id]
-                       (rf/dispatch [:rf.xray/timer-hover nil]
-                                    {:frame :rf/xray}))}]])))
+                       (dispatch [:rf.xray/timer-hover nil]))}]])))
 
 ;; ---- public install entry -----------------------------------------------
 
