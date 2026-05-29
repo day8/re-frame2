@@ -604,18 +604,28 @@
           nil))))
 
 (defn- plan-construction-error?
-  "True iff `e` is a plan-construction failure — an `ex-info` whose
-  ex-data carries a `:rf.error/id` (the marker `re-frame.story.plan/fail!`
-  stamps on every `:rf.error/story-*` failure). rf2-5x1wt.22 (§B8): the
-  runtime compiles the plan in `prepare-context`, BEFORE the frame is
+  "True iff `e` is a plan-construction failure — an `ex-info` `re-frame.
+  story.plan/fail!` threw. `fail!` stamps `:where 'rf.story/variant-plan`
+  on every `:rf.error/story-*` failure, so that marker (NOT the bare
+  presence of `:rf.error/id`) is the discriminator. rf2-5x1wt.22 (§B8):
+  the runtime compiles the plan in `prepare-context`, BEFORE the frame is
   allocated, so a malformed variant (a missing `[:arg …]`, an `[:assert …]`
   in `:setup`, a `:compose` of an unknown fragment, …) throws here. Such
   an error cannot be recorded onto a frame (none exists yet), so it is
   projected directly into a structured error result (`plan-error-result`)
   rather than routed through `handle-run-error!` (which assumes an
-  allocated frame)."
+  allocated frame).
+
+  Matching on `:where` (not on any `:rf.error/id`) is load-bearing:
+  framework runtime errors thrown LATER in the phase chain also carry an
+  `:rf.error/id` — e.g. `:rf.error/no-adapter-installed` from
+  `reg-frame` → `make-state-container` when the host installed no
+  adapter (the JVM-standalone story-mcp server). Those land after the
+  frame exists at `:pre-mount`, so they must take the frame-bound
+  record/transition branch, NOT `plan-error-result` (rf2-5x1wt.22
+  follow-through)."
   [e]
-  (boolean (:rf.error/id (ex-data e))))
+  (= 'rf.story/variant-plan (:where (ex-data e))))
 
 (defn- exception-message [e]
   #?(:clj  (.getMessage ^Throwable e)
