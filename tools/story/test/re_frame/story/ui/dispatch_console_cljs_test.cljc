@@ -45,7 +45,7 @@
        (try (.clear (.-localStorage js/window)) (catch :default _ nil)))))
 
 #?(:cljs
-   (use-fixtures :each {:before reset-all!}))
+   (use-fixtures :each (fn [t] (reset-all!) (t))))
 
 ;; ---- pure: parse-payload -------------------------------------------------
 

@@ -31,7 +31,7 @@
   (state/reset-shell-state!)
   (story/install-canonical-vocabulary!))
 
-(use-fixtures :each {:before reset-all!})
+(use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ---- pure: state transitions --------------------------------------------
 
@@ -362,6 +362,6 @@
                       (state/record-test-run :story.x/d fail))
              summary (state/test-summary s
                        [:story.x/a :story.x/b :story.x/c :story.x/d :story.x/e])]
-         (is (= {:total 5 :passed 3 :failed 1 :running 0 :pending 1
-                 :all-green? false}
+         (is (= {:total 5 :passed 3 :failed 1 :cannot-run 0 :running 0
+                 :pending 1 :all-green? false}
                 summary))))))

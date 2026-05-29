@@ -28,7 +28,7 @@
      (story/install-canonical-vocabulary!)))
 
 #?(:cljs
-   (use-fixtures :each {:before reset-all!}))
+   (use-fixtures :each (fn [t] (reset-all!) (t))))
 
 ;; ---- pure-ish: select! mutations ----------------------------------------
 
