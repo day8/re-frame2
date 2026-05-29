@@ -34,7 +34,10 @@
   "Top-of-list search input. Incremental filtering — every keystroke
   dispatches `:rf.xray.static.machines/set-search`. Esc clears."
   []
-  (let [query @(rf/subscribe [:rf.xray.static.machines/search])]
+  ;; rf2-nesy9 — render-time frame capture (rendered inside the browse
+  ;; list reg-view), not a `:rf/xray` literal.
+  (let [frame (rf/current-frame)
+        query @(rf/subscribe [:rf.xray.static.machines/search])]
     [:div {:data-testid "rf-xray-static-machines-search"
            :style {:padding "8px 10px"
                    :border-bottom (str "1px solid " (:border-subtle tokens))
@@ -48,12 +51,12 @@
                              (rf/dispatch
                                [:rf.xray.static.machines/set-search
                                 (.. e -target -value)]
-                               {:frame :rf/xray}))
+                               {:frame frame}))
               :on-key-down (fn [^js e]
                              (when (= "Escape" (.-key e))
                                (rf/dispatch
                                  [:rf.xray.static.machines/clear-search]
-                                 {:frame :rf/xray})))
+                                 {:frame frame})))
               :style {:width        "100%"
                       :background   (:bg-2 tokens)
                       :border       (str "1px solid " (:border-default tokens))
@@ -71,13 +74,14 @@
   Name…`. The label shows the current axis so the affordance is self-
   describing."
   []
-  (let [k     @(rf/subscribe [:rf.xray.static.machines/sort-key])
+  (let [frame (rf/current-frame)
+        k     @(rf/subscribe [:rf.xray.static.machines/sort-key])
         label (get h/sort-key-labels k "Name")]
     [:button
      {:data-testid "rf-xray-static-machines-sort"
       :on-click    (fn [_]
                      (rf/dispatch [:rf.xray.static.machines/cycle-sort]
-                                  {:frame :rf/xray}))
+                                  {:frame frame}))
       :title       (str "Sort: " label " (click to cycle)")
       :aria-label  (str "Sort by " label ". Click to cycle through "
                        "Name, States, Live.")
@@ -160,12 +164,15 @@
   tab with this machine selected — same handler the right-pane
   Instances pill uses (centralised in `instances_jump`)."
   [machine-id]
-  [:button
+  ;; rf2-nesy9 — render-time frame capture so the JUMP lands on the
+  ;; surrounding instance frame.
+  (let [frame (rf/current-frame)]
+   [:button
    {:data-testid (str "rf-xray-static-machines-row-jump-"
                       (when (keyword? machine-id) (name machine-id)))
     :on-click    (fn [^js e]
                    (.stopPropagation e)
-                   (jump/dispatch-jump! machine-id))
+                   (jump/dispatch-jump! machine-id frame))
     :title       "Open in Dynamic Machines tab"
     :aria-label  (str "Open " machine-id " in Dynamic Machines tab")
     :style {:background    "transparent"
@@ -178,14 +185,15 @@
             :padding       "1px 8px"
             :margin-left   "6px"
             :white-space   "nowrap"}}
-   "→ Dynamic"])
+   "→ Dynamic"]))
 
 ;; ---- one row ------------------------------------------------------------
 
 (defn- row
   "Render one browse-list row."
   [{:keys [machine-id state-count live-count source-coord] :as r} active?]
-  (let [glyph (if active? "◉" "○")]
+  (let [frame (rf/current-frame)
+        glyph (if active? "◉" "○")]
     [:button
      {:data-testid    (str "rf-xray-static-machines-row-"
                            (when (keyword? machine-id) (name machine-id)))
@@ -196,7 +204,7 @@
       :on-click       (fn [_]
                         (rf/dispatch
                           [:rf.xray.static.machines/select machine-id]
-                          {:frame :rf/xray}))
+                          {:frame frame}))
       :title          (str machine-id)
       :style {:display       "flex"
               :align-items   "center"

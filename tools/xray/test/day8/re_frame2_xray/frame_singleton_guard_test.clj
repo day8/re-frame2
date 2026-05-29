@@ -93,16 +93,7 @@
   per-instance render affordances — but they still carry the literal,
   so they ride the allowlist until the sweep gives them the
   `defaults/default-frame-id` treatment for consistency."
-  #{"panels/epoch/view.cljs"
-    "static/machines/browse_list.cljs"
-    "static/machines/definition_detail.cljs"
-    "static/machines/instances_jump.cljs"
-    "static/machines/persistence.cljs"
-    "static/machines/sim.cljs"
-    "static/machines/topology.cljs"
-    "static/routes/browse_list.cljs"
-    "static/routes/row_expand.cljs"
-    "static/routes/simulate_url.cljs"})
+  #{"panels/epoch/view.cljs"})
 
 ;; ---- file walk ----------------------------------------------------------
 
