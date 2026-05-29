@@ -334,6 +334,7 @@ Required P1 shape:
  :seed optional
  :event-program [...]
  :fx-decisions [...]
+ :network {[method url] {:reply …}}  ; optional — per-route HTTP stubs, re-installed on replay
  :epoch-tape [...]
  :trace [...]
  :result run-result
@@ -2100,11 +2101,21 @@ hashes the whole `:world` slot. A semantic change to any per-route reply
 (success payload, failure `:kind`, status) therefore perturbs the
 `:plan-hash`; a `canonicalize`-volatile change does not.
 
-> **Deferred — run-artifact wiring.** The per-route reply data is
-> preserved in `explain`, `:plan-hash`, and (through `[:world :network]`)
-> the narrative evidence. Threading it into the low-level run artifact
-> awaits the run-artifact namespace (rf2-5x1wt.7); this section is
-> updated to wire it in once that lands.
+**Run-artifact wiring (rf2-tymyh).** The per-route reply data is
+preserved in `explain`, `:plan-hash`, (through `[:world :network]`) the
+narrative evidence, AND the low-level run artifact. When a plan is
+coerced to a `:rf.test/run-artifact` (the determinism gate / golden
+capture's `re-frame.story.determinism/->artifact`), its
+`[:world :network]` route map is carried onto the artifact's `:network`
+slot alongside the `[:world :frame :fx-overrides]` redirect on
+`:fx-decisions`. `replay-run-artifact` then **re-installs** those route
+stubs (`re-frame.core/install-managed-request-stubs!`, the same seam a
+live run uses) around the replay, so a replayed `:network` request
+matches its route and synthesises the recorded reply rather than
+fail-closing on "no stub matched". Carrying only the `:fx-decisions`
+redirect would point the replay at a stub fx registered with NO routes,
+so every replayed request would fail-closed — the `:network` artifact
+slot is what makes the round-trip succeed (§Run artifact and replay).
 
 ## Unit and integration testing adjustments
 
@@ -2442,6 +2453,7 @@ A run artifact is a map carrying:
  :seed          optional
  :event-program [step …]               ; the dispatch program (setup ⧺ script)
  :fx-decisions  {fx-id override}       ; the fx overrides reapplied on replay
+ :network       {[method url] {:reply …}} ; per-route HTTP stubs re-installed on replay
  :epoch-tape    [epoch-record …]       ; the captured tape, when retained
  :trace         [trace-event …]        ; optional flat trace
  :result        run-result             ; the projected run-result (§Run result)
@@ -2463,6 +2475,15 @@ A run artifact is a map carrying:
   per-frame frame-config `:fx-overrides` slot carry (Spec 002
   §`:fx-overrides`). Replay REAPPLIES them, so a run that stubbed an HTTP
   effect replays against the same stub rather than firing the live effect.
+- `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`,
+  §The network surface) captured from the plan's `[:world :network]` slot
+  when the artifact was materialized (rf2-tymyh). The `:network` world slot
+  lowers to a `:fx-decisions` redirect (`{:rf.http/managed
+  :rf.http/managed-test-stub}`) — but that redirect targets a stub fx that
+  is only registered WITH the routes by
+  `install-managed-request-stubs!`. So `:fx-decisions` alone is not enough:
+  replay carries `:network` to RE-INSTALL the route stubs (below), without
+  which a replayed `:network` request would fail-closed.
 
 `re-frame.story.artifact/make-run-artifact` is the **pure** constructor
 (data → data, JVM-runnable): it coerces the `:event-program`, folds
@@ -2494,6 +2515,17 @@ Replay MUST:
   for `dispatch-sync` directly; the boundary's `:cannot-run` / `:error`
   refusals fire unchanged, so a step that needs a richer boundary than the
   replay runner provides refuses rather than under-flushing.
+- **Re-install the `:network` route stubs** (when the artifact carries a
+  non-empty `:network` map) — replay calls
+  `re-frame.core/install-managed-request-stubs!` with the route map for the
+  duration of the replay (then uninstalls in a `finally`), the SAME seam a
+  live `:network` run uses. This registers `:rf.http/managed-test-stub`
+  WITH the routes, so the `:fx-decisions` redirect resolves to a stub that
+  matches each request and synthesises the recorded reply. Without this a
+  replayed `:network` request would fail-closed on "no stub matched"
+  (rf2-tymyh). The install routes through `re-frame.http-test-support`
+  (Spec 014 §Testing) and raises `:rf.error/http-artefact-missing` if that
+  namespace is absent — the same opt-in a live `:network` run requires.
 - **Capture a NEW epoch tape** — read from `re-frame.core/epoch-history`
   after the program settles, NOT the artifact's captured tape. The replay
   proves what the program does NOW.

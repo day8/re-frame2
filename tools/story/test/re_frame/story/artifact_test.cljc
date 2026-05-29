@@ -17,10 +17,14 @@
             [re-frame.core   :as rf]
             [re-frame.epoch  :as epoch]
             [re-frame.frame  :as frame]
+            [re-frame.http-managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
+            [re-frame.http-test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.artifact :as artifact]
+            [re-frame.story.determinism :as determinism]
             [re-frame.story.fingerprint :as fingerprint]
+            [re-frame.story.plan :as plan]
             [re-frame.story.play.settled-boundary :as boundary]))
 
 ;; ===========================================================================
@@ -300,3 +304,103 @@
       (is (= :rep/caller-frame (:frame res)))
       (is (contains? @frame/frames :rep/caller-frame)
           "the caller-supplied frame is NOT destroyed"))))
+
+;; ===========================================================================
+;; :network route stubs survive replay (rf2-tymyh)
+;; ===========================================================================
+;;
+;; The `:network` world slot (spec/017 §The network surface) lowers to a
+;; `:fx-decisions` redirect (`{:rf.http/managed :rf.http/managed-test-stub}`)
+;; PLUS the per-route reply map at `[:world :network]`. Before rf2-tymyh the
+;; run artifact captured ONLY the redirect (via `:fx-decisions`), so a
+;; replayed `:network` variant reapplied the redirect to a stub fx that was
+;; never registered with the routes — every request fail-closed on "no stub
+;; matched" (http_test_support.cljc `stub-handler`'s :else branch), silently
+;; diverging from the original run. The fix threads `[:world :network]` into
+;; the artifact's `:network` slot (`determinism/->artifact`) and re-installs
+;; those route stubs around the replay (`artifact/with-network-stubs!`), so a
+;; replayed request matches its route and synthesises the recorded reply.
+;;
+;; FAIL-PRE / PASS-POST: drop the `:network` capture or the re-install and
+;; `:got` becomes the synthesised "no stub matched" transport failure instead
+;; of the recorded `:ok` / `:failure` reply.
+
+(defn- register-network-event!
+  "Register a test event that issues a managed-HTTP request to `route`
+  ([method url]) and records the reply (success value or failure) into
+  app-db under `:got`. The reply rides back to this same origin event as
+  `:rf/reply` (Spec 014 §Reply addressing), so a re-installed stub's
+  synthesised reply is observable in the replay's final app-db."
+  [event-id [method url]]
+  (rf/reg-event-fx event-id
+    (fn [{:keys [db]} [_ msg]]
+      (if-let [reply (:rf/reply msg)]
+        {:db (assoc db :got reply)}
+        {:fx [[:rf.http/managed {:request {:method method :url url}
+                                 :decode  :json}]]}))))
+
+(defn- network-artifact
+  "Compile a `:network` variant plan for `routes`, coerce it through the
+  determinism gate's `->artifact` (the materialize-to-artifact seam), and
+  return the run artifact. `script` is the dispatch program."
+  [routes script]
+  (let [variant-id :story.net/v
+        plan       (plan/variant-plan
+                     variant-id
+                     {:lookup {variant-id {:network routes
+                                           :script  script}}})]
+    (determinism/->artifact plan)))
+
+(deftest network-artifact-captures-routes-and-redirect
+  (testing "->artifact threads [:world :network] into the artifact :network
+            slot AND [:world :frame :fx-overrides] into :fx-decisions"
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items []}}}}
+          art    (network-artifact routes [[:dispatch [:net/get-cart]]])]
+      (is (= routes (:network art))
+          "the per-route reply map is carried on the artifact (rf2-tymyh)")
+      (is (= {:rf.http/managed :rf.http/managed-test-stub} (:fx-decisions art))
+          "the managed-stub redirect rides :fx-decisions as before"))))
+
+(deftest replay-reinstalls-network-success-route
+  (testing "a replayed :network variant has its SUCCESS request matched by the
+            re-installed route stub — not fail-closed (rf2-tymyh)"
+    (register-network-event! :net/get-cart [:get "/api/cart"])
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          art    (network-artifact routes [[:dispatch [:net/get-cart]]])
+          res    (artifact/replay-run-artifact art)
+          got    (:got (:app-db res))]
+      (is (= :pass (:status res)))
+      (is (= :success (:kind got))
+          "the re-installed route stub matched — NOT the 'no stub matched'
+           transport failure that fail-closes pre-fix")
+      (is (= {:items [{:sku "A"}]} (:value got))
+          "the synthesised reply carries the recorded route payload"))))
+
+(deftest replay-reinstalls-network-failure-route
+  (testing "a replayed :network variant has its FAILURE request matched by the
+            re-installed route stub — the recorded failure :kind, not a
+            'no stub matched' fail-closed transport failure (rf2-tymyh)"
+    (register-network-event! :net/checkout [:post "/api/checkout"])
+    (let [routes {[:post "/api/checkout"]
+                  {:reply {:failure {:kind :rf.http/http-4xx :status 409}}}}
+          art    (network-artifact routes [[:dispatch [:net/checkout]]])
+          res    (artifact/replay-run-artifact art)
+          got    (:got (:app-db res))]
+      (is (= :failure (:kind got))
+          "the re-installed route stub synthesised the recorded failure")
+      (is (= :rf.http/http-4xx (get-in got [:failure :kind]))
+          "the recorded failure :kind survived — NOT :rf.http/transport
+           ('no stub matched'), which is what fail-closes pre-fix")
+      (is (= 409 (get-in got [:failure :status]))
+          "the recorded failure tags survived the round-trip"))))
+
+(deftest replay-without-network-leaves-stub-surface-untouched
+  (testing "an artifact WITHOUT :network installs no stubs — with-network-stubs!
+            runs the thunk unchanged so a plain replay never touches the
+            test-support surface (rf2-tymyh)"
+    (rf/reg-event-db :net/noop (fn [db _] (assoc db :ran true)))
+    (let [art (artifact/make-run-artifact {:event-program [[:dispatch [:net/noop]]]})
+          res (artifact/replay-run-artifact art)]
+      (is (= :pass (:status res)))
+      (is (true? (:ran (:app-db res))))
+      (is (nil? (:network art)) "no :network slot on a non-HTTP artifact"))))

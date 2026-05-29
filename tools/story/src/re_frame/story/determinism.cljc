@@ -73,15 +73,21 @@
     `:event-program` + `:fx-decisions`);
   - a normalized variant plan (a map with `:world` / `:script`) — its
     `[:world :setup]` ⧺ `:script` fold into the artifact `:event-program`
-    (the same setup-first fold `make-run-artifact` applies) and its
-    `[:world :frame :fx-overrides]` become the artifact `:fx-decisions`;
+    (the same setup-first fold `make-run-artifact` applies), its
+    `[:world :frame :fx-overrides]` become the artifact `:fx-decisions`,
+    and its `[:world :network]` per-route reply map becomes the artifact
+    `:network` slot (so replay re-installs the managed-request stubs the
+    `:fx-decisions` redirect points at — rf2-tymyh, spec/017 §The network
+    surface). Without the `:network` route map a replayed `:network`
+    variant would fail-closed on every request (the redirect survives but
+    the route stubs do not);
   - any other map carrying `:setup` / `:script` / `:event-program` — folded
     by `make-run-artifact` directly.
 
-  Reading the plan's `[:world :setup]` / `:script` is the only contact this
-  ns has with the plan compiler (`re-frame.story.plan`); it WRITES nothing
-  there. An already-built artifact short-circuits so a recorder's captured
-  program replays verbatim."
+  Reading the plan's `[:world :setup]` / `:script` / `:network` is the only
+  contact this ns has with the plan compiler (`re-frame.story.plan`); it
+  WRITES nothing there. An already-built artifact short-circuits so a
+  recorder's captured program replays verbatim."
   [target]
   (cond
     (artifact/run-artifact? target)
@@ -89,13 +95,17 @@
 
     ;; A normalized variant plan: setup lives under [:world :setup], the
     ;; primary script under :script, fx decisions under [:world :frame
-    ;; :fx-overrides]. Fold setup ⧺ script into the event program.
+    ;; :fx-overrides], the per-route HTTP reply map under [:world :network].
+    ;; Fold setup ⧺ script into the event program; carry the network routes
+    ;; so replay re-installs the managed-request stubs.
     (and (map? target) (contains? target :world))
     (artifact/make-run-artifact
-      {:setup        (get-in target [:world :setup] [])
-       :script       (get target :script [])
-       :fx-decisions (get-in target [:world :frame :fx-overrides] {})
-       :source       {:tool :determinism-gate :variant/id (:variant/id target)}})
+      (cond-> {:setup        (get-in target [:world :setup] [])
+               :script       (get target :script [])
+               :fx-decisions (get-in target [:world :frame :fx-overrides] {})
+               :source       {:tool :determinism-gate :variant/id (:variant/id target)}}
+        (seq (get-in target [:world :network]))
+        (assoc :network (get-in target [:world :network]))))
 
     :else
     (artifact/make-run-artifact target)))
