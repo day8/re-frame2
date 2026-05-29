@@ -81,7 +81,8 @@
   `diff-trace-ops`, `diff-sub-runs`) and the assembler (`diff-runs`) are pure
   data → data: two run-results in, a readable diff out. `diff-run-artifacts`
   is the thin replay-then-`diff-runs` wrapper for the artifact inputs."
-  (:require [re-frame.story.artifact      :as artifact]
+  (:require [clojure.set                  :as set]
+            [re-frame.story.artifact      :as artifact]
             [re-frame.story.fingerprint   :as fingerprint]
             [re-frame.story.play.evidence :as evidence]))
 
@@ -297,6 +298,185 @@
       {:baseline a :current b})))
 
 ;; ===========================================================================
+;; WARNINGS DELTA  (multiset of warning records)
+;; ===========================================================================
+;;
+;; `:warnings` is the tape's projected `:op-type :warning` rows
+;; (`re-frame.story.play.evidence/warnings`) — one record per emitted
+;; warning, in tape order. A semantic difference is a warning one run raised
+;; and the other did not, so the delta is the same MULTISET shape as effects
+;; / sub-runs (a warning raised twice on one side and once on the other IS a
+;; difference). Both sides are noise-stripped, so equal records compare `=`.
+
+(defn diff-warnings
+  "Multiset delta over the two runs' projected `:warnings` rows (spec/017
+  §Semantic diff). Pure data → data; `nil` when the warning multisets match,
+  else `{:only-baseline […] :only-current […]}` — the warning records one
+  run raised and the other did not."
+  [baseline current]
+  (multiset-delta (:warnings baseline) (:warnings current)))
+
+;; ===========================================================================
+;; VERDICT DELTA  (assertions / checks — keyed by stable identity)
+;; ===========================================================================
+;;
+;; Assertions and checks are ordered vectors of verdict-bearing records whose
+;; IDENTITY is a stable selector (an assertion is `[:assertion :payload]`; a
+;; check is its `:check` id), not the whole record (whose `:reason` /
+;; `:expected` / `:actual` are diagnostic detail). The semantic difference is
+;; a record one run produced and the other did not, OR a record whose VERDICT
+;; (`:status`) flipped between the runs. So the delta is keyed by selector and
+;; carries three buckets: `:added` / `:removed` selectors, and `:changed`
+;; verdict flips. This mirrors the `diff-app-db` added/removed/changed shape
+;; rather than inventing a new diff vocabulary.
+
+(defn- verdict-delta
+  "Verdict delta between two selector→status maps. Pure data → data. Returns
+  `nil` when the maps are `=`, else a `cond->`-built map carrying ONLY the
+  non-empty buckets:
+
+      {:added   [{:selector … :current  status} …]   ; in current, not baseline
+       :removed [{:selector … :baseline status} …]   ; in baseline, not current
+       :changed [{:selector … :baseline a :current b} …]}  ; verdict flipped
+
+  Selectors are ordered by `pr-str` (a total, type-safe order over
+  heterogeneous selectors — a selector may mix keyword / vector / number, so
+  raw `sort` could throw)."
+  [baseline-by-sel current-by-sel]
+  (when (not= baseline-by-sel current-by-sel)
+    (let [base-sels (set (keys baseline-by-sel))
+          cur-sels  (set (keys current-by-sel))
+          added     (sort-by pr-str (remove base-sels cur-sels))
+          removed   (sort-by pr-str (remove cur-sels base-sels))
+          changed   (sort-by pr-str
+                             (filter (fn [s]
+                                       (and (contains? baseline-by-sel s)
+                                            (not= (baseline-by-sel s)
+                                                  (current-by-sel s))))
+                                     cur-sels))]
+      (cond-> {}
+        (seq added)   (assoc :added
+                             (mapv (fn [s] {:selector s
+                                            :current  (current-by-sel s)}) added))
+        (seq removed) (assoc :removed
+                             (mapv (fn [s] {:selector s
+                                            :baseline (baseline-by-sel s)}) removed))
+        (seq changed) (assoc :changed
+                             (mapv (fn [s] {:selector s
+                                            :baseline (baseline-by-sel s)
+                                            :current  (current-by-sel s)})
+                                   changed))))))
+
+(defn- assertions-by-selector
+  "Map every assertion record in a run to its `:status`, keyed by the stable
+  assertion selector `[:assertion :payload]`. Pure data → data. A duplicate
+  selector keeps the LAST record's status (verdicts of equal-identity
+  assertions agree by construction — the §Schema-rule multiset pairing mints
+  one record per consumed violation)."
+  [run]
+  (into {}
+        (map (fn [a] [[(:assertion a) (vec (:payload a))] (:status a)]))
+        (:assertions run)))
+
+(defn diff-assertions
+  "Verdict delta over the two runs' `:assertions` records, keyed by the
+  stable assertion selector `[:assertion :payload]` (spec/017 §Semantic diff).
+  Pure data → data; `nil` when both runs evaluated the same assertions to the
+  same verdicts, else the `verdict-delta` shape (`:added` / `:removed`
+  selectors + `:changed` verdict flips). A `:pass` → `:fail` flip on one
+  assertion reads as a one-entry `:changed`, not a wall of records."
+  [baseline current]
+  (verdict-delta (assertions-by-selector baseline)
+                 (assertions-by-selector current)))
+
+(defn- checks-by-id
+  "Map every check record in a run to its `:status`, keyed by the `:check`
+  id. Pure data → data."
+  [run]
+  (into {}
+        (map (fn [c] [(:check c) (:status c)]))
+        (:checks run)))
+
+(defn diff-checks
+  "Verdict delta over the two runs' `:checks` records, keyed by the `:check`
+  id (spec/017 §Semantic diff). Pure data → data; `nil` when both runs ran
+  the same checks to the same verdicts, else the `verdict-delta` shape
+  (`:added` / `:removed` check ids + `:changed` verdict flips)."
+  [baseline current]
+  (verdict-delta (checks-by-id baseline) (checks-by-id current)))
+
+;; ===========================================================================
+;; SUB-OVERRIDES DELTA  (the resolved render-path override map)
+;; ===========================================================================
+;;
+;; `:sub-overrides` is the resolved `{query-vector value}` map (spec/017
+;; §View-state subscription overrides) — the third, lower-fidelity rung the
+;; render path consults. A semantic difference is an override one run carried
+;; and the other did not, or one whose pinned VALUE differs. The query vector
+;; is the identity (each override key is an exact query vector), so the delta
+;; is keyed by query vector with added / removed / changed buckets.
+
+(defn diff-sub-overrides
+  "Delta between two runs' resolved `:sub-overrides` maps (spec/017
+  §View-state subscription overrides), keyed by the override's query vector.
+  Pure data → data; `nil` when the override maps are `=`, else:
+
+      {:added   [{:query … :current  v} …]   ; override only in current
+       :removed [{:query … :baseline v} …]   ; override only in baseline
+       :changed [{:query … :baseline a :current b} …]}  ; pinned value differs
+
+  Query vectors are ordered by `pr-str` for a stable, type-safe order."
+  [baseline current]
+  (let [base (or (:sub-overrides baseline) {})
+        cur  (or (:sub-overrides current) {})]
+    (when (not= base cur)
+      (let [base-qs (set (keys base))
+            cur-qs  (set (keys cur))
+            added   (sort-by pr-str (remove base-qs cur-qs))
+            removed (sort-by pr-str (remove cur-qs base-qs))
+            changed (sort-by pr-str
+                             (filter (fn [q] (and (contains? base q)
+                                                  (not= (base q) (cur q))))
+                                     cur-qs))]
+        (cond-> {}
+          (seq added)   (assoc :added
+                               (mapv (fn [q] {:query q :current (cur q)}) added))
+          (seq removed) (assoc :removed
+                               (mapv (fn [q] {:query q :baseline (base q)}) removed))
+          (seq changed) (assoc :changed
+                               (mapv (fn [q] {:query    q
+                                              :baseline (base q)
+                                              :current  (cur q)})
+                                     changed)))))))
+
+;; ===========================================================================
+;; FIDELITY DELTA  (the fidelity-ladder rung set)
+;; ===========================================================================
+;;
+;; `:fidelity` is a SET of the rungs a resolved plan rests on
+;; (`#{:real-setup :db-seed :sub-overrides}`, spec/017 §View-state
+;; subscription overrides — fidelity ladder). A semantic difference is a rung
+;; one run rested on and the other did not, so the delta is a set delta
+;; naming the rungs each side carried uniquely.
+
+(defn diff-fidelity
+  "Set delta over the two runs' `:fidelity` rung sets (spec/017 §View-state
+  subscription overrides — fidelity ladder). Pure data → data; `nil` when the
+  rung sets match, else `{:only-baseline #{rung …} :only-current #{rung …}}`
+  — the fidelity rungs one run rested on and the other did not (e.g. a
+  baseline that used `:real-setup` vs a current that fell back to
+  `:sub-overrides`)."
+  [baseline current]
+  (let [base (set (:fidelity baseline))
+        cur  (set (:fidelity current))]
+    (when (not= base cur)
+      (cond-> {}
+        (seq (set/difference base cur))
+        (assoc :only-baseline (set/difference base cur))
+        (seq (set/difference cur base))
+        (assoc :only-current (set/difference cur base))))))
+
+;; ===========================================================================
 ;; THE ASSEMBLER  (pure — two run-results → readable diff)
 ;; ===========================================================================
 
@@ -313,18 +493,49 @@
   [run]
   (fingerprint/project (fingerprint/strip-run-stamps run)))
 
+(defn- diverging-slice-keys
+  "The `fingerprint/run-hash-input-keys` slots whose CANONICAL projection
+  differs between two run-results. Pure data → data. Each slot is
+  canonicalized in isolation (the same projection `:same?` uses over the
+  whole slice), so this names exactly which run-hash slot perturbed the
+  hash. Returns an ordered (slice-order) vector of `{:slice-key …}` entries —
+  empty only when the slice slots all match (which the `:same?` test already
+  ruled out by the time this is consulted)."
+  [baseline current]
+  (into []
+        (comp (filter (fn [k]
+                        (not= (fingerprint/canonicalize (get baseline k))
+                              (fingerprint/canonicalize (get current k)))))
+              (map (fn [k] {:slice-key k})))
+        fingerprint/run-hash-input-keys))
+
 (def facet-fns
   "The ordered facet name → diff-fn map (spec §Semantic diff). Ordered so
-  the headline facets (`:status`, `:app-db`) read first. Each fn takes the
-  two NOISE-STRIPPED run-results (`strip-noise`) and returns the facet's
-  readable delta or `nil` (no difference). A new facet is added here once and
-  flows into `diff-runs` and `:facets` automatically."
+  the headline facets (`:status`, `:app-db`, the `:assertions` / `:checks`
+  verdicts) read first. Each fn takes the two NOISE-STRIPPED run-results
+  (`strip-noise`) and returns the facet's readable delta or `nil` (no
+  difference). A new facet is added here once and flows into `diff-runs` and
+  `:facets` automatically.
+
+  EVERY behavioural slot in `re-frame.story.fingerprint/run-hash-input-keys`
+  (the slice `:same?` is judged over) is covered by a facet here, so a diff
+  the gate calls different always localises WHERE. `:trace-ops` covers the
+  `:epoch-tape` slot's causal op spine; `:sub-runs` is NOT a slice key (it is
+  diagnostic, excluded from the run-hash slice — rf2-e6uod) but is kept as a
+  useful view-fact facet. Any residual divergence with no specific facet is
+  caught by `diff-runs`' coarse slice-key fallback (the non-empty-`:facets`
+  invariant)."
   (array-map
     :status            diff-status
     :app-db            (fn [b c] (diff-app-db (:app-db b) (:app-db c)))
+    :assertions        diff-assertions
+    :checks            diff-checks
     :effects           diff-effects
     :schema-violations diff-schema-violations
+    :warnings          diff-warnings
     :trace-ops         diff-trace-ops
+    :sub-overrides     diff-sub-overrides
+    :fidelity          diff-fidelity
     :sub-runs          diff-sub-runs))
 
 (defn diff-runs
@@ -352,6 +563,13 @@
   `:facets` set names them up front so a consumer can branch without probing
   each slot.
 
+  INVARIANT (rf2-rv9tt): a `:same? false` diff ALWAYS carries a non-empty
+  `:facets`. The per-surface facets cover every `run-hash-input-keys` slot,
+  but if some slice slot ever diverges with no specific facet firing, the
+  coarse `:slice-keys` fallback names WHICH `run-hash-input-keys` slot
+  perturbed the judgement (`[{:slice-key k} …]`) — never `{:same? false
+  :facets #{}}`, which would be an undiagnosable diff.
+
   The `:same?` judgement is canonical equality of the run-SLICE
   (`fingerprint/run-hash-input-keys` — the behavioural surface, NOT the whole
   result), the EXACT slice + judgement `re-frame.story.determinism/compare-runs`
@@ -377,7 +595,15 @@
                        (assoc acc facet d)
                        acc))
                    {}
-                   facet-fns)]
+                   facet-fns)
+          ;; The non-empty-:facets invariant (rf2-rv9tt): the per-surface
+          ;; facets cover every run-hash slice slot, but if NONE fired the
+          ;; canonical forms still differ — so localise the divergence to the
+          ;; specific `run-hash-input-keys` slot(s) rather than returning an
+          ;; undiagnosable `{:same? false :facets #{}}`.
+          deltas (if (seq deltas)
+                   deltas
+                   {:slice-keys (diverging-slice-keys b c)})]
       (assoc deltas
              :same?  false
              :facets (set (keys deltas))))))
