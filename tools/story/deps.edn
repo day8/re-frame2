@@ -74,6 +74,16 @@
                        ;; (both sources read the late-bound facade), mirroring how
                        ;; implementation/core/deps.edn pulls epoch on :test only.
                        day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
+                       ;; rf2-6nk6d — test.check is here on the :test alias ONLY
+                       ;; (NOT a Story runtime dep). It exercises the OPTIONAL
+                       ;; `re-frame.story.generate.test-check` adapter, which
+                       ;; late-binds test.check via `requiring-resolve` so the
+                       ;; published Story jar never depends on it. The
+                       ;; dependency-free splitmix64 `gen-fn` path remains the
+                       ;; default; this dep only lets the adapter's tests prove
+                       ;; the test.check draw → gen-fn → seed-bearing-artifact
+                       ;; path end to end.
+                       org.clojure/test.check    {:mvn/version "1.1.1"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}

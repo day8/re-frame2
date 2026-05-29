@@ -174,8 +174,9 @@ as a stale cursor (different fingerprint).
 **Input.** `{:limit integer (optional) :cursor string (optional)}`.
 
 **Output.** `{:canonical [{:id :payload :semantics}] :registered [keyword ...]}`.
-The `:canonical` doc vector (the 7-assertion documentation) is
-bounded and always returned in full. `:registered` (the live
+The `:canonical` doc vector (the 8-assertion documentation: the seven
+dispatched canonical assertions plus the tape-evaluated
+`:rf.assert/schema-error`) is bounded and always returned in full. `:registered` (the live
 registered-assertion ids) is paginated per the contract above.
 
 ### `get-docs-markdown` (rf2-i0kyy)

@@ -22,7 +22,9 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.artifact  :as artifact]
             [re-frame.story.generate  :as generate]
-            [re-frame.story.promotion :as promotion]))
+            [re-frame.story.generate.test-check :as gen-tc]
+            [re-frame.story.promotion :as promotion]
+            #?(:clj [clojure.test.check.generators :as tcgen])))
 
 ;; ===========================================================================
 ;; PURE: the seedable PRNG
@@ -253,3 +255,106 @@
           "the pair-seq preserves authored cell order")
       (is (some #{:save-fails} (:failing from-seq))
           "the faulted cell falsifies under the pair-seq shape too"))))
+
+;; ===========================================================================
+;; OPTIONAL test.check adapter (rf2-6nk6d) — JVM-only
+;; ===========================================================================
+;;
+;; The test.check adapter late-binds test.check via `requiring-resolve` and is
+;; JVM-scoped by design (CLJS cannot dynamically resolve an optional ns at
+;; runtime); test.check itself is wired into tools/story/deps.edn's :test alias
+;; only. These assertions therefore live behind `#?(:clj ...)` so the .cljc
+;; file stays green on the node CLJS build too. They prove the documented
+;; extension point — wrapping a test.check generator's draw in a `gen-fn` —
+;; works end to end (seed → gen → seed-bearing artifact) ALONGSIDE the
+;; dependency-free path exercised above, and that the dependency-free default
+;; is unchanged.
+
+#?(:clj
+   (deftest test-check-adapter-is-available-on-the-test-classpath
+     (testing "test.check resolves on the :test alias, so the optional adapter
+               reports available (the dep is test-only, not a Story runtime dep)"
+       (is (true? (gen-tc/available?))
+           "org.clojure/test.check is on the :test alias classpath"))))
+
+#?(:clj
+   (deftest test-check-gen-fn-is-deterministic-in-the-seed
+     (testing "gen->gen-fn yields a pure (fn [seed] event-program) — the SAME
+               seed draws the SAME program (the reproducibility check-property!
+               relies on), DIFFERENT seeds generally diverge"
+       ;; A generator of event programs: 1–4 dispatch steps of :gen/ok.
+       (let [program-gen (tcgen/vector
+                           (tcgen/return [:dispatch [:gen/ok]]) 1 4)
+             gen-fn      (gen-tc/gen->gen-fn program-gen {:size 20})]
+         (is (= (gen-fn 12345) (gen-fn 12345))
+             "same seed → identical program")
+         (is (let [p (gen-fn 7)]
+               (and (vector? p)
+                    (seq p)
+                    (every? #(= :dispatch (first %)) p)))
+             "the draw is a non-empty tagged-step event program")
+         ;; Over a spread of seeds at least two programs differ — the draw
+         ;; actually varies with the seed (not a constant).
+         (is (> (count (distinct (map gen-fn (range 0 12)))) 1)
+             "different seeds generally draw different programs")))))
+
+#?(:clj
+   (deftest test-check-driven-property-passes-and-emits-seed-bearing-artifacts
+     (testing "check-property-gen! drives the runner from a test.check generator:
+               every drawn program passes, and the run records its reproducible
+               root seed exactly as the dependency-free path does"
+       (rf/reg-event-db :gen/ok (fn [db _] (update db :n (fnil inc 0))))
+       (let [program-gen (tcgen/vector
+                          (tcgen/return [:dispatch [:gen/ok]]) 1 3)
+             res (gen-tc/check-property-gen!
+                  generate/check-property! program-gen
+                  {:seed 7 :num-tests 5 :size 25})]
+         (is (= :pass (:status res)))
+         (is (= 5 (:num-tests res)))
+         (is (= 7 (:seed res))
+             "the seed-bearing reproducibility is identical to the splitmix path")))))
+
+#?(:clj
+   (deftest test-check-driven-property-falsifies-shrinks-and-promotes
+     (testing "a test.check-driven property that fails flows through the SAME
+               shrink + seed-bearing-artifact + promotion bridge as the
+               dependency-free path — the adapter is pure sugar over gen-fn"
+       (rf/reg-event-db :gen/noise (fn [db _] (update db :noise (fnil inc 0))))
+       (reg-boom!)
+       ;; A generator that always includes the failing :gen/boom step amid
+       ;; harmless noise — every drawn program falsifies, exercising the
+       ;; shrink + artifact path deterministically.
+       (let [program-gen (tcgen/fmap
+                          (fn [noise] (conj (vec noise) [:dispatch [:gen/boom]]))
+                          (tcgen/vector
+                           (tcgen/return [:dispatch [:gen/noise]]) 0 3))
+             res (gen-tc/check-property-gen!
+                  generate/check-property! program-gen
+                  {:seed 3 :num-tests 4 :size 20 :shrink? true})]
+         (is (= :fail (:status res)))
+         (is (artifact/run-artifact? (:artifact res)))
+         (is (= (:seed res) (:seed (:artifact res)))
+             "the artifact carries the falsifying seed (same as splitmix path)")
+         (is (some #(= [:dispatch [:gen/boom]] %) (:smallest-program res))
+             "the shared shrink model keeps the failing boom step")
+         (is (seq (:shrink-path res))
+             "shrinking ran via check-property!'s own delta-debug, not test.check")
+         ;; The artifact promotes through the existing curated bridge unchanged.
+         (let [plan (promotion/materialize-variant-plan
+                     (:artifact res) {:variant/id :story.gen-tc/regression-3})]
+           (is (= (:seed (:artifact res)) (get-in plan [:run-artifact :seed]))
+               "the curated plan carries the test.check-driven failing seed"))))))
+
+#?(:clj
+   (deftest test-check-adapter-degrades-clearly-without-the-library
+     (testing "the opt-in error names test.check + points at the dependency-free
+               default (proven by simulating an absent var resolution)"
+       ;; We cannot un-load test.check from the JVM classpath mid-test, so this
+       ;; pins the error CONTRACT: gen->gen-fn defers resolution to first call,
+       ;; and the adapter's `available?` is the branch a caller uses to pick the
+       ;; dependency-free path. The CLJS arm of the adapter throws the same
+       ;; message (covered by the node build loading the ns without test.check).
+       (is (fn? (gen-tc/gen->gen-fn (tcgen/return [:dispatch [:gen/ok]])))
+           "with test.check present, gen->gen-fn returns a usable gen-fn")
+       (is (true? (gen-tc/available?))
+           "available? is the documented branch for choosing the gen-fn path"))))
