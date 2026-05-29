@@ -191,6 +191,61 @@
         (is (re-find #"flush boom" (:error res)))
         (is (not= :settled (:status res)) "a flush failure is never a settled pass")))))
 
+(deftest timeout-ms-bounds-flush-phase-and-refuses
+  (testing "a flush phase that exceeds the hooks' :timeout-ms stops the
+            ladder and returns a fail-closed :cannot-run/:flush-timeout
+            (never a settled pass) — the dispatch fired but the settle is
+            refused, and the over-budget flush level does NOT run"
+    (let [ran    (atom [])
+          hooks  {:provides   :dom
+                  ;; deadline is already past on entry (negative budget), so
+                  ;; the loop refuses before running ANY richer flush —
+                  ;; deterministic, no wall-clock sleep needed.
+                  :timeout-ms -1
+                  :dispatch!  (fn [frame-id evec]
+                                (boundary/drain-sync! frame-id evec))
+                  :flush!     {:headless      (fn [_] (swap! ran conj :headless))
+                               :cljs-reactive (fn [_] (swap! ran conj :reactive))
+                               :dom           (fn [_] (swap! ran conj :dom))}}]
+      (rf/reg-event-db :timeout/fired (fn [db _] (assoc db :fired true)))
+      (let [res (boundary/dispatch-and-settle! bf [:timeout/fired] hooks :dom [:click "b"])]
+        (is (= :cannot-run    (:status res)))
+        (is (= :flush-timeout (:reason res)))
+        (is (= :dom           (:required-boundary res)))
+        (is (= :dom           (:provided-boundary res)))
+        (is (= [:click "b"]   (:step res)))
+        (is (not= :settled (:status res)) "a flush timeout is never a settled pass")
+        (is (empty? @ran)
+            "the over-budget flush phase ran no flush fn (deadline already past)")
+        (is (true? (:fired (rf/get-frame-db bf)))
+            "the event was dispatched before the bounded flush phase refused")))))
+
+(deftest timeout-ms-generous-budget-settles-normally
+  (testing "a :timeout-ms larger than the flush phase lets settlement
+            complete normally (the knob bounds, it does not break the
+            happy path)"
+    (let [ran   (atom [])
+          hooks {:provides   :dom
+                 :timeout-ms 60000
+                 :dispatch!  (fn [frame-id evec]
+                               (boundary/drain-sync! frame-id evec))
+                 :flush!     {:cljs-reactive (fn [_] (swap! ran conj :reactive))
+                              :dom           (fn [_] (swap! ran conj :dom))}}]
+      (rf/reg-event-db :timeout/ok (fn [db _] (assoc db :ok true)))
+      (let [res (boundary/dispatch-and-settle! bf [:timeout/ok] hooks :dom [:click "b"])]
+        (is (= :settled (:status res)))
+        (is (= :dom     (:boundary res)))
+        (is (= [:reactive :dom] @ran) "all flushes ran under a generous budget")
+        (is (true? (:ok (rf/get-frame-db bf))))))))
+
+(deftest no-timeout-ms-is-unbounded
+  (testing "with no :timeout-ms the flush phase is unbounded — settlement
+            completes regardless of flush duration (the headless default)"
+    (rf/reg-event-db :noop (fn [db _] db))
+    (let [res (boundary/dispatch-and-settle!
+                bf [:noop] boundary/headless-flush-hooks :headless [:dispatch [:noop]])]
+      (is (= :settled (:status res))))))
+
 (deftest drain-sync-settles-synchronous-redispatch
   (testing "drain-sync! (the named headless boundary) is the framework
             dispatch-sync* drain — re-dispatched events settle before return"

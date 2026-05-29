@@ -36,6 +36,19 @@
                    :dom           (fn [frame-id] ...)}  ; + act()/microtask
        :timeout-ms optional-number}                     ; richer-boundary bound
 
+  `:timeout-ms` is a wall-clock budget on the flush phase. `dispatch-and-settle!`
+  ENFORCES it: it stamps a deadline (`re-frame.interop/now-ms` +
+  `:timeout-ms`) before the flush loop and, after EACH flush fn returns,
+  checks whether the deadline has passed. An over-budget flush phase stops
+  the ladder and returns `flush-timeout-result` (a fail-closed `:cannot-run`
+  refusal, reason `:flush-timeout`) — NEVER a silent settled pass. Because
+  the flush fns run synchronously, this bounds a *sequence* of slow flushes
+  and detects an over-budget flush once it returns; it does NOT preempt a
+  single flush fn that hangs forever (that needs the caller's own
+  thread/timeout box — out of scope for this host-free contract ns). With
+  no `:timeout-ms` the flush phase is unbounded (the headless default, whose
+  only flush is the synchronous `dispatch-sync*` drain, cannot time out).
+
   `headless-flush-hooks` is the default the JVM / node-runtime headless
   runner uses: `:provides :headless`, `:dispatch!` and the `:headless`
   flush both routed through `re-frame.core/dispatch-sync*` so a queued
@@ -64,7 +77,8 @@
   flush fns are injected by adapter callers; this ns only *names* the
   ladder, *routes* a dispatch through the supplied hooks, and *refuses*
   when the supplied boundary is too weak."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core   :as rf]
+            [re-frame.interop :as interop]))
 
 ;; ---- the boundary ladder -------------------------------------------------
 
@@ -206,6 +220,25 @@
   (let [p (:provides hooks)]
     (if (boundary? p) p :headless)))
 
+;; ---- timeout helper ------------------------------------------------------
+
+(defn flush-timeout-result
+  "Build the result for a richer-boundary flush that exceeded its declared
+  maximum (the hooks' `:timeout-ms`). Per spec/017 a flush timeout reports
+  `:cannot-run` or `:error` per the caller's policy — NEVER a silent pass.
+  `policy` is `:cannot-run` (default) or `:error`. `dispatch-and-settle!`
+  calls this with the default `:cannot-run` policy when the flush phase
+  exceeds `:timeout-ms`."
+  ([required provided step] (flush-timeout-result required provided step :cannot-run))
+  ([required provided step policy]
+   (case policy
+     :error {:status :error
+             :error  (str "settled-boundary flush for " required
+                          " exceeded its declared maximum")
+             :step   step}
+     ;; default :cannot-run
+     (cannot-run-refusal required provided step :flush-timeout))))
+
 ;; ---- the dispatch-and-settle entry point ---------------------------------
 
 (defn dispatch-and-settle!
@@ -224,7 +257,9 @@
     the runner flushed up to (and including) the required boundary.
   - a `cannot-run-refusal` map — the runner's `:provides` does not reach
     `required`; the event is NOT dispatched (fail-closed, no partial /
-    under-flushed pass).
+    under-flushed pass). The same `:cannot-run` shape (reason
+    `:flush-timeout`, via `flush-timeout-result`) is returned when the
+    flush phase exceeds the hooks' `:timeout-ms` budget.
   - `{:status :error :error <message> :step …}` — a flush fn threw or the
     `:dispatch!` hook threw. NEVER a silent pass.
 
@@ -233,7 +268,16 @@
   provides `:dom` runs the `:headless`, `:cljs-reactive`, and `:dom`
   flushes in turn. A missing flush fn for a level the runner claims to
   provide is treated as a no-op for that level (the cheaper level still
-  drained the queue)."
+  drained the queue).
+
+  When `hooks` declares a `:timeout-ms`, the flush phase is bounded: a
+  deadline is stamped before the loop and re-checked after each flush fn
+  returns. An over-budget flush phase stops and returns
+  `flush-timeout-result` (`:cannot-run`, reason `:flush-timeout`) — the
+  event has already been dispatched, but the settle is refused rather than
+  falsely reported settled. The synchronous-flush caveat (a single hanging
+  flush fn is not preempted) is documented on the ns docstring's flush-hook
+  seam."
   ([frame-id event-vector hooks]
    (dispatch-and-settle! frame-id event-vector hooks :headless nil))
   ([frame-id event-vector hooks required]
@@ -246,36 +290,35 @@
        ;; needs a richer boundary than the runner provides is refused.
        (cannot-run-refusal required provided step)
        (try
-         (let [dispatch! (or (:dispatch! hooks) drain-sync!)
-               flushes   (:flush! hooks)]
+         (let [dispatch!  (or (:dispatch! hooks) drain-sync!)
+               flushes    (:flush! hooks)
+               timeout-ms (:timeout-ms hooks)
+               deadline   (when (number? timeout-ms)
+                            (+ (interop/now-ms) timeout-ms))
+               ;; The flush levels to run: every registered level up to and
+               ;; including `required`, in ladder order. The headless flush
+               ;; is folded into `:dispatch!` (`drain-sync!`), so its hook is
+               ;; a no-op; the richer flushes carry the adapter's reactive /
+               ;; DOM work.
+               levels     (take-while #(boundary>= required %) boundary-levels)]
            (dispatch! frame-id event-vector)
-           ;; Run each registered flush up to and including `required`,
-           ;; in ladder order. The headless flush is folded into
-           ;; `:dispatch!` (`drain-sync!`), so its hook is a no-op; the
-           ;; richer flushes carry the adapter's reactive / DOM work.
-           (doseq [level boundary-levels
-                   :while (boundary>= required level)]
-             (when-let [f (get flushes level)]
-               (f frame-id)))
-           {:status :settled :boundary required})
+           ;; Run each flush, re-checking the `:timeout-ms` deadline after
+           ;; each returns. An over-budget flush phase stops the ladder and
+           ;; refuses with a fail-closed `:flush-timeout` (`flush-timeout-result`)
+           ;; rather than reporting a settled pass it did not earn.
+           (loop [[level & more] levels]
+             (cond
+               (nil? level)
+               {:status :settled :boundary required}
+
+               (and deadline (> (interop/now-ms) deadline))
+               (flush-timeout-result required provided step)
+
+               :else
+               (do (when-let [f (get flushes level)]
+                     (f frame-id))
+                   (recur more)))))
          (catch #?(:clj Throwable :cljs :default) e
            {:status :error
             :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
             :step   step}))))))
-
-;; ---- timeout helper ------------------------------------------------------
-
-(defn flush-timeout-result
-  "Build the result for a richer-boundary flush that exceeded its declared
-  maximum. Per spec/017 a flush timeout reports `:cannot-run` or `:error`
-  per the caller's policy — NEVER a silent pass. `policy` is
-  `:cannot-run` (default) or `:error`."
-  ([required provided step] (flush-timeout-result required provided step :cannot-run))
-  ([required provided step policy]
-   (case policy
-     :error {:status :error
-             :error  (str "settled-boundary flush for " required
-                          " exceeded its declared maximum")
-             :step   step}
-     ;; default :cannot-run
-     (cannot-run-refusal required provided step :flush-timeout))))

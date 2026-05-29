@@ -172,6 +172,20 @@
       (is (empty? (registrar/registrations :variant))
             "a no-id promotion registers nothing"))))
 
+(deftest promote-honours-only-namespaced-variant-id
+  (testing ":variant/id is the SOLE accepted key — the previously-undocumented
+            unqualified :variant-id spelling is NOT honoured (symmetric with
+            materialize-variant-plan + spec + the rest of the bridge)"
+    (let [art (sample-artifact)]
+      ;; An opts map carrying ONLY the unqualified :variant-id is treated as
+      ;; a no-id promotion: it throws and registers nothing.
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-promote-no-id"
+            (promotion/promote-run-artifact! art {:variant-id :story.counter/unqualified})))
+      (is (empty? (registrar/registrations :variant))
+          "the unqualified :variant-id registers nothing"))))
+
 (deftest promote-registers-the-named-variant
   (testing "the explicit named call DOES register a curated variant"
     (let [art (sample-artifact)

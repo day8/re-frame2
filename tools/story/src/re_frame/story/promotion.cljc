@@ -274,8 +274,8 @@
 
   Returns the registered variant id on success (the value
   `reg-variant*` returns)."
-  [artifact {:keys [variant-id] :as opts}]
-  (let [variant-id (or variant-id (:variant/id opts))]
+  [artifact opts]
+  (let [variant-id (:variant/id opts)]
     (when (nil? variant-id)
       (throw (ex-info ":rf.error/story-promote-no-id"
                       {:rf.error/id :rf.error/story-promote-no-id

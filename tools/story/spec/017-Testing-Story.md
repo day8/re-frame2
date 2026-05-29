@@ -730,9 +730,17 @@ the existing framework drain and a flush-hook seam over it.
   returns `{:status :settled :boundary <required>}` on success, a
   `:cannot-run` refusal when the runner's `:provides` does not reach the
   required boundary (the event is **not** dispatched — fail-closed), or
-  `{:status :error …}` when a flush/dispatch throws. A flush timeout
-  reports `:cannot-run` or `:error` per policy (`flush-timeout-result`) —
-  **never a silent pass**.
+  `{:status :error …}` when a flush/dispatch throws. When the hooks declare
+  `:timeout-ms`, the flush phase is bounded: a wall-clock deadline
+  (`re-frame.interop/now-ms` + `:timeout-ms`) is stamped before the flush
+  loop and re-checked after each flush fn returns; an over-budget flush
+  phase stops and reports `:cannot-run` (reason `:flush-timeout`, via
+  `flush-timeout-result`) — **never a silent pass**. Because the flush fns
+  run synchronously, this bounds a sequence of slow flushes and detects an
+  over-budget flush once it returns; it does not preempt a single flush fn
+  that hangs forever (that is the caller's own thread/timeout box). With no
+  `:timeout-ms` the flush phase is unbounded (the headless default's only
+  flush is the synchronous `dispatch-sync*` drain, which cannot time out).
 
 The play runner's `[:dispatch …]` step (`re-frame.story.play.runner-events/
 exec-dispatch!`) routes through `dispatch-and-settle!`, so in headless it
