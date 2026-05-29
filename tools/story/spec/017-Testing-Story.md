@@ -2616,10 +2616,23 @@ Each facet is projected independently and contributes to the result **only
 when it differs**, so the diff localises *where* two runs parted and stays
 small:
 
+Every behavioural slot in the run-**slice** (`run-hash-input-keys`, the
+surface `:same?` is judged over) is covered by a facet, so a diff the gate
+calls different always localises *where*:
+
 - `:app-db` — a readable key-path delta of the final app-db
   (`:added` / `:removed` / `:changed`, each entry a `{:path … :baseline …
   :current …}` over the differing leaf paths) — a 100-key db with one changed
   key yields a one-entry delta, never a database dump;
+- `:assertions` — a **verdict** delta over the assertion records, keyed by
+  the stable assertion selector `[:assertion :payload]`
+  (`:added` / `:removed` selectors + `:changed` verdict flips, each entry a
+  `{:selector … :baseline … :current …}`) — a `:pass` → `:fail` flip on one
+  assertion reads as a one-entry `:changed`, not a wall of records, and the
+  `:payload` disambiguates two same-id assertions at different paths;
+- `:checks` — a verdict delta over the check records, keyed by the `:check`
+  id (the same `:added` / `:removed` / `:changed` shape) — the check identity
+  is its id, not its underlying assertion records;
 - `:effects` — a **multiset** delta of the projected effect rows
   (`:only-baseline` / `:only-current`) — the effects one run emitted and the
   other did not (emitting an effect twice vs once IS a difference);
@@ -2628,13 +2641,35 @@ small:
   `[:app-db registered-path path]`, …), not the full diagnostic records, so a
   re-ordered-but-equal set of violations is not a diff while a genuinely-new
   failure surface is;
+- `:warnings` — a multiset delta over the projected warning rows
+  (`:op-type :warning`, `:only-baseline` / `:only-current`) — the warnings one
+  run raised and the other did not;
 - `:trace-ops` — the ordered trace `:operation` sequence (the causal op
-  spine), reported as both spines plus the `:first-divergence` index — order
-  is semantic, so a re-ordered or dropped op reads as a difference;
+  spine) projected from `:epoch-tape`, reported as both spines plus the
+  `:first-divergence` index — order is semantic, so a re-ordered or dropped op
+  reads as a difference;
+- `:sub-overrides` — a delta over the resolved `{query-vector value}` override
+  map (§View-state subscription overrides), keyed by query vector
+  (`:added` / `:removed` / `:changed`, each entry a `{:query … :baseline …
+  :current …}`) — an override added/removed or whose pinned value differs;
+- `:fidelity` — a **set** delta over the fidelity-ladder rung set
+  (`:only-baseline` / `:only-current`) — the rungs one run rested on and the
+  other did not (e.g. a baseline using `:real-setup` vs a current that fell
+  back to `:sub-overrides`);
 - `:sub-runs` — a multiset delta over the projected subscription / view
-  facts, when available;
+  facts, when available (a diagnostic facet — `:sub-runs` is **not** in the
+  run-slice, so it never decides `:same?`);
 - `:status` — the top-level run status, when it differs (a `:pass` → `:fail`
   flip is the headline a reader wants first).
+
+**The non-empty-`:facets` invariant.** A `:same? false` diff ALWAYS carries a
+non-empty `:facets`. The per-surface facets above cover every run-slice slot,
+but should some slice slot ever diverge with no specific facet firing (an
+`:epoch-tape` change that is not a trace-op delta, or a future slice key added
+without its facet), the assembler falls back to a coarse `:slice-keys` facet
+naming WHICH `run-hash-input-keys` slot perturbed the judgement
+(`[{:slice-key k} …]`). A diff NEVER returns `{:same? false :facets #{}}` — an
+undiagnosable verdict that says two runs differ without saying how.
 
 ### A readable diff, not a data dump
 
@@ -2646,9 +2681,11 @@ volatile noise.
 
 ### Pure / JVM-testable
 
-The facet diff fns (`diff-app-db`, `diff-effects`, `diff-schema-violations`,
-`diff-trace-ops`, `diff-sub-runs`) and the assembler (`diff-runs`) are pure
-data → data — two run-results in, a readable diff out — and run under
+The facet diff fns (`diff-app-db`, `diff-assertions`, `diff-checks`,
+`diff-effects`, `diff-schema-violations`, `diff-warnings`, `diff-trace-ops`,
+`diff-sub-overrides`, `diff-fidelity`, `diff-sub-runs`) and the assembler
+(`diff-runs`) are pure data → data — two run-results in, a readable diff out
+— and run under
 `clojure -M:test` with no runtime; only the artifact-replay entry path is
 impure, and when both inputs are run-results `diff-run-artifacts` is itself
 pure. The facet fns receive the **noise-stripped but shape-preserved**
