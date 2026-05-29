@@ -103,7 +103,6 @@
     "panels/machine_after_rings.cljs"
     "panels/machine_canvas.cljs"
     "panels/machine_inspector.cljs"
-    "panels/managed_fx_template.cljs"
     "panels/trace.cljs"
     "static/shell.cljs"
     "static/mode_pill.cljs"

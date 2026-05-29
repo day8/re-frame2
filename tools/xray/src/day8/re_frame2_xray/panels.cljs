@@ -280,7 +280,10 @@
   frame-provider per Spec 006 §706."
   []
   (let [records @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])]
-    (managed-fx/records-list records)))
+    ;; rf2-nesy9 — thread the reg-view-injected frame-aware dispatch so
+    ;; the panel's context-menu / focus affordances land on the
+    ;; surrounding instance frame, not a `{:frame :rf/xray}` literal.
+    (managed-fx/records-list dispatch records)))
 
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
