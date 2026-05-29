@@ -214,6 +214,8 @@ merge.
 | `:checks` | `[:expect :checks]` |
 | `:assertions` | `[:expect :assertions]` |
 | `:args` / `:argtypes` | `[:world :args]` / `[:world :argtypes]` |
+| (derived) view props schema | `[:world :view-args-schema]` — copied from the `:component` view's metadata (§View arg schemas) |
+| (derived) resolved args | `[:world :effective-args]` — the args feeding the view; validated against the view-args schema before render |
 | `:sub-overrides` | `[:world :render :sub-overrides]` |
 | `:network` / `:fx-overrides` | `[:world :network]` / `[:world :frame :fx-overrides]` |
 | platforms / tags / workshop slots (`:decorators`, `:modes`, `:viewport`, …) | preserved under `:world` (and top-level `:tags`) |
@@ -439,6 +441,62 @@ validation schema. The plan compiler MUST copy the props schema into
 This schema applies only to explicit view inputs. It does not validate
 values returned from subscriptions (those remain subscription output
 schemas) and it does not seed app-db.
+
+**Metadata key (M0-confirmed).** `reg-view` stamps a view's symbol
+metadata (minus `:rf/id`) onto its `:view` registrar slot, so the props
+schema rides on that slot. The compiler resolves it **first match wins**:
+`:rf/props` (the spec-named props key, for a port that adopts it) →
+`:spec` (the live Spec 010 boundary-schema slot the framework already
+exposes) → `:schema` (the Story-only alias the controls / schema-
+validation panels already read). Story consumes the key the framework
+exposes rather than inventing a parallel one; the controls-panel
+derivation (`re-frame.story.ui.controls`) reads the same slot, so a view
+that declares a props schema gets controls AND validation from one
+source.
+
+**Plan slots.** When the variant's resolved `:component` view carries a
+schema, the compiler writes:
+
+| Plan slot | Meaning |
+|---|---|
+| `[:world :view-args-schema]` | the view's explicit-input schema, copied verbatim |
+| `[:world :effective-args]` | the args that feed the view — at plan time the resolved arg-map; the render path layers control-panel overrides on top |
+| `[:explain :view-args-schema]` / `[:explain :effective-args]` | the same, surfaced in `explain` (and downstream docs) |
+| `[:explain :view-args-validation]` | `{:status :ok :missing [] :malformed []}` for a passing plan (an invalid one throws — see below) |
+
+`[:world :effective-args]` is recorded even when no view schema is on
+file (it is the resolved arg-map); the `:view-args-schema` /
+`:view-args-validation` slots are present only when a schema exists.
+
+**Validation, two tiers (both pure / JVM-testable).**
+
+- **Required-key presence (host-free floor).** For a top-level
+  `[:map …]` schema, every entry NOT marked `{:optional true}` whose key
+  is absent from `:effective-args` is a missing-required violation. This
+  needs no Malli runtime, so it runs under `clojure -M:test`.
+- **Malformed-value (validator-driven).** When the caller threads a
+  `{:validate :explain}` validator pair (e.g. the Malli late-bind hook
+  the renderer already uses), each present entry's value is validated
+  against its entry schema; a failure carries the validator's
+  explanation. With no validator, malformed-value checking soft-passes
+  (matching `re-frame.story.ui.schema-validation/args-violations`).
+
+A missing-required or malformed view input **FAILS plan construction**
+with `:rf.error/story-view-args-invalid`, whose ex-data carries the
+failing arg key(s), the Malli schema `:path` (`[k]` for a top-level map
+entry), the `:effective-args`, and the source `:variant/id`.
+`variant-plan` opts `:view-lookup` (a `(view-id) → view-meta` fn or map,
+defaulting to the framework `:view` registrar) and `:validator-fns`
+thread the view-metadata source and the malformed-value validator, so
+the compiler stays a pure data → data fn for host-free tests.
+
+**Sharp boundary.** View-arg schemas validate the **explicit view
+inputs** only (the `:args` that feed the rendered view). They are a
+different contract from subscription-output schemas, which validate
+values supplied by subscriptions and `:sub-overrides` (§View-state
+subscription overrides). The two MUST NOT be conflated: `:sub-overrides`
+lower to `[:world :render :sub-overrides]` and are never checked against
+the `:view-args-schema`.
 
 ### View-state subscription overrides
 

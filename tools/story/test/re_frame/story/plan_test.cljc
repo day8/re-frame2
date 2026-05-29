@@ -9,6 +9,7 @@
   test bodies still carry `:extends` rather than relying on the
   registrar's eager merge)."
   (:require [clojure.test :refer [deftest is testing]]
+            [malli.core :as m]
             [re-frame.story.plan :as plan]))
 
 ;; ---- helpers ------------------------------------------------------------
@@ -241,3 +242,179 @@
       (is (= [[:dispatch [:go]]] (:script-order ex)))
       (is (= :append-root-to-child (get-in ex [:merge :setup])))
       (is (= :child-only (get-in ex [:merge :script]))))))
+
+;; ===========================================================================
+;; View arg schemas (rf2-5x1wt.12 — spec §View arg schemas)
+;; ===========================================================================
+;;
+;; A registered view MAY expose an explicit-input (props) schema on its
+;; `:view` metadata. The compiler copies it into [:world :view-args-schema],
+;; records [:world :effective-args], validates the effective args against
+;; the schema before render, and FAILS plan construction on a missing-
+;; required or malformed view input. These tests thread an explicit
+;; `:view-lookup` (a {view-id → view-meta} map) so they run host-free on
+;; both the JVM and CLJS. The `:component` arg-lookup precedence verifies
+;; the live-framework key resolution (`:rf/props` → `:spec` → `:schema`).
+
+(def ^:private malli-validator
+  "A `{:validate :explain}` pair backed by Malli (on Story's classpath),
+  matching the injectable shape the renderer threads from the late-bind
+  hook. Used for the malformed-value tests; the required-key floor needs
+  no validator."
+  {:validate (fn [schema value] (m/validate schema value))
+   :explain  (fn [schema value] (m/explain schema value))})
+
+(deftest view-args-schema-copied-into-plan
+  (testing "the :component view's props schema is copied to [:world :view-args-schema]"
+    (let [view-schema [:map [:label :string] [:count :int]]
+          m {:story.widget/ok
+             {:component :views/widget
+              :args      {:label "Hi" :count 3}}}
+          p (plan/variant-plan :story.widget/ok
+                               {:lookup      m
+                                :view-lookup {:views/widget {:rf/props view-schema}}})]
+      (is (= view-schema (get-in p [:world :view-args-schema])))
+      (testing "effective-args are recorded (the resolved args at plan time)"
+        (is (= {:label "Hi" :count 3} (get-in p [:world :effective-args])))))))
+
+(deftest valid-effective-args-render
+  (testing "valid effective-args compile cleanly (no plan failure)"
+    (let [m {:story.widget/valid
+             {:component :views/widget
+              :args      {:label "Hi" :count 3}}}
+          p (plan/variant-plan :story.widget/valid
+                               {:lookup      m
+                                :view-lookup {:views/widget
+                                              {:rf/props [:map [:label :string] [:count :int]]}}
+                                :validator-fns malli-validator})]
+      (is (= :story.widget/valid (:variant/id p)))
+      (is (= :ok (get-in p [:explain :view-args-validation :status]))))))
+
+(deftest missing-required-arg-fails-before-render
+  (testing "a missing required view input FAILS plan construction"
+    (let [m {:story.widget/missing
+             {:component :views/widget
+              :args      {:label "Hi"}}}   ; :count required, absent
+          opts {:lookup      m
+                :view-lookup {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-view-args-invalid"
+            (plan/variant-plan :story.widget/missing opts)))
+      (let [data (try (plan/variant-plan :story.widget/missing opts)
+                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+        (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
+        (testing "the failure reports the missing key, schema path, and source variant"
+          (is (= :story.widget/missing (:variant/id data)))
+          (is (= [{:key :count :schema :int :path [:count]}] (:missing data))))))))
+
+(deftest optional-arg-may-be-absent
+  (testing "an entry marked {:optional true} is NOT a required input"
+    (let [m {:story.widget/opt
+             {:component :views/widget
+              :args      {:label "Hi"}}}
+          p (plan/variant-plan :story.widget/opt
+                               {:lookup      m
+                                :view-lookup {:views/widget
+                                              {:rf/props [:map
+                                                          [:label :string]
+                                                          [:count {:optional true} :int]]}}})]
+      (is (= {:label "Hi"} (get-in p [:world :effective-args])))
+      (is (= :ok (get-in p [:explain :view-args-validation :status]))))))
+
+(deftest malformed-arg-reports-schema-path-and-source-variant
+  (testing "a malformed value FAILS with the schema path + source variant"
+    (let [m {:story.widget/bad
+             {:component :views/widget
+              :args      {:label "Hi" :count "three"}}}  ; :count must be :int
+          opts {:lookup        m
+                :view-lookup   {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}
+                :validator-fns malli-validator}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-view-args-invalid"
+            (plan/variant-plan :story.widget/bad opts)))
+      (let [data (try (plan/variant-plan :story.widget/bad opts)
+                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))
+            bad  (first (:malformed data))]
+        (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
+        (is (= :story.widget/bad (:variant/id data))
+            "the failure carries the source variant")
+        (is (= :count (:key bad)))
+        (is (= [:count] (:path bad)) "reports the Malli schema path")
+        (is (= "three" (:value bad)))
+        (is (some? (:explain bad)) "carries the validator explanation")))))
+
+(deftest no-view-schema-no-validation
+  (testing "a view with no props schema leaves the plan unvalidated (slots absent)"
+    (let [m {:story.widget/none
+             {:component :views/widget
+              :args      {:anything 1}}}
+          p (plan/variant-plan :story.widget/none
+                               {:lookup      m
+                                :view-lookup {:views/widget {}}})]  ; no schema slot
+      (is (nil? (get-in p [:world :view-args-schema])))
+      (is (nil? (get-in p [:explain :view-args-validation])))
+      (testing "effective-args still recorded"
+        (is (= {:anything 1} (get-in p [:world :effective-args])))))))
+
+(deftest no-component-no-validation
+  (testing "a variant with no :component is never view-validated"
+    (let [m {:story.plain/v {:args {:x 1} :setup [[:dispatch [:a]]]}}
+          p (plan/variant-plan :story.plain/v {:lookup m})]
+      (is (nil? (get-in p [:world :view-args-schema])))
+      (is (= {:x 1} (get-in p [:world :effective-args]))))))
+
+(deftest schema-key-precedence
+  (testing ":rf/props wins over :spec which wins over :schema"
+    (let [props  [:map [:a :string]]
+          spec   [:map [:b :string]]
+          schema [:map [:c :string]]]
+      (testing ":rf/props chosen when present"
+        (is (= props (plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
+      (testing ":spec chosen when no :rf/props (the live Spec 010 slot)"
+        (is (= spec (plan/view-args-schema {:spec spec :schema schema}))))
+      (testing ":schema chosen as the last-resort alias"
+        (is (= schema (plan/view-args-schema {:schema schema}))))
+      (testing "nil when no schema slot present"
+        (is (nil? (plan/view-args-schema {:title "x"})))))))
+
+(deftest derived-effective-args-validation-unit
+  (testing "validate-effective-args required-key floor needs no validator"
+    (let [schema [:map [:label :string] [:count :int]]]
+      (testing "all present → :ok"
+        (is (= :ok (:status (plan/validate-effective-args
+                              schema {:label "x" :count 1})))))
+      (testing "missing required → :invalid with the missing entry"
+        (let [r (plan/validate-effective-args schema {:label "x"})]
+          (is (= :invalid (:status r)))
+          (is (= [{:key :count :schema :int :path [:count]}] (:missing r)))
+          (is (= [] (:malformed r)) "no malformed without a validator")))
+      (testing "malformed value soft-passes without a validator (floor only)"
+        ;; :count present but wrong type — with no validator the floor
+        ;; can only check presence, so this is :ok at floor level.
+        (is (= :ok (:status (plan/validate-effective-args
+                              schema {:label "x" :count "nope"})))))
+      (testing "malformed value is caught WITH a validator"
+        (let [r (plan/validate-effective-args
+                  schema {:label "x" :count "nope"} malli-validator)]
+          (is (= :invalid (:status r)))
+          (is (= :count (:key (first (:malformed r))))))))))
+
+(deftest view-args-boundary-is-distinct-from-sub-overrides
+  (testing "view-args schema validates explicit args; :sub-overrides ride a separate slot"
+    (let [m {:story.boundary/v
+             {:component     :views/widget
+              :args          {:label "Hi"}
+              :sub-overrides {[:widget/state] :error}}}
+          p (plan/variant-plan :story.boundary/v
+                               {:lookup      m
+                                :view-lookup {:views/widget {:rf/props [:map [:label :string]]}}})]
+      (testing "the view-args schema covers explicit args only"
+        (is (= [:map [:label :string]] (get-in p [:world :view-args-schema]))))
+      (testing ":sub-overrides lower to their own [:world :render :sub-overrides] slot"
+        (is (= {[:widget/state] :error}
+               (get-in p [:world :render :sub-overrides]))))
+      (testing "the two contracts are not conflated — sub-overrides are NOT in view-args-schema"
+        (is (not (contains? (set (get-in p [:world :view-args-schema]))
+                            [:widget/state])))))))
