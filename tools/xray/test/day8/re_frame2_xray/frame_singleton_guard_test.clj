@@ -94,11 +94,6 @@
   so they ride the allowlist until the sweep gives them the
   `defaults/default-frame-id` treatment for consistency."
   #{"panels/epoch/view.cljs"
-    "static/shell.cljs"
-    "static/mode_pill.cljs"
-    "static/flows/panel.cljs"
-    "static/interceptors/panel.cljs"
-    "static/schemas/panel.cljs"
     "static/machines/browse_list.cljs"
     "static/machines/definition_detail.cljs"
     "static/machines/instances_jump.cljs"

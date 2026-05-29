@@ -110,7 +110,10 @@
 
 (defn- search-box
   [query total filtered?]
-  [:div {:data-testid "rf-xray-static-interceptors-search"
+  ;; rf2-nesy9 — render-time frame capture (rendered inside the
+  ;; interceptors Panel reg-view), not a `:rf/xray` literal.
+  (let [frame (rf/current-frame)]
+   [:div {:data-testid "rf-xray-static-interceptors-search"
          :style       {:display       "flex"
                        :align-items   "center"
                        :gap           "8px"
@@ -130,7 +133,7 @@
             :on-change   (fn [e]
                            (rf/dispatch [:rf.xray.static.interceptors/set-query
                                          (-> e .-target .-value)]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
             :style       {:flex          1
                           :background    (:bg-3 tokens)
                           :color         (:text-primary tokens)
@@ -148,7 +151,7 @@
     (cond
       filtered?     "match"
       (= 1 total)   "1 interceptor"
-      :else         (str total " interceptors"))]])
+      :else         (str total " interceptors"))]]))
 
 ;; ---- row -----------------------------------------------------------------
 
