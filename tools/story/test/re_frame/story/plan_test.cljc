@@ -240,8 +240,15 @@
       (is (= [{:key :n :value 1}] (:substitutions ex)))
       (is (= [[:dispatch [:seed 1]]] (:setup-order ex)))
       (is (= [[:dispatch [:go]]] (:script-order ex)))
-      (is (= :append-root-to-child (get-in ex [:merge :setup])))
-      (is (= :child-only (get-in ex [:merge :script]))))))
+      ;; rf2-5x1wt.15 — the merge vocabulary names the inherited / compose /
+      ;; own layering now that `:compose` lands between the parent merge and
+      ;; the variant-owned values. Setup appends inherited→compose→own;
+      ;; script appends through `:compose` only, never `:extends`.
+      (is (= :append-inherited-compose-own (get-in ex [:merge :setup])))
+      (is (= :compose-then-child (get-in ex [:merge :script])))
+      (testing "no :compose on a plain :extends variant"
+        (is (= [] (:compose ex)))
+        (is (= [] (:strict-conflicts ex)))))))
 
 ;; ===========================================================================
 ;; View arg schemas (rf2-5x1wt.12 — spec §View arg schemas)

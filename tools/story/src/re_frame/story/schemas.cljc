@@ -109,6 +109,26 @@
                   (and (>= (count ns) 5)
                        (= (subs ns 0 5) "Mode.")))))))
 
+(defn fragment-id?
+  "True iff `id` is a keyword id for a `reg-fragment` (rf2-5x1wt.15). The
+  spec/017 §Strict composition example shape is
+  `:fragment.<path>/<name>` (e.g. `:fragment.checkout/cart-with-sku`),
+  but fragments are anonymous reusable mixins with no story lineage, so
+  the grammar is intentionally NOT locked to that namespace — any keyword
+  is accepted. The `:fragment.*` example is a convention, not a contract."
+  [id]
+  (keyword? id))
+
+(defn check-id?
+  "True iff `id` is a keyword id for a `reg-check` (rf2-5x1wt.15). The
+  spec/017 §Strict composition example shape is `:check/<name>` (e.g.
+  `:check/no-runtime-errors`); like fragment ids the grammar is left open
+  — any keyword is accepted. Checks preserve identity in run results, so
+  the id is the stable label a failed check shows alongside its
+  underlying assertion records."
+  [id]
+  (keyword? id))
+
 ;; ---- canonical tag vocabulary ---------------------------------------------
 
 (def canonical-tags
@@ -465,6 +485,32 @@
     (fn [v] (or (empty? v)
                 (= (count v) (count (distinct (map :name v))))))]])
 
+;; ---- :compose — strict fragment/check composition (rf2-5x1wt.15) ---------
+
+(def AssertionVector
+  "A terminal/checkpoint assertion atom — the data vector
+  `[:rf.assert/id & args]` (spec/017 §Assertions — one atom, two
+  positions). Shape is left loose (vector starting with a keyword) so the
+  assertion-id registry surfaces a clear runner error rather than a schema
+  rejection on an unknown id."
+  [:and
+   [:vector :any]
+   [:fn {:error/message "assertion must be a vector starting with a keyword id"}
+    (fn [v]
+      (and (vector? v)
+           (pos? (count v))
+           (keyword? (first v))))]])
+
+(def ComposeRefs
+  "Schema for the `:compose` slot on a variant / inline plan (rf2-5x1wt.15
+  + spec/017 §`:compose`). A vector of registered fragment-ids and
+  check-ids, applied in declared order. Each entry is a bare keyword — the
+  reference is by id; the fragment/check body lives at its registration
+  site. The plan compiler resolves a fragment-id against the fragment
+  registry and a check-id against the check registry; an unregistered id
+  FAILS plan construction."
+  [:vector :keyword])
+
 ;; ---- :network — managed HTTP request stubs (rf2-5x1wt.14) ----------------
 
 (def NetworkRoute
@@ -587,6 +633,11 @@
    [:map
     [:doc                   {:optional true} :string]
     [:extends               {:optional true} :keyword]
+    ;; rf2-5x1wt.15 — `:compose` includes registered fragments + checks
+    ;; explicitly, applied in declared order (spec/017 §`:compose`).
+    ;; Fragments contribute world context + setup/script; checks
+    ;; contribute inheritable assertion packs. See `ComposeRefs`.
+    [:compose               {:optional true} ComposeRefs]
     ;; rf2-5x1wt.11 — `:setup` is the PUBLIC precondition slot; `:events`
     ;; is the transitional spelling lowered to `:setup`'s shipping slot
     ;; by the registrar. Mutually exclusive (the `:fn` clause below).
@@ -619,6 +670,22 @@
     ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
     ;; world.
     [:network               {:optional true} NetworkSpec]
+    ;; rf2-5x1wt.15 — strict-conflict effect/interceptor override slots.
+    ;; `:fx-overrides` is the first-class fx-override surface (spec/017
+    ;; §The effect-override surface); `:interceptor-overrides` the
+    ;; interceptor analog. Both are strict-conflict fields: a variant that
+    ;; sets one directly OWNS it (variant-owned-wins), and two composed
+    ;; fragments that disagree on the same fx/interceptor key while the
+    ;; variant is silent is a hard conflict (spec/017 §Conflict
+    ;; resolution).
+    [:fx-overrides          {:optional true} [:map-of :keyword :any]]
+    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
+    ;; rf2-5x1wt.15 — `:checks` is the inheritable expectation form (a
+    ;; vector of registered check-ids, expanded by the plan compiler);
+    ;; `:assertions` is own-only terminal judgement (spec/017 §Checks and
+    ;; assertions). Both ride the variant body alongside `:compose`.
+    [:checks                {:optional true} [:vector :keyword]]
+    [:assertions            {:optional true} [:vector AssertionVector]]
     [:tags                  {:optional true} TagSet]
     [:decorators            {:optional true} DecoratorRefs]
     [:loaders               {:optional true} [:vector EventVector]]
@@ -668,7 +735,100 @@
               "pick one play surface per variant (:script is the public spelling)")}
     (fn [body]
       (<= (count (filter #(contains? body %) [:script :play-script :plays]))
-          1))]])
+          1))]
+   ;; rf2-5x1wt.15 — P1 ships NO `:resolve-conflicts` escape hatch. The
+   ;; variant owns its end-state: a strict-conflict field set directly in
+   ;; the variant body wins, and the only hard error is two composed
+   ;; fragments conflicting while the variant is silent — resolved by the
+   ;; variant stating the wanted value, NOT by a stale-prone resolution
+   ;; map (spec/017 §Conflict resolution). Reject `:resolve-conflicts` at
+   ;; the schema so the absence is enforced, not merely undocumented.
+   [:fn {:error/message
+         (str ":resolve-conflicts is not a P1 slot — the variant owns its "
+              "end-state. State the wanted strict-conflict value directly "
+              "in the variant body (spec/017 §Conflict resolution).")}
+    (fn [body]
+      (not (contains? body :resolve-conflicts)))]])
+
+;; ---- :rf/fragment + :rf/check (rf2-5x1wt.15) ------------------------------
+
+(def Fragment
+  "Schema for the body of `reg-fragment` (spec/017 §Fragments + §Strict
+  composition).
+
+  Fragments are reusable setup / script / frame / args pieces a variant
+  pulls in through `:compose`. Every key is data — no fn-valued slots —
+  exactly like a variant body, and a fragment's slots merge into the
+  composing variant per the §Merge rules (setup/script APPEND in declared
+  order; args/argtypes deep-merge; `:fx-overrides` /
+  `:interceptor-overrides` are strict-conflict fields).
+
+  ## P1 fragments MUST be flat
+
+  A fragment MUST NOT carry `:compose` (and MUST NOT `:extends`). A
+  fragment composing another fragment is a hard error so cycles are
+  impossible in P1 (spec/017 §Fragments — 'P1 fragments MUST be flat').
+  The `:fn` clause below rejects both at the schema; the plan compiler
+  re-checks at compose time as the load-bearing guard (a programmatic
+  registration may bypass the macro path).
+
+  ## What a fragment does NOT carry
+
+  Fragments are world/behaviour mixins, not judgement: they carry no
+  `:checks` / `:assertions` (those compose as checks — `reg-check` — or
+  ride the variant's own `:assertions`). Composing a check is done by
+  naming the check-id in the variant's `:compose`, not by nesting it in a
+  fragment."
+  [:and
+   [:map
+    [:doc                   {:optional true} :string]
+    [:args                  {:optional true} ArgMap]
+    [:argtypes              {:optional true} ArgtypesMap]
+    [:setup                 {:optional true} [:vector EventVector]]
+    [:events                {:optional true} [:vector EventVector]]
+    [:script                {:optional true} PlaySpec]
+    [:play-script           {:optional true} PlaySpec]
+    [:network               {:optional true} NetworkSpec]
+    [:fx-overrides          {:optional true} [:map-of :keyword :any]]
+    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
+    [:loaders               {:optional true} [:vector EventVector]]
+    [:loaders-teardown      {:optional true} [:vector EventVector]]
+    [:decorators            {:optional true} DecoratorRefs]]
+   ;; Flat-fragment enforcement (spec/017 §Fragments). A fragment that
+   ;; composes another fragment, or extends a variant, would re-open the
+   ;; cycle surface P1 closes — reject both at registration.
+   [:fn {:error/message
+         (str "P1 fragments MUST be flat — a fragment MUST NOT carry "
+              ":compose or :extends (spec/017 §Fragments)")}
+    (fn [body]
+      (not (or (contains? body :compose)
+               (contains? body :extends))))]
+   ;; A fragment carries world/behaviour, never judgement (§Fragments).
+   [:fn {:error/message
+         (str "fragments carry no :checks / :assertions — compose a check "
+              "(reg-check) by id, or put own assertions on the variant")}
+    (fn [body]
+      (not (or (contains? body :checks)
+               (contains? body :assertions))))]])
+
+(def Check
+  "Schema for the body of `reg-check` (spec/017 §Checks + §Strict
+  composition).
+
+  A check is a named, reusable assertion pack. It carries `:assertions`
+  (a vector of assertion atoms) and an optional `:doc`. The check-id is
+  the stable label a run result shows alongside the underlying assertion
+  records — check identity is preserved in the plan and in results
+  (spec/017 §Checks — 'A failed check result MUST show both the check id
+  and the underlying assertion records').
+
+  Checks are the inheritable expectation form (distinct from own-only
+  `:assertions` on a variant): they inherit through `:extends` and compose
+  through `:compose`. A check carries no world/behaviour — no setup,
+  script, args, or overrides — so the body is intentionally tight."
+  [:map
+   [:doc        {:optional true} :string]
+   [:assertions [:vector AssertionVector]]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
 
@@ -856,6 +1016,8 @@
   schema here and call `m/validate` against it."
   {:story        Story
    :variant      Variant
+   :fragment     Fragment
+   :check        Check
    :workspace    Workspace
    :mode         Mode
    :story-panel  StoryPanel

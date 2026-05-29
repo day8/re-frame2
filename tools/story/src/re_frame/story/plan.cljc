@@ -581,6 +581,153 @@
             :fx-overrides author-fx-overrides})))
 
 ;; ============================================================================
+;; Strict composition — `:compose` fragments + checks (rf2-5x1wt.15)
+;; ============================================================================
+;;
+;; Per spec/017 §`:compose` / §Total resolution order / §Merge rules /
+;; §Conflict resolution: a variant (or inline plan) MAY pull in registered
+;; fragments and checks through `:compose [id ...]`, applied in declared
+;; order between the parent-chain merge (step 2) and the variant-owned
+;; values (step 4).
+;;
+;; - A FRAGMENT contributes world/behaviour: setup + script APPEND in
+;;   declared order; args/argtypes deep-merge; `:network`,
+;;   `:fx-overrides`, `:interceptor-overrides`, loaders, decorators fold
+;;   in. (Per §Merge rules script DOES append through `:compose` — unlike
+;;   `:extends`, where script never appends.)
+;; - A CHECK contributes its id to the inheritable `:expect :checks` list
+;;   (check identity preserved); its body is NOT inlined here — the runner
+;;   expands a check-id into grouped assertions, keyed by the check id, so
+;;   a failed check shows both the id and the underlying records.
+;;
+;; FLAT FRAGMENTS (§Fragments). A composed fragment that itself carries
+;; `:compose` (or `:extends`) is a hard error — `:rf.error/story-compose-
+;; nested-fragment` — so cycles are impossible in P1. The schema already
+;; rejects this at registration; the compiler re-checks because a
+;; programmatic registration may bypass the macro/schema path, and an
+;; inline plan may name a fragment whose body was hand-built.
+;;
+;; STRICT-CONFLICT FIELDS (§Merge rules / §Conflict resolution). The
+;; strict-conflict fields are the override MAPS `:fx-overrides` and
+;; `:interceptor-overrides`, resolved per-KEY:
+;;
+;;   - the variant OWNS any key it sets directly → variant-owned-wins;
+;;     composed fragments only fill keys the variant left unset;
+;;   - two composed fragments setting the SAME key to DIFFERENT values
+;;     while the variant is silent → HARD ERROR (`:rf.error/story-compose-
+;;     conflict`), resolved by the variant stating the wanted value;
+;;   - two composed fragments setting the same key to the SAME value → no
+;;     conflict (declared order, identical → fine);
+;;   - exactly one fragment setting a key → that value fills it.
+;;
+;; There is NO `:resolve-conflicts` escape hatch in P1 (the schema rejects
+;; it); the only resolution is the priority ladder above.
+
+(def ^:private strict-conflict-keys
+  "The context-map keys whose per-key composition is strict (§Merge rules
+  — Strict conflict). Each value is a `{id → override}` map; the conflict
+  is resolved per id, with the variant owning any id it sets directly."
+  [:fx-overrides :interceptor-overrides])
+
+(defn- fragment-append-keys
+  "Context keys a fragment APPENDS (vectors concatenated in declared
+  order) into the composing body. Setup + script are handled separately
+  (they coordinate with the parent-chain setup and the child script);
+  these are the remaining append-shaped world slots."
+  []
+  [:loaders :loaders-teardown :decorators])
+
+(defn- check-flat-fragment!
+  "FAIL with `:rf.error/story-compose-nested-fragment` when a composed
+  `fragment` body carries `:compose` or `:extends` — P1 fragments MUST be
+  flat (§Fragments). The schema rejects this at registration; this is the
+  compile-time guard for programmatic/inline paths."
+  [variant-id fragment-id fragment]
+  (when (or (contains? fragment :compose)
+            (contains? fragment :extends))
+    (fail! :rf.error/story-compose-nested-fragment
+           (str "re-frame2-story: fragment " fragment-id " composed by "
+                variant-id " carries "
+                (if (contains? fragment :compose) ":compose" ":extends")
+                " — P1 fragments MUST be flat (no fragment composing "
+                "another fragment); cycles are impossible in P1.")
+           {:variant/id  variant-id
+            :fragment/id fragment-id
+            :offending-key (if (contains? fragment :compose) :compose :extends)})))
+
+(defn- resolve-strict-conflict
+  "Resolve ONE strict-conflict override-map field across the composed
+  fragments + the variant-owned value. Pure data → data.
+
+  - `field` — `:fx-overrides` or `:interceptor-overrides`.
+  - `frag-contribs` — vector of `{:source fragment-id :map override-map}`
+    in declared order.
+  - `variant-owned` — the override map set DIRECTLY in the variant body
+    (nil/absent when the variant is silent).
+  - `variant-id` — for error/explain attribution.
+
+  Returns `{:merged {id → override} :resolved [...] :unresolved [...]}`:
+
+  - `:merged` is the final override map fed into `[:world :frame field]`.
+  - `:resolved` is the explain trail of strict conflicts the priority
+    ladder settled — each `{:field :key :winner :winning-source
+    :losing-sources :rule}`.
+  - `:unresolved` records any id where two fragments disagree AND the
+    variant is silent — a HARD conflict. The caller FAILS when this is
+    non-empty (the variant resolves it by stating the value).
+
+  Variant-owned-wins: a key the variant sets directly is owned by the
+  variant; composed fragments for that key become losing sources (the
+  variant value is the winner; no failure, even when fragments disagree)."
+  [field frag-contribs variant-owned variant-id]
+  (let [;; gather, per override id, the fragment sources that set it
+        ;; (in declared order) — {id [{:source :value} ...]}
+        by-id    (reduce
+                   (fn [acc {:keys [source map]}]
+                     (reduce-kv (fn [m k v]
+                                  (update m k (fnil conj [])
+                                          {:source source :value v}))
+                                acc map))
+                   {}
+                   frag-contribs)
+        owned?   (fn [k] (and (map? variant-owned) (contains? variant-owned k)))]
+    (reduce-kv
+      (fn [{:keys [merged resolved unresolved]} k contribs]
+        (let [distinct-vals (distinct (map :value contribs))]
+          (cond
+            ;; variant owns this key → variant-owned-wins (no conflict,
+            ;; even if fragments disagree); the fragment(s) lose.
+            (owned? k)
+            {:merged     merged   ; variant value is merged on top later
+             :resolved   (conj resolved
+                               {:field          field
+                                :key            k
+                                :winner         (get variant-owned k)
+                                :winning-source :variant
+                                :losing-sources (mapv :source contribs)
+                                :rule           :variant-owned-wins})
+             :unresolved unresolved}
+
+            ;; one distinct value across all contributing fragments →
+            ;; no conflict (identical, or a single fragment).
+            (= 1 (count distinct-vals))
+            {:merged     (assoc merged k (-> contribs first :value))
+             :resolved   resolved
+             :unresolved unresolved}
+
+            ;; two+ fragments disagree AND the variant is silent → HARD.
+            :else
+            {:merged     merged
+             :resolved   resolved
+             :unresolved (conj unresolved
+                               {:field   field
+                                :key     k
+                                :sources (mapv :source contribs)
+                                :values  (vec distinct-vals)})})))
+      {:merged {} :resolved [] :unresolved []}
+      by-id)))
+
+;; ============================================================================
 ;; Compiler
 ;; ============================================================================
 
@@ -621,6 +768,33 @@
                               "re-frame2-story: :view-lookup must be a fn or a map"
                               {:view-lookup view-lookup})))
 
+;; ---- fragment + check lookup (rf2-5x1wt.15) ------------------------------
+
+(defn- default-fragment-lookup
+  "Default fragment-body lookup — reads the Story side-table `:fragment`
+  kind. Production bundles elide the side-table; pure tests thread an
+  explicit `:fragment-lookup`."
+  [fragment-id]
+  (registrar/handler-meta :fragment fragment-id))
+
+(defn- default-check-lookup
+  "Default check-body lookup — reads the Story side-table `:check` kind."
+  [check-id]
+  (registrar/handler-meta :check check-id))
+
+(defn- coerce-kind-lookup
+  "Accept a 1-arg fn or a `{id → body}` map as a fragment/check lookup,
+  falling back to `default-fn` when nil. `opt-key` names the option for
+  the error message."
+  [opt-key lookup default-fn]
+  (cond
+    (nil? lookup) default-fn
+    (map? lookup) #(get lookup %)
+    (fn? lookup)  lookup
+    :else         (fail! :rf.error/story-bad-lookup
+                         (str "re-frame2-story: " opt-key " must be a fn or a map")
+                         {opt-key lookup})))
+
 (defn compile-body
   "Compile a raw variant `body` (the child) registered under `id` into a
   normalized plan. `lookup` is a 1-arg fn returning raw parent bodies.
@@ -636,13 +810,45 @@
   - `:validator-fns` — `{:validate (fn [schema value]) :explain (fn …)}`
     used for malformed-value checking of `:effective-args` (§View arg
     schemas). With no validator only required-key presence is checked
-    (the host-free floor)."
+    (the host-free floor).
+  - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
+    `{id → body}` map resolving the bodies named in `:compose`
+    (rf2-5x1wt.15). Default to the Story side-table `:fragment` / `:check`
+    kinds."
   ([id body lookup] (compile-body id body lookup nil))
-  ([id body lookup {:keys [view-lookup validator-fns] :as _opts}]
+  ([id body lookup {:keys [view-lookup validator-fns
+                           fragment-lookup check-lookup] :as _opts}]
   (let [view-lookup  (coerce-view-lookup view-lookup)
+        frag-lookup  (coerce-kind-lookup :fragment-lookup fragment-lookup
+                                         default-fragment-lookup)
+        chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
+                                         default-check-lookup)
         chain        (resolve-source-chain id body lookup)
         bodies       (map :body chain)         ; root-first
+        inherited    (vec (butlast bodies))    ; root → immediate parent
         child        (:body (last chain))
+        ;; ---- :compose resolution (rf2-5x1wt.15, §Total resolution order
+        ;; step 3 — applied BETWEEN the parent merge and the variant-owned
+        ;; values). `:compose` is a child-only directive (like `:extends`);
+        ;; it is not inherited. Each entry resolves to a fragment OR a
+        ;; check; an unregistered id FAILS. Composed fragments are checked
+        ;; FLAT (no nested :compose/:extends).
+        compose-ids  (vec (:compose child))
+        composed     (mapv
+                       (fn [cid]
+                         (if-let [frag (frag-lookup cid)]
+                           (do (check-flat-fragment! id cid frag)
+                               {:kind :fragment :id cid :body frag})
+                           (if-let [chk (chk-lookup cid)]
+                             {:kind :check :id cid :body chk}
+                             (fail! :rf.error/story-compose-unknown
+                                    (str "re-frame2-story: :compose on " id
+                                         " references unregistered fragment/check "
+                                         cid)
+                                    {:variant/id id :compose/id cid}))))
+                       compose-ids)
+        frag-layers  (->> composed (filter #(= :fragment (:kind %))) (mapv :body))
+        composed-checks (->> composed (filter #(= :check (:kind %))) (mapv :id))
         ;; ---- context merge (root→child) ----
         ctx          (reduce
                        (fn [acc layer]
@@ -653,40 +859,96 @@
                                  acc context-keys))
                        {}
                        bodies)
-        ;; checks inherit; build the inherited+own check list root→child
-        checks       (reduce (fn [acc layer]
-                               (into acc (:checks layer)))
-                             []
-                             bodies)
-        ;; setup APPENDS root→child (§Merge rules)
-        setup-raw    (vec (mapcat (fn [layer] (or (pick-setup layer) [])) bodies))
-        ;; script + terminal assertions are CHILD-ONLY (verdict is local)
-        {:keys [script scripts]} (normalize-scripts child)
+        ;; checks inherit root→child (incl. the child's own :checks); the
+        ;; composed check-ids append after (declared order; identity kept).
+        checks       (-> (reduce (fn [acc layer] (into acc (:checks layer)))
+                                 [] bodies)
+                         (into composed-checks))
+        ;; setup APPENDS: inherited (root→parent), THEN composed fragments
+        ;; (declared order), THEN the variant's own setup — variant-owned
+        ;; values land last (§Merge rules + §Total resolution order).
+        setup-raw    (vec (concat
+                            (mapcat (fn [l] (or (pick-setup l) [])) inherited)
+                            (mapcat (fn [l] (or (pick-setup l) [])) frag-layers)
+                            (or (pick-setup child) [])))
+        ;; script APPENDS through `:compose` only (never through
+        ;; `:extends`): composed-fragment scripts in declared order, THEN
+        ;; the child's own script (§Merge rules). Each fragment's script is
+        ;; coerced the same way the child's is.
+        compose-script (vec (mapcat (fn [l] (:script (normalize-scripts l)))
+                                    frag-layers))
+        {child-script :script scripts :scripts} (normalize-scripts child)
+        script       (vec (concat compose-script child-script))
+        ;; terminal assertions are CHILD-ONLY (verdict is local)
         assertions   (vec (:assertions child))
-        ;; ---- args ----
-        arg-map      (reduce (fn [m layer] (args/deep-merge m (:args layer)))
-                             {} bodies)
-        argtypes     (reduce (fn [m layer] (args/deep-merge m (:argtypes layer)))
-                             {} bodies)
+        ;; ---- args: inherited deep-merge, THEN composed fragments, THEN
+        ;; the child's own — variant args win over composed/inherited (the
+        ;; layers go root → fragments → child, last-wins per deep-merge).
+        merge-key    (fn [k]
+                       (reduce (fn [m l] (args/deep-merge m (get l k)))
+                               {}
+                               (concat inherited frag-layers [child])))
+        arg-map      (merge-key :args)
+        argtypes     (merge-key :argtypes)
         ;; ---- arg substitution ----
         subs!        (atom [])
         setup        (substitute-args setup-raw arg-map subs!)
         script*      (substitute-args script arg-map subs!)
         sub-overrides (substitute-args (:sub-overrides ctx) arg-map subs!)
+        ;; ---- strict-conflict composition (rf2-5x1wt.15) ----
+        ;; The strict-conflict override MAPS (`:fx-overrides` /
+        ;; `:interceptor-overrides`) compose per-KEY: the variant chain
+        ;; OWNS any key it set (variant-owned-wins), composed fragments
+        ;; fill the rest, and two fragments disagreeing on a key while the
+        ;; variant is silent is a HARD conflict (§Conflict resolution). The
+        ;; variant-owned value is the parent-chain-merged `ctx` slot (the
+        ;; variant + its ancestors, where `:extends` context flowed down).
+        strict-res   (into {}
+                           (map (fn [field]
+                                  (let [contribs (mapv (fn [{:keys [id body]}]
+                                                         {:source id
+                                                          :map    (get body field)})
+                                                       (filter #(= :fragment (:kind %)) composed))
+                                        contribs (filterv #(map? (:map %)) contribs)]
+                                    [field (resolve-strict-conflict
+                                             field contribs (get ctx field) id)])))
+                           strict-conflict-keys)
+        unresolved   (mapcat :unresolved (vals strict-res))
+        _            (when (seq unresolved)
+                       (fail! :rf.error/story-compose-conflict
+                              (str "re-frame2-story: variant " id
+                                   " — composed fragments conflict on strict field(s) "
+                                   "while the variant is silent: "
+                                   (pr-str (mapv (fn [u] [(:field u) (:key u)]) unresolved))
+                                   ". The variant owns its end-state — state the "
+                                   "wanted value directly in the variant body "
+                                   "(§Conflict resolution; no :resolve-conflicts in P1).")
+                              {:variant/id id :conflicts (vec unresolved)}))
+        ;; Final strict-override maps: composed contributions (the keys no
+        ;; variant value owns) UNDER the variant-owned map (variant wins).
+        composed-fx  (get-in strict-res [:fx-overrides :merged])
+        composed-ic  (get-in strict-res [:interceptor-overrides :merged])
+        ctx-fx       (merge composed-fx (:fx-overrides ctx))
+        ctx-ic       (merge composed-ic (:interceptor-overrides ctx))
         ;; ---- network world slot (rf2-5x1wt.14) ----
         ;; Per-route replies may carry `[:arg key]` placeholders (e.g. a
         ;; stubbed id driven by a control), so substitute before lowering.
-        network      (substitute-args (:network ctx) arg-map subs!)
+        ;; `:network` composes through the parent chain (ctx) + composed
+        ;; fragments' route maps (later wins per declared order, then the
+        ;; variant chain).
+        frag-network (reduce (fn [m l] (merge m (:network l))) {} frag-layers)
+        network      (substitute-args (merge frag-network (:network ctx)) arg-map subs!)
         ;; `:network` and an explicit `:fx-overrides` on :rf.http/managed
         ;; both own the same fx — that is a hard conflict (§Network stubs).
-        _            (check-network-fx-conflict! id (:fx-overrides ctx) network)
+        _            (check-network-fx-conflict! id ctx-fx network)
         ;; Lower the route map to the managed-stub fx override; nil when
         ;; there are no routes. The derived `:fx-overrides` merges UNDER any
         ;; non-managed author overrides (the conflict above already ruled
         ;; out a managed-targeting author override).
         network-low  (lower-network network)
         fx-overrides (merge (when network-low (:fx-overrides network-low))
-                            (:fx-overrides ctx))
+                            ctx-fx)
+        interceptor-overrides ctx-ic
         ;; ---- view arg schema + effective-args validation (rf2-5x1wt.12) ----
         ;; `:effective-args` at plan time IS the resolved arg-map; the
         ;; render path layers control-panel overrides on top later. We
@@ -733,7 +995,7 @@
                        ;; override into the frame's `:fx-overrides` below.
                        (seq network)          (assoc :network network)
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
-                       (contains? ctx :interceptor-overrides) (assoc-in [:frame :interceptor-overrides] (:interceptor-overrides ctx))
+                       (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
                        (contains? ctx :loaders)     (assoc :loaders (:loaders ctx))
                        (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
                        (contains? ctx :decorators)  (assoc :decorators (:decorators ctx))
@@ -743,14 +1005,28 @@
                        (contains? ctx :background)  (assoc :background (:background ctx))
                        (contains? ctx :xray)        (assoc :xray (:xray ctx))
                        (contains? ctx :component)   (assoc :component (:component ctx)))
+        resolved-conflicts (vec (mapcat :resolved (vals strict-res)))
         explain      {:source-chain (mapv :variant/id chain)
                       :parent-chain (mapv :variant/id (butlast chain))
-                      :compose      []          ; foundation: no fragments/checks compose yet
-                      :merge        {:setup      :append-root-to-child
-                                     :args       :deep-merge-root-to-child
-                                     :checks     :inherit-root-to-child
+                      ;; rf2-5x1wt.15 — the resolved `:compose` entries, in
+                      ;; declared order, classified fragment vs check (§Explain
+                      ;; API — composed fragments/checks).
+                      :compose      (mapv (fn [{:keys [kind id]}] {:kind kind :id id})
+                                          composed)
+                      ;; resolved strict conflicts: winning + losing sources +
+                      ;; the rule that chose the winner (§Conflict resolution —
+                      ;; explain MUST list these). Unresolved conflicts throw
+                      ;; upstream, so this slot only ever lists settled ones.
+                      :strict-conflicts resolved-conflicts
+                      :merge        {:setup      :append-inherited-compose-own
+                                     :args       :deep-merge-inherited-compose-own
+                                     :checks     :inherit-then-compose
                                      :assertions :child-only
-                                     :script     :child-only}
+                                     ;; script appends through :compose only,
+                                     ;; never through :extends (§Merge rules).
+                                     :script     :compose-then-child
+                                     :fx-overrides :strict-variant-owned-wins
+                                     :interceptor-overrides :strict-variant-owned-wins}
                       :args         arg-map
                       :substitutions @subs!
                       :effective-args eff-args
@@ -810,6 +1086,9 @@
   - `:validator-fns` — `{:validate (fn …) :explain (fn …)}` for
     malformed-value checking of `:effective-args`; with none supplied
     only required-key presence is checked.
+  - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
+    `{id → body}` map resolving the bodies named in `:compose`
+    (rf2-5x1wt.15). Default to the side-table `:fragment` / `:check` kinds.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view
@@ -818,12 +1097,14 @@
 
   FAILS with a structured `:rf.error/story-*` ex-info on: an unregistered
   keyword target, an unregistered `:extends` parent, an `:extends` cycle,
-  a missing `[:arg key]`, or `:effective-args` that violate the view-args
-  schema (`:rf.error/story-view-args-invalid`)."
+  a missing `[:arg key]`, an unregistered/nested `:compose` fragment, a
+  silent strict-conflict between composed fragments, or `:effective-args`
+  that violate the view-args schema (`:rf.error/story-view-args-invalid`)."
   ([target] (variant-plan target nil))
   ([target {:keys [lookup] :as opts}]
    (let [lookup-fn    (coerce-lookup lookup)
-         compile-opts (select-keys opts [:view-lookup :validator-fns])]
+         compile-opts (select-keys opts [:view-lookup :validator-fns
+                                         :fragment-lookup :check-lookup])]
      (cond
        (keyword? target)
        (if-let [body (lookup-fn target)]

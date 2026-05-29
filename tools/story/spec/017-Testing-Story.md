@@ -788,6 +788,116 @@ is still mandatory: `explain` MUST list resolved strict conflicts,
 unresolved strict conflicts, winning sources, losing sources, and the
 priority rule that chose the winner.
 
+## Strict composition
+
+This section pins the implemented `reg-fragment` / `reg-check` / `:compose`
+contract (rf2-5x1wt.15) — the concrete surface the plan compiler enforces
+on top of the conceptual model in §`:compose` / §Merge rules / §Conflict
+resolution above. It is the authoritative reference for what an
+implementation MUST accept, reject, and order.
+
+### `reg-fragment` and `reg-check`
+
+```clojure
+(story/reg-fragment id body)   ;; reusable setup/script/world mixin
+(story/reg-check    id body)   ;; named, reusable assertion pack
+```
+
+Both register into the Story side-table under new kinds — `:fragment` and
+`:check` — queryable through the existing registry surface
+(`(story/registered? :fragment id)`, `(story/handler-meta :check id)`).
+Fragment and check ids are bare keywords; the example shapes
+(`:fragment.<path>/<name>`, `:check/<name>`) are a convention, not a
+locked grammar.
+
+A **fragment body** carries world/behaviour only — `:args`, `:argtypes`,
+`:setup` (or `:events`), `:script` (or `:play-script`), `:network`,
+`:fx-overrides`, `:interceptor-overrides`, `:loaders`,
+`:loaders-teardown`, `:decorators`. It MUST NOT carry judgement
+(`:checks` / `:assertions`) and MUST NOT carry `:compose` or `:extends`
+(flat-fragment rule, below). The body is stored verbatim — the compiler
+normalizes both the public (`:setup` / `:script`) and shipping (`:events`
+/ `:play-script`) spellings at compose time.
+
+A **check body** carries `:assertions` (required) and an optional `:doc`.
+It carries no world or behaviour. Check identity is preserved end-to-end
+(below).
+
+### `:compose` resolution
+
+A variant (or inline plan) names registered fragments and checks in a
+`:compose [id …]` vector, applied in **declared order**. The compiler
+resolves each id against the fragment registry first, then the check
+registry; an id matching neither FAILS plan construction with
+`:rf.error/story-compose-unknown`.
+
+`:compose` is a **child-only directive** — like `:extends`, it is not
+itself inherited down an `:extends` chain. It is applied at step 3 of the
+total resolution order, between the parent-chain merge (step 2) and the
+variant-owned values (step 4).
+
+### Flat fragments
+
+A composed fragment that itself carries `:compose` or `:extends` FAILS
+with `:rf.error/story-compose-nested-fragment`. The `Fragment` schema
+rejects both at registration; the compiler re-checks at compose time as
+the load-bearing guard (a programmatic registration or an inline plan may
+bypass the macro/schema path). This makes cycles impossible in P1 — there
+is no fragment DAG (a P1 non-goal).
+
+### Total merge order (as implemented)
+
+For a variant with parent chain `[root … parent child]` and a `:compose`
+list of fragments `F1 … Fn`:
+
+| Slot | Rule |
+|---|---|
+| `:setup` | APPEND: inherited (root→parent) ++ composed fragments (declared order) ++ child's own — variant-owned setup lands last. |
+| `:script` | APPEND through `:compose` only: composed fragments (declared order) ++ child's own. Parent scripts never append (a child does not silently run a parent's behaviour). |
+| `:args` / `:argtypes` | DEEP-MERGE root → fragments → child (last wins). |
+| `:checks` | inherited+own (root→child) ++ composed check-ids. |
+| `:assertions` | child-only (own terminal judgement). |
+| `:network` | per-route merge: composed fragments under the variant chain. |
+| `:fx-overrides` / `:interceptor-overrides` | strict-conflict, per-key (below). |
+
+### Variant-owned-wins for strict-conflict fields
+
+The strict-conflict fields are the override **maps** `:fx-overrides` and
+`:interceptor-overrides`, resolved **per key**:
+
+- the variant chain OWNS any key it set directly (the parent-chain-merged
+  value, where `:extends` context flowed down) — composed fragments only
+  fill keys the variant left unset;
+- exactly one composed fragment setting a key → that value fills it;
+- two+ composed fragments setting the same key to the **same** value → no
+  conflict;
+- two+ composed fragments setting the same key to **different** values
+  while the variant is silent → **HARD ERROR**
+  (`:rf.error/story-compose-conflict`), carrying every conflicting
+  `{:field :key :sources :values}`. The variant resolves it by stating the
+  wanted value directly in its body (which then wins per variant-owned).
+
+`explain` records the settled conflicts under `:strict-conflicts` — each
+`{:field :key :winner :winning-source :losing-sources :rule}` — and the
+resolved `:compose` entries under `:compose` (classified `:fragment` vs
+`:check`). Unresolved conflicts throw, so `:strict-conflicts` only ever
+lists conflicts the priority ladder settled.
+
+### No `:resolve-conflicts` in P1
+
+There is no `:resolve-conflicts` escape hatch. The `Variant` schema
+rejects a `:resolve-conflicts` key with `:rf.error/variant-shape` — the
+absence is enforced, not merely undocumented. The only resolution is the
+variant-owned-wins priority ladder above.
+
+### Check identity is preserved
+
+A composed (or inherited) check rides the plan as its **id** in
+`[:expect :checks]`, never inlined into the assertion list. The runner
+expands a check-id into grouped assertions keyed by the check id, so a
+failed check result shows both the check id and the underlying assertion
+records (§Checks).
+
 ## Checks and assertions
 
 ### Assertions — one atom, two positions
