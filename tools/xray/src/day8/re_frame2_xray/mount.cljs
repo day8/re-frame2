@@ -320,10 +320,13 @@
   (atom []))
 
 (defn- register-first-mount-hook!
-  "Register a 0-ary fn to run on first `ensure-xray-frame!` after the
-  `:rf/xray` frame is registered. Hooks run in insertion order; an
-  already-registered `id` replaces in place (idempotent on `:after-
-  load`). Internal — not part of the public API."
+  "Register a 1-ary fn `(fn [frame-id] …)` to run on first
+  `ensure-xray-frame!` after the shell's frame is registered. Hooks
+  run in insertion order and receive the instance `frame-id` so their
+  seed/hydrate dispatches land on the right app-db (per rf2-lnluk — the
+  production singleton passes `shell/default-frame-id`). An already-
+  registered `id` replaces in place (idempotent on `:after-load`).
+  Internal — not part of the public API."
   [id handler]
   (swap! first-mount-hooks
          (fn [hooks]
@@ -337,12 +340,21 @@
 ;; ---- public API ----------------------------------------------------------
 
 (defn ensure-xray-frame!
-  "Register the `:rf/xray` frame if not already registered, then run
-  each registered first-mount hook in insertion order. Idempotent via
+  "Register the shell frame if not already registered, then run each
+  registered first-mount hook in insertion order. Idempotent via
   `reg-frame`'s surgical-update-on-re-register semantics (per Spec
   002 §reg-frame) — first call creates the frame and seeds, subsequent
   calls are surgical no-ops on the frame side and (per each hook's own
   idempotency contract) no-ops on the hook side.
+
+  ## `frame-id` arg (rf2-lnluk)
+
+  Defaults to `shell/default-frame-id` (`:rf/xray`) — the production
+  singleton path passes nothing and behaviour is unchanged. A testbed
+  mounting a second shell against a distinct frame-id calls
+  `(ensure-xray-frame! :other-frame)` so the seed/hydrate hooks land on
+  that frame's app-db. Handlers are NOT re-registered per frame (the
+  registry is process-global) — only the per-frame app-db seed runs.
 
   ## Why here, not at preload time
 
@@ -401,20 +413,22 @@
     re-seeds `:epoch-history` from `(rf/epoch-history seed-frame)`
     in lockstep — symmetric with the picker path and the public
     `core/set-target-frame!` API."
-  []
-  ;; `:rf.trace/frame-no-emit? true` marks `:rf/xray` a tool / inspector
-  ;; frame: the framework suppresses all trace emission tagged with this
-  ;; frame so Xray's own UI reactivity (`:rf.sub/run` + `:rf.view/render` on
-  ;; every panel render) does NOT flood the shared trace ring it inspects
-  ;; (rf2-2qaqh). Without this, Xray's self-instrumentation evicted every
-  ;; application event from the process-global ring buffer — any other
-  ;; consumer reading the raw buffer (re-frame2-pair, Story) saw only
-  ;; Xray noise. The flag is the frame-scoped sibling of the handler-
-  ;; scoped `:rf.trace/no-emit?`; the framework's `reg-frame` honours it
-  ;; on every (re-)registration so the gate survives hot-reload.
-  (rf/reg-frame :rf/xray {:rf.trace/frame-no-emit? true})
-  (doseq [{:keys [handler]} @first-mount-hooks]
-    (handler)))
+  ([] (ensure-xray-frame! shell/default-frame-id))
+  ([frame-id]
+   ;; `:rf.trace/frame-no-emit? true` marks the shell frame a tool /
+   ;; inspector frame: the framework suppresses all trace emission
+   ;; tagged with this frame so Xray's own UI reactivity (`:rf.sub/run`
+   ;; + `:rf.view/render` on every panel render) does NOT flood the
+   ;; shared trace ring it inspects (rf2-2qaqh). Without this, Xray's
+   ;; self-instrumentation evicted every application event from the
+   ;; process-global ring buffer — any other consumer reading the raw
+   ;; buffer (re-frame2-pair, Story) saw only Xray noise. The flag is
+   ;; the frame-scoped sibling of the handler-scoped `:rf.trace/no-
+   ;; emit?`; the framework's `reg-frame` honours it on every (re-)
+   ;; registration so the gate survives hot-reload.
+   (rf/reg-frame frame-id {:rf.trace/frame-no-emit? true})
+   (doseq [{:keys [handler]} @first-mount-hooks]
+     (handler frame-id))))
 
 ;; ---- first-mount hook registrations -------------------------------------
 ;;
@@ -440,19 +454,19 @@
   ;; Xray-internal hard-filter) to derive the seed-frame. Without the
   ;; internal filter a tool-frame cascade could be chosen as the head,
   ;; which the user never sees in the L2 list.
-  (fn []
+  (fn [frame-id]
     ;; `refresh-trace-rings!` is async via dispatch in production but
-    ;; safe to call here even though `:rf/xray` was just registered —
-    ;; the dispatch lands in the queue; we follow up with a sync
-    ;; dispatch through `:rf.xray/sync-trace-buffer` carrying the same
-    ;; snapshot so the first-mount render reads against pre-mount
+    ;; safe to call here even though the shell frame was just
+    ;; registered — the dispatch lands in the queue; we follow up with
+    ;; a sync dispatch through `:rf.xray/sync-trace-buffer` carrying the
+    ;; same snapshot so the first-mount render reads against pre-mount
     ;; events deterministically.
     (let [buffer     (trace-collector/snapshot-from-rings)
           cascades   (into [] (remove self-noise/xray-internal-cascade?)
                            (projection/group-cascades buffer))
           seed-frame (or (spine/focusable-head-frame-id cascades)
                          defaults/default-target-frame)]
-      (rf/with-frame :rf/xray
+      (rf/with-frame frame-id
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
         ;; rf2-boyc2 — seed via `:rf.xray/set-target-frame` so
         ;; `:target-frame` + `:epoch-history` move in lockstep keyed
@@ -485,7 +499,7 @@
   ;; still hydrate via their own hooks below — only transient filters
   ;; reset. The #1962 'N events hidden by filters' indicator stays as
   ;; the in-session safety net once the user reaches for a filter.
-  (fn []
+  (fn [_frame-id]
     (filters-persistence/clear!)
     (spine-filters/clear-raw!)
     (frame-switcher/clear!)))
@@ -500,8 +514,8 @@
   ;; (the orchestrator-time call from `registry/register-xray-
   ;; handlers!` happens BEFORE the frame is mounted and short-
   ;; circuits cleanly). Re-entrant — same source → same slot.
-  (fn []
-    (resizable-table/hydrate!)))
+  (fn [frame-id]
+    (resizable-table/hydrate! frame-id)))
 
 (register-first-mount-hook!
   ::hydrate-static-mode
@@ -515,8 +529,8 @@
   ;; canonicalises the stored value (e.g. an old "explorer" pre-
   ;; rename value would land back as "runtime" without manual
   ;; intervention).
-  (fn []
-    (rf/with-frame :rf/xray
+  (fn [frame-id]
+    (rf/with-frame frame-id
       (rf/dispatch-sync [:rf.xray/set-mode (static-persistence/load)]))))
 
 (register-first-mount-hook!
@@ -528,7 +542,7 @@
   ;; exists. Install is idempotent + guards against the toggle being
   ;; off — when the user has never enabled the setting (the default),
   ;; this is a one-time no-op cost on first mount.
-  (fn []
+  (fn [_frame-id]
     (when (config/get-setting :general :auto-open-on-error?)
       (settings-effects/install-auto-open-watcher!))))
 
