@@ -55,6 +55,21 @@ We'll walk through the surface roughly in the order you'd reach for it. First st
 - [5. Snapshot identity + QR sharing](05-snapshot-identity.md) — content-hashed snapshots that survive renames. The visual-regression integration story.
 - [6. Time-travel in Story](06-time-travel.md) — Xray embedded in the RHS, scoped per variant frame.
 - [7. Multi-substrate side-by-side](07-multi-substrate.md) — the same variant under Reagent, UIx, Helix. For adapter authors and component-library maintainers.
+- [8. Testing cookbook](08-testing-cookbook.md) — the flat recipe sheet: a handler, a sub, a view, a machine, a route, a schema, a frame, a trace, an inline plan, and a Story variant — each with *which verb, which assertion, which runner*, in the P1 `:setup` / `:script` vocabulary.
+
+!!! note "Authoring vocabulary — `:setup` / `:script`"
+
+    The public authoring slots are **`:setup`** (preconditions) and
+    **`:script`** (behaviour under test). Some tutorial code blocks below
+    still show the shipping `:events` / `:play-script` spellings — those
+    are a clean pre-alpha rename, not a long-lived compatibility layer,
+    and the recorder still emits the shipping form today, so the EDN shown
+    is exact for the current tool. The normative contract — the four-bucket
+    plan, the three execution verbs (`story/run` / `story/is` /
+    `story/explain`), `:cannot-run`, composition, and the epoch-tape
+    evidence projection — lives in
+    [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md);
+    the [Testing cookbook](08-testing-cookbook.md) is the consumer extract.
 
 ## Three load-bearing rules
 

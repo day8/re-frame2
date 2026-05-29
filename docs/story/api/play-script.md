@@ -4,6 +4,21 @@ This chapter is about the surface that turns a variant body's `:play-script` slo
 
 `:play-script` is the **canonical AND ONLY** phase-4 play surface as of 2026-05-20 — the legacy `:play` event-vector slot has been removed under pre-alpha posture, with no transitional dual-acceptance.
 
+> **Public authoring vocabulary — `:setup` / `:script`.** The P1 public
+> authoring slots are `:setup` (preconditions) and `:script` (behaviour
+> under test); they supersede the shipping `:events` and `:play-script`
+> spellings this page documents. Because the project is pre-alpha this is
+> a clean rename, not a long-lived compatibility layer — the shipping
+> slots remain only while the tree migrates (and the recorder still emits
+> the shipping spellings, so the EDN shown here is exact for today's
+> tool). The normative contract — the four-bucket plan, the three
+> execution verbs (`story/run` / `story/is` / `story/explain`),
+> `:cannot-run`, composition, the schema floor, `render-variant`, and the
+> epoch-tape evidence projection — lives in
+> [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md).
+> For the consumer-facing recipe sheet in P1 vocabulary, see the
+> [Testing cookbook](../08-testing-cookbook.md).
+
 ## The grammar — ten step forms
 
 Every step is a bare vector. Phase 4 of the variant lifecycle iterates the script in order, dispatch-syncs each step into the variant's frame, drains to completion between steps, and records the result.

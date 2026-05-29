@@ -116,31 +116,78 @@ path **and** it loads one of the already-staged smoke surfaces (or
 accept the extra compile if it must stage a new one). Everything else
 runs nightly by default.
 
-### Forthcoming — headless plan gate + `:cannot-run` policy (NewTestStory EPIC rf2-5x1wt)
+### Story-as-test: headless plan gate, `:cannot-run` policy, fast-vs-browser split (NewTestStory EPIC rf2-5x1wt)
 
-The NewTestStory work (normative in
-[`tools/story/spec/017-Testing-Story.md`](tools/story/spec/017-Testing-Story.md))
-introduces a **headless variant-plan gate** that runs Story variants and
-inline plans through the `:headless` runner — fast, JVM/node, no browser.
-This becomes the default per-PR Story-as-test path; the existing
-browser-rendered `test:story-play-scripts` gate (which exercises the live
-shell + assertion-strip) stays as the browser-tier complement, not the
-default for ordinary state/effect/schema/trace assertions. Consistent
-with the project's CLJS-unit-tests-not-Playwright default, new Story/test
-coverage targets the headless plan gate first; reach for the browser gate
-only when an assertion genuinely needs browser behaviour.
+The NewTestStory testing substrate is **complete and promoted** — the
+normative contract is
+[`tools/story/spec/017-Testing-Story.md`](tools/story/spec/017-Testing-Story.md)
+(§CI policy is the authority for the gate rules below). The substrate
+ships the variant-plan compiler, the three execution verbs
+(`story/run` / `story/is` / `story/explain`), inline plans, the shared
+run-result + `:cannot-run` third status, the schema floor, the
+epoch-tape evidence projection, the determinism gate, the semantic diff,
+and run-artifact replay/promotion. This section records how that maps
+onto CI policy; the concrete workflow files are not restructured by the
+substrate work.
 
-Every CI gate that runs plans MUST define a **`:cannot-run` policy**.
-`:cannot-run` is a distinct third result state (not pass, fail, or skip):
-a runner returns it when an assertion or step requires evidence the
-selected runner cannot produce (e.g. a `:browser`-only visual snapshot
-under a `:headless` runner). Per gate, the policy is one of: **fail the
-gate** (the assertion was required), **report inconclusive** (record but
-do not fail), or **route to a richer runner** (re-run the affected
-variant/assertion under a browser-tier gate). The headless plan gate's
-default policy is to treat `:cannot-run` as inconclusive and surface the
-count, deferring browser-only assertions to the browser-tier gate that
-can prove them — never silently passing them.
+**Headless plan gate (the default per-PR Story-as-test path).** Story
+variants and inline plans run through the `:headless` runner — fast,
+JVM/node, no browser — and that is the default for ordinary
+state/effect/schema/trace assertions. Consistent with the project's
+CLJS-unit-tests-not-Playwright default, new Story/test coverage targets
+the headless path first; reach for a browser-tier assertion only when it
+genuinely needs browser behaviour. The pure substrate (compiler,
+requirement registry, determinism verdict logic, evidence projection)
+runs under `clojure -M:test` and `npm run test:cljs` with no runtime.
+
+**Fast vs browser-tier separation (already in place).** The gate split
+documented above (PR-smoke vs nightly-full) IS the fast-vs-browser-tier
+separation for Story-as-test, and it predates this work:
+
+- the **fast** path is the per-PR CLJS/JVM unit suite (`npm run
+  test:cljs`, the per-artefact `clojure -M:test` jobs, `jvm-tools-story`)
+  plus the single-testbed browser-rendered `test:story-play-scripts`
+  PR-smoke in the `story-xray-browser` job (§Story/Xray gate above);
+- the **browser tier** is the live-shell sweep on the nightly path
+  (`test:story-feature-load`, `test:story-static`, the full
+  `test:story-play-scripts` and `test:browser*`) in
+  `expensive-tests.yml`.
+
+A *dedicated* browser-tier gate that selects variants by their
+`:required-runner` capability set (`:pixels` / `:a11y-engine`) and runs
+ONLY those under a real-browser runner is the spec's deferred follow-on
+(017 §Browser-tier gate policy explicitly scopes the workflow wiring out
+of the spec change). The structural-a11y check
+(`:rf.assert/a11y-structural`) carries no browser dependency and runs on
+the normal `npm run test:cljs` / `clojure -M:test` path.
+
+**`:cannot-run` policy (MUST, per gate).** Every CI gate that runs plans
+MUST define a `:cannot-run` policy. `:cannot-run` is a distinct third
+result state (not pass, fail, or skip): a runner returns it when an
+assertion or step requires evidence the selected runner cannot produce
+(e.g. a `:browser`-only visual snapshot under a `:headless` runner). Per
+gate, the policy is one of: **fail the gate** (the assertion was
+required), **report inconclusive** (record but do not fail), or **route
+to a richer runner** (re-run the affected variant/assertion under a
+browser-tier gate). The headless plan gate's default policy is to treat a
+browser-tier `:cannot-run` as **inconclusive** and surface the count,
+deferring browser-only assertions to the browser-tier gate that can prove
+them — never silently passing them. A variant whose only unmet
+expectations are `:cannot-run` is itself `:cannot-run`, never a silent
+pass (017 §`:cannot-run` aggregation rule).
+
+**Failed-run artifacts.** A failed plan run can emit a
+`:rf.test/run-artifact` — the serializable, data-shaped record of one run
+(seed, event program, fx decisions, epoch tape, trace, result) — enough
+to replay it deterministically and re-derive the same evidence
+(017 §Artifacts — Run artifact, §Run artifact and replay). A gate MAY
+capture and upload that artifact for a failed run so the failure is
+replayable off-CI; the artifact also feeds the determinism gate and the
+semantic diff, and MAY be promoted into a curated regression variant via
+`story/promote-run-artifact!`. Wiring an `upload-artifact` step into a
+specific workflow gate is a CI-mechanics decision, not part of the
+substrate; the substrate guarantees the artifact exists and is
+canonicalizable.
 
 ## Local commands
 

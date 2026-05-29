@@ -318,7 +318,7 @@ It's a `doseq` of `dispatch-sync` calls; it just reads as one intention instead 
 (ts/assert-path-equals [:auth :state] :validating {:frame :test/auth-flow})
 ```
 
-A mismatch fires a `clojure.test`-style failure through `do-report`, so it slots into your test report like any `is`. And there's a deliberate symmetry here worth flagging: `assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play` blocks (see [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions)). Learn one surface and you can read the other without a translation table — the same assertion vocabulary spans your unit tests and your stories.
+A mismatch fires a `clojure.test`-style failure through `do-report`, so it slots into your test report like any `is`. And there's a deliberate symmetry here worth flagging: `assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside a Story variant's `:script` (the public authoring vocabulary is `:setup` for preconditions and `:script` for behaviour under test; the normative contract is [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md)). Learn one surface and you can read the other without a translation table — the same assertion vocabulary spans your unit tests and your stories.
 
 ## JVM versus CLJS: where things run
 
