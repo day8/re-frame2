@@ -519,6 +519,52 @@ the headless *implementation*. `[:dispatch-sync event-vector]` MAY remain
 as a low-level escape step but SHOULD NOT be the normal authoring form;
 an explicit `[:dispatch-sync …]` keeps its current meaning.
 
+#### Concrete contract surface
+
+The contract is named and exposed by the `re-frame.story.play.settled-boundary`
+namespace. It does **not** introduce a second quiescence engine; it names
+the existing framework drain and a flush-hook seam over it.
+
+- `boundary-levels` — the ladder vector `[:headless :cljs-reactive :dom
+  :browser]`, cheapest → richest; `boundary>=` compares two boundaries on
+  it (unknown boundaries fail closed). `step-required-boundary` maps a
+  script step to the minimum boundary it needs (`[:dispatch …]` →
+  `:headless`; `[:click …]` / `[:type …]` / `[:assert-dom …]` → `:dom`).
+- `drain-sync!` — the headless `settled-boundary`: `dispatch-sync*`
+  (= `router/dispatch-sync!`) projected under the boundary name. This is
+  the existing run-to-fixed-point drain (Spec 002 §dispatch-sync), not a
+  reimplementation.
+- **flush-hooks** — the adapter-aware caller supplies a hooks map:
+
+  ```clojure
+  {:provides  :headless | :cljs-reactive | :dom | :browser
+   :dispatch! (fn [frame-id event-vector] …)         ; enqueue / fire
+   :flush!    {:headless      (fn [frame-id] …)       ; drain to fixed point
+               :cljs-reactive (fn [frame-id] …)       ; + reaction flush
+               :dom           (fn [frame-id] …)}      ; + act()/microtask
+   :timeout-ms optional-number}
+  ```
+
+  `headless-flush-hooks` is the default the JVM / node-runtime headless
+  runner uses (`:provides :headless`, `:dispatch!` routed through
+  `drain-sync!`). Adapter callers register richer hooks declaring a higher
+  `:provides`; the runner resolves them through the
+  `:settled-boundary-hooks` late-bind slot and never reaches for
+  `dispatch-sync` directly.
+- `dispatch-and-settle!` — the entry point `[:dispatch event-vector]`
+  lowers to: dispatch through the supplied `:dispatch!`, then run each
+  registered flush whose level is `<= required` in ladder order. It
+  returns `{:status :settled :boundary <required>}` on success, a
+  `:cannot-run` refusal when the runner's `:provides` does not reach the
+  required boundary (the event is **not** dispatched — fail-closed), or
+  `{:status :error …}` when a flush/dispatch throws. A flush timeout
+  reports `:cannot-run` or `:error` per policy (`flush-timeout-result`) —
+  **never a silent pass**.
+
+The play runner's `[:dispatch …]` step (`re-frame.story.play.runner-events/
+exec-dispatch!`) routes through `dispatch-and-settle!`, so in headless it
+settles synchronously to fixed point and is no longer an async-yield step.
+
 ### Script step grammar
 
 P1 uses **one tagged step grammar** across `:setup` and `:script`, but

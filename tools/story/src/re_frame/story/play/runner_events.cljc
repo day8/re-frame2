@@ -43,6 +43,7 @@
             [re-frame.story.play        :as play]
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.runner :as runner]
+            [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.registrar   :as registrar]))
 
 ;; ---- per-variant run-state -----------------------------------------------
@@ -247,6 +248,28 @@
         (merge {:frame variant-id} payload)))
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
+;; ---- settled-boundary flush hooks (rf2-5x1wt.2) --------------------------
+;;
+;; `[:dispatch event-vector]` settles through `settled-boundary` (spec/017
+;; §Script and `settled-boundary`). The runner takes its flush-hooks from
+;; the adapter-aware caller via the `:settled-boundary-hooks` late-bind
+;; slot; the default is the headless hooks (`dispatch-sync*` drain). Story
+;; core never reaches for `dispatch-sync` directly — the boundary ns owns
+;; the drain, the hooks own the richer reactive / DOM flushes.
+
+(defn current-flush-hooks
+  "Resolve the active flush-hooks map. An adapter-aware caller (the
+  Reagent/UIx/Helix shell, a future `:dom` browser runner) registers a
+  richer hooks map via `late-bind/set-fn! :settled-boundary-hooks <fn>`,
+  where the fn takes the frame-id and returns the hooks for that frame.
+  When no adapter has registered, the headless hooks are used so a
+  `[:dispatch …]` step settles to fixed point synchronously."
+  [frame-id]
+  (if-let [f (late-bind/get-fn :settled-boundary-hooks)]
+    (or (try (f frame-id) (catch #?(:clj Throwable :cljs :default) _ nil))
+        boundary/headless-flush-hooks)
+    boundary/headless-flush-hooks))
+
 ;; ---- step executors ------------------------------------------------------
 
 (declare read-frame-db)
@@ -289,8 +312,45 @@
                            :message  msg}))
       (runner/step-skip idx step))))
 
+(defn- boundary-result->step
+  "Project a `settled-boundary/dispatch-and-settle!` non-`:settled`
+  outcome into a runner step-result. `:cannot-run` becomes a step-fail
+  carrying the refusal (so the play surfaces a distinct refusal, never a
+  silent pass — spec/017 §`:cannot-run`); `:error` becomes a step-fail
+  with the boundary error message. Returns nil for `:settled` (the
+  dispatch's pass/fail comes from the assertion bridge instead)."
+  [idx step settle]
+  (case (:status settle)
+    :cannot-run
+    (runner/step-fail idx step
+                      {:cannot-run? true
+                       :required-boundary (:required-boundary settle)
+                       :provided-boundary (:provided-boundary settle)
+                       :reason   (:reason settle)
+                       :message  (str "cannot run " (pr-str step)
+                                      " — requires settled-boundary "
+                                      (pr-str (:required-boundary settle))
+                                      " but runner provides "
+                                      (pr-str (:provided-boundary settle))
+                                      " (" (name (or (:reason settle) :runner-below-required-boundary)) ")")})
+    :error
+    (runner/step-exception idx step (:error settle))
+    ;; :settled → no step-level result from the boundary itself.
+    nil))
+
 (defn- exec-dispatch!
-  "Execute a `:dispatch` step. Returns a step-result.
+  "Execute a `:dispatch` step — dispatch the event and settle through
+  `settled-boundary` (spec/017 §Script and `settled-boundary`,
+  rf2-5x1wt.2). In headless this is the existing `dispatch-sync*`
+  run-to-fixed-point drain, named via `settled-boundary`; richer runners
+  supply reactive / DOM flushes through their flush-hooks. The runner
+  NEVER hard-codes `dispatch-sync` — it routes through the boundary's
+  caller-supplied hooks (`current-flush-hooks`).
+
+  When the active runner cannot satisfy the step's required boundary the
+  boundary refuses with `:cannot-run` and the step is NOT dispatched
+  (fail-closed); the refusal becomes a runner step-fail rather than a
+  silent pass.
 
   Drains any handler-exception trace events captured by the play
   listener into `:rf.story/assertions` so the test-mode pane + Xray
@@ -304,17 +364,19 @@
   `:passed? false` becomes a runner-visible step-fail so the play's
   terminal status flips to `:fail`."
   [frame-id idx step]
-  (let [evec   (runner/step-event step)
-        prev   (assertion-count frame-id)
-        result (try
-                 (rf/dispatch* evec {:frame frame-id})
-                 nil
-                 (catch #?(:clj Throwable :cljs :default) e
-                   (runner/step-exception idx step
-                                          #?(:clj  (.getMessage ^Throwable e)
-                                             :cljs (str e)))))]
+  (let [evec     (runner/step-event step)
+        prev     (assertion-count frame-id)
+        required (boundary/step-required-boundary step)
+        hooks    (current-flush-hooks frame-id)
+        settle   (try
+                   (boundary/dispatch-and-settle! frame-id evec hooks required step)
+                   (catch #?(:clj Throwable :cljs :default) e
+                     {:status :error
+                      :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
+                      :step   step}))]
     (play/drain-pending-exceptions! frame-id :phase-4-play)
-    (or result (dispatch-step-result frame-id prev idx step))))
+    (or (boundary-result->step idx step settle)
+        (dispatch-step-result frame-id prev idx step))))
 
 (defn- exec-dispatch-sync!
   [frame-id idx step]

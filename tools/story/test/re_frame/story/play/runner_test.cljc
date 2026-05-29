@@ -24,19 +24,21 @@
 
 (deftest async-yield-classification
   (testing "async-yield? returns true for steps whose effects queue
-            outside the runner — :dispatch (router), :click / :type
-            (synthetic-event handlers re-entering dispatch), :wait
-            (explicit sleep). Used by run-loop! to decide whether to
-            recur synchronously or yield. rf2-ftow6."
-    (is (true? (runner/async-yield? [:dispatch [:foo]])))
+            outside the runner — :click / :type (synthetic-event handlers
+            re-entering dispatch) and :wait (explicit sleep). Used by
+            run-loop! to decide whether to recur synchronously or yield.
+            rf2-ftow6."
     (is (true? (runner/async-yield? [:click "[data-test=x]"])))
     (is (true? (runner/async-yield? [:type "[data-test=x]" "text"])))
     (is (true? (runner/async-yield? [:wait 0])))
     (is (true? (runner/async-yield? [:wait 100]))))
   (testing "sync-class steps must NOT yield — that's the bug the race
-            fix corrects. :dispatch-sync, :assert-db, :assert-dom are
-            purely synchronous on CLJS; yielding between them allowed
-            concurrent runs to interleave and overshoot counter incs."
+            fix corrects. :dispatch (now settled through settled-boundary
+            — the dispatch-sync* drain, rf2-5x1wt.2), :dispatch-sync,
+            :assert-db, :assert-dom are synchronous at the step boundary
+            on CLJS; yielding between them allowed concurrent runs to
+            interleave and overshoot counter incs."
+    (is (false? (runner/async-yield? [:dispatch [:foo]])))
     (is (false? (runner/async-yield? [:dispatch-sync [:foo]])))
     (is (false? (runner/async-yield? [:assert-db [:k] 1])))
     (is (false? (runner/async-yield? [:assert-db [:k] :pred even?])))
