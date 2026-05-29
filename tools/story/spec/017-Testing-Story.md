@@ -1486,16 +1486,35 @@ A proof is honoured only when BOTH sides agree it is available:
    tape never produced FAILS CLOSED to `:cannot-run` (the proof was
    promised but not delivered), NEVER `:pass`.
 
-The token→slot map: `:effects → :effects`, `:schema → :schema-violations`,
-`:trace → :warnings`, `:hiccup-structure`/`:dom` → `:renders`,
-`:reactive-counts → :reactive-counts` (present only when the tape carried
-`:rf.sub/run` / `:rf.view/rendered` rows — a `:cljs-reactive` run whose
-tape carried none refuses, fail-closed), `:pixels`/`:a11y-engine` →
-browser-only slots. A token with NO distinct
-slot (`:app-db`) imposes no post-run check — its proof is the final db
-itself, validated by the assertion's own evaluation. Because the check
-reads the SAME `project-evidence` projection the run-result slots derive
-from, a duplicate accumulator cannot report green while the tape is empty.
+The token→slot map lists ONLY tokens whose evidence slot is non-empty for
+EVERY healthy run of an assertion requiring them — so an empty slot
+genuinely means "proof promised, not delivered": `:effects → :effects`,
+`:schema → :schema-violations`, `:reactive-counts → :reactive-counts`
+(present only when the tape carried `:rf.sub/run` / `:rf.view/rendered`
+rows — a `:cljs-reactive` run whose tape carried none refuses,
+fail-closed), `:pixels`/`:a11y-engine` → browser-only oracle slots.
+
+The always-on / **empty-is-healthy** tokens are DELIBERATELY absent — they
+impose no post-run check because an empty slot is their NORMAL passing
+state, so a presence gate would emit a false `:cannot-run`:
+
+- `:app-db` — its proof is the final db itself, validated by the
+  assertion's own evaluation.
+- `:trace` — the trace stream is always-on; its only projections
+  (`:warnings`, `:schema-violations`) are FILTERED views, not a faithful
+  presence slot for the whole stream. `:rf.assert/no-warnings` PASSES when
+  `:warnings` is empty and `:rf.assert/dispatched?` proves against trace
+  DISPATCH rows, not warnings — so a `:trace → :warnings` gate would
+  false-refuse both healthy cases.
+- `:hiccup-structure` / `:dom` — `:renders` is empty whenever an assertion
+  legitimately asserts ABSENCE (`:rf.assert/dom-hidden`, a structural-a11y
+  check that finds no offending node). The runner-selection PREFLIGHT
+  already refuses these against a runner that cannot render; a post-run
+  render-count gate would only add false refusals.
+
+Because the check reads the SAME `project-evidence` projection the
+run-result slots derive from, a duplicate accumulator cannot report green
+while the tape is empty.
 
 ### MCP is a frame binding, not a runner tier
 

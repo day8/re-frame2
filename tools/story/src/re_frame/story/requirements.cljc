@@ -553,27 +553,68 @@
 (def token->evidence-slots
   "Map each capability token to the run-evidence SLOT(S) whose PRESENCE in
   the projected evidence (`evidence/project-evidence`) proves the token was
-  actually exercised. A token with NO slot (e.g. `:app-db`, always present)
-  needs no post-run check — its proof is the final db itself, validated by
-  the assertion's own evaluation. Only tokens whose proof is a DISTINCT
+  actually exercised. A token with NO slot needs no post-run check — its
+  proof is the assertion's own evaluation, not a distinct stream the runner
+  could fail to produce.
+
+  ## The empty-slot-means-no-proof invariant
+
+  A token belongs here ONLY when an EMPTY/absent slot genuinely means the
+  runner promised a proof it never delivered — i.e. the slot is non-empty
+  for EVERY healthy run of an assertion requiring that token. The listed
+  tokens satisfy that:
+
+  - `:effects` / `:schema` — `:rf.assert/effect-emitted` /
+    `:rf.assert/schema-error` are HEALTHY only when the tape carried the
+    matching row; empty = the promised effect / schema-failure never
+    happened = genuinely no proof.
+  - `:reactive-counts` — present only when the tape carried `:rf.sub/run` /
+    `:rf.view/rendered` rows; absent means the reactive substrate was never
+    exercised, so a `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`
+    run on it has no proof.
+  - `:pixels` / `:a11y-engine` — browser-only oracle streams; empty = no
+    screenshot / no axe scan = no proof.
+
+  ## Tokens DELIBERATELY absent (empty-is-HEALTHY — rf2-qoxw7)
+
+  Tokens whose slot is empty in the NORMAL passing case must NOT be listed —
+  keying a fail-closed presence check on them emits a FALSE `:cannot-run`
+  for healthy runs:
+
+  - `:trace` — the trace-event stream is always-on for any run; the only
+    projections `evidence/project-evidence` exposes (`:warnings`,
+    `:schema-violations`) are FILTERED views, not a faithful presence slot
+    for the whole stream. `:rf.assert/no-warnings` PASSES precisely when
+    `:warnings` is EMPTY, and `:rf.assert/dispatched?` proves against trace
+    DISPATCH rows, not warnings — so `:trace → :warnings` would false-refuse
+    both healthy cases. Its proof is the assertion's own trace evaluation.
+  - `:hiccup-structure` / `:dom` — `:renders` is empty whenever an assertion
+    legitimately asserts ABSENCE (`:rf.assert/dom-hidden`, a structural-a11y
+    check that finds no offending node) or runs against a tree that
+    committed no render row. The proof is the assertion's own inspection of
+    the rendered tree, not the COUNT of render rows. The runner-selection
+    preflight (`select-runner` / `unmet-assertions`) already fail-closes
+    these against a runner that cannot render at all; a post-run render-count
+    gate would only add false refusals.
+
+  Only tokens whose proof is a DISTINCT, always-non-empty-when-healthy
   evidence stream are listed; an empty/absent slot for a REQUIRED such token
   is the fail-closed trigger (spec/017 §`:cannot-run` — post-run validation
   confirms the required evidence slots are present)."
   {:effects          [:effects]
    :schema           [:schema-violations]
-   :trace            [:warnings]          ; trace-derived projection in evidence
    :reactive-counts  [:reactive-counts]   ; present only when the tape carried reactive rows
    :pixels           [:pixels]            ; browser-only slot — never present headless
-   :a11y-engine      [:a11y]              ; browser-only slot
-   :hiccup-structure [:renders]
-   :dom              [:renders]})
+   :a11y-engine      [:a11y]})            ; browser-only slot
 
 (defn evidence-slot-satisfied?
   "True iff EVERY evidence slot the `required-tokens` demand is POPULATED in
   the projected `evidence` map (`evidence/project-evidence` output). Pure
   data → data. A token with no entry in `token->evidence-slots` (e.g.
-  `:app-db`) imposes no slot requirement (its proof is the db itself). A
-  required token whose slot is absent / empty is NOT satisfied — the proof
+  `:app-db`, `:trace`, `:hiccup-structure` — the always-on / empty-is-healthy
+  tokens, see that map's docstring) imposes no slot requirement: its proof is
+  the assertion's own evaluation, not a distinct stream. A required token
+  whose slot IS in the map but is absent / empty is NOT satisfied — the proof
   was promised by the runner but the tape did not deliver it.
 
   This is the post-run half of the fail-closed contract: NEVER report a
