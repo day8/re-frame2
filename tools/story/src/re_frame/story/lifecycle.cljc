@@ -78,6 +78,16 @@
   ([variant-id]       (runtime/reset-variant variant-id nil))
   ([variant-id opts]  (runtime/reset-variant variant-id opts)))
 
+(defn run-inline-plan
+  "Per spec/017 §Inline plan (rf2-5x1wt.20) — run an inline plan MAP and
+  return a promise/future of the unified run-result (the SAME shape a
+  registered-variant run returns). The plan is compiled, run against a
+  fresh anonymous frame, and the frame is torn down on resolve; it is
+  NEVER registered in the Story side-table. Delegates to
+  `re-frame.story.runtime/run-inline-plan`."
+  ([inline-plan]      (runtime/run-inline-plan inline-plan nil))
+  ([inline-plan opts] (runtime/run-inline-plan inline-plan opts)))
+
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
   IMPL-SPEC §3.2. `callback` receives

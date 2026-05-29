@@ -1,0 +1,261 @@
+(ns re-frame.story.inline-plan-test
+  "Headless inline-plan execution tests (NewTestStory rf2-5x1wt.20,
+  `tools/story/spec/017-Testing-Story.md` §Inline plan + §three verbs).
+
+  An inline plan is an executable plan MAP that is NOT registered as a
+  Story variant. `story/run` / `story/is` / `story/explain` accept a map
+  target (a keyword target is a registered variant; a map is an inline
+  plan). The §B6 acceptance bullets, verified here:
+
+  - an inline plan runs HEADLESSLY (the same unified run-result a
+    registered variant returns);
+  - an inline plan is ABSENT from Story navigation (nothing is registered);
+  - an inline plan can use a REGISTERED check;
+  - an inline plan CANNOT reference a missing fragment (it fails cleanly);
+  - `story/is` reports through the test framework for a map target;
+  - an inline plan and a registered variant describing the SAME behaviour
+    produce equivalent final app-db + assertion records AFTER
+    `canonicalize` (the metamorphic relation, §three verbs / §20).
+
+  JVM-only (`.clj`): on the JVM `story/run` returns a `CompletableFuture`
+  that resolves synchronously to the unified result, and `story/is` BLOCKS
+  on it + fires one `clojure.test` report per assertion. The CLJS run is
+  async; its plan compilation + report projection are covered host-free by
+  the plan / result suites."
+  (:require [clojure.test :refer [deftest is testing use-fixtures] :as t]
+            [re-frame.core      :as rf]
+            [re-frame.frame     :as frame]
+            [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.story     :as story]
+            [re-frame.story.assertions :as assertions]
+            [re-frame.story.play.runner-events :as re]))
+
+(defn- reset-rf! [test-fn]
+  (story/clear-all!)
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (try (rf/init! plain-atom/adapter)
+       (catch clojure.lang.ExceptionInfo _ nil))
+  (reset! assertions/trace-accumulators {})
+  (reset! re/run-state {})
+  (story/install-canonical-vocabulary!)
+  (frame/ensure-default-frame!)
+  ;; A tiny event the inline plans drive — the app under test.
+  (rf/reg-event-db :inline/set-status (fn [db [_ v]] (assoc db :status v)))
+  (rf/reg-event-db :inline/inc        (fn [db _]     (update db :n (fnil inc 0))))
+  (test-fn))
+
+(use-fixtures :each reset-rf!)
+
+(defn- run-target [target]
+  (.get ^java.util.concurrent.CompletableFuture (story/run target)))
+
+(defn- capture-reports
+  "Run `thunk` with `clojure.test/report` rebound to collect every
+  `:pass`/`:fail`/`:error` report map `story/is` fires. Returns
+  `[thunk-return reports-vector]`."
+  [thunk]
+  (let [collected (atom [])]
+    (binding [t/report (fn [m]
+                         (when (#{:pass :fail :error} (:type m))
+                           (swap! collected conj m)))]
+      [(thunk) @collected])))
+
+;; ===========================================================================
+;; Inline plan runs headlessly
+;; ===========================================================================
+
+(deftest inline-plan-runs-headless-pass
+  (testing "a map target runs headlessly and yields the unified run-result
+            (§B6 — inline plan runs headlessly). The verdict is driven by the
+            in-script `[:assert …]` checkpoint — the same surface a registered
+            variant's verdict comes from (terminal :assertions are declarative;
+            the lifecycle records in-script checkpoints)."
+    (let [result (run-target {:script [[:dispatch [:inline/set-status :loaded]]
+                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+      (is (= :pass (:status result)) "the unified verdict is :pass")
+      (is (= :loaded (:status (:app-db result))) "setup/script drove app-db")
+      (is (= :ready (:lifecycle result)))
+      (is (every? :passed? (:assertions result)) "the checkpoint passed"))))
+
+(deftest inline-plan-runs-headless-fail
+  (testing "a failing in-script checkpoint in an inline plan yields :status :fail"
+    (let [result (run-target {:script [[:dispatch [:inline/set-status :idle]]
+                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+      (is (= :fail (:status result)))
+      (is (not (every? :passed? (:assertions result)))))))
+
+(deftest inline-plan-setup-and-script-both-drive-state
+  (testing "an inline plan's :setup establishes preconditions, :script runs after"
+    (let [result (run-target {:setup  [[:dispatch [:inline/inc]]]
+                              :script [[:dispatch [:inline/inc]]
+                                       [:dispatch [:inline/inc]]
+                                       [:assert [:rf.assert/path-equals [:n] 3]]]})]
+      (is (= :pass (:status result)))
+      (is (= 3 (:n (:app-db result)))))))
+
+(deftest inline-plan-loaders-run-from-the-plan
+  (testing "an inline plan declaring :loaders runs phase-1 loaders off the
+            plan's :world (no registry read) before :setup / :script"
+    (let [result (run-target {:loaders [[:inline/set-status :loaded]]
+                              :script  [[:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+      (is (= :pass (:status result)) "the loader event ran the app to :loaded")
+      (is (= :loaded (:status (:app-db result))))
+      (is (= :ready (:lifecycle result))))))
+
+;; ===========================================================================
+;; Inline plan is ABSENT from Story navigation
+;; ===========================================================================
+
+(deftest inline-plan-absent-from-navigation
+  (testing "running an inline plan registers NOTHING in the Story side-table
+            and leaves no variant frame behind (§B6 — absent from navigation)"
+    (is (empty? (story/ids :variant)) "precondition: no variants registered")
+    (run-target {:script [[:dispatch [:inline/set-status :ok]]
+                          [:assert [:rf.assert/path-equals [:status] :ok]]]})
+    (is (empty? (story/ids :variant))
+        "no variant id was registered by the inline run")
+    (is (empty? (story/variants-by-story))
+        "the inline plan appears under no story")
+    (is (empty? (story/variant-frames))
+        "the anonymous inline frame was torn down — no lingering nav frame")))
+
+;; ===========================================================================
+;; Inline plan can use a REGISTERED check
+;; ===========================================================================
+
+(deftest inline-plan-composes-registered-check
+  (testing "an inline plan composing a registered check resolves the check id
+            into the plan + groups its records under the check id, exactly the
+            way a registered variant does (§B6 — registered check). The check's
+            atom is ALSO an in-script checkpoint so it actually records, proving
+            the registered check resolved and ran."
+    (story/reg-check :check.inline/status-loaded
+      {:assertions [[:rf.assert/path-equals [:status] :loaded]]})
+    ;; The compiled plan carries the composed check id under [:expect :checks].
+    (let [plan (story/variant-plan {:compose [:check.inline/status-loaded]
+                                    :script  [[:dispatch [:inline/set-status :loaded]]]})]
+      (is (= [:check.inline/status-loaded] (get-in plan [:expect :checks]))
+          "the registered check id resolves into the inline plan's :expect"))
+    (let [result (run-target {:compose [:check.inline/status-loaded]
+                              :script  [[:dispatch [:inline/set-status :loaded]]
+                                        [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+      (is (= :pass (:status result)))
+      (let [check (first (filter #(= :check.inline/status-loaded (:check %))
+                                 (:checks result)))]
+        (is (some? check) "the run-result groups records under the check id")
+        (is (= :pass (:status check)) "the composed check aggregates :pass")
+        (is (every? :passed? (:assertions check))
+            "the registered check's assertion ran + passed")))))
+
+(deftest inline-plan-composes-registered-fragment
+  (testing "an inline plan composing a registered fragment appends the
+            fragment's setup + script (§B6 — composed fragments/checks)"
+    (story/reg-fragment :fragment.inline/seed
+      {:setup [[:dispatch [:inline/set-status :seeded]]]})
+    (let [result (run-target {:compose [:fragment.inline/seed]
+                              :script  [[:assert [:rf.assert/path-equals [:status] :seeded]]]})]
+      (is (= :pass (:status result)) "the fragment setup seeded the app-db")
+      (is (= :seeded (:status (:app-db result)))))))
+
+;; ===========================================================================
+;; Inline plan CANNOT reference a missing fragment — fails cleanly
+;; ===========================================================================
+
+(deftest inline-plan-missing-fragment-fails-cleanly
+  (testing "an inline plan composing an unregistered fragment FAILS plan
+            construction with a structured error result — no frame allocated,
+            no exception escapes (§B6 — missing fragment fails cleanly)"
+    (let [result (run-target {:compose [:fragment.inline/does-not-exist]
+                              :script  [[:dispatch [:inline/set-status :ok]]]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-compose-unknown
+             (:assertion (first (:assertions result))))
+          "the structured :compose-unknown error rides the assertion record")
+      (is (empty? (story/ids :variant))
+          "nothing was registered by the failed inline run")
+      (is (empty? (story/variant-frames))
+          "no frame lingers from the failed inline run"))))
+
+(deftest inline-plan-missing-arg-fails-cleanly
+  (testing "an inline plan with an [:arg …] placeholder for an undeclared arg
+            FAILS plan construction cleanly (the args contract is not exempt
+            for inline plans)"
+    (let [result (run-target {:script [[:dispatch [:inline/set-status [:arg :missing]]]]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-missing-arg
+             (:assertion (first (:assertions result))))))))
+
+;; ===========================================================================
+;; story/is reports through the test framework for a map target
+;; ===========================================================================
+
+(deftest story-is-reports-per-assertion-for-map-target
+  (testing "story/is fires one report per assertion for an inline plan
+            (§B6 — story/is reports through the test framework for a map
+            target)"
+    (let [[result reports]
+          (capture-reports
+            #(story/is {:script [[:dispatch [:inline/set-status :loaded]]
+                                 [:assert [:rf.assert/path-equals [:status] :loaded]]
+                                 [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
+      (is (= :pass (:status result)) "the unified verdict is :pass")
+      (is (= 2 (count reports)) "one report per recorded assertion")
+      (is (every? #(= :pass (:type %)) reports)))))
+
+(deftest story-is-reports-fail-for-map-target
+  (testing "story/is fires a :fail report for a failing inline-plan assertion"
+    (let [[result reports]
+          (capture-reports
+            #(story/is {:script [[:dispatch [:inline/set-status :idle]]
+                                 [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
+      (is (= :fail (:status result)))
+      (is (= 1 (count reports)))
+      (is (= :fail (:type (first reports))))
+      (is (re-find #":rf.assert/path-equals" (:message (first reports)))))))
+
+;; ===========================================================================
+;; Metamorphic relation: inline plan ≡ registered variant after canonicalize
+;; ===========================================================================
+
+(deftest inline-and-registered-equivalent-after-canonicalize
+  (testing "an inline plan and a registered variant describing the SAME
+            behaviour produce equivalent final app-db + assertion records
+            AFTER canonicalize (§B6 — the metamorphic relation)"
+    (let [behaviour {:setup      [[:dispatch [:inline/inc]]]
+                     :script     [[:dispatch [:inline/inc]]
+                                  [:assert [:rf.assert/path-equals [:n] 2]]]
+                     :assertions [[:rf.assert/path-equals [:n] 2]]
+                     :tags       #{:test}}]
+      (story/reg-variant :story.inline/equivalent behaviour)
+      (let [registered (run-target :story.inline/equivalent)
+            inline     (run-target behaviour)]
+        (testing "both reach the same verdict + app-db before canonicalize"
+          (is (= :pass (:status registered)))
+          (is (= :pass (:status inline)))
+          (is (= 2 (:n (:app-db registered))))
+          (is (= 2 (:n (:app-db inline)))))
+        (testing "canonicalized final app-db is equal (frame ids stripped)"
+          (is (= (story/canonicalize (:app-db registered))
+                 (story/canonicalize (:app-db inline)))))
+        (testing "canonicalized assertion records are equal (variant/frame
+                  ids reconciled + stripped)"
+          (is (= (story/canonicalize (:assertions registered))
+                 (story/canonicalize (:assertions inline)))))
+        (testing "the two runs share a canonical run-hash"
+          (is (= (story/run-hash registered)
+                 (story/run-hash inline))))))))
+
+;; ===========================================================================
+;; explain accepts a map target (rf2-5x1wt.24 base; confirmed for the verb)
+;; ===========================================================================
+
+(deftest explain-accepts-inline-plan-map
+  (testing "story/explain compiles a map target directly (no registration)"
+    (let [ex (story/explain {:variant/id :inline/explained
+                             :setup      [[:dispatch [:inline/inc]]]
+                             :script     [[:dispatch [:inline/inc]]]})]
+      (is (= [:inline/explained] (:source-chain ex)))
+      (is (= [[:dispatch [:inline/inc]]] (:setup-order ex)))
+      (is (empty? (story/ids :variant)) "explain registered nothing"))))
