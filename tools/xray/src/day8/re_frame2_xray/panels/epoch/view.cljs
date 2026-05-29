@@ -3000,6 +3000,18 @@
                  :full-with-diff? true}
           (some? before) (assoc :before before))]])))
 
+(defn- sub-coord
+  "Pull the registered sub's source coord off
+  `(rf/handler-meta :sub sub-id)`. Returns nil when no meta is
+  captured. Matches the sibling `view-coord` shape (rf2-d2akf —
+  bring click-to-source affordance to disposed-sub rows on parity
+  with the unmounted-views rows)."
+  [sub-id]
+  (when (some? sub-id)
+    (let [m (try (rf/handler-meta :sub sub-id) (catch :default _ nil))]
+      (when (and m (string? (:file m)))
+        {:file (:file m) :line (:line m) :ns (:ns m)}))))
+
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
   Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v).
@@ -3047,7 +3059,19 @@
            (if (vector? sub-vec)
              [ei/mini sub-vec 40]
              [ei/mini sub-id 40])
-           (icons/external-link)]
+           ;; rf2-aesni — functional click-to-source via the shared
+           ;; `coord-chip`, exact parity with the disposed-subs (~3167)
+           ;; + views (~3311 / ~3380) rows. Pre-fix this was a bare
+           ;; decorative `(icons/external-link)` glyph with no coord
+           ;; resolution + no click handler — it never dispatched
+           ;; `:rf.xray/open-in-editor`. The coord lookup keys off
+           ;; `sub-id` (the keyword) even when `sub-vec` drives the
+           ;; label, so a parameterized sub (`[:counter/greater-than? 5]`)
+           ;; resolves its REGISTRATION coord. Chip drops out cleanly
+           ;; when no coord was captured (anonymous sub / production
+           ;; build without coords).
+           (coord-chip/coord-chip (sub-coord sub-id)
+                                  (str "rf-xray-epoch-sub-row-coord-" i))]
           ;; rf2-1cc03 — `caused by <event-id>` chrome surfaces the
           ;; dispatching cascade's event-id (the cascade whose handler-
           ;; body invalidated this sub's reactive input). OMITTED when
@@ -3089,18 +3113,6 @@
           (violation-blocks
             (keyword (str "sub-row-" (some-> row :sub-id name)))
             (:violations row))))}]))
-
-(defn- sub-coord
-  "Pull the registered sub's source coord off
-  `(rf/handler-meta :sub sub-id)`. Returns nil when no meta is
-  captured. Matches the sibling `view-coord` shape (rf2-d2akf —
-  bring click-to-source affordance to disposed-sub rows on parity
-  with the unmounted-views rows)."
-  [sub-id]
-  (when (some? sub-id)
-    (let [m (try (rf/handler-meta :sub sub-id) (catch :default _ nil))]
-      (when (and m (string? (:file m)))
-        {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
