@@ -325,29 +325,40 @@
 (defn close-fn
   "Build the canonical close-handler for `mount-id`. Resolves to a
   0-arg fn that dispatches the popup's close event against the
-  `:rf/xray` frame, or calls the caller-supplied `:on-close` if
+  captured instance frame, or calls the caller-supplied `:on-close` if
   present. Public so tests can drive close paths without DOM.
 
   `opts` may carry `:on-close` (0-arg fn). When present the caller
-  owns the close lifecycle and the default rf-dispatch is skipped."
-  [mount-id {:keys [on-close]}]
-  (fn []
-    (if on-close
-      (on-close)
-      (rf/dispatch [:rf.xray.edn-inspector-popup/close mount-id]
-                   {:frame :rf/xray}))))
+  owns the close lifecycle and the default rf-dispatch is skipped.
+
+  `frame` (rf2-nesy9) is the surrounding instance frame captured by
+  `popup-chrome` at render time so the close dispatch lands on it, not
+  a `{:frame :rf/xray}` literal. Defaults to `(rf/current-frame)` for
+  the test seam / direct callers."
+  ([mount-id opts] (close-fn mount-id opts (rf/current-frame)))
+  ([mount-id {:keys [on-close]} frame]
+   (fn []
+     (if on-close
+       (on-close)
+       (rf/dispatch [:rf.xray.edn-inspector-popup/close mount-id]
+                    {:frame frame})))))
 
 (defn handle-keydown
   "Esc closes the topmost popup; other keys bubble. The popup's own
   key handler dispatches `:close-top` rather than its own
   `:close mount-id` so the layered-popups contract holds — if the
-  user opens A, then B over A, Esc closes B and leaves A standing."
-  [^js e]
-  (when (= "Escape" (.-key e))
-    (.preventDefault e)
-    (.stopPropagation e)
-    (rf/dispatch [:rf.xray.edn-inspector-popup/close-top]
-                 {:frame :rf/xray})))
+  user opens A, then B over A, Esc closes B and leaves A standing.
+
+  `frame` (rf2-nesy9) is the surrounding instance frame captured by
+  `popup-chrome` at render time. Defaults to `(rf/current-frame)` for
+  the test seam."
+  ([^js e] (handle-keydown e (rf/current-frame)))
+  ([^js e frame]
+   (when (= "Escape" (.-key e))
+     (.preventDefault e)
+     (.stopPropagation e)
+     (rf/dispatch [:rf.xray.edn-inspector-popup/close-top]
+                  {:frame frame}))))
 
 ;; =========================================================================
 ;; popup chrome — header + body + close affordance
@@ -387,7 +398,14 @@
                 default-expanded-depth 2
                 max-inline-width 60
                 max-depth 16}} opts
-        close-handler (close-fn mount-id {:on-close on-close})
+        ;; rf2-nesy9 — capture the surrounding instance frame at render
+        ;; time so the deferred close handlers dispatch into it, not a
+        ;; `:rf/xray` literal. popup-chrome renders inside the panels'
+        ;; reg-views (and the stack reg-view), so current-frame resolves
+        ;; through the React-context tier here.
+        frame         (rf/current-frame)
+        close-handler (close-fn mount-id {:on-close on-close} frame)
+        keydown       (fn [^js e] (handle-keydown e frame))
         ;; Stack-aware z-index so multiple popups paint in order.
         ;; The shared backdrop owns z-index for position 0; dialogs
         ;; ride on top of their own backdrop tier.
@@ -398,7 +416,7 @@
            :on-click    (fn [^js e]
                           (.stopPropagation e)
                           (close-handler))
-           :on-key-down handle-keydown
+           :on-key-down keydown
            :tab-index   -1
            :style       (assoc (backdrop-style positioning)
                                :z-index dialog-z)}
@@ -410,7 +428,7 @@
               :data-rf-mount-id mount-id
               :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
-              :on-key-down handle-keydown
+              :on-key-down keydown
               :tab-index   0
               :style       (dialog-style)})
       [:div {:style (header-style)}
