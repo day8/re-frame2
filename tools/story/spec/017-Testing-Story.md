@@ -1120,6 +1120,159 @@ originating check/assertion (no hidden global effect). Story UI MUST
 render `:cannot-run` distinctly. CI MUST define a policy per gate
 (§CI policy).
 
+## Runner requirements
+
+The runner-requirement registry is the keystone that decides WHICH
+concrete runner a plan needs and REFUSES (`:cannot-run`) rather than
+faking a proof a runner cannot supply. It lives in
+`re-frame.story.requirements` — the single home so requirement inference,
+runner selection, the `:cannot-run` refusal, and post-run evidence-slot
+validation all read ONE source of truth. Every fn there is pure data →
+data, so the whole registry runs under `clojure -M:test`.
+
+### The capability ladder
+
+The five runner KINDS (§Runner kinds and capabilities) are NOT a single
+total order — `:hiccup-structure` and `:reactive-counts` are orthogonal,
+neither subsumes the other — so a runner advertises a SET of capability
+TOKENS and each step/assertion declares the set it requires. The P1
+capability tokens are:
+
+`:app-db`, `:effects`, `:schema`, `:trace`, `:pure-subs`,
+`:hiccup-structure`, `:reactive-counts`, `:dom`, `:pixels`,
+`:a11y-engine`.
+
+The cost-ordered concrete runners (cheapest → richest) advertise these
+token sets, each a superset of the cheaper one for the ordered tokens
+plus its own orthogonal additions:
+
+| Runner | Provides (cumulative) |
+|---|---|
+| `:headless` | `:app-db :effects :schema :trace :pure-subs` |
+| `:hiccup` | headless ∪ `:hiccup-structure` |
+| `:dom` | hiccup ∪ `:dom` |
+| `:browser` | dom ∪ `:pixels :a11y-engine` |
+
+`:cljs-reactive` is deliberately ABSENT from the cost-ordered selection
+list: its only distinguishing token, `:reactive-counts`, has NO real seam
+in P1 (it is gated on a NET-NEW recompute probe lifted into
+instrumentation — §1a). The token is in the vocabulary but NO concrete
+runner advertises it, so any requirement on it resolves to `:cannot-run`
+until the probe lands. That deferral is expressed as data, not a special
+case: the token exists, no runner provides it, the set-difference is
+non-empty. A runner is **valid** for a set of required tokens iff its
+token set is a superset; **cheapest** is the first runner on the
+cost-ordered list whose set qualifies.
+
+### Requirement inference
+
+Each script/setup STEP and each ASSERTION atom declares the capability
+tokens it requires:
+
+- `[:dispatch …]` / `[:dispatch-sync …]` → `#{:app-db}` (the headless
+  floor drains the queue to a fixed point); `[:wait …]` / `[:wait-until
+  …]` → `#{}` (the boundary ladder governs flush, not the capability set);
+  `[:click …]` / `[:type …]` / `[:focus …]` / `[:assert-dom …]` →
+  `#{:dom}`.
+- An in-script `[:assert <atom>]` checkpoint folds the WRAPPED atom's
+  tokens (so `[:assert [:rf.assert/visual-snapshot …]]` requires
+  `:pixels`).
+- The seven shipping `:rf.assert/*` ids require app-db / trace tokens;
+  `:rf.assert/schema-error` requires `:schema`; the DOM family requires
+  `:dom`; `:rf.assert/visual-snapshot` requires `:pixels` and
+  `:rf.assert/a11y` requires `:a11y-engine`; the reactive-count
+  candidates `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`
+  require `:reactive-counts` (so they fail closed until the probe seam).
+
+A plan's `:required-runner` slot is the UNION of every setup-step,
+script-step, and terminal-assertion token set — capability tokens, NOT a
+tier scalar. The plan compiler (`re-frame.story.plan`) fills the slot
+through this registry, so the inference has one home.
+
+### `:cannot-run` refusal
+
+A required token the chosen runner cannot prove produces a `:cannot-run`
+refusal (the distinct THIRD status, never a silent pass — §`:cannot-run`).
+This is the SAME refusal vocabulary as the `settled-boundary` boundary
+refusal (`re-frame.story.play.settled-boundary`), expressed on the
+capability axis:
+
+```clojure
+{:status           :cannot-run
+ :required-runner  #{:dom}          ; the tokens the unit needs
+ :available-runner #{:app-db …}     ; the chosen runner's tokens
+ :missing          #{:dom}          ; required − available (the gap)
+ :reason           :runner-lacks-capability
+ :runner           :headless        ; the runner that refused
+ :unit             [:rf.assert/dom-visible "[x]"]}  ; the originating step/assertion
+```
+
+The two policies (§Runner policy):
+
+- FIXED-RUNNER (default): the caller's `:runner` (or `:headless`) runs the
+  WHOLE plan in one pass; a unit whose tokens it lacks refuses
+  per-requirement (pure set-difference) — one `:visual-snapshot` does NOT
+  drag a 95%-headless variant to `:browser`. `:reason
+  :runner-lacks-capability`.
+- AUTO / ESCALATE (`{:runner :auto}` / `{:escalate true}`): choose the
+  CHEAPEST concrete runner whose token set satisfies ALL selected
+  requirements. When none can (a `:reactive-counts` requirement), the
+  whole run is `:cannot-run` with `:reason :no-runner-satisfies`.
+
+The variant-level **aggregation rule** is stated once: a variant whose
+only unmet expectations are `:cannot-run` is itself `:cannot-run`, not a
+silent pass. Precedence is `:error` > `:fail` > `:cannot-run` > `:pass` —
+a real failure or error is never masked by a refusal.
+
+### Fail-closed evidence-slot validation
+
+A proof is honoured only when BOTH sides agree it is available:
+
+1. **Preflight** — the chosen runner's token set must be a superset of the
+   requirement (the selection / refusal above).
+2. **Post-run** — a step/assertion that REQUIRED a proof must find the
+   corresponding evidence SLOT populated in the projected run evidence
+   (`re-frame.story.play.evidence/project-evidence`). A required slot the
+   tape never produced FAILS CLOSED to `:cannot-run` (the proof was
+   promised but not delivered), NEVER `:pass`.
+
+The token→slot map: `:effects → :effects`, `:schema → :schema-violations`,
+`:trace → :warnings`, `:hiccup-structure`/`:dom` → `:renders`,
+`:reactive-counts → :reactive-counts` (NET-NEW, never present in P1),
+`:pixels`/`:a11y-engine` → browser-only slots. A token with NO distinct
+slot (`:app-db`) imposes no post-run check — its proof is the final db
+itself, validated by the assertion's own evaluation. Because the check
+reads the SAME `project-evidence` projection the run-result slots derive
+from, a duplicate accumulator cannot report green while the tape is empty.
+
+### MCP is a frame binding, not a runner tier
+
+MCP is NOT a runner. It is a transport/control surface over the same
+`story/run` / `story/explain` (§Runner kinds). A live agent run differs
+only by FRAME BINDING (`:fresh` vs `:attached`) — modeled as the
+`:frame-binding` run-opt, never a capability token or a runner kind.
+
+### Run / `is` opts
+
+`normalize-run-opts` is the ONE place the run/`is` opts (§Public execution
+API) collapse into the canonical selection shape:
+
+```clojure
+{:runner :headless | :hiccup | :dom | :browser | :auto
+ :escalate boolean              ; synonym for :runner :auto when true
+ :frame-binding :fresh | :attached
+ :platform :client | :server}
+```
+
+`:escalate true` OR `:runner :auto` collapse into `{:mode :auto}` (the
+cheapest qualifying runner is chosen); any other `:runner` → `{:mode
+:fixed :runner <kind>}`. The default is fixed `:headless`. An
+unrecognised or non-P1-selectable `:runner` (e.g. `:cljs-reactive`) falls
+back to the fixed `:headless` policy — an unknown tier never silently
+escalates. `:frame-binding` and `:platform` carry through untouched so the
+(deferred) three-verb surface and the MCP transport thread the SAME
+normalization.
+
 ## Run result
 
 All runners MUST return the same shape. (Today the runtime uses a
