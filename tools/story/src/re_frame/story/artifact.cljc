@@ -156,22 +156,36 @@
 (defn- replay-flush-hooks
   "Build the settled-boundary flush-hooks for a replay (spec/017 §Script
   and `settled-boundary`). It starts from `base-hooks` (the headless hooks
-  by default — `:provides :headless`, `dispatch-sync*` drain) and wraps
+  by default — `:provides :headless`, `dispatch-sync*` drain) and WRAPS
   `:dispatch!` so every replayed dispatch carries the artifact's
-  `fx-decisions` as the per-call `:fx-overrides`. Reapplying the fx
-  decisions through the dispatch opt — not a parallel install — keeps
-  replay on the SAME settlement path as a live run and lets the boundary's
-  `:cannot-run` / `:error` refusals fire unchanged. A richer adapter caller
-  can pass its own `base-hooks` (declaring `:provides :dom`, etc.) and the
-  fx reapplication still wraps its `:dispatch!`."
+  `fx-decisions` as the per-call `:fx-overrides`.
+
+  The wrap routes the fx decisions THROUGH the inner `:dispatch!`, never
+  around it: it binds the overrides on the lexical-scope `*fx-overrides*`
+  via `rf/with-fx-overrides` and then calls `inner`, so whatever dispatch
+  path the inner hook owns picks the overrides up at envelope-build time
+  (precedence: per-call opt > lexical `with-fx-overrides` > per-frame
+  `:fx-overrides`, Spec 002 §`:fx-overrides`). For the headless default
+  `inner` is `drain-sync!` (`dispatch-sync*` drain) and the overrides ride
+  its envelope; for a richer adapter caller that passes its own
+  `base-hooks` (declaring `:provides :dom`, etc. with an enqueue +
+  `act()` / microtask `:dispatch!`) the SAME adapter dispatch path runs
+  and the overrides ride it too — replay never reaches for `dispatch-sync`
+  directly. This keeps replay on the SAME settlement path as a live run
+  and lets the boundary's `:cannot-run` / `:error` refusals fire
+  unchanged."
   [base-hooks fx-decisions]
   (let [inner (or (:dispatch! base-hooks) boundary/drain-sync!)]
     (assoc base-hooks
            :dispatch!
            (fn replay-dispatch! [frame-id event-vector]
              (if (seq fx-decisions)
-               (rf/dispatch-sync* event-vector {:frame        frame-id
-                                                :fx-overrides fx-decisions})
+               ;; WRAP, don't replace: bind the fx decisions on the
+               ;; lexical-scope overrides and route THROUGH `inner` so the
+               ;; (possibly richer-adapter) dispatch path still runs and
+               ;; the overrides ride its envelope.
+               (rf/with-fx-overrides fx-decisions
+                 (inner frame-id event-vector))
                (inner frame-id event-vector))))))
 
 (defn replay-into-frame!
