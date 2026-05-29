@@ -907,9 +907,14 @@
   Per rf2-ak4ms the legacy `js/window.prompt` stub is gone — the add-
   pill affordance now opens the rich edit popup. Per spec/018 §7 the
   popup pre-populates from existing pills (edit) or from right-click
-  event-row context (add)."
-  [{:keys [filters]}]
-  [filter-pills/pills-view {:filters filters}])
+  event-row context (add).
+
+  `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
+  the `events-ribbon` `reg-view` body so each pill's edit / remove
+  click lands on the surrounding instance frame, not a `{:frame
+  :rf/xray}` literal."
+  [dispatch-fn {:keys [filters]}]
+  [filter-pills/pills-view dispatch-fn {:filters filters}])
 
 (defn- ribbon-redacted-indicator
   "REDACTED indicator (rf2-azls9) — preserved next to the mode pill for
@@ -1229,7 +1234,7 @@
              :class       "rf-xray-filters-collapse-h"
              :data-open   (if no-filters? "true" "false")
              :aria-hidden (if no-filters? "false" "true")}
-       [:div [filter-pills/chrome-add-filter-button]]]]
+       [:div [filter-pills/chrome-add-filter-button dispatch]]]]
      ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
      ;; silent-by-default indicators + chrome actions. Per the authority
      ;; reference chrome-ribbon right side (rf2-3f2di A5).
@@ -1742,9 +1747,9 @@
                       :white-space  "nowrap"}}
        [:span {:aria-hidden "true"} "↳"]
        "filters:"]
-      [filter-pills/events-add-filter-button]
+      [filter-pills/events-add-filter-button dispatch]
       ;; rf2-3f2di A6 — the committed green/red filter pills.
-      [ribbon-filter-pills {:filters filters}]
+      [ribbon-filter-pills dispatch {:filters filters}]
       ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
       ;; RIGHT end (Figma-Make surface). The `margin-left: auto` shoves it
       ;; to the trailing edge regardless of pill count. Renders only when

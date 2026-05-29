@@ -44,8 +44,7 @@
   Same posture as the rest of Xray's view code (rf2-tijr): pure
   hiccup, no per-substrate switches. Mount is via `reg-view` from the
   caller (`shell.cljs`'s `ribbon-filter-pills`)."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.filters.typed-predicates :as typed]
+  (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -124,8 +123,12 @@
                (legacy keyword-pattern) or `{:kind <kw> :params {…}}`
                (typed predicate)
     `:idx`     position in the mode bucket (drives the testid + the
-               remove-filter event payload)"
-  [{:keys [mode pill idx]}]
+               remove-filter event payload)
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body so the edit / remove clicks land on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  [dispatch {:keys [mode pill idx]}]
   (let [tone        (pill-tone mode)
         kind        (pill-kind pill)
         editable?   (= kind :event-id-pattern)
@@ -150,10 +153,9 @@
                     :white-space    "nowrap"}}
      (if editable?
        [:button {:data-testid  (str testid "-body")
-                 :on-click     #(rf/dispatch
+                 :on-click     #(dispatch
                                   [:rf.xray/open-edit-popup
-                                   {:source :pill :mode mode :idx idx :pill pill}]
-                                  {:frame :rf/xray})
+                                   {:source :pill :mode mode :idx idx :pill pill}])
                  :title        "Edit"
                  :style {:background  "transparent"
                          :border      "none"
@@ -189,9 +191,8 @@
      ;; as the divider so it round-trips through the same tone; the explicit
      ;; padding gives the `✕` a square hit-area that reads against the rule.
      [:button {:data-testid  (str testid "-remove")
-               :on-click     #(rf/dispatch
-                                [:rf.xray/remove-filter mode idx]
-                                {:frame :rf/xray})
+               :on-click     #(dispatch
+                                [:rf.xray/remove-filter mode idx])
                :title        "Remove this filter"
                :aria-label   (str "Remove " (name mode) " filter " body-text)
                :style {:background    "transparent"
@@ -217,13 +218,15 @@
   `Filters:` label) per the authoritative reference chrome-ribbon, which
   carries the add(+) on bar-1 while the committed pills live on bar-2
   (the events ribbon). Public so the shell mounts it directly in the
-  chrome ribbon's left cluster."
-  []
+  chrome ribbon's left cluster.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body."
+  [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
-            :on-click    #(rf/dispatch
+            :on-click    #(dispatch
                             [:rf.xray/open-edit-popup
-                             {:source :add :mode :in}]
-                            {:frame :rf/xray})
+                             {:source :add :mode :in}])
             ;; Accessible name doubles the visible label so screen-
             ;; reader users hear 'Add filter pill' not the bare
             ;; brackets. The `[ + ]` glyph (not `+` alone) avoids
@@ -253,13 +256,15 @@
 
   Outlined on the dark chrome band: a muted `chrome-ribbon-text-muted`
   border + ink so it reads as a secondary chrome affordance against the
-  near-black ribbon."
-  []
+  near-black ribbon.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body."
+  [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
-            :on-click    #(rf/dispatch
+            :on-click    #(dispatch
                             [:rf.xray/open-edit-popup
-                             {:source :add :mode :in}]
-                            {:frame :rf/xray})
+                             {:source :add :mode :in}])
             :aria-label  "Add filter pill"
             :title       "Add filter pill"
             :style       {:background    "transparent"
@@ -280,13 +285,15 @@
   the committed pills. Opens the SAME edit popup as `add-pill`; the add
   behaviour is retained. A square bordered `+` icon-button on the light
   data canvas (the events ribbon stays on `bg-2`, not the dark chrome
-  band)."
-  []
+  band).
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body."
+  [dispatch]
   [:button {:data-testid "rf-xray-filter-add-events"
-            :on-click    #(rf/dispatch
+            :on-click    #(dispatch
                             [:rf.xray/open-edit-popup
-                             {:source :add :mode :in}]
-                            {:frame :rf/xray})
+                             {:source :add :mode :in}])
             :aria-label  "Add filter pill"
             :title       "Add filter pill"
             :style       {:background      "transparent"
@@ -330,8 +337,11 @@
   bar-2 (the events ribbon) while the add(+) sits on bar-1 (the chrome
   ribbon, beside the `Filters:` label). The shell mounts `add-pill`
   directly in the chrome ribbon's left cluster and `pills-view` in the
-  events ribbon."
-  [{:keys [filters]}]
+  events ribbon.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  caller's `reg-view` body, threaded to each `pill`."
+  [dispatch {:keys [filters]}]
   [:div {:data-testid "rf-xray-ribbon-filters"
          :title (counts-tooltip filters)
          :style {:display     "flex"
@@ -340,7 +350,7 @@
                  :flex-wrap   "wrap"}}
    (for [[idx p] (map-indexed vector (:in filters))]
      ^{:key (str "in-" idx)}
-     [pill {:mode :in :pill p :idx idx}])
+     [pill dispatch {:mode :in :pill p :idx idx}])
    (for [[idx p] (map-indexed vector (:out filters))]
      ^{:key (str "out-" idx)}
-     [pill {:mode :out :pill p :idx idx}])])
+     [pill dispatch {:mode :out :pill p :idx idx}])])

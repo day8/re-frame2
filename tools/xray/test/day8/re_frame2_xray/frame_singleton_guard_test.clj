@@ -99,7 +99,6 @@
     "share.cljs"
     "share_modal.cljs"
     "spine_filters.cljs"
-    "filters/pills.cljs"
     "views/edn_inspector_popup.cljs"
     "views/edn_widget/widget.cljs"
     "panels/app_db_segment_inspector.cljs"
