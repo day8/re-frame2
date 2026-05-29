@@ -30,14 +30,32 @@
     requirements work).
   - Attach `:source-chain` and an `:explain` map.
 
+  ## View arg schemas (rf2-5x1wt.12)
+
+  When a variant's `:component` resolves to a registered view that
+  carries a props schema on its view metadata, the compiler copies that
+  schema into `[:world :view-args-schema]`, records the resolved
+  `[:world :effective-args]` (the post-substitution args that feed the
+  view — at plan time, before control-panel overrides), and validates
+  the effective args against the schema. A required view input that is
+  missing, or a malformed value, FAILS plan construction with
+  `:rf.error/story-view-args-invalid` carrying the failing arg key, the
+  Malli schema path, and the source variant. The schema, effective args,
+  and any validation outcome surface in `:explain` (and downstream docs).
+
+  This is the **explicit view-input** contract only. It is distinct from
+  subscription-output schemas, which validate values supplied by
+  subscriptions / `:sub-overrides` (§View-state subscription overrides);
+  the two MUST NOT be conflated.
+
   ## What this layer DEFERS
 
   Strict `:compose` fragment/check composition + conflict resolution
   (§Merge rules / §Conflict resolution), the runner itself, evidence
-  projection, view-arg-schema validation, `:network` lowering, and the
-  capability-token registry are **later beads**. This compiler emits the
-  scaffolding (e.g. an empty `[:world :network]` passthrough, a coarse
-  `:required-runner`) so those beads slot in without reshaping the plan.
+  projection, `:network` lowering, and the capability-token registry are
+  **later beads**. This compiler emits the scaffolding (e.g. an empty
+  `[:world :network]` passthrough, a coarse `:required-runner`) so those
+  beads slot in without reshaping the plan.
 
   ## Purity / elision
 
@@ -47,9 +65,11 @@
   contract is empty in a production bundle; callers thread an explicit
   `:lookup` (a `{variant-id → raw-body}` map or a 1-arg fn) for pure
   tests."
-  (:require [re-frame.story.args      :as args]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.play.runner :as runner]))
+  (:require [re-frame.story.args         :as args]
+            [re-frame.story.registrar    :as registrar]
+            [re-frame.story.malli-schema :as msu]
+            [re-frame.story.play.runner  :as runner]
+            [re-frame.registrar          :as framework-registrar]))
 
 ;; ============================================================================
 ;; Errors
@@ -329,6 +349,138 @@
                   (map assertion-tokens assertions))))
 
 ;; ============================================================================
+;; View arg schemas (rf2-5x1wt.12)
+;; ============================================================================
+;;
+;; Per spec §View arg schemas: a registered view MAY expose a schema for
+;; its explicit args/props on its view metadata. Story copies that schema
+;; into `[:world :view-args-schema]`, validates `[:world :effective-args]`
+;; against it before render, and derives controls from it where explicit
+;; argtypes are absent (the controls-panel derivation in
+;; `re-frame.story.ui.controls` reads the same schema).
+;;
+;; **Metadata key.** The spec names `:rf/props` for the props schema and
+;; `:rf/args` for macro-captured argument *symbols* (introspection, NOT a
+;; validation schema — so it is never consumed here). The live framework
+;; view-metadata contract (Spec 010) carries the boundary schema on
+;; `:spec`, with `:schema` as the Story-only alias the controls /
+;; schema-validation panels already read. We therefore resolve, first
+;; match wins: `:rf/props` (the spec-named props key, when a port adopts
+;; it) → `:spec` (the live Spec 010 slot) → `:schema` (the alias). This
+;; consumes the key the framework already exposes rather than inventing a
+;; parallel one (§View arg schemas — "M0 MUST confirm the exact key").
+;;
+;; **Boundary.** This validates EXPLICIT view inputs only. Values
+;; returned from subscriptions are validated by subscription-output
+;; schemas (§View-state subscription overrides); the two are different
+;; contracts and are not conflated here.
+
+(def ^:private view-args-schema-keys
+  "View-metadata keys carrying the explicit-input (props) schema, in
+  resolution order (first present wins). See the section comment."
+  [:rf/props :spec :schema])
+
+(defn view-args-schema
+  "Return the explicit view-args/props schema from a `view-meta` map (the
+  `:view` registrar slot), or nil when none is present. Picks the first
+  of `view-args-schema-keys` that is set."
+  [view-meta]
+  (when (map? view-meta)
+    (some (fn [k] (let [s (get view-meta k)] (when (some? s) s)))
+          view-args-schema-keys)))
+
+(defn- map-entry-optional?
+  "True iff a Malli `[:map …]` entry `[k props? child]` is marked
+  `{:optional true}` in its per-entry properties map. A non-optional
+  entry is a REQUIRED view input."
+  [entry]
+  (let [props (second entry)]
+    (boolean (and (msu/properties? props) (:optional props)))))
+
+(defn validate-effective-args
+  "Validate `effective-args` against a view-args `schema` (the value
+  returned by `view-args-schema`). Returns a result map:
+
+      {:status :ok | :invalid
+       :schema schema
+       :missing  [{:key k :schema entry-schema :path [...]} ...]
+       :malformed [{:key k :value v :schema entry-schema
+                    :path [...] :explain explanation} ...]}
+
+  Two tiers of checking, both pure:
+
+  - **Required-key presence (host-free floor).** For a top-level
+    `[:map …]` schema, every entry NOT marked `{:optional true}` whose
+    key is absent from `effective-args` is a `:missing` violation. This
+    needs no Malli runtime, so it runs under `clojure -M:test`.
+
+  - **Malformed-value (validator-driven).** When `validator-fns`
+    (`{:validate (fn [schema value] truthy?) :explain (fn [schema value]
+    explanation)}`) is supplied, each present entry's value is validated
+    against its entry schema; a failure is a `:malformed` violation
+    carrying the validator's explanation. With no validator (the
+    JVM-test default) malformed-value checking soft-passes, matching the
+    `re-frame.story.ui.schema-validation/args-violations` convention.
+
+  Each violation carries the Malli `:path` (`[k]` for a top-level map
+  entry) so callers can report 'where' in the schema the failure sits.
+  A non-`:map` top-level schema validates the whole args map as one
+  value (validator-driven only)."
+  ([schema effective-args] (validate-effective-args schema effective-args nil))
+  ([schema effective-args validator-fns]
+   (let [validate (:validate validator-fns)
+         explain  (:explain  validator-fns)
+         args     (or effective-args {})]
+     (cond
+       (nil? schema)
+       {:status :ok :schema nil :missing [] :malformed []}
+
+       (and (vector? schema) (= :map (msu/schema-op schema)))
+       (let [entries   (msu/schema-children schema)
+             missing   (into []
+                              (keep (fn [entry]
+                                      (let [k (msu/map-entry-key entry)]
+                                        (when (and (not (map-entry-optional? entry))
+                                                   (not (contains? args k)))
+                                          {:key    k
+                                           :schema (msu/map-entry-schema entry)
+                                           :path   [k]}))))
+                              entries)
+             malformed (when validate
+                         (into []
+                               (keep (fn [entry]
+                                       (let [k  (msu/map-entry-key entry)
+                                             cs (msu/map-entry-schema entry)
+                                             v  (get args k)]
+                                         (when (and (contains? args k)
+                                                    (not (validate cs v)))
+                                           {:key     k
+                                            :value   v
+                                            :schema  cs
+                                            :path    [k]
+                                            :explain (when explain (explain cs v))}))))
+                               entries))
+             malformed (vec malformed)]
+         {:status    (if (and (empty? missing) (empty? malformed)) :ok :invalid)
+          :schema    schema
+          :missing   missing
+          :malformed malformed})
+
+       ;; Top-level non-:map schema — validate the whole args map.
+       (and validate (not (validate schema args)))
+       {:status    :invalid
+        :schema    schema
+        :missing   []
+        :malformed [{:key     ::root
+                     :value   args
+                     :schema  schema
+                     :path    []
+                     :explain (when explain (explain schema args))}]}
+
+       :else
+       {:status :ok :schema schema :missing [] :malformed []}))))
+
+;; ============================================================================
 ;; Compiler
 ;; ============================================================================
 
@@ -350,14 +502,45 @@
                          "re-frame2-story: :lookup must be a fn or a map"
                          {:lookup lookup})))
 
+(defn- default-view-lookup
+  "Default view-metadata lookup — reads the **framework** `:view`
+  registrar slot (where `reg-view` stamps a view's symbol metadata, incl.
+  any props/`:spec`/`:schema` slot). Production bundles that elide views
+  return nil; pure tests thread an explicit `:view-lookup`."
+  [view-id]
+  (framework-registrar/handler-meta :view view-id))
+
+(defn- coerce-view-lookup
+  "Accept a 1-arg fn or a `{view-id → view-meta}` map as `:view-lookup`."
+  [view-lookup]
+  (cond
+    (nil? view-lookup) default-view-lookup
+    (map? view-lookup) #(get view-lookup %)
+    (fn? view-lookup)  view-lookup
+    :else              (fail! :rf.error/story-bad-lookup
+                              "re-frame2-story: :view-lookup must be a fn or a map"
+                              {:view-lookup view-lookup})))
+
 (defn compile-body
   "Compile a raw variant `body` (the child) registered under `id` into a
   normalized plan. `lookup` is a 1-arg fn returning raw parent bodies.
 
   This is the pure core; `variant-plan` is the public front door that
-  resolves a registered/keyword/map target onto this fn."
-  [id body lookup]
-  (let [chain        (resolve-source-chain id body lookup)
+  resolves a registered/keyword/map target onto this fn.
+
+  `opts` (4-arity) may carry:
+
+  - `:view-lookup` — a 1-arg fn `(view-id) → view-meta` resolving the
+    `:component` view's registration metadata (for the view-args schema).
+    Defaults to the framework `:view` registrar.
+  - `:validator-fns` — `{:validate (fn [schema value]) :explain (fn …)}`
+    used for malformed-value checking of `:effective-args` (§View arg
+    schemas). With no validator only required-key presence is checked
+    (the host-free floor)."
+  ([id body lookup] (compile-body id body lookup nil))
+  ([id body lookup {:keys [view-lookup validator-fns] :as _opts}]
+  (let [view-lookup  (coerce-view-lookup view-lookup)
+        chain        (resolve-source-chain id body lookup)
         bodies       (map :body chain)         ; root-first
         child        (:body (last chain))
         ;; ---- context merge (root→child) ----
@@ -390,16 +573,45 @@
         setup        (substitute-args setup-raw arg-map subs!)
         script*      (substitute-args script arg-map subs!)
         sub-overrides (substitute-args (:sub-overrides ctx) arg-map subs!)
+        ;; ---- view arg schema + effective-args validation (rf2-5x1wt.12) ----
+        ;; `:effective-args` at plan time IS the resolved arg-map; the
+        ;; render path layers control-panel overrides on top later. We
+        ;; copy the view's explicit-input schema into the plan, validate
+        ;; the effective args against it, and FAIL plan construction on a
+        ;; missing-required or malformed view input (§View arg schemas).
+        component-id (:component ctx)
+        view-meta    (when component-id (view-lookup component-id))
+        schema       (view-args-schema view-meta)
+        eff-args     arg-map
+        validation   (when schema
+                       (validate-effective-args schema eff-args validator-fns))
+        _            (when (and validation (= :invalid (:status validation)))
+                       (fail! :rf.error/story-view-args-invalid
+                              (str "re-frame2-story: variant " id
+                                   " — :effective-args do not satisfy the view-args "
+                                   "schema of :component " component-id
+                                   (when-let [m (seq (:missing validation))]
+                                     (str "; missing required " (mapv :key m)))
+                                   (when-let [b (seq (:malformed validation))]
+                                     (str "; malformed " (mapv :key b))))
+                              {:variant/id      id
+                               :component       component-id
+                               :view-args-schema schema
+                               :missing         (:missing validation)
+                               :malformed       (:malformed validation)
+                               :effective-args  eff-args}))
         ;; ---- runner requirement ----
         required     (compute-required-runner setup script* assertions)
         ;; ---- source coords ----
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})
-        world        (cond-> {:setup     setup
-                              :args      arg-map
-                              :argtypes  argtypes
-                              :scripts   scripts
-                              :platforms platforms}
+        world        (cond-> {:setup          setup
+                              :args           arg-map
+                              :argtypes       argtypes
+                              :effective-args eff-args
+                              :scripts        scripts
+                              :platforms      platforms}
+                       (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
                        (contains? ctx :network)     (assoc :network (:network ctx))
                        (contains? ctx :fx-overrides) (assoc-in [:frame :fx-overrides] (:fx-overrides ctx))
@@ -423,6 +635,15 @@
                                      :script     :child-only}
                       :args         arg-map
                       :substitutions @subs!
+                      :effective-args eff-args
+                      :view-args-schema schema
+                      :view-args-validation (when validation
+                                              ;; :status :ok here (an :invalid
+                                              ;; validation throws upstream); the
+                                              ;; slot documents the passing contract.
+                                              {:status    (:status validation)
+                                               :missing   (:missing validation)
+                                               :malformed (:malformed validation)})
                       :setup-order  setup
                       :script-order script*
                       :checks       checks
@@ -441,7 +662,7 @@
              :tags            (reduce (fn [acc layer] (merge-tags acc (:tags layer)))
                                       #{} bodies)
              :explain         explain}
-      source (assoc :source source))))
+      source (assoc :source source)))))
 
 (defn variant-plan
   "Compile `target` into a normalized variant plan (§Variant plan).
@@ -458,27 +679,38 @@
   - `:lookup` — a 1-arg fn `(variant-id) → raw-body` OR a
     `{variant-id → raw-body}` map, used to resolve `:extends` parents
     (and the keyword target itself). Defaults to the side-table.
+  - `:view-lookup` — a 1-arg fn `(view-id) → view-meta` OR a
+    `{view-id → view-meta}` map, used to resolve the `:component` view's
+    props/`:spec`/`:schema` slot for view-args validation. Defaults to
+    the framework `:view` registrar (§View arg schemas).
+  - `:validator-fns` — `{:validate (fn …) :explain (fn …)}` for
+    malformed-value checking of `:effective-args`; with none supplied
+    only required-key presence is checked.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
-  `:world`, `:script`, `:expect`, `:required-runner`, `:tags`, `:explain`
-  (and `:source` when coords are present).
+  `:world` (incl. `:effective-args` and `:view-args-schema` when a view
+  schema is on file), `:script`, `:expect`, `:required-runner`, `:tags`,
+  `:explain` (and `:source` when coords are present).
 
   FAILS with a structured `:rf.error/story-*` ex-info on: an unregistered
   keyword target, an unregistered `:extends` parent, an `:extends` cycle,
-  or a missing `[:arg key]`."
+  a missing `[:arg key]`, or `:effective-args` that violate the view-args
+  schema (`:rf.error/story-view-args-invalid`)."
   ([target] (variant-plan target nil))
-  ([target {:keys [lookup] :as _opts}]
-   (let [lookup-fn (coerce-lookup lookup)]
+  ([target {:keys [lookup] :as opts}]
+   (let [lookup-fn    (coerce-lookup lookup)
+         compile-opts (select-keys opts [:view-lookup :validator-fns])]
      (cond
        (keyword? target)
        (if-let [body (lookup-fn target)]
-         (compile-body target body lookup-fn)
+         (compile-body target body lookup-fn compile-opts)
          (fail! :rf.error/story-unknown-variant
                 (str "re-frame2-story: no registered variant " target)
                 {:variant/id target}))
 
        (map? target)
-       (compile-body (:variant/id target) (dissoc target :variant/id) lookup-fn)
+       (compile-body (:variant/id target) (dissoc target :variant/id)
+                     lookup-fn compile-opts)
 
        :else
        (fail! :rf.error/story-bad-target
