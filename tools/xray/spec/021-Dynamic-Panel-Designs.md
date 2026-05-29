@@ -1813,6 +1813,53 @@ URI pre-resolved against `editor-uri/editor-uri`; it is used by demo
 surfaces + the standalone static page where no trace bus is
 available. (rf2-evgf5 / rf2-g5q8d decision.)
 
+##### §9.1.6.2.1 Companion `coord-link` (rf2-vw5pi · `panels/shared/coord_link.cljs`)
+
+Where `coord-chip` is the **icon-only** affordance (a glyph appended
+after an id), `coord-link` is the **label-as-link** companion — the
+verb / label TEXT itself is the hyperlink, with the `external-link`
+glyph appended (`reg-event-fx ↗`). Before rf2-vw5pi this shape was
+hand-rolled ~11 times across `panels/epoch/view.cljs` (the HANDLER
+verb-link, the DISPATCH source label, the COEFFECT / FLOW verb ids,
+the machine cascade verb-link + state-path, the schema-violation
+action + inline prose link) plus the `↗` table-cell affordances in
+`panels/issues_ribbon.cljs` + `panels/trace.cljs`, each re-inlining
+the same `[:button {:on-click (rf/dispatch [:rf.xray/open-in-editor
+…])} …]` boilerplate + its own `clickable?` / plain-fallback branch.
+
+**Contract.**
+
+- **Public fns.** `coord-link coord label testid` (or `… testid
+  opts`). Renders a `<button>` carrying `label` + the glyph when
+  `coord` has a `:file`; degrades to a plain `<span>` (no dead button)
+  otherwise. `open-in-editor!` is the shared dispatch action — the ONE
+  `[:rf.xray/open-in-editor {:source-coord coord}]` dispatch every
+  panel-side affordance funnels through (incl. `coord-chip`, the
+  `↗` table cells, and the Reactive panel's SVG-node clicks which bind
+  it to `:on-click` directly because they are `<g>`/`<rect>` nodes, not
+  `<button>` chips).
+- **Opts.** `:style` (the button chrome), `:plain-style` (the no-coord
+  span chrome), `:glyph-leading?` (glyph BEFORE the label — the
+  schema-violation grammar), `:glyph?` (default true; `false` for a
+  pure inline text link inside prose, e.g. the `schema check` link).
+- **Per-site resolvers stay.** The coord RESOLVERS (`sub-coord`,
+  `view-coord`, `machine-state-path-coord`, the cofx / flow
+  `handler-meta` lookups, …) are legitimately per-site and remain at
+  their call sites — only the button + dispatch + fallback RENDERING
+  is shared.
+
+**Consolidation invariant + guard.** Exactly two shared panel-side
+click-to-source helpers exist (`coord-chip` icon-only · `coord-link`
+label), and no panel file re-inlines the open-in-editor dispatch. A
+JVM source-text guard
+(`tools/xray/test/.../panels/click_to_source_consolidation_test.clj`)
+asserts the `dispatch [:rf.xray/open-in-editor …]` CALL appears ONLY
+in `coord_chip.cljs` + `coord_link.cljs` — a future hand-rolled button
+trips it. (The guard keys on the dispatch-CALL shape, not the bare
+keyword, so docstrings / comments naming the event — and the
+`open_in_editor.cljs` reg-event-fx receiver + static-page `<a href>`
+anchor, excluded by design — do not false-positive.)
+
 #### §9.1.6.3 DISPATCH source-kind enrichment (rf2-5qp4g · consuming rf2-ejtpd)
 
 The DISPATCH step's source label adapts to the closed-set substrate-

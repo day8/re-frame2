@@ -72,6 +72,7 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
+            [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
@@ -155,14 +156,16 @@
        [:button {:data-rf-xray-resizable-col "source"
                  :data-testid (str row-test-id "-source")
                  :title       source-coord
+                 ;; rf2-vw5pi — the open-in-editor dispatch routes
+                 ;; through the shared `coord-link/open-in-editor!`
+                 ;; (stops propagation so the row's pivot handler
+                 ;; doesn't also fire — the source-coord click is a
+                 ;; distinct affordance per spec/021 §8.4). The `↗`
+                 ;; text-glyph table-cell chrome + `·` no-source
+                 ;; placeholder stay local — they are column layout,
+                 ;; not the bespoke dispatch the guard targets.
                  :on-click    (fn [e]
-                                ;; Stop propagation so the row's pivot
-                                ;; handler doesn't also fire — the
-                                ;; source-coord click is a distinct
-                                ;; affordance per spec/021 §8.4.
-                                (.stopPropagation e)
-                                (rf/dispatch [:rf.xray/open-in-editor
-                                              {:source-coord source-coord}] {:frame :rf/xray}))
+                                (coord-link/open-in-editor! source-coord e))
                  :style       {:background  "transparent"
                                :color       (:accent tokens)
                                :border      "none"

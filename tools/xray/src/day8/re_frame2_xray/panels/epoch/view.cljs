@@ -58,6 +58,7 @@
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
+            [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]
@@ -1483,27 +1484,13 @@
   `:rf.xray/open-in-editor` event (the same fx-id every other
   open-in-editor surface dispatches via)."
   [source coord]
-  (let [label (if source (name source) "unknown")
-        clickable? (and (map? coord) (seq (:file coord)))]
-    (if clickable?
-      [:button {:data-testid "rf-xray-epoch-dispatch-source-label"
-                :aria-label  (str "open dispatch call-site for " label)
-                :title       (str "open " (:file coord)
-                                  (when (:line coord)
-                                    (str ":" (:line coord)))
-                                  " in editor")
-                :on-click    (fn [e]
-                               (.stopPropagation e)
-                               (rf/dispatch
-                                 [:rf.xray/open-in-editor
-                                  {:source-coord coord}]
-                                 {:frame :rf/xray}))
-                :style link-button-style}
-       label
-       (icons/external-link)]
-      [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
-              :style dispatch-source-plain-style}
-       label])))
+  (let [label (if source (name source) "unknown")]
+    ;; rf2-vw5pi — routes through the shared `coord-link` (label-as-link
+    ;; companion to `coord-chip`); the per-site link / plain styles stay
+    ;; here, the button + dispatch + nil-coord fallback are shared.
+    (coord-link/coord-link coord label "rf-xray-epoch-dispatch-source-label"
+                           {:style       link-button-style
+                            :plain-style dispatch-source-plain-style})))
 
 ;; ---- rf2-5qp4g — DISPATCH source enrichment per source kind --------------
 ;;
@@ -1560,26 +1547,10 @@
   `coord` is `{:file <string> :line <int>}` or nil; `testid` is the
   data-testid suffix."
   [path-str coord testid]
-  (if (and (map? coord) (seq (:file coord)))
-    [:button {:data-testid testid
-              :aria-label  (str "open " (:file coord)
-                                (when (:line coord) (str ":" (:line coord)))
-                                " in editor")
-              :title       (str "open " (:file coord)
-                                (when (:line coord) (str ":" (:line coord)))
-                                " in editor")
-              :on-click    (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch
-                               [:rf.xray/open-in-editor
-                                {:source-coord coord}]
-                               {:frame :rf/xray}))
-              :style dispatch-source-state-path-button-style}
-     path-str
-     (icons/external-link)]
-    [:span {:data-testid testid
-            :style dispatch-source-state-path-plain-style}
-     path-str]))
+  ;; rf2-vw5pi — shared `coord-link`; per-site styles preserved.
+  (coord-link/coord-link coord path-str testid
+                         {:style       dispatch-source-state-path-button-style
+                          :plain-style dispatch-source-state-path-plain-style}))
 
 (defn- parent-epoch-affordance
   "Render the `parent epoch #N` chrome for `:fx-dispatch` /
@@ -1820,31 +1791,15 @@
                           (catch :default _ nil)))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})
-        clickable? (and (map? coord) (seq (:file coord)))
         label      (proj/ns-keyword id)]
     [:div {:key (str "cofx-" idx)
            :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
            :style coeffect-row-style}
-     ;; id — clickable button when coord captured; plain span otherwise
-     (if clickable?
-       [:button {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
-                 :aria-label  (str "open " (:file coord)
-                                   (when (:line coord) (str ":" (:line coord)))
-                                   " in editor")
-                 :title       (str "open " (:file coord)
-                                   (when (:line coord) (str ":" (:line coord)))
-                                   " in editor")
-                 :on-click    (fn [e]
-                                (.stopPropagation e)
-                                (rf/dispatch [:rf.xray/open-in-editor
-                                              {:source-coord coord}]
-                                             {:frame :rf/xray}))
-                 :style link-button-inherit-style}
-        label
-        (icons/external-link)]
-       [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
-               :style coeffect-row-id-plain-style}
-        label])
+     ;; rf2-vw5pi — id via shared `coord-link` (clickable when coord
+     ;; captured, plain span otherwise); per-site styles preserved.
+     (coord-link/coord-link coord label (str "rf-xray-epoch-coeffect-row-id-" idx)
+                            {:style       link-button-inherit-style
+                             :plain-style coeffect-row-id-plain-style})
      ;; injected value (labelled — no cryptic `+[]nil` line)
      [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
              :style coeffect-row-value-style}
@@ -1867,7 +1822,6 @@
                           (catch :default _ nil)))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})
-        clickable? (and (map? coord) (seq (:file coord)))
         label      (proj/ns-keyword id)]
     [:div {:data-testid (str "rf-xray-epoch-step-coeffect-" (name id))
            :data-step-kw "coeffect"
@@ -1878,29 +1832,12 @@
         :badge :COEFFECT
         ;; Verb = cofx-id (clickable when coord captured), nothing
         ;; else. The injected value renders in the BODY below the
-        ;; badge per pair-debug 2026-05-26.
-        :verb (if clickable?
-                [:button {:data-testid (str "rf-xray-epoch-coeffect-id-" (name id))
-                          :aria-label  (str "open " (:file coord)
-                                            (when (:line coord)
-                                              (str ":" (:line coord)))
-                                            " in editor")
-                          :title       (str "open " (:file coord)
-                                            (when (:line coord)
-                                              (str ":" (:line coord)))
-                                            " in editor")
-                          :on-click    (fn [e]
-                                         (.stopPropagation e)
-                                         (rf/dispatch
-                                           [:rf.xray/open-in-editor
-                                            {:source-coord coord}]
-                                           {:frame :rf/xray}))
-                          :style coeffect-verb-link-button-style}
-                 label
-                 (icons/external-link)]
-                [:span {:data-testid (str "rf-xray-epoch-coeffect-id-" (name id))
-                        :style coeffect-verb-plain-style}
-                 label])
+        ;; badge per pair-debug 2026-05-26. rf2-vw5pi — via shared
+        ;; `coord-link`; per-site verb styles preserved.
+        :verb (coord-link/coord-link coord label
+                                     (str "rf-xray-epoch-coeffect-id-" (name id))
+                                     {:style       coeffect-verb-link-button-style
+                                      :plain-style coeffect-verb-plain-style})
         :expandable? false
         :testid (str "rf-xray-epoch-coeffect-" (name id))}
        nil)
@@ -2075,30 +2012,14 @@
   shape as the HANDLER step's verb so the operator's eye trains on
   ONE source-link grammar across the panel."
   [row coord verb-string]
-  (let [clickable? (and (map? coord) (seq (:file coord)))]
-    (if clickable?
-      [:button {:data-testid (str "rf-xray-epoch-machine-cascade-verb-link-"
-                                  (:step row))
-                :aria-label  (str "open " (:file coord)
-                                  (when (:line coord)
-                                    (str ":" (:line coord)))
-                                  " in editor")
-                :title       (str "open " (:file coord)
-                                  (when (:line coord)
-                                    (str ":" (:line coord)))
-                                  " in editor")
-                :on-click    (fn [e]
-                               (.stopPropagation e)
-                               (rf/dispatch [:rf.xray/open-in-editor
-                                             {:source-coord coord}]
-                                            {:frame :rf/xray}))
-                :style cascade-verb-link-button-style}
-       verb-string
-       (icons/external-link)]
-      [:span {:data-testid (str "rf-xray-epoch-machine-cascade-verb-"
-                                (:step row))
-              :style cascade-verb-plain-style}
-       verb-string])))
+  ;; rf2-vw5pi — shared `coord-link`; per-site styles preserved. The
+  ;; testid is now a single stem (`…-verb-link-<step>`) across both the
+  ;; clickable + plain branches — the prior `…-verb-<step>` plain-only
+  ;; variant was a hand-rolled artefact, not pinned by any selector.
+  (coord-link/coord-link coord verb-string
+                         (str "rf-xray-epoch-machine-cascade-verb-link-" (:step row))
+                         {:style       cascade-verb-link-button-style
+                          :plain-style cascade-verb-plain-style}))
 
 (defn- source-form->string
   "Coerce a cascade-row source-form value into a printable Clojure
@@ -2465,30 +2386,14 @@
                           (if machine? :machine :event) event-id)
                         (catch :default _ nil)))
         coord    (coord-from-handler-meta meta)
-        label    (proj/handler-flavour-label flavour)
-        clickable? (and (map? coord) (seq (:file coord)))]
-    (if clickable?
-      [:button {:data-testid "rf-xray-epoch-handler-verb-link"
-                :aria-label  (str "open " (:file coord)
-                                  (when (:line coord)
-                                    (str ":" (:line coord)))
-                                  " in editor")
-                :title       (str "open " (:file coord)
-                                  (when (:line coord)
-                                    (str ":" (:line coord)))
-                                  " in editor")
-                :on-click    (fn [e]
-                               (.stopPropagation e)
-                               (rf/dispatch
-                                 [:rf.xray/open-in-editor
-                                  {:source-coord coord}]
-                                 {:frame :rf/xray}))
-                :style handler-verb-link-button-style}
-       label
-       (icons/external-link)]
-      [:span {:data-testid "rf-xray-epoch-handler-verb-plain"
-              :style handler-verb-plain-style}
-       label])))
+        label    (proj/handler-flavour-label flavour)]
+    ;; rf2-vw5pi — the HANDLER verb-as-link routes through the shared
+    ;; `coord-link`. Single testid across both branches (the prior
+    ;; `…-verb-plain` variant was a hand-rolled artefact, not pinned);
+    ;; per-site link / plain styles preserved.
+    (coord-link/coord-link coord label "rf-xray-epoch-handler-verb-link"
+                           {:style       handler-verb-link-button-style
+                            :plain-style handler-verb-plain-style})))
 
 (defn- handler-source-block
   "Render the source-code block under the HANDLER header. Three
@@ -2692,7 +2597,6 @@
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
-        clickable? (and (map? coord) (seq (:file coord)))
         label      (proj/ns-keyword flow-id)]
     [:div {:data-testid (str "rf-xray-epoch-step-flow-" (name flow-id))
            :data-step-kw "flow"
@@ -2703,28 +2607,11 @@
         :badge :FLOW
         ;; Verb = flow-id (clickable when coord captured). Same
         ;; affordance shape as the COEFFECT step's cofx-id hyperlink.
-        :verb (if clickable?
-                [:button {:data-testid (str "rf-xray-epoch-flow-id-" (name flow-id))
-                          :aria-label  (str "open " (:file coord)
-                                            (when (:line coord)
-                                              (str ":" (:line coord)))
-                                            " in editor")
-                          :title       (str "open " (:file coord)
-                                            (when (:line coord)
-                                              (str ":" (:line coord)))
-                                            " in editor")
-                          :on-click    (fn [e]
-                                         (.stopPropagation e)
-                                         (rf/dispatch
-                                           [:rf.xray/open-in-editor
-                                            {:source-coord coord}]
-                                           {:frame :rf/xray}))
-                          :style coeffect-verb-link-button-style}
-                 label
-                 (icons/external-link)]
-                [:span {:data-testid (str "rf-xray-epoch-flow-id-" (name flow-id))
-                        :style coeffect-verb-plain-style}
-                 label])
+        ;; rf2-vw5pi — via shared `coord-link`; per-site styles kept.
+        :verb (coord-link/coord-link coord label
+                                     (str "rf-xray-epoch-flow-id-" (name flow-id))
+                                     {:style       coeffect-verb-link-button-style
+                                      :plain-style coeffect-verb-plain-style})
         :expandable? false
         :testid (str "rf-xray-epoch-flow-" (name flow-id))
         :duration-ms duration-ms}
@@ -3477,31 +3364,19 @@
 (defn- violation-open-source-action
   "Click-to-source button. `coord` is `{:file :line}` or nil; when
   nil renders a muted plain-text fallback (graceful degrade — the
-  framework may not yet stamp coords for some surfaces)."
+  framework may not yet stamp coords for some surfaces).
+
+  rf2-vw5pi — routes through the shared `coord-link` with
+  `:glyph-leading?` (the schema-violation grammar leads with the
+  glyph: `↗ <failing-id>`). The muted plain fallback overlays the
+  link style with `:text-tertiary` + `default` cursor."
   [{:keys [label coord testid]}]
-  (if (and (map? coord) (string? (:file coord)) (seq (:file coord)))
-    [:button {:data-testid testid
-              :aria-label  (str "open " (:file coord)
-                                (when (:line coord)
-                                  (str ":" (:line coord)))
-                                " in editor")
-              :title       (str "open " (:file coord)
-                                (when (:line coord)
-                                  (str ":" (:line coord)))
-                                " in editor")
-              :on-click    (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.xray/open-in-editor
-                                           {:source-coord coord}]
-                                          {:frame :rf/xray}))
-              :style schema-violation-action-link-style}
-     (icons/external-link)
-     label]
-    [:span {:data-testid testid
-            :style (assoc schema-violation-action-link-style
-                          :color text-tertiary-colour
-                          :cursor "default")}
-     label]))
+  (coord-link/coord-link coord label testid
+                         {:style          schema-violation-action-link-style
+                          :plain-style    (assoc schema-violation-action-link-style
+                                                 :color  text-tertiary-colour
+                                                 :cursor "default")
+                          :glyph-leading? true}))
 
 (defn- violation-kind-coord
   "Resolve a `(rf/handler-meta <kind> <id>)` coord, returning
@@ -3551,19 +3426,15 @@
   "Render the inline `[schema check]` link inside a violation prose
   sentence (rf2-2ek7t). When `coord` resolves, the text is a clickable
   button that dispatches `:rf.xray/open-in-editor`; absent a coord,
-  it degrades to plain inline text so the sentence stays readable."
+  it degrades to plain inline text so the sentence stays readable.
+
+  rf2-vw5pi — routes through the shared `coord-link` with `:glyph?
+  false` (this is a pure inline TEXT link inside a sentence — no
+  trailing `external-link` glyph)."
   [{:keys [label coord testid]}]
-  (if (and (map? coord) (string? (:file coord)) (seq (:file coord)))
-    [:button {:data-testid testid
-              :type        "button"
-              :on-click    (fn [^js e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.xray/open-in-editor
-                                           {:source-coord coord}]
-                                          {:frame :rf/xray}))
-              :style       violation-inline-link-style}
-     label]
-    [:span {:data-testid testid} label]))
+  (coord-link/coord-link coord label testid
+                         {:style  violation-inline-link-style
+                          :glyph? false}))
 
 (defn- violation-prose
   "Per-`:where` natural-language sentence with an inline `schema check`

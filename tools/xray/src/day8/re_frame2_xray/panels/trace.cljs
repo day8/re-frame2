@@ -86,6 +86,7 @@
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers
              :as cancellation-cascade-helpers]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
+            [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
@@ -673,13 +674,13 @@
               :title (or target "")}
        (or target "—")]
       (when source-coord
+        ;; rf2-vw5pi — open-in-editor dispatch via the shared
+        ;; `coord-link/open-in-editor!`. The `↗` text-glyph cell chrome
+        ;; stays local (column layout, not the bespoke dispatch).
         [:button {:data-testid (str row-test-id "-source-coord")
                   :title       source-coord
                   :on-click    (fn [e]
-                                 (.stopPropagation e)
-                                 (rf/dispatch [:rf.xray/open-in-editor
-                                               {:source-coord source-coord}]
-                                              {:frame :rf/xray}))
+                                 (coord-link/open-in-editor! source-coord e))
                   :style       op-row-source-coord-button-style}
          "↗"])
       (when destroy?

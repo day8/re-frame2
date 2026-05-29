@@ -64,6 +64,7 @@
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
+            [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack with-alpha]]))
 
@@ -171,11 +172,14 @@
 ;; ---- [code] open-chip --------------------------------------------------
 
 (defn- open-source!
-  "Dispatch the jump-to-source effect for a topology coord."
+  "Dispatch the jump-to-source effect for a topology coord. rf2-vw5pi
+  — delegates to the shared `coord-link/open-in-editor!` so the
+  `:rf.xray/open-in-editor` dispatch lives in ONE place; the reactive
+  graph's source affordances are SVG `<g>`/`<rect>` node clicks (not
+  `<button>` chips), so they bind this helper to `:on-click` directly
+  rather than mounting a `coord-chip` / `coord-link`."
   [coord e]
-  (when e (.stopPropagation e))
-  (rf/dispatch [:rf.xray/open-in-editor {:source-coord coord}]
-               {:frame :rf/xray}))
+  (coord-link/open-in-editor! coord e))
 
 ;; ---- SVG paint helpers -------------------------------------------------
 
