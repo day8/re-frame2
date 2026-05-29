@@ -68,21 +68,27 @@
       ;; is available (e.g. an actor-destroy abort outside a drain), the
       ;; event becomes a no-op — the visualiser still has the trace-id
       ;; pinned via the row's data-testid so the user can grep on it.
-      {:fx (cond-> []
-             dispatch-id
-             (conj [:dispatch [[:rf.xray/select-dispatch-id
-                                dispatch-id frame]
-                               {:frame :rf/xray}]])
-             ;; Flip the visible tab to Event so the row jump lands
-             ;; in event-detail. The legacy `:rf.xray/select-panel`
-             ;; slot is no longer read by the 4-layer shell (rf2-qy0nu).
-             dispatch-id
-             (conj [:dispatch [[:rf.xray/select-tab :event]
-                               {:frame :rf/xray}]])
-             ;; Also close the popover when a row jump fires — the
-             ;; user has navigated away.
-             true
-             (conj [:dispatch [[:rf.xray/cancellation-cascade-close]
-                               {:frame :rf/xray}]]))}))
+      ;;
+      ;; rf2-nesy9 — the re-dispatched events target the SURROUNDING
+      ;; instance frame captured at handler entry (the handler runs in
+      ;; the dispatching frame's context), not a `{:frame :rf/xray}`
+      ;; literal that pins the singleton.
+      (let [here (rf/current-frame)]
+        {:fx (cond-> []
+               dispatch-id
+               (conj [:dispatch [[:rf.xray/select-dispatch-id
+                                  dispatch-id frame]
+                                 {:frame here}]])
+               ;; Flip the visible tab to Event so the row jump lands
+               ;; in event-detail. The legacy `:rf.xray/select-panel`
+               ;; slot is no longer read by the 4-layer shell (rf2-qy0nu).
+               dispatch-id
+               (conj [:dispatch [[:rf.xray/select-tab :event]
+                                 {:frame here}]])
+               ;; Also close the popover when a row jump fires — the
+               ;; user has navigated away.
+               true
+               (conj [:dispatch [[:rf.xray/cancellation-cascade-close]
+                                 {:frame here}]]))})))
 
   nil)

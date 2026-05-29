@@ -212,7 +212,11 @@
 (defn- parent-decision-row
   "Render the parent-decision row at the top of the waterfall."
   [decision]
-  (let [clickable? (boolean (:dispatch-id decision))]
+  ;; rf2-nesy9 — render-time frame capture so the deferred row click
+  ;; dispatches into the surrounding instance frame, not a `:rf/xray`
+  ;; literal. The row renders inside the SidePanel / Popover reg-views.
+  (let [frame      (rf/current-frame)
+        clickable? (boolean (:dispatch-id decision))]
     [:div {:data-testid "rf-xray-cancellation-cascade-decision-row"
            :on-click    (when clickable?
                           (fn [_]
@@ -220,7 +224,7 @@
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id (:dispatch-id decision)
                                 :trace-id    (:trace-id decision)}]
-                              {:frame :rf/xray})))
+                              {:frame frame})))
            :style       (if clickable?
                           decision-row-style-clickable
                           decision-row-style-static)}
@@ -240,7 +244,8 @@
 
 (defn- teardown-row
   [{:keys [child-id t inflight-count reason dispatch-id trace-id]}]
-  (let [clickable? (boolean dispatch-id)]
+  (let [frame      (rf/current-frame)
+        clickable? (boolean dispatch-id)]
     [:div {:data-testid (str "rf-xray-cancellation-cascade-teardown-row-"
                              (str child-id))
            :on-click    (when clickable?
@@ -249,7 +254,7 @@
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
-                              {:frame :rf/xray})))
+                              {:frame frame})))
            :style       (if clickable?
                           teardown-row-style-clickable
                           teardown-row-style-static)}
@@ -277,7 +282,8 @@
            dispatch-id trace-id]
     :as row}
    last?]
-  (let [clickable? (boolean dispatch-id)]
+  (let [frame      (rf/current-frame)
+        clickable? (boolean dispatch-id)]
     [:div {:data-testid (str "rf-xray-cancellation-cascade-abort-row-"
                              (str (or trace-id correlation-id)))
            :data-cancel-cause (str cancel-cause)
@@ -288,7 +294,7 @@
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
-                              {:frame :rf/xray})))
+                              {:frame frame})))
            :style       (if clickable?
                           abort-row-style-clickable
                           abort-row-style-static)}
@@ -326,18 +332,20 @@
   "Renders the 'Show all N' / 'Collapse' affordance under the abort
   list when collapse is active."
   [collapsed-count total-count expanded?]
-  [:div {:data-testid "rf-xray-cancellation-cascade-expander"
+  ;; rf2-nesy9 — render-time frame capture for the deferred toggle click.
+  (let [frame (rf/current-frame)]
+   [:div {:data-testid "rf-xray-cancellation-cascade-expander"
          :style       expander-container-style}
    [:button {:data-testid "rf-xray-cancellation-cascade-expand-toggle"
              :on-click    (fn [_]
                             (rf/dispatch
                               [:rf.xray/cancellation-cascade-toggle-expand]
-                              {:frame :rf/xray}))
+                              {:frame frame}))
              :style       expander-button-style}
     (if expanded?
       (str "Collapse · showing " total-count)
       (str "Show all " total-count " · "
-           collapsed-count " hidden"))]])
+           collapsed-count " hidden"))]]))
 
 ;; ---- empty states --------------------------------------------------------
 
@@ -505,12 +513,14 @@
    :color            (:text-primary tokens)})
 
 (defn- handle-popover-keydown
-  [^js e]
-  (when (= "Escape" (.-key e))
-    (.preventDefault e)
-    (.stopPropagation e)
-    (rf/dispatch [:rf.xray/cancellation-cascade-close]
-                 {:frame :rf/xray})))
+  "Build the popover Esc-closes keydown handler, closing over the
+  captured frame-aware `dispatch` (rf2-nesy9)."
+  [dispatch]
+  (fn [^js e]
+    (when (= "Escape" (.-key e))
+      (.preventDefault e)
+      (.stopPropagation e)
+      (dispatch [:rf.xray/cancellation-cascade-close]))))
 
 (rf/reg-view Popover
   "Overlay popover mount. Reads
@@ -523,12 +533,11 @@
     (let [cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
           positioning @(rf/subscribe [:rf.xray/modal-positioning])
           close       (fn [_]
-                        (rf/dispatch [:rf.xray/cancellation-cascade-close]
-                                     {:frame :rf/xray}))]
+                        (dispatch [:rf.xray/cancellation-cascade-close]))]
       [:div {:data-testid "rf-xray-cancellation-cascade-popover-backdrop"
              :data-rf-xray-modal-positioning (name (or positioning :fixed))
              :on-click    close
-             :on-key-down handle-popover-keydown
+             :on-key-down (handle-popover-keydown dispatch)
              :tab-index   -1
              :style       (backdrop-style positioning)}
        [:div (merge

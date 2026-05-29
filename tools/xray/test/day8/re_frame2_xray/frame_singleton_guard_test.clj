@@ -94,8 +94,6 @@
   so they ride the allowlist until the sweep gives them the
   `defaults/default-frame-id` treatment for consistency."
   #{"panels/app_db_segment_inspector.cljs"
-    "panels/cancellation_cascade.cljs"
-    "panels/cancellation_cascade_events.cljs"
     "panels/epoch/view.cljs"
     "panels/machine_after_rings.cljs"
     "panels/machine_canvas.cljs"
