@@ -70,7 +70,7 @@
   (state/reset-shell-state!)
   (story/install-canonical-vocabulary!))
 
-(use-fixtures :each {:before reset-all!})
+(use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ---- pure: toggle-mode axis semantics -----------------------------------
 

@@ -29,7 +29,7 @@
                (frame/ensure-default-frame!)))
   (story/install-canonical-vocabulary!))
 
-(use-fixtures :each {:before reset-all!})
+(use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ---- pure: merge-preset --------------------------------------------------
 

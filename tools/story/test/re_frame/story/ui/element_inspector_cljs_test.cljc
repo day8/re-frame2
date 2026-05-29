@@ -96,8 +96,7 @@
      (reset! inspector/state {:active? false :hover nil})))
 
 #?(:cljs
-   (use-fixtures :each {:before reset-inspector!
-                        :after  reset-inspector!}))
+   (use-fixtures :each (fn [t] (reset-inspector!) (t) (reset-inspector!))))
 
 #?(:cljs
    (deftest mode-toggle-flips-active-flag
