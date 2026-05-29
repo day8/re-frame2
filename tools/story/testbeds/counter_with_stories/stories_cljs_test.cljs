@@ -185,14 +185,23 @@
 ;; ---- variants resolve cleanly ------------------------------------------
 
 (deftest variant-edn-roundtrip
-  (testing "variant->edn returns the registered body for each variant"
+  (testing "variant->edn returns the registered body for each variant.
+            rf2-5x1wt.11: the variants now AUTHOR the public `:setup`
+            vocabulary, but the registrar's `lower-public-vocabulary`
+            step folds `:setup` → `:events` into the stored body so the
+            shipping runtime/snapshot/recorder readers see the shipping
+            slot. The round-trip therefore surfaces `:events` (the
+            lowered form), not `:setup` — this assertion pins that
+            lowering until the runtime is routed through the variant
+            plan (rf2-5x1wt.17 / .22)."
     (doseq [vid [:story.counter/empty
                  :story.counter/loaded
                  :story.counter/clicked-three-times
                  :story.counter/save-stubbed]]
       (let [body (story/variant->edn vid)]
         (is (map? body) (str vid " variant->edn returned a map"))
-        (is (some? (:events body)) (str vid " has :events"))))))
+        (is (some? (:events body))
+            (str vid " has :events (the lowered shipping form of authored :setup)"))))))
 
 ;; ---- play sequences pass ------------------------------------------------
 

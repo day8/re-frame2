@@ -12,7 +12,7 @@
     :story.login/submitting-retry  → user fixed the typo, re-submitted
     :story.login/authenticated     → welcome banner
 
-  Every variant body is plain EDN — `:events`, `:decorators`, `:play`,
+  Every variant body is plain EDN — `:setup`, `:decorators`, `:script`,
   `:tags`, `:substrates`. No function-slots; no closures except in the
   decorator registration (the `:counter-with-stories/log-decorator`
   pattern). This is the canonical agent-consumable shape (round-trips
@@ -102,8 +102,8 @@
              cascade seeds the snapshot — without it, the
              `[:rf/runtime :machines :snapshots :login/flow]` slot is nil and the
              state-pill in the view renders empty."
-     :events [[:login/flow [:login/dismiss]]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals  [:rf/runtime :machines :snapshots :login/flow :state] :idle]]
+     :setup [[:login/flow [:login/dismiss]]]
+     :script [[:dispatch-sync [:rf.assert/path-equals  [:rf/runtime :machines :snapshots :login/flow :state] :idle]]
               [:dispatch-sync [:rf.assert/state-is :login/flow :idle]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -123,10 +123,10 @@
              button reads 'Signing in…'. The fx-stub records the
              request and resolves nothing so the canvas locks in
              :submitting."
-     :events [[:login/flow [:login/submit {:email    "ada@example.com"
+     :setup [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play-script [[:dispatch-sync [:rf.assert/state-is      :login/flow :submitting]]
+     :script [[:dispatch-sync [:rf.assert/state-is      :login/flow :submitting]]
               [:dispatch-sync [:rf.assert/effect-emitted :rf.http/managed]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -145,7 +145,7 @@
     {:doc    "Server rejected credentials. Form re-enabled; the error
              message is surfaced under the submit button; the
              'Cancel' button lets the user back out without retrying."
-     :events [[:login/flow [:login/submit {:email    "ada@example.com"
+     :setup [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "wrong"}]]
               ;; Manually fire the failure sub-event the stubbed-out
               ;; request would otherwise have triggered. This is the
@@ -156,7 +156,7 @@
                             {:failure {:status  401
                                        :message "Invalid credentials."}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
+     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
               [:dispatch-sync [:rf.assert/path-equals
                [:rf/runtime :machines :snapshots :login/flow :data :error]
                "Invalid credentials."]]]
@@ -177,14 +177,14 @@
              from :submitting because attempts > 0; the variant body
              sequences the failure then the retry, leaving the
              retry request pending in the stub."
-     :events [[:login/flow [:login/submit
+     :setup [[:login/flow [:login/submit
                             {:email "ada@example.com" :password "wrong"}]]
               [:login/flow [:login/failure
                             {:failure {:status 401 :message "Invalid credentials."}}]]
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :submitting-retry]]
+     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :submitting-retry]]
               [:dispatch-sync [:rf.assert/path-equals
                [:rf/runtime :machines :snapshots :login/flow :data :attempts]
                1]]]
@@ -206,13 +206,13 @@
              a welcome banner addressing the user by email; the
              :sign-out button routes back to :idle. This is the
              canonical screenshot the tutorial pins to."
-     :events [[:login/flow [:login/submit {:email    "ada@example.com"
+     :setup [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "correct-horse"}]]
               [:login/flow [:login/success
                             {:value {:user  {:email "ada@example.com"}
                                      :token "story-token"}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :authenticated]]
+     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :authenticated]]
               [:dispatch-sync [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
      :tags   #{:dev :docs :test :login-form/tutorial}
      :substrates #{:reagent}})

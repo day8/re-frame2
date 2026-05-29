@@ -330,14 +330,27 @@
   [id body]
   (maybe-auto-install!)
   (assert-id! :variant id)
-  (let [resolved (extends/resolve-extends
-                   body
+  ;; rf2-5x1wt.11 — validate the AUTHORED body first so the public-
+  ;; vocabulary mutual-exclusion (`:setup` xor `:events`, `:script` xor
+  ;; `:play-script` xor `:plays`) fires on what the author actually
+  ;; wrote, before `lower-public-vocabulary` folds the public spellings
+  ;; into the shipping slots.
+  (validate-shape! :variant id body)
+  (let [;; Lower `:setup`→`:events` and `:script`→`:play-script` so the
+        ;; stored body carries the shipping slots every downstream
+        ;; consumer reads (per spec/017 §Public vocabulary; removed when
+        ;; the runtime reads the normalized plan — rf2-5x1wt.17 / .22).
+        lowered  (schemas/lower-public-vocabulary body)
+        resolved (extends/resolve-extends
+                   lowered
                    (fn [pid] (handler-meta :variant pid))
                    ;; rf2-ee38b.3: :play-script and :plays are sibling
                    ;; encodings of the play surface. When the child
                    ;; overrides one, drop the inherited other so the
                    ;; merged body doesn't carry both (which the schema's
-                   ;; mutual-exclusion :fn would reject).
+                   ;; mutual-exclusion :fn would reject). Parents are
+                   ;; already stored lowered, so the public `:script` /
+                   ;; `:plays` distinction is collapsed before this point.
                    [#{:play-script :plays}])
         body     (-> resolved
                      merge-coords

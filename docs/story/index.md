@@ -29,7 +29,7 @@ The Story loop:
 1. Open `#/stories` in your dev build.
 2. Click each state in the left sidebar. The canvas swaps in 30ms.
 3. Open a workspace that mounts all five side-by-side; design review against the grid.
-4. Switch to *Tests* mode; every variant's `:play-script` assertions run automatically; the sidebar dots flip green.
+4. Switch to *Tests* mode; every variant's `:script` assertions run automatically; the sidebar dots flip green.
 5. Click *record* on the canvas toolbar, tap through the form once, click *stop*; out comes an EDN `:play-script` body that captures exactly what you just did. Paste it into the variant.
 6. Ship.
 
@@ -62,7 +62,7 @@ Before we dive in, three contracts that nothing else in Story makes sense withou
 
 1. **Each variant runs in its own frame.** Fresh `app-db`, fresh queue, fresh sub-cache. State doesn't leak between scenarios. What you see is what production would render against the same fixture. This sounds like a small thing; it isn't. It's the reason every other rule on this list is sustainable.
 
-2. **Variant bodies are data — never functions.** A variant body is a map with `:events`, `:args`, `:decorators`, `:play-script`, etc. Every slot is plain EDN, round-trippable across the network. Closures live in exactly one place: inside decorator registrations, where they're a registration-site concern, not a variant-body concern. This is the lock that lets MCP, visual-regression services, and agent input pipelines all consume the same shape.
+2. **Variant bodies are data — never functions.** A variant body is a map with `:setup`, `:args`, `:decorators`, `:script`, etc. Every slot is plain EDN, round-trippable across the network. Closures live in exactly one place: inside decorator registrations, where they're a registration-site concern, not a variant-body concern. This is the lock that lets MCP, visual-regression services, and agent input pipelines all consume the same shape.
 
 3. **Assertions record, don't throw.** A failing `:rf.assert/path-equals` doesn't blow up the variant — it appends an entry to the variant frame's assertion accumulator. The play sequence runs to completion either way; the test runner asks "did every entry pass?" at the end. You get the full picture from a broken variant, not a stack trace and a single failure.
 
