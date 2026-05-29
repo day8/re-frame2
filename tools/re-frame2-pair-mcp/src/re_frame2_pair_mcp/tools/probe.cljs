@@ -333,6 +333,67 @@
                  (if (vector? v) v []))))
       (.catch (fn [_] []))))
 
+;; ---------------------------------------------------------------------------
+;; URL/port → build resolution via the shadow-cljs :dev-http map (rf2-fyf0h).
+;;
+;; A pair session naturally starts from the URL of the open browser tab
+;; (e.g. http://localhost:8031/counter), but discover-app speaks build-
+;; ids. shadow's `:dev-http` map binds a port to a LIST OF FILE ROOTS
+;; (not a build-id directly); the serving build is the one whose
+;; `:output-dir` is among those roots — exactly how shadow's dev server
+;; finds the compiled assets to serve. We resolve port → build entirely
+;; JVM-side (where the config lives), matching `:output-dir` against the
+;; port's roots, and return the build-id keyword.
+;; ---------------------------------------------------------------------------
+
+(defn- port->build-jvm-form
+  "JVM-side form that reads the shadow-cljs config, looks up `port` in the
+  `:dev-http` map, and returns the keyword build-id whose `:output-dir`
+  is one of that port's file roots — or nil. Defensive: any failure
+  (old shadow, unparseable config, no match) collapses to nil so the
+  caller degrades to a clear `:port-unresolved` reason rather than a
+  crash. `:output-dir` strings are normalised (leading `./` and trailing
+  `/` stripped) on both sides before comparison so trivial path-spelling
+  differences don't miss a real match."
+  [port]
+  (str
+    "(try"
+    "  (let [cfg (shadow.cljs.devtools.config/load-cljs-edn)"
+    "        norm (fn [s] (when s (-> (str s)"
+    "                                 (clojure.string/replace #\"^\\./\" \"\")"
+    "                                 (clojure.string/replace #\"/$\" \"\"))))"
+    "        roots (set (map norm (get (:dev-http cfg) " port ")))]"
+    "    (when (seq roots)"
+    "      (some (fn [[bid b]]"
+    "              (when (and (map? b) (contains? roots (norm (:output-dir b)))) bid))"
+    "            (:builds cfg))))"
+    "  (catch Throwable _ nil))"))
+
+(defn resolve-build-by-port
+  "Resolve the shadow-cljs build-id serving `port` via the `:dev-http`
+  map (rf2-fyf0h). Returns a Promise resolving to the build-id keyword,
+  or nil when the port isn't in `:dev-http`, no build's `:output-dir`
+  matches its roots, or the JVM probe fails. `port` is an integer (a
+  string is coerced).
+
+  This removes the manual `grep shadow-cljs.edn for 8031` step: an agent
+  that only knows the browser URL passes the port and gets the build."
+  [conn port]
+  (let [p (cond
+            (number? port) (long port)
+            (string? port) (let [n (js/parseInt port 10)]
+                             (when-not (js/isNaN n) n))
+            :else nil)]
+    (if (nil? p)
+      (js/Promise.resolve nil)
+      (-> (try
+            (nrepl/jvm-eval conn (port->build-jvm-form p))
+            (catch :default _ (js/Promise.resolve nil)))
+          (.then (fn [resp]
+                   (let [v (some-> (:value resp) cljs.reader/read-string)]
+                     (when (keyword? v) v))))
+          (.catch (fn [_] nil))))))
+
 (defn auto-select-single-build
   "Resolve a build-id when EXACTLY ONE shadow-cljs build is running, else
   nil (rf2-v70kv). Returns a Promise resolving to `[build-id true]` when

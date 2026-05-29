@@ -232,7 +232,7 @@ load-bearing: each carries different recovery semantics.
 
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
 | `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
@@ -282,9 +282,21 @@ Verify the shadow-cljs nREPL is reachable, confirm the
 shadow-cljs `:devtools :preloads`, and return a health summary. Run
 first every session.
 
-**Args**: `build` (string, optional). Colon-tolerant (rf2-8ohwv) —
-`"examples/step-deck"` and `":examples/step-deck"` resolve to the same
-build id; a doubled colon never reaches the resolver.
+**Args**: `build` (string, optional) and `port` (integer, optional).
+`build` is colon-tolerant (rf2-8ohwv) — `"examples/step-deck"` and
+`":examples/step-deck"` resolve to the same build id; a doubled colon
+never reaches the resolver.
+
+**URL/port → build (rf2-fyf0h).** A pair session naturally starts from
+the browser URL of the open tab (e.g. `http://localhost:8031/counter`),
+but discover-app speaks build-ids. Pass the URL's port as `port` and
+discover-app resolves the serving build from the shadow-cljs `:dev-http`
+map — which binds a port to a list of file roots; the serving build is
+the one whose `:output-dir` is among those roots (`8031` →
+`:examples/step-deck` in this repo). No manual grep of `shadow-cljs.edn`.
+A `port` that maps to no build returns `:ok? false :reason
+:port-unresolved` (loud, not a silent fall-through to `:app` — the
+operator asked for that port). An explicit `build` arg wins over `port`.
 
 **Single-build auto-selection (rf2-v70kv).** When you omit `build` and
 **exactly one** shadow-cljs build is running, discover-app auto-selects
