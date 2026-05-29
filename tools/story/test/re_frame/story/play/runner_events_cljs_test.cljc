@@ -860,3 +860,150 @@
                "the three increments + assertion run atomically — final count is exactly 6")
            (is (= 6 @n)
                "no stray increments leaked from concurrent paths"))))))
+
+;; ---- tape-evaluated in-script [:assert …] checkpoints (rf2-8y47c + fh7g4) --
+;;
+;; An in-script `[:assert [:rf.assert/schema-error …]]` /
+;; `[:assert [:rf.assert/caused …]]` / `[:assert [:rf.assert/no-cascade-
+;; rerender …]]` checkpoint names a TAPE-EVALUATED assertion family: these
+;; ids carry NO `reg-event-fx` handler — the result boundary mints their
+;; verdict against the epoch tape (`re-frame.story.result`). Before the
+;; `tape-evaluated-assertion?` guard, `exec-assert!` special-cased ONLY the
+;; DOM family, so every other id (schema-error / causal) fell through to
+;; `boundary/dispatch-and-settle!` — i.e. it was DISPATCHED into the frame.
+;; With no handler that hit `re-frame.router.diagnostics/handle-no-handler!`
+;; → a spurious `:rf.error/no-such-handler` error trace on the tape (which
+;; can trip `evidence/tape-shows-failure?` into a false `:fail`), AND the
+;; real tape evaluation was skipped. The fix routes these to a no-op
+;; step-skip — the result boundary still owns the verdict.
+;;
+;; These tests drive the in-script checkpoint end-to-end and assert (a) NO
+;; `:rf.error/no-such-handler` trace lands, and (b) the checkpoint records a
+;; no-assertion step-skip (`:passed? nil`) — never a dispatch.
+
+#?(:clj
+   (defn- run-capturing-no-handler-errors
+     "Drive `variant-id` to terminal with a trace listener that collects any
+     `:rf.error/no-such-handler` events targeting the variant's frame.
+     Returns `[final-state no-handler-events]`."
+     [variant-id]
+     (require '[re-frame.trace.tooling :as trace-tooling])
+     (let [reg!      (resolve 're-frame.trace.tooling/register-listener!)
+           unreg     (resolve 're-frame.trace.tooling/unregister-listener!)
+           collected (atom [])
+           lid       ::no-handler-capture]
+       (reg! lid
+             (fn [ev]
+               (when (and (= :rf.error/no-such-handler (:operation ev))
+                          (= variant-id (get-in ev [:tags :frame])))
+                 (swap! collected conj ev))))
+       (try
+         (async/deref-blocking (story/run-variant variant-id) 5000)
+         [(run-blocking variant-id) @collected]
+         (finally (when unreg (unreg lid)))))))
+
+#?(:clj
+   (deftest in-script-schema-error-checkpoint-is-tape-evaluated-not-dispatched
+     (testing "an in-script [:assert [:rf.assert/schema-error …]] checkpoint
+              is recorded as a no-op step-skip — NOT dispatched into the
+              frame — so no :rf.error/no-such-handler trace lands (rf2-8y47c)"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.tape/schema-error
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/touch]]
+                                    [:assert [:rf.assert/schema-error
+                                              {:where :event :event :rt/touch}]]]}})
+       (let [[final no-handler] (run-capturing-no-handler-errors
+                                  :story.tape/schema-error)
+             checkpoint (->> (:results final)
+                             (filter #(= :assert (:type %)))
+                             first)]
+         (is (empty? no-handler)
+             "NO :rf.error/no-such-handler trace fired — the schema-error
+              atom was NOT dispatched into the frame")
+         (is (some? checkpoint) "the [:assert …] checkpoint produced a result")
+         (is (nil? (:passed? checkpoint))
+             "the tape-evaluated checkpoint is a no-op step-skip — the result
+              boundary owns its verdict, so it neither passes nor fails here")
+         (is (empty? (filterv #(= :rf.assert/schema-error (:assertion %))
+                              (story/read-assertions :story.tape/schema-error)))
+             "no :rf.assert/schema-error slot record was minted by a dispatch")))))
+
+#?(:clj
+   (deftest in-script-no-cascade-rerender-checkpoint-is-tape-evaluated-not-dispatched
+     (testing "an in-script [:assert [:rf.assert/no-cascade-rerender …]]
+              checkpoint (the causal family) is a no-op step-skip — NOT
+              dispatched — so no :rf.error/no-such-handler trace lands
+              (rf2-fh7g4)"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.tape/no-cascade
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/touch]]
+                                    [:assert [:rf.assert/no-cascade-rerender
+                                              {:event :rt/touch :sub :some/sub}]]]}})
+       (let [[final no-handler] (run-capturing-no-handler-errors
+                                  :story.tape/no-cascade)
+             checkpoint (->> (:results final)
+                             (filter #(= :assert (:type %)))
+                             first)]
+         (is (empty? no-handler)
+             "NO :rf.error/no-such-handler trace fired — the causal atom was
+              NOT dispatched into the frame")
+         (is (some? checkpoint) "the [:assert …] checkpoint produced a result")
+         (is (nil? (:passed? checkpoint))
+             "the tape-evaluated causal checkpoint is a no-op step-skip")
+         (is (empty? (filterv #(= :rf.assert/no-cascade-rerender (:assertion %))
+                              (story/read-assertions :story.tape/no-cascade)))
+             "no causal slot record was minted by a dispatch")))))
+
+#?(:clj
+   (deftest in-script-caused-checkpoint-is-tape-evaluated-not-dispatched
+     (testing "an in-script [:assert [:rf.assert/caused …]] checkpoint is a
+              no-op step-skip — NOT dispatched — so no
+              :rf.error/no-such-handler trace lands (rf2-fh7g4)"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.tape/caused
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/touch]]
+                                    [:assert [:rf.assert/caused
+                                              {:event :rt/touch :sub :some/sub}]]]}})
+       (let [[final no-handler] (run-capturing-no-handler-errors
+                                  :story.tape/caused)
+             checkpoint (->> (:results final)
+                             (filter #(= :assert (:type %)))
+                             first)]
+         (is (empty? no-handler)
+             "NO :rf.error/no-such-handler trace fired for the :caused atom")
+         (is (nil? (:passed? checkpoint))
+             "the tape-evaluated causal checkpoint is a no-op step-skip")))))
+
+;; ---- unit: the tape-evaluated-assertion? classifier (rf2-8y47c + fh7g4) ----
+;;
+;; The single authoritative classifier the in-script executor consults so a
+;; tape-evaluated family is never dispatched. Runs on BOTH runtimes (pure
+;; data → boolean), reached via var-quote (the established Story-test seam).
+
+(def ^:private tape-evaluated-assertion? @#'re/tape-evaluated-assertion?)
+
+(deftest tape-evaluated-assertion?-classifies-every-non-dispatched-family
+  (testing "schema-error, the causal family, and the browser-tier oracle
+            family are tape-evaluated (no reg-event-fx handler); the
+            dispatchable seven + the DOM family are NOT"
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/schema-error {}]))))
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/caused {:event :e}]))))
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/no-cascade-rerender {:event :e}]))))
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/visual-snapshot]))))
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/a11y]))))
+    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/a11y-structural]))))
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/path-equals [:k] 1])))
+        "a dispatchable canonical assertion (has a reg-event-fx handler) is NOT tape-evaluated")
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/state-is :loaded])))
+        "another of the dispatchable seven is NOT tape-evaluated")
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/dom-visible "div"])))
+        "the DOM family is routed to its OWN inline executor, not this classifier")))

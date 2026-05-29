@@ -591,6 +591,39 @@
 
 (declare exec-assert-dom-atom!)
 
+(defn- tape-evaluated-assertion?
+  "True iff the assertion atom `atom-v` (`[:rf.assert/id & args]`) is
+  evaluated AGAINST THE EPOCH TAPE in the result boundary rather than by
+  dispatching a `reg-event-fx` handler into the frame (rf2-8y47c +
+  rf2-fh7g4).
+
+  Three assertion families carry NO `reg-event-fx` handler and are minted
+  by the result boundary (`re-frame.story.result`), not by a dispatch:
+
+  - `:rf.assert/schema-error` — paired against the projected
+    `:rf.error/schema-validation-failure` evidence (rf2-5x1wt.21).
+  - the causal / cascade family (`:rf.assert/caused` /
+    `:rf.assert/no-cascade-rerender`) — paired against the
+    `:reactive-counts` `:by-cause` projection (rf2-5x1wt.31).
+  - the browser-tier oracle family (`:rf.assert/visual-snapshot` /
+    `:rf.assert/a11y` / `:rf.assert/a11y-structural`) — projected by the
+    browser executor into the same assertion record (rf2-5x1wt.28).
+
+  This is the SINGLE classifier the in-script `[:assert …]` executor
+  consults so a tape-evaluated checkpoint is NEVER dispatched into the
+  frame (which, with no handler, would mint a spurious
+  `:rf.error/no-such-handler` trace and skip the real tape evaluation).
+  It deliberately reads the existing `re-frame.story.assertions`
+  predicates / id-sets — the ONE source of truth for which family an id
+  belongs to — so a future tape-evaluated family is covered by adding it
+  there, with no special-case to grow here. The DOM family is NOT here:
+  it has its own inline executor (`exec-assert-dom-atom!`), routed ahead
+  of this classifier."
+  [atom-v]
+  (or (assertions/schema-error? atom-v)
+      (assertions/causal? atom-v)
+      (contains? assertions/browser-assertion-ids (first atom-v))))
+
 (defn- exec-assert!
   "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint
   (rf2-5x1wt.17). Evaluates the wrapped assertion atom at THIS point in
@@ -602,22 +635,39 @@
   / `:assert-dom` executor minting synthetic `:rf.assert/db` /
   `:rf.assert/dom` records.
 
-  Two atom families:
+  Three routes, by atom family:
 
   - The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
     `:rf.assert/dom-text`) has no reg-event-fx handler yet (the DOM runner
     that proves it lands later); it is EVALUATED directly through the DOM
     executor (`exec-assert-dom-atom!`), recording a canonical
     `:rf.assert/dom-*` record on the slot.
-  - Every other `:rf.assert/*` atom dispatches the event through
-    `settled-boundary` — the standard reg-event-fx handler records the
-    `:passed?` record on the frame's `:rf.story/assertions` slot — and we
-    bridge that record back into the runner step stream so a failing
+  - The tape-evaluated families (`tape-evaluated-assertion?`: schema-error,
+    the causal / cascade family, the browser-tier oracle family) ALSO carry
+    no reg-event-fx handler — they are minted by the result boundary
+    against the epoch tape, not by a dispatch. An in-script checkpoint for
+    one of these records a no-op step-skip (the boundary owns its verdict);
+    dispatching it would mint a spurious `:rf.error/no-such-handler` trace
+    AND skip the real tape evaluation (rf2-8y47c + rf2-fh7g4).
+  - Every other (dispatchable) `:rf.assert/*` atom dispatches the event
+    through `settled-boundary` — the standard reg-event-fx handler records
+    the `:passed?` record on the frame's `:rf.story/assertions` slot — and
+    we bridge that record back into the runner step stream so a failing
     checkpoint flips the play's terminal status to `:fail`."
   [frame-id idx step]
   (let [atom-v (runner/step-assertion step)]
-    (if (contains? assertions/dom-assertion-ids (first atom-v))
+    (cond
+      (contains? assertions/dom-assertion-ids (first atom-v))
       (exec-assert-dom-atom! frame-id idx step atom-v)
+
+      ;; Tape-evaluated families carry no reg-event-fx handler; the result
+      ;; boundary owns their verdict. Record a no-op step-skip — never a
+      ;; dispatch (which would hit :rf.error/no-such-handler) (rf2-8y47c +
+      ;; rf2-fh7g4).
+      (tape-evaluated-assertion? atom-v)
+      (runner/step-skip idx step)
+
+      :else
       (let [prev     (assertion-count frame-id)
             required (boundary/step-required-boundary step)
             hooks    (current-flush-hooks frame-id)
