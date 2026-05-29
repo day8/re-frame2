@@ -48,6 +48,24 @@
   bootstrap) collect under a leading `nil`-step span so no tape evidence is
   silently dropped.
 
+  ## Narrative navigation (the scrub backbone)
+
+  The two-level `:narrative` is a TREE (spans over beats); a Test-mode /
+  Docs-mode *scrub* moves linearly through every beat in tape order. The
+  navigation helpers (`narrative-beats` / `beat-count` / `beat-at` /
+  `beat-epoch-ids`) FLATTEN the tree into the ordered, addressable beat
+  sequence the scrub walks, WITHOUT discarding the span context: each
+  flattened beat keeps its `:beat-idx` (the 0-based scrub address), its
+  owning `:span-idx` + `:step` + span `:caption`, and is otherwise the
+  inner beat verbatim. The 0-based `:beat-idx` is the scrub-slider position
+  and the index into `beat-epoch-ids`, whose Nth element is the
+  `:epoch-id` a scrub at position N hands to `restore-epoch` (spec/017
+  §Epoch tape and narrative — \"Combined with `restore-epoch`, this
+  projection is the spine of both Test mode and Docs mode\"). These are
+  PURE data primitives: the scrub UI (the slider / keyboard navigation that
+  calls `restore-epoch`) is deferred and lives above this boundary, so the
+  navigation MATH is JVM-testable independent of any UI.
+
   ## The agreement invariant
 
   `tape-shows-failure?` is the consistency floor the bead's acceptance
@@ -435,6 +453,81 @@
                          {:cursor 0 :ord 0 :acc []}
                          steps)]
         (:acc result)))))
+
+;; ===========================================================================
+;; NARRATIVE NAVIGATION  (spec/017 §Epoch tape and narrative — the scrub backbone)
+;; ===========================================================================
+;;
+;; The two-level `:narrative` is a TREE: spans over beats. A Test-mode /
+;; Docs-mode *scrub* moves LINEARLY through every beat in tape order. These
+;; pure helpers flatten the tree into the ordered, addressable beat
+;; sequence the scrub walks — each flattened beat keeps its 0-based
+;; `:beat-idx` (the scrub address) plus its owning `:span-idx` / `:step` /
+;; span `:caption`, so a UI can show "beat 3 of 7, under step
+;; [:dispatch …]". `beat-epoch-ids` is the parallel `:epoch-id` vector the
+;; scrub hands to `restore-epoch` — its Nth element is the time-travel
+;; target for scrub position N. The scrub UI itself is deferred and lives
+;; ABOVE this boundary; the navigation MATH stays JVM-testable here.
+
+(defn narrative-beats
+  "Flatten a two-level `narrative` (a span vector, the `:narrative`
+  run-result slot) into the ordered vector of beats a scrub walks linearly,
+  in tape order. Pure data → data.
+
+  Each returned beat is the inner `epoch-beat` map augmented with its
+  navigation context:
+
+  - `:beat-idx`     — the 0-based scrub address (index into this vector and
+                      into `beat-epoch-ids`);
+  - `:span-idx`     — the 0-based index of the owning span in `narrative`;
+  - `:step`         — the owning span's authored script step (nil for the
+                      leading pre-script / setup span);
+  - `:span-caption` — the owning span's `:caption`, when it carries one.
+
+  Spans with no beats (a pure assertion / wait step, or a dispatch step
+  that committed no epoch) contribute nothing to the flattened sequence —
+  the scrub only stops on beats that actually committed an epoch. The
+  beat's own slots (`:epoch-id` / `:db-before` / `:db-after` / `:effects`
+  / `:sub-runs` / `:renders` / `:trace-events` / `:trigger-event` /
+  `:dispatch-id`) ride through verbatim."
+  [narrative]
+  (into []
+        (comp
+          (map-indexed
+            (fn [span-idx {:keys [step caption epochs]}]
+              (map (fn [beat]
+                     (cond-> (assoc beat :span-idx span-idx :step step)
+                       (some? caption) (assoc :span-caption caption)))
+                   epochs)))
+          cat
+          (map-indexed (fn [beat-idx beat] (assoc beat :beat-idx beat-idx))))
+        (or narrative [])))
+
+(defn beat-count
+  "Total number of scrubbable beats in a two-level `narrative` — the number
+  of epochs the run committed, regardless of how the spans group them. Pure
+  data → data. The scrub slider's extent (positions `0 … (dec beat-count)`)."
+  [narrative]
+  (count (narrative-beats narrative)))
+
+(defn beat-at
+  "The flattened beat at 0-based scrub position `idx` in `narrative`, or nil
+  when `idx` is out of range (a defensive guard for a scrub past either
+  end). Pure data → data."
+  [narrative idx]
+  (let [beats (narrative-beats narrative)]
+    (when (and (integer? idx) (<= 0 idx) (< idx (count beats)))
+      (nth beats idx))))
+
+(defn beat-epoch-ids
+  "The ordered `:epoch-id` vector for a two-level `narrative` — the
+  `restore-epoch` targets a scrub steps through, one per scrub position.
+  Pure data → data. `(nth (beat-epoch-ids narrative) idx)` is the epoch a
+  scrub at position `idx` time-travels to via `restore-epoch`; the scrub UI
+  (deferred) wires this to the slider. Aligned 1:1 with
+  `narrative-beats` (same order, same length)."
+  [narrative]
+  (mapv :epoch-id (narrative-beats narrative)))
 
 ;; ===========================================================================
 ;; THE AGREEMENT INVARIANT  (bead acceptance: no green-while-tape-red)

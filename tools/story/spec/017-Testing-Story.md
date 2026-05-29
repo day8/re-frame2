@@ -1578,6 +1578,26 @@ when the runner stamps each committed epoch with `:rf.story/script-idx`
 partition across the dispatch steps for a bare `epoch-history` tape. Every
 epoch lands in exactly one span.
 
+**Narrative navigation (the scrub backbone).** The two-level `:narrative`
+is a *tree* (spans over beats), but a Test-mode / Docs-mode **scrub** moves
+*linearly* through every beat in tape order. Four pure helpers flatten the
+tree into the ordered, addressable beat sequence the scrub walks — the
+navigation MATH, JVM-testable independent of any UI:
+
+| Helper | Returns |
+|---|---|
+| `(story/narrative-beats narrative)` | the ordered beat vector; each beat is the inner `epoch-beat` augmented with `:beat-idx` (the 0-based scrub address), `:span-idx`, owning `:step`, and `:span-caption`. Spans with no beats (a pure assertion/wait step) contribute nothing — the scrub only stops on committed epochs |
+| `(story/beat-count narrative)` | the number of scrubbable beats — the scrub slider's extent (positions `0 … (dec beat-count)`) |
+| `(story/beat-at narrative idx)` | the flattened beat at scrub position `idx`, or nil out of range |
+| `(story/beat-epoch-ids narrative)` | the ordered `:epoch-id` vector; the Nth element is the `restore-epoch` target for scrub position N. Aligned 1:1 with `narrative-beats` |
+
+The flattened sequence **agrees with the tape by construction**: every
+committed epoch appears exactly once, in tape order, regardless of how the
+spans group them — none invented, none dropped. The scrub UI (the slider /
+keyboard navigation that calls `restore-epoch` per `beat-epoch-ids`) lives
+ABOVE this boundary and is deferred; only the navigation projection ships
+in P1.
+
 **The agreement floor.** `(story/tape-shows-failure? epoch-tape
 consumed-selectors)` is the consistency invariant: a run MUST NOT be
 reported `:pass` while the tape carries failure evidence — an unconsumed
@@ -1751,7 +1771,12 @@ can copy. P1 makes it first-class:
 Combined with `restore-epoch`, this projection is the spine of **both**
 Test mode and Docs mode: the same evidence produces the test result and a
 scrubbable causal storyboard. This is the move that fuses the testing and
-storytelling halves.
+storytelling halves. The pure navigation backbone — `narrative-beats` /
+`beat-count` / `beat-at` / `beat-epoch-ids`, flattening the span tree into
+the ordered beats a scrub steps through and the `restore-epoch` targets it
+hands them — ships in P1 (§Run-result evidence projection). The scrub
+**UI** that drives `restore-epoch` from a slider is the layer above this
+boundary and is deferred.
 
 ## Canonicalization
 
