@@ -18,29 +18,36 @@
 
 (deftest concrete-runner-token-ladder
   (testing "the cost-ordered runners form a superset chain for ordered tokens"
-    (is (= [:headless :hiccup :dom :browser]
+    (is (= [:headless :hiccup :cljs-reactive :dom :browser]
            (mapv :runner req/concrete-runners))
-        "cheapest → richest, :cljs-reactive deliberately absent (no P1 seam)")
-    ;; headless ⊂ hiccup ⊂ dom ⊂ browser
-    (is (every? (req/runner-provides :hiccup)  (req/runner-provides :headless)))
-    (is (every? (req/runner-provides :dom)     (req/runner-provides :hiccup)))
-    (is (every? (req/runner-provides :browser) (req/runner-provides :dom)))
+        "cheapest → richest; :cljs-reactive sits between :hiccup and :dom (rf2-5x1wt.30)")
+    ;; headless ⊂ hiccup ⊂ cljs-reactive ⊂ dom ⊂ browser
+    (is (every? (req/runner-provides :hiccup)        (req/runner-provides :headless)))
+    (is (every? (req/runner-provides :cljs-reactive) (req/runner-provides :hiccup)))
+    (is (every? (req/runner-provides :dom)           (req/runner-provides :cljs-reactive)))
+    (is (every? (req/runner-provides :browser)       (req/runner-provides :dom)))
     ;; each rung adds its distinguishing token(s)
-    (is (contains? (req/runner-provides :hiccup)  :hiccup-structure))
-    (is (contains? (req/runner-provides :dom)     :dom))
-    (is (contains? (req/runner-provides :browser) :pixels))
-    (is (contains? (req/runner-provides :browser) :a11y-engine)))
+    (is (contains? (req/runner-provides :hiccup)        :hiccup-structure))
+    (is (contains? (req/runner-provides :cljs-reactive) :reactive-counts))
+    (is (contains? (req/runner-provides :dom)           :dom))
+    (is (contains? (req/runner-provides :browser)       :pixels))
+    (is (contains? (req/runner-provides :browser)       :a11y-engine)))
 
-  (testing "no P1 runner advertises the NET-NEW :reactive-counts token"
-    (is (not-any? #(contains? (:provides %) :reactive-counts)
-                  req/concrete-runners))
-    (is (= :reactive-counts req/reactive-counts-token)))
+  (testing ":reactive-counts is advertised by :cljs-reactive (and the richer rungs) — rf2-5x1wt.30"
+    (is (= :reactive-counts req/reactive-counts-token))
+    (is (not (contains? (req/runner-provides :headless) :reactive-counts)))
+    (is (not (contains? (req/runner-provides :hiccup)   :reactive-counts))
+        ":hiccup renders to string but does not flush reactions")
+    (is (contains? (req/runner-provides :cljs-reactive) :reactive-counts))
+    (is (contains? (req/runner-provides :dom)           :reactive-counts)
+        "a :dom runner flushes reactions too")
+    (is (contains? (req/runner-provides :browser)       :reactive-counts)))
 
-  (testing "cost rank is cheapest-first; non-selectable kinds sort last"
-    (is (< (req/runner-cost :headless) (req/runner-cost :hiccup)))
-    (is (< (req/runner-cost :hiccup)   (req/runner-cost :dom)))
-    (is (< (req/runner-cost :dom)      (req/runner-cost :browser)))
-    (is (> (req/runner-cost :cljs-reactive) (req/runner-cost :browser)))))
+  (testing "cost rank is cheapest-first; :cljs-reactive ranks between :hiccup and :dom"
+    (is (< (req/runner-cost :headless)      (req/runner-cost :hiccup)))
+    (is (< (req/runner-cost :hiccup)        (req/runner-cost :cljs-reactive)))
+    (is (< (req/runner-cost :cljs-reactive) (req/runner-cost :dom)))
+    (is (< (req/runner-cost :dom)           (req/runner-cost :browser)))))
 
 ;; ===========================================================================
 ;; REQUIREMENT INFERENCE — per-step and per-assertion tokens
@@ -129,18 +136,26 @@
                    :pixels)
         "a [:assert visual-snapshot] checkpoint requires :pixels")))
 
-(deftest reactive-count-assertions-cannot-run-until-probe
-  (testing "reactive-count assertions require the NET-NEW :reactive-counts seam"
+(deftest reactive-count-assertions-run-under-cljs-reactive
+  (testing "reactive-count assertions require :reactive-counts — proven by :cljs-reactive (rf2-5x1wt.30)"
     (is (= #{:reactive-counts} (req/assertion-tokens [:rf.assert/caused])))
     (is (= #{:reactive-counts}
            (req/assertion-tokens [:rf.assert/no-cascade-rerender])))
-    ;; No concrete P1 runner can satisfy it → cheapest-runner is nil →
-    ;; auto-selection refuses (the whole run is :cannot-run).
-    (is (nil? (req/cheapest-runner #{:reactive-counts})))
-    (let [refusal (req/select-runner #{:reactive-counts} {:mode :auto})]
-      (is (= :cannot-run (:status refusal)))
-      (is (= :no-runner-satisfies (:reason refusal)))
-      (is (contains? (:missing refusal) :reactive-counts)))))
+    ;; :cljs-reactive is now the cheapest runner that satisfies it (the
+    ;; projection over the :rf.sub/run / :rf.view/rendered rows).
+    (is (= :cljs-reactive (req/cheapest-runner #{:reactive-counts})))
+    (let [sel (req/select-runner #{:reactive-counts} {:mode :auto})]
+      (is (= :ok (:status sel)))
+      (is (= :cljs-reactive (:runner sel)))
+      (is (empty? (:unmet sel))))
+    ;; under :headless / :hiccup the reactive-count assertions still refuse.
+    (is (not (req/runner-satisfies? (req/runner-provides :headless) #{:reactive-counts})))
+    (is (not (req/runner-satisfies? (req/runner-provides :hiccup)   #{:reactive-counts})))
+    (let [unmet (req/unmet-assertions :headless [[:rf.assert/caused]
+                                                 [:rf.assert/no-cascade-rerender]])]
+      (is (= 2 (count unmet)))
+      (is (every? #(= :cannot-run (:status %)) unmet))
+      (is (every? #(contains? (:missing %) :reactive-counts) unmet)))))
 
 (deftest required-tokens-unions-the-plan
   (testing "required-tokens unions setup + script + assertion tokens"
@@ -199,8 +214,12 @@
 
 (deftest auto-refuses-when-no-runner-qualifies
   (testing "auto returns :cannot-run when no concrete runner can satisfy"
+    ;; No P1 runner advertises a token outside the closed capability set, so
+    ;; a requirement on an unknown token can never be satisfied — the
+    ;; fail-closed set-difference path (an unknown future proof surface that
+    ;; no runner has implemented yet).
     (let [auto (req/normalize-run-opts {:runner :auto})
-          sel  (req/select-runner #{:app-db :reactive-counts} auto)]
+          sel  (req/select-runner #{:app-db :rf.story/unimplemented-proof} auto)]
       (is (= :cannot-run (:status sel)))
       (is (= :no-runner-satisfies (:reason sel))))))
 
@@ -261,6 +280,32 @@
                                        ev :headless))
           "evidence present → no refusal; the assertion's own verdict stands"))))
 
+(deftest reactive-count-assertion-fails-closed-on-non-reactive-tape
+  (testing "a required :reactive-counts proof fails closed when the tape carried no reactive rows"
+    ;; :cljs-reactive CLAIMS :reactive-counts (preflight), but if the run's
+    ;; tape produced no sub-run / render rows the slot is absent → the
+    ;; post-run check refuses :cannot-run, never a silent pass (rf2-5x1wt.30).
+    (let [ev (evidence/project-evidence [{:epoch-id 1 :outcome :ok
+                                          :effects [{:fx-id :db :outcome :ok}]}])]
+      (is (not (req/evidence-slot-satisfied? #{:reactive-counts} ev))
+          "no reactive rows → :reactive-counts token not satisfied")
+      (let [refusal (req/validate-evidence [:rf.assert/caused] ev :cljs-reactive)]
+        (is (some? refusal))
+        (is (= :cannot-run (:status refusal)))
+        (is (= :required-evidence-missing (:reason refusal)))
+        (is (contains? (:missing-evidence refusal) :reactive-counts))))))
+
+(deftest reactive-count-assertion-passes-when-tape-carries-reactive-rows
+  (testing "a :reactive-counts proof is satisfied when the tape carries sub-run / render rows"
+    (let [tape [{:epoch-id 1 :outcome :ok
+                 :sub-runs [{:sub-id :total :recomputed? true}]
+                 :renders  [{:render-key [:v 0]}]}]
+          ev   (evidence/project-evidence tape)]
+      (is (some? (:reactive-counts ev)) "tape projected reactive counts")
+      (is (req/evidence-slot-satisfied? #{:reactive-counts} ev))
+      (is (nil? (req/validate-evidence [:rf.assert/caused] ev :cljs-reactive))
+          "evidence present → no refusal; the assertion's own verdict stands"))))
+
 (deftest validate-run-evidence-aggregates-missing-slots
   (testing "run-level evidence validation lists per-assertion missing-evidence refusals"
     (let [ev (evidence/project-evidence [])]
@@ -305,11 +350,14 @@
     (is (= :auto (:mode (req/normalize-run-opts {:escalate true}))))
     (is (= :auto (:mode (req/normalize-run-opts {:runner :auto})))))
 
-  (testing "an unknown / non-selectable runner falls back to fixed :headless"
+  (testing "an unknown runner falls back to fixed :headless"
     (is (= {:mode :fixed :runner :headless :frame-binding :fresh :platform :client}
-           (req/normalize-run-opts {:runner :bogus})))
-    (is (= :headless (:runner (req/normalize-run-opts {:runner :cljs-reactive})))
-        ":cljs-reactive is not a P1 selection target → falls back to :headless")))
+           (req/normalize-run-opts {:runner :bogus}))))
+
+  (testing ":cljs-reactive is now a valid fixed runner (rf2-5x1wt.30)"
+    (is (= :cljs-reactive (:runner (req/normalize-run-opts {:runner :cljs-reactive})))
+        ":cljs-reactive proves :reactive-counts → it is a P1 selection target")
+    (is (= :fixed (:mode (req/normalize-run-opts {:runner :cljs-reactive}))))))
 
 ;; ===========================================================================
 ;; PLAN INTEGRATION — :required-runner is computed through the registry

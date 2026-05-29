@@ -31,7 +31,7 @@ a long-lived compatibility layer.**
 
 Where a rule changes shipping behaviour this document says so explicitly
 (§Shipping vs target). A reader must never assume a hook that does not
-yet exist (e.g. schema-fail wiring, a reactive recompute probe).
+yet exist (e.g. browser-tier pixel diffing).
 
 ## Shipping vs target (grounding delta)
 
@@ -51,7 +51,7 @@ code migration is not confused with greenfield design.
 | run-result key | SHIPS as `:lifecycle` | This document's top-level `:status` is **NET-NEW** (§Run result); the runtime's record-result map uses `:lifecycle` today. |
 | `:skipped?` on no-DOM assertion records | SHIPS | This IS the `:cannot-run` case at assertion granularity — reconcile, do not duplicate (§`:cannot-run`). |
 | `:rf.assert/schema-error` + schema-fail-the-run | NET-NEW | Today schema violations are trace events feeding a UI panel with **no fail mechanism** — must be wired (§Schema rule). |
-| reactive recompute / render-count probe | NET-NEW (no seam) | `compute-sub` bypasses the cache; counts live only in test files — a probe must be lifted into instrumentation first. |
+| reactive recompute / render-count probe | SHIPS as a PROJECTION (rf2-5x1wt.30) | Spec 009 already emits one `:rf.sub/run` per true sub recompute and one `:rf.view/rendered` per view render, both retained in the epoch tape. The probe is `re-frame.story.play.evidence/reactive-counts` — a pure projection over those rows, NOT a new core seam — surfaced as the `:reactive-counts` run-result slot and advertised by the `:cljs-reactive` runner. |
 | `:sub-overrides` for view-state variants | NET-NEW | Explicit lower-fidelity rendering affordance (§View-state subscription overrides); not proof of real subscription logic. |
 | view arg schema consumption | SHIPS partially / P1 hardens | Controls already derive from view schemas; P1 copies the view props schema into the plan and validates `:effective-args` before render (§View arg schemas). |
 | `variant-plan`, `explain`, `reg-fragment` / `reg-check`, runner abstraction, inline plans, run-artifacts, `canonicalize` / fingerprinting, narrative projection, `render-variant` | NET-NEW | This document. |
@@ -1184,9 +1184,13 @@ remains the base. P1 SHOULD include or retain:
   accessibility check; runs on the rendered hiccup tree without a real
   browser, §Visual, a11y, and browser checks)
 
-Future assertion candidates after instrumentation support include
-`:rf.assert/caused` and `:rf.assert/no-cascade-rerender`; both require a
-reactive/render-count probe and are not P1 unless that probe lands first.
+`:rf.assert/caused` and `:rf.assert/no-cascade-rerender` both require the
+reactive/render-count probe. That probe SHIPS (rf2-5x1wt.30) as the
+`re-frame.story.play.evidence/reactive-counts` PROJECTION over the
+`:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains —
+not a new core seam — so these assertions run under the `:cljs-reactive`
+runner (and `:cannot-run` under `:headless` / `:hiccup`, which do not
+flush reactions).
 
 There is no `:rf.assert/no-schema-errors` author surface — schema-clean
 is the knob-free floor (§Schema rule), so the only schema author surface
@@ -1298,9 +1302,14 @@ requires; a runner is **valid** iff its token set is a superset;
 **cheapest** = first in a small cost-ordered concrete-runner list whose
 set qualifies.
 
-P1 selects only among tiers with **real seams**
-(`:headless` / `:hiccup` / `:dom` / `:browser`). `:reactive-counts`
-requires a NET-NEW recompute probe lifted into instrumentation first.
+P1 selects among the tiers with **real seams**
+(`:headless` / `:hiccup` / `:cljs-reactive` / `:dom` / `:browser`).
+`:reactive-counts` is proven by `:cljs-reactive` via the
+`re-frame.story.play.evidence/reactive-counts` projection over the
+`:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains
+(rf2-5x1wt.30) — a projection, not a NET-NEW core seam. `:cljs-reactive`
+sits between `:hiccup` and `:dom` on the cost ladder (it flushes
+reactions; it does not drive synthetic DOM events).
 
 MCP is not a runner tier. It is a transport/control surface over the same
 `story/run` and `story/explain` APIs. A live agent run differs by frame
@@ -1382,19 +1391,25 @@ plus its own orthogonal additions:
 |---|---|
 | `:headless` | `:app-db :effects :schema :trace :pure-subs` |
 | `:hiccup` | headless ∪ `:hiccup-structure` |
-| `:dom` | hiccup ∪ `:dom` |
+| `:cljs-reactive` | hiccup ∪ `:reactive-counts` |
+| `:dom` | cljs-reactive ∪ `:dom` |
 | `:browser` | dom ∪ `:pixels :a11y-engine` |
 
-`:cljs-reactive` is deliberately ABSENT from the cost-ordered selection
-list: its only distinguishing token, `:reactive-counts`, has NO real seam
-in P1 (it is gated on a NET-NEW recompute probe lifted into
-instrumentation — §1a). The token is in the vocabulary but NO concrete
-runner advertises it, so any requirement on it resolves to `:cannot-run`
-until the probe lands. That deferral is expressed as data, not a special
-case: the token exists, no runner provides it, the set-difference is
-non-empty. A runner is **valid** for a set of required tokens iff its
-token set is a superset; **cheapest** is the first runner on the
-cost-ordered list whose set qualifies.
+`:cljs-reactive` sits between `:hiccup` and `:dom` on the cost-ordered
+selection list (rf2-5x1wt.30): its distinguishing token,
+`:reactive-counts`, has a real seam — the
+`re-frame.story.play.evidence/reactive-counts` PROJECTION over the
+`:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains
+(§1a; a projection, not a NET-NEW core seam). It flushes reactions (so
+subs deref and views render, landing those rows) but stops short of
+synthetic DOM events. A requirement on `:reactive-counts` resolves to
+`:cljs-reactive` under `:auto`, and to `:cannot-run` under a fixed
+`:headless` / `:hiccup` runner (which do not flush reactions). A runner is
+**valid** for a set of required tokens iff its token set is a superset;
+**cheapest** is the first runner on the cost-ordered list whose set
+qualifies. The post-run fail-closed slot check still refuses a
+`:cljs-reactive` run whose tape produced no reactive rows — the projection
+being available does not weaken the floor.
 
 ### Requirement inference
 
@@ -1413,8 +1428,10 @@ tokens it requires:
   `:rf.assert/schema-error` requires `:schema`; the DOM family requires
   `:dom`; `:rf.assert/visual-snapshot` requires `:pixels` and
   `:rf.assert/a11y` requires `:a11y-engine`; the reactive-count
-  candidates `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`
-  require `:reactive-counts` (so they fail closed until the probe seam).
+  assertions `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`
+  require `:reactive-counts` (proven by `:cljs-reactive` via the
+  `evidence/reactive-counts` projection; `:cannot-run` under
+  `:headless` / `:hiccup`).
 
 A plan's `:required-runner` slot is the UNION of every setup-step,
 script-step, and terminal-assertion token set — capability tokens, NOT a
@@ -1448,7 +1465,8 @@ The two policies (§Runner policy):
   :runner-lacks-capability`.
 - AUTO / ESCALATE (`{:runner :auto}` / `{:escalate true}`): choose the
   CHEAPEST concrete runner whose token set satisfies ALL selected
-  requirements. When none can (a `:reactive-counts` requirement), the
+  requirements (a `:reactive-counts` requirement escalates to
+  `:cljs-reactive`). When NO concrete runner can satisfy the union, the
   whole run is `:cannot-run` with `:reason :no-runner-satisfies`.
 
 The variant-level **aggregation rule** is stated once: a variant whose
@@ -1470,8 +1488,10 @@ A proof is honoured only when BOTH sides agree it is available:
 
 The token→slot map: `:effects → :effects`, `:schema → :schema-violations`,
 `:trace → :warnings`, `:hiccup-structure`/`:dom` → `:renders`,
-`:reactive-counts → :reactive-counts` (NET-NEW, never present in P1),
-`:pixels`/`:a11y-engine` → browser-only slots. A token with NO distinct
+`:reactive-counts → :reactive-counts` (present only when the tape carried
+`:rf.sub/run` / `:rf.view/rendered` rows — a `:cljs-reactive` run whose
+tape carried none refuses, fail-closed), `:pixels`/`:a11y-engine` →
+browser-only slots. A token with NO distinct
 slot (`:app-db`) imposes no post-run check — its proof is the final db
 itself, validated by the assertion's own evaluation. Because the check
 reads the SAME `project-evidence` projection the run-result slots derive
@@ -1607,6 +1627,7 @@ warnings/effects is superseded by this projection).
 | `:warnings` | each epoch's `:trace-events` | every `:op-type :warn` trace event, in tape order |
 | `:effects` | each epoch's `:effects` row | the rows the framework already projected at settle time (`re-frame.epoch.capture/project-all`), concatenated in dispatch order, each stamped with its `:epoch-id` |
 | `:sub-runs` / `:renders` | each epoch's `:sub-runs` / `:renders` rows | concatenated in tape order, each stamped with `:epoch-id` |
+| `:reactive-counts` | the `:sub-runs` / `:renders` rows above | recompute / render counts (rf2-5x1wt.30) — `{:sub-recomputes :view-renders :by-sub-id :by-view :by-render-key :by-cause :per-epoch}`; PRESENT only when the tape carried at least one reactive row (a bare headless dispatch-only tape omits it, so the fail-closed slot check is honest). `:by-cause` credits each row to the dispatching event's `:rf.sub/cause-event-id` / `:rf.view/cause-event-id` attribution |
 | `:narrative` | the script steps over the epoch beats | the two-level projection below |
 
 **Two-level narrative.** The author's `:script` steps form the outer spans;
