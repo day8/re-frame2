@@ -513,6 +513,39 @@
            :status      status
            :finished-ms now-ms)))
 
+(defn run-state-refusals
+  "The `:cannot-run` refusal records carried by a settled run-`state`'s
+  per-step `:results` — the same step-results `finish` inspects to decide
+  the run-state status (rf2-q5jw4). Pure data → data.
+
+  A refusal is a step-result a runner could not even ATTEMPT for its
+  declared capability (a no-DOM `[:assert-dom …]` / `[:click …]` skip, or a
+  boundary `:cannot-run?`), so it must propagate into the UNIFIED run-result
+  as the distinct THIRD status (spec/017 §`:cannot-run`), not vanish into a
+  vacuous green. Each refusal projects to the
+  `{:status :cannot-run :unit :reason :message}` shape the unified result's
+  `:unmet` slot folds (`re-frame.story.requirements/aggregate-status`):
+
+      {:status  :cannot-run
+       :unit    <step>           ; the step the runner could not attempt
+       :reason  :runner-cannot-attempt-step
+       :message <diagnostic>}    ; the step-result's :message, when present
+
+  This is the SINGLE bridge from the run-state's refusal facts to the
+  unified result, so the run-state and the unified `:status` cannot disagree
+  — the false-GREEN class rf2-5x1wt.19 set out to kill (a DOM-skip-only
+  variant read `:pass` via the unified result while the run-state read
+  `:cannot-run`). Empty when no step refused."
+  [state]
+  (into []
+        (comp (filter cannot-run-step?)
+              (map (fn [r]
+                     (cond-> {:status :cannot-run
+                              :unit   (:step r)
+                              :reason :runner-cannot-attempt-step}
+                       (:message r) (assoc :message (:message r))))))
+        (:results state)))
+
 (defn done?
   "True iff every step in `:script` has been processed."
   [{:keys [step-idx total]}]
