@@ -243,8 +243,10 @@
   "Docs: the `:rf.assert/*` canonical vocabulary + arity docs.
 
   rf2-76sf6: the bifurcated `{:canonical :registered}` shape is
-  retained; `:canonical` is the full 7-assertion doc vector (bounded
-  and constant, so the pagination MUST does not apply). `:registered`
+  retained; `:canonical` is the full 8-assertion doc vector — the seven
+  dispatched canonical assertions plus the tape-evaluated
+  `:rf.assert/schema-error` (bounded and constant, so the pagination MUST
+  does not apply). `:registered`
   (project-registered + canonical ids) is paginated when the count
   exceeds `:limit`. Small registries see no pagination metadata."
   [args]
