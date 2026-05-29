@@ -808,6 +808,110 @@
     (story/destroy-variant! :story.reset/v)))
 
 ;; ===========================================================================
+;; PLAN-ROUTED RUNTIME (rf2-5x1wt.22 — §B8 Runtime Migration)
+;;
+;; The runtime now routes phase 2 (setup) and phase 4 (script) through the
+;; normalized variant plan (`re-frame.story.plan`) rather than reading the
+;; shipping `:events` / `:play-script` slots off the registered body. These
+;; tests pin the migration's load-bearing behaviour: the PUBLIC `:setup` /
+;; `:script` vocabulary runs, composed-fragment setup is executed in
+;; phase 2 (a behaviour the pre-migration runtime did NOT deliver — it
+;; ignored `:compose` entirely for setup), and named `:plays` remain
+;; driven as named scripts.
+;; ===========================================================================
+
+(deftest run-variant-public-setup-and-script-vocabulary
+  (testing "a variant authored with the PUBLIC :setup / :script keys runs
+            through the plan-routed runtime (setup applied, script asserts)"
+    (rf/reg-event-db :test/seed
+      (fn [db _] (assoc db :seeded? true :count 0)))
+    (rf/reg-event-db :test/bump
+      (fn [db _] (update db :count inc)))
+    (story/reg-variant :story.public/v
+      {:setup  [[:test/seed]]
+       :script [[:dispatch [:test/bump]]
+                [:assert [:rf.assert/path-equals [:count] 1]]]})
+    (let [r (async/deref-blocking (story/run-variant :story.public/v) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (true? (-> r :app-db :seeded?))
+          ":setup ran through the plan's [:world :setup]")
+      (is (= 1 (-> r :app-db :count))
+          ":script :dispatch ran through the plan's [:world :scripts]")
+      (is (= :pass (:status r))
+          "the in-script [:assert …] checkpoint passed")
+      (let [pe (->> (:assertions r)
+                    (filter #(= :rf.assert/path-equals (:assertion %)))
+                    first)]
+        (is (some? pe) "the checkpoint assertion was recorded")
+        (is (true? (:passed? pe)))))
+    (story/destroy-variant! :story.public/v)))
+
+(deftest run-variant-composed-fragment-setup-runs-in-phase-2
+  (testing "a :compose fragment's :setup is executed in phase 2 — the plan
+            compiler resolves :compose, so fragment preconditions land in
+            the frame (the pre-migration runtime ignored :compose for setup)"
+    (rf/reg-event-db :test/frag-seed
+      (fn [db _] (assoc db :from-fragment :alice)))
+    (rf/reg-event-db :test/observe-frag
+      (fn [db _] (assoc db :observed (:from-fragment db))))
+    (story/reg-fragment :fragment.test/seeded
+      {:setup [[:test/frag-seed]]})
+    (story/reg-variant :story.compose/v
+      {:compose [:fragment.test/seeded]
+       :setup   [[:test/observe-frag]]})
+    (let [r (async/deref-blocking (story/run-variant :story.compose/v) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (= :alice (-> r :app-db :from-fragment))
+          "the composed fragment's :setup ran")
+      (is (= :alice (-> r :app-db :observed))
+          "fragment setup APPENDS BEFORE the variant's own setup (the
+           variant's observe step saw the fragment's seed)"))
+    (story/destroy-variant! :story.compose/v)))
+
+(deftest run-variant-named-plays-from-plan
+  (testing "a variant's named :plays are driven as named scripts from the
+            plan's [:world :scripts] (auto-run? default: first true, rest
+            false — only the first auto-play executes on run)"
+    (rf/reg-event-db :test/init-n
+      (fn [db [_ n]] (assoc db :n n)))
+    (story/reg-variant :story.plays/v
+      {:plays [{:name      "happy"
+                :script    [[:dispatch-sync [:test/init-n 3]]
+                            [:assert [:rf.assert/path-equals [:n] 3]]]}
+               {:name      "edge"
+                :auto-run? false
+                :script    [[:dispatch-sync [:test/init-n 0]]
+                            [:assert [:rf.assert/path-equals [:n] 0]]]}]})
+    (let [r (async/deref-blocking (story/run-variant :story.plays/v) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (= 3 (-> r :app-db :n))
+          "only the first (auto-run?) play executed")
+      (is (= :pass (:status r))
+          "the first play's checkpoint passed"))
+    (story/destroy-variant! :story.plays/v)))
+
+(deftest run-variant-plan-error-projects-as-run-error
+  (testing "a plan-construction failure (an [:assert …] checkpoint placed
+            in :setup) surfaces through the run-error projection rather
+            than crashing the orchestrator"
+    (rf/reg-event-db :test/noop (fn [db _] db))
+    (story/reg-variant :story.planerr/v
+      {:setup [[:dispatch [:test/noop]]
+               [:assert [:rf.assert/path-equals [:x] 1]]]})
+    (let [r (async/deref-blocking (story/run-variant :story.planerr/v) 5000)]
+      (is (= :error (:lifecycle r))
+          "the plan-compile failure rolled the lifecycle to :error")
+      (is (= :error (:status r))
+          "the unified verdict is :error")
+      (let [exc (->> (:assertions r)
+                     (filter #(= :rf.error/story-assert-in-setup (:assertion %)))
+                     first)]
+        (is (some? exc)
+            "the structured :rf.error/story-* id rides the assertion record")
+        (is (false? (:passed? exc)))))
+    (story/destroy-variant! :story.planerr/v)))
+
+;; ===========================================================================
 ;; FRAME-META INTROSPECTION
 ;; ===========================================================================
 

@@ -101,15 +101,23 @@ spellings and enforces that an author picks ONE setup surface
 (`:setup` xor `:events`) and ONE play surface
 (`:script` xor `:play-script` xor `:plays`). The registrar's
 `schemas/lower-public-vocabulary` step folds `:setup` → `:events` and
-`:script` → `:play-script` into the stored body so every shipping
-RUNTIME reader — phase-2 events, the play runner's `variant-body->plays`,
-snapshot identity, the workspace/canvas readers, and the recorder —
-consumes the shipping slot unchanged while the tree migrates. This
-lowering is the sanctioned temporary normalization, not a long-lived
-shim: it is removed once the runtime is routed through the variant-plan
-compiler (which already normalizes both spellings, §Compiler API and
-normalization contract). Until then, a variant authored with `:setup` /
-`:script` runs identically to one authored with the shipping slots.
+`:script` → `:play-script` into the stored body so every shipping slot
+reader sees the shipping spelling while the tree migrates. The
+**`run-variant` lifecycle runtime is now routed through the variant-plan
+compiler** (rf2-5x1wt.22): `re-frame.story.runtime/prepare-context`
+compiles the normalized plan once, phase 2 dispatches the plan's
+`[:world :setup]` (the parent story's id-grammar `:events` prepended),
+and phase 4 drives the plan's `[:world :scripts]` (the named plays,
+`:plays` preserved). The compiler normalizes both spellings, so the
+lifecycle no longer depends on the lowering. The lowering REMAINS for the
+remaining shipping-slot readers that are NOT yet plan-routed — snapshot
+identity (`re-frame.story.identity`), the workspace/canvas readers, and
+the recorder — and for the play-runner's `variant-body->plays` (still
+consulted by the live-canvas auto-run + step-debugger paths). It is fully
+removed once those readers also consume the plan. A variant authored with
+`:setup` / `:script` runs identically to one authored with the shipping
+slots, and through the plan-routed lifecycle a composed `:compose`
+fragment's `:setup` is now executed in phase 2.
 
 ### Four-bucket authoring model
 
@@ -1634,11 +1642,14 @@ silent pass); a zero-assertion clean run is `:pass` (vacuously green).
 
 **The runtime consumes the folded plan.** The `.18` fold (`:assert-db` /
 `:assert-dom` → the canonical `[:assert assertion-atom]` checkpoint) is
-applied at script-resolution time (`runner-events/variant-plays` /
-`variant-play-script` / `play/variant-play-steps` all run
-`assertions/fold-script`), so the runtime drives the ONE assertion atom in
-its checkpoint position — there is **no synthetic `:rf.assert/db` /
-`:rf.assert/dom` rail**. A folded `:assert-db` dispatches the real
+applied at script-resolution time. The `run-variant` lifecycle drives the
+**plan's `[:world :scripts]`** (folded by the compiler's `normalize-scripts`,
+rf2-5x1wt.22); the live-canvas auto-run + step-debugger paths fold at their
+own resolution sites (`runner-events/variant-plays` / `variant-play-script`
+/ `play/variant-play-steps` all run `assertions/fold-script`). Either way
+the runtime drives the ONE assertion atom in its checkpoint position —
+there is **no synthetic `:rf.assert/db` / `:rf.assert/dom` rail**. A folded
+`:assert-db` dispatches the real
 `:rf.assert/path-equals` (or, for the `:pred` form, `:rf.assert/path-matches`
 wrapping a `[:fn …]` schema — a `[:fn sym]` symbol resolves at validation
 time) handler, which records the canonical record; a folded `:assert-dom` is
