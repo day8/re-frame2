@@ -93,6 +93,9 @@
             ;; Re-exported as `make-run-artifact` / `run-artifact?` /
             ;; `replay-run-artifact` below (spec/017 §Run artifact and replay).
             [re-frame.story.artifact    :as artifact]
+            ;; rf2-5x1wt.8 — the determinism gate. Re-exported as
+            ;; `assert-deterministic` below (spec/017 §Determinism gate).
+            [re-frame.story.determinism :as determinism]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
             ;; Runtime modules — args resolution, decorators.
@@ -963,6 +966,26 @@
   carry `:frame` / `:hooks` / `:frame-config`."
   ([art]      (artifact/replay-run-artifact art))
   ([art opts] (artifact/replay-run-artifact art opts)))
+
+;; ---- determinism gate (rf2-5x1wt.8) -------------------------------------
+;;
+;; Per spec/017 §Determinism gate — replay the plan/artifact into N FRESH
+;; frames and compare the canonical run-slices. Builds on `.7` replay and
+;; `.3` canonicalize. Re-exported as the testing-substrate `assert-
+;; deterministic` (spec/008 owns the substrate surface; the tool lives
+;; below Story and runs without the UI).
+
+(defn assert-deterministic
+  "Per spec/017 §Determinism gate — assert `plan-or-artifact` produces the
+  SAME run every time. Replays into N fresh frames (default 2) via
+  `replay-run-artifact` and compares the canonical run-slices through
+  `canonicalize`. Returns `:deterministic` (one shared `:run-hash`),
+  `:non-deterministic` (with the first `:divergence` + per-run results), or
+  `:cannot-run` when the program carries a bare `[:wait ms]` (the explicit
+  determinism opt-out — refused rather than run flakily). `opts` MAY carry
+  `:runs` / `:hooks` / `:frame-config`."
+  ([plan-or-artifact]      (determinism/assert-deterministic plan-or-artifact))
+  ([plan-or-artifact opts] (determinism/assert-deterministic plan-or-artifact opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-
