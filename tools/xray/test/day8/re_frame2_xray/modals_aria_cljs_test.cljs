@@ -181,7 +181,7 @@
 
 (deftest mute-manager-carries-dialog-contract
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog))]
+  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-mute-manager-dialog"
                              "Mute manager")))
 
@@ -267,7 +267,7 @@
 
 (deftest mute-manager-attaches-focus-ref
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog))]
+  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
                               "Mute manager")))
 
