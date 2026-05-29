@@ -132,6 +132,82 @@
       (is (= [1] (mapv :epoch-id (:renders ev)))))))
 
 ;; ===========================================================================
+;; REACTIVE-COUNTS PROJECTION  (rf2-5x1wt.30, spec/017 §1a / §Runner kinds)
+;; ===========================================================================
+
+(deftest reactive-counts-nil-for-bare-headless-tape
+  (testing "a tape with no sub-run / render rows projects no :reactive-counts slot"
+    ;; A bare headless dispatch-only run never exercised the reactive
+    ;; substrate — the slot is ABSENT so the fail-closed check refuses a
+    ;; reactive-count assertion.
+    (let [tape [(epoch 1 {:effects [{:fx-id :db :outcome :ok}]})]]
+      (is (nil? (evidence/reactive-counts tape)))
+      (is (not (contains? (evidence/project-evidence tape) :reactive-counts))
+          "no reactive rows → :reactive-counts slot omitted, not a zero stub"))))
+
+(deftest reactive-counts-counts-recomputes-and-renders-from-the-tape
+  (testing "a known dispatch's sub-run + render rows count exactly from the tape"
+    ;; One epoch: two TRUE sub recomputes (two distinct subs) and two view
+    ;; renders, all credited to the dispatching event.
+    (let [tape [(epoch 1 {:trigger-event [:counter/inc]
+                          :sub-runs [{:sub-id :total  :recomputed? true
+                                      :cause-event-id :counter/inc}
+                                     {:sub-id :parity :recomputed? true
+                                      :cause-event-id :counter/inc}]
+                          :renders  [{:render-key [:counter 0] :cause-event-id :counter/inc}
+                                     {:render-key [:badge 0]   :cause-event-id :counter/inc}]})]
+          rc   (evidence/reactive-counts tape)]
+      (is (= 2 (:sub-recomputes rc)) "two :rf.sub/run rows → two recomputes")
+      (is (= 2 (:view-renders rc))   "two :rf.view/rendered rows → two renders")
+      (is (= {:total 1 :parity 1} (:by-sub-id rc)))
+      (is (= {:counter 1 :badge 1} (:by-view rc)) "keyed by registered view-id")
+      (is (= {[:counter 0] 1 [:badge 0] 1} (:by-render-key rc)))
+      ;; both recomputes + both renders credited to the dispatching event.
+      (is (= {:counter/inc {:sub-recomputes 2 :view-renders 2}} (:by-cause rc)))
+      (is (= [{:epoch-id 1 :sub-recomputes 2 :view-renders 2}] (:per-epoch rc))))))
+
+(deftest reactive-counts-aggregate-across-epochs-and-causes
+  (testing "recomputes / renders aggregate across a multi-epoch cascade, keyed by cause"
+    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true
+                                      :cause-event-id :a}]
+                          :renders  [{:render-key [:v 0] :cause-event-id :a}]})
+                (epoch 2 {:sub-runs [{:sub-id :total :recomputed? true
+                                      :cause-event-id :b}
+                                     {:sub-id :total :recomputed? true
+                                      :cause-event-id :b}]
+                          :renders  [{:render-key [:v 0] :cause-event-id :b}]})]
+          rc   (evidence/reactive-counts tape)]
+      (is (= 3 (:sub-recomputes rc)) "1 + 2 across the two epochs")
+      (is (= 2 (:view-renders rc))   "1 + 1")
+      (is (= {:total 3} (:by-sub-id rc)) "the over-recompute signal: :total recomputed 3×")
+      (is (= {:v 2} (:by-view rc)) "view :v rendered once per epoch → 2 across the cascade")
+      (is (= {:a {:sub-recomputes 1 :view-renders 1}
+              :b {:sub-recomputes 2 :view-renders 1}} (:by-cause rc)))
+      (is (= [{:epoch-id 1 :sub-recomputes 1 :view-renders 1}
+              {:epoch-id 2 :sub-recomputes 2 :view-renders 1}]
+             (:per-epoch rc)) "one per-epoch entry per committed reactive epoch, tape order"))))
+
+(deftest reactive-counts-rows-with-no-cause-attribution
+  (testing "a reactive row outside a cascade (no :cause-event-id) is counted but uncredited"
+    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true}]
+                          :renders  [{:render-key [:v 0]}]})]
+          rc   (evidence/reactive-counts tape)]
+      (is (= 1 (:sub-recomputes rc)))
+      (is (= 1 (:view-renders rc)))
+      (is (= {} (:by-cause rc)) "nil cause-event-id contributes no :by-cause entry")
+      (is (= {:total 1} (:by-sub-id rc)))
+      (is (= {:v 1} (:by-view rc))))))
+
+(deftest reactive-counts-in-project-evidence-when-tape-has-reactive-rows
+  (testing ":reactive-counts rides project-evidence and agrees with the standalone projection"
+    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true}]
+                          :renders  [{:render-key [:v 0]}]})]
+          ev   (evidence/project-evidence tape {:script [[:dispatch [:counter/inc]]]})]
+      (is (contains? ev :reactive-counts))
+      (is (= (evidence/reactive-counts tape) (:reactive-counts ev))
+          "the slot is the standalone projection — one tape, one projection"))))
+
+;; ===========================================================================
 ;; TWO-LEVEL NARRATIVE
 ;; ===========================================================================
 

@@ -271,6 +271,119 @@
         epoch-tape))
 
 ;; ===========================================================================
+;; REACTIVE-COUNTS PROJECTION  (spec/017 §1a / §Runner kinds — the recompute probe)
+;; ===========================================================================
+;;
+;; The reactive recompute / over-render probe is a PROJECTION over the
+;; SAME `:sub-runs` / `:renders` rows the framework already projects at
+;; settle time (`re-frame.epoch.capture/project-all`), NOT a new core
+;; instrumentation seam. Spec 009 already emits one `:rf.sub/run` per TRUE
+;; sub recompute (the memo wrapper's input value was NOT `=` to last-seen)
+;; and one `:rf.view/rendered` per view render, both carried into the
+;; epoch tape; this projection just COUNTS them, keyed by the surfaces a
+;; reactive-count assertion (`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`)
+;; reasons about: per sub-id, per view (render-key / view-id), per epoch,
+;; and per cause-event.
+;;
+;; Because it reads only the already-projected rows, the whole projection
+;; is pure and JVM-testable — the SAME boundary the other evidence slots
+;; cross. A run only PRODUCES sub-run / render rows when the reactive
+;; substrate is actually exercised (a sub deref'd in a reactive context, a
+;; view mounted) — the `:cljs-reactive` runner's reaction-flush boundary
+;; (`settled-boundary`). A bare headless dispatch-only tape carries no such
+;; rows, so the slot is empty and a reactive-count assertion FAILS CLOSED
+;; (`requirements/validate-evidence`), exactly as the fail-closed contract
+;; demands — the probe being a projection does not weaken that floor.
+
+(defn- render-view-id
+  "The registered view-id half of a render row's `:render-key`
+  `[view-id instance-token]` tuple, or the whole row's explicit `:view-id`
+  when a host stamped one. Pure data → data; `nil` for an unkeyed row."
+  [{:keys [render-key view-id] :as _render-row}]
+  (or view-id
+      (when (and (vector? render-key) (pos? (count render-key)))
+        (first render-key))))
+
+(defn- count-by
+  "Count `rows` grouped by `key-fn`, dropping `nil` keys. Returns a map
+  `{key count}`. Pure data → data."
+  [key-fn rows]
+  (reduce (fn [acc row]
+            (let [k (key-fn row)]
+              (cond-> acc (some? k) (update k (fnil inc 0)))))
+          {}
+          rows))
+
+(defn reactive-counts
+  "Project the reactive recompute / render counts over `epoch-tape` —
+  the `:reactive-counts` evidence slot (spec/017 §1a, §Runner kinds —
+  `:cljs-reactive` proves recompute count / render cause / over-render
+  checks). Pure data → data; reads ONLY the already-projected
+  `:sub-runs` / `:renders` rows (`sub-runs` / `renders` above), so it is
+  the same one-tape projection — never a parallel accumulator.
+
+  Returns nil when the tape carries NEITHER a sub-recompute NOR a
+  view-render row (a bare headless dispatch-only run never exercised the
+  reactive substrate). A nil slot keeps the post-run fail-closed check
+  (`requirements/evidence-slot-satisfied?`) honest: a reactive-count
+  assertion against a tape with no reactive rows resolves `:cannot-run`,
+  never a silent pass. When the tape DOES carry reactive rows it returns:
+
+      {:sub-recomputes <int>          ; total :rf.sub/run rows (true recomputes)
+       :view-renders   <int>          ; total :rf.view/rendered rows
+       :by-sub-id      {sub-id count} ; recomputes keyed by sub query-id
+       :by-view        {view-id count}; renders keyed by registered view-id
+       :by-render-key  {render-key count} ; renders keyed by the full instance tuple
+       :by-cause       {event-id {:sub-recomputes <int> :view-renders <int>}}
+                                      ; recomputes / renders attributed to the
+                                      ; dispatching cascade's event-id (the
+                                      ; :rf.sub/cause-event-id / :rf.view/cause-event-id
+                                      ; attribution Spec 009 already stamps)
+       :per-epoch      [{:epoch-id <id>
+                         :sub-recomputes <int>
+                         :view-renders   <int>} …]}  ; one entry per epoch
+                                      ; that committed a reactive row, tape order
+
+  `:sub-recomputes` is the count of TRUE recomputes — `:rf.sub/run` rows
+  are emitted only on the cache-miss branch (memo-hit `:rf.sub/skip` rows
+  are NOT projected into `:sub-runs`), so this is the over-recompute
+  signal `:rf.assert/no-cascade-rerender` reads directly. `:by-cause`
+  credits each reactive row to the event that invalidated its reactive
+  input — the cause→effect attribution `:rf.assert/caused` reasons over."
+  [epoch-tape]
+  (let [sub-rows    (sub-runs epoch-tape)
+        render-rows (renders epoch-tape)]
+    (when (or (seq sub-rows) (seq render-rows))
+      (let [by-cause
+            (reduce
+              (fn [acc [k sub-delta render-delta]]
+                (cond-> acc
+                  (some? k)
+                  (update k (fn [{:keys [sub-recomputes view-renders]
+                                  :or   {sub-recomputes 0 view-renders 0}}]
+                              {:sub-recomputes (+ sub-recomputes sub-delta)
+                               :view-renders   (+ view-renders render-delta)}))))
+              {}
+              (concat (map (fn [r] [(:cause-event-id r) 1 0]) sub-rows)
+                      (map (fn [r] [(:cause-event-id r) 0 1]) render-rows)))
+            per-epoch
+            (->> (concat sub-rows render-rows)
+                 (map :epoch-id)
+                 distinct
+                 (keep identity)
+                 (mapv (fn [eid]
+                         {:epoch-id       eid
+                          :sub-recomputes (count (filter #(= eid (:epoch-id %)) sub-rows))
+                          :view-renders   (count (filter #(= eid (:epoch-id %)) render-rows))})))]
+        {:sub-recomputes (count sub-rows)
+         :view-renders   (count render-rows)
+         :by-sub-id      (count-by :sub-id sub-rows)
+         :by-view        (count-by render-view-id render-rows)
+         :by-render-key  (count-by :render-key render-rows)
+         :by-cause       by-cause
+         :per-epoch      per-epoch}))))
+
+;; ===========================================================================
 ;; TWO-LEVEL NARRATIVE PROJECTION  (spec/017 §Run result, §Epoch tape and narrative)
 ;; ===========================================================================
 ;;
@@ -607,21 +720,35 @@
        :effects           [effect-row …]      ; per-epoch :effects, concatenated
        :sub-runs          [sub-run-row …]     ; per-epoch :sub-runs, concatenated
        :renders           [render-row …]      ; per-epoch :renders, concatenated
+       :reactive-counts   {…}                 ; recompute/render counts (§1a) —
+                                              ;   PRESENT only when the tape
+                                              ;   carries reactive rows; omitted
+                                              ;   for a bare headless tape so the
+                                              ;   fail-closed slot check is honest
        :narrative         [span …]}           ; two-level script×epoch projection
 
   Every slot agrees with the tape by construction — there is no second
   capture path. `tape-shows-failure?` reads the same projection, so a run
-  cannot report green while the tape is red."
+  cannot report green while the tape is red.
+
+  The `:reactive-counts` slot is threaded `cond->` so it is ABSENT (not a
+  zero-count stub) for a tape with no reactive rows — the
+  `:reactive-counts → :reactive-counts` token→slot fail-closed check
+  (`requirements/evidence-slot-satisfied?`) keys on slot PRESENCE, so an
+  absent slot correctly refuses a reactive-count assertion the run never
+  exercised."
   ([epoch-tape] (project-evidence epoch-tape nil))
   ([epoch-tape {:keys [script] :as _opts}]
-   (let [tape (vec (or epoch-tape []))]
-     {:epoch-tape        tape
-      :schema-violations (schema-violations tape)
-      :warnings          (warnings tape)
-      :effects           (effects tape)
-      :sub-runs          (sub-runs tape)
-      :renders           (renders tape)
-      :narrative         (narrative script tape)})))
+   (let [tape (vec (or epoch-tape []))
+         rc   (reactive-counts tape)]
+     (cond-> {:epoch-tape        tape
+              :schema-violations (schema-violations tape)
+              :warnings          (warnings tape)
+              :effects           (effects tape)
+              :sub-runs          (sub-runs tape)
+              :renders           (renders tape)
+              :narrative         (narrative script tape)}
+       (some? rc) (assoc :reactive-counts rc)))))
 
 ;; ===========================================================================
 ;; DIAGNOSTICS

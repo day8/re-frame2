@@ -23,24 +23,31 @@
   ## The capability tokens
 
   Each token names one proof surface. `capability-tokens` is the closed
-  P1 set. A token with NO real seam yet (`:reactive-counts`, gated on a
-  NET-NEW recompute probe lifted into instrumentation — spec/017 §1a) is
-  in the vocabulary but advertised by NO concrete runner, so any
-  requirement on it resolves to `:cannot-run` until the seam lands. That
-  is the fail-closed contract, expressed as data: the token exists, no
-  runner provides it, so the set-difference is non-empty.
+  P1 set. `:reactive-counts` is the reactive recompute / over-render count
+  surface (spec/017 §1a, §Runner kinds): once it was deferred pending a
+  NET-NEW instrumentation seam, but Spec 009 ALREADY emits the underlying
+  signals — one `:rf.sub/run` per true sub recompute and one
+  `:rf.view/rendered` per view render, both carried into the epoch tape
+  and projected at settle time (`re-frame.epoch.capture/project-all`). The
+  probe is therefore a PROJECTION over those rows
+  (`re-frame.story.play.evidence/reactive-counts`), NOT a new core seam,
+  and the `:cljs-reactive` runner — which flushes reactions so subs deref
+  and views render (the `settled-boundary` reaction-flush boundary) —
+  advertises it. A runner that does NOT exercise the reactive substrate
+  still refuses `:cannot-run`, and the post-run fail-closed slot check
+  catches a `:cljs-reactive` run whose tape carried no reactive rows.
 
   ## Cost-ordered concrete runners
 
   `concrete-runners` is the small cost-ordered list of runners P1 can
-  actually select among (cheapest first). `:cljs-reactive` is NOT in the
-  list — it has no real seam in P1 (its only distinguishing token,
-  `:reactive-counts`, awaits the probe), so selecting it is never the
-  cheapest satisfying choice; it is named in the kinds table for
-  completeness but is not a P1 selection target. `cheapest-runner` walks
-  this list and returns the first whose token set is a superset of the
-  required tokens — exactly the spec's \"cheapest = first in a small
-  cost-ordered concrete-runner list whose set qualifies\".
+  actually select among (cheapest first). `:cljs-reactive` IS in the list
+  now that `:reactive-counts` has a real seam (the tape projection above):
+  it sits between `:hiccup` and `:dom` on the cost ladder — it flushes
+  reactions (richer than a pure hiccup render-to-string) but stops short
+  of synthetic DOM events / a real browser. `cheapest-runner` walks this
+  list and returns the first whose token set is a superset of the required
+  tokens — exactly the spec's \"cheapest = first in a small cost-ordered
+  concrete-runner list whose set qualifies\".
 
   ## MCP is a binding, not a tier
 
@@ -86,27 +93,31 @@
 
 (def capability-tokens
   "The closed P1 set of capability tokens. A token names one proof surface
-  a runner either can or cannot produce. `:reactive-counts` is in the
-  vocabulary but has NO real seam in P1 (it awaits a recompute probe lifted
-  into instrumentation — spec/017 §1a); no concrete runner advertises it,
-  so any requirement on it fails closed to `:cannot-run`."
+  a runner either can or cannot produce. `:reactive-counts` is the reactive
+  recompute / over-render count surface (spec/017 §1a); it has a real seam
+  — the `re-frame.story.play.evidence/reactive-counts` projection over the
+  `:rf.sub/run` / `:rf.view/rendered` rows Spec 009 already lands in the
+  tape — and is advertised by the `:cljs-reactive` runner."
   #{:app-db          ; final app-db / event / cofx state — the headless floor
     :effects         ; emitted effect rows
     :schema          ; schema-validation-failure trace evidence
     :trace           ; trace-event stream (warnings, dispatched, caused, …)
     :pure-subs       ; compute-sub against the snapshot (no reactive cache)
     :hiccup-structure ; render-to-string / hiccup tree + text + handler wiring
-    :reactive-counts ; reactive recompute / over-render counts — NET-NEW seam
+    :reactive-counts ; reactive recompute / over-render counts (:cljs-reactive)
     :dom             ; DOM events, focus, visibility, browser APIs
     :pixels          ; real-browser layout / screenshots / pixel diffs
     :a11y-engine})   ; axe-style accessibility engine
 
 (def reactive-counts-token
-  "The token gated on the NET-NEW recompute probe (spec/017 §1a). No P1
-  concrete runner advertises it; a requirement on it resolves to
-  `:cannot-run` until the probe seam lands. Named so the deferral is
-  explicit at the call site and the future probe bead has one place to
-  flip."
+  "The reactive recompute / over-render count token (spec/017 §1a). The
+  `:cljs-reactive` runner advertises it — its proof is the
+  `re-frame.story.play.evidence/reactive-counts` projection over the
+  `:rf.sub/run` / `:rf.view/rendered` rows the framework already retains in
+  the epoch tape. A runner that does not flush reactions cannot prove it,
+  so a requirement on it resolves to `:cannot-run` under those runners.
+  Named so the call site reads explicitly and the projection has one place
+  to anchor."
   :reactive-counts)
 
 ;; ===========================================================================
@@ -115,8 +126,9 @@
 ;;
 ;; Cheapest first. Each runner advertises the token SET it can prove. A
 ;; richer runner is a SUPERSET of every cheaper one for the tokens that ARE
-;; ordered (app-db ⊂ hiccup ⊂ dom ⊂ browser), and adds its own orthogonal
-;; tokens. `:reactive-counts` is in NO runner's set — its seam is NET-NEW.
+;; ordered (app-db ⊂ hiccup ⊂ cljs-reactive ⊂ dom ⊂ browser), and adds its
+;; own orthogonal tokens. `:reactive-counts` enters at the `:cljs-reactive`
+;; rung (reaction flush) and rides up through `:dom` / `:browser`.
 
 (def headless-tokens
   "What `:headless` proves: app-db / events / effects / schema / trace /
@@ -128,10 +140,23 @@
   handler wiring / render-to-string facts."
   (into headless-tokens #{:hiccup-structure}))
 
+(def cljs-reactive-tokens
+  "`:cljs-reactive` proves the hiccup set AND `:reactive-counts` — the
+  reactive recompute / over-render count surface (spec/017 §Runner kinds —
+  \"reactive subscription cache, recompute count, render cause, over-render
+  checks\"). It flushes reactions (the `settled-boundary`
+  reaction-flush boundary) so subs deref and views render, landing the
+  `:rf.sub/run` / `:rf.view/rendered` rows the
+  `re-frame.story.play.evidence/reactive-counts` projection counts. It does
+  NOT add `:dom` — synthetic DOM events / focus / visibility need the
+  richer `:dom` rung."
+  (into hiccup-tokens #{:reactive-counts}))
+
 (def dom-tokens
-  "`:dom` proves the hiccup set AND DOM events / focus / visibility /
+  "`:dom` proves the cljs-reactive set (incl. `:reactive-counts` — a DOM
+  runner flushes reactions too) AND DOM events / focus / visibility /
   browser APIs."
-  (into hiccup-tokens #{:dom}))
+  (into cljs-reactive-tokens #{:dom}))
 
 (def browser-tokens
   "`:browser` proves the dom set AND real-browser layout / screenshots /
@@ -145,24 +170,27 @@
   \"cheapest = first in a small cost-ordered concrete-runner list whose set
   qualifies\").
 
-  `:cljs-reactive` is deliberately ABSENT: its only distinguishing token
-  (`:reactive-counts`) has no real seam in P1, so it is never the cheapest
-  satisfying choice for any realisable requirement. It is named in the
-  spec/017 kinds table for completeness; it is not a P1 selection target."
-  [{:runner :headless :provides headless-tokens}
-   {:runner :hiccup   :provides hiccup-tokens}
-   {:runner :dom      :provides dom-tokens}
-   {:runner :browser  :provides browser-tokens}])
+  `:cljs-reactive` sits between `:hiccup` and `:dom`: its distinguishing
+  token `:reactive-counts` now has a real seam (the
+  `re-frame.story.play.evidence/reactive-counts` projection over the
+  `:rf.sub/run` / `:rf.view/rendered` rows the framework retains), so it is
+  the cheapest runner that can prove a reactive-count requirement
+  (`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`)."
+  [{:runner :headless      :provides headless-tokens}
+   {:runner :hiccup        :provides hiccup-tokens}
+   {:runner :cljs-reactive :provides cljs-reactive-tokens}
+   {:runner :dom           :provides dom-tokens}
+   {:runner :browser       :provides browser-tokens}])
 
 (def runner-kinds
-  "All runner KIND keywords spec/017 §Runner kinds names, incl. the
-  not-P1-selectable `:cljs-reactive`. `:auto` is the SELECTION mode (not a
-  kind) — handled by `normalize-run-opts`, not present here."
+  "All runner KIND keywords spec/017 §Runner kinds names. `:auto` is the
+  SELECTION mode (not a kind) — handled by `normalize-run-opts`, not present
+  here."
   #{:headless :hiccup :cljs-reactive :dom :browser})
 
 (defn- runner-descriptor
   "The concrete-runner descriptor for `runner-kind`, or nil when the kind
-  is not a P1 selection target (e.g. `:cljs-reactive`)."
+  is not a recognised concrete runner."
   [runner-kind]
   (some (fn [d] (when (= runner-kind (:runner d)) d)) concrete-runners))
 
@@ -217,8 +245,13 @@
   assertion reads the schema-violation projection; the DOM family needs
   `:dom`; visual/a11y need browser-tier tokens. The reactive-count
   assertions (`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`)
-  require `:reactive-counts` — a NET-NEW seam (spec/017 §1a), so they fail
-  closed to `:cannot-run` until the recompute probe lands.
+  require `:reactive-counts` — now a real seam (the
+  `re-frame.story.play.evidence/reactive-counts` projection over the
+  `:rf.sub/run` / `:rf.view/rendered` rows the framework retains), proven
+  by the `:cljs-reactive` runner. Under a runner that does not flush
+  reactions (`:headless` / `:hiccup`) they still resolve to `:cannot-run`,
+  and the post-run fail-closed slot check refuses a `:cljs-reactive` run
+  whose tape carried no reactive rows.
 
   ## Browser-tier oracles (spec/017 §Visual, a11y, and browser checks)
 
@@ -261,8 +294,10 @@
    ;; no real browser / axe engine is needed (spec/017 §Visual, a11y, and
    ;; browser checks — \"structural a11y checks MAY require only `:hiccup`\").
    :rf.assert/a11y-structural      #{:hiccup-structure}
-   ;; NET-NEW — gated on the recompute probe; no P1 runner provides
-   ;; `:reactive-counts`, so these resolve to `:cannot-run` (spec/017 §1a).
+   ;; Reactive-count assertions require `:reactive-counts` — proven by the
+   ;; `:cljs-reactive` runner via the `evidence/reactive-counts` projection
+   ;; (spec/017 §1a). Under `:headless` / `:hiccup` they resolve to
+   ;; `:cannot-run`; `:auto` escalates to `:cljs-reactive`.
    :rf.assert/caused               #{:reactive-counts}
    :rf.assert/no-cascade-rerender  #{:reactive-counts}})
 
@@ -527,7 +562,7 @@
   {:effects          [:effects]
    :schema           [:schema-violations]
    :trace            [:warnings]          ; trace-derived projection in evidence
-   :reactive-counts  [:reactive-counts]   ; NET-NEW slot — never present in P1
+   :reactive-counts  [:reactive-counts]   ; present only when the tape carried reactive rows
    :pixels           [:pixels]            ; browser-only slot — never present headless
    :a11y-engine      [:a11y]              ; browser-only slot
    :hiccup-structure [:renders]
@@ -661,7 +696,7 @@
          plat  (if (contains? platforms platform) platform default-platform)]
      (if auto?
        {:mode :auto :frame-binding fb :platform plat}
-       (let [r (if (contains? (disj runner-kinds :cljs-reactive) runner)
+       (let [r (if (contains? runner-kinds runner)
                  runner
                  default-runner)]
          {:mode :fixed :runner r :frame-binding fb :platform plat})))))
