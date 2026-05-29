@@ -813,16 +813,31 @@ on caller.
 - **`[:assert assertion-vector]`** evaluates a `:rf.assert/*` assertion
   atom at THIS exact point in the script — the in-script checkpoint
   position of the one assertion atom (§Inline script assertions vs
-  terminal assertions). In headless the runner dispatches the wrapped
-  `:rf.assert/*` event (its headless implementation rail —
-  `re-frame.story.assertions`), and the standard reg-event-fx handler
-  records the canonical assertion record on the frame's
-  `:rf.story/assertions` slot. The checkpoint surfaces that record as the
-  step's pass/fail; it records EXACTLY ONE assertion (the wrapped atom's
-  handler is the sole recorder — the assertion-slot mirror that
-  `:assert-db` / `:assert-dom` use is skipped for `[:assert …]` to avoid
-  double-counting). `[:assert …]` is REJECTED in `:setup` at
-  plan-compile time (see below).
+  terminal assertions). The checkpoint routes by assertion family,
+  matching how each family is evaluated everywhere else:
+  - **Dispatchable assertions** (the canonical handler-backed ids —
+    `:rf.assert/path-equals` / `path-matches` / `sub-equals` /
+    `dispatched?` / `state-is` / `no-warnings` / `effect-emitted`) are
+    DISPATCHED into the frame. The standard reg-event-fx handler
+    (`re-frame.story.assertions`) records the canonical assertion record
+    on the frame's `:rf.story/assertions` slot, and the checkpoint
+    surfaces that record as the step's pass/fail. It records EXACTLY ONE
+    assertion (the wrapped atom's handler is the sole recorder — the
+    assertion-slot mirror that `:assert-db` / `:assert-dom` use is skipped
+    for `[:assert …]` to avoid double-counting).
+  - **DOM-family assertions** (`:rf.assert/dom-visible` / `dom-hidden` /
+    `dom-text`) are evaluated by the DOM executor directly (no dispatch);
+    a no-DOM headless runner records `:cannot-run`.
+  - **Tape-evaluated assertions** carry NO reg-event-fx handler — they are
+    minted by the result boundary against the epoch tape, NOT dispatched.
+    This is the schema-error declaration (§Schema rule), the causal /
+    cascade family (§Causal and cascade assertions), and the browser-tier
+    oracle family (§Visual, a11y, and browser checks). An in-script
+    checkpoint for one of these records a no-op step (the result boundary
+    owns the verdict); dispatching it would mint a spurious
+    `:rf.error/no-such-handler` trace AND skip the real tape evaluation.
+
+  `[:assert …]` is REJECTED in `:setup` at plan-compile time (see below).
 - **`[:focus selector]`** (with `[:click …]` / `[:type …]` /
   `[:assert-dom …]`) is a DOM step. It requires the `:dom` capability
   token (§Requirement inference) and the `:dom` settled boundary
