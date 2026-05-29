@@ -38,7 +38,6 @@
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
-            [re-frame.epoch           :as epoch]
             [re-frame.story.args      :as args]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async     :as async]
@@ -356,7 +355,15 @@
   consumers keep reading their slots while the unified shape lands."
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script]} start-ms]
   (let [app-db   (rf/get-frame-db variant-id)
-        tape     (vec (epoch/epoch-history variant-id))
+        ;; rf2-5x1wt.19 follow-through — read the epoch tape through the
+        ;; late-bound `re-frame.core/epoch-history` facade (mirroring
+        ;; `re-frame.story.artifact`'s replay-path read), NOT a hard
+        ;; `[re-frame.epoch …]` require. Story's published surface (and
+        ;; its downstream consumer `tools/story-mcp`) carry no epoch dep on
+        ;; the production classpath; the facade degrades to `[]` there
+        ;; (per `re-frame.core/epoch-history`'s contract) while the
+        ;; `:test`-alias epoch dep makes it the live tape under the gate.
+        tape     (vec (rf/epoch-history variant-id))
         unified  (result/run-result
                    {:variant/id   variant-id
                     :epoch-tape   tape
