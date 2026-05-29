@@ -57,6 +57,7 @@
             [re-frame.schemas :as schemas]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
@@ -138,11 +139,7 @@
 
 (defn filter-rows
   [rows query]
-  (let [q (some-> query str/trim)]
-    (if (or (nil? q) (= "" q))
-      rows
-      (let [needle (str/lower-case q)]
-        (filterv #(str/includes? (row-haystack %) needle) rows)))))
+  (search-box/filter-rows row-haystack rows query))
 
 (defn project-data
   "View-facing composite. `frame-id` scopes the per-frame app-db
@@ -173,47 +170,18 @@
 (defn- search-box
   [query total filtered?]
   ;; rf2-nesy9 — render-time frame capture (rendered inside the schemas
-  ;; Panel reg-view), not a `:rf/xray` literal.
+  ;; Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 — the flex-row
+  ;; markup lives in the shared `search-box` component.
   (let [frame (rf/current-frame)]
-   [:div {:data-testid "rf-xray-static-schemas-search"
-         :style       {:display       "flex"
-                       :align-items   "center"
-                       :gap           "8px"
-                       :padding       "8px 16px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family   sans-stack}}
-   [:label {:style {:color          (:text-tertiary tokens)
-                    :font-size      "10px"
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"
-                    :min-width      "60px"}}
-    "Search"]
-   [:input {:type        "text"
-            :data-testid "rf-xray-static-schemas-search-input"
-            :placeholder "kind, id, frame, or doc…"
-            :value       (or query "")
-            :on-change   (fn [e]
-                           (rf/dispatch [:rf.xray.static.schemas/set-query
-                                         (-> e .-target .-value)]
-                                        {:frame frame}))
-            :style       {:flex          1
-                          :background    (:bg-3 tokens)
-                          :color         (:text-primary tokens)
-                          :border        (str "1px solid " (:border-default tokens))
-                          :border-radius "3px"
-                          :padding       "4px 8px"
-                          :font-family   mono-stack
-                          :font-size     "12px"}}]
-   [:span {:data-testid "rf-xray-static-schemas-search-count"
-           :style       {:color       (:text-tertiary tokens)
-                         :font-family mono-stack
-                         :font-size   "11px"
-                         :min-width   "80px"
-                         :text-align  "right"}}
-    (cond
-      filtered?     "match"
-      (= 1 total)   "1 schema"
-      :else         (str total " schemas"))]]))
+    [search-box/search-box
+     {:testid-prefix   "rf-xray-static-schemas"
+      :dispatch        (fn [ev] (rf/dispatch ev {:frame frame}))
+      :set-query-event :rf.xray.static.schemas/set-query
+      :placeholder     "kind, id, frame, or doc…"
+      :value           query
+      :count-noun      "schema"
+      :total           total
+      :filtered?       filtered?}]))
 
 ;; ---- row -----------------------------------------------------------------
 

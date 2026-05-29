@@ -25,6 +25,7 @@
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
+            [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -36,35 +37,20 @@
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
   `browse-list` reg-view (a plain fn invoked as a Reagent component
-  renders in its own cycle, so it cannot recover the frame itself)."
+  renders in its own cycle, so it cannot recover the frame itself).
+  rf2-1keg3 — the markup lives in the shared `search-box` component's
+  `:pane` variant."
   [dispatch]
   (let [query @(rf/subscribe [:rf.xray.static.machines/search])]
-    [:div {:data-testid "rf-xray-static-machines-search"
-           :style {:padding "8px 10px"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))
-                   :background    (:bg-1 tokens)}}
-     [:input {:data-testid "rf-xray-static-machines-search-input"
-              :type        "search"
-              :value       (or query "")
-              :placeholder "Search machines…"
-              :aria-label  "Search registered machines"
-              :on-change   (fn [^js e]
-                             (dispatch
-                               [:rf.xray.static.machines/set-search
-                                (.. e -target -value)]))
-              :on-key-down (fn [^js e]
-                             (when (= "Escape" (.-key e))
-                               (dispatch
-                                 [:rf.xray.static.machines/clear-search])))
-              :style {:width        "100%"
-                      :background   (:bg-2 tokens)
-                      :border       (str "1px solid " (:border-default tokens))
-                      :border-radius "4px"
-                      :color        (:text-primary tokens)
-                      :font-family  sans-stack
-                      :font-size    (:body-tight type-scale)
-                      :padding      "4px 8px"
-                      :box-sizing   "border-box"}}]]))
+    [search-box/search-box
+     {:variant          :pane
+      :testid-prefix    "rf-xray-static-machines"
+      :dispatch         dispatch
+      :set-query-event  :rf.xray.static.machines/set-search
+      :on-clear-event   :rf.xray.static.machines/clear-search
+      :placeholder      "Search machines…"
+      :input-aria-label "Search registered machines"
+      :value            query}]))
 
 ;; ---- sort cycle button --------------------------------------------------
 
