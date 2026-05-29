@@ -219,6 +219,126 @@
                                          (runner/step-exception 0 [:dispatch [:bad]] "boom"))]
     (is (= :fail (:status (runner/finish exc 1))))))
 
+;; ---- finish :cannot-run aggregation (rf2-taq2j) -------------------------
+;;
+;; finish has a THREE-way precedence (the runner-state analogue of
+;; requirements/aggregate-status): :fail > :cannot-run > :pass. A run whose
+;; ONLY non-pass step-results are refusals (a no-DOM :skipped? skip or a
+;; boundary :cannot-run?) must terminate :cannot-run — NEVER a silent :pass.
+;; This is the headline "cannot-run is a distinct third status, never a
+;; silent pass" invariant, guarded at the requirements + settled-boundary
+;; layers but previously UNTESTED at the runner-state finish consumers see.
+;; A real refusal is the shape the step executor mints:
+;;   (step-fail idx step {:skipped? true :message "no DOM — …"})  → :passed? false + :skipped?
+;;   (step-fail idx step {:cannot-run? true :message "…"})        → :passed? false + :cannot-run?
+
+(deftest finish-skip-only-run-is-cannot-run-not-pass
+  (testing "a run whose only non-pass step is a no-DOM :skipped? refusal
+            terminates :cannot-run, NOT a silent :pass"
+    (let [step  [:assert-dom "[data-test=x]" :visible]
+          base  (-> {:script [[:dispatch [:a]] step]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0))
+          state (-> base
+                    (runner/record-step-result (runner/step-pass 0 [:dispatch [:a]]))
+                    (runner/record-step-result
+                      (runner/step-fail 1 step {:skipped? true :message "no DOM — cannot prove"})))]
+      (is (= :cannot-run (:status (runner/finish state 100)))
+          "skip-only refusal → :cannot-run (the fail-closed third status)")
+      (is (not= :pass (:status (runner/finish state 100)))
+          "the refusal must NOT collapse into a vacuous green"))))
+
+(deftest finish-cannot-run-refusal-only-is-cannot-run
+  (testing "a boundary :cannot-run? refusal (no skip) also terminates :cannot-run"
+    (let [step  [:assert-dom "[data-test=x]" :visible]
+          state (-> {:script [step]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0)
+                    (runner/record-step-result
+                      (runner/step-fail 0 step {:cannot-run? true :message "capability refused"})))]
+      (is (= :cannot-run (:status (runner/finish state 100)))))))
+
+(deftest finish-fail-outranks-refusal
+  (testing ":fail wins over :cannot-run — a genuine failing assertion
+            alongside a refusal terminates :fail (precedence)"
+    (let [fail-step [:assert-db [:k] 1]
+          skip-step [:assert-dom "[data-test=x]" :visible]
+          state     (-> {:script [fail-step skip-step]}
+                        runner/parse-spec
+                        runner/initial-state
+                        (runner/start 0)
+                        (runner/record-step-result
+                          (runner/step-fail 0 fail-step {:message "expected 1"}))
+                        (runner/record-step-result
+                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
+      (is (= :fail (:status (runner/finish state 100)))
+          ":fail (a real failing step) outranks the refusal"))))
+
+(deftest finish-exception-outranks-refusal
+  (testing "an exception alongside a refusal terminates :fail (precedence)"
+    (let [exc-step  [:dispatch [:bad]]
+          skip-step [:assert-dom "[data-test=x]" :visible]
+          state     (-> {:script [exc-step skip-step]}
+                        runner/parse-spec
+                        runner/initial-state
+                        (runner/start 0)
+                        (runner/record-step-result
+                          (runner/step-exception 0 exc-step "boom"))
+                        (runner/record-step-result
+                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
+      (is (= :fail (:status (runner/finish state 100)))))))
+
+;; ---- run-state-refusals projection (rf2-taq2j) --------------------------
+
+(deftest run-state-refusals-projects-one-record-per-refusing-step
+  (testing "run-state-refusals projects each :skipped? / :cannot-run? step
+            into the {:status :cannot-run :unit :reason :message} shape the
+            unified result's :unmet slot folds; non-refusal steps are excluded"
+    (let [pass-step [:dispatch [:a]]
+          skip-step [:assert-dom "[data-test=x]" :visible]
+          cr-step   [:click "[data-test=y]"]
+          state     (-> {:script [pass-step skip-step cr-step]}
+                        runner/parse-spec
+                        runner/initial-state
+                        (runner/start 0)
+                        (runner/record-step-result (runner/step-pass 0 pass-step))
+                        (runner/record-step-result
+                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM — cannot prove"}))
+                        (runner/record-step-result
+                          (runner/step-fail 2 cr-step {:cannot-run? true :message "capability refused"})))
+          refusals  (runner/run-state-refusals state)]
+      (is (= 2 (count refusals)) "one refusal record per refusing step (skip + cannot-run?)")
+      (is (= [{:status :cannot-run :unit skip-step
+               :reason :runner-cannot-attempt-step :message "no DOM — cannot prove"}
+              {:status :cannot-run :unit cr-step
+               :reason :runner-cannot-attempt-step :message "capability refused"}]
+             refusals)
+          "each refusal projects the :status/:unit/:reason/:message shape, in step order")
+      (is (every? #(= :cannot-run (:status %)) refusals)))))
+
+(deftest run-state-refusals-empty-when-none-refused
+  (testing "run-state-refusals is empty for a clean pass run (no step refused)"
+    (let [state (-> {:script [[:assert-db [:k] 1]]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0)
+                    (runner/record-step-result (runner/step-pass 0 [:assert-db [:k] 1])))]
+      (is (= [] (runner/run-state-refusals state))))))
+
+(deftest run-state-refusals-omits-message-when-absent
+  (testing "a refusal with no :message omits the :message slot (cond-> shape)"
+    (let [step  [:assert-dom "[data-test=x]" :visible]
+          state (-> {:script [step]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0)
+                    (runner/record-step-result (runner/step-fail 0 step {:skipped? true})))
+          [r]   (runner/run-state-refusals state)]
+      (is (= {:status :cannot-run :unit step :reason :runner-cannot-attempt-step} r)
+          "no :message slot when the step-result carried none"))))
+
 (deftest done-pred
   (let [empty-state (runner/initial-state {:script []})
         with-steps  (runner/initial-state {:script [[:wait 1]]})]

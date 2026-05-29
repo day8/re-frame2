@@ -360,39 +360,51 @@
   are NOT projected into `:sub-runs`), so this is the over-recompute
   signal `:rf.assert/no-cascade-rerender` reads directly. `:by-cause`
   credits each reactive row to the event that invalidated its reactive
-  input — the cause→effect attribution `:rf.assert/caused` reasons over."
-  [epoch-tape]
-  (let [sub-rows    (sub-runs epoch-tape)
-        render-rows (renders epoch-tape)]
-    (when (or (seq sub-rows) (seq render-rows))
-      (let [by-cause
-            (reduce
-              (fn [acc [k sub-delta render-delta]]
-                (cond-> acc
-                  (some? k)
-                  (update k (fn [{:keys [sub-recomputes view-renders]
-                                  :or   {sub-recomputes 0 view-renders 0}}]
-                              {:sub-recomputes (+ sub-recomputes sub-delta)
-                               :view-renders   (+ view-renders render-delta)}))))
-              {}
-              (concat (map (fn [r] [(:cause-event-id r) 1 0]) sub-rows)
-                      (map (fn [r] [(:cause-event-id r) 0 1]) render-rows)))
-            per-epoch
-            (->> (concat sub-rows render-rows)
-                 (map :epoch-id)
-                 distinct
-                 (keep identity)
-                 (mapv (fn [eid]
-                         {:epoch-id       eid
-                          :sub-recomputes (count (filter #(= eid (:epoch-id %)) sub-rows))
-                          :view-renders   (count (filter #(= eid (:epoch-id %)) render-rows))})))]
-        {:sub-recomputes (count sub-rows)
-         :view-renders   (count render-rows)
-         :by-sub-id      (count-by :sub-id sub-rows)
-         :by-view        (count-by render-view-id render-rows)
-         :by-render-key  (count-by :render-key render-rows)
-         :by-cause       by-cause
-         :per-epoch      per-epoch}))))
+  input — the cause→effect attribution `:rf.assert/caused` reasons over.
+
+  The 3-arity (`sub-rows`, `render-rows` pre-projected) is the one-walk
+  entry point `project-evidence` uses: it already projects the
+  `:sub-runs` / `:renders` slots, so it threads those SAME row vectors in
+  rather than have this fn re-walk the tape for them (one tape, one
+  projection — never a second walk)."
+  ([epoch-tape]
+   (reactive-counts (sub-runs epoch-tape) (renders epoch-tape)))
+  ([sub-rows render-rows]
+   (when (or (seq sub-rows) (seq render-rows))
+     (let [by-cause
+           (reduce
+             (fn [acc [k sub-delta render-delta]]
+               (cond-> acc
+                 (some? k)
+                 (update k (fn [{:keys [sub-recomputes view-renders]
+                                 :or   {sub-recomputes 0 view-renders 0}}]
+                             {:sub-recomputes (+ sub-recomputes sub-delta)
+                              :view-renders   (+ view-renders render-delta)}))))
+             {}
+             (concat (map (fn [r] [(:cause-event-id r) 1 0]) sub-rows)
+                     (map (fn [r] [(:cause-event-id r) 0 1]) render-rows)))
+           ;; :per-epoch is O(rows): group both row vectors by :epoch-id in
+           ;; ONE pass each (the sibling :by-* slots already do this via
+           ;; count-by), then assemble per distinct epoch-id in tape order —
+           ;; not an O(epochs × rows) re-filter per epoch.
+           sub-by-epoch    (group-by :epoch-id sub-rows)
+           render-by-epoch (group-by :epoch-id render-rows)
+           per-epoch
+           (->> (concat sub-rows render-rows)
+                (map :epoch-id)
+                distinct
+                (keep identity)
+                (mapv (fn [eid]
+                        {:epoch-id       eid
+                         :sub-recomputes (count (get sub-by-epoch eid))
+                         :view-renders   (count (get render-by-epoch eid))})))]
+       {:sub-recomputes (count sub-rows)
+        :view-renders   (count render-rows)
+        :by-sub-id      (count-by :sub-id sub-rows)
+        :by-view        (count-by render-view-id render-rows)
+        :by-render-key  (count-by :render-key render-rows)
+        :by-cause       by-cause
+        :per-epoch      per-epoch}))))
 
 ;; ===========================================================================
 ;; TWO-LEVEL NARRATIVE PROJECTION  (spec/017 §Run result, §Epoch tape and narrative)
@@ -676,6 +688,28 @@
   [{:keys [outcome] :as _effect-row}]
   (= :error outcome))
 
+(defn evidence-shows-failure?
+  "True iff the ALREADY-PROJECTED run evidence carries a floor failure
+  signal — the agreement-floor predicate over pre-derived slots. Pure data →
+  data. This is the single-projection entry point: a caller that has already
+  run `schema-violations` / `effects` over the tape (e.g.
+  `project-evidence`) threads those vectors in rather than have the floor
+  re-walk the tape a second/third time. `tape-shows-failure?` is the
+  raw-tape convenience that projects then delegates here.
+
+  `epoch-tape` is still needed for the `:outcome` check (a per-epoch slot,
+  not one of the projected vectors); `violations` / `effects` are the
+  projected `schema-violations` / `effects` outputs; `consumed-selectors`
+  is the set of violation selectors the run's `:rf.assert/schema-error`
+  expectations exactly consumed (subtracted from the violation signal so an
+  EXPECTED schema failure does not trip the floor)."
+  [epoch-tape violations effects consumed-selectors]
+  (let [unconsumed (remove #(contains? consumed-selectors (:selector %)) violations)]
+    (boolean
+      (or (seq unconsumed)
+          (some failed-outcome? epoch-tape)
+          (some error-effect? effects)))))
+
 (defn tape-shows-failure?
   "True iff the retained `epoch-tape` carries evidence that the run did NOT
   fully succeed. Pure data → data. The bead's agreement invariant: a run
@@ -694,17 +728,19 @@
   The `consumed-selectors` arg (a set of violation selectors the run's
   `:rf.assert/schema-error` expectations consumed) is subtracted from the
   schema-violation signal so an EXPECTED schema failure does not trip the
-  floor. Omit it (or pass `#{}`) for the strict floor."
+  floor. Omit it (or pass `#{}`) for the strict floor.
+
+  This projects `schema-violations` / `effects` from the raw tape then
+  delegates to `evidence-shows-failure?`; a caller that has already
+  projected those slots (the `run-result` assembly) should call
+  `evidence-shows-failure?` directly to avoid a redundant re-walk."
   ([epoch-tape]
    (tape-shows-failure? epoch-tape #{}))
   ([epoch-tape consumed-selectors]
-   (let [violations  (schema-violations epoch-tape)
-         unconsumed   (remove #(contains? consumed-selectors (:selector %)) violations)
-         eff          (effects epoch-tape)]
-     (boolean
-       (or (seq unconsumed)
-           (some failed-outcome? epoch-tape)
-           (some error-effect? eff))))))
+   (evidence-shows-failure? epoch-tape
+                            (schema-violations epoch-tape)
+                            (effects epoch-tape)
+                            consumed-selectors)))
 
 ;; ===========================================================================
 ;; THE PROJECTION BOUNDARY  (epoch records → run-result evidence slots)
@@ -750,14 +786,20 @@
   exercised."
   ([epoch-tape] (project-evidence epoch-tape nil))
   ([epoch-tape {:keys [script] :as _opts}]
-   (let [tape (vec (or epoch-tape []))
-         rc   (reactive-counts tape)]
+   (let [tape        (vec (or epoch-tape []))
+         ;; Project the structured reactive rows ONCE: they are both the
+         ;; `:sub-runs` / `:renders` slots AND the input `reactive-counts`
+         ;; reads — threaded down so neither walks the tape a second time
+         ;; (one tape, one projection).
+         sub-rows    (sub-runs tape)
+         render-rows (renders tape)
+         rc          (reactive-counts sub-rows render-rows)]
      (cond-> {:epoch-tape        tape
               :schema-violations (schema-violations tape)
               :warnings          (warnings tape)
               :effects           (effects tape)
-              :sub-runs          (sub-runs tape)
-              :renders           (renders tape)
+              :sub-runs          sub-rows
+              :renders           render-rows
               :narrative         (narrative script tape)}
        (some? rc) (assoc :reactive-counts rc)))))
 

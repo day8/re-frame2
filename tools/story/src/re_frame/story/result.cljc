@@ -317,21 +317,30 @@
   violation does not trip the floor. A violation left unconsumed keeps its
   selector OUT of the set, so the floor still fails the run on it (§Schema
   rule step 4). A `:fail` record for each unmatched expectation fails the
-  run on a MISSING expected violation (step 3)."
-  [schema-expectations epoch-tape]
-  (let [violations  (evidence/schema-violations epoch-tape)
-        exps        (mapv assertions/schema-error-expectation
-                          (or schema-expectations []))
-        {:keys [matched unmatched unconsumed]} (pair-expectations exps violations)
-        records     (into (mapv (fn [{:keys [expectation violation]}]
-                                  (schema-error-record expectation violation))
-                                matched)
-                          (mapv (fn [exp] (schema-error-record exp nil))
-                                unmatched))]
-    {:records            records
-     :consumed-selectors (into #{} (map (comp :selector :violation)) matched)
-     :unmatched          unmatched
-     :unconsumed         unconsumed}))
+  run on a MISSING expected violation (step 3).
+
+  The 2-arity projects the violations from the raw `epoch-tape`; the
+  `[schema-expectations violations :as :projected]` 3-arity takes the
+  ALREADY-PROJECTED `evidence/schema-violations` vector (the `run-result`
+  assembly's `evidence-slots`) so the assembly does not walk the tape for
+  the same violations a second time — one tape, one projection."
+  ([schema-expectations epoch-tape]
+   (match-schema-expectations schema-expectations
+                              (evidence/schema-violations epoch-tape)
+                              :projected))
+  ([schema-expectations violations _projected]
+   (let [exps        (mapv assertions/schema-error-expectation
+                           (or schema-expectations []))
+         {:keys [matched unmatched unconsumed]} (pair-expectations exps violations)
+         records     (into (mapv (fn [{:keys [expectation violation]}]
+                                   (schema-error-record expectation violation))
+                                 matched)
+                           (mapv (fn [exp] (schema-error-record exp nil))
+                                 unmatched))]
+     {:records            records
+      :consumed-selectors (into #{} (map (comp :selector :violation)) matched)
+      :unmatched          unmatched
+      :unconsumed         unconsumed})))
 
 ;; ===========================================================================
 ;; CAUSAL / CASCADE EXPECTATIONS  (spec/017 §Causal and cascade assertions,
@@ -550,6 +559,14 @@
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
         evidence-slots (evidence/project-evidence tape {:script script})
+        ;; The tape is projected ONCE (`project-evidence` above); the
+        ;; schema-violation + effect vectors it already produced are threaded
+        ;; into the schema match and the agreement floor below rather than
+        ;; re-projected from the raw tape. This reinforces the ns's stated
+        ;; "one tape, one projection, single source of truth" invariant — the
+        ;; floor and the schema matcher read the SAME projected evidence the
+        ;; result's slots carry, never a second derivation.
+        violations     (:schema-violations evidence-slots)
         ;; EXACT schema-error consumption (§Schema rule, rf2-5x1wt.21): pair
         ;; each declared `:rf.assert/schema-error` against the tape's
         ;; projected violations. The minted records (a `:pass` for each
@@ -558,7 +575,7 @@
         ;; exactly-consumed selectors excuse those violations from the floor,
         ;; while an UNCONSUMED violation keeps its selector OUT of the set so
         ;; the floor still fails the run on it.
-        schema-match   (match-schema-expectations schema-expectations tape)
+        schema-match   (match-schema-expectations schema-expectations violations :projected)
         ;; Causal / cascade expectations (§Causal and cascade assertions,
         ;; rf2-5x1wt.31): project each declared `:rf.assert/caused` /
         ;; `:rf.assert/no-cascade-rerender` against the SAME reactive
@@ -576,7 +593,12 @@
                              (:consumed-selectors schema-match))
         unmet          (vec (or unmet []))
         base-status    (requirements/aggregate-status records unmet)
-        tape-red?      (evidence/tape-shows-failure? tape consumed)
+        ;; Agreement floor over the SAME projected evidence — the violations
+        ;; + effects `project-evidence` already derived, not a re-walk of the
+        ;; raw tape (the tape is still needed for the per-epoch `:outcome`
+        ;; signal). One tape, one projection.
+        tape-red?      (evidence/evidence-shows-failure?
+                         tape violations (:effects evidence-slots) consumed)
         ;; The agreement floor escalates ONLY a would-be pass — a real
         ;; :fail / :error / :cannot-run already outranks it (the floor never
         ;; downgrades a higher verdict).
