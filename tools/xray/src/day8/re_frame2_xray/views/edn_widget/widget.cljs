@@ -85,11 +85,17 @@
 ;; The `:rf.xray/copy-value-to-clipboard` event + the
 ;; `:rf.xray.fx/copy-to-clipboard` fx are registered process-globally
 ;; by `app-db-diff-events/install!` (always called from
-;; `registry.cljs`), so the dispatch resolves on every surface. The
-;; dispatch carries `{:frame :rf/xray}` for the same reason the
-;; segment-inspector's affordances do: `:on-click` fires after React
-;; pops the frame context, so without the explicit envelope the
-;; dispatch would land on `:rf/default`.
+;; `registry.cljs`), so the dispatch resolves on every surface.
+;;
+;; rf2-nesy9 — the affordance captures the SURROUNDING frame at render
+;; time via `(rf/current-frame)` and dispatches into it on click. The
+;; click-handler fires after React pops the frame context, so the
+;; render-time capture is what keeps the dispatch on the right instance
+;; frame (N parallel shells stay isolated). The widget root threads
+;; everywhere through plain fns, so a render-time `current-frame`
+;; capture is cleaner than plumbing a `dispatch-fn` through the whole
+;; inspect/browse/diff/mini tree — and replaces the prior
+;; `{:frame :rf/xray}` singleton literal.
 
 (defn copy-affordance
   "A hover-revealed `⎘` copy button that copies `value` to the
@@ -100,13 +106,18 @@
   click-to-copy mark spec 007:668 uses for the namespace-fade keyword
   copy."
   [value testid]
-  [:button {:data-testid testid
+  ;; rf2-nesy9 — capture the surrounding instance frame at RENDER time
+  ;; so the deferred copy click dispatches back to it (not a `:rf/xray`
+  ;; literal). The widget renders inside the panels' `reg-view`s, so
+  ;; `current-frame` resolves through the React-context tier here.
+  (let [frame (rf/current-frame)]
+   [:button {:data-testid testid
             :aria-label  "Copy value to clipboard"
             :title       "Copy value"
             :on-click    (fn [^js e]
                            (.stopPropagation e)
                            (rf/dispatch [:rf.xray/copy-value-to-clipboard value]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
             :class       "rf-xray-edn-widget-copy"
             :style       {:position      "absolute"
                           :top           "2px"
@@ -126,7 +137,7 @@
                           ;; on `:hover` / `:focus-within`; tests assert
                           ;; on presence + dispatch, not the CSS reveal.
                           :opacity       0.55}}
-   "⎘"])
+    "⎘"]))
 
 ;; ---- panel-facing facade — inspect / inspect-inline ----------------------
 ;;

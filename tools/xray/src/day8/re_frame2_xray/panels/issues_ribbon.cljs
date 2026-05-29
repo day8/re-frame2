@@ -317,8 +317,9 @@
                             :row-attrs       (fn [{:keys [id severity]} _i]
                                                {:data-testid (str "rf-xray-issues-row-" id)
                                                 :on-click    (fn []
-                                                               (rf/dispatch [:rf.xray/select-tab :event]
-                                                                            {:frame :rf/xray}))
+                                                               ;; rf2-nesy9 — reg-view-injected
+                                                               ;; frame-aware dispatch.
+                                                               (dispatch [:rf.xray/select-tab :event]))
                                                 :style       {:border        (str "1px solid "
                                                                                    (:border-default tokens))
                                                               :border-left   (str "3px solid "
