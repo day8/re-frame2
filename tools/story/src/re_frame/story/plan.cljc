@@ -6,10 +6,11 @@
   variant and inline plan MUST be normalized before execution. This
   namespace is the **author-surface foundation**: it turns a raw variant
   body (or inline map) into the normalized `:world` / `:script` /
-  `:expect` shape, resolving the `:extends` parent chain, lowering author
-  ergonomics, resolving `:args` + `[:arg key]` placeholders, computing the
-  initial required-runner capability set, and producing `explain` data
-  during compilation.
+  `:expect` shape, resolving the `:extends` parent chain, applying
+  `:compose` fragment/check composition with strict conflict resolution,
+  lowering author ergonomics, resolving `:args` + `[:arg key]`
+  placeholders, computing the required-runner capability set, and
+  producing `explain` data during compilation.
 
   ## What this layer DOES (rf2-5x1wt.10)
 
@@ -24,10 +25,10 @@
     `[:arg key]` placeholders in setup/script/sub-overrides; a missing
     arg FAILS plan construction.
   - Preserve platforms / tags / workshop context under `:world`.
-  - Compute the **initial** `:required-runner` capability set from the
-    script steps and the declared assertions (a coarse first cut; the
-    full per-assertion capability registry lands with rf2 runner-
-    requirements work).
+  - Compute the `:required-runner` capability set from the script steps
+    and the declared assertions, through the capability-token registry in
+    `re-frame.story.requirements` (rf2-5x1wt.16 — the single home for the
+    per-step / per-assertion requirement maps).
   - Attach `:source-chain` and an `:explain` map.
 
   ## View arg schemas (rf2-5x1wt.12)
@@ -84,15 +85,26 @@
   conflict (`:rf.error/story-network-fx-conflict`) — `:network` is the
   dedicated affordance for that fx. See §Network world slot below.
 
+  ## Strict `:compose` composition (rf2-5x1wt.15) + capability inference (rf2-5x1wt.16)
+
+  Strict `:compose` fragment/check composition AND its conflict resolution
+  land HERE (§`:compose` / §Merge rules / §Conflict resolution): see the
+  `## Strict composition` block below — `resolve-strict-conflict`,
+  variant-owned-wins, the flat-fragment guard
+  (`:rf.error/story-compose-nested-fragment`), and the silent-conflict
+  failure (`:rf.error/story-compose-conflict`). The capability-token
+  registry is no longer scaffolded inline either: the `:required-runner`
+  slot is filled through `re-frame.story.requirements` (the single home for
+  the per-step / per-assertion requirement maps).
+
   ## What this layer DEFERS
 
-  Strict `:compose` fragment/check composition + conflict resolution
-  (§Merge rules / §Conflict resolution), the runner itself, evidence
-  projection, and the capability-token registry are **later beads**. This
-  compiler emits the scaffolding (a coarse `:required-runner`, the lowered
-  `:network` fx-override the deferred runner installs) so those beads slot
-  in without reshaping the plan. Wiring the per-route reply data into the
-  run artifact awaits the run-artifact ns (rf2-5x1wt.7).
+  The runner itself + evidence projection are downstream of this compiler.
+  In particular, wiring the per-route `:network` reply data into the run
+  artifact awaits the run-artifact ns (rf2-5x1wt.7); this layer keeps the
+  reply map at `[:world :network]` and lowers it to the managed-stub
+  fx-override the runner installs, so that bead slots in without reshaping
+  the plan.
 
   ## Purity / elision
 
@@ -207,8 +219,14 @@
 
 (def ^:private context-keys
   "World/context keys inherited through `:extends` (deep-merge for maps,
-  child-wins for scalars; see `merge-context`)."
-  [:args :argtypes :sub-overrides :network :fx-overrides :interceptor-overrides
+  child-wins for scalars; see `merge-context`).
+
+  `:args` / `:argtypes` are deliberately ABSENT: they are resolved by the
+  dedicated `merge-key` deep-merge over the inherited → composed → child
+  chain (the single source of truth for `arg-map` / `argtypes`), never read
+  off `ctx`. Listing them here only buys a redundant deep-merge per compile
+  and misleads a reader into thinking `ctx` is the arg source."
+  [:sub-overrides :network :fx-overrides :interceptor-overrides
    :decorators :loaders :loaders-teardown :loaders-complete-when
    :modes :substrates :platforms :viewport :background :xray
    :dispatch-console? :component :doc :args->events])
@@ -898,9 +916,19 @@
                                 acc map))
                    {}
                    frag-contribs)
+        ;; Resolve in a DETERMINISTIC key order. `by-id` is a hash-map, so
+        ;; iterating it directly would let hash-map iteration order (which
+        ;; differs across CLJS / JVM) leak into `:resolved` / `:unresolved`
+        ;; — and thence into `explain`'s `:strict-conflicts` vector and the
+        ;; `:rf.error/story-compose-conflict` ex-data. The override keys are
+        ;; fx-/interceptor-ids (keywords); sorting by `pr-str` gives a
+        ;; total, platform-stable order so explain diffs + error messages
+        ;; reproduce. (`:merged` is order-independent and `:explain` is
+        ;; excluded from `plan-hash`, so this is a pure debug-surface fix.)
+        ordered  (sort-by (comp pr-str key) by-id)
         owned?   (fn [k] (and (map? variant-owned) (contains? variant-owned k)))]
-    (reduce-kv
-      (fn [{:keys [merged resolved unresolved]} k contribs]
+    (reduce
+      (fn [{:keys [merged resolved unresolved]} [k contribs]]
         (let [distinct-vals (distinct (map :value contribs))]
           (cond
             ;; variant owns this key → variant-owned-wins (no conflict,
@@ -933,29 +961,45 @@
                                 :sources (mapv :source contribs)
                                 :values  (vec distinct-vals)})})))
       {:merged {} :resolved [] :unresolved []}
-      by-id)))
+      ordered)))
 
 ;; ============================================================================
 ;; Compiler
 ;; ============================================================================
 
+;; ---- lookup coercion -----------------------------------------------------
+;;
+;; Every `:lookup` option (variant bodies, view metadata, sub metadata,
+;; fragment bodies, check bodies) accepts the SAME two shapes — a 1-arg fn
+;; `(id) → body-or-nil` OR a `{id → body}` map — and falls back to a
+;; per-kind default when nil. `coerce-kind-lookup` is the single parametric
+;; coercer for all five; only the default-fn and the option label (for the
+;; error message) differ, both parameters. (One coercer, not five
+;; hand-rolled copies of the identical `cond`.)
+
+(defn- coerce-kind-lookup
+  "Coerce a `:lookup`-shaped option into a 1-arg `(id) → body` fn. Accepts
+  a 1-arg fn or a `{id → body}` map, falling back to `default-fn` when nil.
+  `opt-key` names the option for the `:rf.error/story-bad-lookup` message.
+  The single coercer behind every lookup option (variant / view / sub /
+  fragment / check)."
+  [opt-key lookup default-fn]
+  (cond
+    (nil? lookup) default-fn
+    (map? lookup) #(get lookup %)
+    (fn? lookup)  lookup
+    :else         (fail! :rf.error/story-bad-lookup
+                         (str "re-frame2-story: " opt-key " must be a fn or a map")
+                         {opt-key lookup})))
+
+;; ---- per-kind default lookups (the `default-fn` fed to coerce-kind-lookup)
+
 (defn- default-lookup
-  "Default raw-body lookup — reads the Story side-table. Production
+  "Default raw variant-body lookup — reads the Story side-table. Production
   bundles elide the side-table, so the lookup returns nil there; pure
   tests thread an explicit `:lookup`."
   [variant-id]
   (registrar/handler-meta :variant variant-id))
-
-(defn- coerce-lookup
-  "Accept either a 1-arg fn or a `{variant-id → body}` map as `:lookup`."
-  [lookup]
-  (cond
-    (nil? lookup) default-lookup
-    (map? lookup) #(get lookup %)
-    (fn? lookup)  lookup
-    :else         (fail! :rf.error/story-bad-lookup
-                         "re-frame2-story: :lookup must be a fn or a map"
-                         {:lookup lookup})))
 
 (defn- default-view-lookup
   "Default view-metadata lookup — reads the **framework** `:view`
@@ -964,17 +1008,6 @@
   return nil; pure tests thread an explicit `:view-lookup`."
   [view-id]
   (framework-registrar/handler-meta :view view-id))
-
-(defn- coerce-view-lookup
-  "Accept a 1-arg fn or a `{view-id → view-meta}` map as `:view-lookup`."
-  [view-lookup]
-  (cond
-    (nil? view-lookup) default-view-lookup
-    (map? view-lookup) #(get view-lookup %)
-    (fn? view-lookup)  view-lookup
-    :else              (fail! :rf.error/story-bad-lookup
-                              "re-frame2-story: :view-lookup must be a fn or a map"
-                              {:view-lookup view-lookup})))
 
 (defn- default-sub-lookup
   "Default subscription-metadata lookup — reads the **framework** `:sub`
@@ -985,23 +1018,10 @@
   [sub-id]
   (framework-registrar/handler-meta :sub sub-id))
 
-(defn- coerce-sub-lookup
-  "Accept a 1-arg fn or a `{sub-id → sub-meta}` map as `:sub-lookup`."
-  [sub-lookup]
-  (cond
-    (nil? sub-lookup) default-sub-lookup
-    (map? sub-lookup) #(get sub-lookup %)
-    (fn? sub-lookup)  sub-lookup
-    :else             (fail! :rf.error/story-bad-lookup
-                             "re-frame2-story: :sub-lookup must be a fn or a map"
-                             {:sub-lookup sub-lookup})))
-
-;; ---- fragment + check lookup (rf2-5x1wt.15) ------------------------------
-
 (defn- default-fragment-lookup
   "Default fragment-body lookup — reads the Story side-table `:fragment`
-  kind. Production bundles elide the side-table; pure tests thread an
-  explicit `:fragment-lookup`."
+  kind (rf2-5x1wt.15). Production bundles elide the side-table; pure tests
+  thread an explicit `:fragment-lookup`."
   [fragment-id]
   (registrar/handler-meta :fragment fragment-id))
 
@@ -1009,19 +1029,6 @@
   "Default check-body lookup — reads the Story side-table `:check` kind."
   [check-id]
   (registrar/handler-meta :check check-id))
-
-(defn- coerce-kind-lookup
-  "Accept a 1-arg fn or a `{id → body}` map as a fragment/check lookup,
-  falling back to `default-fn` when nil. `opt-key` names the option for
-  the error message."
-  [opt-key lookup default-fn]
-  (cond
-    (nil? lookup) default-fn
-    (map? lookup) #(get lookup %)
-    (fn? lookup)  lookup
-    :else         (fail! :rf.error/story-bad-lookup
-                         (str "re-frame2-story: " opt-key " must be a fn or a map")
-                         {opt-key lookup})))
 
 (defn expand-checks
   "Expand a plan's `:expect :checks` ids into the
@@ -1073,8 +1080,8 @@
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup] :as _opts}]
-  (let [view-lookup  (coerce-view-lookup view-lookup)
-        sub-lookup   (coerce-sub-lookup sub-lookup)
+  (let [view-lookup  (coerce-kind-lookup :view-lookup view-lookup default-view-lookup)
+        sub-lookup   (coerce-kind-lookup :sub-lookup sub-lookup default-sub-lookup)
         frag-lookup  (coerce-kind-lookup :fragment-lookup fragment-lookup
                                          default-fragment-lookup)
         chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
@@ -1116,10 +1123,16 @@
                        {}
                        bodies)
         ;; checks inherit root→child (incl. the child's own :checks); the
-        ;; composed check-ids append after (declared order; identity kept).
+        ;; composed check-ids append after (declared order). A check is an
+        ;; IDENTITY (§Checks — a failed check shows its id), so the list is
+        ;; deduped first-seen: a check inherited AND re-composed (or composed
+        ;; twice) rides `[:expect :checks]` exactly ONCE, so the runner
+        ;; expands it into ONE grouped check record rather than N duplicates.
         checks       (-> (reduce (fn [acc layer] (into acc (:checks layer)))
                                  [] bodies)
-                         (into composed-checks))
+                         (into composed-checks)
+                         distinct
+                         vec)
         ;; setup APPENDS: inherited (root→parent), THEN composed fragments
         ;; (declared order), THEN the variant's own setup — variant-owned
         ;; values land last (§Merge rules + §Total resolution order). Each
@@ -1470,7 +1483,7 @@
   schema (`:rf.error/story-sub-override-invalid`)."
   ([target] (variant-plan target nil))
   ([target {:keys [lookup] :as opts}]
-   (let [lookup-fn    (coerce-lookup lookup)
+   (let [lookup-fn    (coerce-kind-lookup :lookup lookup default-lookup)
          compile-opts (select-keys opts [:view-lookup :validator-fns :sub-lookup
                                          :fragment-lookup :check-lookup])]
      (cond

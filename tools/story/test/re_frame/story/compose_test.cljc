@@ -112,6 +112,42 @@
               {:kind :check :id :check/clean}]
              (get-in p [:explain :compose]))))))
 
+;; ---- check identity is a SET: a check rides :expect :checks ONCE ---------
+;; (rf2-ufosd — a check inherited + re-composed, or composed twice, must not
+;;  appear N times; the runner would otherwise expand it into N duplicate
+;;  grouped check records for one logical check id.)
+
+(deftest inherited-check-recomposed-appears-once
+  (testing "a check both INHERITED (via :extends) and re-named in :compose rides :expect :checks once"
+    (let [checks   {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
+          variants {:story.k/parent {:checks [:check/clean]}
+                    :story.k/child  {:extends :story.k/parent
+                                     :compose [:check/clean]}}
+          p (compose-plan :story.k/child
+                          {:variants variants :checks checks})]
+      (is (= [:check/clean] (get-in p [:expect :checks]))
+          "the check appears exactly once despite inherit + compose")
+      (is (= [:check/clean] (get-in p [:explain :checks]))))))
+
+(deftest check-composed-twice-appears-once
+  (testing "a check named twice in one :compose list rides :expect :checks once"
+    (let [checks   {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
+          variants {:story.k/dup {:compose [:check/clean :check/clean]}}
+          p (compose-plan :story.k/dup
+                          {:variants variants :checks checks})]
+      (is (= [:check/clean] (get-in p [:expect :checks]))))))
+
+(deftest check-dedup-preserves-first-seen-order
+  (testing "dedup keeps first-seen order: own check, then a distinct composed check"
+    (let [checks   {:check/a {:assertions [[:rf.assert/no-warnings]]}
+                    :check/b {:assertions [[:rf.assert/no-warnings]]}}
+          variants {:story.k/order {:checks  [:check/a]
+                                    :compose [:check/b :check/a]}}
+          p (compose-plan :story.k/order
+                          {:variants variants :checks checks})]
+      (testing "own :check/a first, then the new composed :check/b — :check/a not repeated"
+        (is (= [:check/a :check/b] (get-in p [:expect :checks])))))))
+
 ;; ===========================================================================
 ;; :extends inheritance — checks inherit; assertions + script do not
 ;; ===========================================================================
@@ -307,6 +343,42 @@
               p  (compose-plan :story.x/w vw)]
           (is (= {:guard :v}
                  (get-in p [:world :frame :interceptor-overrides]))))))))
+
+;; ---- explain :strict-conflicts order is DETERMINISTIC --------------------
+;; (rf2-sylr6 — resolution iterates an internal hash-map keyed by the
+;;  override id; without a stable key order the :resolved / :unresolved
+;;  vectors followed hash-map iteration order, which differs across CLJS /
+;;  JVM. The fix sorts by key, so explain diffs + error messages reproduce.)
+
+(deftest strict-conflicts-explain-order-is-deterministic
+  (testing "the resolved :strict-conflicts vector is in a stable, sorted key order"
+    (let [;; a fragment setting MANY fx-ids, all owned by the variant →
+          ;; one :variant-owned-wins resolved entry per key. The keys are
+          ;; declared OUT of sorted order; the resolved order must still be
+          ;; deterministic (sorted), independent of any map iteration order.
+          fragments {:fragment/many
+                     {:fx-overrides {:rf.http/zeta  :z
+                                     :rf.http/alpha :a
+                                     :rf.http/mid   :m
+                                     :rf.http/beta  :b}}}
+          variants  {:story.x/v
+                     {:compose      [:fragment/many]
+                      :fx-overrides {:rf.http/zeta  :vz
+                                     :rf.http/alpha :va
+                                     :rf.http/mid   :vm
+                                     :rf.http/beta  :vb}}}
+          opts      {:variants variants :fragments fragments}
+          keys-of   (fn [p] (mapv :key (get-in p [:explain :strict-conflicts])))
+          p         (compose-plan :story.x/v opts)
+          order     (keys-of p)]
+      (testing "every owned key surfaces a resolved entry"
+        (is (= #{:rf.http/alpha :rf.http/beta :rf.http/mid :rf.http/zeta}
+               (set order))))
+      (testing "the order is the stable sort, not the (out-of-order) declared order"
+        (is (= (sort-by pr-str order) order)))
+      (testing "recompiling yields the IDENTICAL order (no hash-map iteration leak)"
+        (is (= order (keys-of (compose-plan :story.x/v opts))))
+        (is (= order (keys-of (compose-plan :story.x/v opts))))))))
 
 ;; ===========================================================================
 ;; No `:resolve-conflicts` escape hatch in P1

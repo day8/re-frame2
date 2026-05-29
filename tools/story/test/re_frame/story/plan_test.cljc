@@ -95,6 +95,27 @@
         (is (= :qty (:arg data)))
         (is (re-find #"qty" (:reason data)))))))
 
+(deftest args-and-argtypes-resolve-through-extends
+  (testing "args + argtypes deep-merge root→child via the dedicated merge-key
+            path (rf2-xutlo — they were dropped from context-keys; the
+            merge-key deep-merge is the single source of truth, so this must
+            still resolve correctly through :extends)"
+    (let [m {:story.at/parent
+             {:args     {:sku "A" :qty 1}
+              :argtypes {:sku {:control :text} :qty {:control :number}}}
+             :story.at/child
+             {:extends  :story.at/parent
+              :args     {:qty 5}                       ; child overrides qty
+              :argtypes {:qty {:control :range}}}}     ; child overrides qty argtype
+          p (plan-of :story.at/child m)]
+      (testing "args deep-merge: inherited :sku kept, child :qty wins"
+        (is (= {:sku "A" :qty 5} (get-in p [:world :args]))))
+      (testing "argtypes deep-merge the same way"
+        (is (= {:sku {:control :text} :qty {:control :range}}
+               (get-in p [:world :argtypes]))))
+      (testing "explain still surfaces the resolved args"
+        (is (= {:sku "A" :qty 5} (get-in p [:explain :args])))))))
+
 ;; ---- parent chain (:extends) --------------------------------------------
 
 (deftest variant-with-parent-compiles
