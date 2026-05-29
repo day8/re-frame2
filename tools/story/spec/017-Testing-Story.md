@@ -1624,7 +1624,7 @@ warnings/effects is superseded by this projection).
 |---|---|---|
 | `:epoch-tape` | the retained vector, verbatim | the evidence source, when retained |
 | `:schema-violations` | each epoch's `:trace-events` | every `:rf.error/schema-validation-failure` error trace, keyed by the §Schema-rule surface selector (`[:event id]`, `[:cofx id]`, `[:fx-args id]`, `[:sub-return id query-v]`, `[:app-db registered-path path]`, `[:machine-data machine-id phase]`) so the multiset matcher pairs declared expectations to emitted failures |
-| `:warnings` | each epoch's `:trace-events` | every `:op-type :warn` trace event, in tape order |
+| `:warnings` | each epoch's `:trace-events` | every `:op-type :warning` trace event, in tape order (the canonical severity discriminator every `(trace/emit! :warning …)` site produces; the framework never emits `:warn`) |
 | `:effects` | each epoch's `:effects` row | the rows the framework already projected at settle time (`re-frame.epoch.capture/project-all`), concatenated in dispatch order, each stamped with its `:epoch-id` |
 | `:sub-runs` / `:renders` | each epoch's `:sub-runs` / `:renders` rows | concatenated in tape order, each stamped with `:epoch-id` |
 | `:reactive-counts` | the `:sub-runs` / `:renders` rows above | recompute / render counts (rf2-5x1wt.30) — `{:sub-recomputes :view-renders :by-sub-id :by-view :by-render-key :by-cause :per-epoch}`; PRESENT only when the tape carried at least one reactive row (a bare headless dispatch-only tape omits it, so the fail-closed slot check is honest). `:by-cause` credits each row to the dispatching event's `:rf.sub/cause-event-id` / `:rf.view/cause-event-id` attribution |

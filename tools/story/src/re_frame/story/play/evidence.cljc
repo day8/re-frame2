@@ -26,7 +26,7 @@
     §Schema-rule surface selector (`[:event id]`, `[:cofx id]`,
     `[:app-db registered-path path]`, …). The multiset-consumption matcher
     (§Schema rule) keys off exactly this projection.
-  - `warnings` — every `:op-type :warn` trace event across the tape.
+  - `warnings` — every `:op-type :warning` trace event across the tape.
   - `effects` — the per-epoch `:effects` rows the framework already
     projected at settle time (`re-frame.epoch.capture/project-all`),
     concatenated in dispatch order.
@@ -184,15 +184,26 @@
 ;; WARNING PROJECTION
 ;; ===========================================================================
 ;;
-;; A warning is any trace event whose `:op-type` is `:warn` (Spec 009
-;; §Trace event shape; the same stream `re-frame.story.assertions`'
-;; `record-warning!` accumulator used to siphon, now projected from the
-;; retained tape instead). `:rf.assert/no-warnings` reads this projection.
+;; A warning is any trace event whose `:op-type` is `:warning` (Spec 009
+;; §Trace event shape / §Op-type vocabulary — `:warning`, NOT `:warn`; the
+;; same stream `re-frame.story.assertions`' `record-warning!` accumulator
+;; used to siphon — that siphon keys off `:op-type :warning`
+;; (`re-frame.story.play.cljc`), and every framework emit site uses
+;; `(trace/emit! :warning …)`, now projected from the retained tape
+;; instead). `:rf.assert/no-warnings` reads this projection.
+
+(def warning-operation
+  "The trace `:op-type` that marks a warning severity. Spec 009 §Trace event
+  shape / §Op-type vocabulary — the canonical discriminator is `:warning`
+  (every framework emit site is `(trace/emit! :warning …)`; the framework
+  never emits `:warn`)."
+  :warning)
 
 (defn warning-trace?
-  "True iff `trace-event` is a warning (`:op-type :warn`). Pure data → data."
+  "True iff `trace-event` is a warning (`:op-type :warning`). Pure data →
+  data."
   [trace-event]
-  (= :warn (:op-type trace-event)))
+  (= warning-operation (:op-type trace-event)))
 
 (defn warning-record
   "Project a warning trace event into a run-result warning record. Pure
