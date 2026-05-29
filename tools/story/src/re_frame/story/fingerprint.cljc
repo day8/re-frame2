@@ -94,9 +94,40 @@
   symmetric companion to `:plan-hash` — a run-result carries its own
   `:run-hash`, which must not feed a re-canonicalization of that result.
   The hashes still key the artifact at the call site; they simply do not
-  feed the canonical value recursively.)"
+  feed the canonical value recursively.)
+
+  ### Per-run stamp fields (rf2-5x1wt.8 — the determinism strip)
+
+  `:epoch-id`, `:dispatch-id`, `:trace-id`, `:committed-at`, and
+  `:schema-digest` are the per-RUN bookkeeping stamps the framework writes
+  into a freshly-captured epoch tape and its projected evidence rows. The
+  epoch counter, the dispatch-id counter, and the trace-event `:id`
+  counter are PROCESS-GLOBAL monotonic atoms (never reset per frame), and
+  `:committed-at` is wall-clock — so two semantically-equal runs replayed
+  into FRESH frames (`re-frame.story.artifact/replay-run-artifact`, spec
+  §Run artifact and replay) stamp DIFFERENT values for each. The `.7`
+  worker deliberately left this strip to the determinism gate
+  (rf2-5x1wt.8): a replay into a fresh frame stamps different epoch /
+  dispatch / trace ids, and THIS strip — together with the structural
+  `:id` / `:time` / `:frame` strip in `strip-run-stamps` below — is what
+  normalizes them so two semantically-equal runs canonicalize `=` and hash
+  equal.
+
+  Each of these keys is reserved or framework-specific (an app-db value is
+  vanishingly unlikely to key on `:epoch-id` / `:trace-id` /
+  `:committed-at` / `:schema-digest`), so the blunt recursive strip in
+  `project` is safe for them. The genuinely-common keys a trace event /
+  epoch record also carries (`:id`, `:time`, `:frame`) are NOT in this set
+  — stripping them globally would erase semantic app-db data; they are
+  stripped STRUCTURALLY (only on their carrier maps) by `strip-run-stamps`.
+
+  This strip applies on the `canonicalize` / `canonical-hash`
+  (= determinism / diff / `:run-hash`) path ONLY — the strip-free
+  `content-hash` (snapshot identity) is untouched, so snapshot-identity
+  baselines stay byte-stable (§Snapshot-identity migration path)."
   #{:elapsed-ms :dispatch-id :source :source-coord :runner
-    :variant/id :plan-hash :run-hash})
+    :variant/id :plan-hash :run-hash
+    :epoch-id :trace-id :committed-at :schema-digest})
 
 (def ^:private variant-id-spellings
   "The variant-id key spellings reconciled at this boundary. The shipping
@@ -163,6 +194,101 @@
     (set? x)        (into #{} (map project) x)
     (vector? x)     (mapv project x)
     (sequential? x) (mapv project x)
+    :else           x))
+
+;; ===========================================================================
+;; STRUCTURAL RUN-STAMP STRIP  (rf2-5x1wt.8 — the determinism layer)
+;; ===========================================================================
+;;
+;; `:id`, `:time`, and `:frame` are per-RUN stamps on a trace event / epoch
+;; record — but they are ALSO common semantic app-db keys (`{:user/id …
+;; :id 42}`, a `:frame` reference, a `:time` value). The blunt recursive
+;; `project` strip cannot touch them without erasing app data, so they are
+;; stripped STRUCTURALLY: only when they ride their carrier map.
+;;
+;; - a TRACE EVENT carries `:operation` + `:op-type` (Spec 009 §Trace event
+;;   shape); its per-run stamps are `:id` (process-global counter), `:time`
+;;   (wall-clock), and a handful of volatile slots that ride its `:tags`
+;;   sub-map — `:frame` (the fresh replay frame id), `:rf.trace/dispatch-id`
+;;   / `:rf.trace/trace-id` (per-run id counters), and `:rf.event/elapsed-ms`
+;;   (per-run timing). The SEMANTIC tags (`:rf.trace/event-id`, the event
+;;   payload `:rf.event/v`, a changed `:rf.event/db`) are LEFT intact, so a
+;;   real behavioural difference in the trace still perturbs the hash.
+;; - an EPOCH RECORD carries `:epoch-id` + (`:outcome` | `:db-after` |
+;;   `:trace-events`) (Spec-Schemas §`:rf/epoch-record`); its per-run frame
+;;   stamp is `:frame` (a fresh replay allocates a new `:rf.test.replay/*`
+;;   id). `:epoch-id` / `:committed-at` / `:schema-digest` are already
+;;   stripped by the recursive `project` (reserved keys), so only `:frame`
+;;   needs the structural treatment here.
+;;
+;; The strip is recursive so it reaches trace events nested inside an epoch
+;; record's `:trace-events` and epoch records nested inside a run-result's
+;; `:epoch-tape`. It runs BEFORE `project`, so a record's reserved stamps
+;; are dropped by `project` and its common-key stamps by this pass.
+
+(def ^:private volatile-trace-tag-keys
+  "The per-run stamp keys that ride a trace event's `:tags` sub-map
+  (Spec 009 §Trace event shape). A fresh-frame replay stamps a new
+  `:frame` id and per-run id / timing counters here; the SEMANTIC tags
+  (`:rf.trace/event-id`, `:rf.event/v` payload, `:rf.event/db` value) are
+  NOT in this set, so a real behavioural difference still perturbs the
+  canonical value."
+  #{:frame :rf.trace/dispatch-id :rf.trace/trace-id :rf.event/elapsed-ms})
+
+(defn- trace-event?
+  "True iff `m` is a trace event (Spec 009 §Trace event shape): a map
+  carrying both `:operation` and `:op-type`. Pure data → data."
+  [m]
+  (and (map? m) (contains? m :operation) (contains? m :op-type)))
+
+(defn- strip-trace-tags
+  "Drop the per-run stamp keys (`volatile-trace-tag-keys`) from a trace
+  event's `:tags` sub-map, leaving the semantic tags. No-op when `:tags`
+  is absent. Pure data → data."
+  [trace-event]
+  (if (map? (:tags trace-event))
+    (update trace-event :tags #(apply dissoc % volatile-trace-tag-keys))
+    trace-event))
+
+(defn- epoch-record?
+  "True iff `m` is an `:rf/epoch-record` (Spec-Schemas §`:rf/epoch-record`):
+  a map carrying `:epoch-id` plus at least one of the load-bearing record
+  slots (`:outcome` / `:db-after` / `:trace-events`). The extra slot guards
+  against a bare evidence row that merely back-references an `:epoch-id`
+  (those carry no `:frame`, so the guard only affects whether `:frame` is
+  read as a per-run stamp). Pure data → data."
+  [m]
+  (and (map? m)
+       (contains? m :epoch-id)
+       (or (contains? m :outcome)
+           (contains? m :db-after)
+           (contains? m :trace-events))))
+
+(defn strip-run-stamps
+  "Strip the per-run stamps that ride a trace event (`:id`, `:time`) or an
+  epoch record (`:frame`) — the common-key stamps `project` cannot strip
+  globally without erasing app-db data (rf2-5x1wt.8). Recursive across
+  maps, vectors, sets, and seqs, so it reaches trace events nested in an
+  epoch record's `:trace-events` and epoch records nested in a run-result's
+  `:epoch-tape`. Pure data → data; idempotent.
+
+  This is the structural companion to the reserved-key recursive strip in
+  `project`: between the two, two semantically-equal runs replayed into
+  fresh frames lose every per-run stamp and canonicalize `=`."
+  [x]
+  (cond
+    (map? x)
+    (let [m (cond-> x
+              (trace-event? x) (-> (dissoc :id :time) strip-trace-tags)
+              (epoch-record? x) (dissoc :frame))]
+      (persistent!
+        (reduce-kv (fn [acc k v] (assoc! acc k (strip-run-stamps v)))
+                   (transient {})
+                   m)))
+
+    (set? x)        (into #{} (map strip-run-stamps) x)
+    (vector? x)     (mapv strip-run-stamps x)
+    (sequential? x) (mapv strip-run-stamps x)
     :else           x))
 
 ;; ===========================================================================
@@ -272,9 +398,17 @@
   `:plan-hash`, `:run-hash`, golden slices, and the
   inline-plan-to-registered-variant metamorphic relation all consume it.
   Equivalent values canonicalize `=`; a semantic difference (app-db,
-  effect, assertion, …) perturbs the canonical value."
+  effect, assertion, …) perturbs the canonical value.
+
+  Projection composes two strips before ordering: the recursive reserved-key
+  strip (`project` — volatile + `:rf.story/*` accumulator keys) and the
+  structural per-run-stamp strip (`strip-run-stamps` — `:id` / `:time` /
+  `:frame` only on their trace-event / epoch-record carriers, rf2-5x1wt.8).
+  Together they erase every per-run stamp a fresh-frame replay writes, so
+  two semantically-equal runs canonicalize `=` (the determinism gate's
+  `test/assert-deterministic` is exactly this equality over N replays)."
   [x]
-  (canonical-form (project x)))
+  (canonical-form (project (strip-run-stamps x))))
 
 ;; ===========================================================================
 ;; CONTENT HASH

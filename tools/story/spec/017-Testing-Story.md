@@ -1212,11 +1212,18 @@ The public surface, all routed through one projection + one hash:
 | `plan-hash` | `canonical-hash` over `plan-hash-input-keys` (`[:story/id :world :script :expect :required-runner :tags]`). |
 | `run-hash` | `canonical-hash` over `run-hash-input-keys` (`[:status :app-db :epoch-tape :assertions :checks :effects :schema-violations :warnings :sub-overrides :fidelity]`). |
 
-The volatile-field set stripped by `canonicalize` is
+The volatile-field set stripped recursively by `canonicalize` is
 `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
-:plan-hash :run-hash}` — `:run-hash` is the symmetric companion to
-`:plan-hash` (a run-result carries its own `:run-hash`, which must not
-feed a re-canonicalization of that result). Ordering is: maps key-sorted
+:plan-hash :run-hash :epoch-id :trace-id :committed-at :schema-digest}` —
+`:run-hash` is the symmetric companion to `:plan-hash` (a run-result
+carries its own `:run-hash`, which must not feed a re-canonicalization of
+that result), and `:epoch-id` / `:trace-id` / `:committed-at` /
+`:schema-digest` are the reserved per-run epoch / trace stamps added for
+the determinism gate (§Determinism gate). The genuinely-common stamps a
+trace event / epoch record also carries (`:id`, `:time`, `:frame`, and the
+volatile `:tags` keys) are stripped **structurally** — only on their
+carrier map — so app-db data on those keys survives. Ordering is: maps
+key-sorted
 by the canonicalised key's `pr-str`; sets element-sorted; vectors/seqs
 (effects, epochs, trace events) keep producer order, which the producer
 emits deterministically (effects in emission order, epochs in dispatch
@@ -1506,6 +1513,114 @@ artifact schema + the result shape are exercised under `clojure -M:test`
 with no runtime; the headless replay path settles synchronously to a fixed
 point via the headless flush-hooks, so the live-frame replay also runs
 headless.
+
+## Determinism gate
+
+The determinism gate answers one question: does this plan / artifact
+produce the **same run every time**? It is the first consumer of
+`canonicalize` (§Canonicalization) beyond snapshot identity, and it builds
+directly on run-artifact replay (§Run artifact and replay). The base ships
+in the `re-frame.story.determinism` namespace and is re-exported as
+`test/assert-deterministic` (the testing-substrate surface owned by
+[`spec/008-Testing.md`](../../../spec/008-Testing.md) — the tool lives
+**below** Story and runs without the Story UI).
+
+```clojure
+(test/assert-deterministic plan-or-artifact)
+(test/assert-deterministic plan-or-artifact opts)
+;; -> {:status :deterministic     :run-hash <hash> :runs N :hashes [...]}
+;;  | {:status :non-deterministic :divergence {…}  :runs N :hashes [...] :results [...]}
+;;  | {:status :cannot-run        :reason :determinism-wall-clock-wait :wait-steps [...]}
+```
+
+`plan-or-artifact` is a `:rf.test/run-artifact`, a normalized variant plan
+(its `[:world :setup]` ⧺ `:script` fold into the replay event program and
+its `[:world :frame :fx-overrides]` become the replay fx decisions), or a
+`:setup` / `:script` / `:event-program` body. `opts` MAY carry `:runs`
+(replay count, default 2, minimum 2) and the `:hooks` / `:frame-config`
+threaded to `replay-run-artifact`.
+
+### What determinism means: canonical equality over N fresh-frame replays
+
+The gate replays the event program into **N FRESH frames** and compares
+the runs through `canonicalize`. A run is **deterministic** iff every
+replay's canonical **run-slice** (`run-hash-input-keys` — `:status`, the
+final `:app-db`, the `:epoch-tape`, the `:assertions` / `:checks` verdicts,
+and the projected `:effects` / `:schema-violations` / `:warnings` /
+`:sub-overrides` / `:fidelity`) is `=`. The slice — not the whole result —
+is the authority, because a run-result also carries pure provenance (the
+`:frame` replay id, the `:run-artifact` back-link, the per-step
+`:replay-steps`) that legitimately differs per replay and is excluded from
+`run-hash` for exactly this reason. The `run-hash` is the cheap
+discriminator; canonical equality of the slice is the authority, so a hash
+collision can never report a false `:deterministic`. A `:non-deterministic`
+result names the FIRST run whose canonical slice differs from run 0, with
+both run-hashes, and returns the per-run results for a downstream semantic
+diff (`test/diff-run-artifacts`).
+
+### Canonicalization MUST strip / normalize the per-run stamps
+
+A fresh frame restarts the **process-global** epoch / dispatch / trace-id
+counters and allocates a new generated `:rf.test.replay/*` frame id, so two
+semantically-equal runs stamp different values for every piece of per-run
+bookkeeping. `canonicalize` MUST strip / normalize these before comparison
+so the gate is not blinded by them:
+
+- **wall-clock timestamps** — `:committed-at` (epoch record), `:time`
+  (trace event), `:elapsed-ms` (run / assertion record);
+- **elapsed durations** — `:elapsed-ms`, the `:rf.event/elapsed-ms` trace
+  tag;
+- **generated dispatch ids** — `:dispatch-id`, the `:rf.trace/dispatch-id`
+  trace tag;
+- **generated frame ids** — `:frame` (the fresh `:rf.test.replay/*` id),
+  wherever it rides an epoch record or a trace event's `:tags`;
+- **runtime object identities** — `:epoch-id` / `:trace-id` (the
+  process-global counters), `:schema-digest`, the `:rf.trace/trace-id` tag,
+  and the trace event's `:id`;
+- **intentionally-unspecified source order** — maps are key-sorted and
+  sets element-sorted by `canonicalize`; effects and epochs keep producer
+  order (which IS semantic — reordering them is a real difference).
+
+The strip is split by SAFETY: reserved / framework-specific keys
+(`:epoch-id`, `:dispatch-id`, `:trace-id`, `:committed-at`,
+`:schema-digest`, plus `:elapsed-ms` / `:source` / `:runner` already in the
+volatile set) are stripped **recursively** by the projection; the
+genuinely-common keys a trace event / epoch record also carries (`:id`,
+`:time`, `:frame`, and the volatile `:tags` keys) are stripped
+**structurally** — only on their trace-event (`:operation` + `:op-type`) or
+epoch-record (`:epoch-id` + a record slot) carrier — so an app-db value
+that legitimately keys on `:id` / `:time` / `:frame` survives and a real
+semantic difference there is still detected. The semantic trace tags
+(`:rf.trace/event-id`, the event payload `:rf.event/v`, a changed
+`:rf.event/db`) are left intact.
+
+This strip applies on the `canonicalize` / `canonical-hash`
+(= determinism / diff / `:run-hash`) path ONLY. The strip-free
+`content-hash` that snapshot identity hashes is untouched, so
+snapshot-identity baselines stay byte-stable across this bead
+(§Snapshot-identity migration path).
+
+### The bare-`[:wait ms]` opt-out → `:cannot-run`
+
+Determinism guarantees apply only to plans free of wall-clock steps
+(§Unit and integration testing adjustments, §Script step grammar):
+`[:wait-until pred]` (queue/state-based) is deterministic and preferred;
+bare `[:wait ms]` is the explicit opt-out. `assert-deterministic` MUST
+**refuse** a plan / artifact whose event program contains a bare
+`[:wait ms]` with `:cannot-run` (the spec's third result state) rather than
+running it flakily. The refusal is a **pure pre-flight** — computed before
+any replay — and carries `:reason :determinism-wall-clock-wait` and the
+offending `:wait-steps`. (A virtual clock that would make `[:wait ms]`
+deterministic remains a non-goal, §P1 non-goals.)
+
+### Pure / JVM-testable
+
+The verdict logic (`wait-steps`, `has-wall-clock-wait?`,
+`cannot-run-wait-refusal`, `->artifact`, `compare-runs`) is pure data →
+data and runs under `clojure -M:test` with no runtime; the gate's headless
+replay path settles synchronously to a fixed point via the headless
+flush-hooks, so the full gate also runs headless. The strip's
+host-portability is pinned on CLJS alongside the fingerprint primitive.
 
 ## Relationship to the workshop surface (storytelling is in-scope)
 
