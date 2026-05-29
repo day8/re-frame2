@@ -73,6 +73,7 @@
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
+            [re-frame.story.error      :as story-error]
             [re-frame.story.frames     :as frames]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.play.runner :as runner]
@@ -194,21 +195,14 @@
         (let [event-vec (get-in ev [:tags :event])
               msg       (get-in ev [:tags :exception-message])
               exc       (get-in ev [:tags :exception])]
+          ;; rf2-9kpsq — the trace event may carry a pre-extracted
+          ;; `:exception-message` (and a possibly-nil `:exception`); thread
+          ;; it as the explicit `:message` override on the shared
+          ;; projection so the message survives even without the throwable.
           (assertions/record!
             frame-id
-            {:assertion :rf.error/exception
-             :variant-id frame-id
-             :phase     phase
-             :event     event-vec
-             :error     {:message (or msg
-                                      #?(:clj (when exc (.getMessage ^Throwable exc))
-                                         :cljs (when exc (str exc))))
-                         :stack   #?(:clj  (when exc (with-out-str (.printStackTrace ^Throwable exc)))
-                                      :cljs (when exc (.-stack exc)))
-                         :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
-                                                      :cljs ExceptionInfo) exc)
-                                    (ex-data exc))}
-             :passed?   false})))
+            (story-error/exception-record frame-id phase event-vec exc
+                                          {:message msg}))))
       (swap! pending-exceptions assoc frame-id []))))
 
 (defn install-trace-listener!
@@ -250,19 +244,9 @@
   (try
     (rf/dispatch-sync event {:frame frame-id})
     (catch #?(:clj Throwable :cljs :default) e
-      (let [record {:assertion :rf.error/exception
-                    :variant-id frame-id
-                    :phase     :phase-4-play
-                    :event     event
-                    :error     {:message #?(:clj  (.getMessage ^Throwable e)
-                                            :cljs (str e))
-                                :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable e))
-                                            :cljs (.-stack e))
-                                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
-                                                             :cljs ExceptionInfo) e)
-                                           (ex-data e))}
-                    :passed?   false}]
-        (assertions/record! frame-id record))))
+      (assertions/record!
+        frame-id
+        (story-error/exception-record frame-id :phase-4-play event e))))
   ;; After the drain settles, walk any captured handler-exception
   ;; trace events into assertion records. Safe to dispatch-sync now —
   ;; the drain has ended.
@@ -339,13 +323,13 @@
              ;; A failure inside execute-play itself (not the dispatched
              ;; events) becomes a phase-4-setup record. The play has not
              ;; necessarily completed but we still resolve the promise so
-             ;; the caller sees the accumulator.
-             (assertions/record! variant-id
-                                 {:assertion :rf.error/exception
-                                  :phase     :phase-4-setup
-                                  :error     {:message #?(:clj (.getMessage ^Throwable e)
-                                                          :cljs (str e))}
-                                  :passed?   false})
+             ;; the caller sees the accumulator. rf2-9kpsq — routed through
+             ;; the shared projection (was a drifted message-only copy that
+             ;; dropped :stack / :data); :event is nil (the failure is in
+             ;; the play harness, not a dispatched event).
+             (assertions/record!
+               variant-id
+               (story-error/exception-record variant-id :phase-4-setup nil e))
              (resolve (read-assertions-after variant-id)))))))))
 
 ;; ---------------------------------------------------------------------------

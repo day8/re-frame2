@@ -43,6 +43,7 @@
             [re-frame.story.async     :as async]
             [re-frame.story.config    :as config]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.error     :as story-error]
             [re-frame.story.frames    :as frames]
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
@@ -283,22 +284,6 @@
 
 ;; ---- error recording -----------------------------------------------------
 
-(defn- error-record
-  "Build an error projection map per IMPL-SPEC §5.5."
-  [variant-id phase event err]
-  {:assertion :rf.error/exception
-   :variant-id variant-id
-   :phase     phase
-   :event     event
-   :error     {:message #?(:clj  (.getMessage ^Throwable err)
-                           :cljs (str err))
-               :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable err))
-                            :cljs (.-stack err))
-               :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
-                                            :cljs ExceptionInfo) err)
-                          (ex-data err))}
-   :passed?   false})
-
 (defn- loader-incomplete-record
   "Build the non-throwing projection used when a loader predicate is
   false. The runtime cannot advance into events/play while the loader
@@ -317,7 +302,7 @@
   accumulator. Per IMPL-SPEC §5.5 errors continue the play sequence
   rather than aborting — the full picture is captured."
   [variant-id phase event err]
-  (let [record (error-record variant-id phase event err)]
+  (let [record (story-error/exception-record variant-id phase event err)]
     (try
       (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
       (catch #?(:clj Throwable :cljs :default) dispatch-err
@@ -393,51 +378,20 @@
     (plan/expand-checks (get-in plan [:expect :checks]))
     (catch #?(:clj Throwable :cljs :default) _ {})))
 
-(defn- plan-schema-expectations
-  "Collect every declared `[:rf.assert/schema-error spec]` atom for a
-  normalized PLAN (rf2-5x1wt.21, spec/017 §Schema rule). These declare the
-  EXPECTED schema violations the result boundary exactly-consumes against
-  the projected tape evidence — so a missing/different violation fails the
-  run, an exactly-expected violation passes. Pure aside from the check
-  expansion's registrar reads; tolerant (any failure yields no
-  expectations, so the strict floor — every violation fails — applies).
-
-  Sources, all in the ONE assertion-atom vocabulary, all read off the
-  compiled plan so a registered variant and an inline plan share the path:
-
-  - the plan's terminal `[:expect :assertions]` (own-only verdict);
-  - the expanded `[:expect :checks]` assertion atoms (an inheritable
-    schema expectation rides a check, §Checks);
-  - the auto-play `executed-script`'s in-script `[:assert …]` checkpoints
-    (a mid-script schema expectation).
-
-  `:rf.assert/schema-error` is NOT dispatched into the frame (it has no
-  reg-event-fx handler — it is tape-evaluated), so collecting the DECLARED
-  atoms here is the single path that feeds the consumption matcher."
-  [plan executed-script]
-  (try
-    (let [terminal      (vec (get-in plan [:expect :assertions]))
-          check-atoms   (mapcat val (plan-checks plan))
-          script-atoms  (into []
-                              (keep (fn [step]
-                                      (when (and (vector? step)
-                                                 (= :assert (first step)))
-                                        (second step))))
-                              (or executed-script []))]
-      (filterv assertions/schema-error?
-               (concat terminal check-atoms script-atoms)))
-    (catch #?(:clj Throwable :cljs :default) _ [])))
-
 (defn- plan-assertion-atoms
   "Collect EVERY declared assertion atom for a normalized PLAN, across the
-  three positions in the ONE assertion-atom vocabulary (mirroring
-  `plan-schema-expectations`): the terminal `[:expect :assertions]`, the
-  expanded `[:expect :checks]` atoms, and the in-script `[:assert …]`
-  checkpoints of the executed script. Pure aside from the check expansion's
-  registrar reads; tolerant (any failure yields no atoms). Used to feed the
-  tape-evaluated expectation matchers (`:rf.assert/caused` /
-  `:rf.assert/no-cascade-rerender`, rf2-5x1wt.31) that — like
-  `:rf.assert/schema-error` — carry NO `reg-event-fx` handler and so must be
+  three positions in the ONE assertion-atom vocabulary: the terminal
+  `[:expect :assertions]`, the expanded `[:expect :checks]` atoms, and the
+  in-script `[:assert …]` checkpoints of the executed script. Pure aside
+  from the check expansion's registrar reads; tolerant (any failure yields
+  no atoms).
+
+  This is the SINGLE collector; the predicate-specific helpers
+  (`plan-schema-expectations`, `plan-causal-expectations`) are each a
+  `filterv` over its output (rf2-2zncm). Feeds the tape-evaluated
+  expectation matchers (`:rf.assert/schema-error`, `:rf.assert/caused` /
+  `:rf.assert/no-cascade-rerender`, rf2-5x1wt.31) that — unlike a
+  `reg-event-fx`-backed assertion — carry NO handler and so must be
   collected from the plan, not the `:rf.story/assertions` accumulator."
   [plan executed-script]
   (try
@@ -451,6 +405,25 @@
                              (or executed-script []))]
       (vec (concat terminal check-atoms script-atoms)))
     (catch #?(:clj Throwable :cljs :default) _ [])))
+
+(defn- plan-schema-expectations
+  "Collect every declared `[:rf.assert/schema-error spec]` atom for a
+  normalized PLAN (rf2-5x1wt.21, spec/017 §Schema rule). These declare the
+  EXPECTED schema violations the result boundary exactly-consumes against
+  the projected tape evidence — so a missing/different violation fails the
+  run, an exactly-expected violation passes.
+
+  `:rf.assert/schema-error` is NOT dispatched into the frame (it has no
+  reg-event-fx handler — it is tape-evaluated), so collecting the DECLARED
+  atoms here is the single path that feeds the consumption matcher.
+
+  Defined as a FILTER over the shared `plan-assertion-atoms` collector —
+  the same pattern `plan-causal-expectations` uses (rf2-2zncm). The
+  collector already wraps the three positions in a tolerant try/catch, so
+  `filterv` over its `(vec (concat …))` output is identical to filtering
+  the bare `concat` (filterv ignores the extra vec)."
+  [plan executed-script]
+  (filterv assertions/schema-error? (plan-assertion-atoms plan executed-script)))
 
 (defn- plan-causal-expectations
   "Collect every declared `:rf.assert/caused` / `:rf.assert/no-cascade-
@@ -737,8 +710,7 @@
                        :status     :error
                        :passed?    false
                        :reason     (exception-message e)
-                       :error      {:message (exception-message e)
-                                    :data    (ex-data e)}}]))
+                       :error      (story-error/throwable->error-map e)}]))
 
 (defn- handle-run-error!
   "Catch-branch for the orchestrator: record the exception as a

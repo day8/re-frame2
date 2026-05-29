@@ -911,6 +911,85 @@
         (is (false? (:passed? exc)))))
     (story/destroy-variant! :story.planerr/v)))
 
+;; ---- plan-construction-error? discrimination (rf2-x3mol) -----------------
+;;
+;; PR #2430 (rf2-5x1wt.22) narrowed `plan-construction-error?` from the
+;; over-broad "`:rf.error/id` present" to "`:where` = `'rf.story/variant-
+;; plan`". The discrimination is load-bearing: a FRAMEWORK runtime error
+;; thrown AFTER frame allocation that ALSO carries an `:rf.error/id` (the
+;; cited case is `:rf.error/no-adapter-installed` from `reg-frame` →
+;; `make-state-container` on a host with no adapter installed) MUST take
+;; the frame-bound record/transition branch (`record-error!` +
+;; `loaders/error!`), NOT `plan-error-result` (which would stamp the raw
+;; `:rf.error/id` as the assertion id, misreporting a runtime failure as a
+;; plan-construction failure). The pre-existing suite pinned only the
+;; POSITIVE branch (a true plan error projects correctly); these pin the
+;; NEGATIVE branch + the precise `:where`-marker scoping.
+
+(deftest plan-construction-error?-discriminates-on-where-marker
+  (testing "the predicate keys on :where 'rf.story/variant-plan ONLY — an
+            :rf.error/id-bearing error WITHOUT that marker is NOT a plan-
+            construction error (it must route through the frame-bound
+            path), while a :where-marked plan failure IS"
+    (let [plan-construction-error? @#'runtime/plan-construction-error?]
+      ;; NEGATIVE: a framework runtime error carrying :rf.error/id but no
+      ;; :where marker — the #2430 cum40 regression case. Must be false so
+      ;; handle-run-error! takes the frame-bound branch, NOT plan-error-result.
+      (is (false? (plan-construction-error?
+                    (ex-info "no adapter installed"
+                             {:rf.error/id :rf.error/no-adapter-installed})))
+          "an :rf.error/id-bearing runtime error with NO :where marker is
+           NOT a plan-construction error")
+      ;; A non-plan :where symbol (registrar / extends / macros stamp
+      ;; distinct :where symbols) is likewise not a plan-construction error.
+      (is (false? (plan-construction-error?
+                    (ex-info "reg failure"
+                             {:rf.error/id :rf.error/story-reg-variant-invalid
+                              :where        'rf.story/reg-variant})))
+          "a sibling :where symbol does not satisfy the predicate")
+      ;; An error with no ex-data at all is not a plan-construction error.
+      (is (false? (plan-construction-error? (ex-info "bare" {})))
+          "an error with empty ex-data is not a plan-construction error")
+      ;; POSITIVE control: only the :where 'rf.story/variant-plan marker
+      ;; (what plan/fail! stamps) makes the predicate true.
+      (is (true? (plan-construction-error?
+                   (ex-info "plan invalid"
+                            {:rf.error/id :rf.error/story-assert-in-setup
+                             :where        'rf.story/variant-plan})))
+          "a plan/fail! error (:where 'rf.story/variant-plan) IS a plan-
+           construction error"))))
+
+(deftest post-frame-rf-error-id-routes-through-frame-bound-path
+  (testing "a framework runtime error carrying an :rf.error/id thrown AFTER
+            frame allocation routes through handle-run-error!'s frame-bound
+            record path (an :rf.error/exception assertion at :phase-0-setup)
+            — it is NOT misrouted as a plan-construction error (which would
+            stamp the raw :rf.error/id as the assertion id)"
+    (story/reg-variant :story.postframe/v {:events []})
+    ;; Redef a phase fn that runs AFTER run-phase-0! (so the frame is
+    ;; allocated and the lifecycle is past :pre-mount) to throw an ex-info
+    ;; carrying an :rf.error/id but NO :where 'rf.story/variant-plan marker
+    ;; — simulating the :rf.error/no-adapter-installed case the #2430 fix
+    ;; guards against.
+    (with-redefs [runtime/run-phase-2!
+                  (fn [_ctx]
+                    (throw (ex-info "no adapter installed"
+                                    {:rf.error/id :rf.error/no-adapter-installed})))]
+      (let [r (async/deref-blocking (story/run-variant :story.postframe/v) 5000)]
+        (is (= :error (:lifecycle r))
+            "the post-frame throw rolled the lifecycle to :error via
+             loaders/error!")
+        (let [recs (:assertions r)]
+          (is (some #(and (= :rf.error/exception (:assertion %))
+                          (= :phase-0-setup (:phase %)))
+                    recs)
+              "the error was recorded via the frame-bound record-error!
+               path as an :rf.error/exception at :phase-0-setup")
+          (is (not-any? #(= :rf.error/no-adapter-installed (:assertion %)) recs)
+              "the raw :rf.error/id was NOT stamped as the assertion id —
+               i.e. it did NOT misroute through plan-error-result"))))
+    (story/destroy-variant! :story.postframe/v)))
+
 ;; ===========================================================================
 ;; FRAME-META INTROSPECTION
 ;; ===========================================================================

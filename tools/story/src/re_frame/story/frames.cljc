@@ -46,6 +46,7 @@
   (:require [re-frame.core             :as rf]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.error      :as story-error]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.registrar  :as registrar]
@@ -176,20 +177,13 @@
 
   `phase` is one of `:phase-loaders-teardown` (variant body's
   `:loaders-teardown` events — rf2-lqs0b) or `:phase-teardown`
-  (`:frame-setup` decorator `:teardown` events — rf2-dg2uh)."
+  (`:frame-setup` decorator `:teardown` events — rf2-dg2uh).
+
+  Thin wrapper over the shared `re-frame.story.error/exception-record`
+  (rf2-9kpsq) — the Throwable→`{:message :stack :data}` projection + the
+  `:rf.error/exception` shape are the ONE canonical form."
   [variant-id phase event err]
-  {:assertion  :rf.error/exception
-   :variant-id variant-id
-   :phase      phase
-   :event      event
-   :error      {:message #?(:clj  (.getMessage ^Throwable err)
-                            :cljs (str err))
-                :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable err))
-                            :cljs (.-stack err))
-                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
-                                             :cljs ExceptionInfo) err)
-                           (ex-data err))}
-   :passed?    false})
+  (story-error/exception-record variant-id phase event err))
 
 (defonce ^:private teardown-capture-counter (atom 0))
 
