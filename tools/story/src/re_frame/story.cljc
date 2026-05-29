@@ -85,6 +85,10 @@
             ;; routes through one path (NOT `re-frame.story.canonical`,
             ;; which installs the canonical *vocabulary*).
             [re-frame.story.fingerprint :as fingerprint]
+            ;; rf2-5x1wt.4 — the run-evidence projection from the epoch tape.
+            ;; Re-exported as `project-evidence` below so every downstream
+            ;; run-result slot derives from ONE tape (NewTestStory §A0c).
+            [re-frame.story.play.evidence :as evidence]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
             ;; Runtime modules — args resolution, decorators.
@@ -898,6 +902,33 @@
   through the same primitive as `plan-hash`."
   [result]
   (fingerprint/run-hash result))
+
+;; ---- run-evidence projection (rf2-5x1wt.4) ------------------------------
+;;
+;; Per spec/017 §Run-result evidence projection — the single boundary from
+;; the retained epoch tape to the API-stable run-result evidence slots. The
+;; runner reads the tape via `re-frame.core/epoch-history` and merges this
+;; projection into the run-result, so `:schema-violations` / `:warnings` /
+;; `:effects` / `:sub-runs` / `:renders` / `:narrative` all derive from ONE
+;; tape — no parallel accumulator can drift from the tape evidence.
+
+(defn project-evidence
+  "Per spec/017 §Run-result evidence projection — project a retained
+  `epoch-tape` (the `:rf/epoch-record` vector from
+  `re-frame.core/epoch-history`) into the run-result evidence slots. Pure
+  data → data. `opts` may carry `:script` for the two-level `:narrative`.
+  Every evidential slot agrees with the tape by construction."
+  ([epoch-tape]      (evidence/project-evidence epoch-tape))
+  ([epoch-tape opts] (evidence/project-evidence epoch-tape opts)))
+
+(defn tape-shows-failure?
+  "Per spec/017 §Run-result evidence projection — true iff the retained
+  `epoch-tape` carries failure evidence (a schema violation, a halted
+  epoch, or an error effect). The agreement floor: a run may not report
+  `:pass` while this is true. Optional `consumed-selectors` (a set) excuses
+  expected schema failures. Pure data → data."
+  ([epoch-tape]                     (evidence/tape-shows-failure? epoch-tape))
+  ([epoch-tape consumed-selectors]  (evidence/tape-shows-failure? epoch-tape consumed-selectors)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-

@@ -974,6 +974,58 @@ rather than maintaining independent result schemas. This unification
 fixes the documented "false GREEN," where run-state and the assertions
 slot disagreed.
 
+### Run-result evidence projection {#run-result-evidence-projection}
+
+The evidential run-result slots are **projections from one retained epoch
+tape**, not a second capture path. The boundary lives in
+`re-frame.story.play.evidence` (re-exported as `story/project-evidence`);
+the runner reads the retained tape via `re-frame.core/epoch-history` and
+merges the projection into the run-result. There is exactly one source of
+truth — Story UI, CI, docs, agents, and the golden/diff tools cannot
+disagree about what happened, and no parallel accumulator can drift from
+the tape evidence (the shipping per-frame `trace-accumulators` siphon for
+warnings/effects is superseded by this projection).
+
+`(story/project-evidence epoch-tape {:script coerced-script})` is pure —
+`:rf/epoch-record` vector in, evidence map out — so it runs under
+`clojure -M:test` with no runtime. It returns:
+
+| Slot | Source in the tape | Rule |
+|---|---|---|
+| `:epoch-tape` | the retained vector, verbatim | the evidence source, when retained |
+| `:schema-violations` | each epoch's `:trace-events` | every `:rf.error/schema-validation-failure` error trace, keyed by the §Schema-rule surface selector (`[:event id]`, `[:cofx id]`, `[:fx-args id]`, `[:sub-return id query-v]`, `[:app-db registered-path path]`, `[:machine-data machine-id phase]`) so the multiset matcher pairs declared expectations to emitted failures |
+| `:warnings` | each epoch's `:trace-events` | every `:op-type :warn` trace event, in tape order |
+| `:effects` | each epoch's `:effects` row | the rows the framework already projected at settle time (`re-frame.epoch.capture/project-all`), concatenated in dispatch order, each stamped with its `:epoch-id` |
+| `:sub-runs` / `:renders` | each epoch's `:sub-runs` / `:renders` rows | concatenated in tape order, each stamped with `:epoch-id` |
+| `:narrative` | the script steps over the epoch beats | the two-level projection below |
+
+**Two-level narrative.** The author's `:script` steps form the outer spans;
+the epoch beats committed while settling each step are the inner level.
+Because a `[:dispatch …]` step settles to a fixed point (§Script and
+`settled-boundary`), **one dispatch step MAY span multiple epoch beats** — a
+handler that re-dispatches produces several committed epochs, all
+attributable to the one authored step. Pure assertion/wait steps that
+commit no epoch produce empty spans; epochs preceding the first dispatch
+step (setup-phase cascades, framework bootstrap) collect under a leading
+`nil`-step span so no tape evidence is dropped. Attribution is **exact**
+when the runner stamps each committed epoch with `:rf.story/script-idx`
+(the per-step settle boundary), and falls back to an even forward
+partition across the dispatch steps for a bare `epoch-history` tape. Every
+epoch lands in exactly one span.
+
+**The agreement floor.** `(story/tape-shows-failure? epoch-tape
+consumed-selectors)` is the consistency invariant: a run MUST NOT be
+reported `:pass` while the tape carries failure evidence — an unconsumed
+`:rf.error/schema-validation-failure`, a non-`:ok` epoch `:outcome`, or an
+`:error`-outcome effect row. The optional `consumed-selectors` set excuses
+schema violations exactly consumed by `:rf.assert/schema-error`
+expectations (§Schema rule). The runner asks this of the *projected
+evidence*, not of a sibling accumulator, so **no duplicate accumulator can
+report green when the tape shows a failure**. `run-hash` (§Canonicalization)
+already hashes `:epoch-tape` alongside the projected `:schema-violations` /
+`:warnings` / `:effects`, so a divergent projection perturbs the
+run-equivalence hash.
+
 ## Public execution API — the three verbs
 
 The primary API is **three verbs** dispatching on target type — a keyword
@@ -1043,7 +1095,10 @@ can copy. P1 makes it first-class:
   event/dispatch id.
 - Schema failures, warnings, effects, semantic diffs, and run artifacts
   SHOULD be projected from the same epoch tape instead of separately
-  accumulated.
+  accumulated. The concrete projection boundary — epoch records to
+  run-result slots, the two-level narrative, and the green-while-red
+  agreement floor — is pinned in [§Run-result evidence
+  projection](#run-result-evidence-projection).
 - Golden slices are deferred. P1.5 MAY let a curated variant carry a
   `:golden` slice once canonicalization has an adversarial corpus proving
   that semantic differences perturb the hash and volatile fields do not.

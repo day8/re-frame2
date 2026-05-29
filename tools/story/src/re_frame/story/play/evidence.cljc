@@ -1,0 +1,546 @@
+(ns re-frame.story.play.evidence
+  "Project run evidence from the retained epoch tape — the single source of
+  truth for what a Story run proved (NewTestStory rf2-5x1wt.4,
+  spec/017-Testing-Story.md §Run-result evidence projection +
+  §Epoch tape and narrative).
+
+  ## One tape, many projections
+
+  Spec/017 §Run result says the run-result slots are *projections from the
+  epoch tape wherever possible*: the result shape is API-stable, but the
+  storage / source of truth is ONE tape so Story UI, CI, docs, agents, and
+  the future golden/diff tools cannot disagree about what happened. Before
+  this ns, schema failures, warnings, and effects were captured into a
+  parallel per-frame accumulator (`re-frame.story.assertions`'
+  `trace-accumulators`), which can drift from the trace evidence the Xray
+  UI already reads — a second capture path that could report green while
+  the tape shows a failure (the documented \"false GREEN\").
+
+  This ns makes the epoch tape the evidence boundary. Given the vector of
+  `:rf/epoch-record` maps the framework retains for a frame
+  (`re-frame.core/epoch-history`), it derives every evidential run-result
+  slot by pure projection:
+
+  - `schema-violations` — every `:rf.error/schema-validation-failure`
+    trace event in any epoch's `:trace-events`, keyed by the spec/017
+    §Schema-rule surface selector (`[:event id]`, `[:cofx id]`,
+    `[:app-db registered-path path]`, …). The multiset-consumption matcher
+    (§Schema rule) keys off exactly this projection.
+  - `warnings` — every `:op-type :warn` trace event across the tape.
+  - `effects` — the per-epoch `:effects` rows the framework already
+    projected at settle time (`re-frame.epoch.capture/project-all`),
+    concatenated in dispatch order.
+  - `renders` / `sub-runs` — likewise concatenated from the per-epoch
+    structured rows.
+
+  ## Two-level narrative
+
+  `narrative` is a TWO-level projection (spec/017 §Run result, §Epoch tape
+  and narrative): the author's `:script` steps form the outer spans, and
+  the epoch beats produced while settling each step are the inner level.
+  Because a single `[:dispatch …]` step settles to a fixed point
+  (`settled-boundary`, spec/017 §Script and `settled-boundary`), one
+  dispatch step MAY span MULTIPLE epoch beats — a handler that
+  re-dispatches produces several committed epochs, all attributed to the
+  one authored step. The projection walks the tape forward, attributing
+  each contiguous run of epochs to the script step whose dispatch opened
+  it; epochs with no owning step (setup-phase cascades, framework
+  bootstrap) collect under a leading `nil`-step span so no tape evidence is
+  silently dropped.
+
+  ## The agreement invariant
+
+  `tape-shows-failure?` is the consistency floor the bead's acceptance
+  pins: a run cannot be reported `:pass` while the tape carries a schema
+  violation or an `:outcome`-failed / error-effect epoch. The runner asks
+  this of the projected evidence, NOT of a sibling accumulator — so no
+  duplicate accumulator can report green when the tape shows a failure.
+
+  ## Pure / JVM-testable
+
+  This ns is `.cljc` and entirely PURE: epoch records (data) in, run-result
+  slots (data) out. It requires nothing from `re-frame.core` / the DOM, so
+  the full projection runs under `clojure -M:test`. The runner reads the
+  retained tape via `re-frame.core/epoch-history` and hands the vector
+  here; the projection itself never touches the runtime."
+  (:require [clojure.string :as str]))
+
+;; ===========================================================================
+;; SCHEMA-VIOLATION PROJECTION  (spec/017 §Schema rule)
+;; ===========================================================================
+;;
+;; A schema failure is a trace event with `:operation`
+;; `:rf.error/schema-validation-failure` (Spec 009 §Error contract;
+;; Spec-Schemas §SchemaValidationTags). It rides inside an epoch's
+;; `:trace-events`. The §Schema-rule selector keys each violation by its
+;; surface so the multiset-consumption matcher (one declared
+;; `[:rf.assert/schema-error …]` consumes exactly one matching violation)
+;; can pair declared expectations to emitted failures.
+
+(def schema-violation-operation
+  "The trace `:operation` that marks a schema validation failure. Spec 009
+  §Error contract / Spec-Schemas §SchemaValidationTags."
+  :rf.error/schema-validation-failure)
+
+(defn schema-violation-trace?
+  "True iff `trace-event` is a `:rf.error/schema-validation-failure` error
+  trace. Pure data → data."
+  [trace-event]
+  (= schema-violation-operation (:operation trace-event)))
+
+(defn violation-selector
+  "The surface selector for a schema-violation record, per spec/017
+  §Schema rule (\"key each by surface-specific selector\"). Pure data →
+  data; the multiset matcher keys consumption off exactly this vector.
+
+      :event        → [:event failing-id]            (+ :path when present)
+      :cofx         → [:cofx failing-id]
+      :fx-args      → [:fx-args failing-id]
+      :sub-return   → [:sub-return failing-id query-v]
+      :app-db       → [:app-db registered-path path]
+      :machine-data → [:machine-data machine-id phase]
+
+  `record` is a projected violation map (see `schema-violation-record`).
+  An unrecognised `:where` keys by `[:where failing-id]` so a novel surface
+  still produces a stable, distinct selector rather than colliding."
+  [{:keys [where failing-id path registered-path query-v machine-id phase] :as _record}]
+  (case where
+    :event        (cond-> [:event failing-id]
+                    (some? path) (conj path))
+    :cofx         [:cofx failing-id]
+    :fx-args      [:fx-args failing-id]
+    :sub-return   [:sub-return failing-id query-v]
+    :app-db       [:app-db registered-path path]
+    :machine-data [:machine-data machine-id phase]
+    [where failing-id]))
+
+(defn schema-violation-record
+  "Project a `:rf.error/schema-validation-failure` trace event into a
+  run-result schema-violation record. Pure data → data.
+
+  The record carries the surface (`:where`), the failing id, the trace's
+  diagnostic slots (`:path` / `:value` / `:received` / `:explain` /
+  `:registered-path` / `:rollback?` / machine slots) read from the trace
+  `:tags`, the originating `:epoch-id`, the trace `:id` for back-reference,
+  and the pre-computed `:selector` the multiset matcher pairs on. The
+  `:where`-specific tags are threaded `cond->` so the record stays minimal
+  for surfaces that don't carry them (matching the open SchemaValidationTags
+  map)."
+  [trace-event epoch-id]
+  (let [tags (:tags trace-event)
+        base (cond-> {:where      (:where tags)
+                      :failing-id (:failing-id tags)
+                      :epoch-id   epoch-id
+                      :trace-id   (:id trace-event)}
+               (contains? tags :reason)          (assoc :reason          (:reason tags))
+               (contains? tags :path)            (assoc :path            (:path tags))
+               (contains? tags :value)           (assoc :value           (:value tags))
+               (contains? tags :received)        (assoc :received        (:received tags))
+               (contains? tags :explain)         (assoc :explain         (:explain tags))
+               (contains? tags :rf.sub/query-v)  (assoc :query-v         (:rf.sub/query-v tags))
+               (contains? tags :rollback?)       (assoc :rollback?       (:rollback? tags))
+               (contains? tags :registered-path) (assoc :registered-path (:registered-path tags))
+               (contains? tags :machine-id)      (assoc :machine-id      (:machine-id tags))
+               (contains? tags :phase)           (assoc :phase           (:phase tags))
+               (contains? tags :schema)          (assoc :schema          (:schema tags)))]
+    (assoc base :selector (violation-selector base))))
+
+(defn schema-violations
+  "Project every schema validation failure across `epoch-tape` into a
+  vector of schema-violation records, in tape order (dispatch order across
+  epochs, emission order within each epoch). Pure data → data.
+
+  This is THE schema-violation source of truth: the §Schema-rule
+  invariant (\"any emitted `:rf.error/schema-validation-failure` MUST fail
+  the run unless exactly consumed by an expected schema assertion\") reads
+  this projection, NOT a parallel per-frame accumulator."
+  [epoch-tape]
+  (into []
+        (mapcat (fn [{:keys [epoch-id trace-events]}]
+                  (->> trace-events
+                       (filter schema-violation-trace?)
+                       (map #(schema-violation-record % epoch-id)))))
+        epoch-tape))
+
+;; ===========================================================================
+;; WARNING PROJECTION
+;; ===========================================================================
+;;
+;; A warning is any trace event whose `:op-type` is `:warn` (Spec 009
+;; §Trace event shape; the same stream `re-frame.story.assertions`'
+;; `record-warning!` accumulator used to siphon, now projected from the
+;; retained tape instead). `:rf.assert/no-warnings` reads this projection.
+
+(defn warning-trace?
+  "True iff `trace-event` is a warning (`:op-type :warn`). Pure data → data."
+  [trace-event]
+  (= :warn (:op-type trace-event)))
+
+(defn warning-record
+  "Project a warning trace event into a run-result warning record. Pure
+  data → data. Carries the warning `:operation`, the `:category` tag (the
+  warning's classification), the originating `:epoch-id`, and the trace
+  `:id` for back-reference."
+  [trace-event epoch-id]
+  (let [tags (:tags trace-event)]
+    (cond-> {:operation (:operation trace-event)
+             :epoch-id  epoch-id
+             :trace-id  (:id trace-event)}
+      (contains? tags :category) (assoc :category (:category tags))
+      (contains? tags :reason)   (assoc :reason   (:reason tags)))))
+
+(defn warnings
+  "Project every warning across `epoch-tape` into a vector of warning
+  records, in tape order. Pure data → data. The `:rf.assert/no-warnings`
+  assertion and the run-result `:warnings` slot read this projection."
+  [epoch-tape]
+  (into []
+        (mapcat (fn [{:keys [epoch-id trace-events]}]
+                  (->> trace-events
+                       (filter warning-trace?)
+                       (map #(warning-record % epoch-id)))))
+        epoch-tape))
+
+;; ===========================================================================
+;; EFFECT / SUB-RUN / RENDER PROJECTION
+;; ===========================================================================
+;;
+;; These three are ALREADY structured per epoch by
+;; `re-frame.epoch.capture/project-all` at settle time — the run-result
+;; projection concatenates them across the tape in dispatch order rather
+;; than re-walking the raw `:trace-events`. The per-row shapes are the
+;; epoch record's `:effects` / `:sub-runs` / `:renders` rows verbatim, each
+;; stamped with its originating `:epoch-id` so a consumer can correlate a
+;; row back to its beat (and so two equal rows from different epochs do not
+;; collapse).
+
+(defn- stamp-epoch
+  "Stamp `epoch-id` onto each row in `rows` (preserving order). nil rows
+  are dropped (a defensive guard; the capture projector never emits nil)."
+  [rows epoch-id]
+  (into [] (comp (remove nil?)
+                 (map #(assoc % :epoch-id epoch-id)))
+        rows))
+
+(defn effects
+  "Project every effect row across `epoch-tape` into one vector, in
+  dispatch order (epoch order) then emission order within each epoch. Pure
+  data → data. Sources the per-epoch `:effects` rows the framework already
+  projected — NOT a re-walk of `:trace-events`. `:rf.assert/effect-emitted`
+  and the run-result `:effects` slot read this projection."
+  [epoch-tape]
+  (into []
+        (mapcat (fn [{:keys [epoch-id effects]}]
+                  (stamp-epoch effects epoch-id)))
+        epoch-tape))
+
+(defn sub-runs
+  "Project every sub-run row across `epoch-tape` into one vector, in tape
+  order. Pure data → data; sources the per-epoch `:sub-runs` rows."
+  [epoch-tape]
+  (into []
+        (mapcat (fn [{:keys [epoch-id sub-runs]}]
+                  (stamp-epoch sub-runs epoch-id)))
+        epoch-tape))
+
+(defn renders
+  "Project every render row across `epoch-tape` into one vector, in tape
+  order. Pure data → data; sources the per-epoch `:renders` rows."
+  [epoch-tape]
+  (into []
+        (mapcat (fn [{:keys [epoch-id renders]}]
+                  (stamp-epoch renders epoch-id)))
+        epoch-tape))
+
+;; ===========================================================================
+;; TWO-LEVEL NARRATIVE PROJECTION  (spec/017 §Run result, §Epoch tape and narrative)
+;; ===========================================================================
+;;
+;; The outer level is the author's `:script` steps; the inner level is the
+;; epoch beats committed while settling each step. ONE dispatch step may
+;; span MULTIPLE beats (a handler that re-dispatches settles to a fixed
+;; point — `settled-boundary` — producing several committed epochs, all
+;; the consequence of the one authored dispatch).
+;;
+;; Attribution walks the tape forward and pairs it against the dispatch
+;; steps in order: each dispatch step opens a span, and the beats committed
+;; until the NEXT dispatch step settles belong to it. This mirrors the
+;; runner's execution model — a step's `dispatch-and-settle!` returns only
+;; after the frame has drained to the step's boundary, so every epoch
+;; committed during that drain is attributable to the step. Epochs that
+;; precede the first dispatch step (setup-phase cascades, framework
+;; bootstrap) collect under a leading `nil`-step span so no tape evidence
+;; is dropped.
+
+(def ^:private dispatch-step-tags
+  "Script-step tags that DISPATCH an event into the frame and therefore
+  open a narrative span over the epochs they settle. `:dispatch` and
+  `:dispatch-sync` both commit at least one epoch; DOM-driving steps
+  (`:click` / `:type`) commit epochs through the synthetic event they
+  fire. Pure assertion / wait steps (`:assert-db` / `:assert-dom` /
+  `:wait` / `:wait-until`) commit no epoch of their own — their beats (if
+  any) belong to the preceding dispatch — so they are NOT span-openers."
+  #{:dispatch :dispatch-sync :click :type})
+
+(defn- step-tag
+  "The head keyword of a tagged script step, or nil for an untagged /
+  non-vector step."
+  [step]
+  (when (and (vector? step) (pos? (count step)))
+    (let [h (first step)] (when (keyword? h) h))))
+
+(defn dispatch-step?
+  "True iff `step` opens a narrative span (it dispatches an event whose
+  settlement commits epochs). Pure data → data."
+  [step]
+  (contains? dispatch-step-tags (step-tag step)))
+
+(defn epoch-beat
+  "Project an `:rf/epoch-record` into the inner narrative beat shape
+  (spec/017 §Run result). Pure data → data. Carries the causal spine —
+  `:epoch-id`, `:dispatch-id`, `:trigger-event`, `:db-before` / `:db-after`
+  — and the per-beat structured rows. Optional slots are threaded `cond->`
+  so a beat stays minimal when the record omits them."
+  [{:keys [epoch-id dispatch-id trigger-event db-before db-after
+           effects sub-runs renders trace-events outcome] :as _record}]
+  (cond-> {:epoch-id     epoch-id
+           :db-before    db-before
+           :db-after     db-after
+           :effects      (or effects [])
+           :sub-runs     (or sub-runs [])
+           :renders      (or renders [])
+           :trace-events (or trace-events [])}
+    (some? dispatch-id)   (assoc :dispatch-id   dispatch-id)
+    (some? trigger-event) (assoc :trigger-event trigger-event)
+    (some? outcome)       (assoc :outcome       outcome)))
+
+(defn- step-caption
+  "The author caption for a span, if the script step carries one. A
+  `[:dispatch evec {:caption \"…\"}]`-style trailing options map is the
+  forward-compatible slot; absent, the span has no caption."
+  [step]
+  (when (vector? step)
+    (some (fn [x] (when (and (map? x) (string? (:caption x))) (:caption x)))
+          step)))
+
+(defn- span
+  "Build one narrative span for `step` over `records` (the epochs the step
+  settled). `step` is nil for the leading pre-script span. Pure data →
+  data."
+  [step records]
+  (cond-> {:step   step
+           :epochs (mapv epoch-beat records)}
+    (some? (step-caption step)) (assoc :caption (step-caption step))))
+
+(defn- explicit-beats?
+  "True iff every epoch record carries an explicit `:rf.story/script-idx`
+  attribution stamp (the runner's per-step settle boundary, when present).
+  When the runner stamps each committed epoch with the 0-based index of
+  the script step whose dispatch produced it, attribution is exact and we
+  use it directly; absent the stamp (a bare `epoch-history` tape) we fall
+  back to the even forward partition. Pure data → data."
+  [records]
+  (and (seq records)
+       (every? #(contains? % :rf.story/script-idx) records)))
+
+(defn- spans-from-stamps
+  "Build narrative spans using each record's explicit
+  `:rf.story/script-idx` stamp. A record stamped `nil` (or with an
+  out-of-range index) is a pre-script / setup beat and collects under the
+  leading `nil`-step span. Pure data → data."
+  [steps records]
+  (let [by-idx  (group-by :rf.story/script-idx records)
+        leading (get by-idx nil [])
+        ;; Records whose stamp points past the script (defensive) also lead.
+        n-steps (count steps)
+        orphan  (mapcat (fn [[idx recs]]
+                          (when (and (integer? idx) (>= idx n-steps)) recs))
+                        by-idx)]
+    (into (if (or (seq leading) (seq orphan))
+            [(span nil (vec (concat leading orphan)))]
+            [])
+          (map-indexed (fn [i step] (span step (get by-idx i []))) steps))))
+
+(defn- even-partition-counts
+  "Partition `n-records` across `n-dispatch` dispatch spans as an even
+  forward split — `per-step` each, with the `remainder` surplus
+  front-loaded onto the earliest spans (the re-dispatch fan-out attaches
+  to the step that produced it). A deterministic, total partition. Pure
+  data → data."
+  [n-records n-dispatch]
+  (let [per-step  (long (quot n-records n-dispatch))
+        remainder (long (rem n-records n-dispatch))]
+    (mapv (fn [j] (+ per-step (if (< j remainder) 1 0)))
+          (range n-dispatch))))
+
+(defn narrative
+  "Two-level narrative projection (spec/017 §Run result, §Epoch tape and
+  narrative): author `:script` steps form the outer spans; the epoch beats
+  committed while settling each step are the inner level. Pure data → data.
+
+  `script` is the coerced step vector; `epoch-tape` is the retained
+  `:rf/epoch-record` vector in dispatch order. ONE dispatch step MAY span
+  MULTIPLE beats — a handler that re-dispatches settles to a fixed point
+  (`settled-boundary`), committing several epochs all attributable to the
+  one authored step.
+
+  Attribution has two modes:
+
+  - EXACT — when every record carries a `:rf.story/script-idx` stamp (the
+    runner's per-step settle boundary), each beat lands in the span of the
+    step that produced it; unstamped / setup beats lead under a `nil`
+    span. This is the precise model the runner SHOULD feed.
+  - EVEN — absent stamps (a bare `epoch-history` tape), records are
+    partitioned across the dispatch steps by an even forward split, with
+    re-dispatch surplus front-loaded onto the earliest dispatch spans.
+
+  Pure assertion / wait steps that commit no epoch produce empty spans
+  (the step is in the narrative, with no beats). No epoch is ever dropped:
+  every record lands in exactly one span."
+  [script epoch-tape]
+  (let [steps   (vec (or script []))
+        records (vec (or epoch-tape []))]
+    (cond
+      ;; Exact attribution from the runner's per-step stamps.
+      (explicit-beats? records)
+      (spans-from-stamps steps records)
+
+      ;; No dispatch steps — the whole tape is one leading pre-script span,
+      ;; and every (non-dispatch) step appears with no beats.
+      (not-any? dispatch-step? steps)
+      (into (if (seq records) [(span nil records)] [])
+            (map #(span % []) steps))
+
+      ;; Even forward partition across the dispatch steps.
+      :else
+      (let [n-records  (count records)
+            n-dispatch (count (filter dispatch-step? steps))
+            counts     (even-partition-counts n-records n-dispatch)
+            result     (reduce
+                         (fn [{:keys [cursor ord acc]} step]
+                           (if (dispatch-step? step)
+                             (let [c     (nth counts ord)
+                                   slice (subvec records
+                                                 (min n-records cursor)
+                                                 (min n-records (+ cursor c)))]
+                               {:cursor (+ cursor c)
+                                :ord    (inc ord)
+                                :acc    (conj acc (span step slice))})
+                             {:cursor cursor
+                              :ord    ord
+                              :acc    (conj acc (span step []))}))
+                         {:cursor 0 :ord 0 :acc []}
+                         steps)]
+        (:acc result)))))
+
+;; ===========================================================================
+;; THE AGREEMENT INVARIANT  (bead acceptance: no green-while-tape-red)
+;; ===========================================================================
+;;
+;; The consistency floor: a run cannot be reported `:pass` while the tape
+;; carries evidence of failure. The runner asks this of the PROJECTED
+;; evidence — not of a sibling accumulator — so no duplicate accumulator
+;; can report green when the tape shows a failure.
+
+(defn failed-outcome?
+  "True iff an epoch record's `:outcome` is a halt / failure outcome
+  (anything other than `:ok`). Spec-Schemas §`:rf/epoch-record` §Outcomes.
+  A record with no `:outcome` (a host without the epoch artefact) is NOT a
+  failure. Pure data → data."
+  [{:keys [outcome] :as _record}]
+  (boolean (and (some? outcome) (not= :ok outcome))))
+
+(defn error-effect?
+  "True iff an effect row records an `:error` outcome (an fx handler
+  exception or a missing fx). Pure data → data."
+  [{:keys [outcome] :as _effect-row}]
+  (= :error outcome))
+
+(defn tape-shows-failure?
+  "True iff the retained `epoch-tape` carries evidence that the run did NOT
+  fully succeed. Pure data → data. The bead's agreement invariant: a run
+  may not be reported `:pass` while this is true.
+
+  Failure evidence is:
+
+  - any `:rf.error/schema-validation-failure` trace event (§Schema rule:
+    an emitted schema failure MUST fail the run unless exactly consumed —
+    the consumption check is the runner's, but the PRESENCE of a violation
+    in the tape is the floor signal);
+  - any epoch with a non-`:ok` `:outcome` (a halted drain);
+  - any effect row with an `:error` outcome (an fx handler exception or a
+    missing fx).
+
+  The `consumed-selectors` arg (a set of violation selectors the run's
+  `:rf.assert/schema-error` expectations consumed) is subtracted from the
+  schema-violation signal so an EXPECTED schema failure does not trip the
+  floor. Omit it (or pass `#{}`) for the strict floor."
+  ([epoch-tape]
+   (tape-shows-failure? epoch-tape #{}))
+  ([epoch-tape consumed-selectors]
+   (let [violations  (schema-violations epoch-tape)
+         unconsumed   (remove #(contains? consumed-selectors (:selector %)) violations)
+         eff          (effects epoch-tape)]
+     (boolean
+       (or (seq unconsumed)
+           (some failed-outcome? epoch-tape)
+           (some error-effect? eff))))))
+
+;; ===========================================================================
+;; THE PROJECTION BOUNDARY  (epoch records → run-result evidence slots)
+;; ===========================================================================
+
+(defn project-evidence
+  "Project the retained `epoch-tape` into the run-result evidence slots —
+  the single boundary from epoch records to the API-stable run-result
+  (spec/017 §Run result). Pure data → data; epoch records in, evidence map
+  out. The runner merges the returned map into the run-result so every
+  evidential slot derives from ONE tape.
+
+  `opts` (optional):
+
+  - `:script` — the coerced script-step vector, used to build the
+    two-level `:narrative` spans. Absent, the narrative is a single
+    `nil`-step span over the whole tape.
+
+  Returned slots (all spec/017 §Run-result names):
+
+      {:epoch-tape        the retained tape, verbatim (the evidence source)
+       :schema-violations [schema-record …]   ; from :trace-events
+       :warnings          [warning-record …]  ; from :trace-events
+       :effects           [effect-row …]      ; per-epoch :effects, concatenated
+       :sub-runs          [sub-run-row …]     ; per-epoch :sub-runs, concatenated
+       :renders           [render-row …]      ; per-epoch :renders, concatenated
+       :narrative         [span …]}           ; two-level script×epoch projection
+
+  Every slot agrees with the tape by construction — there is no second
+  capture path. `tape-shows-failure?` reads the same projection, so a run
+  cannot report green while the tape is red."
+  ([epoch-tape] (project-evidence epoch-tape nil))
+  ([epoch-tape {:keys [script] :as _opts}]
+   (let [tape (vec (or epoch-tape []))]
+     {:epoch-tape        tape
+      :schema-violations (schema-violations tape)
+      :warnings          (warnings tape)
+      :effects           (effects tape)
+      :sub-runs          (sub-runs tape)
+      :renders           (renders tape)
+      :narrative         (narrative script tape)})))
+
+;; ===========================================================================
+;; DIAGNOSTICS
+;; ===========================================================================
+
+(defn explain-evidence
+  "Render a short multi-line summary of the projected evidence for
+  diagnostics / log output. Pure data → data; deterministic."
+  [{:keys [schema-violations warnings effects narrative] :as _evidence}]
+  (str/join
+    "\n"
+    (cond-> [(str "schema-violations: " (count schema-violations))
+             (str "warnings: "          (count warnings))
+             (str "effects: "           (count effects))
+             (str "narrative-spans: "   (count narrative))]
+      (seq schema-violations)
+      (conj (str "  schema selectors: "
+                 (str/join ", " (map (comp pr-str :selector) schema-violations)))))))
