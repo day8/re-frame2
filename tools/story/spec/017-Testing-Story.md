@@ -1865,6 +1865,100 @@ replay path settles synchronously to a fixed point via the headless
 flush-hooks, so the full gate also runs headless. The strip's
 host-portability is pinned on CLJS alongside the fingerprint primitive.
 
+## Semantic diff
+
+The semantic diff answers a different question from the determinism gate:
+not *is this run stable?* but *how do these two runs differ in behaviour?*
+It is the readable companion to a `:non-deterministic` divergence and to any
+before/after comparison (a regression baseline vs HEAD, a fix's before/after,
+a property-shrunk failure vs its neighbour). It ships in the
+`re-frame.story.diff` namespace and is re-exported as
+`test/diff-run-artifacts` (the testing-substrate surface owned by
+[`spec/008-Testing.md`](../../../spec/008-Testing.md) — the tool lives
+**below** Story and runs without the Story UI).
+
+```clojure
+(test/diff-run-artifacts baseline current)
+(test/diff-run-artifacts baseline current opts)
+;; -> {:same? true}
+;;  | {:same? false :facets #{facet …} <facet> <readable-delta> …}
+```
+
+`baseline` and `current` are each either a `:rf.test/run-artifact` — which is
+**replayed** into a fresh frame to obtain a run-result (the impure path, the
+same replay the determinism gate drives, §Run artifact and replay) — or an
+already-computed run-result (used directly, the pure path). `opts` MAY carry
+the `:frame` / `:hooks` / `:frame-config` threaded to `replay-run-artifact`.
+
+### Canonicalize first, then diff
+
+Both runs are projected through `canonicalize` (§Canonicalization) **before**
+any facet is compared, so the diff shows the **semantic** difference and not
+the per-run noise. A fresh-frame replay restarts the process-global epoch /
+dispatch / trace-id counters and allocates a new `:rf.test.replay/*` frame
+id, so two semantically-equal runs differ in dozens of stamps; without the
+canonicalize-first step a diff would drown in them. What survives the
+projection is exactly the behavioural surface the determinism gate compares
+— so a diff that finds **no facets** (`{:same? true}`) is the same judgement
+`assert-deterministic` renders `:deterministic`, and a diff that finds facets
+explains a `:non-deterministic` divergence in readable terms.
+
+The `:same?` judgement is canonical equality of the run-**slice**
+(`run-hash-input-keys` — the behavioural surface: `:status`, the final
+`:app-db`, the `:epoch-tape`, the `:assertions` / `:checks` verdicts, the
+projected `:effects` / `:schema-violations` / `:warnings`, and
+`:sub-overrides` / `:fidelity`), the EXACT slice + judgement the determinism
+gate's `compare-runs` uses — so a diff agrees with the determinism gate on
+what counts as the same run. The pure provenance a run-result also carries
+(the `:frame` replay id, the `:run-artifact` back-link, the per-step
+`:replay-steps`) is excluded, exactly as it is from `run-hash`.
+
+### What the diff covers
+
+Each facet is projected independently and contributes to the result **only
+when it differs**, so the diff localises *where* two runs parted and stays
+small:
+
+- `:app-db` — a readable key-path delta of the final app-db
+  (`:added` / `:removed` / `:changed`, each entry a `{:path … :baseline …
+  :current …}` over the differing leaf paths) — a 100-key db with one changed
+  key yields a one-entry delta, never a database dump;
+- `:effects` — a **multiset** delta of the projected effect rows
+  (`:only-baseline` / `:only-current`) — the effects one run emitted and the
+  other did not (emitting an effect twice vs once IS a difference);
+- `:schema-violations` — a multiset delta over the violation **surface
+  selectors** (§Schema rule, `evidence/violation-selector` — `[:event id]`,
+  `[:app-db registered-path path]`, …), not the full diagnostic records, so a
+  re-ordered-but-equal set of violations is not a diff while a genuinely-new
+  failure surface is;
+- `:trace-ops` — the ordered trace `:operation` sequence (the causal op
+  spine), reported as both spines plus the `:first-divergence` index — order
+  is semantic, so a re-ordered or dropped op reads as a difference;
+- `:sub-runs` — a multiset delta over the projected subscription / view
+  facts, when available;
+- `:status` — the top-level run status, when it differs (a `:pass` → `:fail`
+  flip is the headline a reader wants first).
+
+### A readable diff, not a data dump
+
+`diff-run-artifacts` returns `{:same? true}` for behaviourally-identical runs
+and otherwise a map carrying **only** the facets that actually differ, with
+`:facets` naming them up front. A matching facet contributes nothing. This is
+the semantic-diff contract: surface the semantic difference, suppress the
+volatile noise.
+
+### Pure / JVM-testable
+
+The facet diff fns (`diff-app-db`, `diff-effects`, `diff-schema-violations`,
+`diff-trace-ops`, `diff-sub-runs`) and the assembler (`diff-runs`) are pure
+data → data — two run-results in, a readable diff out — and run under
+`clojure -M:test` with no runtime; only the artifact-replay entry path is
+impure, and when both inputs are run-results `diff-run-artifacts` is itself
+pure. The facet fns receive the **noise-stripped but shape-preserved**
+run-results (`strip-noise` — the volatile / per-run-stamp / `:rf.story/*`
+strip without the map-flattening ordering pass `canonicalize` applies), so
+they read named slots while seeing none of the per-run noise.
+
 ## Relationship to the workshop surface (storytelling is in-scope)
 
 Story is a **workshop**, not only a test engine. The shipping authoring

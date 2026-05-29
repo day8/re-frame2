@@ -98,6 +98,10 @@
             ;; rf2-5x1wt.8 — the determinism gate. Re-exported as
             ;; `assert-deterministic` below (spec/017 §Determinism gate).
             [re-frame.story.determinism :as determinism]
+            ;; rf2-5x1wt.9 — the semantic diff over canonical run artifacts.
+            ;; Re-exported as `diff-run-artifacts` below (spec/017 §Semantic
+            ;; diff). Builds read-only on `.7` replay + `.3`/`.8` canonicalize.
+            [re-frame.story.diff        :as diff]
             ;; rf2-5x1wt.25 — the run-artifact → variant promotion bridge.
             ;; Re-exported as `materialize-variant-plan` (pure) +
             ;; `promote-run-artifact!` (the explicit-only registration path)
@@ -1092,6 +1096,30 @@
   registered variant id."
   [artifact opts]
   (promotion/promote-run-artifact! artifact opts))
+
+;; ---- semantic diff over run artifacts (rf2-5x1wt.9) ---------------------
+;;
+;; Per spec/017 §Semantic diff — a readable diff between two runs, with the
+;; per-run noise (frame ids, timestamps, dispatch / epoch / trace ids)
+;; stripped by `canonicalize` FIRST so the diff shows SEMANTIC differences.
+;; Builds read-only on `.7` replay + `.3`/`.8` canonicalize; re-exported as
+;; the testing-substrate `diff-run-artifacts` (the tool lives below Story and
+;; runs without the UI; spec/008 owns the substrate surface).
+
+(defn diff-run-artifacts
+  "Per spec/017 §Semantic diff — a readable semantic diff between two runs.
+  Each of `baseline` / `current` is a `:rf.test/run-artifact` (REPLAYED into
+  a fresh frame, the impure path) or an already-computed run-result (used
+  directly, the pure path). Both are projected through `canonicalize` to
+  strip the per-run noise (frame ids, timestamps, dispatch / epoch / trace
+  ids) BEFORE diffing, so the result shows SEMANTIC differences only. The
+  diff covers app-db deltas, effects, schema violations, the trace op spine,
+  subscription / view facts, and status. Returns `{:same? true}` for
+  behaviourally-identical runs, else `{:same? false :facets #{…} …}` carrying
+  ONLY the facets that differ. `opts` MAY carry `:frame` / `:hooks` /
+  `:frame-config` (threaded to the replay)."
+  ([baseline current]      (diff/diff-run-artifacts baseline current))
+  ([baseline current opts] (diff/diff-run-artifacts baseline current opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-
