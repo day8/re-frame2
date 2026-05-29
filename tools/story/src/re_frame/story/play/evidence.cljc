@@ -276,11 +276,14 @@
   "Script-step tags that DISPATCH an event into the frame and therefore
   open a narrative span over the epochs they settle. `:dispatch` and
   `:dispatch-sync` both commit at least one epoch; DOM-driving steps
-  (`:click` / `:type`) commit epochs through the synthetic event they
-  fire. Pure assertion / wait steps (`:assert-db` / `:assert-dom` /
-  `:wait` / `:wait-until`) commit no epoch of their own — their beats (if
-  any) belong to the preceding dispatch — so they are NOT span-openers."
-  #{:dispatch :dispatch-sync :click :type})
+  (`:click` / `:type` / `:focus`) commit epochs through the synthetic
+  event they fire. Pure assertion / wait steps (`:assert` / `:assert-db`
+  / `:assert-dom` / `:wait` / `:wait-until`) commit no epoch of their own
+  — their beats (if any) belong to the preceding dispatch — so they are
+  NOT span-openers. (An `[:assert …]` checkpoint DOES dispatch its wrapped
+  `:rf.assert/*` atom, but that is a verdict, not behaviour-under-test, so
+  it is deliberately excluded from span attribution.)"
+  #{:dispatch :dispatch-sync :click :type :focus})
 
 (defn- step-tag
   "The head keyword of a tagged script step, or nil for an untagged /

@@ -264,6 +264,37 @@
     {:script  (-> plays first :script (or []))
      :scripts plays}))
 
+(defn- assert-step?
+  "True iff `step` is an `[:assert assertion-vector]` in-script checkpoint
+  (rf2-5x1wt.17). Per spec/017 §Script step grammar the `[:assert …]`
+  step is legal in `:script` but ILLEGAL in `:setup` — setup establishes
+  preconditions, it does not judge."
+  [step]
+  (and (vector? step)
+       (pos? (count step))
+       (= :assert (first step))))
+
+(defn- reject-assert-in-setup!
+  "FAIL plan construction when any resolved `:setup` step is an
+  `[:assert …]` checkpoint (rf2-5x1wt.17, spec/017 §Script step grammar +
+  §Setup). `:assert` is the mid-script verdict atom; placing one in
+  `:setup` confuses precondition with judgement. The variant resolves it
+  by moving the assertion to `:script` (as an `[:assert …]` checkpoint)
+  or to the terminal `:assertions` slot. The reject runs at plan-compile
+  time so the error surfaces before any run, the same way the other
+  `:rf.error/story-*` plan errors do."
+  [id setup]
+  (when-let [offenders (seq (filter assert-step? setup))]
+    (fail! :rf.error/story-assert-in-setup
+           (str "re-frame2-story: variant " id
+                " — :setup carries an [:assert …] checkpoint "
+                (pr-str (vec offenders))
+                ". An [:assert …] checkpoint is a mid-script verdict and is "
+                "ILLEGAL in :setup (which establishes preconditions, it does "
+                "not judge). Move the assertion to :script (as an "
+                "[:assert …] checkpoint) or to the terminal :assertions slot.")
+           {:variant/id id :offending-steps (vec offenders)})))
+
 ;; ============================================================================
 ;; Arg placeholder substitution
 ;; ============================================================================
@@ -1013,11 +1044,17 @@
                          (into composed-checks))
         ;; setup APPENDS: inherited (root→parent), THEN composed fragments
         ;; (declared order), THEN the variant's own setup — variant-owned
-        ;; values land last (§Merge rules + §Total resolution order).
+        ;; values land last (§Merge rules + §Total resolution order). Each
+        ;; layer's setup is coerced through the runner's `coerce-script`
+        ;; (rf2-5x1wt.17): a bare event-vector shorthand normalizes to
+        ;; `[:dispatch event-vector]` during migration, so the stored
+        ;; `[:world :setup]` carries tagged steps uniformly (the same
+        ;; coercion `:script` gets) — bare vectors are the migration
+        ;; shorthand, never the P1 public form.
         setup-raw    (vec (concat
-                            (mapcat (fn [l] (or (pick-setup l) [])) inherited)
-                            (mapcat (fn [l] (or (pick-setup l) [])) frag-layers)
-                            (or (pick-setup child) [])))
+                            (mapcat (fn [l] (runner/coerce-script (pick-setup l))) inherited)
+                            (mapcat (fn [l] (runner/coerce-script (pick-setup l))) frag-layers)
+                            (runner/coerce-script (pick-setup child))))
         ;; script APPENDS through `:compose` only (never through
         ;; `:extends`): composed-fragment scripts in declared order, THEN
         ;; the child's own script (§Merge rules). Each fragment's script is
@@ -1040,6 +1077,11 @@
         ;; ---- arg substitution ----
         subs!        (atom [])
         setup        (substitute-args setup-raw arg-map subs!)
+        ;; rf2-5x1wt.17 — an `[:assert …]` checkpoint is ILLEGAL in :setup
+        ;; (spec/017 §Script step grammar). Reject at plan-compile time,
+        ;; on the fully-resolved setup (inherited ⧺ composed ⧺ own), so a
+        ;; misplaced verdict surfaces before any run.
+        _            (reject-assert-in-setup! id setup)
         script*      (substitute-args script arg-map subs!)
         ;; ---- view-state subscription overrides (rf2-5x1wt.13) ----
         ;; `:sub-overrides` composes like `:network`: composed-fragment
