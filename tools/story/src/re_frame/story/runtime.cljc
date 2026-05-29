@@ -48,6 +48,7 @@
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.plan      :as plan]
             [re-frame.story.play      :as play]
+            [re-frame.story.play.runner :as runner]
             [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.result    :as result]
@@ -462,6 +463,18 @@
         ;; (per `re-frame.core/epoch-history`'s contract) while the
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
         tape     (vec (rf/epoch-history variant-id))
+        ;; rf2-q5jw4 — thread the run-state's `:cannot-run` refusals into the
+        ;; unified result's `:unmet` slot. The runner's per-step `:results`
+        ;; carry the SAME refusal facts `runner/finish` reads to compute the
+        ;; run-state status (a no-DOM `[:assert-dom …]` skip, a boundary
+        ;; `:cannot-run?`), but those steps record NO `:rf.story/assertions`
+        ;; entry — so without this the unified result aggregated to `:pass`
+        ;; (vacuous green) while the run-state read `:cannot-run`. Folding the
+        ;; refusals here makes both consumers agree (spec/017 §Unified run
+        ;; result — "a run whose only unmet expectations are :cannot-run is
+        ;; itself :cannot-run"). The facade degrades to nil run-state (and so
+        ;; an empty `:unmet`) on a host with no runner-events run-state.
+        unmet    (runner/run-state-refusals (runner-events/current-state variant-id))
         unified  (result/run-result
                    {:variant/id          variant-id
                     :epoch-tape          tape
@@ -475,6 +488,11 @@
                     ;; `:rf.story/assertions` accumulator.
                     :schema-expectations (plan-schema-expectations
                                            plan executed-script)
+                    ;; rf2-q5jw4 — the per-requirement `:cannot-run` refusals
+                    ;; the runner could not even attempt (above). Folded into
+                    ;; the verdict + surfaced on `:cannot-run` by
+                    ;; `result/run-result`.
+                    :unmet               unmet
                     :app-db              (or app-db {})
                     :elapsed-ms          (- (interop/now-ms) start-ms)})]
     (merge unified

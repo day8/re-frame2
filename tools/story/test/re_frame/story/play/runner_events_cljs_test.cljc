@@ -346,6 +346,36 @@
              "a skipped (no-DOM) :assert-dom contributes no passing record")))))
 
 #?(:clj
+   (deftest assert-dom-skipped-unified-result-is-cannot-run
+     (testing "the UNIFIED run-result (story/run-variant's resolved value),
+              not just run-state, reads :cannot-run for a DOM-skip-only
+              variant on the headless JVM (rf2-q5jw4, spec/017 §Unified run
+              result). Before the fix record-result-map dropped the
+              run-state's :cannot-run refusals: a no-DOM [:assert-dom …] skip
+              records NO :rf.story/assertions entry, so result/run-result
+              aggregated zero records + a clean tape to :pass (vacuous
+              green) while run-state correctly read :cannot-run — the exact
+              consumer-disagreement false-GREEN .19 set out to kill. This
+              exercises the unified-result PATH (the existing
+              assert-dom-skipped-on-jvm-is-cannot-run test discards the
+              result and checks only run-blocking's run-state)."
+       (story/reg-variant :story.bridge/dom-skip-unified
+         {:events      []
+          :play-script {:script [[:assert-dom "div.foo" :visible]]}})
+       (let [result (async/deref-blocking
+                      (story/run-variant :story.bridge/dom-skip-unified) 5000)]
+         (is (= :cannot-run (:status result))
+             "the unified result :status is :cannot-run, NOT a vacuous :pass")
+         (is (seq (:cannot-run result))
+             "the unified result surfaces the run-state's :cannot-run refusals")
+         (is (false? (story/result-passed? result))
+             "story/result-passed? on the unified result is false — a
+              :cannot-run run proved nothing, so it is never a silent pass")
+         (is (empty? (filterv #(true? (:passed? %)) (:assertions result)))
+             "no assertion record reads :passed? true — the skip is not
+              folded into a green record")))))
+
+#?(:clj
    (deftest assert-db-pred-form
      (testing ":assert-db :pred folds to :rf.assert/path-matches [:fn sym];
               the symbol resolves at validation time (rf2-5x1wt.19)"
