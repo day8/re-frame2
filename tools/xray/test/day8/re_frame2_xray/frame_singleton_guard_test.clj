@@ -93,9 +93,7 @@
   per-instance render affordances — but they still carry the literal,
   so they ride the allowlist until the sweep gives them the
   `defaults/default-frame-id` treatment for consistency."
-  #{"config.cljc"
-    "frame_switcher.cljs"
-    "views/edn_inspector_popup.cljs"
+  #{"views/edn_inspector_popup.cljs"
     "views/edn_widget/widget.cljs"
     "panels/app_db_segment_inspector.cljs"
     "panels/cancellation_cascade.cljs"

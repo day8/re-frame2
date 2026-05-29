@@ -30,7 +30,8 @@
             [re-frame.source-coords.editor-uri :as editor-uri]
             #?@(:cljs [[cljs.reader]
                        [re-frame.core :as rf]
-                       [re-frame.frame :as frame]])))
+                       [re-frame.frame :as frame]
+                       [day8.re-frame2-xray.defaults :as defaults]])))
 
 ;; Forward declarations. The `editor preference` block (`get-editor`)
 ;; reads the `settings` atom defined further down the file (the popup
@@ -710,12 +711,15 @@
   (CLJC tests assert it directly); the dispatch is the reactive
   surface for CLJS.
 
-  Per rf2-1barg: dispatch is explicit `{:frame :rf/xray}` (was
-  active-frame-chain pre-rf2-in6l2, which routed to `:rf/default`
-  back when the bottom-rail was a plain Reagent fn). Post-rf2-in6l2
-  the bottom-rail is `reg-view`-wrapped so its subscribe routes
-  through React-context to `:rf/xray`; the dispatch's target now
-  matches the sub's target. Guarded on `:rf/xray`'s existence so
+  Per rf2-1barg / rf2-nesy9: the dispatch targets the production Xray
+  shell frame via the named `defaults/default-frame-id` Var (NOT a bare
+  `{:frame :rf/xray}` literal). This is a trace-collector infra seam,
+  not a per-instance render affordance — `note-suppressed!` is called
+  by the trace bus, which has no surrounding render/event frame, and
+  the bottom-rail's `[● REDACTED N]` indicator lives on the single
+  in-app shell. It is the legitimate production-singleton seam,
+  consistent with `share/maybe-restore-from-location!` +
+  `spine-filters/hydrate!`. Guarded on the frame's existence so
   pre-mount callers (Xray shell not yet opened) bump the atom
   without emitting an `:rf.error/frame-destroyed` trace into the
   bus — the seed in `ensure-xray-frame!` lifts the atom's contents
@@ -724,9 +728,9 @@
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
   #?(:cljs
-     (when (frame/frame :rf/xray)
+     (when (frame/frame defaults/default-frame-id)
        (rf/dispatch [:rf.xray/note-sensitive-suppressed frame-id]
-                    {:frame :rf/xray})))
+                    {:frame defaults/default-frame-id})))
   nil)
 
 (defn suppressed-count

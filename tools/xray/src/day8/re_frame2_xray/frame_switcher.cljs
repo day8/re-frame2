@@ -389,8 +389,11 @@
                                     kw  (when (and v (.startsWith v ":"))
                                           (keyword (subs v 1)))]
                                 (when kw
-                                  (rf/dispatch [:rf.xray/select-frame kw]
-                                               {:frame :rf/xray}))))
+                                  ;; rf2-nesy9 — dispatch through the
+                                  ;; reg-view-injected frame-aware
+                                  ;; `dispatch` so the frame select lands
+                                  ;; on the surrounding instance frame.
+                                  (dispatch [:rf.xray/select-frame kw]))))
                :style       {:position   "absolute"
                              :top        0
                              :left       0
