@@ -391,6 +391,44 @@
                  :content-hash)]
       (is (not= hd hl)))))
 
+(deftest snapshot-identity-distinct-modes-same-args
+  (testing "two DISTINCT modes registering IDENTICAL args still produce
+            DIFFERENT snapshot hashes — proving the top-level :active-modes
+            slot is load-bearing, not vacuously covered by :effective-args
+            (rf2-oy4c9 / guards the rf2-z86vu 'do not simplify away' slot).
+            Contrast snapshot-identity-changes-with-mode, whose two modes
+            carry DIFFERENT args, so its hash difference is explained by
+            :effective-args alone and survives deleting :active-modes."
+    (story/reg-story :story.id-mode-same
+      {:component :app/v :args {:theme :light}})
+    ;; Two distinct mode IDS with byte-for-byte IDENTICAL :args.
+    (story/reg-mode :Mode.app/a {:args {:theme :dark}})
+    (story/reg-mode :Mode.app/b {:args {:theme :dark}})
+    (story/reg-variant :story.id-mode-same/v {:events []})
+    (let [args-a (args/resolve-args :story.id-mode-same/v
+                                    {:active-modes [:Mode.app/a]})
+          args-b (args/resolve-args :story.id-mode-same/v
+                                    {:active-modes [:Mode.app/b]})
+          ha (-> (story/snapshot-identity :story.id-mode-same/v
+                                          {:active-modes [:Mode.app/a]})
+                 :content-hash)
+          hb (-> (story/snapshot-identity :story.id-mode-same/v
+                                          {:active-modes [:Mode.app/b]})
+                 :content-hash)]
+      ;; Precondition: the args path CANNOT explain the difference.
+      (is (= args-a args-b)
+          "the two modes resolve identical :effective-args")
+      ;; The whole point: the mode id set IS identity-bearing. This fails
+      ;; if the :active-modes top-level slot is removed from snapshot-tuple.
+      (is (not= ha hb)
+          "distinct modes with identical args still hash differently")
+      ;; Direct slot witness — the snapshot-tuple keeps the mode-id set.
+      (is (not= (:active-modes (ident/snapshot-tuple :story.id-mode-same/v
+                                                     {:active-modes [:Mode.app/a]}))
+                (:active-modes (ident/snapshot-tuple :story.id-mode-same/v
+                                                     {:active-modes [:Mode.app/b]})))
+          "the :active-modes slot distinguishes the two contexts"))))
+
 (deftest snapshot-identity-changes-with-substrate
   (testing "different substrate produces different hash"
     (story/reg-story :story.id-sub

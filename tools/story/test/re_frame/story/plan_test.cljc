@@ -61,6 +61,20 @@
       (is (= [[:dispatch [:a]]] (get-in p [:world :setup])))
       (is (= [[:dispatch [:b]]] (:script p))))))
 
+(deftest inline-map-target-without-variant-id-compiles
+  (testing "a map target with NO :variant/id is allowed (spec: :variant/id
+            optional) and compiles to a plan whose :variant/id is nil
+            (rf2-8e2nd — variant-plan reads (:variant/id target), nil when
+            absent)"
+    (let [p (plan/variant-plan {:setup  [[:dispatch [:a]]]
+                                :script [[:dispatch [:b]]]})]
+      (is (nil? (:variant/id p))
+          "the optional :variant/id resolves to nil")
+      (is (= [[:dispatch [:a]]] (get-in p [:world :setup])))
+      (is (= [[:dispatch [:b]]] (:script p)))
+      (is (= [nil] (:source-chain p))
+          "the single anonymous body is the whole source chain"))))
+
 ;; ---- args + [:arg key] substitution -------------------------------------
 
 (deftest variant-with-args-compiles
@@ -257,6 +271,21 @@
           p (plan-of :story.r/d m)]
       (is (contains? (:required-runner p) :dom))
       (is (contains? (:required-runner p) :app-db)))))
+
+(deftest dom-setup-step-requires-dom-token
+  (testing "a DOM SETUP step alone lifts the required-runner to include :dom
+            — isolating the setup contribution (rf2-8e2nd). The script is
+            DOM-free and there are NO DOM assertions, so :dom can ONLY have
+            come from the [:click …] step in :setup (requirements walks
+            `(map step-tokens setup)`)."
+    (let [m {:story.r/ds
+             {:setup  [[:click "[data-test=open]"]]
+              :script [[:dispatch [:a]]]}}
+          p (plan-of :story.r/ds m)]
+      (is (contains? (:required-runner p) :dom)
+          ":dom is contributed by the setup step alone")
+      (is (contains? (:required-runner p) :app-db)
+          "the DOM-free :dispatch script still contributes :app-db"))))
 
 ;; ---- explain -------------------------------------------------------------
 

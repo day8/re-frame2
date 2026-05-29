@@ -152,6 +152,35 @@
                 :analytics/track :analytics/noop-stub}
                (get-in p [:world :frame :fx-overrides])))))))
 
+(deftest network-and-composed-fragment-managed-fx-override-conflict-fails
+  (testing ":network + a COMPOSED FRAGMENT's :fx-overrides on :rf.http/managed
+            is the same hard conflict as a direct author override (rf2-x0t0n).
+
+            check-network-fx-conflict! runs against ctx-fx =
+            (merge composed-fx (:fx-overrides ctx)) (plan.cljc:1238/1250), so a
+            fragment contributing :rf.http/managed (landing in composed-fx)
+            collides with the variant's :network exactly as a direct override
+            would. The DIRECT path is covered above; this exercises the
+            compose branch so a future refactor of the strict-conflict merge
+            cannot silently regress it."
+    (let [fragments {:fragment.http/managed-override
+                     {:fx-overrides {:rf.http/managed :some/fragment-stub}}}
+          variants  {:story.checkout/compose-conflict
+                     {:network {cart-route {:reply {:ok {:items []}}}}
+                      :compose [:fragment.http/managed-override]}}
+          compile   #(plan/variant-plan :story.checkout/compose-conflict
+                                        {:lookup          variants
+                                         :fragment-lookup fragments})]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-network-fx-conflict"
+            (compile)))
+      (let [data (try (compile)
+                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+        (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
+        (is (= :rf.http/managed (:fx-id data)))
+        (is (= :story.checkout/compose-conflict (:variant/id data)))))))
+
 ;; ===========================================================================
 ;; explain — per-route stubs + lowering visible
 ;; ===========================================================================
