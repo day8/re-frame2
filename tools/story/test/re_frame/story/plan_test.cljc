@@ -10,6 +10,7 @@
   registrar's eager merge)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
+            [re-frame.story.assertions :as assertions]
             [re-frame.story.plan :as plan]
             [re-frame.story.sub-overrides :as sub-overrides]))
 
@@ -581,3 +582,147 @@
                                            (fn [] (throw (ex-info "should not run" {})))))))
       (is (= :real  (sub-overrides/with-overrides* ovr
                       #(sub-overrides/read [:login/other] (fn [] :real))))))))
+
+;; ===========================================================================
+;; Assertion-atom fold (rf2-5x1wt.18, spec/017 §Assertions — one atom,
+;; two positions)
+;; ===========================================================================
+;;
+;; The fold collapses terminal `:assertions` and EVERY in-script assertion
+;; position onto ONE assertion atom. A terminal `:assertions` entry and a
+;; script `[:assert …]` entry produce the SAME atom shape; the shipping
+;; `:assert-db` / `:assert-dom` sugar folds onto the canonical atoms; an
+;; unknown id FAILS plan construction.
+
+;; ---- one atom, two positions ---------------------------------------------
+
+(deftest terminal-and-script-assertion-produce-same-atom-shape
+  (testing "a terminal :assertions entry and an in-script [:assert …] entry
+           resolve to the IDENTICAL assertion atom (one atom, two positions)"
+    (let [atom-v [:rf.assert/path-equals [:n] 0]
+          m {:story.counter/checkpoint
+             {:script     [[:dispatch [:counter/dec]]
+                           [:assert atom-v]]
+              :assertions [atom-v]}}
+          p (plan-of :story.counter/checkpoint m)
+          terminal     (first (get-in p [:expect :assertions]))
+          checkpoint   (-> p :script (->> (filter #(= :assert (first %))) first) second)]
+      ;; same id, same payload, same vector — no per-position divergence
+      (is (= atom-v terminal))
+      (is (= atom-v checkpoint))
+      (is (= terminal checkpoint)))))
+
+;; ---- :assert-db fold ------------------------------------------------------
+
+(deftest assert-db-folds-to-path-equals
+  (testing ":assert-db equality form folds to the canonical [:assert
+           [:rf.assert/path-equals …]] checkpoint — same result as authoring
+           the atom directly"
+    (let [folded   (plan-of :story.x/folded
+                            {:story.x/folded {:script [[:assert-db [:count] 6]]}})
+          authored (plan-of :story.x/authored
+                            {:story.x/authored
+                             {:script [[:assert [:rf.assert/path-equals [:count] 6]]]}})]
+      (is (= [[:assert [:rf.assert/path-equals [:count] 6]]] (:script folded)))
+      ;; the fold emits exactly what the author would have typed by hand
+      (is (= (:script authored) (:script folded)))))
+  (testing ":assert-db :pred form folds to :rf.assert/path-matches wrapping
+           the predicate in a Malli [:fn …] schema (the one canonical way to
+           express a predicate against a path)"
+    (let [pred even?
+          p (plan-of :story.x/pred
+                     {:story.x/pred {:script [[:assert-db [:count] :pred pred]]}})
+          step (first (:script p))]
+      (is (= :assert (first step)))
+      (is (= [:rf.assert/path-matches [:count] [:fn pred]] (second step))))))
+
+;; ---- :assert-dom fold + runner requirement -------------------------------
+
+(deftest assert-dom-folds-to-dom-family
+  (testing ":assert-dom :visible / :hidden / :text fold onto the DOM
+           assertion family (rf2-5x1wt.18, NET-NEW ids)"
+    (let [p (plan-of :story.x/dom
+                     {:story.x/dom
+                      {:script [[:assert-dom "#a" :visible]
+                                [:assert-dom "#b" :hidden]
+                                [:assert-dom "#c" :text "hello"]]}})]
+      (is (= [[:assert [:rf.assert/dom-visible "#a"]]
+              [:assert [:rf.assert/dom-hidden "#b"]]
+              [:assert [:rf.assert/dom-text "#c" "hello"]]]
+             (:script p))))))
+
+(deftest dom-fold-carries-dom-runner-requirement
+  (testing "a folded :assert-dom step contributes the :dom capability token to
+           :required-runner (the requirement rides the folded id)"
+    (let [p (plan-of :story.x/dom-req
+                     {:story.x/dom-req {:script [[:assert-dom "#x" :visible]]}})]
+      (is (contains? (:required-runner p) :dom))))
+  (testing "a headless-only :assert-db fold demands NO :dom token"
+    (let [p (plan-of :story.x/db-req
+                     {:story.x/db-req {:script [[:assert-db [:n] 1]]}})]
+      (is (not (contains? (:required-runner p) :dom))))))
+
+;; ---- unknown assertion ids fail plan construction ------------------------
+
+(deftest unknown-terminal-assertion-id-fails-plan-construction
+  (testing "an unknown id in terminal :assertions FAILS plan construction"
+    (let [m {:story.x/bad {:assertions [[:rf.assert/typo [:n] 1]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-unknown-assertion"
+            (plan-of :story.x/bad m))))))
+
+(deftest unknown-script-checkpoint-assertion-id-fails-plan-construction
+  (testing "an unknown id in an in-script [:assert …] checkpoint FAILS plan
+           construction (same id-validation as the terminal position)"
+    (let [m {:story.x/bad2 {:script [[:assert [:rf.assert/nope]]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-unknown-assertion"
+            (plan-of :story.x/bad2 m))))))
+
+(deftest unknown-assertion-error-carries-structured-data
+  (testing "the :rf.error/story-unknown-assertion ex-data names the bad id"
+    (let [m {:story.x/bad3 {:assertions [[:rf.assert/whoops]]}}
+          ex (try (plan-of :story.x/bad3 m) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? ex))
+      (is (= :rf.error/story-unknown-assertion (:rf.error/id (ex-data ex))))
+      (is (contains? (set (:offending-assertions (ex-data ex)))
+                     [:rf.assert/whoops])))))
+
+(deftest every-shipping-and-folded-id-is-known
+  (testing "the seven shipping ids + the folded DOM family pass id validation
+           (a variant authoring each compiles cleanly)"
+    (doseq [atom-v [[:rf.assert/path-equals [:n] 0]
+                    [:rf.assert/path-matches [:n] :int]
+                    [:rf.assert/sub-equals [:sub/x] 1]
+                    [:rf.assert/dispatched? [:e]]
+                    [:rf.assert/state-is :m :s]
+                    [:rf.assert/no-warnings]
+                    [:rf.assert/effect-emitted :fx]
+                    [:rf.assert/dom-visible "#x"]
+                    [:rf.assert/dom-hidden "#x"]
+                    [:rf.assert/dom-text "#x" "t"]]]
+      (is (= [atom-v]
+             (get-in (plan-of :story.x/ok {:story.x/ok {:assertions [atom-v]}})
+                     [:expect :assertions]))
+          (str "expected " (pr-str atom-v) " to compile as a known assertion")))))
+
+;; ---- pure fold helpers (assertion-ns surface) ----------------------------
+
+(deftest fold-helpers-are-pure-and-position-agnostic
+  (testing "assertions/fold-assert-step folds the shipping sugar steps"
+    (is (= [:assert [:rf.assert/path-equals [:n] 5]]
+           (assertions/fold-assert-step [:assert-db [:n] 5])))
+    (is (= [:assert [:rf.assert/dom-visible "#x"]]
+           (assertions/fold-assert-step [:assert-dom "#x" :visible]))))
+  (testing "fold-assert-step is identity for non-foldable steps"
+    (is (= [:dispatch [:e]] (assertions/fold-assert-step [:dispatch [:e]])))
+    (is (= [:assert [:rf.assert/no-warnings]]
+           (assertions/fold-assert-step [:assert [:rf.assert/no-warnings]])))
+    (is (= [:wait 10] (assertions/fold-assert-step [:wait 10]))))
+  (testing "known-assertion-ids covers the seven shipping ids + the DOM family"
+    (is (every? assertions/assertion-id-known? assertions/canonical-assertion-ids))
+    (is (every? assertions/assertion-id-known? assertions/dom-assertion-ids))
+    (is (not (assertions/assertion-id-known? :rf.assert/totally-made-up)))))

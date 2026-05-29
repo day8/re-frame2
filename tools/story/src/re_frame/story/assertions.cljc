@@ -55,14 +55,15 @@
     `:passed? true` (used by Stage 5's `run-variant` test entry, and by
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the set of registered event ids."
-  (:require [re-frame.core             :as rf]
-            [re-frame.elision          :as elision]
-            [re-frame.interop          :as interop]
-            [re-frame.subs             :as subs]
-            [re-frame.story.config     :as config]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]
-            [malli.core                :as malli]))
+  (:require [re-frame.core               :as rf]
+            [re-frame.elision            :as elision]
+            [re-frame.interop            :as interop]
+            [re-frame.subs               :as subs]
+            [re-frame.story.config       :as config]
+            [re-frame.story.predicates   :as pred]
+            [re-frame.story.registrar    :as registrar]
+            [re-frame.story.requirements :as requirements]
+            [malli.core                  :as malli]))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-frame trace-bus accumulators (warnings + emitted fx + dispatched)
@@ -451,7 +452,9 @@
 
 (def canonical-assertion-ids
   "Per spec/007 line 304 — the canonical seven assertion event ids,
-  registered at Story boot."
+  registered at Story boot. These are the SHIPPING seven the fold
+  preserves (rf2-5x1wt.18, spec/017 §Assertions — one atom, two
+  positions)."
   #{id-path-equals
     id-path-matches
     id-sub-equals
@@ -459,6 +462,146 @@
     id-state-is
     id-no-warnings
     id-effect-emitted})
+
+;; ---------------------------------------------------------------------------
+;; DOM assertion family — the fold target for the shipping `:assert-dom`
+;; step (rf2-5x1wt.18, spec/017 §Assertions — one atom, two positions).
+;;
+;; These ids are NET-NEW (the shipping vocabulary had only the seven above
+;; plus the ad-hoc synthetic `:rf.assert/dom` record `:assert-dom` minted).
+;; The DOM runner that EVALUATES them lands later (the `:dom` capability is
+;; wired now via `re-frame.story.requirements`); the fold names them so an
+;; `:assert-dom` step lowers onto the SAME assertion atom shape as every
+;; other assertion, regardless of script position. A headless run that
+;; reaches one refuses with `:cannot-run` (the `:dom` capability gate),
+;; never a silent pass — that is the fail-closed contract, not this fold's
+;; concern.
+;; ---------------------------------------------------------------------------
+
+(def ^:const id-dom-visible     :rf.assert/dom-visible)
+(def ^:const id-dom-hidden      :rf.assert/dom-hidden)
+(def ^:const id-dom-text        :rf.assert/dom-text)
+
+(def dom-assertion-ids
+  "The DOM assertion family (rf2-5x1wt.18, NET-NEW). The shipping
+  `:assert-dom selector :visible|:hidden|:text` step folds onto these so
+  a DOM expectation rides the ONE assertion atom. Each carries the `:dom`
+  runner requirement via `re-frame.story.requirements/assertion-capabilities`
+  (spec/017 §Runner requirements); the DOM runner that proves them lands
+  later."
+  #{id-dom-visible
+    id-dom-hidden
+    id-dom-text})
+
+(def known-assertion-ids
+  "Every assertion id the P1 vocabulary recognises — the shipping seven,
+  the folded DOM family, and the wider set declared in the requirement
+  registry (`re-frame.story.requirements/assertion-capabilities`: the
+  schema / visual / a11y / reactive-count ids whose runners land later).
+  Plan construction validates authored assertion atoms against this set
+  (`assertion-id-known?`); an unknown id FAILS plan construction with a
+  useful error (rf2-5x1wt.18, spec/017 §Assertions). Reading the
+  requirement registry keeps this list a derived view of the ONE id
+  source of truth rather than a hand-maintained parallel set."
+  (into (into canonical-assertion-ids dom-assertion-ids)
+        (keys requirements/assertion-capabilities)))
+
+(defn assertion-id-known?
+  "True iff `id` is a recognised P1 assertion id (`known-assertion-ids`).
+  Pure data → data. Used by the plan compiler to FAIL plan construction
+  on an unknown assertion atom rather than letting it record a vacuous
+  `:rf.assert/unknown` pseudo-record at run time (rf2-5x1wt.18)."
+  [id]
+  (contains? known-assertion-ids id))
+
+;; ---------------------------------------------------------------------------
+;; Assertion-atom fold (rf2-5x1wt.18, spec/017 §Assertions — one atom,
+;; two positions)
+;;
+;; The assertion atom is the data vector `[:rf.assert/id & args]`. It is
+;; legal in exactly two positions: terminal `:assertions` and the in-script
+;; `[:assert …]` checkpoint. Both positions produce ONE assertion-record
+;; shape (the `[:assert …]` checkpoint dispatches the wrapped atom, whose
+;; reg-event-fx handler records the canonical record — rf2-5x1wt.17).
+;;
+;; The shipping ergonomic script steps `:assert-db` / `:assert-dom` are NOT
+;; authoring-distinct assertion kinds — they are sugar that FOLDS onto the
+;; one atom:
+;;
+;;   [:assert-db path expected]        → [:rf.assert/path-equals path expected]
+;;   [:assert-db path :pred fn-or-sym] → [:rf.assert/path-matches path [:fn …]]
+;;   [:assert-dom sel :visible]        → [:rf.assert/dom-visible sel]
+;;   [:assert-dom sel :hidden]         → [:rf.assert/dom-hidden sel]
+;;   [:assert-dom sel :text txt]       → [:rf.assert/dom-text sel txt]
+;;
+;; `fold-assert-step` returns the canonical `[:assert assertion-atom]`
+;; checkpoint for a shipping `:assert-db` / `:assert-dom` step, so the plan
+;; compiler can rewrite a script uniformly to the ONE atom in its
+;; checkpoint position — collapsing the two parallel record-minting paths
+;; (`runner-events`' synthetic `:rf.assert/db` / `:rf.assert/dom` records)
+;; onto the canonical assertion handlers. Pure data → data.
+;; ---------------------------------------------------------------------------
+
+(defn- assert-db->atom
+  "Fold a shipping `[:assert-db …]` step into its canonical assertion atom.
+  The equality form folds to `:rf.assert/path-equals`; the predicate form
+  folds to `:rf.assert/path-matches` wrapping the predicate in a Malli
+  `[:fn …]` schema (the one canonical way to express an arbitrary
+  predicate against a path). A symbol predicate is preserved verbatim in
+  the `[:fn …]` schema — the assertion handler's Malli path resolves it
+  the same way the shipping `:assert-db :pred` rail did."
+  [step]
+  (let [path (nth step 1)]
+    (if (and (= 4 (count step)) (= :pred (nth step 2)))
+      [id-path-matches path [:fn (nth step 3)]]
+      [id-path-equals path (nth step 2)])))
+
+(defn- assert-dom->atom
+  "Fold a shipping `[:assert-dom …]` step into its canonical DOM-family
+  assertion atom (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
+  `:rf.assert/dom-text`). Carries the selector (and text) as the atom's
+  payload; the `:dom` runner requirement rides the folded id via the
+  requirement registry."
+  [step]
+  (let [selector (nth step 1)
+        mode     (nth step 2)]
+    (case mode
+      :visible [id-dom-visible selector]
+      :hidden  [id-dom-hidden  selector]
+      :text    [id-dom-text    selector (nth step 3)])))
+
+(defn fold-assert-step
+  "Fold a shipping ergonomic assertion step (`[:assert-db …]` /
+  `[:assert-dom …]`) into the canonical `[:assert assertion-atom]`
+  checkpoint, so terminal `:assertions` and EVERY in-script assertion
+  position resolve to the ONE assertion atom (rf2-5x1wt.18). Returns the
+  rewritten `[:assert …]` step for a foldable step, or the step unchanged
+  for any other step (`:dispatch`, `:wait`, an already-`[:assert …]`
+  checkpoint, a bare event vector). Pure data → data — used by the plan
+  compiler's script normalization."
+  [step]
+  (case (and (vector? step) (pos? (count step)) (first step))
+    :assert-db  [:assert (assert-db->atom step)]
+    :assert-dom [:assert (assert-dom->atom step)]
+    step))
+
+(defn fold-script
+  "Fold every shipping `:assert-db` / `:assert-dom` step in a coerced
+  `script` vector onto the canonical `[:assert assertion-atom]` checkpoint
+  (rf2-5x1wt.18). Leaves non-assertion steps and already-canonical
+  `[:assert …]` checkpoints untouched. Pure data → data."
+  [script]
+  (mapv fold-assert-step (or script [])))
+
+(defn assertion-atom-id
+  "The `:rf.assert/*` id at the head of an assertion atom, or nil for a
+  non-atom. An assertion atom is `[:rf.assert/id & args]`; this is the id
+  every fold target + authored atom is validated against (`assertion-id-
+  known?`). Pure data → data."
+  [assertion-atom]
+  (when (and (vector? assertion-atom) (pos? (count assertion-atom)))
+    (let [h (first assertion-atom)]
+      (when (keyword? h) h))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot — register the seven canonical handlers

@@ -1054,10 +1054,63 @@ It is allowed in exactly two positions: `:assertions` (terminal) and
 `[:dispatch-sync [:rf.assert/*]]` event rail is the runner's **headless
 implementation**, never an authoring form.
 
-The shipping `:assert-db` step folds to `:rf.assert/path-equals`; a
-`:rf.assert/dom-*` family carries a `:dom` token (folding the shipping
-`:assert-dom`). Assertions in `:assertions` are own-only terminal
-expectations; they MUST NOT inherit through `:extends`.
+**One record shape, regardless of position.** Both positions resolve to
+the SAME assertion atom and produce the SAME assertion record. A terminal
+`:assertions` entry and the SAME atom written as an in-script `[:assert …]`
+checkpoint are byte-for-byte identical atoms; the only difference is *when*
+the verdict runs (terminal = after the script; checkpoint = at that exact
+script position). The mid-script checkpoint dispatches its wrapped atom
+through the canonical `:rf.assert/*` handler, so it lands the canonical
+record — never a second, position-specific shape.
+
+**The shipping ergonomic steps fold onto the one atom.** The plan compiler
+rewrites the shipping `:assert-db` / `:assert-dom` script steps into the
+canonical `[:assert assertion-atom]` checkpoint during script
+normalization, so every in-script assertion — whatever sugar the author
+typed — collapses to the one atom:
+
+| Shipping step | Folds to |
+|---------------|----------|
+| `[:assert-db path expected]` | `[:assert [:rf.assert/path-equals path expected]]` |
+| `[:assert-db path :pred f]` | `[:assert [:rf.assert/path-matches path [:fn f]]]` |
+| `[:assert-dom sel :visible]` | `[:assert [:rf.assert/dom-visible sel]]` |
+| `[:assert-dom sel :hidden]` | `[:assert [:rf.assert/dom-hidden sel]]` |
+| `[:assert-dom sel :text txt]` | `[:assert [:rf.assert/dom-text sel txt]]` |
+
+The `:assert-db` predicate form folds to `:rf.assert/path-matches` wrapping
+the predicate in a Malli `[:fn …]` schema — the one canonical way to
+express an arbitrary predicate against a path, so no parallel
+predicate-assertion id is introduced.
+
+**The DOM family carries the `:dom` runner requirement.** The DOM
+assertion family `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
+`:rf.assert/dom-text` is **NET-NEW** (the shipping vocabulary had only the
+seven below plus an ad-hoc synthetic `:rf.assert/dom` record the runtime
+minted). Each folded DOM id rides the `:dom` capability token via the
+requirement registry (§Runner requirements), so a folded `:assert-dom`
+step keeps the exact runner requirement the raw step had. The DOM runner
+that *evaluates* these ids lands later; until then a headless run that
+reaches one refuses with `:cannot-run` (the `:dom` gate), never a silent
+pass.
+
+**The seven shipping ids are preserved.** The fold collapses *authoring
+sugar* onto existing atoms; it does not retire any of the seven shipping
+`:rf.assert/*` ids (listed under §Canonical P1 assertions). `:rf.assert/
+path-equals` and `:rf.assert/path-matches` gain the `:assert-db` fold
+targets; the DOM family is the only NET-NEW addition this fold introduces.
+
+**Unknown ids fail plan construction.** Every authored assertion atom —
+terminal `:assertions` OR an in-script `[:assert …]` checkpoint (including
+the folded `:assert-db` / `:assert-dom` steps) — MUST name a recognised
+`:rf.assert/*` id. An unknown id FAILS plan construction with
+`:rf.error/story-unknown-assertion`, before any run, rather than recording
+a vacuous `:rf.assert/unknown` pseudo-record at run time. There is no
+`:rf.assert/no-schema-errors` author surface — schema-clean is the
+knob-free runner floor (§Schema rule), enforced by post-run evidence-slot
+validation, not an opt-in assertion.
+
+Assertions in `:assertions` are own-only terminal expectations; they MUST
+NOT inherit through `:extends`.
 
 ### Checks
 
@@ -1079,6 +1132,9 @@ remains the base. P1 SHOULD include or retain:
 - `:rf.assert/no-warnings`
 - `:rf.assert/effect-emitted`
 - `:rf.assert/schema-error` (NET-NEW; §Schema rule)
+- `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` / `:rf.assert/dom-text`
+  (NET-NEW; the `:dom` family the shipping `:assert-dom` step folds to —
+  §Assertions — one atom, two positions)
 - `:rf.assert/visual-snapshot` (`:browser`)
 - `:rf.assert/a11y` (`:browser` for axe-style; MAY require only `:hiccup`
   for explicitly structural checks)
