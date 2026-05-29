@@ -37,21 +37,42 @@
   See `panels/shared/coord_chip.cljs` for the icon-only sibling and
   spec/021 §9.1.6.2 for the contract."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]))
 
 ;; ---- editor-open dispatch (shared with coord-chip's contract) -----------
 
+(defn default-dispatch
+  "Fallback dispatcher for the shared open-in-editor affordances when a
+  call-site supplies no captured `dispatch-fn` (rf2-r0o63). Pins to the
+  PRODUCTION singleton shell frame (`defaults/default-frame-id`) rather
+  than `rf/dispatch*`'s `:rf/default` resolution — the open-in-editor
+  event-fx is frame-agnostic, but a host frame whose flows throw on
+  every event (the deliberate-throw testbed) would entangle the
+  dispatch, and the editor-bridge expects it on Xray's frame. NOT a
+  bare `{:frame :rf/xray}` literal — the frame is the named
+  `default-frame-id` Var, so the singleton guard passes; migrated panel
+  call-sites override with the captured instance dispatcher."
+  ([event-v] (rf/dispatch event-v {:frame defaults/default-frame-id}))
+  ([event-v opts] (rf/dispatch event-v (assoc opts :frame defaults/default-frame-id))))
+
 (defn open-in-editor!
-  "Dispatch `[:rf.xray/open-in-editor {:source-coord coord}]` on the
-  `:rf/xray` frame, stopping event propagation so a click on the
-  affordance does not also fire an enclosing row / node handler. This
-  is the ONE dispatch every panel-side click-to-source affordance
-  routes through (coord-chip, coord-link, and the SVG-node clicks in
-  the Reactive panel)."
-  [coord e]
-  (when e (.stopPropagation e))
-  (rf/dispatch [:rf.xray/open-in-editor {:source-coord coord}]
-               {:frame :rf/xray}))
+  "Dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`, stopping
+  event propagation so a click on the affordance does not also fire an
+  enclosing row / node handler. This is the ONE dispatch every panel-
+  side click-to-source affordance routes through (coord-chip,
+  coord-link, and the SVG-node clicks in the Reactive panel).
+
+  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the surrounding `reg-view` body so the open-in-editor event lands on
+  the instance frame; defaults to `default-dispatch` (the production
+  singleton frame) for call-sites the rf2-nesy9 sweep hasn't yet
+  threaded a captured dispatcher through."
+  ([coord e] (open-in-editor! coord e default-dispatch))
+  ([coord e dispatch-fn]
+   (when e (.stopPropagation e))
+   ((or dispatch-fn default-dispatch)
+    [:rf.xray/open-in-editor {:source-coord coord}])))
 
 (defn- coord->title
   "`open <file>:<line> in editor` title string for the affordance's
@@ -100,16 +121,20 @@
     - `:glyph?`         — when false, NO `external-link` glyph renders;
                           the label text alone is the link (an inline
                           underlined `schema check` style link inside
-                          a prose sentence). Defaults true."
+                          a prose sentence). Defaults true.
+    - `:dispatch-fn`    — (rf2-r0o63) the frame-aware dispatcher
+                          captured by the surrounding `reg-view` body so
+                          the open-in-editor click lands on the instance
+                          frame. Defaults to `rf/dispatch*`."
   ([coord label testid]
    (coord-link coord label testid nil))
-  ([coord label testid {:keys [style plain-style glyph-leading? glyph?]
+  ([coord label testid {:keys [style plain-style glyph-leading? glyph? dispatch-fn]
                         :or   {glyph? true}}]
    (if (and (map? coord) (seq (:file coord)))
      (into [:button {:data-testid testid
                      :aria-label  (coord->title coord)
                      :title       (coord->title coord)
-                     :on-click    (fn [e] (open-in-editor! coord e))
+                     :on-click    (fn [e] (open-in-editor! coord e dispatch-fn))
                      :style       style}]
            (cond
              (not glyph?)   [label]

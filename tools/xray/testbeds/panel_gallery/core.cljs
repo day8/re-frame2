@@ -241,11 +241,15 @@
   (rf/reg-event-fx :panel-gallery.chrome/seed!
     (fn [_cofx [_ {:keys [trace-buffer epoch-history selected-tab
                           paused? filters after-seeds]}]]
-      ;; Re-dispatch into `:rf/xray` so the chrome's hardcoded
-      ;; frame-provider sees the writes. Each :dispatch-later is
-      ;; wrapped in a per-handler {:frame :rf/xray} so the
-      ;; canonical handlers operate on the right db.
-      (let [seeds
+      ;; rf2-1w07r — re-dispatch into the SURROUNDING frame (the Story
+      ;; per-variant frame this seed event was dispatched under), which
+      ;; is the SAME frame the chrome cell now threads into
+      ;; `[shell/shell-view {:frame-id …}]` (panel_views.cljs). The
+      ;; seeds therefore land where the shell reads, per-variant — no
+      ;; longer pinned to a global `:rf/xray` literal. (`current-frame`
+      ;; in an event handler resolves to the dispatching frame.)
+      (let [seed-frame (rf/current-frame)
+            seeds
             (cond-> []
               ;; Trace buffer — drives event-list + every tab body
               ;; that derives from cascades.
@@ -276,14 +280,15 @@
               paused?
               (conj [:rf.xray/toggle-live-pause])
 
-              ;; Arbitrary follow-on dispatches into `:rf/xray`.
-              ;; The chrome-follow-on galleries (rf2-mpn8m settings,
-              ;; rf2-kbrkx auto-filter) use this lane to drive modal-
-              ;; open + section-select events against the shared frame.
+              ;; Arbitrary follow-on dispatches into the surrounding
+              ;; frame. The chrome-follow-on galleries (rf2-mpn8m
+              ;; settings, rf2-kbrkx auto-filter) use this lane to drive
+              ;; modal-open + section-select events against the cell's
+              ;; own frame.
               (seq after-seeds)
               (into (vec after-seeds)))]
         (doseq [ev seeds]
-          (rf/dispatch-sync ev {:frame :rf/xray}))
+          (rf/dispatch-sync ev {:frame seed-frame}))
         {}))))
 
 (defn- ensure-xray-frame!

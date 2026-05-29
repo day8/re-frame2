@@ -95,9 +95,11 @@
                     (rf2-7sdja — was ⊕; ↗ reads as 'open in new pane')
                     that dispatches
                     `[:rf.xray.edn-inspector-popup/open mount-id payload]`
-                    against `:rf/xray` explicitly (popup state is
-                    Xray-global, not per-frame — rf2-7sdja). The popup-
-                    mount-id is derived from this widget's own mount-
+                    through the captured frame-aware dispatcher so the
+                    popup-open write lands on the surrounding instance
+                    frame (rf2-r0o63 — supersedes the rf2-7sdja
+                    `:rf/xray` literal pin; N shells stay isolated). The
+                    popup-mount-id is derived from this widget's own mount-
                     id, so re-clicking raises the existing popup rather
                     than spawning a duplicate. Opt-in per call-site;
                     panels enable the affordance where the inline
@@ -253,7 +255,9 @@
             [day8.re-frame2-xray.views.edn-inspector-default-formatters]))
 
 ;; =========================================================================
-;; expansion state — lives in :rf.xray.edn-inspector/expansion under :rf/xray
+;; expansion state — lives in :rf.xray.edn-inspector/expansion under the
+;; SURROUNDING instance frame (the shell's frame-id; `:rf/xray` for the
+;; production singleton). Per-frame so N shells keep independent expansion.
 ;; =========================================================================
 
 (def expansion-slot
@@ -2598,57 +2602,50 @@
   the absolute path from the original root (composed by the caller as
   `(into zoom-path-prefix path)`).
 
-  ## Dispatch asymmetry (rf2-kcaiz — same class as rf2-7sdja)
+  ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-kcaiz pin)
 
-  The zoom-to event dispatches against `:rf/xray` EXPLICITLY via the
-  established `(rf/dispatch event {:frame :rf/xray})` pattern. The
-  zoom slot lives in `:rf/xray`'s app-db (see `zoom-slot` docstring);
-  every consumer of `:zoomable? true` mounts inside Xray. Routing the
-  dispatch through the lexically-captured `dispatch-fn` looked safe
-  because the surrounding `reg-view` body inherits `:rf/xray` from
-  React context — but React's synthetic-event timing pops the frame
-  context before the click fires, so the dispatch leaks to
-  `:rf/default`. Pinning the frame at call time fixes it.
+  The zoom-to event dispatches through the lexically-captured
+  `dispatch-fn` — the frame-aware dispatcher the surrounding `reg-view`
+  body bound via `(rf/dispatcher)` at render time. The closure captured
+  `(current-frame)` synchronously during render, so it dispatches into
+  the SURROUNDING instance frame even though the click fires later
+  (after React's synthetic-event timing has popped the dynamic frame
+  context). This is the same shape as `on-toggle` — the zoom slot is
+  per-frame, so the write must land on the instance frame, not a
+  `:rf/xray` literal.
 
-  Same root cause as rf2-7sdja (popup-affordance) + rf2-y59tb (triangle
-  toggle) — every dispatch crossing the React/event boundary must carry
-  the `{:frame :rf/xray}` envelope at call time.
+  This supersedes the rf2-kcaiz fix, which pinned the frame to a bare
+  `:rf/xray` literal at call time. That worked for the single-instance
+  shell but entrenched the singleton: two shells on one page would both
+  write the global `:rf/xray` zoom-slot and clobber each other.
+  Capturing the dispatcher keeps N instances isolated.
 
-  The `dispatch-fn` parameter is retained as a no-op for back-compat
-  with the existing render-call site shape. Production callers should
-  pass `nil` — `zoom-affordance-button` ignores it and dispatches
-  directly.
+  `dispatch-fn` falls back to `rf/dispatch*` when absent (pure-render
+  tests that drive the button without a `reg-view` ancestor).
 
   Public so unit tests can drive the button without mounting."
-  [{:keys [panel-id mount-id absolute-path testid]}]
-  ;; Note: callers historically supplied `:dispatch-fn`; we ignore it
-  ;; per the rf2-kcaiz fix (see docstring above). The key is left in
-  ;; the destructuring contract to keep the call-site shape stable.
-  [:button
-   {:data-testid        testid
-    :data-rf-affordance "zoom"
-    :aria-label         "Zoom into this node"
-    :title              "Zoom into this node"
-    :on-click           (fn [^js e]
-                          (when e
-                            (.preventDefault e)
-                            (.stopPropagation e))
-                          ;; rf2-kcaiz — zoom state is Xray-global.
-                          ;; Pin the dispatch frame to `:rf/xray`
-                          ;; regardless of the surrounding mount
-                          ;; frame so the zoom-slot subscription
-                          ;; (which only reads `:rf/xray`'s app-db)
-                          ;; sees the write. Without this pin the
-                          ;; dispatch leaks to `:rf/default`
-                          ;; because React synthetic-event timing
-                          ;; pops the frame context before the
-                          ;; click handler fires.
-                          (rf/dispatch
-                            [:rf.xray.edn-inspector/zoom-to
-                             panel-id mount-id (vec absolute-path)]
-                            {:frame :rf/xray}))
-    :style              zoom-affordance-button-style}
-   zoom-affordance-glyph])
+  [{:keys [panel-id mount-id absolute-path testid dispatch-fn]}]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
+    [:button
+     {:data-testid        testid
+      :data-rf-affordance "zoom"
+      :aria-label         "Zoom into this node"
+      :title              "Zoom into this node"
+      :on-click           (fn [^js e]
+                            (when e
+                              (.preventDefault e)
+                              (.stopPropagation e))
+                            ;; rf2-r0o63 — dispatch through the
+                            ;; captured frame-aware dispatcher so the
+                            ;; zoom-slot write lands on the SURROUNDING
+                            ;; instance frame (captured at render time).
+                            ;; N shells stay isolated; no `:rf/xray`
+                            ;; literal entrenching the singleton.
+                            (dispatch-fn
+                              [:rf.xray.edn-inspector/zoom-to
+                               panel-id mount-id (vec absolute-path)]))
+      :style              zoom-affordance-button-style}
+     zoom-affordance-glyph]))
 
 (defn- breadcrumb-segment-label
   "Render a single path-segment label using the syntax-palette colour
@@ -2764,75 +2761,71 @@
 
 (defn popup-affordance-button
   "Render the 'open in popup' icon button. `dispatch-fn` is the
-  lexically-captured frame-aware dispatcher reserved for the
-  PER-FRAME paths (legacy parameter — see dispatch-asymmetry note
-  below); `popup-mount-id` is the stable id keyed to the data-
-  display's own mount-id; `value` + `opts` are the popup's payload.
+  lexically-captured frame-aware dispatcher; `popup-mount-id` is the
+  stable id keyed to the data-display's own mount-id; `value` + `opts`
+  are the popup's payload.
 
-  ## Dispatch asymmetry (rf2-7sdja)
+  ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-7sdja pin)
 
-  The popup OPEN event dispatches against `:rf/xray` EXPLICITLY via
-  the established `(rf/dispatch event {:frame :rf/xray})` pattern
-  (matches `settings/view.cljs` + `app_db_segment_inspector.cljs`).
-  Other edn-inspector dispatches (`:rf.xray.edn-inspector/toggle-node`)
-  use the lexically-captured `dispatch-fn` because expansion state is
-  per-frame — the widget can be mounted in any frame and the toggle
-  dispatch must land in the SURROUNDING frame's app-db so the
-  expansion-slot subscription sees the write.
+  The popup OPEN event dispatches through the lexically-captured
+  `dispatch-fn` — the frame-aware dispatcher the surrounding `reg-view`
+  body bound via `(rf/dispatcher)` at render time. The closure captured
+  `(current-frame)` synchronously during render, so the popup-open
+  write lands on the SURROUNDING instance frame even though the click
+  fires after React's synthetic-event timing has popped the dynamic
+  frame context.
 
-  Popup state is different: the popup stack-view (`edn-inspector-popup-
-  stack` in `shell.cljs`) is mounted inside `[rf/frame-provider
-  {:frame :rf/xray}]` and subscribes ONLY against `:rf/xray`'s
-  app-db. If a popup-open dispatch leaks to `:rf/default` (or any
-  non-Xray frame), the mutation lands on the wrong app-db and the
-  stack-view never renders the popup — the canonical bug Mike
-  reproduced live (pair-debug 2026-05-26). The fix pins the popup
-  dispatch to `:rf/xray` REGARDLESS of where the widget mounts:
-  expansion state stays per-frame; popup state stays Xray-global.
+  The popup stack-view (`edn-inspector-popup-stack` in `shell.cljs`) is
+  mounted inside the shell's `[rf/frame-provider {:frame frame-id}]`, so
+  it subscribes against the SAME instance frame the affordance
+  dispatches into — the write and the read meet on the instance frame,
+  not a global `:rf/xray` literal. This supersedes the rf2-7sdja fix,
+  which pinned the popup dispatch to a bare `:rf/xray` literal: that
+  worked for the single-instance shell but entrenched the singleton
+  (two shells would share one global popup-stack and clobber each
+  other). Capturing the dispatcher keeps N instances isolated.
 
-  The `dispatch-fn` parameter is retained as a no-op for back-compat
-  with the existing test surface (some tests pass a stub to capture
-  the event vector). Production callers should pass `nil` —
-  `popup-affordance-button` ignores it and dispatches directly.
+  `dispatch-fn` falls back to `rf/dispatch*` when absent (pure-render
+  tests that drive the button without a `reg-view` ancestor; some tests
+  pass a stub to capture the event vector).
 
   Public so unit tests can drive the button without spinning up the
   router."
-  [_dispatch-fn popup-mount-id value opts]
-  [:button
-   {:data-testid             (str "rf-xray-edn-inspector-popup-affordance-"
-                                  popup-mount-id)
-    :data-rf-affordance      "popup"
-    :data-rf-popup-mount-id  popup-mount-id
-    :aria-label              "Open in popup"
-    :title                   "Open in popup"
-    :on-click                (fn [^js e]
-                               (when e
-                                 (.preventDefault e)
-                                 (.stopPropagation e))
-                               ;; rf2-7sdja — popup state is Xray-
-                               ;; global. Pin the dispatch frame to
-                               ;; `:rf/xray` regardless of the
-                               ;; surrounding mount frame so the
-                               ;; popup-stack-view (which only
-                               ;; subscribes against `:rf/xray`)
-                               ;; sees the write.
-                               (rf/dispatch
-                                 [:rf.xray.edn-inspector-popup/open
-                                  popup-mount-id
-                                  {:value value
-                                   :opts  (-> (or opts {})
-                                              ;; Don't recurse the
-                                              ;; affordance inside the
-                                              ;; popup's embedded
-                                              ;; edn-inspector.
-                                              (assoc :popup-affordance? false))}]
-                                 {:frame :rf/xray}))
-    :style                   popup-affordance-button-style}
-   ;; rf2-7sdja — ↗ (north-east arrow) reads as "open in new pane /
-   ;; navigate outward" which matches the popup's window-manager
-   ;; semantics better than ⊕ (which read as "expand" / "add"). Same
-   ;; aria-label / title — the glyph swap is visual only.
-   "↗"])
+  [dispatch-fn popup-mount-id value opts]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
+   [:button
+    {:data-testid             (str "rf-xray-edn-inspector-popup-affordance-"
+                                   popup-mount-id)
+     :data-rf-affordance      "popup"
+     :data-rf-popup-mount-id  popup-mount-id
+     :aria-label              "Open in popup"
+     :title                   "Open in popup"
+     :on-click                (fn [^js e]
+                                (when e
+                                  (.preventDefault e)
+                                  (.stopPropagation e))
+                                ;; rf2-r0o63 — dispatch through the
+                                ;; captured frame-aware dispatcher so
+                                ;; the popup-open write lands on the
+                                ;; SURROUNDING instance frame (captured
+                                ;; at render time), matching where the
+                                ;; instance's popup-stack-view reads.
+                                (dispatch-fn
+                                  [:rf.xray.edn-inspector-popup/open
+                                   popup-mount-id
+                                   {:value value
+                                    :opts  (-> (or opts {})
+                                               ;; Don't recurse the
+                                               ;; affordance inside the
+                                               ;; popup's embedded
+                                               ;; edn-inspector.
+                                               (assoc :popup-affordance? false))}]))
+     :style                   popup-affordance-button-style}
+    ;; ↗ (north-east arrow) reads as "open in new pane / navigate
+    ;; outward" which matches the popup's window-manager semantics
+    ;; better than ⊕ (which read as "expand" / "add"). Same aria-label
+    ;; / title — the glyph swap is visual only.
+    "↗"]))
 
 (rf/reg-view edn-inspector
   "First-class edn-inspector widget — single source of truth for

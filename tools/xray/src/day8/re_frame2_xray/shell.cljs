@@ -399,13 +399,20 @@
     (reset! col-divider-drag-state nil)))
 
 (defn- col-divider-on-move [^js e]
-  (when-let [{:keys [col-id start-x start-width]} @col-divider-drag-state]
+  ;; rf2-r0o63 — `dispatch-fn` (the captured frame-aware dispatcher) is
+  ;; stashed in the drag-state at `col-divider-start-drag!` time; this
+  ;; document-level move handler fires after render unwinds, so it reads
+  ;; the closure back rather than dispatching to a `:rf/xray` literal.
+  ;; The dispatch lands on the instance frame the divider was rendered
+  ;; under. Falls back to `rf/dispatch*` defensively (test-driven drags
+  ;; that bypassed `start-drag!`).
+  (when-let [{:keys [col-id start-x start-width dispatch-fn]} @col-divider-drag-state]
     ;; Divider sits to the RIGHT of the column it sizes; dragging right
     ;; widens, dragging left narrows. dx = (now-x - start-x).
     (let [dx        (- (.-pageX e) start-x)
           new-width (+ start-width dx)]
-      (rf/dispatch [:rf.xray/set-event-list-col-width col-id new-width]
-                   {:frame :rf/xray}))))
+      ((or dispatch-fn rf/dispatch*)
+       [:rf.xray/set-event-list-col-width col-id new-width]))))
 
 (defn- col-divider-on-up [^js _e]
   (col-divider-detach-listeners!))
@@ -418,8 +425,16 @@
   `:timestamp` / `:duration`). Records the snapshot + attaches the
   document-level move/up/cancel listeners. Exposed for the divider
   view's `:on-pointer-down` handler AND for the test suite, which
-  drives the lifecycle without a real DOM."
-  [^js e col-id current-width]
+  drives the lifecycle without a real DOM.
+
+  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the surrounding `reg-view` body — stashed in the drag-state so the
+  document-level move handler (which fires after render unwinds) lands
+  its width writes on the instance frame, not a `:rf/xray` literal.
+  Defaults to `rf/dispatch*` for the test-driven lifecycle."
+  ([^js e col-id current-width]
+   (col-divider-start-drag! e col-id current-width rf/dispatch*))
+  ([^js e col-id current-width dispatch-fn]
   (col-divider-detach-listeners!)
   (let [start-x     (.-pageX e)
         pointer-id  (.-pointerId e)
@@ -434,6 +449,7 @@
              :start-x     start-x
              :start-width (or current-width 0)
              :pointer-id  pointer-id
+             :dispatch-fn dispatch-fn
              :on-move     on-move
              :on-up       on-up
              :on-cancel   on-cancel
@@ -447,7 +463,7 @@
            (catch :default _ nil))
       (try (.addEventListener js/document "pointercancel" on-cancel)
            (catch :default _ nil)))
-    (try (.preventDefault e) (catch :default _ nil))))
+    (try (.preventDefault e) (catch :default _ nil)))))
 
 (defn col-divider-simulate-move!
   "Test-only: drive the document-level pointermove handler. No-op when
@@ -481,25 +497,29 @@
 
   The clamp lives in the registry handler — we dispatch the desired
   width and let `:rf.xray/set-event-list-col-width` apply the per-
-  column floor. Returns true iff the keypress was handled."
-  [^js e col-id current-width]
-  (let [key      (.-key e)
-        shift?   (.-shiftKey e)
-        step     (if shift?
-                   (* config/event-list-col-keyboard-step-px
-                      config/event-list-col-keyboard-coarse-multiplier)
-                   config/event-list-col-keyboard-step-px)
-        dispatch (fn [px]
-                   (rf/dispatch [:rf.xray/set-event-list-col-width col-id px]
-                                {:frame :rf/xray}))]
-    (case key
-      "ArrowRight"   (do (dispatch (+ current-width step)) true)
-      "ArrowLeft"    (do (dispatch (- current-width step)) true)
-      ("Enter" " ")  (do (rf/dispatch
-                           [:rf.xray/reset-event-list-col-width col-id]
-                           {:frame :rf/xray})
-                         true)
-      false)))
+  column floor. Returns true iff the keypress was handled.
+
+  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the surrounding `reg-view` body so the keyboard resize lands on the
+  instance frame; defaults to `rf/dispatch*` for the test lifecycle."
+  ([^js e col-id current-width]
+   (col-divider-handle-keydown! e col-id current-width rf/dispatch*))
+  ([^js e col-id current-width dispatch-fn]
+   (let [key      (.-key e)
+         shift?   (.-shiftKey e)
+         step     (if shift?
+                    (* config/event-list-col-keyboard-step-px
+                       config/event-list-col-keyboard-coarse-multiplier)
+                    config/event-list-col-keyboard-step-px)
+         dispatch (fn [px]
+                    (dispatch-fn [:rf.xray/set-event-list-col-width col-id px]))]
+     (case key
+       "ArrowRight"   (do (dispatch (+ current-width step)) true)
+       "ArrowLeft"    (do (dispatch (- current-width step)) true)
+       ("Enter" " ")  (do (dispatch-fn
+                            [:rf.xray/reset-event-list-col-width col-id])
+                          true)
+       false))))
 
 (defn- col-divider
   "Render a draggable divider sitting to the RIGHT of the column with
@@ -513,9 +533,15 @@
   zero-content cell with explicit width — placed BETWEEN the column
   it sizes (to its left) and the next column. Per the alignment
   contract the same divider widths apply to header + every row, so the
-  flex layout stays consistent across surfaces."
-  [{:keys [col-id col-px row-height]}]
+  flex layout stays consistent across surfaces.
+
+  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the surrounding `reg-view` body (the L2 event-list views) — threaded
+  through the drag / keyboard / double-click affordances so every
+  width write lands on the instance frame, not a `:rf/xray` literal."
+  [{:keys [col-id col-px row-height dispatch-fn]}]
   (let [floor    (get config/event-list-col-min-widths col-id)
+        dispatch-fn (or dispatch-fn rf/dispatch*)
         col-label (name col-id)]
     [:div {:data-testid           (str "rf-xray-event-list-col-divider-" col-label)
            :data-rf-xray-col-id   col-label
@@ -530,15 +556,14 @@
                                        " column · double-click to reset · "
                                        "arrow keys (Shift = coarse)")
            :on-pointer-down       (fn [^js e]
-                                    (col-divider-start-drag! e col-id col-px))
+                                    (col-divider-start-drag! e col-id col-px dispatch-fn))
            :on-key-down           (fn [^js e]
-                                    (when (col-divider-handle-keydown! e col-id col-px)
+                                    (when (col-divider-handle-keydown! e col-id col-px dispatch-fn)
                                       (try (.preventDefault e)
                                            (catch :default _ nil))))
            :on-double-click       (fn [^js _e]
-                                    (rf/dispatch
-                                      [:rf.xray/reset-event-list-col-width col-id]
-                                      {:frame :rf/xray}))
+                                    (dispatch-fn
+                                      [:rf.xray/reset-event-list-col-width col-id]))
            :style {:flex          "0 0 auto"
                    :width         "5px"
                    :align-self    "stretch"
@@ -800,8 +825,13 @@
   visual + a11y signal.
 
   (rf2-htik0 P1 — earlier wiring had the head/tail boundaries flipped
-  so the disabled glyph dimmed the wrong button.)"
-  [{:keys [at-head? at-tail? live?]}]
+  so the disabled glyph dimmed the wrong button.)
+
+  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the `ribbon` `reg-view` body — the nav `on-click` handlers fire after
+  render unwinds, so they dispatch through the captured closure to land
+  on the surrounding instance frame, not a `:rf/xray` literal."
+  [{:keys [at-head? at-tail? live? dispatch-fn]}]
   (let [head-disabled? (boolean (and at-head? live?))
         ;; rf2-3f2di A2 / rf2-xawwb — filled nav buttons (Figma-Make chrome-
         ;; ribbon): blue `active-bg` fill, white `active-text` icon, 4px
@@ -836,7 +866,7 @@
            :style {:display "flex" :align-items "center" :gap "2px"}}
      [:button {:data-testid   "rf-xray-nav-prev"
                :on-click      (when-not at-tail?
-                                #(rf/dispatch [:rf.xray/focus-cascade-prev] {:frame :rf/xray}))
+                                #(dispatch-fn [:rf.xray/focus-cascade-prev]))
                :disabled      (boolean at-tail?)
                :aria-disabled (boolean at-tail?)
                :title         "Step to previous event (j)"
@@ -844,7 +874,7 @@
       [:span {:aria-hidden "true"} "‹"]]
      [:button {:data-testid   "rf-xray-nav-next"
                :on-click      (when-not at-head?
-                                #(rf/dispatch [:rf.xray/focus-cascade-next] {:frame :rf/xray}))
+                                #(dispatch-fn [:rf.xray/focus-cascade-next]))
                :disabled      (boolean at-head?)
                :aria-disabled (boolean at-head?)
                :title         "Step to next event (k)"
@@ -852,7 +882,7 @@
       [:span {:aria-hidden "true"} "›"]]
      [:button {:data-testid   "rf-xray-nav-head"
                :on-click      (when-not head-disabled?
-                                #(rf/dispatch [:rf.xray/follow-head] {:frame :rf/xray}))
+                                #(dispatch-fn [:rf.xray/follow-head]))
                :disabled      head-disabled?
                :aria-disabled head-disabled?
                :title         "Fast-forward to latest (G)"
@@ -948,8 +978,11 @@
     [:button {:data-testid "rf-xray-theme-toggle"
               :title       (if dark? "Switch to light theme" "Switch to dark theme")
               :aria-label  (if dark? "Switch to light theme" "Switch to dark theme")
-              :on-click    #(rf/dispatch [:rf.xray/settings-update :theme nil next]
-                                         {:frame :rf/xray})
+              ;; rf2-r0o63 — dispatch through the reg-view-injected
+              ;; frame-aware dispatcher so the theme write lands on the
+              ;; surrounding instance frame (captured at render time),
+              ;; not a `:rf/xray` literal.
+              :on-click    #(dispatch [:rf.xray/settings-update :theme nil next])
               :style       {:background      "transparent"
                             :border          "none"
                             :border-radius   "4px"
@@ -990,8 +1023,12 @@
   (the `:hover` lift lives in `theme/global-styles/motion-css` since
   inline styles can't carry a pseudo-class). The `✕` uses the U+2715
   multiplication X glyph (thinner than the dialog-cross) to read like
-  lucide's `X`."
-  []
+  lucide's `X`.
+
+  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the `ribbon` `reg-view` body so the settings / close clicks land on
+  the surrounding instance frame, not a `:rf/xray` literal."
+  [{:keys [dispatch-fn]}]
   (let [icon-style {:background      "transparent"
                     :border          "none"
                     :border-radius   "4px"
@@ -1013,13 +1050,13 @@
      [:button {:data-testid "rf-xray-icon-settings"
                :title       "Settings (,)"
                :aria-label  "Open Xray settings"
-               :on-click    #(rf/dispatch [:rf.xray/settings-open] {:frame :rf/xray})
+               :on-click    #(dispatch-fn [:rf.xray/settings-open])
                :style       icon-style}
       [:span {:aria-hidden "true"} "⚙"]]
      [:button {:data-testid "rf-xray-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :aria-label  "Close Xray"
-               :on-click    #(rf/dispatch [:rf.xray/close-shell] {:frame :rf/xray})
+               :on-click    #(dispatch-fn [:rf.xray/close-shell])
                :style       icon-style}
       [:span {:aria-hidden "true"} "✕"]]]))
 
@@ -1167,7 +1204,10 @@
                       :white-space "nowrap"}}
        "Event History"]
       ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
-      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
+      ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
+      ;; nav on-clicks land on the surrounding instance frame.
+      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?
+                           :dispatch-fn dispatch}]
       ;; rf2-xawwb — `+ filter` text button (Figma-Make chrome-ribbon).
       ;; Replaces the prior `Filters:` label + plus-icon affordance with a
       ;; single outlined `+ filter` text button. Opens the same edit
@@ -1214,7 +1254,9 @@
       ;; rf2-xawwb — theme toggle (sun/moon) sits before the settings/close
       ;; icons per the Figma-Make chrome-ribbon right cluster.
       [ribbon-theme-toggle]
-      [ribbon-right-icons]]]))
+      ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
+      ;; settings / close icon clicks land on the instance frame.
+      [ribbon-right-icons {:dispatch-fn dispatch}]]]))
 
 ;; ---- L2 event list -------------------------------------------------------
 
@@ -1379,8 +1421,9 @@
   inline column widths from. The parent (`event-list`) subscribes
   ONCE per paint and threads the resolved map through props so each
   row doesn't re-subscribe per render."
-  [{:keys [cascade focused-id auto-track? now-ms col-widths]}]
-  (let [id          (:dispatch-id cascade)
+  [{:keys [cascade focused-id auto-track? now-ms col-widths dispatch-fn]}]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+        id          (:dispatch-id cascade)
         focused?    (= id focused-id)
         ;; rf2-ad7zx.12 — the Figma `source` column tag (source name as
         ;; text; `ui` for the default app-code source). Per rf2-1ve9h
@@ -1403,8 +1446,11 @@
         ;; The focus-set lens (and its body-click-clears-focus branch)
         ;; was retired; row click selects the cascade, full stop.
         body-click  (fn [_e]
-                      (rf/dispatch [:rf.xray/focus-cascade id (:frame cascade)]
-                                   {:frame :rf/xray}))]
+                      ;; rf2-r0o63 — dispatch through the captured
+                      ;; instance-frame dispatcher (threaded from the
+                      ;; `event-list` reg-view) so the focus-cascade
+                      ;; write lands on this shell's frame.
+                      (dispatch-fn [:rf.xray/focus-cascade id (:frame cascade)]))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Xray is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
@@ -1455,12 +1501,11 @@
                                        (let [rect (when target (.getBoundingClientRect target))
                                              x    (if rect (.-left rect) 0)
                                              y    (if rect (.-bottom rect) 0)]
-                                         (rf/dispatch
+                                         (dispatch-fn
                                            [:rf.xray/open-row-context-menu
                                             {:event-id ev-id
                                              :x        x
-                                             :y        y}]
-                                           {:frame :rf/xray}))))))
+                                             :y        y}]))))))
                   :on-context-menu (fn [^js e]
                                      ;; rf2-ikuwt — open the row's
                                      ;; floating context menu at the
@@ -1472,12 +1517,11 @@
                                      ;; OUT-pill popup) items.
                                      (when ev-id
                                        (.preventDefault e)
-                                       (rf/dispatch
+                                       (dispatch-fn
                                          [:rf.xray/open-row-context-menu
                                           {:event-id ev-id
                                            :x        (.-clientX e)
-                                           :y        (.-clientY e)}]
-                                         {:frame :rf/xray})))
+                                           :y        (.-clientY e)}])))
                   ;; rf2-cmtkw — dropped fields (full event vector with
                   ;; args, sequence number, frame, source coord, handler
                   ;; duration) surface in this hover tooltip + the L4
@@ -1534,7 +1578,8 @@
      ;; stay column-for-column aligned.
      [col-divider {:col-id    :source
                    :col-px    (:source col-widths)
-                   :row-height "22px"}]
+                   :row-height "22px"
+                   :dispatch-fn dispatch-fn}]
      ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN (Figma EventList).
      ;; A user-resizable cell (rf2-6ni62) aligned under the header's
      ;; `source` label, carrying the dispatch-origin as a short text tag.
@@ -1558,7 +1603,8 @@
      ;; rf2-6ni62 — divider sits between `source` and `timestamp`.
      [col-divider {:col-id    :timestamp
                    :col-px    (:timestamp col-widths)
-                   :row-height "22px"}]
+                   :row-height "22px"
+                   :dispatch-fn dispatch-fn}]
      ;; Timestamp column (rf2-3f2di A8) — absolute wall-clock
      ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
      ;; `:title` tooltip as the power-user reveal.
@@ -1566,7 +1612,8 @@
      ;; rf2-6ni62 — divider sits between `timestamp` and `duration`.
      [col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
-                   :row-height "22px"}]
+                   :row-height "22px"
+                   :dispatch-fn dispatch-fn}]
      ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
      ;; restoring the Figma EventList's fourth column. Handler wall-time
      ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
@@ -1728,9 +1775,14 @@
   `{:source N :timestamp N :duration N}` map) so the header column
   widths read from the SAME source the rows do. Dividers between
   columns carry the drag affordance — pointerdown begins a drag,
-  arrow keys do a fine resize, double-click resets to default."
-  [col-widths]
-  (let [cell {:color       (:text-tertiary tokens)
+  arrow keys do a fine resize, double-click resets to default.
+
+  rf2-r0o63 — `dispatch-fn` is the frame-aware dispatcher captured by
+  the `event-list` reg-view body, threaded to each divider so resize
+  writes land on the instance frame."
+  [col-widths dispatch-fn]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+        cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
               :font-size   (:caption type-scale)
               :font-weight 500
@@ -1772,7 +1824,8 @@
      ;; rf2-6ni62 — divider between `event id` (flex) and `source`.
      [col-divider {:col-id    :source
                    :col-px    (:source col-widths)
-                   :row-height "100%"}]
+                   :row-height "100%"
+                   :dispatch-fn dispatch-fn}]
      [:span {:data-testid "rf-xray-event-list-col-source"
              :style (merge cell {:width (->px (:source col-widths))
                                  :flex-shrink 0})}
@@ -1780,7 +1833,8 @@
      ;; rf2-6ni62 — divider between `source` and `timestamp`.
      [col-divider {:col-id    :timestamp
                    :col-px    (:timestamp col-widths)
-                   :row-height "100%"}]
+                   :row-height "100%"
+                   :dispatch-fn dispatch-fn}]
      [:span {:data-testid "rf-xray-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
                                  :width (->px (:timestamp col-widths))})}
@@ -1788,7 +1842,8 @@
      ;; rf2-6ni62 — divider between `timestamp` and `duration`.
      [col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
-                   :row-height "100%"}]
+                   :row-height "100%"
+                   :dispatch-fn dispatch-fn}]
      ;; rf2-lnod7 — the fourth Figma column. Restored after the gap
      ;; audit (rf2-4297k) found the live header carried only three
      ;; columns and the duration was clipped off the right edge.
@@ -1920,8 +1975,12 @@
         ;; rf2-ad7zx.12 — the Figma column-header row above the row
         ;; stack. Rendered only with rows present so the empty state
         ;; stays a clean "No events." message.
+        ;; rf2-r0o63 — thread the captured frame-aware dispatcher into
+        ;; the header dividers + every row's out-of-render dispatches
+        ;; (body-click focus, context menu, col resize) so they land on
+        ;; the surrounding instance frame.
         (list
-         ^{:key "header"} [l2-column-header col-widths]
+         ^{:key "header"} [l2-column-header col-widths dispatch]
          (into ^{:key "rows"}
                [:ul {:style {:list-style "none" :margin 0 :padding 0
                             :display "flex" :flex-direction "column"
@@ -1932,7 +1991,8 @@
                             :focused-id  focused-id
                             :auto-track? auto-track?
                             :now-ms      now-ms
-                            :col-widths  col-widths}]))))]]))
+                            :col-widths  col-widths
+                            :dispatch-fn dispatch}]))))]]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 
@@ -1969,10 +2029,15 @@
   and `aria-selected={active?}` so the tab strip exposes the proper
   ARIA tab pattern. Assistive tech announces the buttons as tabs
   rather than generic buttons and reads the selected state correctly;
-  `getByRole('tab')` lookups in host integration tests resolve here."
-  [{:keys [id label mnem active?]}]
+  `getByRole('tab')` lookups in host integration tests resolve here.
+
+  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the `tab-bar` reg-view so the select-tab click lands on the instance
+  frame, not a `:rf/xray` literal."
+  [{:keys [id label mnem active? dispatch-fn]}]
   (let [;; rf2-plajx — stable per-tab id so the controlled L4 panel's
         ;; `aria-labelledby` resolves to this button's accessible name.
+        dispatch-fn (or dispatch-fn rf/dispatch*)
         tab-id   (str "rf-xray-tab-button-" (name id))
         panel-id (str "rf-xray-tabpanel-" (name id))]
     [:button {:data-testid   (str "rf-xray-tab-" (name id))
@@ -1980,7 +2045,7 @@
               :role          "tab"
               :aria-selected (if active? "true" "false")
               :aria-controls panel-id
-              :on-click      #(rf/dispatch [:rf.xray/select-tab id] {:frame :rf/xray})
+              :on-click      #(dispatch-fn [:rf.xray/select-tab id])
               :title         (str label " (" mnem ")")
               :aria-label    (str "Xray " label " tab")
               :style {;; rf2-xawwb — ROUNDED-TOP tab on the dark tabs
@@ -2066,7 +2131,9 @@
      ;; than a literal vector. Tab order follows each entry's `:order`.
      (for [{:keys [id] :as tab} (dynamic-tabs)]
        ^{:key id}
-       [tab-button (assoc tab :active? (= id selected))])]))
+       ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
+       ;; tab click's select-tab write lands on the instance frame.
+       [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)])]))
 
 ;; ---- L4 detail panel -----------------------------------------------------
 

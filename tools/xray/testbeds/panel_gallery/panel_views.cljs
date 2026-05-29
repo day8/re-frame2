@@ -34,12 +34,13 @@
   ## The chrome (rf2-xy4yb / spec/018)
 
   `:panel-gallery.chrome/Shell` mounts the full 4-layer chrome
-  (`shell/shell-view`). The variant frame-provider is the Story
-  canvas's; the shell internally also wraps itself in
-  `[frame-provider {:frame :rf/xray}]` — so the shell's reads land
-  on `:rf/xray` regardless of the outer variant frame. The variant's
-  `:events` seed `:rf/xray` directly via `{:frame :rf/xray}`
-  dispatches.
+  (`shell/shell-view`). Per rf2-1w07r the chrome cell threads the
+  Story per-variant frame into `[shell/shell-view {:frame-id …}]`, so
+  the shell's app-db lives in the VARIANT frame — N chrome cells in one
+  workspace are fully isolated and each variant's `:events` seed THAT
+  frame directly. (Pre rf2-1w07r the shell hardcoded `[frame-provider
+  {:frame :rf/xray}]`, so every cell's reads collided on the one global
+  `:rf/xray` app-db regardless of the variant frame.)
 
   ## Facade-mount discipline (rf2-043uz)
 
@@ -191,10 +192,23 @@
 
 (defn- chrome-shell
   "Embedded mount of the full Xray 4-layer chrome (`shell/shell-view`)
-  per spec/018-Event-Spine.md §2. The shell sits inside its own
-  `[frame-provider {:frame :rf/xray}]` (per shell.cljs); variant
-  seed events therefore dispatch with `{:frame :rf/xray}` so the
-  reads land where the shell reads.
+  per spec/018-Event-Spine.md §2.
+
+  ## Per-cell frame isolation (rf2-1w07r)
+
+  `chrome-shell` is `reg-view*`-registered (see `register!`), so its
+  render-fn is `:contextType frame-context`-aware and `(rf/current-
+  frame)` resolves to the Story per-variant frame the canvas wrapped
+  the cell in. We thread that frame into `[shell/shell-view {:frame-id
+  …}]` so the shell's app-db (focused epoch, selected tab, theme, modal
+  open-state) lives in the VARIANT frame — each chrome cell in a
+  `:variants-grid` workspace is then fully isolated, and the variant's
+  `:events` seed THAT frame directly. (Pre rf2-1w07r the shell
+  hardcoded `[frame-provider {:frame :rf/xray}]`, so every cell
+  collided on the one `:rf/xray` app-db — driving one drove all; the
+  gallery had to serialise rendering with a `:tabs` workspace + a
+  re-seed-on-activation shim. The parameterized shell retires that
+  workaround.)
 
   ## `:modal-positioning :absolute` (rf2-om6fa)
 
@@ -212,7 +226,8 @@
   [:div {:style       chrome-card-style
          :data-testid "panel-gallery-chrome-card"}
    [shell/shell-view {:mode :inline
-                      :modal-positioning :absolute}]])
+                      :modal-positioning :absolute
+                      :frame-id (rf/current-frame)}]])
 
 ;; ---- registration --------------------------------------------------------
 
