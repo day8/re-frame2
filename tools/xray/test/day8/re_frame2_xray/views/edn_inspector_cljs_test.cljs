@@ -1487,6 +1487,82 @@
         "modified leaf still carries the change annotation")))
 
 ;; =========================================================================
+;; rf2-e28r3 — single render path: value (always) + before (optional)
+;; =========================================================================
+;;
+;; The widget has ONE renderer. With a `:before` pre-image present the
+;; tree paints inline diff annotations + the R4 op-coloured rail + R3
+;; chip on change-bearing containers; with no pre-image the SAME renderer
+;; shows the value plainly (no rail, no chip, no annotation). The former
+;; `:full-with-diff?` flag — which gated the rail/chip on a defunct
+;; mode-2-vs-mode-3 distinction — is GONE; the rail now keys directly on
+;; `has-change?` (which itself implies `:diff?`).
+
+(deftest with-before-paints-rail-on-change-bearing-container
+  (testing "rf2-e28r3 — a `:before` pre-image renders the change-bearing
+            container with the R4 rail (`data-rf-rail`); modified leaves
+            carry the `← was <prior>` annotation. The rail paints on a
+            container whose OWN op is added/removed/modified (a newly-
+            added nested map here), the only chrome now that the
+            `:full-with-diff?` flag is gone."
+    (let [before {:a 1}
+          after  {:a 1 :nested {:x 1 :y 2}}
+          proj   (engine/project before after)
+          h      (ei/render-node {:value after
+                                  :before before
+                                  :diff? true
+                                  :projection proj
+                                  :panel-id :p :mount-id "m"
+                                  :path [] :depth 0
+                                  :expansion-map {}
+                                  :opts {:default-expanded-depth 4}})]
+      (is (some? (find-attr h :data-rf-rail "1"))
+          "the added nested container's body carries the R4 rail attr")
+      ;; A modified leaf also annotates (separate scenario keeps the
+      ;; rail assertion clean above).
+      (let [hm (ei/render-node {:value {:counter 2}
+                                :before {:counter 1}
+                                :diff? true
+                                :projection (engine/project {:counter 1} {:counter 2})
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+            sm (try (pr-str hm) (catch :default _ ""))]
+        (is (re-find #"← was 1" sm)
+            "the modified leaf carries the inline change annotation")))))
+
+(defn- diff-op-values
+  "Collect every non-nil `:data-rf-diff-op` attribute value in `tree`."
+  [tree]
+  (->> (walk-hiccup tree)
+       (keep (fn [n]
+               (when (map? (second n))
+                 (get (second n) :data-rf-diff-op))))
+       (remove nil?)))
+
+(deftest value-only-render-has-no-rail-or-annotation
+  (testing "rf2-e28r3 — with NO pre-image (`:diff?` absent) the same
+            renderer shows the value plainly: no R4 rail, no `← was`
+            annotation, no painted diff-op markers"
+    (let [v {:counter 2 :stable :x :nested {:deep 1}}
+          h (ei/render-node {:value v
+                             :panel-id :p :mount-id "m"
+                             :path [] :depth 0
+                             :expansion-map {}
+                             :opts {:default-expanded-depth 4}})
+          s (try (pr-str h) (catch :default _ ""))]
+      (is (nil? (find-attr h :data-rf-rail "1"))
+          "plain value render paints no R4 rail")
+      (is (not (re-find #"← was" s))
+          "plain value render carries no change annotation")
+      (is (empty? (diff-op-values h))
+          "plain value render emits no painted diff-op markers (the
+           `:data-rf-diff-op` value is nil outside diff mode)")
+      (is (re-find #":counter" s)
+          "the value's keys still render"))))
+
+;; =========================================================================
 ;; rf2-zpeyv — slot-vs-value anchoring (R2 + R6 whole-row treatment)
 ;; =========================================================================
 ;;
@@ -2312,30 +2388,32 @@
                   {:depth 5 :child-count 2 :value {:a 1 :b 2}
                    :default-expanded-depth 2})))))
 
-(deftest default-expanded-full-with-diff-collapses-unchanged
-  (testing "rf2-fqcdd — FULL+DIFF mode: unchanged subtrees collapse
-            regardless of depth/width. Only the root + ancestors of
-            a change auto-expand."
+(deftest default-expanded-diff-collapses-unchanged
+  (testing "rf2-fqcdd / rf2-e28r3 — with a pre-image present (`:diff?`):
+            unchanged subtrees collapse regardless of depth/width. Only
+            the root + ancestors of a change auto-expand. (The former
+            `:full-with-diff?` flag was removed; the collapse heuristic
+            now keys directly on `:diff?`.)"
     ;; Root (depth 0) always expands so the operator sees the keys.
     (is (true? (ei/default-expanded?
                  {:depth 0 :child-count 5 :value {:a 1 :b 2}
                   :default-expanded-depth 3
-                  :full-with-diff? true})))
-    ;; Depth 1 with NO changed descendant + FULL+DIFF on → collapse,
+                  :diff? true})))
+    ;; Depth 1 with NO changed descendant + diff on → collapse,
     ;; even though depth ≤ default-expanded-depth (would normally expand).
     (is (false? (ei/default-expanded?
                   {:depth 1 :child-count 5 :value {:a 1 :b 2}
                    :default-expanded-depth 3
-                   :full-with-diff? true})))
-    ;; Depth 1 WITH changed descendant + FULL+DIFF on → expand (the
+                   :diff? true})))
+    ;; Depth 1 WITH changed descendant + diff on → expand (the
     ;; force-expand rule for diff readability wins).
     (is (true? (ei/default-expanded?
                  {:depth 1 :child-count 5 :value {:a 1 :b 2}
                   :default-expanded-depth 3
-                  :full-with-diff? true
+                  :diff? true
                   :has-changed-descendant? true})))
-    ;; FULL+DIFF off — width/depth heuristic applies (the regression
-    ;; pin: the new branch is gated on `:full-with-diff?`).
+    ;; No pre-image (`:diff?` absent) — width/depth heuristic applies
+    ;; (the regression pin: the collapse branch is gated on `:diff?`).
     (is (true? (ei/default-expanded?
                  {:depth 1 :child-count 5 :value {:a 1 :b 2}
                   :default-expanded-depth 3})))))

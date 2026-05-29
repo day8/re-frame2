@@ -516,10 +516,12 @@
                ;; full-modal inspection surface alongside the per-
                ;; machine drill-in.
                :popup-affordance? true}
-        ;; FULL+DIFF — thread BEFORE so changed leaves carry inline
-        ;; `← was X` annotations. Skipped when no BEFORE is captured.
+        ;; rf2-e28r3 — thread BEFORE so changed leaves carry inline
+        ;; `← was X` annotations + the R4 rail / R3 chip. Skipped when
+        ;; no BEFORE is captured, in which case the same renderer shows
+        ;; the snapshot plainly.
         (some? before-snapshot)
-        (assoc :before before-snapshot :full-with-diff? true))]]))
+        (assoc :before before-snapshot))]]))
 
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders

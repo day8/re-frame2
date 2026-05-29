@@ -27,14 +27,14 @@
   ## Current-state render — first-class edn-inspector widget (rf2-oqa60)
 
   Values render through the first-class `views/edn-inspector` widget.
-  The new widget owns the WHOLE contract — browse + diff + mini —
-  CLJS-aware type detection, distinct bracket styling per collection
-  kind, click-to-toggle expansion stored in re-frame app-db, first-
-  class sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`).
-  After phase 5
-  (rf2-q3dzw, D5=a per rf2-sndui) diff also routes through this same
-  widget via the `:before` opt — the legacy `edn-inspector.render`
-  engine is gone.
+  The widget has ONE rendering path keyed on value (always) + before
+  (optional) — CLJS-aware type detection, distinct bracket styling per
+  collection kind, click-to-toggle expansion stored in re-frame app-db,
+  first-class sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`),
+  and inline diff annotations when a `:before` pre-image is supplied
+  (rf2-q3dzw phase 5, D5=a per rf2-sndui; rf2-e28r3 collapsed the
+  former browse/diff modes into the single path). The legacy
+  `edn-inspector.render` engine is gone.
 
   The widget has NO ⎘ copy affordance (deferred to follow-on beads —
   the popup phase, D6=a). The old EDN widget's copy gesture is
@@ -62,14 +62,14 @@
 
   Each section carries a `:before` slice (from the cascade's `db-before`,
   threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
-  When a pre-image is present and differs, the value body routes
-  through the edn-inspector widget's DIFF mode (rf2-q3dzw phase 5,
-  D5=a) — passing `:before` paints inline `← was X`
-  annotations in place on changed nodes and force-expands the
+  When a pre-image is present and differs, the value body passes
+  `:before` to the edn-inspector widget — painting inline `← was X`
+  annotations in place on changed nodes and force-expanding the
   ancestor chain so the operator never expands to find a change. When
   no pre-image is threaded (`no-diff` sentinel — LIVE at boot,
-  1-arity model) the body falls back to plain BROWSE mode on the same
-  widget. The keyword-accent is already orange (owned by rf2-ad7zx.3).
+  1-arity model) `:before` is omitted and the same widget renders the
+  value plainly. The keyword-accent is already orange (owned by
+  rf2-ad7zx.3).
 
   Pure hiccup; reuses Xray's theme tokens so light/dark resolve."
   (:require [day8.re-frame2-xray.panels.app-db-diff-format :as f]
@@ -191,19 +191,19 @@
   payload from flooding the inspector (and from leaking the raw bytes
   into the rendered text).
 
-  ## Diff vs current-state routing
+  ## Single render path — value + optional before
 
-  When `before` is the `h/no-diff` sentinel (no pre-image threaded —
-  LIVE at boot / 1-arity model) the value renders in BROWSE mode via
-  the first-class edn-inspector widget — a plain current-state tree.
-
-  When a real pre-image is present the value renders in DIFF mode via
-  the SAME widget (rf2-q3dzw phase 5), passing `:before` so the
-  widget paints inline `← was X` annotations and force-
-  expands the ancestor chain over changed descendants (spec/021 §4.3 +
-  §10.4). App-db's depth heuristic is depth-3-collapsed by default
-  (§10.4). The keyword-accent is already orange (owned by
-  rf2-ad7zx.3)."
+  The edn-inspector has ONE rendering path (rf2-e28r3): value (always)
+  + before (optional). When `before` is the `h/no-diff` sentinel (no
+  pre-image threaded — LIVE at boot / 1-arity model) the `:before` opt
+  is omitted and the value renders plainly — a current-state tree with
+  no diff annotations, no rail, no chip. When a real pre-image is
+  present `:before` is passed and the SAME renderer paints inline
+  `← was X` annotations, the R4 rail + R3 chip on change-bearing
+  containers, and force-expands the ancestor chain over changed
+  descendants (spec/021 §4.3 + §10.4). App-db's depth heuristic is
+  depth-3-collapsed by default (§10.4). The keyword-accent is already
+  orange (owned by rf2-ad7zx.3)."
   [value before render-id title]
   (let [_node-key (str "app-db-state/" render-id)
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
@@ -212,57 +212,33 @@
         ;; area name for the per-:rf/* sections), so passing it AS the
         ;; site-id reuses the existing per-surface key without
         ;; introducing a new namespace.
-        site-id [:rf.xray/app-db render-id]]
+        site-id [:rf.xray/app-db render-id]
+        has-before? (not= h/no-diff before)]
     ;; rf2-7sdja — App-DB does NOT use `:popup-affordance?` (Mike's
     ;; live-testing call 2026-05-26). The side panel has plenty of
     ;; horizontal room; the whole-tree inspector renders comfortably
     ;; in-place. Other panels (Handler / Trace / Machines / Reactive)
     ;; keep the affordance where the inline widget is genuinely
     ;; cramped.
-    (if (= h/no-diff before)
-      [ei/edn-inspector
-       (f/display-value value)
-       {:panel-id :rf.xray/app-db
-        :site-id  site-id
-        :default-expanded-depth 3
-        ;; rf2-63ie5 — App-DB renders the user-domain TOP + every
-        ;; reserved `:rf/*` area as top-level mounts in the same panel.
-        ;; Without card chrome the mounts blend into one continuous
-        ;; block; the opt-in chrome gives each mount a distinct card
-        ;; affordance so the operator sees them as discrete inspector
-        ;; cards.
-        :card? true
-        ;; rf2-h71e0 — App-DB is the canonical zoom-into-node consumer.
-        ;; Dense top-level trees benefit hugely from focusing on a
-        ;; single subtree; the breadcrumb row keeps the operator's
-        ;; bearings. Diff mode (`before` present) suppresses zoom
-        ;; resolution because diff's force-expand-over-changes logic
-        ;; and zoom's hide-everything-outside-the-subtree conflict.
-        :zoomable? true
-        :header title}]
-      [ei/edn-inspector
-       (f/display-value value)
-       {:panel-id :rf.xray/app-db
-        :site-id  site-id
-        :default-expanded-depth 3
-        :before (f/display-value before)
-        ;; rf2-kkhss — opts mode-3 grammar (spec/021 §9.1.5.2 axis 2)
-        ;; into the App-DB diff render. `render-container` gates the
-        ;; R4 2px vertical rail behind `(and full-with-diff? has-
-        ;; change?)`; without this flag the rail silently never paints
-        ;; on App-DB even though Stories — which all pass the opt —
-        ;; render it correctly. Sister surfaces (HANDLER `:db` /
-        ;; Machine / SUBS) also set it. The BROWSE branch above MUST
-        ;; NOT carry this opt: no `:before` is present, and mode-3
-        ;; chrome would mis-render against a non-diff tree.
-        :full-with-diff? true
-        :card? true
-        ;; rf2-h71e0 — zoomable opt is preserved here for symmetry;
-        ;; the widget self-suppresses zoom resolution in diff mode so
-        ;; the affordance + breadcrumb stay off until the operator
-        ;; returns to current-state (non-diff) browse.
-        :zoomable? true
-        :header title}])))
+    ;;
+    ;; rf2-e28r3 — ONE `ei/edn-inspector` call. `:before` is threaded
+    ;; ONLY when a real pre-image is present; its absence is the signal
+    ;; to render plainly. `:card?` + `:zoomable?` are constant across
+    ;; both cases (rf2-63ie5 gives each top-level mount discrete card
+    ;; chrome; rf2-h71e0 makes App-DB the canonical zoom-into-node
+    ;; consumer — the widget self-suppresses zoom resolution whenever a
+    ;; before is present because diff's force-expand-over-changes logic
+    ;; and zoom's hide-everything-outside-the-subtree conflict).
+    [ei/edn-inspector
+     (f/display-value value)
+     (cond-> {:panel-id :rf.xray/app-db
+              :site-id  site-id
+              :default-expanded-depth 3
+              :card? true
+              :zoomable? true
+              :header title}
+       has-before?
+       (assoc :before (f/display-value before)))]))
 
 ;; ---- top (user-domain) section ------------------------------------------
 

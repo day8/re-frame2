@@ -436,57 +436,42 @@
       (is (every? #(true? (:card? (:opts %))) diff-mts)
           "diff-mode mounts also opt in to the card chrome"))))
 
-;; ---- mode-3 grammar opt (rf2-kkhss) -------------------------------------
+;; ---- single render path: `:before` presence is the only diff signal
+;;      (rf2-e28r3) -----------------------------------------------------------
 ;;
-;; The edn-inspector widget gates its mode-3 R4 2px vertical rail behind
-;; `(and full-with-diff? has-change?)` in `render-container`. The App-DB
-;; call site MUST set `:full-with-diff? true` on the DIFF branch so the
-;; rail paints on change-bearing subtrees — Stories at
-;; `gallery_diff_mode_3.cljs` all set it, and sister surfaces (HANDLER
-;; `:db`, Machine, SUBS) also set it; the App-DB BROWSE branch (no
-;; `:before` present) MUST NOT set it (mode-3 chrome against a non-diff
-;; tree mis-renders).
-;;
-;; Per rf2-ya3nj audit finding H1. Without the opt the R4 rail silently
-;; never paints on App-DB — a load-bearing visual signal absent on the
-;; real surface while Stories render it correctly.
+;; The edn-inspector has ONE rendering path keyed on value (always) +
+;; before (optional). The former `:full-with-diff?` flag — which gated
+;; the R4 2px vertical rail + R3 chip on a distinction between the plain
+;; `:diff` lens (mode-2) and full+diff (mode-3) — is GONE; with a single
+;; path the chrome paints whenever a `:before` pre-image is present. The
+;; App-DB call site threads `:before` ONLY when a real pre-image differs
+;; and omits it otherwise (one `ei/edn-inspector` call, no browse/diff
+;; branch). These tests pin that the diff signal rides EXCLUSIVELY on
+;; `:before` presence and that no mount re-introduces the removed flag.
 
-(deftest diff-mode-mounts-carry-full-with-diff-opt
-  (testing "rf2-kkhss — DIFF-mode mounts (when a pre-image is supplied)
-            carry `:full-with-diff? true` so the edn-inspector widget
-            paints the mode-3 R4 vertical rail on change-bearing
-            subtrees (Stories at `gallery_diff_mode_3.cljs` all set
-            this opt; live App-DB used to silently drop it)"
-    (let [model    (h/current-state-sections {:counter 2} {:counter 1})
-          tree     (state/state-body model)
-          mounts   (find-edn-inspector-mounts tree)
-          diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq diff-mts) "diff-mode mounts present")
-      (is (every? #(true? (:full-with-diff? (:opts %))) diff-mts)
-          "every diff-mode mount opts in to mode-3 chrome so the R4
-           rail paints on change-bearing containers"))))
-
-(deftest browse-mode-mounts-omit-full-with-diff-opt
-  (testing "rf2-kkhss — BROWSE-mode mounts (1-arity / no pre-image,
-            `:before` absent) MUST NOT carry `:full-with-diff? true`
-            — mode-3 chrome against a non-diff tree mis-renders. The
-            opt belongs exclusively on the DIFF branch."
-    (let [model  (h/current-state-sections
-                   (runtime-db {:counter 2}
-                               {:rf/route {:id :home}
-                                :rf/machines {:auth {:state :idle}}}))
-          tree   (state/state-body model)
-          mounts (find-edn-inspector-mounts tree)]
+(deftest no-mount-carries-the-removed-full-with-diff-flag
+  (testing "rf2-e28r3 — the `:full-with-diff?` opt was removed; no
+            App-DB mount (diff or plain) may carry it. The R4 rail + R3
+            chip now paint whenever `:before` is present, with no
+            separate flag."
+    (let [diff-tree  (state/state-body
+                       (h/current-state-sections {:counter 2} {:counter 1}))
+          plain-tree (state/state-body
+                       (h/current-state-sections
+                         (runtime-db {:counter 2}
+                                     {:rf/route {:id :home}
+                                      :rf/machines {:auth {:state :idle}}})))
+          mounts     (concat (find-edn-inspector-mounts diff-tree)
+                             (find-edn-inspector-mounts plain-tree))]
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
-      (is (every? #(not (contains? (:opts %) :before)) mounts)
-          "no `:before` opt — every mount is in BROWSE mode")
-      (is (not-any? #(true? (:full-with-diff? (:opts %))) mounts)
-          "no browse-mode mount carries the mode-3 opt"))))
+      (is (not-any? #(contains? (:opts %) :full-with-diff?) mounts)
+          "no mount carries the removed `:full-with-diff?` opt"))))
 
-(deftest changed-machine-snapshot-diff-mount-carries-mode-3-opt
-  (testing "rf2-kkhss — DIFF-mode mounts in the per-machine fan-out
-            (instance sections) also carry `:full-with-diff? true` so
-            the R4 rail paints uniformly across every reserved area"
+(deftest changed-machine-snapshot-diff-mount-threads-before
+  (testing "rf2-e28r3 — DIFF mounts in the per-machine fan-out thread
+            `:before` (the only diff signal) so the widget paints the
+            R4 rail / R3 chip + inline annotation uniformly across every
+            reserved area"
     (let [before   (runtime-db {:rf/machines {:title/flow {:state :idle}}})
           after    (runtime-db {:rf/machines {:title/flow {:state :loaded}}})
           model    (h/current-state-sections after before)
@@ -495,6 +480,5 @@
                      tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
           mounts   (find-edn-inspector-mounts flow)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq diff-mts) "the instance section renders in DIFF mode")
-      (is (every? #(true? (:full-with-diff? (:opts %))) diff-mts)
-          "the changed-machine instance mount opts in to mode-3 chrome"))))
+      (is (seq diff-mts)
+          "the changed-machine instance mount threads `:before`"))))
