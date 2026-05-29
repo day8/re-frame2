@@ -234,6 +234,31 @@
       (is (= 2 (count (filter #(= :fail (:type %)) reports))))
       (is (= 2 (count (:violations @state)))))))
 
+(deftest on-epoch-reports-once-per-frame-same-epoch-id
+  (testing "two frames with the SAME epoch-id each report once (dedup-key is per-frame, rf2-ilatz)"
+    ;; `with-invariants` observes EVERY frame's epochs, so report-once must
+    ;; be keyed per-frame. Epoch-ids are globally unique today (single
+    ;; global counter), but should they ever become per-frame, two frames
+    ;; could both emit epoch-id 1 — a frame-less dedup-key would SILENTLY
+    ;; DROP the second frame's violation. This asserts both frames report.
+    (let [coerced (inv/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
+          state   (atom {:seen #{} :violations []})
+          ep-a    (epoch 1 {:frame :frame/a :db-after {:n -1}})
+          ep-b    (epoch 1 {:frame :frame/b :db-after {:n -1}})
+          reports (with-captured-reports
+                    (fn []
+                      (inv/on-epoch! state coerced ep-a)
+                      (inv/on-epoch! state coerced ep-b)
+                      ;; Re-fires of each frame's epoch must NOT re-report.
+                      (inv/on-epoch! state coerced ep-a)
+                      (inv/on-epoch! state coerced ep-b)))]
+      (is (= 2 (count (filter #(= :fail (:type %)) reports)))
+          "one :fail per frame even though both share epoch-id 1")
+      (is (= 2 (count (:violations @state))))
+      (is (= #{:frame/a :frame/b}
+             (into #{} (map :frame) (:violations @state)))
+          "the two violations come from the two distinct frames"))))
+
 (deftest on-epoch-isolates-and-reports-broken-predicate
   (testing "a throwing predicate reports a :fail and never escapes on-epoch!"
     (let [coerced (inv/coerce-invariants [(fn [_] (throw (ex-info "boom" {})))])

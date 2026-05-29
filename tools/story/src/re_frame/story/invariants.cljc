@@ -313,16 +313,30 @@
 ;; report-once / exception-isolation logic is itself testable.
 ;;
 ;; report-once policy: a violation is reported at most ONCE per
-;; (invariant, epoch-id) pair (spec/017 §A1 "exactly once per failing
-;; epoch"). The listener threads a `seen` set of `[invariant-id epoch-id]`
-;; tuples through an atom so a re-fire of the same record (a back-filled
-;; render re-notify, rf2-qs6dl) does not double-count.
+;; (invariant, frame, epoch-id) triple (spec/017 §A1 "exactly once per
+;; failing epoch"). The listener threads a `seen` set of
+;; `[invariant-id frame epoch-id]` tuples through an atom so a re-fire of
+;; the same record (a back-filled render re-notify, rf2-qs6dl) does not
+;; double-count.
+;;
+;; The `:frame` component is defensive. `with-invariants` observes EVERY
+;; frame's epochs, so report-once must be per-frame. It is collision-proof
+;; today only incidentally — epoch-ids come from a single global counter
+;; (`re-frame.epoch.state/next-epoch-id`), so `[invariant-id epoch-id]`
+;; cannot collide across frames. Should epoch-ids ever become per-frame (a
+;; plausible refactor — per-frame rings already exist), two frames could
+;; both produce epoch-id 1, and a violation in frame B's epoch 1 would be
+;; SILENTLY DROPPED under a frame-less key once frame A reported. Keying on
+;; `:frame` (already on every violation via the diagnostic spine) is
+;; equivalent today and robust under a per-frame-id world (rf2-ilatz).
 
 (defn dedup-key
   "The report-once key for a violation against an epoch: the
-  `[invariant-id epoch-id]` tuple. Pure."
+  `[invariant-id frame epoch-id]` triple. Including `:frame` keeps
+  report-once per-frame even if epoch-ids stop being globally unique
+  (rf2-ilatz). Pure."
   [violation]
-  [(:invariant violation) (:epoch-id violation)])
+  [(:invariant violation) (:frame violation) (:epoch-id violation)])
 
 (defn on-epoch!
   "The per-epoch listener step: check every `invariants` against `epoch`,
@@ -330,7 +344,7 @@
   keys + every violation into `state-atom`. Never throws — `check-all`
   isolates predicate exceptions and `report-violation!` uses `do-report`.
 
-  `state-atom` holds `{:seen #{[inv-id epoch-id] …} :violations [v …]}`.
+  `state-atom` holds `{:seen #{[inv-id frame epoch-id] …} :violations [v …]}`.
   Returns the violations reported on THIS call (for testing)."
   [state-atom invariants epoch]
   (let [violations (check-all invariants epoch)
