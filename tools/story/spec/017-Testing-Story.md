@@ -2608,8 +2608,81 @@ and test.
 | view wrapping (theme/provider/chrome) | `:decorator` |
 | the state matrix (theme × viewport × …) | `:variants-grid` / `:modes` |
 
-A Storybook→Story concept map (arg / argType / decorator / parameter /
-viewport → Story field) MUST ship in docs so migrants are at home.
+### Workshop superset — what the plan carries (rf2-5x1wt.24)
+
+The variant-plan compiler is the SINGLE compiler for render AND test, so
+the workshop vocabulary rides the SAME normalized plan the runner
+consumes (`re-frame.story.plan/variant-plan`). The compiler preserves
+every workshop slot under `:world`:
+
+| Authored slot | Plan slot | Meaning |
+|---|---|---|
+| `:component` | `[:world :component]` | the active view id `render-variant` paints |
+| `:args` / `:argtypes` | `[:world :args]` / `[:world :argtypes]` | control values + control metadata |
+| (resolved) | `[:world :effective-args]` | the args feeding the view — at plan time the resolved arg-map; `render-variant` layers the live control overrides on top |
+| `:decorators` | `[:world :decorators]` | view-wrapping decorators (theme / provider / chrome) — NOT fx overrides |
+| `:fx-overrides` | `[:world :frame :fx-overrides]` | effect overrides — a frame slot, a distinct surface from `:decorators` |
+| `:modes` / `:substrates` | `[:world :modes]` / `[:world :substrates]` | saved-tuple modes + the substrate set |
+| `:viewport` / `:background` | `[:world :viewport]` / `[:world :background]` | per-variant viewport + canvas background |
+| `:sub-overrides` | `[:world :render :sub-overrides]` | view-state overrides (the design-fidelity rung) |
+| `:variants-grid` | (workspace-level — `reg-workspace`) | the state matrix is a WORKSPACE layout, not a per-variant body slot; it enumerates registered variants rather than riding one |
+
+### `render-variant` — render through the same plan
+
+`(story/render-variant target opts)` is the workshop render verb (§Args,
+controls, and `render-variant`). It normalizes `target` through the SAME
+`variant-plan` compiler the runner uses (a keyword resolves a registered
+variant; a map is an inline plan), layers `opts`'s `:control-overrides` on
+top of the plan's `[:world :effective-args]` (deep-merge, the same
+precedence the run path uses), **re-validates** the post-control effective
+args against the `[:world :view-args-schema]`, computes the `:plan-hash`
+over the normalized plan, resolves the active view + render inputs, and
+renders the view through the host renderer.
+
+- A control that drives an invalid view input ⇒ `:invalid-args` (render
+  STOPS before the view is called). A control driving a control-bound
+  `:sub-overrides` value re-resolves against the post-control effective
+  args, so the live view reflects the control.
+- The `:plan-hash` is `fingerprint/plan-hash` over the SAME normalized
+  plan, so a runner (`story/run`) and `render-variant` agree on it
+  whenever the behaviour-relevant inputs match — render and run cannot
+  diverge on what the plan was.
+- `render-variant` prepares `:world` and renders the active view; it does
+  NOT execute `:script` or terminal `:expect` (rendering is not a test
+  run). The host render is a CLJS late-bound hook (`:render-host`); the
+  bare JVM has none, so `render-variant` returns `:cannot-run` there
+  rather than a silent empty render.
+
+### Storybook → Story concept map
+
+A migrant from Storybook is at home with this mapping (the full prose
+version ships in the docs guide):
+
+| Storybook | re-frame2 Story | Notes |
+|---|---|---|
+| `Meta` / `export default` (CSF) | `reg-story` | the story-level defaults (component, args, argTypes, tags) |
+| `Story` / named export | `reg-variant` | one curated variant; ALSO a test (Story-as-test duality) |
+| `args` | `:args` | control values; `[:arg key]` placeholders thread them into setup/script |
+| `argTypes` | `:argtypes` | control metadata; schema-derived from the view arg schema where possible |
+| `args` after controls panel | `:effective-args` | the post-control args `render-variant` feeds the view |
+| `decorators` | `:decorators` | view wrapping ONLY (theme/provider/chrome); fx mocking is `:fx-overrides` |
+| `parameters` | `:viewport` / `:background` / `:modes` / `:xray` / … | named workshop slots, not one opaque bag |
+| `parameters.viewport` | `:viewport` | per-variant viewport |
+| `parameters.backgrounds` | `:background` | per-variant canvas background |
+| Chromatic modes / globals | `:modes` | saved tuples deep-merged into args |
+| `loaders` | `:loaders` (+ `:loaders-teardown`) | async preconditions before render |
+| `play` function | `:script` | ordered behaviour; tagged steps, not imperative `userEvent` calls |
+| `expect(...)` in `play` | `:assertions` / `[:assert …]` | the one assertion atom, terminal or mid-script checkpoint |
+| MSW network mocks | `:network` | route-level managed-HTTP stubs (lowered to the managed-request stub fx) |
+| `render` / custom render | `:component` + `:sub-overrides` | the active view + the design-fidelity view-state overrides |
+| docs / autodocs | `:doc` + the narrative projection | the scrubbable epoch-tape storyboard is the asset Storybook cannot copy |
+
+The deliberate divergences from Storybook: a Story variant IS a test (one
+artifact, two outputs); `parameters` are named, typed slots rather than an
+opaque bag; the `play` script is data-shaped tagged steps (replayable +
+`=`-comparable) rather than imperative `userEvent` calls; and the
+`render-variant` render path drives the SAME plan the runner does, so the
+workshop preview and the regression test never disagree.
 
 ## P1 non-goals
 

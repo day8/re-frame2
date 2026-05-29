@@ -123,6 +123,12 @@
             [re-frame.story.async       :as async]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
+            ;; rf2-5x1wt.24 — the variant-plan compiler (re-exported as
+            ;; `variant-plan` / `explain`) + the `render-variant` workshop
+            ;; render verb that drives the SAME plan the runner consumes
+            ;; (spec/017 §Args, controls, and `render-variant`).
+            [re-frame.story.plan        :as plan]
+            [re-frame.story.render      :as render]
             ;; rf2-5x1wt.19 — `story/is` bridges per-assertion run-result
             ;; reports to clojure.test / cljs.test (spec/017 §Public
             ;; execution API — the three verbs). `do-report` is the one
@@ -1351,6 +1357,64 @@
   §Public execution API)."
   ([target]      (run target nil))
   ([target opts] (lifecycle/run-variant target opts)))
+
+;; ---- variant-plan / explain / render-variant (rf2-5x1wt.24) -------------
+;;
+;; The variant-plan compiler is the ONE normalization both the runner and
+;; the workshop render path consume (spec/017 §Variant plan — every
+;; registered variant + inline plan MUST be normalized before execution).
+;; `variant-plan` / `explain` re-export the pure compiler; `render-variant`
+;; is the workshop render verb that drives the same plan.
+
+(defn variant-plan
+  "Per spec/017 §Variant plan — compile `target` into the normalized
+  variant plan (the `:world` / `:script` / `:expect` superset). A keyword
+  `target` resolves a registered variant; a map is an inline plan. `opts`
+  threads the compiler seams (`:lookup` / `:view-lookup` / `:validator-fns`
+  / `:sub-lookup` / `:fragment-lookup` / `:check-lookup`); production reads
+  the registrars. Pure data → data — the same plan the runner and
+  `render-variant` consume."
+  ([target]      (plan/variant-plan target))
+  ([target opts] (plan/variant-plan target opts)))
+
+(defn explain
+  "Per spec/017 §Explain API — the `:explain` map for `target` (source +
+  parent chain, composed fragments/checks, field-level merge decisions,
+  strict conflicts, args + substitutions, view-arg schema + effective-args
+  validation, final setup/script order, checks/assertions, runner
+  requirements, platforms, tags). Convenience over
+  `(:explain (variant-plan target opts))`."
+  ([target]      (plan/explain target))
+  ([target opts] (plan/explain target opts)))
+
+(defn render-variant
+  "Per spec/017 §Args, controls, and `render-variant` — render `target`'s
+  active workshop view from its normalized variant plan (the SAME plan the
+  test runner consumes — one plan, not two paths). A keyword `target`
+  resolves a registered variant; a map is an inline plan.
+
+  `opts` accepts `:control-overrides` (live control-panel arg overrides,
+  deep-merged on top of the plan's effective args — the post-control args)
+  plus the plan-compiler seams. Returns:
+
+      {:status         :rendered | :invalid-args | :cannot-run | :error
+       :plan           normalized-plan
+       :plan-hash      string
+       :frame          frame-id
+       :effective-args {...}          ; POST control-override
+       :validation     optional-validation-result
+       :rendered       host-render-result}
+
+  It prepares `:world` for rendering and renders the active view; it does
+  NOT execute `:script` or terminal `:expect` (rendering is not a test
+  run). The `:plan-hash` is computed over the SAME normalized plan as
+  `story/run`, so a runner and `render-variant` agree on it whenever the
+  behaviour-relevant inputs match (rf2-5x1wt.24). A control override that
+  drives an invalid view input STOPS render before the view is called
+  (`:invalid-args`); on the bare JVM (no host renderer) the verb returns
+  `:cannot-run` rather than a silent empty render."
+  ([target]      (render/render-variant target))
+  ([target opts] (render/render-variant target opts)))
 
 (defn- emit-reports!
   "Fire `clojure.test` / `cljs.test` `do-report` for each report map in

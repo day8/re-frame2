@@ -1180,8 +1180,15 @@
         ;; vectors — `[:arg]` substitution walks them too, so a query arg
         ;; can also be control-driven.
         frag-sub-ovr (reduce (fn [m l] (merge m (:sub-overrides l))) {} frag-layers)
-        sub-overrides (substitute-args (merge frag-sub-ovr (:sub-overrides ctx))
-                                       arg-map subs!)
+        ;; The RAW merged overrides BEFORE `[:arg key]` substitution — kept
+        ;; on the plan (`[:world :render :sub-overrides-raw]`) so the render
+        ;; path (rf2-5x1wt.24 `render-variant`) can RE-resolve the
+        ;; placeholders against the POST-control effective args (a control
+        ;; that drives an override value, e.g. `{[:login/error] [:arg
+        ;; :message]}`, must reflect the live control). The plan-time
+        ;; resolved overrides below feed validation + the run path.
+        sub-overrides-raw (merge frag-sub-ovr (:sub-overrides ctx))
+        sub-overrides (substitute-args sub-overrides-raw arg-map subs!)
         ;; ---- strict-conflict composition (rf2-5x1wt.15) ----
         ;; The strict-conflict override MAPS (`:fx-overrides` /
         ;; `:interceptor-overrides`) compose per-KEY: the variant chain
@@ -1401,7 +1408,16 @@
              :tags            (reduce (fn [acc layer] (merge-tags acc (:tags layer)))
                                       #{} bodies)
              :explain         explain}
-      source (assoc :source source)))))
+      source (assoc :source source)
+      ;; rf2-5x1wt.24 — the RAW (pre-`[:arg]`-substitution) sub-overrides.
+      ;; A SIBLING of `:world` (NOT inside it) so it stays OUT of
+      ;; `plan-hash-input-keys` — it is fully derivable from the resolved
+      ;; `[:world :render :sub-overrides]` + `:effective-args`, so hashing
+      ;; it would be redundant noise. `render-variant` re-resolves it
+      ;; against the POST-control effective args so a control that drives an
+      ;; override value reflects the live control (see
+      ;; `re-frame.story.render/resolve-render-sub-overrides`).
+      (seq sub-overrides-raw) (assoc-in [:render-raw :sub-overrides] sub-overrides-raw)))))
 
 (defn variant-plan
   "Compile `target` into a normalized variant plan (§Variant plan).
