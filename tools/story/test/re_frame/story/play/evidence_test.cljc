@@ -189,6 +189,110 @@
       (is (= 1 total-beats) "the single epoch is not dropped")
       (is (= [1] (mapv :epoch-id (:epochs (first n)))) "front-loaded onto the first step"))))
 
+(deftest narrative-beat-carries-full-spec-shape
+  (testing "each inner beat carries every spec/017 §Run result beat slot"
+    (let [script [[:dispatch [:checkout/submit]]]
+          tape   [(epoch 1 {:dispatch-id   100
+                            :trigger-event [:checkout/submit]
+                            :db-before     {:step :a}
+                            :db-after      {:step :b}
+                            :effects       [{:fx-id :db :outcome :ok}]
+                            :sub-runs      [{:sub-id :total :recomputed? true}]
+                            :renders       [{:render-key [:cart 0]}]
+                            :trace-events  [(run-start-trace 10 [:checkout/submit] 100)]})]
+          beat   (first (:epochs (first (evidence/narrative script tape))))]
+      (is (= 1 (:epoch-id beat)))
+      (is (= 100 (:dispatch-id beat)))
+      (is (= [:checkout/submit] (:trigger-event beat)))
+      (is (= {:step :a} (:db-before beat)))
+      (is (= {:step :b} (:db-after beat)))
+      (is (= [{:fx-id :db :outcome :ok}] (:effects beat)))
+      (is (= [{:sub-id :total :recomputed? true}] (:sub-runs beat)))
+      (is (= [{:render-key [:cart 0]}] (:renders beat)))
+      (is (= 1 (count (:trace-events beat)))))))
+
+(deftest narrative-span-carries-author-caption
+  (testing "a [:dispatch evec {:caption …}] step surfaces the caption on its span"
+    (let [script [[:dispatch [:checkout/submit] {:caption "submit the order"}]]
+          tape   [(epoch 1 {:trigger-event [:checkout/submit]})]
+          span   (first (evidence/narrative script tape))]
+      (is (= "submit the order" (:caption span)))
+      ;; a step with no caption map carries no :caption key
+      (let [no-cap (first (evidence/narrative [[:dispatch [:x]]]
+                                              [(epoch 1 {})]))]
+        (is (not (contains? no-cap :caption)))))))
+
+;; ===========================================================================
+;; NARRATIVE NAVIGATION — the scrub backbone (rf2-5x1wt.23)
+;; ===========================================================================
+
+(deftest narrative-beats-flatten-tree-in-tape-order
+  (testing "the two-level tree flattens to an ordered beat sequence with nav context"
+    (let [script [[:dispatch [:a]] [:assert-db [:k] 1] [:dispatch [:b]]]
+          tape   [(epoch 1 {:rf.story/script-idx nil :trigger-event [:setup]})
+                  (epoch 2 {:rf.story/script-idx 0   :trigger-event [:a]})
+                  (epoch 3 {:rf.story/script-idx 0   :trigger-event [:a2]})
+                  (epoch 4 {:rf.story/script-idx 2   :trigger-event [:b]})]
+          n      (evidence/narrative script tape)
+          beats  (evidence/narrative-beats n)]
+      (is (= 4 (count beats)) "the assert step contributes no beat; every committed epoch appears")
+      (is (= [0 1 2 3] (mapv :beat-idx beats)) "beat-idx is the dense 0-based scrub address")
+      (is (= [1 2 3 4] (mapv :epoch-id beats)) "beats are in tape order")
+      ;; span context rides through: setup leads (span 0, nil step), step 0
+      ;; owns its two beats (span 1), the :dispatch [:b] beat is span 3.
+      (is (= [0 1 1 3] (mapv :span-idx beats)))
+      (is (= [nil [:dispatch [:a]] [:dispatch [:a]] [:dispatch [:b]]]
+             (mapv :step beats)) "each beat carries its owning span's step"))))
+
+(deftest narrative-beats-skip-empty-spans
+  (testing "pure assertion / wait spans (no beats) contribute nothing to the scrub"
+    (let [script [[:assert-db [:k] 1] [:wait 10]]
+          tape   [(epoch 1 {})]
+          beats  (evidence/narrative-beats (evidence/narrative script tape))]
+      (is (= 1 (count beats)) "only the one leading committed epoch is scrubbable")
+      (is (= 0 (:beat-idx (first beats))))
+      (is (nil? (:step (first beats))) "it leads under the nil setup span"))))
+
+(deftest narrative-beats-carry-span-caption
+  (testing "a captioned span stamps :span-caption onto each of its beats"
+    (let [script [[:dispatch [:a] {:caption "do the thing"}]]
+          tape   [(epoch 1 {}) (epoch 2 {})]
+          beats  (evidence/narrative-beats (evidence/narrative script tape))]
+      (is (= ["do the thing" "do the thing"] (mapv :span-caption beats))))))
+
+(deftest beat-count-and-beat-at-and-epoch-ids
+  (testing "scrub extent, addressing, and restore-epoch targets"
+    (let [script [[:dispatch [:a]]]
+          tape   [(epoch 10 {}) (epoch 11 {}) (epoch 12 {})]
+          n      (evidence/narrative script tape)]
+      (is (= 3 (evidence/beat-count n)) "scrub slider extent = committed-epoch count")
+      (is (= 10 (:epoch-id (evidence/beat-at n 0))))
+      (is (= 12 (:epoch-id (evidence/beat-at n 2))))
+      (is (nil? (evidence/beat-at n 3))  "scrub past the end is nil")
+      (is (nil? (evidence/beat-at n -1)) "scrub before the start is nil")
+      (is (= [10 11 12] (evidence/beat-epoch-ids n))
+          "the ordered restore-epoch targets, one per scrub position")
+      ;; beat-epoch-ids aligns 1:1 with narrative-beats
+      (is (= (evidence/beat-epoch-ids n)
+             (mapv :epoch-id (evidence/narrative-beats n)))))))
+
+(deftest navigation-agrees-with-the-tape
+  (testing "the flattened scrub sequence agrees with the retained epoch tape (§B9)"
+    ;; Every committed epoch in the tape appears exactly once in the scrub,
+    ;; in tape order — no beat invented, none dropped, regardless of the
+    ;; span grouping. This is the §B9 'narrative data AGREES with the
+    ;; retained epoch tape' acceptance, at the navigation layer.
+    (let [script   [[:dispatch [:a]] [:wait 5] [:dispatch [:b]]]
+          tape     [(epoch 1 {:rf.story/script-idx 0})
+                    (epoch 2 {:rf.story/script-idx 0})
+                    (epoch 3 {:rf.story/script-idx 2})]
+          n        (evidence/narrative script tape)
+          beat-ids (evidence/beat-epoch-ids n)]
+      (is (= (mapv :epoch-id tape) beat-ids)
+          "scrub epoch-ids are exactly the tape's epoch-ids, in order")
+      (is (= (count tape) (evidence/beat-count n))
+          "one scrub position per committed epoch — none dropped, none invented"))))
+
 ;; ===========================================================================
 ;; AGREEMENT INVARIANT — no green while tape is red
 ;; ===========================================================================

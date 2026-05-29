@@ -1028,6 +1028,43 @@
   ([epoch-tape]                     (evidence/tape-shows-failure? epoch-tape))
   ([epoch-tape consumed-selectors]  (evidence/tape-shows-failure? epoch-tape consumed-selectors)))
 
+;; ---- narrative navigation (rf2-5x1wt.23) --------------------------------
+;;
+;; Per spec/017 §Epoch tape and narrative — the pure scrub backbone. The
+;; two-level `:narrative` is a tree (spans over beats); a Test-mode /
+;; Docs-mode scrub moves linearly through every beat. These flatten the
+;; tree into the ordered, addressable beat sequence the scrub walks and the
+;; parallel `:epoch-id` vector it hands to `restore-epoch`. The scrub UI is
+;; deferred; the navigation math is JVM-testable here.
+
+(defn narrative-beats
+  "Per spec/017 §Epoch tape and narrative — flatten a two-level
+  `narrative` (the `:narrative` run-result slot) into the ordered vector of
+  beats a scrub walks linearly, each augmented with its `:beat-idx` (scrub
+  address), `:span-idx`, owning `:step`, and `:span-caption`. Pure data →
+  data."
+  [narrative]
+  (evidence/narrative-beats narrative))
+
+(defn beat-count
+  "Per spec/017 §Epoch tape and narrative — the number of scrubbable beats
+  in a two-level `narrative` (the scrub slider's extent). Pure data → data."
+  [narrative]
+  (evidence/beat-count narrative))
+
+(defn beat-at
+  "Per spec/017 §Epoch tape and narrative — the flattened beat at 0-based
+  scrub position `idx`, or nil out of range. Pure data → data."
+  [narrative idx]
+  (evidence/beat-at narrative idx))
+
+(defn beat-epoch-ids
+  "Per spec/017 §Epoch tape and narrative — the ordered `:epoch-id` vector
+  for a two-level `narrative`; the Nth element is the `restore-epoch`
+  target for scrub position N. Pure data → data."
+  [narrative]
+  (evidence/beat-epoch-ids narrative))
+
 ;; ---- run artifact + replay (rf2-5x1wt.7) --------------------------------
 ;;
 ;; Per spec/017 §Run artifact and replay — the serializable
