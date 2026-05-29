@@ -28,11 +28,13 @@
             [re-frame.story.loaders      :as loaders]
             [re-frame.story.play         :as play]
             [re-frame.story.registrar    :as registrar]
+            [re-frame.story.render       :as render]
             [re-frame.story.runtime      :as runtime]
             [re-frame.story.save-variant :as save-variant]
             [re-frame.story.ui.cofx      :as ui-cofx]
             #?(:cljs [re-frame.story.ui.panels          :as ui-panels])
-            #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])))
+            #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
+            #?(:cljs [re-frame.story.sub-overrides       :as sub-overrides])))
 
 (defn- install-late-bind-shims!
   "Wire the late-bound shims so the frames runtime can tap into the
@@ -44,6 +46,39 @@
     (fn [frame-id]
       (assertions/drop-trace-accumulators! frame-id)
       (play/drop-pending-exceptions! frame-id))))
+
+#?(:cljs
+   (defn- render-host-scope
+     "A Reagent component that renders the active `:view` under the host
+     substrate, binding the resolved `:sub-overrides` for the render extent
+     INSIDE the render fn (not at hiccup-construction time, which would have
+     unwound before React's deferred child render — the same pattern the
+     canvas's `sub-overrides-scope` uses). A design variant's pinned sub
+     values surface through `sub-overrides/read`; the binding never touches
+     app-db / `compute-sub`."
+     [{:keys [view frame effective-args sub-overrides]}]
+     (sub-overrides/with-overrides* sub-overrides
+       (fn []
+         (ui-multi-substrate/render-view :reagent frame view effective-args)))))
+
+#?(:cljs
+   (defn- install-render-host!
+     "Wire the `render-variant` host-render hook (rf2-5x1wt.24). The
+     render-prep core (`re-frame.story.render/prepare-render`) is host-free
+     + JVM-testable; the actual painting of the active view is this CLJS
+     hook. It renders the active `:view` under the host substrate's render
+     fn (`re-frame.story.ui.multi-substrate`), wrapped in the
+     `render-host-scope` component so the resolved `:sub-overrides` bind at
+     React render time (spec/017 §View-state subscription overrides). The
+     result is a hiccup tree (the Reagent default) — the SAME render the
+     canvas paints, so render-variant and the live shell agree.
+
+     The bare JVM installs NO render host, so `render-variant` returns
+     `:cannot-run` there rather than a silent empty render."
+     []
+     (render/install-render-host!
+       (fn [render-inputs]
+         [render-host-scope render-inputs]))))
 
 (def ^:private canonical-installers
   "Ordered vector of installer fns invoked by `install!`. Each takes
@@ -62,6 +97,7 @@
    layout-debug/install-canonical-layout-debug!
    ui-cofx/install-canonical-cofx!
    #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
+              install-render-host!
               ui-panels/install-canonical-panels!])])
 
 ;; ---- auto-install gate (rf2-p1ydc) ---------------------------------------

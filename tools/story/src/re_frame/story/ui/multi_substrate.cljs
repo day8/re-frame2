@@ -143,6 +143,20 @@
   []
   (register-substrate! :reagent reagent-render))
 
+(defn render-view
+  "Render `view-id` under `substrate` with `eff-args`, via the registered
+  substrate render fn — the clean reusable seam the `render-variant`
+  host-render hook (rf2-5x1wt.24) consumes. Returns the substrate's render
+  result (a hiccup vector for `:reagent`); a missing substrate yields an
+  inline diagnostic hiccup rather than throwing, so the render verb's
+  caller always sees *something*. `(fn [variant-id view-id args] …)` is the
+  substrate-render contract."
+  [substrate variant-id view-id eff-args]
+  (if-let [render-fn (get @substrate->render-fn substrate)]
+    (render-fn variant-id view-id eff-args)
+    [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
+     (str "substrate :" (name substrate) " is not registered")]))
+
 ;; ---- failure-tolerant cell render ---------------------------------------
 
 (defn- safe-render-cell
