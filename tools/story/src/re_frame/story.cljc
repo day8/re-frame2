@@ -102,6 +102,11 @@
             ;; Re-exported as `diff-run-artifacts` below (spec/017 §Semantic
             ;; diff). Builds read-only on `.7` replay + `.3`/`.8` canonicalize.
             [re-frame.story.diff        :as diff]
+            ;; rf2-5x1wt.32 — golden slices (the deferred P1.5 surface).
+            ;; Re-exported as `capture-golden` / `golden-match?` /
+            ;; `compare-golden` below (spec/017 §Golden slices). Builds
+            ;; read-only on `.3`/`.8` canonicalize + `.7` replay + `.9` diff.
+            [re-frame.story.golden      :as golden]
             ;; rf2-5x1wt.25 — the run-artifact → variant promotion bridge.
             ;; Re-exported as `materialize-variant-plan` (pure) +
             ;; `promote-run-artifact!` (the explicit-only registration path)
@@ -1172,6 +1177,52 @@
   `:frame-config` (threaded to the replay)."
   ([baseline current]      (diff/diff-run-artifacts baseline current))
   ([baseline current opts] (diff/diff-run-artifacts baseline current opts)))
+
+;; ---- golden slices (rf2-5x1wt.32) ---------------------------------------
+;;
+;; Per spec/017 §Golden slices — a curated canonicalized run regression
+;; artifact: freeze a run's behavioural slice via `canonicalize` (the slice
+;; `run-hash` hashes), then assert a later run still canonicalizes `=` to it.
+;; The deferred P1.5 surface, unblocked now that `.3`/`.8`'s `canonicalize`
+;; is proven by the determinism gate + semantic diff. Builds read-only on
+;; `canonicalize` (the strip path) + `.7` replay (the artifact path) + `.9`
+;; diff (the readable mismatch report — delegated, not reinvented).
+
+(defn capture-golden
+  "Per spec/017 §Golden slices — freeze a curated `:rf.test/golden` slice
+  from `target` (a run-result, used directly; or a `:rf.test/run-artifact`,
+  replayed into a fresh frame first). The slice is the `canonicalize`d
+  behavioural surface (the slot `run-hash` hashes), so a golden mismatch is
+  a SEMANTIC difference, never volatile drift. `opts` MAY carry `:meta`
+  (curation provenance), `:keep-run-result` (retain the source slice for a
+  readable `compare-golden` mismatch diff), and `:frame` / `:hooks` /
+  `:frame-config` (threaded to the replay)."
+  ([target]      (golden/capture-golden target))
+  ([target opts] (golden/capture-golden target opts)))
+
+(defn golden-match?
+  "Per spec/017 §Golden slices — true iff `run` matches the `golden` slice:
+  the run's canonicalized behavioural slice is `=` to the golden's frozen
+  `:canonical`. Robust to per-run noise (frame / epoch / trace ids,
+  timestamps — `canonicalize` strips them on both sides) and sensitive to a
+  real semantic difference. `run` MAY be a run-result (pure) or a
+  `:rf.test/run-artifact` (replayed first); `opts` MAY carry `:frame` /
+  `:hooks` / `:frame-config`."
+  ([golden run]      (golden/golden-match? golden run))
+  ([golden run opts] (golden/golden-match? golden run opts)))
+
+(defn compare-golden
+  "Per spec/017 §Golden slices — compare `run` against the `golden` slice
+  and return a READABLE report. On match `{:match? true …}`; on mismatch
+  `{:match? false :run-hash … :golden-run-hash … :diff …}`, where `:diff`
+  DELEGATES to `diff-run-artifacts`/`diff-runs` (the §Semantic-diff facet
+  machinery, NOT a reinvented diff) to localise WHERE the run parted from
+  the baseline. The readable diff needs the golden's source slice — capture
+  with `:keep-run-result true` (or pass `:golden-run-result`); absent it the
+  report still states the mismatch fact. `opts` MAY carry
+  `:golden-run-result` + the replay opts."
+  ([golden run]      (golden/compare-golden golden run))
+  ([golden run opts] (golden/compare-golden golden run opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-

@@ -1775,9 +1775,12 @@ can copy. P1 makes it first-class:
   run-result slots, the two-level narrative, and the green-while-red
   agreement floor — is pinned in [§Run-result evidence
   projection](#run-result-evidence-projection).
-- Golden slices are deferred. P1.5 MAY let a curated variant carry a
-  `:golden` slice once canonicalization has an adversarial corpus proving
-  that semantic differences perturb the hash and volatile fields do not.
+- Golden slices (the deferred P1.5 surface) are now landed: a curated run
+  may be frozen as a `:rf.test/golden` slice — the `canonicalize`d
+  behavioural surface — and a later run asserted to canonicalize `=` to it.
+  The contract is pinned in [§Golden slices](#golden-slices); it builds
+  directly on the now-proven canonicalization (the determinism gate +
+  semantic diff are its adversarial corpus).
 
 Combined with `restore-epoch`, this projection is the spine of **both**
 Test mode and Docs mode: the same evidence produces the test result and a
@@ -2472,6 +2475,121 @@ run-results (`strip-noise` — the volatile / per-run-stamp / `:rf.story/*`
 strip without the map-flattening ordering pass `canonicalize` applies), so
 they read named slots while seeing none of the per-run noise.
 
+## Golden slices {#golden-slices}
+
+A **golden slice** is a curated canonicalized run regression artifact — the
+deferred P1.5 surface (§Shared primitive lock), unblocked now that
+`canonicalize` is proven by the determinism gate and the semantic diff. It
+freezes a run's behaviour once and asserts later runs still match it:
+
+    capture: golden  = canonicalize(behavioural-slice(run))
+    compare: match?  = (= golden  canonicalize(behavioural-slice(new-run)))
+
+It is the **third artifact below Story** — not a Story variant (no curation
+lineage, no navigation slot) and not a run artifact (no replayable
+`:event-program`); it is a frozen canonical EXPECTATION. It MUST NOT add a
+slot to the run-result schema (§Run result): it freezes the canonicalized
+SLICE of an existing result, it does not extend the result shape.
+
+### Why canonicalize, not store the raw run
+
+A raw run carries per-RUN noise a fresh-frame replay restamps every time
+(the process-global epoch / dispatch / trace-id counters, the
+`:rf.test.replay/*` frame id, the wall-clock `:committed-at` / `:time` /
+`:elapsed-ms`). Storing a raw run as a golden would make every rerun a false
+mismatch. So a golden MUST store the `canonicalize`d slice — the SAME
+primitive (§Canonicalization) the determinism gate compares N replays
+through and the semantic diff projects before comparing. A golden mismatch
+is therefore always a SEMANTIC difference (app-db, effect, assertion
+verdict, schema failure, trace spine), never volatile drift. This is exactly
+why the surface was deferred until `canonicalize` was proven: the golden
+REUSES that one strip path rather than inventing a second canonicaliser to
+drift apart.
+
+### The behavioural slice
+
+The slice frozen into a golden is `fingerprint/run-hash-input-keys` — the
+behavioural surface (`:status`, final `:app-db`, the `:epoch-tape`, the
+`:assertions` / `:checks` verdicts, the projected `:effects` /
+`:schema-violations` / `:warnings`, and the resolved `:sub-overrides` /
+`:fidelity`). This is the SAME slice `run-hash` hashes and the determinism
+gate (`compare-runs`) and the semantic diff (`diff-runs`'s `:same?`
+judgement) compare — so a golden match, a determinism `:deterministic`, and
+a diff `{:same? true}` are the **one judgement under three names**. The pure
+provenance a run also carries (`:frame` replay id, `:run-artifact`
+back-link, `:replay-steps`) is excluded for the same reason `run-hash`
+excludes it: it legitimately differs per run and would make a golden
+brittle.
+
+### The `:rf.test/golden` slice shape
+
+```clojure
+{:golden/kind :rf.test/golden
+ :canonical   <canonicalize(behavioural-slice(run))> ; the frozen expectation
+ :run-hash    <run-hash(run)>                         ; cheap pre-check
+ :slice-keys  [k …]                                   ; the frozen surface
+ :golden/meta {:variant/id … :doc … :created-at … :source …} ; optional curation
+ :run-result  {…}}                                    ; optional, for the readable diff
+```
+
+`:canonical` is the load-bearing slot — the frozen, host-portable canonical
+projection compared on every later run. `:run-hash` is the cheap
+discriminator (a mismatched hash short-circuits to "different"; a matching
+hash is CONFIRMED by canonical equality, so a hash collision can never
+report a false GREEN). `:slice-keys` records the surface the slice was taken
+over, so a future slice-key change is detectable rather than silent.
+`:golden/meta` carries curation provenance and is NEVER part of the compared
+`:canonical` — re-curating a golden's doc does not perturb the regression
+baseline. `:run-result` is the optional retained source slice (captured with
+`:keep-run-result true`) that powers the readable mismatch diff (below).
+
+### Capture / compare contract
+
+```clojure
+(story/capture-golden target opts)  ; -> :rf.test/golden slice
+(story/golden-match?  golden run opts) ; -> boolean
+(story/compare-golden golden run opts) ; -> readable report
+```
+
+- **`capture-golden`** freezes a `target` into a golden slice. `target` is a
+  run-result (used directly — the PURE path, `clojure -M:test` with no
+  runtime) or a `:rf.test/run-artifact` (REPLAYED into a fresh frame via
+  `replay-run-artifact` first, so a golden frozen from an artifact captures
+  the fresh-frame run the determinism gate + diff would produce). `opts` MAY
+  carry `:meta`, `:keep-run-result`, and the replay opts (`:frame` /
+  `:hooks` / `:frame-config`).
+- **`golden-match?`** returns true iff the new run's `canonicalize`d
+  behavioural slice is `=` to the golden's frozen `:canonical`. It checks
+  the cheap `:run-hash` first, then confirms with canonical equality (the
+  AUTHORITY). The match is robust to per-run noise — frame / epoch / trace
+  ids and timestamps do NOT cause a false mismatch, because `canonicalize`
+  strips them on both sides (reusing the determinism strip rules) — and
+  sensitive to a real semantic difference, which perturbs the canonical
+  value.
+- **`compare-golden`** returns a READABLE report: `{:match? true …}` on
+  match, else `{:match? false :run-hash … :golden-run-hash … :diff …}`. On
+  mismatch the report MUST DELEGATE to the semantic diff
+  (`diff-runs` / `diff-run-artifacts`, §Semantic diff) — it MUST NOT
+  reinvent the diff — so the report localises WHERE the run parted from the
+  baseline (a one-key app-db drift reads as a one-entry `:app-db` facet, an
+  effect-only change as `:effects`, a status flip as `:status`). The
+  delegated diff reads named run-result slots, which the lossy `:canonical`
+  ordering cannot supply; so the readable diff requires the golden's source
+  slice (kept via `:keep-run-result true`, or supplied as
+  `:golden-run-result`). Absent it, the report still states the mismatch
+  FACT (both run-hashes) with `:diff :unavailable-no-run-result`.
+
+### Pure / JVM-testable
+
+The slice + capture + match / report logic (`behavioural-slice`,
+`slice-canonical`, `make-golden`, `golden?`, `golden-match?`,
+`compare-golden`) is pure data → data — a run-result in, a golden / verdict
+out — and runs under `clojure -M:test` with no runtime. The only impurity is
+the artifact / plan capture path, which replays into a fresh frame via the
+existing `replay-run-artifact` seam. The golden module `:require`s ONLY the
+pure fingerprint / diff modules + the artifact replay seam, so it introduces
+no hard `:require` of a test-only dep into the production Story path.
+
 ## Relationship to the workshop surface (storytelling is in-scope)
 
 Story is a **workshop**, not only a test engine. The shipping authoring
@@ -2538,8 +2656,9 @@ P1 is complete when:
   diff, snapshot-identity, `:plan-hash`, and
   inline-plan-to-registered-variant equivalence;
 - the run-result is unified and carries an epoch-keyed two-level
-  `:narrative` projection; golden slices are deferred until the
-  canonicalization corpus proves stable;
+  `:narrative` projection; golden slices (§Golden slices) freeze the
+  `canonicalize`d behavioural slice and compare a later run `=` to it, with
+  a mismatch report delegated to the semantic diff;
 - `render-variant` and the controls panel drive the same plan; view arg
   schemas validate `:effective-args` and derive controls/docs where
   possible; the Storybook→Story map ships;
