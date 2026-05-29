@@ -189,7 +189,24 @@
       (is (nil? (:run-hash c)))
       (is (= 2 (get-in c [:divergence :run])) "run 2 is the first divergence")
       (is (not= (get-in c [:divergence :run-hash-0])
-                (get-in c [:divergence :run-hash-n]))))))
+                (get-in c [:divergence :run-hash-n])))))
+
+  ;; rf2-12wg5 — compare-runs canonicalizes each run-slice ONCE and derives
+  ;; the hash from the canon (via content-hash) rather than re-canonicalizing
+  ;; inside run-hash. The reported hashes MUST stay byte-identical to run-hash,
+  ;; so a recorded :run-hash and a determinism-gate hash never disagree.
+  (testing "the reported hashes are byte-identical to fp/run-hash (no double canon)"
+    (let [r0 {:status :pass :app-db {:n 1 :nested {:b 2 :a 1}}
+              :warnings #{:w2 :w1}}
+          r1 {:status :pass :app-db {:n 1 :nested {:a 1 :b 2}}
+              ;; volatile + per-run stamps differ but must be stripped equal
+              :elapsed-ms 99 :warnings #{:w1 :w2}}
+          c  (det/compare-runs [r0 r1])]
+      (is (:deterministic? c) "the two runs differ only in volatile fields")
+      (is (= [(fp/run-hash r0) (fp/run-hash r1)] (:hashes c))
+          "content-hash of the canon equals run-hash for every run")
+      (is (= (fp/run-hash r0) (:run-hash c))
+          "the shared run-hash is the canonical run-hash"))))
 
 ;; ===========================================================================
 ;; HEADLESS gate: against a live frame  (the §A4 acceptance)

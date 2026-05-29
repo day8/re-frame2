@@ -165,8 +165,17 @@
   [results]
   (let [n        (count results)
         slice    (fn [r] (select-keys r fingerprint/run-hash-input-keys))
+        ;; Canonicalize each run-slice ONCE and reuse the result for BOTH the
+        ;; hash and the equality. `fingerprint/run-hash` would re-canonicalize
+        ;; the same slice internally (`canonical-hash` → `canonicalize`), so
+        ;; hashing the canon directly via `content-hash` avoids the second
+        ;; pass while staying byte-identical: `run-hash` ≡ `(content-hash
+        ;; (canonicalize (slice r)))`, since `content-hash` only orders (it
+        ;; does NOT re-strip) and `canonicalize` is already the stripped,
+        ;; ordered form. The two-stage contract — the hash is the cheap
+        ;; discriminator, canonical `=` is the authority — is preserved exactly.
         canons   (mapv (comp fingerprint/canonicalize slice) results)
-        hashes   (mapv fingerprint/run-hash results)
+        hashes   (mapv fingerprint/content-hash canons)
         base     (first canons)
         diverged (first (keep-indexed
                           (fn [i c] (when (and (pos? i) (not= base c)) i))

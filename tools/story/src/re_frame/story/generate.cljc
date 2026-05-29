@@ -60,9 +60,12 @@
 ;;
 ;; A pure, reproducible 64-bit splitmix64 step. Given a seed it returns the
 ;; NEXT seed; `seed-seq` unfolds a deterministic seed sequence from a root
-;; seed. No host RNG, no `rand` — the same root seed always yields the same
-;; sequence, which is what makes a property run reproducible from its
-;; recorded `:seed`.
+;; seed. No host RNG, no `rand` — WITHIN a host the same root seed always
+;; yields the same sequence, which is what makes a property run reproducible
+;; from its recorded `:seed` on that host. The bit-pattern differs JVM↔CLJS
+;; (`next-seed` below), so seed-reproducibility is within-host; cross-host
+;; replay rides the artifact's recorded `:event-program` (spec/017
+;; §Generator-agnostic).
 
 ;; The splitmix64 constants, written as SIGNED two's-complement longs (the
 ;; JVM reader rejects a hex literal whose value exceeds Long/MAX_VALUE, so the
@@ -75,14 +78,22 @@
      (def ^:private ^:const splitmix-mul-2  -7723592293110705685))) ; 0x94D049BB133111EB
 
 (defn next-seed
-  "The splitmix64 successor of `seed` — a pure 64-bit mix. Deterministic:
-  the same `seed` always returns the same successor. Pure data → data.
+  "The splitmix64 successor of `seed` — a pure 64-bit mix. Deterministic
+  WITHIN a host: the same `seed` always returns the same successor on the
+  same host. Pure data → data.
 
   CLJS computes in `js/BigInt` (doubles cannot hold 64 exact bits) and
   returns a JS number truncated into the safe-integer range for ergonomic
   use as a seed; the JVM uses native wrapping `long` arithmetic. The exact
-  bit-pattern differs across hosts, but WITHIN a host the sequence is stable
-  and reproducible, which is all a recorded `:seed` needs."
+  bit-pattern therefore DIFFERS across hosts (CLJS truncates to
+  `MAX_SAFE_INTEGER`; the JVM keeps the full signed 64-bit mix), so the same
+  root seed unfolds different program seeds JVM↔CLJS. A recorded `:seed` is
+  thus reproducible only WITHIN the host that produced it; cross-host replay
+  (author on CLJS, CI gate on JVM) rides the recorded CONCRETE
+  `:event-program` instead — which IS host-portable (tagged-step data). This
+  within-host scope is by design: the artifact's `:event-program` carries the
+  cross-host reproducer, so the seed never needs to (spec/017
+  §Generator-agnostic)."
   [seed]
   #?(:clj
      (let [z (unchecked-add (unchecked-long seed) splitmix-gamma)
@@ -104,8 +115,11 @@
 
 (defn seed-seq
   "A deterministic sequence of `n` seeds unfolded from `root-seed` via
-  `next-seed`. Pure data → data — the same `root-seed` always yields the same
-  `n` seeds, so a property run over the sequence is reproducible. The first
+  `next-seed`. Pure data → data — WITHIN a host the same `root-seed` always
+  yields the same `n` seeds, so a property run over the sequence is reproducible
+  on that host. Because `next-seed`'s bit-pattern differs JVM↔CLJS, the seed
+  sequence diverges across hosts; cross-host replay rides the recorded
+  `:event-program` (see `next-seed` / spec/017 §Generator-agnostic). The first
   element is the splitmix successor of `root-seed` (so the root seed itself is
   never reused as a program seed)."
   [root-seed n]
@@ -292,8 +306,13 @@
   `gen-fn` is a pure `(fn [seed] event-program)`; `opts`:
 
   - `:seed`         — the ROOT seed the `n` program seeds unfold from
-                      (`seed-seq`). Default 0. Recording it makes the whole
-                      property run reproducible.
+                      (`seed-seq`). Default 0. Recording it reproduces the whole
+                      property run WITHIN the host that produced it; it is
+                      provenance, not a cross-host reproducer (the splitmix
+                      bit-pattern differs JVM↔CLJS — see `next-seed`). A
+                      falsifying run's recorded `:event-program` is what
+                      replays the concrete failure cross-host (spec/017
+                      §Generator-agnostic).
   - `:num-tests`    — `n`, the number of generated programs (default 100).
   - `:shrink?`      — shrink a failing program toward a minimal failing case
                       (default true). When false the first failing program is
@@ -398,7 +417,12 @@
   cell's artifact carries the faulted `:fx-decisions` so it replays against the
   same fault, and is promotable (§Promotion) — artifacts first."
   [base-program fault-lattice {:keys [seed hooks frame-config] :as _opts}]
-  (let [cells   (if (map? fault-lattice) (seq fault-lattice) (seq fault-lattice))
+  ;; `(seq fault-lattice)` handles BOTH accepted shapes uniformly: a map seqs
+  ;; to its `[cell-id fx-decisions]` entry pairs, a pair-seq seqs to its pairs
+  ;; — and the cell destructure `(fn [[cell-id fx-decisions]] …)` consumes
+  ;; either. The map?/seq distinction is genuinely vacuous (no order or
+  ;; seqability concern differs between the arms), so there is one branch.
+  (let [cells   (seq fault-lattice)
         results (mapv
                   (fn [[cell-id fx-decisions]]
                     (let [a       (artifact/make-run-artifact
