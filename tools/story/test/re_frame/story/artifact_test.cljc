@@ -20,7 +20,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.artifact :as artifact]
-            [re-frame.story.fingerprint :as fingerprint]))
+            [re-frame.story.fingerprint :as fingerprint]
+            [re-frame.story.play.settled-boundary :as boundary]))
 
 ;; ===========================================================================
 ;; PURE: schema + construction
@@ -205,6 +206,48 @@
         (is (= :pass (:status res)))
         (is (= [:stub] @hits)
             "the fx decision remapped :rep.fx/real → :rep.fx/stub on replay")))))
+
+(deftest replay-wraps-not-replaces-richer-dispatch-when-fx-decisions-present
+  (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
+            fx-decisions are present — the fx reapplication WRAPS the supplied
+            :dispatch! and routes the overrides through it, rather than
+            short-circuiting to dispatch-sync* directly (rf2-y5396).
+
+            Pre-fix: replay-flush-hooks called dispatch-sync* directly on the
+            fx-decisions branch and never touched `inner`, so a richer
+            (:dom / :cljs-reactive) adapter's enqueue + flush path was
+            silently skipped — this probe would record no call. Post-fix: the
+            probe :dispatch! runs AND the fx-overrides still apply."
+    (let [dispatch-calls (atom [])
+          fx-hits        (atom [])]
+      ;; A 'real' effect remapped to a stub by the fx decision, so we can also
+      ;; confirm the override rides the wrapped dispatch path (not just that
+      ;; the probe ran). `:platforms #{:client :server}` so the fx fire on the
+      ;; JVM (`:server`) test platform as well as in the browser.
+      (rf/reg-fx :rep.fx/real {:platforms #{:client :server}}
+                 (fn [_ _] (swap! fx-hits conj :real)))
+      (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
+                 (fn [_ _] (swap! fx-hits conj :stub)))
+      (rf/reg-event-fx :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
+      (let [;; A richer adapter-style hooks map: a custom :dispatch! that
+            ;; RECORDS it was invoked, then delegates to the real headless
+            ;; drain so the replay still settles. `:provides :headless` so the
+            ;; settled-boundary does not refuse the bare [:dispatch …] step.
+            probe-hooks {:provides  :headless
+                         :dispatch! (fn probe-dispatch! [frame-id event-vector]
+                                      (swap! dispatch-calls conj event-vector)
+                                      (boundary/drain-sync! frame-id event-vector))
+                         :flush!    {:headless (fn [_frame-id] nil)}}
+            a   (artifact/make-run-artifact
+                  {:event-program [[:dispatch [:rep/fire]]]
+                   :fx-decisions  {:rep.fx/real :rep.fx/stub}})
+            res (artifact/replay-run-artifact a {:hooks probe-hooks})]
+        (is (= :pass (:status res)))
+        (is (= [[:rep/fire]] @dispatch-calls)
+            "the supplied richer :dispatch! WAS invoked — the fx reapplication
+             wrapped it instead of bypassing it with a direct dispatch-sync*")
+        (is (= [:stub] @fx-hits)
+            "the fx override still rode the wrapped dispatch path (real → stub)")))))
 
 (deftest replay-isolation-fresh-frame-each-time
   (testing "two replays of the same artifact each run into their own fresh

@@ -216,8 +216,9 @@
 
   - `:runs`  — replay count (default 2). N >= 2.
   - `:hooks` / `:frame-config` — threaded to `replay-run-artifact` (a `:dom`
-    adapter passes richer settled-boundary hooks; fx decisions still wrap
-    its `:dispatch!`).
+    adapter passes richer settled-boundary hooks; the fx decisions are
+    routed THROUGH that hook's `:dispatch!` — they wrap it, never replace
+    it — so the adapter dispatch path still runs on every replay).
 
   Returns one of three statuses (never a flaky verdict):
 
