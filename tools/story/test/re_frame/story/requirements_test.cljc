@@ -306,6 +306,80 @@
       (is (nil? (req/validate-evidence [:rf.assert/caused] ev :cljs-reactive))
           "evidence present → no refusal; the assertion's own verdict stands"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-qoxw7 — empty :trace / :renders is NOT no-proof. The trace stream is
+;; always-on and its :warnings projection is empty precisely when a
+;; :no-warnings / :dispatched? assertion is HEALTHY; :renders is empty when a
+;; DOM/structural assertion legitimately asserts ABSENCE. Keying a post-run
+;; presence gate on those slots would emit a false :cannot-run for the normal
+;; passing case. These tokens are deliberately absent from
+;; `token->evidence-slots`.
+;; ---------------------------------------------------------------------------
+
+(deftest trace-token-imposes-no-evidence-slot
+  (testing ":trace is NOT in the token->evidence-slots presence map (rf2-qoxw7)"
+    ;; :trace has no faithful presence slot — :warnings / :schema-violations
+    ;; are FILTERED projections, not the whole always-on trace stream.
+    (is (nil? (get req/token->evidence-slots :trace))
+        ":trace -> :warnings would false-refuse :no-warnings / :dispatched?")
+    (is (nil? (get req/token->evidence-slots :hiccup-structure))
+        "empty :renders is healthy for an absence assertion")
+    (is (nil? (get req/token->evidence-slots :dom))))
+
+  (testing ":no-warnings + :dispatched? require :trace"
+    (is (= #{:trace}          (req/assertion-tokens [:rf.assert/no-warnings])))
+    (is (= #{:app-db :trace}  (req/assertion-tokens [:rf.assert/dispatched? [:e]])))))
+
+(deftest no-warnings-on-clean-tape-is-not-cannot-run
+  (testing ":rf.assert/no-warnings on a clean (empty-:warnings) tape does NOT false-:cannot-run (rf2-qoxw7)"
+    ;; A clean headless run: one committed epoch, no warning trace events.
+    (let [tape [{:epoch-id 1 :outcome :ok :trace-events []}]
+          ev   (evidence/project-evidence tape)]
+      (is (empty? (:warnings ev)) "clean run → empty :warnings — the HEALTHY state")
+      ;; The whole point: an empty :warnings slot must NOT be read as
+      ;; "trace proof not delivered".
+      (is (req/evidence-slot-satisfied? #{:trace} ev)
+          ":trace imposes no slot, so an empty :warnings slot still satisfies")
+      (is (nil? (req/validate-evidence [:rf.assert/no-warnings] ev :headless))
+          "no false :required-evidence-missing — the assertion's own verdict (PASS) stands"))))
+
+(deftest dispatched-on-warning-free-tape-is-not-cannot-run
+  (testing ":rf.assert/dispatched? on a warning-free tape does NOT false-:cannot-run (rf2-qoxw7)"
+    ;; An event was dispatched (one epoch committed) but emitted no warning —
+    ;; :dispatched? proves against trace DISPATCH rows, not :warnings, so the
+    ;; empty :warnings slot is the wrong (and now removed) gate.
+    (let [tape [{:epoch-id 1 :outcome :ok
+                 :trigger-event [:counter/inc]
+                 :trace-events  [{:operation :rf.event/dispatch :op-type :info}]}]
+          ev   (evidence/project-evidence tape)]
+      (is (empty? (:warnings ev)) "dispatch with no warning → empty :warnings")
+      (is (req/evidence-slot-satisfied? #{:app-db :trace} ev))
+      (is (nil? (req/validate-evidence [:rf.assert/dispatched? [:counter/inc]]
+                                       ev :headless))
+          "no false refusal — the :app-db + :trace tokens impose no presence gate"))))
+
+(deftest dom-absence-assertion-is-not-cannot-run-on-empty-renders
+  (testing "a :dom assertion on a tape with no render rows does NOT false-:cannot-run (rf2-qoxw7)"
+    ;; :rf.assert/dom-hidden legitimately PASSES when an element is absent /
+    ;; the tree committed no render row; :renders is the wrong presence gate.
+    (let [ev (evidence/project-evidence [{:epoch-id 1 :outcome :ok :renders []}])]
+      (is (empty? (:renders ev)))
+      (is (req/evidence-slot-satisfied? #{:dom} ev)
+          ":dom imposes no render-count gate — preflight already fail-closes it")
+      (is (nil? (req/validate-evidence [:rf.assert/dom-hidden "[x]"] ev :dom))
+          "no false :required-evidence-missing for an absence assertion"))))
+
+(deftest validate-run-evidence-clean-trace-tape-is-ok
+  (testing "run-level validation of :no-warnings + :dispatched? on a clean tape is :ok (rf2-qoxw7)"
+    ;; The regression the bead pins: before the fix, validate-run-evidence
+    ;; would return :cannot-run for this normal passing plan once wired in.
+    (let [ev (evidence/project-evidence [{:epoch-id 1 :outcome :ok :trace-events []}])]
+      (is (= :ok (:status (req/validate-run-evidence
+                            [[:rf.assert/no-warnings]
+                             [:rf.assert/dispatched? [:counter/inc]]]
+                            ev :headless)))
+          "neither trace-requiring assertion false-refuses on empty :warnings"))))
+
 (deftest validate-run-evidence-aggregates-missing-slots
   (testing "run-level evidence validation lists per-assertion missing-evidence refusals"
     (let [ev (evidence/project-evidence [])]
