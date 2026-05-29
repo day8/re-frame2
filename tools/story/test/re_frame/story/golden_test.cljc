@@ -30,6 +30,15 @@
             [re-frame.story.golden      :as golden]))
 
 ;; ===========================================================================
+;; This ns is the rf2-5x1wt.32 golden-slice coverage, extended by:
+;;   • rf2-vvub1 — the §Capture path FAILS CLOSED: a normalized plan is now
+;;     coerced + replayed (not silently frozen as a near-empty golden), and
+;;     an unrecognized target is REJECTED with :rf.error/golden-bad-target;
+;;   • rf2-9fd9c — golden-match? + compare-golden share ONE GREEN/RED
+;;     authority (no inline-drift) and canonicalize the run ONCE per call.
+;; ===========================================================================
+
+;; ===========================================================================
 ;; FIXTURES — hand-built run-results
 ;; ===========================================================================
 
@@ -231,6 +240,87 @@
       (is (= #{:app-db} (:facets (:diff r)))))))
 
 ;; ===========================================================================
+;; PURE: rf2-9fd9c — golden-match? + compare-golden share ONE authority
+;; ===========================================================================
+
+(deftest match-and-compare-agree
+  (testing "golden-match? and compare-golden's :match? agree for EVERY run —
+            they route through the one shared GREEN/RED predicate, so the
+            verdict can never drift between the boolean and the report"
+    (let [g     (golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]})
+                                    {:keep-run-result true})
+          runs  [;; equivalent ⇒ both GREEN
+                 (run-result {:app-db {:n 1} :ops [:a :b]})
+                 ;; key-order-only ⇒ both GREEN (canonical)
+                 (run-result {:app-db (sorted-map :n 1)})
+                 ;; app-db drift ⇒ both RED
+                 (run-result {:app-db {:n 2} :ops [:a :b]})
+                 ;; status flip ⇒ both RED
+                 (run-result {:status :fail :app-db {:n 1} :ops [:a :b]})
+                 ;; op-spine change ⇒ both RED
+                 (run-result {:app-db {:n 1} :ops [:a :x]})]]
+      (doseq [run runs]
+        (is (= (golden/golden-match? g run)
+               (:match? (golden/compare-golden g run)))
+            (str "golden-match? and compare-golden disagree for " (pr-str run)))))))
+
+(deftest compare-golden-run-hash-matches-fingerprint
+  (testing "the :run-hash compare-golden reports is the canonical
+            fingerprint/run-hash of the run — the single-canonicalize perf
+            path (content-hash of the canonical slice) equals the two-stage
+            run-hash, so the optimization is behaviour-preserving"
+    (let [matchy   (run-result {:app-db {:n 1}})
+          g        (golden/make-golden matchy {:keep-run-result true})
+          changed  (run-result {:app-db {:n 2}})
+          r-match  (golden/compare-golden g matchy)
+          r-miss   (golden/compare-golden g changed)]
+      (is (= (fingerprint/run-hash matchy) (:run-hash r-match))
+          "match report :run-hash == fingerprint/run-hash")
+      (is (= (fingerprint/run-hash changed) (:run-hash r-miss))
+          "mismatch report :run-hash == fingerprint/run-hash")
+      (is (= (:run-hash g) (:golden-run-hash r-miss))
+          "the frozen golden hash is reported as :golden-run-hash"))))
+
+;; ===========================================================================
+;; PURE: rf2-vvub1 — capture FAILS CLOSED on an unrecognized target
+;; ===========================================================================
+
+(deftest capture-golden-rejects-bad-target
+  (testing "a target that is neither a run-result (no :status), a
+            run-artifact, nor a normalized plan (no :world) is REJECTED with
+            :rf.error/golden-bad-target — NOT silently frozen into a
+            near-empty golden (the rf2-vvub1 silent-wrong path, closed)"
+    (doseq [bad [{:some :map :no :status-world-or-kind}
+                 {:event-program [[:dispatch [:x]]]} ; missing :artifact/kind ⇒ not a run-artifact
+                 42
+                 "not-a-map"
+                 nil]]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf.error/golden-bad-target"
+            (golden/capture-golden bad))
+          (str "capture-golden must reject " (pr-str bad)))))
+
+  (testing "the rejection carries the structured :rf.error/id + the offending
+            target for diagnosis"
+    (let [bad {:not :recognized}
+          e   (try (golden/capture-golden bad)
+                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
+      (is (= :rf.error/golden-bad-target (:rf.error/id (ex-data e))))
+      (is (= bad (:target (ex-data e))))))
+
+  (testing "golden-match? / compare-golden ALSO fail closed on a bad run target"
+    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf.error/golden-bad-target"
+            (golden/golden-match? g {:no :status})))
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf.error/golden-bad-target"
+            (golden/compare-golden g {:no :status}))))))
+
+;; ===========================================================================
 ;; HEADLESS: capture / compare over real replays  (live frame)
 ;; ===========================================================================
 
@@ -272,3 +362,42 @@
       (is (contains? (:facets (:diff r)) :app-db))
       (is (= [{:path [:v] :baseline 1 :current 2}]
              (get-in r [:diff :app-db :changed]))))))
+
+;; ===========================================================================
+;; HEADLESS: rf2-vvub1 — a normalized PLAN capture path actually replays
+;; ===========================================================================
+
+(deftest capture-golden-from-plan-replays-not-frozen
+  (testing "a normalized plan (a map with :world) is FOLDED to a replayable
+            artifact + replayed into a fresh frame — its behavioural slice
+            reflects the REAL run (a non-empty :app-db / :status), NOT a
+            silently-frozen near-empty plan map (the rf2-vvub1 bug)"
+    (rf/reg-event-db :golden/seed (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event-db :golden/bump (fn [db _] (update db :v inc)))
+    (let [plan {:variant/id :story.golden/plan
+                :world  {:setup [[:dispatch [:golden/seed 10]]]}
+                :script [[:dispatch [:golden/bump]]]}
+          g    (golden/capture-golden plan {:keep-run-result true})]
+      (is (golden/golden? g))
+      ;; The frozen slice must be the REPLAYED run-result, not the plan map:
+      ;; a real run carries a :status and a non-empty :app-db. A silently-
+      ;; frozen plan would freeze {:v nil}/no :status and read near-empty.
+      (is (= {:v 11} (:app-db (:run-result g)))
+          "the plan was replayed (seed 10 then bump ⇒ 11), not frozen as data")
+      (is (= :pass (:status (:run-result g)))
+          "the frozen slice carries the run's :status — proving it is a run-result")
+      ;; And the golden re-matches a re-replay of the SAME plan (fresh-frame
+      ;; volatile drift causes no false mismatch).
+      (is (true? (golden/golden-match? g plan))
+          "the same plan replayed again matches the captured golden")
+      (is (true? (:match? (golden/compare-golden g plan))))))
+
+  (testing "a golden captured from a plan does NOT match a divergent plan"
+    (rf/reg-event-db :golden/seed (fn [db [_ v]] (assoc db :v v)))
+    (let [plan-a {:variant/id :story.golden/a :world {} :script [[:dispatch [:golden/seed 1]]]}
+          plan-b {:variant/id :story.golden/b :world {} :script [[:dispatch [:golden/seed 2]]]}
+          g      (golden/capture-golden plan-a {:keep-run-result true})
+          r      (golden/compare-golden g plan-b)]
+      (is (false? (golden/golden-match? g plan-b)))
+      (is (false? (:match? r)))
+      (is (contains? (:facets (:diff r)) :app-db)))))
