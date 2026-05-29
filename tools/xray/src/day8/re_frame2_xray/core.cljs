@@ -7,10 +7,11 @@
   canonical entry points enumerated by the spec —
   `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
   `popout!` / `status` /
-  `target-frame` + `set-target-frame!` / `active-panel` +
-  `set-active-panel!` / `load-theme` — plus the four highest-traffic
-  boot-time config knobs exposed by `config.cljc` (`configure!` /
-  `set-editor!` / `set-auto-open!` / `set-show-sensitive!`).
+  `target-frame` + `set-target-frame!` / `focus!` (the host-facing
+  Story→Xray focus entry point, rf2-crtmq) / `load-theme` — plus the
+  four highest-traffic boot-time config knobs exposed by `config.cljc`
+  (`configure!` / `set-editor!` / `set-auto-open!` /
+  `set-show-sensitive!`).
 
   Per `spec/API.md` §Wider public surface, additional public surfaces
   live in their own namespaces: the full per-key setter inventory in
@@ -52,6 +53,7 @@
   documentation for the rationale on each."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.preload :as preload]
@@ -201,6 +203,31 @@
   (rf/with-frame :rf/xray
     (rf/dispatch [:rf.xray/set-target-frame frame-id]))
   nil)
+
+;; ---- Story → Xray focus (rf2-crtmq) -------------------------------------
+;;
+;; The host-facing focus entry point: a host (Story) sends a small,
+;; data-shaped focus command from a narrative beat / failed assertion /
+;; inspect command and the embedded Xray surface focuses the right
+;; panel + epoch + cascade + app-db path. Story owns the
+;; action/intent; Xray owns panel semantics. `def`-alias (not a wrapper
+;; fn) so `(= focus/focus! core/focus!)` holds and DCE inlines the call
+;; site — same posture as the mount re-exports above. The command shape
+;; + ownership boundary live in `day8.re-frame2-xray.focus`.
+
+(def focus!
+  "Focus an embedded Xray surface from a host (Story) beat / assertion /
+  inspect command. See `day8.re-frame2-xray.focus/focus!` for the full
+  command shape + ownership contract. The host-facing channel for
+  StoryUI focus links (rf2-crtmq)."
+  focus/focus!)
+
+(def valid-focus-panels
+  "The canonical host-facing Xray panel ids a focus command may target
+  — `#{:epoch :app-db :views :trace :machines :routes :issues}`. A host
+  validates a panel selector against this set before sending a focus
+  command. See `day8.re-frame2-xray.focus/valid-panels`."
+  focus/valid-panels)
 
 ;; ---- runtime theme override ---------------------------------------------
 
