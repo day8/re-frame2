@@ -42,6 +42,13 @@
   `re-frame.story.late-bind` (mirroring the framework's pattern)."
   []
   (late-bind/set-fn! :tap-stub-event fx-stubs/tap-stub-event!)
+  ;; rf2-q651r — `:rf.assert/effect-emitted` projects from the epoch tape,
+  ;; but a STUBBED fx lands on the tape under its REWRITTEN stub id, not its
+  ;; original id. The authoritative record of which ORIGINAL fx-ids a
+  ;; `force-fx-stub` redirected is the stub-call log `fx-stubs` owns; the
+  ;; assertions module reads it via this hook (it cannot `:require`
+  ;; fx-stubs / frames without a cycle).
+  (late-bind/set-fn! :stub-observed-fx-ids fx-stubs/observed-fx-ids)
   (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
       (assertions/drop-trace-accumulators! frame-id)

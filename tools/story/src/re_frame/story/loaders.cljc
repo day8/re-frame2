@@ -376,19 +376,21 @@
   (keyword? pred))
 
 (defn- dispatched-events-set
-  "Read the dispatched-events set for `frame-id`."
+  "Read the dispatched-events set for `frame-id` from the epoch tape (the
+  SSOT — `assertions/dispatched-events` projects each committed epoch's
+  `:trigger-event`). rf2-q651r migrated this off the retired
+  `trace-accumulators` parallel path onto the SAME tape projection the
+  run-result evidence + `:rf.assert/dispatched?` read."
   [frame-id]
   (try
-    (set (assertions/frame-dispatched frame-id))
+    (set (assertions/dispatched-events frame-id))
     (catch #?(:clj Throwable :cljs :default) _ #{})))
 
 (defn- vector-of-events-satisfied?
   "Per IMPL-SPEC §2.4 — a vector of event vectors form is interpreted
   as 'loaders complete when ALL listed events have fired against the
-  variant's frame'. We consult the assertions module's per-frame
-  dispatched-events accumulator (populated by the play-runner's trace
-  listener and the runtime's own phase-1/2 trace listener — Stage 5
-  reaches across)."
+  variant's frame'. We consult the epoch-tape dispatched-events projection
+  (`dispatched-events-set`, the SSOT since rf2-q651r)."
   [frame-id events-required]
   (let [observed (or (dispatched-events-set frame-id) #{})]
     (every? (fn [needle] (contains? observed needle)) events-required)))
@@ -408,9 +410,9 @@
     Handlers set this to `true` when their custom condition is met.
   - a vector of event vectors — `[[:fixture/loaded] [:auth/ready]]`.
     Interpreted as 'loaders complete when ALL listed events have fired
-    against the variant's frame.' The runtime checks the assertions
-    module's dispatched-events accumulator (which Story populates from
-    the trace bus).
+    against the variant's frame.' The runtime checks the epoch-tape
+    dispatched-events projection (`assertions/dispatched-events`, the
+    SSOT since rf2-q651r — the SAME tape the run-result evidence reads).
 
   Stage 5 (rf2-h8et)."
   [frame-id variant-body]

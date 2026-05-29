@@ -155,24 +155,29 @@
     (set (keep :fx-id entries))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire the stub-event log into the assertion accumulator
+;; Wire the stub-event log into the assertion trace side-table
 ;;
-;; The Stage 3 `frames/ensure-stub-event!` registers an event-fx under
-;; `:rf.story.fx-stub/<decorator-id>` that appends to the log. Stage 5
-;; needs that event to ALSO record into the assertion module's
-;; per-frame `:emitted-fx` slot so `:rf.assert/effect-emitted` works.
+;; The Stage 3 `frames/ensure-stub-event!` registers an fx handler under
+;; `:rf.story.fx-stub/<decorator-id>` that appends to the per-frame
+;; stub-call log + calls `tap-stub-event!`.
 ;;
-;; Rather than re-register a different event shape, we expose a
-;; `tap-stub-event!` helper the frames runtime can call from inside
-;; the stub event's :db handler. The actual call site is in
-;; `re-frame.story.frames/ensure-stub-event!` (Stage 3) — Stage 5
-;; updates that function to call `tap-stub-event!`.
+;; rf2-q651r — `:rf.assert/effect-emitted` now projects from the epoch
+;; tape, but a STUBBED fx lands on the tape under its REWRITTEN stub id,
+;; not its original id. So the assertion's emitted-fx SSOT unions the tape
+;; effects with `observed-fx-ids` (read from the stub-call log, the
+;; authoritative record of which ORIGINAL fx-ids were redirected — see the
+;; `:stub-observed-fx-ids` late-bind hook). `tap-stub-event!` no longer
+;; feeds the effect-emitted evidence; it remains only for the dev-surface
+;; side-table mirror.
 ;; ---------------------------------------------------------------------------
 
 (defn tap-stub-event!
-  "Record (via the assertion module) that `fx-id` fired against
-  `frame-id`. The frames runtime's `ensure-stub-event!` calls this
-  when the stub event handles a redirected fx call."
+  "Mirror that `fx-id` fired against `frame-id` into the assertion module's
+  trace side-table (dev surfacing). The frames runtime's
+  `ensure-stub-event!` calls this when the stub event handles a redirected
+  fx call. NOTE (rf2-q651r): this is NOT the `:rf.assert/effect-emitted`
+  evidence source — that projects from the epoch tape ∪ the stub-call log
+  (`observed-fx-ids`)."
   [frame-id fx-id]
   (assertions/record-emitted-fx! frame-id fx-id)
   nil)
