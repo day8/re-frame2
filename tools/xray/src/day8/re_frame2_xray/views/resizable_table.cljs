@@ -330,15 +330,21 @@
   carries no override), register window-level move/up handlers,
   dispatch resize-pair events on each move, clean up on up.
 
-  Dispatches wrap in `(rf/with-frame :rf/xray ...)` because the
-  pointer-move handler runs OUTSIDE the React tree (via raw
-  `window.addEventListener`), so the surrounding
-  `[rf/frame-provider {:frame :rf/xray} …]` context is NOT in
-  scope. Without the explicit `with-frame`, dispatches default to
-  `:rf/default` (the host app's frame) — every move would write
-  to the host's app-db and trigger a host-wide re-render that
-  resets page scroll (Mike pair-debug 2026-05-27)."
-  [table-id left-id right-id ev]
+  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured at
+  render time by the surrounding `resizable-table` `reg-view` body via
+  `(rf/dispatcher)`. The pointer-move/up handlers run OUTSIDE the React
+  tree (via raw `window.addEventListener`), so the dynamic frame
+  context has unwound by the time they fire — but the captured closure
+  already bound `(current-frame)` synchronously during render, so every
+  tick/commit lands on the SURROUNDING instance frame's app-db, not a
+  `:rf/xray` literal and not the host's `:rf/default`. (Pre rf2-r0o63
+  this wrapped each dispatch in `(rf/with-frame :rf/xray …)` — correct
+  for the single shell, but it entrenched the singleton: two shells
+  would both write the global `:rf/xray` column-widths and clobber each
+  other. The captured dispatcher keeps N instances isolated; it also
+  preserves the Mike-pair-debug-2026-05-27 fix — dispatches never leak
+  to the host's `:rf/default`.)"
+  [dispatch-fn table-id left-id right-id ev]
   (.preventDefault ev)
   (.stopPropagation ev)
   (when-let [gutter-el (.-currentTarget ev)]
@@ -356,14 +362,12 @@
                           (let [delta     (- (.-clientX m-ev) start-x)
                                 new-left  (max min-col-width-px (+ left-px0 delta))
                                 new-right (max min-col-width-px (- right-px0 delta))]
-                            (rf/with-frame :rf/xray
-                              (rf/dispatch [:rf.xray.column-widths/resize-pair-tick
-                                            table-id
-                                            left-id new-left
-                                            right-id new-right]))))
+                            (dispatch-fn [:rf.xray.column-widths/resize-pair-tick
+                                          table-id
+                                          left-id new-left
+                                          right-id new-right])))
               on-up     (fn on-up [_]
-                          (rf/with-frame :rf/xray
-                            (rf/dispatch [:rf.xray.column-widths/resize-pair-commit]))
+                          (dispatch-fn [:rf.xray.column-widths/resize-pair-commit])
                           (.removeEventListener js/window "pointermove" on-move)
                           (.removeEventListener js/window "pointerup" on-up))]
           (.addEventListener js/window "pointermove" on-move)
@@ -396,10 +400,15 @@
   "Render one interactive drag-handle between adjacent header
   columns. Local Reagent atom tracks hover (paint the 4px column
   with the accent colour on hover); pointer-down on the cell
-  starts the drag flow."
+  starts the drag flow.
+
+  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  the surrounding `resizable-table` `reg-view` body; threaded into the
+  raw-window-listener drag flow so resize ticks land on the instance
+  frame."
   [_props]
   (let [hover? (r/atom false)]
-    (fn [{:keys [table-id left-id right-id]}]
+    (fn [{:keys [table-id left-id right-id dispatch-fn]}]
       [:div
        {:data-testid (str "rf-xray-resizable-gutter-"
                           (name table-id) "-" (name left-id))
@@ -407,7 +416,8 @@
         :style       (if @hover? gutter-hover-style gutter-base-style)
         :on-pointer-enter #(reset! hover? true)
         :on-pointer-leave #(reset! hover? false)
-        :on-pointer-down  (fn [ev] (on-pointer-down table-id left-id right-id ev))}])))
+        :on-pointer-down  (fn [ev]
+                            (on-pointer-down dispatch-fn table-id left-id right-id ev))}])))
 
 ;; ---- Body row spacer (non-interactive) ----------------------------------
 
@@ -425,8 +435,10 @@
 
 (defn- weave-header
   "Interleave interactive gutter handles between N header cells.
-  Returns a flat seq of (2N-1) hiccup nodes."
-  [header-cells columns table-id]
+  Returns a flat seq of (2N-1) hiccup nodes. `dispatch-fn` (rf2-r0o63)
+  is threaded to each gutter so the raw-window-listener drag flow
+  dispatches on the surrounding instance frame."
+  [header-cells columns table-id dispatch-fn]
   (let [n (count columns)]
     (apply concat
            (map-indexed
@@ -436,9 +448,10 @@
                    [(with-meta cell {:key (str "h-" (name col-id))})
                     (with-meta
                       [header-gutter
-                       {:table-id table-id
-                        :left-id  col-id
-                        :right-id (:id (nth columns (inc i)))}]
+                       {:table-id    table-id
+                        :left-id     col-id
+                        :right-id    (:id (nth columns (inc i)))
+                        :dispatch-fn dispatch-fn}]
                       {:key (str "g-" (name col-id))})]
                    [(with-meta cell {:key (str "h-" (name col-id))})])))
              header-cells))))
@@ -472,8 +485,21 @@
                        header-cell-style)}
    label])
 
-(defn resizable-table
+(rf/reg-view resizable-table
   "See the ns docstring for the consumer API.
+
+  ## Frame-aware via `reg-view` (rf2-r0o63)
+
+  `resizable-table` is `reg-view`-registered so its rendered component
+  carries `:contextType frame-context`: the injected `subscribe` /
+  `dispatch` resolve to the SURROUNDING instance frame (the shell's
+  `frame-id`) through React-context. The column-widths slot is read via
+  the injected `subscribe` and the raw-window-listener drag flow
+  dispatches via the captured `(dispatcher)` — so N shells keep
+  independent column widths. (Pre rf2-r0o63 this was a plain `defn`
+  that escaped to a hardcoded `:rf/xray` frame via `rf/with-frame`,
+  which entrenched the singleton; the `reg-view` registration is the
+  same shape every other Xray panel uses.)
 
   ## Optional `:row-extras` (rf2-jnxfj)
 
@@ -502,21 +528,20 @@
   [{:keys [table-id columns rows row-key row-attrs row-cells row-extras
            header-attrs container-attrs header-cell-style header?]
     :or   {header? true}}]
-  ;; The surrounding `frame-provider` resolves to the OBSERVED frame
-  ;; (whichever frame the Xray panel was mounted to inspect) — not
-  ;; `:rf/xray`. The column-widths slot lives on `:rf/xray`, so we
-  ;; subscribe via `rf/with-frame :rf/xray` to escape the panel's
-  ;; React-context frame. Same pattern every other Xray panel uses
-  ;; when reading its OWN state vs observed-app state.
+  ;; rf2-r0o63 — the injected `subscribe` resolves to the surrounding
+  ;; instance frame via React-context (the column-widths slot lives on
+  ;; THIS shell's frame), and `dispatch-fn` captures that frame's
+  ;; dispatcher for the raw-window-listener drag flow (which fires after
+  ;; render unwinds).
   ;;
-  ;; Defensive: `(rf/subscribe ...)` returns nil when the sub isn't
-  ;; registered (e.g. in pure-render tests that exercise a view
-  ;; directly without running `registry/register-xray-handlers!`). A
-  ;; nil reaction would throw on deref; treat it as "no overrides" so
-  ;; the test render path sees default widths and a downstream
-  ;; install-before-mount in production stays the canonical path.
-  (let [reaction   (rf/with-frame :rf/xray
-                     (rf/subscribe [:rf.xray.column-widths/for-table table-id]))
+  ;; Defensive: `subscribe` returns nil when the sub isn't registered
+  ;; (e.g. in pure-render tests that exercise a view directly without
+  ;; running `registry/register-xray-handlers!`). A nil reaction would
+  ;; throw on deref; treat it as "no overrides" so the test render path
+  ;; sees default widths and a downstream install-before-mount in
+  ;; production stays the canonical path.
+  (let [dispatch-fn dispatch
+        reaction   (subscribe [:rf.xray.column-widths/for-table table-id])
         overrides  (some-> reaction deref)
         template   (build-template columns overrides)
         grid-style {:display "grid"
@@ -537,7 +562,8 @@
                                         (when header-cell-style
                                           {:header-cell-style header-cell-style}))))
                   columns
-                  table-id)))]
+                  table-id
+                  dispatch-fn)))]
     (into [:div (merge {:data-rf-xray-resizable-table (name table-id)}
                        container-attrs)
            ;; Header hiccup is nil-tolerated by React/Reagent.

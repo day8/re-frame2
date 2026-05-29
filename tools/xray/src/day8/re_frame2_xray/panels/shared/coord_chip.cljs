@@ -42,8 +42,8 @@
   `:rf.xray/open-in-editor` reg-event-fx → `:rf.editor/open` reg-fx
   pipeline. Both surfaces co-exist by design (rf2-evgf5 / rf2-g5q8d
   decision)."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.panels.event.icons :as icons]
+  (:require [day8.re-frame2-xray.panels.event.icons :as icons]
+            [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 ;; ---- hoisted style maps -------------------------------------------------
@@ -70,9 +70,10 @@
   cleanly).
 
   Clicking dispatches `[:rf.xray/open-in-editor {:source-coord coord}]`
-  on the `:rf/xray` frame; the trace bus records the click, the
-  `:rf.editor/open` fx resolves the URI through the rf2-cm93v
-  allowlist, and `Location.assign` fires.
+  through the caller-supplied frame-aware dispatcher (rf2-r0o63) so the
+  open-in-editor event lands on the surrounding instance frame; the
+  trace bus records the click, the `:rf.editor/open` fx resolves the
+  URI through the rf2-cm93v allowlist, and `Location.assign` fires.
 
   Accessibility: the chip is a `<button>` (so Enter / Space activate
   natively), `aria-label` reads 'open in editor', and the inline SVG
@@ -93,10 +94,17 @@
                         alone in a `:text-primary` row.
     - `:margin-left`  — chip left-margin. Defaults to `\"4px\"`. Pass
                         `\"6px\"` to match Event-detail's slightly
-                        wider tap target."
+                        wider tap target.
+    - `:dispatch-fn`  — (rf2-r0o63) the frame-aware dispatcher captured
+                        by the surrounding `reg-view` body so the
+                        open-in-editor click lands on the instance
+                        frame. Defaults to `coord-link/default-dispatch`
+                        (the production singleton frame) for call-sites
+                        the rf2-nesy9 sweep hasn't yet threaded a
+                        captured dispatcher through."
   ([coord testid]
    (coord-chip coord testid nil))
-  ([coord testid {:keys [color margin-left]
+  ([coord testid {:keys [color margin-left dispatch-fn]
                   :or   {color       "inherit"
                          margin-left "4px"}}]
    (when (and (map? coord) (seq (:file coord)))
@@ -105,9 +113,9 @@
                :title       "open in editor"
                :on-click    (fn [e]
                               (.stopPropagation e)
-                              (rf/dispatch [:rf.xray/open-in-editor
-                                            {:source-coord coord}]
-                                           {:frame :rf/xray}))
+                              ((or dispatch-fn coord-link/default-dispatch)
+                               [:rf.xray/open-in-editor
+                                {:source-coord coord}]))
                :style       (assoc chip-style-base
                                    :color       color
                                    :margin-left margin-left)}

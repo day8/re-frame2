@@ -2737,55 +2737,62 @@
     (is (zero? (count all-zoom-buttons))
         "with :zoomable? off no node emits a zoom affordance")))
 
-(defn- with-rf-dispatch-spy
-  "Drive a click against a stubbed `rf/dispatch*` (the fn-form the
-  `dispatch` macro expands to) so the test can inspect the dispatched
-  event vector + opts WITHOUT spinning up the router. Returns
-  `{:event ... :opts ...}` captured at click. Per rf2-kcaiz — the
-  post-fix `zoom-affordance-button` calls `rf/dispatch` directly with
-  `{:frame :rf/xray}` opts (mirrors rf2-7sdja popup-affordance fix)."
-  [on-click]
-  (let [captured (atom nil)]
-    (with-redefs [rf/dispatch* (fn
-                                 ([ev]      (reset! captured {:event ev :opts nil}))
-                                 ([ev opts] (reset! captured {:event ev :opts opts})))]
-      (on-click nil))
-    @captured))
+(defn- with-captured-dispatch-spy
+  "Build the affordance with a captured-dispatcher STUB as its
+  `:dispatch-fn`, click it, and capture the dispatched event vector
+  WITHOUT spinning up the router. `make-btn` is `(fn [spy] hiccup)`.
+  Returns the captured single-arg event vector.
+
+  Per rf2-r0o63 — the post-fix `zoom-affordance-button` dispatches
+  through the SUPPLIED frame-aware dispatcher (the one the surrounding
+  `reg-view` body captured via `(rf/dispatcher)`), NOT a bare
+  `rf/dispatch` with a `{:frame :rf/xray}` literal. The dispatcher
+  closure already bound the instance frame at render time; this stub
+  stands in for it."
+  [make-btn]
+  (let [captured (atom nil)
+        spy      (fn [ev] (reset! captured ev))
+        h        (make-btn spy)
+        on-click (-> h second :on-click)]
+    (on-click nil)
+    {:event @captured :on-click on-click}))
 
 (deftest zoom-affordance-button-dispatches-zoom-to-with-absolute-path
-  (let [h        (ei/zoom-affordance-button
-                   {;; `:dispatch-fn` is a no-op post rf2-kcaiz —
-                    ;; pass nil to make the new contract obvious.
-                    :dispatch-fn   nil
-                    :panel-id      :p
-                    :mount-id      "m"
-                    :absolute-path [:a :b :c]
-                    :testid        "rf-xray-edn-inspector-zoom-aff"})
-        on-click (-> h second :on-click)
-        {:keys [event]} (with-rf-dispatch-spy on-click)]
+  (let [{:keys [event on-click]}
+        (with-captured-dispatch-spy
+          (fn [spy]
+            (ei/zoom-affordance-button
+              {:dispatch-fn   spy
+               :panel-id      :p
+               :mount-id      "m"
+               :absolute-path [:a :b :c]
+               :testid        "rf-xray-edn-inspector-zoom-aff"})))]
     (is (some? on-click) "button carries an on-click handler")
     (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b :c]] event)
         "click dispatches the canonical zoom-to event with the absolute path")))
 
-(deftest zoom-affordance-button-onclick-dispatches-against-xray-frame
-  ;; rf2-kcaiz — mirrors the rf2-7sdja popup-affordance regression
-  ;; guard. The zoom-affordance click handler MUST pin the dispatch
-  ;; frame to `:rf/xray` at call time, because React synthetic-event
-  ;; timing pops the surrounding frame context before the click fires
-  ;; (so a lexically-captured frame-aware dispatcher would leak the
-  ;; dispatch to `:rf/default`). This test asserts the envelope.
-  (testing "rf2-kcaiz — clicking the zoom-affordance dispatches
-            `[:rf.xray.edn-inspector/zoom-to ...]` against `:rf/xray`
-            EXPLICITLY (zoom state is Xray-global — pinned via
-            `{:frame :rf/xray}` opts)"
-    (let [h        (ei/zoom-affordance-button
-                     {:dispatch-fn   nil
-                      :panel-id      :rf.xray/app-db
-                      :mount-id      "m-1"
-                      :absolute-path [:cart :items 0]
-                      :testid        "x"})
-          on-click (-> h second :on-click)
-          {:keys [event opts]} (with-rf-dispatch-spy on-click)
+(deftest zoom-affordance-button-onclick-dispatches-through-captured-dispatcher
+  ;; rf2-r0o63 — supersedes the rf2-kcaiz pin. The zoom-affordance click
+  ;; handler dispatches through the SUPPLIED frame-aware dispatcher (the
+  ;; one the surrounding reg-view body captured via `(rf/dispatcher)` at
+  ;; render time), so the zoom-slot write lands on the instance frame.
+  ;; The captured closure bound the frame synchronously during render,
+  ;; so React's synthetic-event timing popping the dynamic context after
+  ;; render does NOT leak the dispatch — and no `:rf/xray` literal
+  ;; entrenches the singleton (N shells stay isolated).
+  (testing "rf2-r0o63 — clicking the zoom-affordance dispatches
+            `[:rf.xray.edn-inspector/zoom-to ...]` through the captured
+            dispatcher (single-arg event vector; frame baked into the
+            closure, not a `{:frame :rf/xray}` literal)"
+    (let [{:keys [event]}
+          (with-captured-dispatch-spy
+            (fn [spy]
+              (ei/zoom-affordance-button
+                {:dispatch-fn   spy
+                 :panel-id      :rf.xray/app-db
+                 :mount-id      "m-1"
+                 :absolute-path [:cart :items 0]
+                 :testid        "x"})))
           [event-id panel-id mount-id path] event]
       (is (= :rf.xray.edn-inspector/zoom-to event-id)
           "canonical event id")
@@ -2795,13 +2802,10 @@
           "mount-id flows through as third positional arg")
       (is (= [:cart :items 0] path)
           "absolute path flows through as fourth positional arg")
-      (is (= :rf/xray (:frame opts))
-          "rf2-kcaiz — zoom dispatch pins frame to `:rf/xray`
-           explicitly so the zoom-slot subscription (which only
-           reads `:rf/xray`'s app-db) sees the write regardless of
-           which frame the widget is mounted under. Same class of
-           fix as rf2-7sdja (popup-affordance) + rf2-y59tb (triangle
-           toggle)."))))
+      (is (= 4 (count event))
+          "rf2-r0o63 — dispatch is a single-arg event vector; the frame
+           is captured in the dispatcher closure, not a `{:frame :rf/xray}`
+           literal at the call site"))))
 
 (deftest zoom-affordance-composes-prefix-and-relative-path
   ;; The renderer threads the absolute path = (into zoom-path-prefix path)
@@ -2833,19 +2837,22 @@
     ;; render-container does, mirroring the zoom-path-prefix + path
     ;; composition.
     (let [composed (vec (concat [:rf/runtime :machines :snapshots] [:ws/connection]))
-          h2       (ei/zoom-affordance-button
-                     {:dispatch-fn   nil
-                      :panel-id      :p
-                      :mount-id      "m"
-                      :absolute-path composed
-                      :testid        "x"})
-          {:keys [event opts]} (with-rf-dispatch-spy (-> h2 second :on-click))]
+          {:keys [event]}
+          (with-captured-dispatch-spy
+            (fn [spy]
+              (ei/zoom-affordance-button
+                {:dispatch-fn   spy
+                 :panel-id      :p
+                 :mount-id      "m"
+                 :absolute-path composed
+                 :testid        "x"})))]
       (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
               [:rf/runtime :machines :snapshots :ws/connection]]
              event)
           "the dispatched path is the absolute path = prefix + relative")
-      (is (= :rf/xray (:frame opts))
-          "rf2-kcaiz — composed-path dispatch is ALSO pinned to `:rf/xray`"))))
+      (is (= 4 (count event))
+          "rf2-r0o63 — composed-path dispatch is ALSO a single-arg event
+           vector through the captured dispatcher (no `:rf/xray` literal)"))))
 
 ;; ---- breadcrumb ----------------------------------------------------------
 

@@ -146,36 +146,43 @@
 ;; widget-level affordance — on-click dispatch contract via stub
 ;; =========================================================================
 
-(defn- with-rf-dispatch-spy
-  "Drive a click against a stubbed `rf/dispatch*` (the fn-form the
-  `dispatch` macro expands to) so the test can inspect the dispatched
-  event vector + opts WITHOUT spinning up the router. Returns
-  `{:event ... :opts ...}` captured at click. Per rf2-7sdja — the
-  post-fix `popup-affordance-button` calls `rf/dispatch` directly with
-  `{:frame :rf/xray}` opts (not the lexically-captured dispatch-fn)."
-  [on-click]
-  (let [captured (atom nil)]
-    (with-redefs [rf/dispatch* (fn
-                                 ([ev]      (reset! captured {:event ev :opts nil}))
-                                 ([ev opts] (reset! captured {:event ev :opts opts})))]
-      (on-click nil))
-    @captured))
+(defn- with-captured-dispatch-spy
+  "Drive a click against a captured-dispatcher STUB passed in as the
+  `popup-affordance-button`'s `dispatch-fn` arg, so the test can inspect
+  the dispatched event vector WITHOUT spinning up the router. Returns
+  the captured event vector.
 
-(deftest popup-affordance-button-onclick-dispatches-against-xray-frame
-  (testing "rf2-7sdja — clicking the affordance dispatches
+  Per rf2-r0o63 — the post-fix `popup-affordance-button` dispatches
+  through the SUPPLIED frame-aware dispatcher (the one the surrounding
+  `reg-view` body captured via `(rf/dispatcher)`), NOT a bare
+  `rf/dispatch` with a `{:frame :rf/xray}` literal. The dispatcher
+  closure already bound the instance frame at render time, so this stub
+  stands in for it; the affordance's contract is the single-arg event
+  vector it hands the dispatcher."
+  [make-btn]
+  (let [captured (atom nil)
+        spy      (fn [ev] (reset! captured ev))
+        btn      (make-btn spy)
+        on-click (:on-click (second btn))]
+    (on-click nil)
+    {:event @captured :btn btn}))
+
+(deftest popup-affordance-button-onclick-dispatches-through-captured-dispatcher
+  (testing "rf2-r0o63 — clicking the affordance dispatches
             `[:rf.xray.edn-inspector-popup/open popup-mount-id payload]`
-            against `:rf/xray` EXPLICITLY (popup state is Xray-global,
-            not per-frame — pinned via `{:frame :rf/xray}` opts)"
-    (let [btn (ei/popup-affordance-button
-                ;; `dispatch-fn` parameter is a no-op post rf2-7sdja —
-                ;; pass nil to make the new contract obvious.
-                nil
+            through the SUPPLIED frame-aware dispatcher (captured by the
+            surrounding reg-view at render time), so the popup-open write
+            lands on the instance frame — no `{:frame :rf/xray}` literal,
+            so N shells stay isolated"
+    (let [{:keys [event]}
+          (with-captured-dispatch-spy
+            (fn [spy]
+              (ei/popup-affordance-button
+                spy
                 "ddp-abc"
                 {:cart [1 2 3]}
                 {:panel-id :rf.xray/app-db :default-expanded-depth 3
-                 :popup-affordance? true})
-          on-click (:on-click (second btn))
-          {:keys [event opts]} (with-rf-dispatch-spy on-click)
+                 :popup-affordance? true})))
           [event-id mount-id payload] event]
       (is (= :rf.xray.edn-inspector-popup/open event-id)
           "canonical event id")
@@ -189,25 +196,27 @@
       (is (= :rf.xray/app-db (:panel-id (:opts payload)))
           "other opts (`:panel-id`, `:default-expanded-depth`) survive")
       (is (= 3 (:default-expanded-depth (:opts payload))))
-      (is (= :rf/xray (:frame opts))
-          "rf2-7sdja — popup dispatch pins frame to `:rf/xray`
-           explicitly so the popup-stack-view (which only subscribes
-           against `:rf/xray`) sees the write regardless of which
-           frame the widget is mounted under"))))
+      ;; rf2-r0o63 — the dispatch goes through the captured dispatcher's
+      ;; SINGLE-ARG form (the spy is `(fn [ev] …)`); the frame is baked
+      ;; into the dispatcher closure, NOT passed as a `{:frame …}` opts
+      ;; literal at the call site. The event vector is all the affordance
+      ;; hands the dispatcher.
+      (is (= 3 (count event))
+          "rf2-r0o63 — dispatch is a single-arg event vector; the frame
+           is captured in the dispatcher closure, not a `{:frame :rf/xray}`
+           literal at the call site"))))
 
 (deftest popup-affordance-button-onclick-preserves-nil-opts
   (testing "rf2-l4625 — when the caller supplies no opts, the affordance
             still produces a sane payload (just `:popup-affordance? false`
             in the popup's downstream opts map)"
-    (let [btn (ei/popup-affordance-button nil "ddp-x" {:k :v} nil)
-          on-click (:on-click (second btn))
-          {:keys [event opts]} (with-rf-dispatch-spy on-click)
+    (let [{:keys [event]}
+          (with-captured-dispatch-spy
+            (fn [spy] (ei/popup-affordance-button spy "ddp-x" {:k :v} nil)))
           payload (nth event 2)]
       (is (= {:k :v} (:value payload)))
       (is (false? (:popup-affordance? (:opts payload)))
-          "even with nil opts the recursion guard fires")
-      (is (= :rf/xray (:frame opts))
-          "rf2-7sdja — `:rf/xray` frame still pinned even with nil opts"))))
+          "even with nil opts the recursion guard fires"))))
 
 ;; =========================================================================
 ;; shell mount — `edn-inspector-popup-stack` view
