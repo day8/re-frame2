@@ -416,6 +416,19 @@
                     re-render (rf2-8wrzz.1); absent on a structural render.
     :elapsed-ms   — (when present) the render duration in fractional ms
                     (rf2-8wrzz.1).
+    :cause-event-id — (when present) the event-id of the cascade whose
+                    handler-body invalidated a reactive input this view
+                    deref'd, triggering the re-render (rf2-1cc03 /
+                    rf2-9gquv). The `:rf.view/rendered` op stamps
+                    `:rf.view/cause-event-id` (views.cljs) under the same
+                    OMITTED-vs-nil semantics as the sub-row's
+                    `:rf.sub/cause-event-id`: absent (not nil) for a render
+                    outside any in-flight cascade (mount / structural render)
+                    or when no cause was derivable. This is the slot the
+                    causal/cascade `:view` surface reads
+                    (`evidence/reactive-counts` `:by-cause`,
+                    `result/causal-count`) — without it every `:renders` row
+                    keys as nil and view-render attribution silently reads 0.
 
   The optional slots are threaded only when the trace tag carries them so
   the row stays minimal for renders outside a cascade / structural
@@ -430,7 +443,9 @@
         (some? (:rf.view/triggered-by tags))
         (assoc :triggered-by (:rf.view/triggered-by tags))
         (some? (:rf.view/elapsed-ms tags))
-        (assoc :elapsed-ms (:rf.view/elapsed-ms tags))))))
+        (assoc :elapsed-ms (:rf.view/elapsed-ms tags))
+        (contains? tags :rf.view/cause-event-id)
+        (assoc :cause-event-id (:rf.view/cause-event-id tags))))))
 
 (defn project-all
   "Walk the captured trace events ONCE and emit the three `:sub-runs`,
