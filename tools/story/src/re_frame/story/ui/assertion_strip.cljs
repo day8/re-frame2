@@ -464,22 +464,31 @@
               multi-group? (> (count groups) 1)]
           [:div {:style     (:wrap styles)
                  :data-test "story-canvas-assertion-strip"}
-           (for [[gi {:keys [event records]}] (map-indexed vector groups)]
-             ^{:key (str "group-" gi)}
-             [:div {:style     (:group styles)
-                    :data-test "story-canvas-assertion-group"}
-              (when multi-group?
-                (group-head event))
-              (for [[ri rec] (map-indexed vector records)]
-                (let [row   (row-for rec)
-                      rkey  (:row-key row)
-                      open? (contains? @expanded rkey)]
-                  ;; The key MUST land on a vector literal (a Reagent
-                  ;; component element) — `^{:key ...}` on a function-CALL
-                  ;; form is dropped at read time (the meta does not
-                  ;; transfer to render-row's return value), so React's
-                  ;; row seq would have no key and warn 194×/run. Rendering
-                  ;; `[render-row ...]` as a component vector lands the key
-                  ;; on the element Reagent hands to React.
-                  ^{:key (str gi "/" ri "/" rkey)}
-                  [render-row row open? toggle]))])])))))
+           ;; `doall` realises both seqs eagerly inside the render
+           ;; reaction. The inner row seq derefs `@expanded`; a bare
+           ;; lazy `for` would defer that deref until React realises the
+           ;; seq OUTSIDE the tracking context, so the reaction wouldn't
+           ;; register `expanded` as a dependency (Reagent's "Reactive
+           ;; deref not supported in lazy seq" smell). Forcing the seqs
+           ;; here keeps the deref inside the reaction.
+           (doall
+             (for [[gi {:keys [event records]}] (map-indexed vector groups)]
+               ^{:key (str "group-" gi)}
+               [:div {:style     (:group styles)
+                      :data-test "story-canvas-assertion-group"}
+                (when multi-group?
+                  (group-head event))
+                (doall
+                  (for [[ri rec] (map-indexed vector records)]
+                    (let [row   (row-for rec)
+                          rkey  (:row-key row)
+                          open? (contains? @expanded rkey)]
+                      ;; The key MUST land on a vector literal (a Reagent
+                      ;; component element) — `^{:key ...}` on a function-CALL
+                      ;; form is dropped at read time (the meta does not
+                      ;; transfer to render-row's return value), so React's
+                      ;; row seq would have no key and warn 194×/run. Rendering
+                      ;; `[render-row ...]` as a component vector lands the key
+                      ;; on the element Reagent hands to React.
+                      ^{:key (str gi "/" ri "/" rkey)}
+                      [render-row row open? toggle])))]))])))))
