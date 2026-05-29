@@ -48,6 +48,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
@@ -116,11 +117,7 @@
   "Substring filter against flow-id + frame + inputs + path + doc.
   Empty / blank query returns rows verbatim."
   [rows query]
-  (let [q (some-> query str/trim)]
-    (if (or (nil? q) (= "" q))
-      rows
-      (let [needle (str/lower-case q)]
-        (filterv #(str/includes? (row-haystack %) needle) rows)))))
+  (search-box/filter-rows row-haystack rows query))
 
 (defn project-data
   "View-facing composite. Folds the registered-flows map + UI controls
@@ -161,47 +158,18 @@
   [query total filtered?]
   ;; rf2-nesy9 — render-time frame capture so the deferred search input
   ;; dispatches into the surrounding instance frame (rendered inside the
-  ;; flows Panel reg-view), not a `:rf/xray` literal.
+  ;; flows Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 — the
+  ;; flex-row markup lives in the shared `search-box` component.
   (let [frame (rf/current-frame)]
-   [:div {:data-testid "rf-xray-static-flows-search"
-         :style       {:display       "flex"
-                       :align-items   "center"
-                       :gap           "8px"
-                       :padding       "8px 16px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family   sans-stack}}
-   [:label {:style {:color          (:text-tertiary tokens)
-                    :font-size      "10px"
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"
-                    :min-width      "60px"}}
-    "Search"]
-   [:input {:type        "text"
-            :data-testid "rf-xray-static-flows-search-input"
-            :placeholder "flow-id, path, or doc…"
-            :value       (or query "")
-            :on-change   (fn [e]
-                           (rf/dispatch [:rf.xray.static.flows/set-query
-                                         (-> e .-target .-value)]
-                                        {:frame frame}))
-            :style       {:flex          1
-                          :background    (:bg-3 tokens)
-                          :color         (:text-primary tokens)
-                          :border        (str "1px solid " (:border-default tokens))
-                          :border-radius "3px"
-                          :padding       "4px 8px"
-                          :font-family   mono-stack
-                          :font-size     "12px"}}]
-   [:span {:data-testid "rf-xray-static-flows-search-count"
-           :style       {:color       (:text-tertiary tokens)
-                         :font-family mono-stack
-                         :font-size   "11px"
-                         :min-width   "80px"
-                         :text-align  "right"}}
-    (cond
-      filtered?     "match"
-      (= 1 total)   "1 flow"
-      :else         (str total " flows"))]]))
+    [search-box/search-box
+     {:testid-prefix   "rf-xray-static-flows"
+      :dispatch        (fn [ev] (rf/dispatch ev {:frame frame}))
+      :set-query-event :rf.xray.static.flows/set-query
+      :placeholder     "flow-id, path, or doc…"
+      :value           query
+      :count-noun      "flow"
+      :total           total
+      :filtered?       filtered?}]))
 
 ;; ---- row -----------------------------------------------------------------
 

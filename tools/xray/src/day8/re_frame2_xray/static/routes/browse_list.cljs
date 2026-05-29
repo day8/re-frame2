@@ -24,6 +24,7 @@
   enclosing frame-provider in `static/shell.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.row-expand :as row-expand]
+            [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -60,49 +61,23 @@
 (defn- search-box
   "Substring filter. Matches against route-id + path + doc via
   `routing-helpers/filter-rows`. State on
-  `:rf.xray.static.routes/query`."
+  `:rf.xray.static.routes/query`.
+
+  rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view (via
+  `render`), not a render-time capture (this whole subtree is invoked as
+  a Reagent component and cannot recover the frame). rf2-1keg3 — the
+  flex-row markup lives in the shared `search-box` component."
   [dispatch query total-routes filtered?]
-  ;; rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view
-  ;; (via `render`), not a render-time capture (this whole subtree is
-  ;; invoked as a Reagent component and cannot recover the frame).
-  [:div {:data-testid "rf-xray-static-routes-search"
-         :style       {:display       "flex"
-                       :align-items   "center"
-                       :gap           "8px"
-                       :padding       "8px 16px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family   sans-stack}}
-   [:label {:style {:color          (:text-tertiary tokens)
-                    :font-size      "10px"
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"
-                    :min-width      "60px"}}
-    "Search"]
-   [:input {:type        "text"
-            :data-testid "rf-xray-static-routes-search-input"
-            :placeholder "route-id, path, or doc…"
-            :value       (or query "")
-            :on-change   (fn [e]
-                           (dispatch [:rf.xray.static.routes/set-query
-                                      (-> e .-target .-value)]))
-            :style       {:flex          1
-                          :background    (:bg-3 tokens)
-                          :color         (:text-primary tokens)
-                          :border        (str "1px solid " (:border-default tokens))
-                          :border-radius "3px"
-                          :padding       "4px 8px"
-                          :font-family   mono-stack
-                          :font-size     "12px"}}]
-   [:span {:data-testid "rf-xray-static-routes-search-count"
-           :style       {:color       (:text-tertiary tokens)
-                         :font-family mono-stack
-                         :font-size   "11px"
-                         :min-width   "60px"
-                         :text-align  "right"}}
-    (cond
-      filtered?              "match"
-      (= 1 total-routes)     "1 route"
-      :else                  (str total-routes " routes"))]])
+  [search-box/search-box
+   {:testid-prefix   "rf-xray-static-routes"
+    :dispatch        dispatch
+    :set-query-event :rf.xray.static.routes/set-query
+    :placeholder     "route-id, path, or doc…"
+    :value           query
+    :count-noun      "route"
+    :total           total-routes
+    :filtered?       filtered?
+    :count-min-width "60px"}])
 
 (defn- route-row
   "One row in the flat catalogue. No marker chip, no `:here` glyph —
