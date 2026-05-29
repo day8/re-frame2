@@ -77,12 +77,19 @@
   Every fn here is pure data → data: tokens / requirement-sets / runner
   descriptors in, selection + refusal + validation maps out. It requires
   NOTHING from `re-frame.core`, the DOM, or a host, so the whole registry
-  + selection + validation surface runs under `clojure -M:test`. It reads
-  the spec/017 §`:cannot-run` refusal shape from
-  `re-frame.story.play.settled-boundary` (the `.2` boundary `:cannot-run`)
-  so there is ONE refusal vocabulary, not a parallel one."
-  (:require [re-frame.story.play.evidence        :as evidence]
-            [re-frame.story.play.settled-boundary :as boundary]))
+  + selection + validation surface runs under `clojure -M:test`.
+
+  Its `:cannot-run` refusal (`requirement-refusal`) is the CAPABILITY-axis
+  sibling of the BOUNDARY-axis refusal that
+  `re-frame.story.play.settled-boundary/cannot-run-refusal` builds. Both
+  share the `:status :cannot-run` discriminator (spec/017 §`:cannot-run` —
+  the distinct THIRD status, never a silent pass), but they are TWO
+  parallel refusals on two different axes (a missing capability token here;
+  a runner that does not reach the required settle boundary there), keyed
+  on their own facts — NOT one shared map. The axes are legitimately
+  distinct, so this ns names its own refusal rather than borrowing the
+  boundary one."
+  (:require [re-frame.story.play.evidence :as evidence]))
 
 ;; ===========================================================================
 ;; CAPABILITY TOKENS  (spec/017 §Runner kinds and capabilities)
