@@ -10,7 +10,8 @@
   registrar's eager merge)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.story.plan :as plan]))
+            [re-frame.story.plan :as plan]
+            [re-frame.story.sub-overrides :as sub-overrides]))
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -425,3 +426,148 @@
       (testing "the two contracts are not conflated — sub-overrides are NOT in view-args-schema"
         (is (not (contains? (set (get-in p [:world :view-args-schema]))
                             [:widget/state])))))))
+
+;; ===========================================================================
+;; View-state subscription overrides (rf2-5x1wt.13)
+;; ===========================================================================
+;;
+;; `:sub-overrides` is the third, lower-fidelity rung of the fidelity
+;; ladder — a map of exact subscription query vectors → data values the
+;; renderer surfaces for view-state / design exploration. The compiler
+;; resolves `[:arg key]` placeholders in the VALUES, validates each
+;; resolved value against the subscription's OUTPUT schema (distinct from
+;; the view-arg schema), lowers the map to `[:world :render
+;; :sub-overrides]`, and marks `:fidelity`. These tests run host-free by
+;; threading an explicit `:sub-lookup` map of {sub-id → sub-meta}.
+
+(deftest sub-overrides-lower-and-mark-fidelity
+  (testing "a view-state variant renders with exact query-vector overrides + :fidelity"
+    (let [m {:story.login/error
+             {:args          {:message "Invalid password"}
+              :sub-overrides {[:login/state]    :error
+                              [:login/error]    [:arg :message]
+                              [:login/attempts] 1}}}
+          p (plan/variant-plan :story.login/error {:lookup m})]
+      (testing "overrides lower to [:world :render :sub-overrides] with exact query vectors"
+        (is (= {[:login/state]    :error
+                [:login/error]    "Invalid password"   ; [:arg :message] resolved
+                [:login/attempts] 1}
+               (get-in p [:world :render :sub-overrides]))))
+      (testing ":fidelity carries :sub-overrides (and no :real-setup — pure design variant)"
+        (is (= #{:sub-overrides} (get-in p [:world :fidelity]))))
+      (testing "explain surfaces the resolved overrides + fidelity (overrides were used)"
+        (is (= {[:login/state]    :error
+                [:login/error]    "Invalid password"
+                [:login/attempts] 1}
+               (get-in p [:explain :sub-overrides :overrides])))
+        (is (= #{:sub-overrides} (get-in p [:explain :fidelity]))))
+      (testing "the [:arg] substitution into an override value is recorded"
+        (is (some #(= {:key :message :value "Invalid password"} %)
+                  (get-in p [:explain :substitutions])))))))
+
+(deftest fidelity-ladder-real-setup-vs-overrides
+  (testing "a setup-driven variant is :real-setup; adding overrides marks both rungs"
+    (let [m {:story.f/setup-only
+             {:setup [[:dispatch-sync [:counter/init 5]]]}
+             :story.f/hybrid
+             {:setup         [[:dispatch-sync [:counter/init 5]]]
+              :sub-overrides {[:counter/badge] :hot}}
+             :story.f/bare
+             {:component :views/x}}]
+      (testing "setup-only → #{:real-setup}, no :sub-overrides rung"
+        (is (= #{:real-setup} (get-in (plan/variant-plan :story.f/setup-only {:lookup m})
+                                      [:world :fidelity]))))
+      (testing "setup + overrides → both rungs"
+        (is (= #{:real-setup :sub-overrides}
+               (get-in (plan/variant-plan :story.f/hybrid {:lookup m})
+                       [:world :fidelity]))))
+      (testing "a bare render-as-mounted variant carries no :fidelity slot"
+        (is (nil? (get-in (plan/variant-plan :story.f/bare {:lookup m})
+                          [:world :fidelity])))))))
+
+(deftest sub-override-missing-arg-fails-plan-construction
+  (testing "a missing arg in an override value FAILS plan construction"
+    (let [m {:story.login/oops
+             {:args          {} ; :message not declared
+              :sub-overrides {[:login/error] [:arg :message]}}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+            #"story-missing-arg"
+            (plan/variant-plan :story.login/oops {:lookup m}))))))
+
+(deftest sub-override-output-schema-mismatch-fails-before-render
+  (testing "an override value violating the sub's OUTPUT schema fails plan construction"
+    (let [m {:story.login/bad
+             {:sub-overrides {[:login/attempts] "not-an-int"}}}
+          ;; the sub carries an output schema on its :sub registrar :schema slot
+          sub-lookup {:login/attempts {:schema [:int]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+            #"story-sub-override-invalid"
+            (plan/variant-plan :story.login/bad
+                               {:lookup        m
+                                :sub-lookup    sub-lookup
+                                :validator-fns malli-validator})))))
+  (testing "a value that SATISFIES the output schema compiles cleanly"
+    (let [m {:story.login/ok {:sub-overrides {[:login/attempts] 3}}}
+          sub-lookup {:login/attempts {:schema [:int]}}
+          p (plan/variant-plan :story.login/ok
+                               {:lookup        m
+                                :sub-lookup    sub-lookup
+                                :validator-fns malli-validator})]
+      (is (= :ok (get-in p [:explain :sub-overrides :validation :status])))
+      (is (= 3 (get-in p [:world :render :sub-overrides [:login/attempts]])))))
+  (testing "a sub with no output schema soft-passes (the host-free floor)"
+    (let [m {:story.login/noschema {:sub-overrides {[:login/state] :whatever}}}
+          p (plan/variant-plan :story.login/noschema
+                               {:lookup        m
+                                :sub-lookup    {} ; no metadata for any sub
+                                :validator-fns malli-validator})]
+      (is (= :sub-overrides (first (get-in p [:world :fidelity]))))
+      (is (= :whatever (get-in p [:world :render :sub-overrides [:login/state]])))))
+  (testing "with no validator threaded, output-schema checking soft-passes"
+    ;; The JVM-default path (no malli validator) checks shape only at the
+    ;; renderer — a malformed value is not caught at plan construction.
+    (let [m {:story.login/nov {:sub-overrides {[:login/attempts] "nope"}}}
+          sub-lookup {:login/attempts {:schema [:int]}}
+          p (plan/variant-plan :story.login/nov {:lookup m :sub-lookup sub-lookup})]
+      (is (= "nope" (get-in p [:world :render :sub-overrides [:login/attempts]]))))))
+
+(deftest sub-overrides-compose-through-fragments
+  (testing "a composed fragment contributes :sub-overrides; variant chain wins per key"
+    (let [frag {:fragment/error-state {:sub-overrides {[:login/state] :error
+                                                       [:login/code]  500}}}
+          m    {:story.login/composed
+                {:compose       [:fragment/error-state]
+                 :sub-overrides {[:login/code] 503}}} ; variant overrides the key
+          p (plan/variant-plan :story.login/composed
+                               {:lookup          m
+                                :fragment-lookup frag})]
+      (is (= {[:login/state] :error
+              [:login/code]  503}              ; variant value wins over the fragment
+             (get-in p [:world :render :sub-overrides])))
+      (is (= #{:sub-overrides} (get-in p [:world :fidelity]))))))
+
+;; ---- pure resolver: render-path read + sub-assertion honesty -------------
+
+(deftest sub-overrides-render-path-resolver-is-exact
+  (testing "resolve returns the override value on an exact query-vector match"
+    (let [ovr {[:login/state] :error [:item 7] {:sku "X"}}]
+      (is (= :error      (sub-overrides/resolve ovr [:login/state])))
+      (is (= {:sku "X"}  (sub-overrides/resolve ovr [:item 7])))))
+  (testing "a non-exact query (different args / sub-id) MISSES — no fuzzing"
+    (let [ovr {[:item 7] {:sku "X"}}]
+      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:item 8])))
+      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:item])))
+      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:other 7])))))
+  (testing "an override whose VALUE is nil is a genuine hit (sentinel is distinct)"
+    (let [ovr {[:login/user] nil}]
+      (is (sub-overrides/overridden? ovr [:login/user]))
+      (is (nil? (sub-overrides/resolve ovr [:login/user])))))
+  (testing "read surfaces the override and skips real-read; misses fall through"
+    (let [ovr {[:login/state] :error}]
+      (is (= :error (sub-overrides/with-overrides* ovr
+                      #(sub-overrides/read [:login/state]
+                                           (fn [] (throw (ex-info "should not run" {})))))))
+      (is (= :real  (sub-overrides/with-overrides* ovr
+                      #(sub-overrides/read [:login/other] (fn [] :real))))))))

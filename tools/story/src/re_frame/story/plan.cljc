@@ -48,6 +48,27 @@
   subscriptions / `:sub-overrides` (§View-state subscription overrides);
   the two MUST NOT be conflated.
 
+  ## View-state subscription overrides (rf2-5x1wt.13)
+
+  A variant whose goal is rendering / design exploration MAY author
+  `:sub-overrides` — a map of exact subscription query vectors to data
+  values the renderer surfaces for them (§View-state subscription
+  overrides). The compiler resolves `[:arg key]` placeholders inside the
+  override VALUES (same one-level mechanism as setup/script), validates
+  each resolved value against the subscription's OUTPUT schema when one is
+  on file (distinct from the view-arg schema above — a missing schema soft-
+  passes), lowers the map to `[:world :render :sub-overrides]`, and marks
+  the plan `:fidelity` with `:sub-overrides`. A resolved value that
+  violates a sub's output schema FAILS plan construction (before render)
+  with `:rf.error/story-sub-override-invalid`.
+
+  Overrides feed the RENDER PATH only (`re-frame.story.sub-overrides`) —
+  never app-db, never `compute-sub` — so a `:sub-overrides` value does NOT
+  satisfy `:rf.assert/sub-equals` (which evaluates through `compute-sub`
+  against the frame snapshot). `:sub-overrides` is the third, deliberately
+  lower-fidelity rung of the fidelity ladder; the `:fidelity` set labels
+  it so a reviewer can tell at a glance which evidence a variant rests on.
+
   ## Network world slot (rf2-5x1wt.14)
 
   When a variant authors `:network` (a `{[method url] {:reply …}}` route
@@ -497,6 +518,139 @@
        {:status :ok :schema schema :missing [] :malformed []}))))
 
 ;; ============================================================================
+;; View-state subscription overrides (rf2-5x1wt.13)
+;; ============================================================================
+;;
+;; Per spec §View-state subscription overrides. `:sub-overrides` is a map
+;; of EXACT subscription query vectors → data values the renderer surfaces
+;; for view-state / design exploration. The compiler:
+;;
+;;   1. resolves `[:arg key]` placeholders inside the override VALUES
+;;      (handled in `compile-body` by the shared `substitute-args` pass);
+;;   2. validates each resolved value against the subscription's OUTPUT
+;;      schema when one is on file (this section) — DISTINCT from the
+;;      view-arg schema, which validates explicit view inputs. A sub with
+;;      no output schema soft-passes (the floor matches the view-arg
+;;      malformed-value convention: no validator → no malformed check);
+;;   3. lowers the resolved map to `[:world :render :sub-overrides]`;
+;;   4. marks the plan `:fidelity` with `:sub-overrides`.
+;;
+;; A resolved value that VIOLATES a sub's output schema FAILS plan
+;; construction (before render) with `:rf.error/story-sub-override-
+;; invalid`. The override never touches app-db or `compute-sub`, so it
+;; does NOT satisfy `:rf.assert/sub-equals` (the §View-state subscription
+;; overrides honesty rule) — that boundary lives at the render-path
+;; resolver (`re-frame.story.sub-overrides`) + the assertion module.
+;;
+;; **Subscription-output-schema source.** A sub's output schema rides on
+;; its framework `:sub` registrar metadata `:schema` slot (`reg-sub`'s
+;; optional metadata map: `(reg-sub :id {:schema …} …)`). The sub-id is
+;; the FIRST element of the query vector. The compiler resolves it through
+;; a `:sub-lookup` opt — a `(sub-id) → sub-meta` fn or `{sub-id → sub-meta}`
+;; map, defaulting to the framework `:sub` registrar — so the compiler
+;; stays a pure data → data fn for host-free tests (the test threads an
+;; explicit map; production reads the registrar).
+
+(def ^:private sub-output-schema-keys
+  "Sub-metadata keys carrying the subscription OUTPUT schema, in
+  resolution order (first present wins). `:schema` is the `reg-sub`
+  metadata slot (Spec 010 §reg-sub); `:rf/output` is reserved for a
+  future explicit output-schema key a port may adopt."
+  [:schema :rf/output])
+
+(defn sub-output-schema
+  "Return the OUTPUT schema for a subscription from its `sub-meta` map
+  (the framework `:sub` registrar slot), or nil when none is present.
+  Picks the first of `sub-output-schema-keys` that is set. This is the
+  subscription-output contract — DISTINCT from the view-args/props schema
+  `view-args-schema` reads (§View-state subscription overrides — sharp
+  boundary)."
+  [sub-meta]
+  (when (map? sub-meta)
+    (some (fn [k] (let [s (get sub-meta k)] (when (some? s) s)))
+          sub-output-schema-keys)))
+
+(defn validate-sub-overrides
+  "Validate every resolved `:sub-overrides` value against its
+  subscription's OUTPUT schema. Pure data → data.
+
+  - `sub-overrides` — the resolved `{query-vector value}` map (post `[:arg
+    key]` substitution).
+  - `sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` resolving a
+    subscription's registration metadata (for its output schema). The
+    sub-id is `(first query-vector)`.
+  - `validator-fns` — `{:validate (fn [schema value] truthy?) :explain (fn
+    [schema value] explanation)}`, the SAME malformed-value validator the
+    view-arg path threads. With no validator, value-against-schema
+    checking SOFT-PASSES (the host-free floor — a `:sub-overrides`-only
+    JVM test that wants schema enforcement threads a Malli validator).
+
+  Returns `{:status :ok | :invalid :violations [...]}` where each
+  violation is `{:query-v qv :sub-id id :value v :schema s :explain
+  explanation}`. A query whose sub carries no output schema is skipped
+  (soft-pass); only a present schema that the value fails is a violation."
+  [sub-overrides sub-lookup validator-fns]
+  (let [validate (:validate validator-fns)
+        explain  (:explain  validator-fns)
+        entries  (seq sub-overrides)]
+    (if (or (nil? entries) (nil? validate))
+      ;; No overrides, or no validator → nothing structural to check.
+      {:status :ok :violations []}
+      (let [violations
+            (into []
+                  (keep (fn [[query-v value]]
+                          (let [sub-id (when (vector? query-v) (first query-v))
+                                schema (sub-output-schema (sub-lookup sub-id))]
+                            (when (and (some? schema) (not (validate schema value)))
+                              {:query-v query-v
+                               :sub-id  sub-id
+                               :value   value
+                               :schema  schema
+                               :explain (when explain (explain schema value))}))))
+                  entries)]
+        {:status     (if (empty? violations) :ok :invalid)
+         :violations violations}))))
+
+;; ============================================================================
+;; Fidelity ladder (rf2-5x1wt.13)
+;; ============================================================================
+;;
+;; Per spec §View-state subscription overrides — the fidelity ladder is:
+;; real setup events (highest) → schema-checked app-db seed → subscription
+;; overrides (lowest, but legitimate when labelled). `:fidelity` is a SET
+;; of the rungs a resolved plan actually rests on, computed from the world
+;; inputs so authors never type it. A reviewer reads the set to know which
+;; evidence a variant's render leans on.
+;;
+;;   :real-setup    — the variant has setup events (or a script) that
+;;                    drive real state into the frame;
+;;   :db-seed       — a schema-checked direct app-db seed (the world
+;;                    `:db-seed` slot; reserved — folded in when that slot
+;;                    lands so this fn does not need revisiting);
+;;   :sub-overrides — one or more view-state subscription overrides.
+
+(defn compute-fidelity
+  "Compute the `:fidelity` set for a resolved plan from its world inputs.
+  Pure data → data. Returns a (possibly empty) set drawn from
+  `#{:real-setup :db-seed :sub-overrides}`:
+
+  - `:real-setup`    when `setup` (or `script`) is non-empty — real
+                     events drive the frame's state;
+  - `:db-seed`       when `db-seed` is present (a schema-checked direct
+                     app-db seed; reserved world slot);
+  - `:sub-overrides` when `sub-overrides` resolves any entry.
+
+  A plain events-driven variant yields `#{:real-setup}`; a pure design
+  variant that only pins sub values yields `#{:sub-overrides}`; a hybrid
+  carries both. The empty set (no setup, no seed, no overrides) is a
+  legitimate render-the-view-as-mounted variant."
+  [{:keys [setup script db-seed sub-overrides]}]
+  (cond-> #{}
+    (or (seq setup) (seq script)) (conj :real-setup)
+    (some? db-seed)               (conj :db-seed)
+    (seq sub-overrides)           (conj :sub-overrides)))
+
+;; ============================================================================
 ;; Network world slot (rf2-5x1wt.14)
 ;; ============================================================================
 ;;
@@ -768,6 +922,26 @@
                               "re-frame2-story: :view-lookup must be a fn or a map"
                               {:view-lookup view-lookup})))
 
+(defn- default-sub-lookup
+  "Default subscription-metadata lookup — reads the **framework** `:sub`
+  registrar slot (where `reg-sub` stamps a sub's metadata, incl. any
+  `:schema` output-schema slot). Resolves the OUTPUT-schema source for
+  `:sub-overrides` value validation (rf2-5x1wt.13). Production bundles
+  that elide subs return nil; pure tests thread an explicit `:sub-lookup`."
+  [sub-id]
+  (framework-registrar/handler-meta :sub sub-id))
+
+(defn- coerce-sub-lookup
+  "Accept a 1-arg fn or a `{sub-id → sub-meta}` map as `:sub-lookup`."
+  [sub-lookup]
+  (cond
+    (nil? sub-lookup) default-sub-lookup
+    (map? sub-lookup) #(get sub-lookup %)
+    (fn? sub-lookup)  sub-lookup
+    :else             (fail! :rf.error/story-bad-lookup
+                             "re-frame2-story: :sub-lookup must be a fn or a map"
+                             {:sub-lookup sub-lookup})))
+
 ;; ---- fragment + check lookup (rf2-5x1wt.15) ------------------------------
 
 (defn- default-fragment-lookup
@@ -814,11 +988,16 @@
   - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
     `{id → body}` map resolving the bodies named in `:compose`
     (rf2-5x1wt.15). Default to the Story side-table `:fragment` / `:check`
-    kinds."
+    kinds.
+  - `:sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` OR a `{sub-id →
+    sub-meta}` map resolving a subscription's registration metadata (for
+    its OUTPUT schema, against which `:sub-overrides` values are validated
+    — rf2-5x1wt.13). Defaults to the framework `:sub` registrar."
   ([id body lookup] (compile-body id body lookup nil))
-  ([id body lookup {:keys [view-lookup validator-fns
+  ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup] :as _opts}]
   (let [view-lookup  (coerce-view-lookup view-lookup)
+        sub-lookup   (coerce-sub-lookup sub-lookup)
         frag-lookup  (coerce-kind-lookup :fragment-lookup fragment-lookup
                                          default-fragment-lookup)
         chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
@@ -894,7 +1073,18 @@
         subs!        (atom [])
         setup        (substitute-args setup-raw arg-map subs!)
         script*      (substitute-args script arg-map subs!)
-        sub-overrides (substitute-args (:sub-overrides ctx) arg-map subs!)
+        ;; ---- view-state subscription overrides (rf2-5x1wt.13) ----
+        ;; `:sub-overrides` composes like `:network`: composed-fragment
+        ;; override maps merge in declared order (a later fragment wins a
+        ;; query key), THEN the variant chain (`ctx`, where `:extends`
+        ;; context flowed down) wins on top. Override VALUES may carry
+        ;; `[:arg key]` placeholders (e.g. an error message driven by a
+        ;; control), so substitute AFTER merging. KEYS are exact query
+        ;; vectors — `[:arg]` substitution walks them too, so a query arg
+        ;; can also be control-driven.
+        frag-sub-ovr (reduce (fn [m l] (merge m (:sub-overrides l))) {} frag-layers)
+        sub-overrides (substitute-args (merge frag-sub-ovr (:sub-overrides ctx))
+                                       arg-map subs!)
         ;; ---- strict-conflict composition (rf2-5x1wt.15) ----
         ;; The strict-conflict override MAPS (`:fx-overrides` /
         ;; `:interceptor-overrides`) compose per-KEY: the variant chain
@@ -976,6 +1166,34 @@
                                :missing         (:missing validation)
                                :malformed       (:malformed validation)
                                :effective-args  eff-args}))
+        ;; ---- :sub-overrides output-schema validation (rf2-5x1wt.13) ----
+        ;; Each resolved override value is validated against its
+        ;; subscription's OUTPUT schema (distinct from the view-args
+        ;; schema above). A sub with no output schema soft-passes; a value
+        ;; that violates a present schema FAILS plan construction BEFORE
+        ;; render with `:rf.error/story-sub-override-invalid`. Threads the
+        ;; SAME malformed-value validator the view-args path uses, so a
+        ;; JVM test with no validator checks shape only at the renderer.
+        sub-ovr-val  (when (seq sub-overrides)
+                       (validate-sub-overrides sub-overrides sub-lookup validator-fns))
+        _            (when (and sub-ovr-val (= :invalid (:status sub-ovr-val)))
+                       (fail! :rf.error/story-sub-override-invalid
+                              (str "re-frame2-story: variant " id
+                                   " — :sub-overrides value(s) do not satisfy the "
+                                   "subscription output schema(s): "
+                                   (pr-str (mapv :query-v (:violations sub-ovr-val))))
+                              {:variant/id id
+                               :violations (:violations sub-ovr-val)}))
+        ;; ---- fidelity ladder (rf2-5x1wt.13) ----
+        ;; Computed from the resolved world inputs so authors never type
+        ;; it. `:real-setup` (events/script) > `:db-seed` (reserved world
+        ;; slot) > `:sub-overrides` — the rung(s) a reviewer reads to know
+        ;; which evidence the variant rests on (§View-state subscription
+        ;; overrides — fidelity ladder).
+        fidelity     (compute-fidelity {:setup         setup
+                                        :script        script*
+                                        :db-seed       (:db-seed ctx)
+                                        :sub-overrides sub-overrides})
         ;; ---- runner requirement ----
         required     (compute-required-runner setup script* assertions)
         ;; ---- source coords ----
@@ -989,6 +1207,13 @@
                               :platforms      platforms}
                        (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
+                       ;; rf2-5x1wt.13 — the fidelity ladder, computed from
+                       ;; the resolved world inputs. In `:world` so it
+                       ;; participates in `:plan-hash` (fingerprint's
+                       ;; `plan-hash-input-keys` hashes `:world`). Present
+                       ;; when non-empty; a bare render-as-mounted variant
+                       ;; (no setup/seed/overrides) carries no slot.
+                       (seq fidelity)        (assoc :fidelity fidelity)
                        ;; `:network` keeps the per-route reply data (source
                        ;; of truth, feeds :plan-hash via :world); the
                        ;; lowering (rf2-5x1wt.14) folds its managed-stub fx
@@ -1044,6 +1269,23 @@
                       :network      (when (seq network)
                                       {:routes       network
                                        :lowered-to   (:fx-overrides network-low)})
+                      ;; rf2-5x1wt.13 — view-state subscription overrides +
+                      ;; the resolved fidelity ladder. `explain` surfaces
+                      ;; the resolved override map (post `[:arg]`
+                      ;; substitution) and the validation outcome so a
+                      ;; reviewer / doc page can see exactly which subs were
+                      ;; pinned, and `:fidelity` labels the evidence rung(s)
+                      ;; (§View-state subscription overrides — overrides are
+                      ;; visible in explain).
+                      :sub-overrides (when (seq sub-overrides)
+                                       {:overrides  sub-overrides
+                                        ;; :status :ok here (an :invalid run
+                                        ;; throws upstream); documents the
+                                        ;; passing output-schema contract.
+                                        :validation (when sub-ovr-val
+                                                      {:status     (:status sub-ovr-val)
+                                                       :violations (:violations sub-ovr-val)})})
+                      :fidelity     fidelity
                       :setup-order  setup
                       :script-order script*
                       :checks       checks
@@ -1089,21 +1331,28 @@
   - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
     `{id → body}` map resolving the bodies named in `:compose`
     (rf2-5x1wt.15). Default to the side-table `:fragment` / `:check` kinds.
+  - `:sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` OR a `{sub-id →
+    sub-meta}` map resolving a subscription's registration metadata for
+    its OUTPUT schema, against which `:sub-overrides` values are validated
+    (rf2-5x1wt.13). Defaults to the framework `:sub` registrar.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view
-  schema is on file), `:script`, `:expect`, `:required-runner`, `:tags`,
-  `:explain` (and `:source` when coords are present).
+  schema is on file, `[:render :sub-overrides]` + `:fidelity` when the
+  variant pins view-state), `:script`, `:expect`, `:required-runner`,
+  `:tags`, `:explain` (and `:source` when coords are present).
 
   FAILS with a structured `:rf.error/story-*` ex-info on: an unregistered
   keyword target, an unregistered `:extends` parent, an `:extends` cycle,
   a missing `[:arg key]`, an unregistered/nested `:compose` fragment, a
-  silent strict-conflict between composed fragments, or `:effective-args`
-  that violate the view-args schema (`:rf.error/story-view-args-invalid`)."
+  silent strict-conflict between composed fragments, `:effective-args`
+  that violate the view-args schema (`:rf.error/story-view-args-invalid`),
+  or a `:sub-overrides` value that violates its subscription's output
+  schema (`:rf.error/story-sub-override-invalid`)."
   ([target] (variant-plan target nil))
   ([target {:keys [lookup] :as opts}]
    (let [lookup-fn    (coerce-lookup lookup)
-         compile-opts (select-keys opts [:view-lookup :validator-fns
+         compile-opts (select-keys opts [:view-lookup :validator-fns :sub-lookup
                                          :fragment-lookup :check-lookup])]
      (cond
        (keyword? target)

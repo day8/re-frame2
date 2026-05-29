@@ -550,6 +550,45 @@
    [:fn {:error/message ":network route value must carry a :reply"}
     (fn [m] (contains? m :reply))]])
 
+;; ---- :sub-overrides — view-state subscription overrides (rf2-5x1wt.13) ---
+
+(def SubQueryVector
+  "A `:sub-overrides` key — an exact subscription query vector
+  `[sub-id & args]` (spec/017 §View-state subscription overrides). The
+  first element is the subscription id keyword; the rest are the query
+  args. Shape is left loose past the leading-keyword check so the
+  subscription-output-schema validation (a plan-compiler concern) carries
+  the precise diagnostic rather than a structural schema rejection on an
+  arg shape."
+  [:and
+   [:vector :any]
+   [:fn {:error/message
+         ":sub-overrides key must be a query vector starting with a sub-id keyword"}
+    (fn [v]
+      (and (vector? v)
+           (pos? (count v))
+           (keyword? (first v))))]])
+
+(def SubOverridesMap
+  "Schema for the `:sub-overrides` slot on a variant / fragment body —
+  the deliberate lower-fidelity view-state affordance (rf2-5x1wt.13 +
+  spec/017 §View-state subscription overrides). A map of exact
+  subscription query vectors to the data values the renderer should
+  surface for them.
+
+  Values are plain data (`:any`) — they MAY carry `[:arg key]`
+  placeholders, which the plan compiler resolves before render; the
+  resolved value MUST validate against the subscription's output schema
+  when one exists (a plan-compiler check, not a structural one here).
+
+  `:sub-overrides` is a RENDERING / design-exploration affordance: it
+  feeds the render path only, never app-db or `compute-sub`, so a
+  `:sub-overrides` value does NOT satisfy `:rf.assert/sub-equals` as
+  proof of real subscription logic. A plan that resolves any override
+  carries `:fidelity` including `:sub-overrides` (the third, labelled
+  rung of the fidelity ladder)."
+  [:map-of SubQueryVector :any])
+
 (def NetworkSpec
   "Schema for the `:network` slot on a story / variant / fragment body —
   first-class managed-HTTP request stubs (rf2-5x1wt.14). A map of
@@ -670,6 +709,17 @@
     ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
     ;; world.
     [:network               {:optional true} NetworkSpec]
+    ;; rf2-5x1wt.13 — view-state subscription overrides. A map of exact
+    ;; subscription query vectors → data values the renderer surfaces
+    ;; for design/view-state exploration. The plan compiler resolves
+    ;; `[:arg key]` placeholders in the values, validates each resolved
+    ;; value against the subscription's output schema when one exists,
+    ;; lowers the map to `[:world :render :sub-overrides]`, and marks the
+    ;; plan `:fidelity` with `:sub-overrides`. Overrides feed render only
+    ;; — never app-db / `compute-sub` — so they do NOT satisfy
+    ;; `:rf.assert/sub-equals`. See `SubOverridesMap` + spec/017
+    ;; §View-state subscription overrides.
+    [:sub-overrides         {:optional true} SubOverridesMap]
     ;; rf2-5x1wt.15 — strict-conflict effect/interceptor override slots.
     ;; `:fx-overrides` is the first-class fx-override surface (spec/017
     ;; §The effect-override surface); `:interceptor-overrides` the
@@ -789,6 +839,11 @@
     [:script                {:optional true} PlaySpec]
     [:play-script           {:optional true} PlaySpec]
     [:network               {:optional true} NetworkSpec]
+    ;; rf2-5x1wt.13 — a fragment MAY contribute `:sub-overrides`; they
+    ;; deep-merge into the composing variant's override map (a later
+    ;; fragment / the variant wins per key) and mark the resolved plan
+    ;; `:fidelity` with `:sub-overrides`. See `SubOverridesMap`.
+    [:sub-overrides         {:optional true} SubOverridesMap]
     [:fx-overrides          {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
     [:loaders               {:optional true} [:vector EventVector]]
