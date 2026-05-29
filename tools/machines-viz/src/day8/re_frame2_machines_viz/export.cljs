@@ -20,7 +20,7 @@
 
   - **Mermaid** is the markdown-paste lane — lossy by design (`:after`
     rings + `:spawn-all` rows omitted; flagged inline). Delegates to
-    `re-frame.machines.mermaid/emit`.
+    `day8.re-frame2-machines-viz.mermaid/emit`.
   - **SVG** serialises the live rendered xyflow `<svg>` with embedded
     `<title>` / `<desc>` summarising the machine, so a screen-reader
     pasting the artefact gets the same overview a sighted user has.
@@ -32,7 +32,7 @@
 
   Per [`API.md`](../../spec/API.md) §Exporters."
   (:require [clojure.string :as str]
-            [re-frame.machines.mermaid :as mermaid]
+            [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-machines-viz.share :as share]))
 
 ;; ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@
 (defn chart-as-mermaid
   "Pull the `definition` off `chart-element` and emit a fenced Mermaid
   `stateDiagram-v2` markdown block (per API.md §Mermaid). Convenience
-  wrapper over `re-frame.machines.mermaid/emit`; pass `opts` straight
+  wrapper over `day8.re-frame2-machines-viz.mermaid/emit`; pass `opts` straight
   through (`{:fenced? false :header-comment? false}` etc.)."
   ([chart-element] (chart-as-mermaid chart-element nil))
   ([chart-element opts]
