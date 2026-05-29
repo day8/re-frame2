@@ -78,6 +78,7 @@
   disabled renders nothing (`config/enabled?` is false)."
   (:require [re-frame.story.args        :as args]
             [re-frame.story.config      :as config]
+            [re-frame.story.error       :as story-error]
             [re-frame.story.fingerprint :as fingerprint]
             [re-frame.story.late-bind   :as late-bind]
             [re-frame.story.plan        :as plan]))
@@ -279,13 +280,16 @@
 (defn- error-result
   "The `:error` render result — plan construction or the host render fn
   threw. Carries the structured ex-data so tools surface the failure the
-  same way a run error surfaces."
+  same way a run error surfaces.
+
+  rf2-9kpsq — the `:error` sub-map is the shared
+  `re-frame.story.error/throwable->error-map` projection (was a drifted
+  copy that dropped `:stack`; consolidation restores the canonical
+  `{:message :stack :data}` shape)."
   [target e]
   {:status :error
    :frame  (when (keyword? target) target)
-   :error  {:message #?(:clj  (.getMessage ^Throwable e)
-                        :cljs (str e))
-            :data    (ex-data e)}})
+   :error  (story-error/throwable->error-map e)})
 
 (defn render-variant
   "Render `target`'s active workshop view from its normalized variant plan
