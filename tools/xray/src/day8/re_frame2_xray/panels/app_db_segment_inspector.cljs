@@ -163,14 +163,15 @@
 ;; ---- key handling --------------------------------------------------------
 
 (defn- handle-keydown
-  "Esc closes the popup. Other keys bubble — the global keybindings
-  (palette, causality) still resolve when the popup is open."
-  [^js e]
-  (when (= "Escape" (.-key e))
-    (.preventDefault e)
-    (.stopPropagation e)
-    (rf/dispatch [:rf.xray/close-segment-inspector]
-                 {:frame :rf/xray})))
+  "Build the Esc-closes keydown handler, closing over the captured
+  frame-aware `dispatch` (rf2-nesy9). Other keys bubble — the global
+  keybindings (palette, causality) still resolve when the popup is open."
+  [dispatch]
+  (fn [^js e]
+    (when (= "Escape" (.-key e))
+      (.preventDefault e)
+      (.stopPropagation e)
+      (dispatch [:rf.xray/close-segment-inspector]))))
 
 ;; ---- view ----------------------------------------------------------------
 
@@ -198,16 +199,20 @@
 
 (defn- popup-view
   "Hiccup for the open popup. Caller (`Popup` reg-view) has gated on
-  `:rf.xray/segment-inspector-open?` already."
-  []
+  `:rf.xray/segment-inspector-open?` already.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `Popup` reg-view body so close lands on the surrounding instance
+  frame, not a `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [path        @(rf/subscribe [:rf.xray/segment-inspector-path])
         value       @(rf/subscribe [:rf.xray/segment-inspector-value])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])]
+        positioning @(rf/subscribe [:rf.xray/modal-positioning])
+        on-keydown  (handle-keydown dispatch)]
     [:div {:data-testid "rf-xray-segment-inspector-backdrop"
            :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(rf/dispatch [:rf.xray/close-segment-inspector]
-                                      {:frame :rf/xray})
-           :on-key-down handle-keydown
+           :on-click    #(dispatch [:rf.xray/close-segment-inspector])
+           :on-key-down on-keydown
            :tab-index   -1
            :style       (backdrop-style positioning)}
      [:div (merge
@@ -223,7 +228,7 @@
               :data-rf-xray-mode "segment-inspector"
               :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
-              :on-key-down handle-keydown
+              :on-key-down on-keydown
               :tab-index   0
               :style       (dialog-style)})
       ;; Header
@@ -234,8 +239,7 @@
                  :title       "Close (Esc)"
                  :on-click    (fn [^js e]
                                 (.stopPropagation e)
-                                (rf/dispatch [:rf.xray/close-segment-inspector]
-                                             {:frame :rf/xray}))
+                                (dispatch [:rf.xray/close-segment-inspector]))
                  :style       (close-button-style)}
         "✕"]]
       ;; Body — the cljs-devtools-shaped expandable tree at the path.
@@ -254,10 +258,13 @@
   single subscribe + a `when` — cheap.
 
   Per rf2-in6l2 `reg-view`-registered so the body's subscribes route
-  through the React-context tier to `:rf/xray`."
+  through the React-context tier to `:rf/xray`.
+
+  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch` into
+  `popup-view` so close lands on the surrounding instance frame."
   []
   (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
-    (popup-view)))
+    (popup-view dispatch)))
 
 (defn install!
   "Idempotent install for the segment-inspector's Xray-side
