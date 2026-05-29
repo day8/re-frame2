@@ -631,7 +631,7 @@ Without `frame-bound-fn`, every dispatch site needs `{:frame :rf/xray}` opt expl
 
 #### Other async callbacks (timers, promises, websocket messages)
 
-For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks — the same `bound-fn` / `frame-bound-fn` pattern applies. Alternative affordances:
+For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks, and **raw `window.addEventListener` handlers** (e.g. a drag flow that registers `pointermove` / `pointerup` on `window` during an `:on-pointer-down`, so the move/up handlers fire OUTSIDE the React tree after render has unwound) — the same `bound-fn` / `frame-bound-fn` pattern applies. Capture the dispatcher at render time (inside the `reg-view` body, via the injected `dispatch` or `(rf/dispatcher)`) and thread the captured closure into the listener — never a bare global `rf/dispatch` and never a hardcoded `{:frame :id}` literal (a literal silently locks every instance to one frame). Alternative affordances:
 
 - **`(rf/dispatcher)`** — a 0-arity helper that returns a dispatch fn closed over the current frame. Call inside a render body or under `with-frame`, store the returned fn, invoke from any later async context.
 - **`:fx [[:dispatch ...]]`** — the canonical pattern for handler-emitted dispatches; the fx-walker threads the frame through automatically.
