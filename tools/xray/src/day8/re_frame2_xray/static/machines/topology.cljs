@@ -85,13 +85,14 @@
     :testid                        — overrides the inner SVG testid
                                      so the existing static-panel
                                      tests still match."
-  [{:keys [definition machine-id]}]
+  [dispatch {:keys [definition machine-id]}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
   ;; internally by xyflow inside `mv-chart/MachineChart`; the
   ;; host-side layout-or-fallback dance is gone.
-  ;; rf2-nesy9 — render-time frame capture for the deferred state-click.
-  (let [frame  (rf/current-frame)
-        engine "xyflow+elkjs"]
+  ;; rf2-nesy9 — `dispatch` is threaded from `body` (the Static Machines
+  ;; detail subtree is invoked as Reagent components, so render-time
+  ;; frame recovery is unavailable).
+  (let [engine "xyflow+elkjs"]
     [:div {:data-testid    "rf-xray-static-machines-topology-chart"
            :data-machine-id (str machine-id)
            :data-layout-engine engine
@@ -111,9 +112,8 @@
        :inner-testid           "rf-xray-static-machines-topology-svg"
        :on-state-click
        (fn [path]
-         (rf/dispatch [:rf.xray.static.machines/state-clicked
-                       {:machine-id machine-id :path path}]
-                      {:frame frame}))}]]))
+         (dispatch [:rf.xray.static.machines/state-clicked
+                    {:machine-id machine-id :path path}]))}]]))
 
 ;; ---- chart toolbar (open in popout) -------------------------------------
 
@@ -123,15 +123,12 @@
   chart-popout` event (registered by the panel install). Popout
   geometry lands in a follow-on bead (sibling of the second-window
   rf2-u3qm1 work)."
-  [machine-id]
-  ;; rf2-nesy9 — render-time frame capture for the deferred popout click.
-  (let [frame (rf/current-frame)]
+  [dispatch machine-id]
    [:button
    {:data-testid "rf-xray-static-machines-topology-popout"
     :on-click    (fn [_]
-                   (rf/dispatch
-                     [:rf.xray.static.machines/open-chart-popout machine-id]
-                     {:frame frame}))
+                   (dispatch
+                     [:rf.xray.static.machines/open-chart-popout machine-id]))
     :title       "Open chart in pop-out window"
     :aria-label  (str "Open the chart for " machine-id
                       " in a pop-out window")
@@ -144,7 +141,7 @@
             :font-size     (:micro type-scale)
             :padding       "1px 8px"
             :white-space   "nowrap"}}
-   "↗ Pop out"]))
+   "↗ Pop out"])
 
 (defn- source-coord-chip [source-coord]
   (when (some? source-coord)
@@ -155,7 +152,7 @@
                         :color (:text-tertiary tokens)}}
          (h/format-source-coord source-coord)])))
 
-(defn- chart-toolbar [{:keys [machine-id source-coord]}]
+(defn- chart-toolbar [dispatch {:keys [machine-id source-coord]}]
   [:div {:data-testid "rf-xray-static-machines-topology-toolbar"
          :style {:display     "flex"
                  :align-items "center"
@@ -163,7 +160,7 @@
                  :padding     "8px 12px"
                  :background  (:bg-1 tokens)
                  :border-bottom (str "1px solid " (:border-subtle tokens))}}
-   [popout-affordance machine-id]
+   [popout-affordance dispatch machine-id]
    [:span {:style {:margin-left "auto"}}
     (source-coord-chip source-coord)]])
 
@@ -177,8 +174,12 @@
   `:rf.xray.machine-canvas/viewport-for` internally so zoom / pan
   state lives in app-db — the body function itself is still pure
   hiccup; the subscribe lands one level down in the canvas
-  adapter."
-  [{:keys [machine-id definition source-coord] :as args}]
+  adapter.
+
+  `dispatch` (rf2-nesy9) is threaded from `definition_detail/body` so
+  the chart's state-click + the toolbar's pop-out land on the
+  surrounding instance frame."
+  [dispatch {:keys [machine-id definition source-coord] :as args}]
   (cond
     (nil? definition)
     [:section {:data-testid     "rf-xray-static-machines-topology"
@@ -200,5 +201,5 @@
                        :background (:bg-2 tokens)
                        :color (:text-primary tokens)
                        :font-family sans-stack}}
-     [chart-toolbar {:machine-id machine-id :source-coord source-coord}]
-     [chart {:definition definition :machine-id machine-id}]]))
+     [chart-toolbar dispatch {:machine-id machine-id :source-coord source-coord}]
+     [chart dispatch {:definition definition :machine-id machine-id}]]))

@@ -28,39 +28,44 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]))
 
-(defn dispatch-jump!
-  "Dispatch the three events that telegraph the JUMP. Called from the
-  browse-list's per-row chip + the right-pane Instances pill.
+(defn dispatch-jump-via
+  "Dispatch the three events that telegraph the JUMP through the
+  caller-supplied frame-aware `dispatch-fn` (rf2-nesy9). The chip /
+  pill render inside the `browse-list` / `definition-detail` reg-views
+  and thread that reg-view's injected `dispatch` in here, so the three
+  events land on the SURROUNDING instance frame — not a `:rf/xray`
+  literal. `dispatch-fn` defaults to a `default-frame-id`-bound
+  dispatcher for callers without a captured one.
 
   Safe to call with a nil `machine-id` — the mode + tab flips still
   fire (so the user lands on Dynamic Machines) but the selection
-  dispatch is suppressed (no value to write).
-
-  `frame` (rf2-nesy9) is the surrounding instance frame captured by the
-  caller at render time so the three dispatches land on it, not a
-  `{:frame :rf/xray}` literal. Defaults to `defaults/default-frame-id`
-  (the production shell) for callers that don't capture a frame."
-  ([machine-id] (dispatch-jump! machine-id defaults/default-frame-id))
-  ([machine-id frame]
-   (rf/dispatch [:rf.xray/set-mode :dynamic] {:frame frame})
-   (rf/dispatch [:rf.xray/select-tab :machines] {:frame frame})
+  dispatch is suppressed (no value to write)."
+  ([machine-id]
+   (dispatch-jump-via machine-id
+                      #(rf/dispatch % {:frame defaults/default-frame-id})))
+  ([machine-id dispatch-fn]
+   (dispatch-fn [:rf.xray/set-mode :dynamic])
+   (dispatch-fn [:rf.xray/select-tab :machines])
    (when (some? machine-id)
-     (rf/dispatch [:rf.xray/select-machine-id machine-id] {:frame frame}))
+     (dispatch-fn [:rf.xray/select-machine-id machine-id]))
    nil))
+
+;; Back-compat alias for direct callers / tests that used the old name.
+(def dispatch-jump! dispatch-jump-via)
 
 (defn dispatch-jump-sync!
-  "Test-only synchronous variant of `dispatch-jump!`. Production code
-  paths through the async `dispatch-jump!` because UI clicks are
-  inherently async; tests bypass the queue so post-dispatch assertions
-  read the new slots without a flush."
-  ([machine-id] (dispatch-jump-sync! machine-id defaults/default-frame-id))
-  ([machine-id frame]
-   (rf/dispatch-sync [:rf.xray/set-mode :dynamic] {:frame frame})
-   (rf/dispatch-sync [:rf.xray/select-tab :machines] {:frame frame})
-   (when (some? machine-id)
-     (rf/dispatch-sync [:rf.xray/select-machine-id machine-id]
-                       {:frame frame}))
-   nil))
+  "Test-only synchronous variant. Production code paths through the
+  async `dispatch-jump-via` because UI clicks are inherently async;
+  tests bypass the queue so post-dispatch assertions read the new slots
+  without a flush. Pins to `defaults/default-frame-id` (the production
+  shell) — tests assert against that frame's app-db."
+  [machine-id]
+  (rf/dispatch-sync [:rf.xray/set-mode :dynamic] {:frame defaults/default-frame-id})
+  (rf/dispatch-sync [:rf.xray/select-tab :machines] {:frame defaults/default-frame-id})
+  (when (some? machine-id)
+    (rf/dispatch-sync [:rf.xray/select-machine-id machine-id]
+                      {:frame defaults/default-frame-id}))
+  nil)
 
 (defn pill
   "Render the right-pane Instances pill. Sits inside the 4-mode sub-
@@ -69,12 +74,14 @@
   instances the JUMP will land in.
 
   Per the bead's §Instances mode the Static surface stays static —
-  this pill is a JUMP affordance, not a mode the right pane renders."
-  [{:keys [machine-id live-count active?]}]
-  ;; rf2-nesy9 — capture the surrounding instance frame at render time
-  ;; so the deferred JUMP dispatches into it, not a `:rf/xray` literal.
-  (let [frame  (rf/current-frame)
-        label  "Instances"
+  this pill is a JUMP affordance, not a mode the right pane renders.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  caller's reg-view so the JUMP lands on the surrounding instance
+  frame (a plain fn invoked as a Reagent component cannot recover the
+  frame itself)."
+  [dispatch {:keys [machine-id live-count active?]}]
+  (let [label  "Instances"
         suffix (when (and (number? live-count) (pos? live-count))
                  (str " " live-count))]
     [:button
@@ -83,7 +90,7 @@
       :data-live-count (str (or live-count 0))
       :role        "tab"
       :aria-selected (if active? "true" "false")
-      :on-click    (fn [_] (dispatch-jump! machine-id frame))
+      :on-click    (fn [_] (dispatch-jump-via machine-id dispatch))
       :title       (str "Open " machine-id " in Dynamic Machines tab"
                         " (mnemonic: i)")
       :aria-label  (str "Instances — JUMPs to Dynamic Machines tab. "

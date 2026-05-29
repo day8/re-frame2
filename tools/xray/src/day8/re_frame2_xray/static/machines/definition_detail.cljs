@@ -129,15 +129,15 @@
 (defn- sub-strip
   "Render the 4-mode pill row. Per the bead's §4-mode sub-strip — the
   strip is the same DOM as the Dynamic sub-strip (muscle-memory
-  consistency), but Cascade is dimmed + Sim is a placeholder."
-  [{:keys [machine-id sub-mode live-count]}]
-  ;; rf2-nesy9 — render-time frame capture so the deferred sub-mode
-  ;; clicks dispatch into the surrounding instance frame.
-  (let [frame     (rf/current-frame)
-        set-mode! (fn [mode]
-                    (rf/dispatch
-                      [:rf.xray.static.machines/set-sub-mode machine-id mode]
-                      {:frame frame}))]
+  consistency), but Cascade is dimmed + Sim is a placeholder.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `detail` reg-view (a plain fn invoked as a Reagent component renders
+  in its own cycle, so it cannot recover the frame itself)."
+  [dispatch {:keys [machine-id sub-mode live-count]}]
+  (let [set-mode! (fn [mode]
+                    (dispatch
+                      [:rf.xray.static.machines/set-sub-mode machine-id mode]))]
     [:div {:data-testid "rf-xray-static-machines-sub-strip"
            :role        "tablist"
            :aria-label  "Machine inspection mode"
@@ -151,9 +151,9 @@
                      :on-click (fn [_] (set-mode! :topology))}]
      [sim/pill {:active?  (= sub-mode :sim)
                 :on-click (fn [_] (set-mode! :sim))}]
-     [instances-jump/pill {:machine-id machine-id
-                           :live-count live-count
-                           :active?    false}]
+     [instances-jump/pill dispatch {:machine-id machine-id
+                                    :live-count live-count
+                                    :active?    false}]
      [cascade-dimmed/pill]]))
 
 ;; ---- body dispatch ------------------------------------------------------
@@ -161,17 +161,17 @@
 (defn- body
   "Dispatch to the per-mode body renderer. Topology + Sim render a
   body; Instances + Cascade do not (Instances is a JUMP affordance,
-  Cascade is dimmed)."
-  [{:keys [sub-mode machine-id definition source-coord]}]
+  Cascade is dimmed). `dispatch` (rf2-nesy9) is threaded from `detail`."
+  [dispatch {:keys [sub-mode machine-id definition source-coord]}]
   (case sub-mode
     :topology
-    [topology/body {:machine-id   machine-id
-                    :definition   definition
-                    :source-coord source-coord}]
+    [topology/body dispatch {:machine-id   machine-id
+                             :definition   definition
+                             :source-coord source-coord}]
 
     :sim
-    [sim/body {:machine-id machine-id
-               :definition definition}]
+    [sim/body dispatch {:machine-id machine-id
+                        :definition definition}]
 
     ;; :instances + :cascade — no body. Render an explanatory placeholder
     ;; so the user understands the strip click landed.
@@ -238,14 +238,14 @@
                   :source-coord source-coord
                   :state-count state-count
                   :live-count live-count}]
-         [sub-strip {:machine-id machine-id
-                     :sub-mode   sub-mode
-                     :live-count live-count}]
+         [sub-strip dispatch {:machine-id machine-id
+                              :sub-mode   sub-mode
+                              :live-count live-count}]
          [:div {:data-testid "rf-xray-static-machines-detail-body"
                 :style {:flex     "1 1 auto"
                         :min-height "0"
                         :overflow "auto"}}
-          [body {:sub-mode     sub-mode
-                 :machine-id   machine-id
-                 :definition   definition
-                 :source-coord source-coord}]]]))))
+          [body dispatch {:sub-mode     sub-mode
+                          :machine-id   machine-id
+                          :definition   definition
+                          :source-coord source-coord}]]]))))

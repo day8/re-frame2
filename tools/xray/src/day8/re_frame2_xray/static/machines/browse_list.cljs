@@ -32,12 +32,13 @@
 
 (defn- search-box
   "Top-of-list search input. Incremental filtering — every keystroke
-  dispatches `:rf.xray.static.machines/set-search`. Esc clears."
-  []
-  ;; rf2-nesy9 — render-time frame capture (rendered inside the browse
-  ;; list reg-view), not a `:rf/xray` literal.
-  (let [frame (rf/current-frame)
-        query @(rf/subscribe [:rf.xray.static.machines/search])]
+  dispatches `:rf.xray.static.machines/set-search`. Esc clears.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `browse-list` reg-view (a plain fn invoked as a Reagent component
+  renders in its own cycle, so it cannot recover the frame itself)."
+  [dispatch]
+  (let [query @(rf/subscribe [:rf.xray.static.machines/search])]
     [:div {:data-testid "rf-xray-static-machines-search"
            :style {:padding "8px 10px"
                    :border-bottom (str "1px solid " (:border-subtle tokens))
@@ -48,15 +49,13 @@
               :placeholder "Search machines…"
               :aria-label  "Search registered machines"
               :on-change   (fn [^js e]
-                             (rf/dispatch
+                             (dispatch
                                [:rf.xray.static.machines/set-search
-                                (.. e -target -value)]
-                               {:frame frame}))
+                                (.. e -target -value)]))
               :on-key-down (fn [^js e]
                              (when (= "Escape" (.-key e))
-                               (rf/dispatch
-                                 [:rf.xray.static.machines/clear-search]
-                                 {:frame frame})))
+                               (dispatch
+                                 [:rf.xray.static.machines/clear-search])))
               :style {:width        "100%"
                       :background   (:bg-2 tokens)
                       :border       (str "1px solid " (:border-default tokens))
@@ -73,15 +72,13 @@
   "Single-button sort cycle. Clicking cycles `Name → States → Live →
   Name…`. The label shows the current axis so the affordance is self-
   describing."
-  []
-  (let [frame (rf/current-frame)
-        k     @(rf/subscribe [:rf.xray.static.machines/sort-key])
+  [dispatch]
+  (let [k     @(rf/subscribe [:rf.xray.static.machines/sort-key])
         label (get h/sort-key-labels k "Name")]
     [:button
      {:data-testid "rf-xray-static-machines-sort"
       :on-click    (fn [_]
-                     (rf/dispatch [:rf.xray.static.machines/cycle-sort]
-                                  {:frame frame}))
+                     (dispatch [:rf.xray.static.machines/cycle-sort]))
       :title       (str "Sort: " label " (click to cycle)")
       :aria-label  (str "Sort by " label ". Click to cycle through "
                        "Name, States, Live.")
@@ -162,17 +159,17 @@
 (defn- runtime-jump-chip
   "Per-row `→ Dynamic` chip. Clicking JUMPs to the Dynamic Machines
   tab with this machine selected — same handler the right-pane
-  Instances pill uses (centralised in `instances_jump`)."
-  [machine-id]
-  ;; rf2-nesy9 — render-time frame capture so the JUMP lands on the
-  ;; surrounding instance frame.
-  (let [frame (rf/current-frame)]
+  Instances pill uses (centralised in `instances_jump`).
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `browse-list` reg-view (via `row`)."
+  [dispatch machine-id]
    [:button
    {:data-testid (str "rf-xray-static-machines-row-jump-"
                       (when (keyword? machine-id) (name machine-id)))
     :on-click    (fn [^js e]
                    (.stopPropagation e)
-                   (jump/dispatch-jump! machine-id frame))
+                   (jump/dispatch-jump-via machine-id dispatch))
     :title       "Open in Dynamic Machines tab"
     :aria-label  (str "Open " machine-id " in Dynamic Machines tab")
     :style {:background    "transparent"
@@ -185,15 +182,15 @@
             :padding       "1px 8px"
             :margin-left   "6px"
             :white-space   "nowrap"}}
-   "→ Dynamic"]))
+   "→ Dynamic"])
 
 ;; ---- one row ------------------------------------------------------------
 
 (defn- row
-  "Render one browse-list row."
-  [{:keys [machine-id state-count live-count source-coord] :as r} active?]
-  (let [frame (rf/current-frame)
-        glyph (if active? "◉" "○")]
+  "Render one browse-list row. `dispatch` (rf2-nesy9) is threaded from
+  the `browse-list` reg-view."
+  [dispatch {:keys [machine-id state-count live-count source-coord] :as r} active?]
+  (let [glyph (if active? "◉" "○")]
     [:button
      {:data-testid    (str "rf-xray-static-machines-row-"
                            (when (keyword? machine-id) (name machine-id)))
@@ -202,9 +199,8 @@
       :role           "option"
       :aria-selected  (if active? "true" "false")
       :on-click       (fn [_]
-                        (rf/dispatch
-                          [:rf.xray.static.machines/select machine-id]
-                          {:frame frame}))
+                        (dispatch
+                          [:rf.xray.static.machines/select machine-id]))
       :title          (str machine-id)
       :style {:display       "flex"
               :align-items   "center"
@@ -236,7 +232,7 @@
      (source-coord-chip source-coord)
      (state-count-chip state-count)
      (pip-cluster live-count)
-     (runtime-jump-chip machine-id)]))
+     (runtime-jump-chip dispatch machine-id)]))
 
 ;; ---- empty state --------------------------------------------------------
 
@@ -283,7 +279,7 @@
                    :flex-direction "column"
                    :height         "100%"
                    :background     (:bg-1 tokens)}}
-     [search-box]
+     [search-box dispatch]
      [:div {:data-testid "rf-xray-static-machines-toolbar"
             :style {:display       "flex"
                     :align-items   "center"
@@ -294,7 +290,7 @@
                     :font-family   sans-stack
                     :font-size     (:caption type-scale)
                     :color         (:text-tertiary tokens)}}
-      [sort-button]
+      [sort-button dispatch]
       [:span {:data-testid "rf-xray-static-machines-count"
               :style {:margin-left "auto"}}
        (if (= total visible)
@@ -317,4 +313,4 @@
         (into [:div]
               (for [{:keys [machine-id] :as r} rows]
                 ^{:key (str machine-id)}
-                [row r (= machine-id selected-id)])))]]))
+                [row dispatch r (= machine-id selected-id)])))]]))

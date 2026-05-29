@@ -61,11 +61,11 @@
   "Substring filter. Matches against route-id + path + doc via
   `routing-helpers/filter-rows`. State on
   `:rf.xray.static.routes/query`."
-  [query total-routes filtered?]
-  ;; rf2-nesy9 — render-time frame capture (rendered inside the routes
-  ;; browse-list reg-view), not a `:rf/xray` literal.
-  (let [frame (rf/current-frame)]
-   [:div {:data-testid "rf-xray-static-routes-search"
+  [dispatch query total-routes filtered?]
+  ;; rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view
+  ;; (via `render`), not a render-time capture (this whole subtree is
+  ;; invoked as a Reagent component and cannot recover the frame).
+  [:div {:data-testid "rf-xray-static-routes-search"
          :style       {:display       "flex"
                        :align-items   "center"
                        :gap           "8px"
@@ -83,9 +83,8 @@
             :placeholder "route-id, path, or doc…"
             :value       (or query "")
             :on-change   (fn [e]
-                           (rf/dispatch [:rf.xray.static.routes/set-query
-                                         (-> e .-target .-value)]
-                                        {:frame frame}))
+                           (dispatch [:rf.xray.static.routes/set-query
+                                      (-> e .-target .-value)]))
             :style       {:flex          1
                           :background    (:bg-3 tokens)
                           :color         (:text-primary tokens)
@@ -103,13 +102,15 @@
     (cond
       filtered?              "match"
       (= 1 total-routes)     "1 route"
-      :else                  (str total-routes " routes"))]]))
+      :else                  (str total-routes " routes"))]])
 
 (defn- route-row
   "One row in the flat catalogue. No marker chip, no `:here` glyph —
   Static is event-INDEPENDENT. Clicking the row toggles the expand
-  surface."
-  [{:keys [route-id path doc parent has-on-match? has-can-leave? tags meta]
+  surface. `dispatch` (rf2-nesy9) is threaded from the routes `Panel`
+  reg-view down into the expand surface's jump / sim-nav affordances."
+  [dispatch
+   {:keys [route-id path doc parent has-on-match? has-can-leave? tags meta]
     :as row}
    {:keys [expanded? sim-open? routes-map on-toggle]}]
   [:li {:data-testid (str "rf-xray-static-routes-row-"
@@ -185,7 +186,7 @@
                       :flex          1}}
        doc])]
    (when expanded?
-     [row-expand/render row
+     [row-expand/render dispatch row
       {:sim-open?  sim-open?
        :routes-map routes-map}])])
 
@@ -218,17 +219,19 @@
   expanded row ids; `sim-open` is the set of route-ids whose
   hermetic preview is open; `routes-map` is threaded through for the
   preview projection."
-  [{:keys [silent? routes total-routes filtered? query] :as _data}
+  [dispatch
+   {:keys [silent? routes total-routes filtered? query] :as _data}
    {:keys [expanded sim-open routes-map]}]
-  ;; rf2-nesy9 — render-time frame capture for the deferred row-toggle.
-  (let [frame (rf/current-frame)]
-   (cond
+  ;; rf2-nesy9 — `dispatch` is the frame-aware dispatcher threaded from
+  ;; the routes `Panel` reg-view (render is invoked as a Reagent
+  ;; component, so it cannot recover the frame itself).
+  (cond
     silent?
     (empty-state)
 
     :else
     [:<>
-     (search-box query total-routes filtered?)
+     (search-box dispatch query total-routes filtered?)
      (if (empty? routes)
        (empty-filtered query)
        (into [:ul {:data-testid "rf-xray-static-routes-list"
@@ -241,11 +244,10 @@
                                  :gap            "1px"}}]
              (for [row routes]
                ^{:key (str (:route-id row))}
-               [route-row row
+               [route-row dispatch row
                 {:expanded?  (contains? expanded (:route-id row))
                  :sim-open?  (contains? sim-open (:route-id row))
                  :routes-map routes-map
                  :on-toggle  (fn [_]
-                               (rf/dispatch [:rf.xray.static.routes/toggle-row
-                                             (:route-id row)]
-                                            {:frame frame}))}])))])))
+                               (dispatch [:rf.xray.static.routes/toggle-row
+                                          (:route-id row)]))}])))]))
