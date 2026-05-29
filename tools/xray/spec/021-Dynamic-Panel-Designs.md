@@ -1638,9 +1638,10 @@ containers; R2 (key glyph) no-ops on primitive cell values like a
 SUBSCRIPTIONS row's scalar return; R3 (collapsed-container `[N∆]`
 chip) no-ops on leaf scalars. The shared projection engine
 (`day8.re-frame2-xray.diff.engine`) holds the grammar; per-surface
-mounts contribute the `(before, after)` value pair PLUS the
-`:full-with-diff? true` opt (§10.0.12) that activates the R3 + R4
-structural-context chrome.
+mounts contribute the `(before, after)` value pair — passing
+`:before` IS the activation of the full R1-R8 grammar, including the
+R3 + R4 structural-context chrome (§10.0.12; rf2-e28r3 removed the
+former `:full-with-diff?` opt — there is no separate flag).
 
 **Canonical `data-*` shape** (Cluster F — rf2-xvu24): every
 surface's enclosing section still carries
@@ -2407,14 +2408,19 @@ reach for `[edn-inspector value opts]` directly.
   layout. Defaults `60`.
 - `:max-depth` — hard cap on recursion depth; deeper levels render
   `{…}` collapsed and click expands one level. Defaults `16`.
-- `:before` — when supplied, the widget renders in **DIFF mode**.
-  The `value` arg is treated as the AFTER side and the supplied
-  `:before` is the prior value. Gutter glyphs (`+` added · `-`
-  removed · `~` modified · `◴` children-changed) paint per node;
-  modified leaves get an inline `← was <prior>`
-  annotation; ancestor chain force-expands over any changed
-  descendant. Omit `:before` for plain BROWSE mode. See §10.0.8
-  for the full diff contract.
+- `:before` (rf2-q3dzw · rf2-e28r3) — the prior value to annotate
+  against. The widget has ONE rendering path keyed on **value
+  (always) + before (optional)** — there is no separate diff "mode".
+  With a `:before` present the `value` arg is the AFTER side and the
+  tree paints the full diff chrome: gutter glyphs (`+` added · `-`
+  removed · `~` modified · `◴` children-changed) per node, modified
+  leaves get an inline `← was <prior>` annotation, the R3 collapsed-
+  container `[N∆]` count chip + R4 2px vertical gutter rail render on
+  change-bearing subtrees (the §9.1.5.1 R1-R8 grammar), and the
+  ancestor chain force-expands over any changed descendant. With no
+  `:before` (and no `:added?`) the SAME renderer shows the value
+  plainly — no annotations, no chip, no rail. The presence of a pre-
+  image is the only diff signal. See §10.0.8 + §10.0.12.
 - `:popup-affordance?` — when `true`, renders a top-right ↗ icon
   button that pops the value into a modal overlay (§10.0.7.2).
   Defaults `false`.
@@ -2442,17 +2448,6 @@ reach for `[edn-inspector value opts]` directly.
   panel-leave-and-return round-trip (auto-mount-id changes on
   remount; a stable site-id does not). Omit to keep the per-call-
   site isolation default.
-- `:full-with-diff?` (rf2-n2jig · rf2-6cm03) — boolean. When `true`
-  (combined with `:before`) the widget paints the **mode-3** chrome
-  on top of the diff annotations: R3 collapsed-container `[N∆]`
-  count chip + R4 single-2px vertical gutter rail through each
-  change-bearing subtree. When `false` / omitted (the legacy diff
-  surface) the widget renders the **mode-2** chrome — per-leaf
-  gutter glyphs + `← was <prior>` annotations, no R3 chip,
-  no R4 rail. `:full-with-diff?` is a no-op without `:before`. See
-  §10.0.12 for the contract + per-surface call-site obligation. The
-  silent-default chosen here is intentional: it preserves the diff-
-  only call sites that should NOT paint mode-3 chrome.
 - `:added?` (rf2-kp7bw) — boolean FIRST-RUN signal. When `true` AND
   no explicit `:before` is supplied, the widget enters diff mode with
   the prior side synthesised as `engine/missing-sentinel`, so the
@@ -3216,57 +3211,66 @@ zoom root is a no-op. The renderer composes the absolute path as
 `(into zoom-path-prefix path)` so the dispatched `:zoom-to` carries the
 full path from the ORIGINAL root, not the currently-displayed root.
 
-#### §10.0.12 `:full-with-diff?` opt — FULL+DIFF chrome activation (rf2-n2jig · rf2-6cm03 · rf2-vv3m6)
+#### §10.0.12 Single renderer — value (always) + before (optional) (rf2-n2jig · rf2-6cm03 · rf2-vv3m6 · rf2-e28r3)
 
-The §9.1.5.1 R-rule grammar partitions diff chrome into two visual
-intensities — the per-leaf annotation layer (R1, R2, R7, R8) and the
-structural-context layer (R3 collapsed `[N∆]` chip + R4 vertical
-rail). The widget paints the annotation layer whenever `:before` is
-present; it paints the structural-context layer ONLY when the caller
-also passes `:full-with-diff? true`.
+The edn-inspector has ONE rendering path. Its inputs are **value
+(always supplied)** and **before (optional)**. There is no diff
+"mode" axis and no flag that selects a chrome intensity — the
+presence of a pre-image is the only signal:
 
-The split survives the rf2-vv3m6 toggle retirement: every diff
-surface listed in §9.1.5.2 paints FULL+DIFF unconditionally and
-MUST set `:full-with-diff? true` on its edn-inspector mount.
+- **`before` present** → the full tree renders WITH inline diff
+  annotations. The widget paints the entire §9.1.5.1 R1-R8 grammar:
+  the per-leaf annotation layer (R1, R2, R7, R8 — gutter glyphs +
+  `← was <prior>` annotations) AND the structural-context layer (R3
+  collapsed-container `[N∆]` count chip + R4 single-2px vertical
+  gutter rail through each change-bearing subtree). The ancestor
+  chain force-expands over any changed descendant, and the depth/
+  width auto-expand heuristic is suppressed for unchanged subtrees so
+  the operator sees only changed slices plus the root.
+- **`before` absent** → the SAME renderer shows the value plainly —
+  no annotations, no R3 chip, no R4 rail. "Full" is not a mode; it is
+  this single renderer with no pre-image.
+
+> **Lineage (rf2-e28r3).** This collapses the former three-mode
+> machinery. rf2-vv3m6 retired the operator-facing `[diff][full]
+> [full+diff]` toggle; rf2-e28r3 then removed the `:full-with-diff?`
+> opt that internally distinguished the plain `:diff` lens (mode-2 —
+> per-leaf-focused, suppressed the rail/chip) from full+diff (mode-3).
+> With one path the rail/chip chrome is the only chrome and paints
+> whenever a change is present, so the flag — which only ever existed
+> to gate that distinction — is gone. The plain `:diff` lens is gone
+> with it. An efficiency audit's redundant-per-render-walk finding
+> (the projection cache, rf2-4p1vl) is preserved.
 
 **Contract**:
 
 ```clj
-;; FULL+DIFF — annotation + R3/R4 structural chrome
-[ei/edn-inspector after-value
- {:before before-value
-  :full-with-diff? true}]
+;; value + before → annotated diff render (R1-R8 grammar)
+[ei/edn-inspector after-value {:before before-value}]
+
+;; value only → plain render (no annotations, no rail, no chip)
+[ei/edn-inspector value]
 ```
 
-**Consequence of NOT passing it from a FULL+DIFF call site**: silent
-absence of R4 rails + R3 chips. The widget still paints R1/R2/R7/R8
-because those are driven off `:before` alone, so the surface looks
-"diff-y" at a glance but the operator loses the structural-context
-cues that the FULL+DIFF rendering promises. This was the root-cause
-class of bug rf2-kkhss (App-DB silently dropped R4 when its call
-site omitted the flag).
+**Per-surface usage** — the canonical consumer surfaces thread
+`:before` ONLY when a real pre-image is present; its absence is the
+signal to render plainly. None set any mode flag:
 
-**Per-surface call-site obligation** — the four canonical consumer
-surfaces from §9.1.5.2 each MUST set `:full-with-diff? true`:
+| Surface                              | Call site                                                                                  | Test surface                                                                |
+|--------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (always threads `:before db-before`)    | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
+| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->`)         | App-DB panel-gallery story fixtures + segment-inspector tests               |
+| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` via `cond->` when captured)  | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
+| Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch (`:before` / `:added?`)      | `data-testid="rf-xray-epoch-sub-row-*"` mount                               |
 
-| Surface                              | Call site                                                                                              | Test surface                                                                |
-|--------------------------------------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (rf2-n2jig)                                          | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
-| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body`'s `:before`-present branch (rf2-kkhss)                  | App-DB panel-gallery story fixtures + segment-inspector tests               |
-| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` + `:full-with-diff?`)                    | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
-| Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch                                          | `data-testid="rf-xray-epoch-sub-row-*"` FULL+DIFF mount                     |
-
-**Canonical visual reference** — the Story fixtures under
-`tools/xray/testbeds/panel_gallery/fixtures_diff_mode_3.cljs` pass
-`:full-with-diff? true` on every variant; that is the operator-
-facing pin for the FULL+DIFF chrome.
-
-**Why the opt isn't auto-inferred** — the widget is a pure-data
-Reagent component that takes `(value, opts)`. The boolean
-`:full-with-diff?` is the minimal handshake that lets the consumer
-panel keep ownership while the widget keeps a pure data interface.
-Audit trail: rf2-ya3nj 24hr audit, finding M3 (spec drift) →
-rf2-6cm03 (this section).
+**Why the input is the value, not a flag** — the widget is a pure-
+data Reagent component that takes `(value, opts)`. Keying the chrome
+on the natural input (is there a pre-image?) rather than a redundant
+boolean keeps the interface minimal and removes the
+rf2-kkhss class of bug entirely: there is no flag to forget, so the
+rail/chip can never silently fail to paint on a real diff. Audit
+trail: rf2-ya3nj 24hr audit, finding M3 (spec drift) → rf2-6cm03 →
+rf2-e28r3 (single-renderer collapse, this section).
 
 #### §10.0.13 `:added?` opt — first-run / whole-value-added chrome (rf2-kp7bw)
 

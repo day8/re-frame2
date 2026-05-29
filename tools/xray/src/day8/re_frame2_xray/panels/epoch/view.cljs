@@ -2472,7 +2472,6 @@
         [ei/edn-inspector db-after
          {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
           :before db-before
-          :full-with-diff? true
           :default-expanded-depth 3}]]
        [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
                :style handler-db-all-missing-style}
@@ -2894,8 +2893,7 @@
        [ei/edn-inspector after
         (cond-> {:panel-id :rf.xray.epoch/subs-value
                  :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-                 :default-expanded-depth 3
-                 :full-with-diff? true}
+                 :default-expanded-depth 3}
           (some? before)                 (assoc :before before)
           (and first-run? (nil? before)) (assoc :added? true))]])))
 

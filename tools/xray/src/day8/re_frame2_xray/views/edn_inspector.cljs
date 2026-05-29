@@ -68,15 +68,28 @@
                     to `available-width-px` (the measured column).
   - `:max-depth` (optional, default 16) — hard cap on recursion
                     depth; deeper levels render `{…}` collapsed.
-  - `:before` (optional) — when supplied, the widget renders in DIFF
-                    mode. The `value` arg is treated as the `after`
-                    side; the supplied `:before` is the prior value.
-                    Gutter glyphs + colours paint per node
-                    (`+` added · `-` removed · `~` modified ·
-                    `◴` children-changed); modified leaves get an
-                    inline `← was <prior>` annotation;
-                    ancestors of any changed descendant force open
-                    regardless of the default-expand heuristic.
+  - `:before` (optional) — the prior value to annotate against. The
+                    widget has ONE rendering path keyed on value (always)
+                    + before (optional): with a `:before` present the
+                    `value` arg is the `after` side and the tree paints
+                    inline diff annotations — gutter glyphs + colours per
+                    node (`+` added · `-` removed · `~` modified ·
+                    `◴` children-changed), modified leaves get an inline
+                    `← was <prior>` annotation, the R4 op-coloured rail +
+                    R3 `[N∆]` collapsed-change chip render on change-
+                    bearing containers, and ancestors of any changed
+                    descendant force open regardless of the default-
+                    expand heuristic. With no `:before` (and no
+                    `:added?`) the same renderer shows `value` plainly —
+                    no annotations, no rail, no chip.
+  - `:added?` (optional, default false) — rf2-kp7bw FIRST-RUN signal: a
+                    value that just came into existence (a sub's first
+                    cache entry, an app-db key that just appeared) with
+                    no prior value to diff against. Synthesises the
+                    before side as `engine/missing-sentinel`, so the
+                    whole tree classifies as `:added` (green wash + `+`
+                    chrome over every descendant). An explicit `:before`
+                    always wins; empty containers still read `:added`.
   - `:popup-affordance?` (optional, default false) — rf2-l4625; when
                     true the widget renders a top-right ↗ icon button
                     (rf2-7sdja — was ⊕; ↗ reads as 'open in new pane')
@@ -609,8 +622,8 @@
 
 ;; ---- gutter-row hoisted style maps (rf2-7cddi) ---------------------------
 ;;
-;; `gutter-row` fires once per change-bearing leaf in mode-3 — a 30-changed-
-;; leaf render allocates 90 fresh map literals at the call site without
+;; `gutter-row` fires once per change-bearing leaf in a diff render — a
+;; 30-changed-leaf render allocates 90 fresh map literals at the call site without
 ;; hoisting. The base shapes are static; only `:border-left` colour +
 ;; `:background` wash overlay vary (5-value op enum) on the outer, and
 ;; `:color` varies on the glyph span. Mirrors the hoisting culture
@@ -705,8 +718,8 @@
 
   When `chrome-opts` is omitted the chrome falls back to the per-op
   defaults (added=green, modified=amber, removed=red, same=invisible).
-  All four optional keys default to nil, so existing call sites
-  (non-mode-3 diff renders) reach the same hiccup shape unchanged."
+  All four optional keys default to nil, so call sites that pass no
+  chrome-opts reach the same hiccup shape unchanged."
   ([op body] (gutter-row op body nil))
   ([op body {:keys [suppress-glyph? suppress-stripe? suppress-wash? wash-op]}]
    (let [active?       (and (not (#{:same :same-shifted} op))
@@ -1312,7 +1325,7 @@
   available-width is yet measured the legacy depth-driven path runs as
   the fallback so unit tests + first-paint behaviour stay deterministic.
 
-  rf2-fqcdd — FULL+DIFF posture: when `:full-with-diff?` is true the
+  rf2-fqcdd — DIFF posture: when a pre-image is present (`:diff?`) the
   depth/width heuristics are SUPPRESSED for unchanged subtrees.
   Only two reasons to auto-expand a container:
 
@@ -1323,17 +1336,17 @@
   plus the root, no surrounding context noise. Sticky override via
   `resolve-expanded?` still wins for ad-hoc inspection."
   [{:keys [depth child-count default-expanded-depth available-width-px value
-           has-changed-descendant? full-with-diff?]
+           has-changed-descendant? diff?]
     :or   {default-expanded-depth default-ceiling-depth}}]
   (cond
     has-changed-descendant?
     true
 
-    ;; rf2-fqcdd — FULL+DIFF: collapse unchanged subtrees regardless of
+    ;; rf2-fqcdd — DIFF: collapse unchanged subtrees regardless of
     ;; depth/width. Root (depth 0) still expands so the operator sees
     ;; the top-level keys; everything below collapses unless an
     ;; ancestor of a change.
-    full-with-diff?
+    diff?
     (zero? depth)
 
     ;; Width-aware path — once a measurement exists, width drives the
@@ -1666,7 +1679,7 @@
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
            dispatch-fn diff? before zoomable? zoom-path-prefix projection]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width
-                available-width-px full-with-diff?]
+                available-width-px]
          :or {default-expanded-depth default-ceiling-depth
               max-depth 16
               max-inline-width 60}} opts
@@ -1721,7 +1734,7 @@
                               :child-count             cnt
                               :default-expanded-depth  default-expanded-depth
                               :has-changed-descendant? has-change?
-                              :full-with-diff?         full-with-diff?
+                              :diff?                   diff?
                               :available-width-px      available-width-px
                               :value                   value}))
         expanded?     (and (not empty?)
@@ -1980,11 +1993,11 @@
            ;; brace column all converge on one vertical column, so the
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
            ;; R4 rail (rf2-n2jig): when this container is change-
-           ;; bearing AND we're in mode-3 (full+diff), promote the
-           ;; body's left border to a 2px coloured rail in the dominant-
-           ;; op hue. Outside mode-3 (or no change) the subtle guide
-           ;; line stays.
-           (into [:div (let [rail-stripe (when (and full-with-diff? has-change?)
+           ;; bearing, promote the body's left border to a 2px coloured
+           ;; rail in the dominant-op hue. `has-change?` already implies
+           ;; a pre-image is present (it's `(and diff? …)`); when there's
+           ;; no diff, or no change, the subtle guide line stays.
+           (into [:div (let [rail-stripe (when has-change?
                                            (op-stripe-colour op))]
                          {:data-testid (str (testid-for panel-id mount-id path) "-body")
                           :data-rf-body-layout "grid"
@@ -2107,7 +2120,7 @@
            ;; the vertical guide line sits at the triangle's visual
            ;; centre. Closing bracket below shares the same `16px`
            ;; padding-left.
-           (into [:div (let [rail-stripe (when (and full-with-diff? has-change?)
+           (into [:div (let [rail-stripe (when has-change?
                                            (op-stripe-colour op))]
                          {:data-testid (str (testid-for panel-id mount-id path) "-body")
                           :data-rf-body-layout "block"
@@ -2222,7 +2235,7 @@
 
   ## rf2-n2jig — projection-aware
 
-  When `:projection` is supplied (mode-3 / full+diff path), the
+  When `:projection` is supplied (the diff render path), the
   `op` for this leaf is read off `engine/op-at projection path`.
   Otherwise the call falls back to the legacy (before, after) pair-
   based op classification via `engine/op-at` over a 1-shot projection
@@ -2900,10 +2913,9 @@
         ;; `engine/project` walks the full `(before, after)` pair every
         ;; call; the inner render fn runs on EVERY render of the mount
         ;; (expansion toggle, ResizeObserver widths update, parent re-
-        ;; render). Without this cache the mode-3 diff path re-walks the
-        ;; same byte-identical inputs N times per epoch — the audit's
-        ;; H1 finding (ai/findings/three-mode-diff-efficiency-audit-2026-
-        ;; 05-27.md §H1).
+        ;; render). Without this cache the diff render path re-walks the
+        ;; same byte-identical inputs N times per epoch (the redundant
+        ;; per-render Editscript walk an efficiency audit flagged).
         ;;
         ;; Atom holds `{:before <ref> :after <ref> :projection <map>}` or
         ;; nil. Cache hit when both refs match the previous call by
@@ -2964,7 +2976,7 @@
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
                     max-depth popup-affordance? card? header zoomable?
-                    full-with-diff? added?]
+                    added?]
              :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
@@ -3116,20 +3128,7 @@
                              :opts {:default-expanded-depth default-expanded-depth
                                     :max-inline-width max-inline-width
                                     :max-depth max-depth
-                                    :available-width-px available-width-px
-                                    ;; rf2-n2jig — `:full-with-diff?` is
-                                    ;; threaded through opts so the
-                                    ;; recursive render-container path
-                                    ;; can promote the R4 rail + R3
-                                    ;; chip chrome. Mode-2 (plain
-                                    ;; `:diff` lens) does NOT set this
-                                    ;; flag — it walks the same
-                                    ;; renderer but suppresses the
-                                    ;; rail + chip (per pair-debug
-                                    ;; 2026-05-27 the diff lens stays
-                                    ;; per-leaf focused; mode-3 adds
-                                    ;; the structural-context chrome).
-                                    :full-with-diff? (boolean full-with-diff?)}})
+                                    :available-width-px available-width-px}})
             ;; rf2-h71e0 — breadcrumb row above the body, only when a
             ;; zoom is active. Home label uses the consumer's `:header`
             ;; if supplied (mirrors §10.0.10's "header is the natural
