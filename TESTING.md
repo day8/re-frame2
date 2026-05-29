@@ -116,6 +116,32 @@ path **and** it loads one of the already-staged smoke surfaces (or
 accept the extra compile if it must stage a new one). Everything else
 runs nightly by default.
 
+### Forthcoming — headless plan gate + `:cannot-run` policy (NewTestStory EPIC rf2-5x1wt)
+
+The NewTestStory work (normative in
+[`tools/story/spec/017-Testing-Story.md`](tools/story/spec/017-Testing-Story.md))
+introduces a **headless variant-plan gate** that runs Story variants and
+inline plans through the `:headless` runner — fast, JVM/node, no browser.
+This becomes the default per-PR Story-as-test path; the existing
+browser-rendered `test:story-play-scripts` gate (which exercises the live
+shell + assertion-strip) stays as the browser-tier complement, not the
+default for ordinary state/effect/schema/trace assertions. Consistent
+with the project's CLJS-unit-tests-not-Playwright default, new Story/test
+coverage targets the headless plan gate first; reach for the browser gate
+only when an assertion genuinely needs browser behaviour.
+
+Every CI gate that runs plans MUST define a **`:cannot-run` policy**.
+`:cannot-run` is a distinct third result state (not pass, fail, or skip):
+a runner returns it when an assertion or step requires evidence the
+selected runner cannot produce (e.g. a `:browser`-only visual snapshot
+under a `:headless` runner). Per gate, the policy is one of: **fail the
+gate** (the assertion was required), **report inconclusive** (record but
+do not fail), or **route to a richer runner** (re-run the affected
+variant/assertion under a browser-tier gate). The headless plan gate's
+default policy is to treat `:cannot-run` as inconclusive and surface the
+count, deferring browser-only assertions to the browser-tier gate that
+can prove them — never silently passing them.
+
 ## Local commands
 
 The repo-root coordinator scripts run the canonical bundles. The per-

@@ -68,21 +68,21 @@ A variant is a **specific scenario** — one state of a story. Variants register
 
 ```clojure
 (story/reg-variant :story.auth.login-form/empty
-  {:doc    "Fresh form, nothing entered."
-   :events [[:auth/initialise]]})
+  {:doc   "Fresh form, nothing entered."
+   :setup [[:dispatch [:auth/initialise]]]})
 
 (story/reg-variant :story.auth.login-form/validation-error
-  {:doc    "Invalid email shown inline after submit."
-   :events [[:auth/initialise]
-            [:auth/email-changed "not-an-email"]
-            [:auth/login-pressed]]
-   :tags   #{:dev :docs :test}})        ;; this one is also used as a test fixture
+  {:doc   "Invalid email shown inline after submit."
+   :setup [[:dispatch [:auth/initialise]]
+           [:dispatch [:auth/email-changed "not-an-email"]]
+           [:dispatch [:auth/login-pressed]]]
+   :tags  #{:dev :docs :test}})         ;; this one is also used as a test fixture
 
 (story/reg-variant :story.auth.login-form/loading
-  {:doc       "Submit pressed, server response pending."
-   :events    [[:auth/initialise]
-               [:auth/email-changed "alice@example.com"]
-               [:auth/login-pressed]]
+  {:doc        "Submit pressed, server response pending."
+   :setup      [[:dispatch [:auth/initialise]]
+                [:dispatch [:auth/email-changed "alice@example.com"]]
+                [:dispatch [:auth/login-pressed]]]
    :decorators [[:force-fx-stub :my-app/http {:status :pending}]]})
 ```
 
@@ -104,13 +104,13 @@ Concretely, the keys allowed in a `story/reg-variant` body:
 |---|---|---|
 | `:doc` | string | One-sentence what-and-why. |
 | `:extends` | variant-id | Parent variant; merged at registration time per [§Composed variants](#composed-variants--reference-parent-by-id-override-by-data). Resolves to a registered variant id; cycles are a registration error. |
-| `:events` | vector of event vectors | Setup events; dispatch-synced into the variant's frame in order, after `:loaders` complete. Data only. |
-| `:play` | vector of event vectors (incl. `:rf.assert/*`) | Post-render interaction sequence. Data only. |
+| `:setup` | vector of tagged setup steps | Preconditions; settled into the variant's frame in order, after `:loaders` complete. Data only. The P1 target name for the legacy `:events` slot (see [§Play functions](#play-functions) — the canonical vocabulary). |
+| `:script` | vector of tagged steps (incl. `[:assert …]`) | Post-render behaviour under test. Data only. The P1 target name for the legacy `:play-script` slot. |
 | `:args` | map | Override or extend the parent story's args. |
 | `:argtypes` | map (optional override) | Per-arg control description. Auto-derived from the view's [Spec 010](010-Schemas.md) schema where present. |
 | `:tags` | set of keyword | Inclusion tags from the registered vocabulary (see [§Inclusion tags](#inclusion-tags)). |
 | `:decorators` | vector of vectors | Each decorator is `[decorator-id args...]` — id-valued, not function-valued. |
-| `:loaders` | vector of event vectors | Async setup events; dispatch-synced before `:events` and before render (see [§Loaders](#loaders-advanced--async-setup) for the lifecycle). Data; the *handler* the loader event ids point to is the only fn-valued part. |
+| `:loaders` | vector of event vectors | Async setup events; dispatch-synced before `:setup` and before render (see [§Loaders](#loaders-advanced--async-setup) for the lifecycle). Data; the *handler* the loader event ids point to is the only fn-valued part. |
 | `:args->events` | map | Per-arg event-id mapping `{<arg-key> <event-id>}`; the registered handler at `<event-id>` receives the new value as its payload. Data only — see [§Args mapping to state](#args-mapping-to-state). |
 | `:platforms` | set | Subset of `#{:server :client}`; controls where the variant runs. |
 
@@ -122,11 +122,11 @@ A variant may reference another variant as its base, overriding selected keys:
 
 ```clojure
 (story/reg-variant :story.auth.login-form/loading-with-prefill
-  {:extends :story.auth.login-form/loading                ;; parent variant id
-   :events [[:auth/initialise]
-            [:auth/email-changed "alice@example.com"]
-            [:auth/password-changed "hunter2"]
-            [:auth/login-pressed]]                         ;; override events
+  {:extends :story.auth.login-form/loading                 ;; parent variant id
+   :setup [[:dispatch [:auth/initialise]]
+           [:dispatch [:auth/email-changed "alice@example.com"]]
+           [:dispatch [:auth/password-changed "hunter2"]]
+           [:dispatch [:auth/login-pressed]]]              ;; override setup
    :tags   #{:dev :docs}})                                  ;; override tags
 ```
 
@@ -151,14 +151,14 @@ Two registration forms are canonical, and authors choose by ergonomics:
    :args     {:placeholder "you@example.com"}
    :argtypes {:placeholder {:control :text}}
    :tags     #{:dev :docs}
-   :variants {:empty             {:events [[:auth/initialise]]}
-              :validation-error  {:events [[:auth/initialise]
-                                           [:auth/email-changed "not-an-email"]
-                                           [:auth/login-pressed]]
+   :variants {:empty             {:setup [[:dispatch [:auth/initialise]]]}
+              :validation-error  {:setup [[:dispatch [:auth/initialise]]
+                                          [:dispatch [:auth/email-changed "not-an-email"]]
+                                          [:dispatch [:auth/login-pressed]]]
                                   :tags   #{:dev :docs :test}}
-              :loading           {:events [[:auth/initialise]
-                                           [:auth/email-changed "alice@example.com"]
-                                           [:auth/login-pressed]]
+              :loading           {:setup [[:dispatch [:auth/initialise]]
+                                          [:dispatch [:auth/email-changed "alice@example.com"]]
+                                          [:dispatch [:auth/login-pressed]]]
                                   :decorators [[:force-fx-stub :my-app/http {:status :pending}]]}}})
 ```
 
@@ -202,7 +202,7 @@ Storybook's headline UX is the **controls** panel — interactive props that re-
 (story/reg-variant :story.auth.login-form/customised
   {:args {:placeholder "your.email@company.com"      ;; override story default
           :submit-label "Authenticate"}
-   :events [[:auth/initialise]]})
+   :setup [[:dispatch [:auth/initialise]]]})
 ```
 
 ### Argtypes describe controls
@@ -249,7 +249,7 @@ For variants that need args to map into `app-db` (e.g., a `:logged-in?` arg cont
 (story/reg-variant :story.auth.login-form/logged-in-arg
   {:args         {:logged-in? false}
    :args->events {:logged-in? :story.auth/set-logged-in}    ;; registered id, not a fn
-   :events       [[:auth/initialise]]})
+   :setup        [[:dispatch [:auth/initialise]]]})
 ```
 
 `:args->events` is `{<arg-key> <event-id>}` — entries are registered event ids, not inline functions. When the control mutates the arg, the story tool dispatches `[<event-id> <new-value>]` into the variant's frame. Most stories don't need `:args->events` — args going to the view directly is enough.
@@ -290,28 +290,46 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 
 ## Play functions
 
-Play is a **sequence of events fired after the variant has rendered**, distinct from `:events` (which run before render to set up state).
+<a id="setup-script-and-assertions--the-canonical-vocabulary"></a>
+
+> **Canonical vocabulary (NewTestStory EPIC rf2-5x1wt).** The P1 public
+> authoring vocabulary is `:setup` (preconditions) and `:script`
+> (post-render behaviour under test). These supersede the prior
+> spellings: the legacy `:events` slot is the `:setup` slot, the
+> `:play-script` slot is the `:script` slot, and named `:plays` survive
+> as named scripts in the normalized plan. Because the project is
+> pre-alpha this is a clean rename, not a long-lived compatibility layer.
+> The legacy bare `:play` event-vector slot was already removed
+> (rf2-0wrud) and is NOT reintroduced; this section is the framework-side
+> pointer, and the full normative contract — variant plans, the three
+> execution verbs, `:cannot-run`, composition, the schema floor, and the
+> epoch-tape evidence projection — lives in
+> [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md).
+> The section heading retains its historical "Play functions" name for
+> stable cross-references; the slot it documents is `:script`.
+
+`:script` is a **sequence of steps run after the variant has rendered**, distinct from `:setup` (which runs before render to establish preconditions).
 
 ```clojure
 (story/reg-variant :story.auth.login-form/login-flow
   {:doc    "Full happy-path login interaction."
-   :events [[:auth/initialise]]                    ;; setup before render
-   :play   [[:auth/email-changed "alice@example.com"]
-            [:auth/password-changed "hunter2"]
-            [:auth/login-pressed]
-            [:rf.assert/path-equals [:auth :status] :authenticated]
-            [:rf.assert/path-equals [:nav :route] :dashboard]]})
+   :setup  [[:dispatch [:auth/initialise]]]            ;; preconditions before render
+   :script [[:dispatch [:auth/email-changed "alice@example.com"]]
+            [:dispatch [:auth/password-changed "hunter2"]]
+            [:dispatch [:auth/login-pressed]]
+            [:assert [:rf.assert/path-equals [:auth :status] :authenticated]]
+            [:assert [:rf.assert/path-equals [:nav :route] :dashboard]]]})
 ```
 
-`:rf.assert/*` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see §Assertion vocabulary is registered and enumerable below for the full registered set.
+The assertion atom `[:rf.assert/id & args]` appears in exactly two positions: terminal `:assertions` and the mid-script `[:assert …]` checkpoint shown above. The story tool's test runner records each result rather than throwing — in dev/docs mode they render as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see §Assertion vocabulary is registered and enumerable below for the full registered set.
 
 > **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/registrations :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
 
-> **Sibling surface — the `(ts/assert-*-equals ...)` fn-family.** The `:rf.assert/*` event-vector family is the **Story `:play`-block** assertion surface; the sibling surface for **in-process `clojure.test` bodies** is the sync fn-family `(ts/assert-path-equals path expected-val)` (mirrors `:rf.assert/path-equals`) + `(ts/assert-db-equals expected-db)` (companion full-db form; no event analog) in `re-frame.test-support` (see [008-Testing §`assert-path-equals` / `assert-db-equals` example](008-Testing.md#assert-path-equals--assert-db-equals-example)). The shared `path-equals` name root between event-side and fn-side is deliberate — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table. Choose by test surface — a story variant's `:play` vector takes `:rf.assert/*`; a `deftest` body calls `ts/assert-path-equals` / `ts/assert-db-equals`. The two are not interchangeable: `:rf.assert/*` events are dispatches handled by the story library's test runner (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode); the fn-family reports via `clojure.test/do-report`.
+> **Sibling surface — the `(ts/assert-*-equals ...)` fn-family.** The `:rf.assert/*` assertion-atom family is the **Story `:script`-block** assertion surface (terminal `:assertions` or the mid-script `[:assert …]` checkpoint); the sibling surface for **in-process `clojure.test` bodies** is the sync fn-family `(ts/assert-path-equals path expected-val)` (mirrors `:rf.assert/path-equals`) + `(ts/assert-db-equals expected-db)` (companion full-db form; no event analog) in `re-frame.test-support` (see [008-Testing §`assert-path-equals` / `assert-db-equals` example](008-Testing.md#assert-path-equals--assert-db-equals-example)). The shared `path-equals` name root between atom-side and fn-side is deliberate — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table. Choose by test surface — a story variant's `:script` / `:assertions` takes `:rf.assert/*`; a `deftest` body calls `ts/assert-path-equals` / `ts/assert-db-equals`. The two are not interchangeable: `:rf.assert/*` assertions are handled by the story library's test runner (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode); the fn-family reports via `clojure.test/do-report`.
 
 ### Story-as-test duality
 
-A variant with `:events` + `:play` + `:rf.assert/*` is a complete component test. Same artefact serves dev-time visualisation, regression testing, and tooling input. Test runners iterate over `:story.*/*` variants tagged `:test` and run their setup + play, asserting on the resulting state.
+A variant with `:setup` + `:script` + `:rf.assert/*` is a complete component test. Same artefact serves dev-time visualisation, regression testing, and tooling input. Test runners iterate over `:story.*/*` variants tagged `:test` and run their setup + script, asserting on the resulting state.
 
 This collapses several artefacts a typical project maintains separately: the dev-time playground, the test suite, the regression-screenshot fixtures, and the documentation. They become facets of one registered thing.
 
@@ -323,7 +341,7 @@ The standardised inclusion-tag vocabulary controls which contexts include a vari
 |---|---|
 | `:dev` | Visible in the development story tool. |
 | `:docs` | Included in generated documentation pages. |
-| `:test` | Run as a test in the test suite (`:play` + `:rf.assert/*`). |
+| `:test` | Run as a test in the test suite (`:script` + `:rf.assert/*`). |
 | `:screenshot` | Captured in screenshot/visual-regression runs. |
 | `:experimental` | Hidden in production-ish views; visible in dev. |
 | `:internal` | Excluded from public-facing docs. |
@@ -360,7 +378,7 @@ Tools enumerate this set before assigning tags to a variant. A variant whose tag
 
 ## Loaders (advanced — async setup)
 
-Loaders run asynchronously before stories render to fetch data. **Deterministic `:events`** are preferred because they're reproducible and replayable. Loaders are an escape hatch for cases that genuinely need async setup (e.g., generating a test image from a remote service).
+Loaders run asynchronously before stories render to fetch data. **Deterministic `:setup`** is preferred because it's reproducible and replayable. Loaders are an escape hatch for cases that genuinely need async setup (e.g., generating a test image from a remote service).
 
 ```clojure
 ;; The async work lives in a registered event handler; the variant references it by id.
@@ -372,7 +390,7 @@ Loaders run asynchronously before stories render to fetch data. **Deterministic 
 (story/reg-variant :story.charts.heatmap/with-real-data
   {:doc      "Renders against a fixture fetched from disk."
    :loaders  [[:charts.heatmap/fetch-fixture]]              ;; event vector — the handler does the async work
-   :events   [[:charts/load-fixture]]
+   :setup    [[:dispatch [:charts/load-fixture]]]
    :tags     #{:dev :docs}})
 ```
 
@@ -381,11 +399,11 @@ Loaders run asynchronously before stories render to fetch data. **Deterministic 
 The variant setup phases run in this fixed order:
 
 1. **Loaders.** Each event in `:loaders` is dispatched into the variant's frame. The library waits for the loader's drain to settle (run-to-completion per [002](002-Frames.md)) and any pending fx the loader emitted (e.g., `:rf.http/managed` or a user-supplied HTTP fx) to resolve and dispatch their continuation events. A loader is *complete* when no further events are in flight against the variant's frame.
-2. **Events.** Each event in `:events` is dispatch-synced in order, after every loader has completed. By the time `:events` runs, the loaded data is already in `app-db`.
-3. **Render.** The view renders against the post-events `app-db`.
-4. **Play.** Each event in `:play` is dispatched in order against the now-rendered view (per [§Play functions](#play-functions)).
+2. **Setup.** Each step in `:setup` is settled in order, after every loader has completed. By the time `:setup` runs, the loaded data is already in `app-db`.
+3. **Render.** The view renders against the post-setup `app-db`.
+4. **Script.** Each step in `:script` is run in order against the now-rendered view (per [§Play functions](#play-functions) — the canonical vocabulary).
 
-Hosts that don't have a usable async surface for waiting on loader completion (rare) treat `:loaders` as a synonym for `:events`; the canonical flow is the four-phase sequence above. Mark loaders as advanced in docs. The vast majority of variants should use `:events` only.
+Hosts that don't have a usable async surface for waiting on loader completion (rare) treat `:loaders` as a synonym for `:setup`; the canonical flow is the four-phase sequence above. Mark loaders as advanced in docs. The vast majority of variants should use `:setup` only.
 
 ## Effect mocking — hook design, not policy
 
@@ -406,7 +424,7 @@ Variants are runnable outside the story UI. The library exposes a function form 
 ```clojure
 (story/run-variant :story.auth.login-form/validation-error)
 ;; → {:frame   :story.auth.login-form/validation-error
-;;    :app-db  {...}                        ;; final state after :events + :play
+;;    :app-db  {...}                        ;; final state after :setup + :script
 ;;    :assertions [{:passed? true ...} ...]
 ;;    :rendered-hiccup [...]                ;; if :render? true was supplied
 ;;    :elapsed-ms 12.4}
@@ -427,7 +445,7 @@ The same data drives every consumer. No artefact duplication.
 
 Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-- `:events` setup dispatches and the `:play-script` / `:plays` play surfaces (in order) — the legacy `:play` slot was removed,
+- `:setup` preconditions and the `:script` (plus any named scripts derived from legacy `:plays`) behaviour surfaces (in order) — the legacy bare `:play` slot was removed (see [§Play functions](#play-functions) — the canonical vocabulary),
 - the resolved (post-`:extends`-merge) args, decorators, and tags,
 - the variant's `:viewport` / `:background` visual chrome (they land in the screenshot),
 - the parent story's component id (`:component`) and decorators,
@@ -473,7 +491,7 @@ The 007-Stories contract has a deliberate two-tier shape — what a conformant p
 Pattern-level surfaces every conformant 007-Stories implementation MUST ship:
 
 - **Framework hooks** (already in 002, listed here for completeness): `make-frame` / `destroy-frame!` / `reset-frame!`; per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `get-frame-db` / `snapshot-of` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
-- **Story registry kinds.** The kinds `:story`, `:variant`, `:workspace`, `:story.decorator`, `:story.tag`, `:story.mode`, `:story-panel` (per [§Canonical id grammar](#canonical-id-grammar)) — registration shape, metadata grammar, the four-phase setup ordering (loaders → events → render → play), and the `:variant *is* a frame` identity (per [§Relationship with frames](#relationship-with-frames)).
+- **Story registry kinds.** The kinds `:story`, `:variant`, `:workspace`, `:story.decorator`, `:story.tag`, `:story.mode`, `:story-panel` (per [§Canonical id grammar](#canonical-id-grammar)) — registration shape, metadata grammar, the four-phase setup ordering (loaders → setup → render → script), and the `:variant *is* a frame` identity (per [§Relationship with frames](#relationship-with-frames)).
 - **Lifecycle event surface.** The trace events fired by variant setup, render, and play execution — including the `:rf.assert/*` family per the Story event-family contract — are pattern contract so cross-tool consumers (Xray, snapshot harnesses, headless test runners) can attach uniformly.
 - **Programmatic execution + assertion surface.** `story/run-variant`, `story/reset-variant`, `story/variants-with-tags`, `story/snapshot-identity` — these are the API the [Story-as-test duality](#story-as-test-duality) leans on, and a port that omits them breaks the round-trip with `008-Testing`.
 - **Variant snapshot identity** (per [§Variant snapshot identity](#variant-snapshot-identity)) — the hash function that names a variant's settled state independently of UI affordances. Visual-regression / golden-snapshot tools key on this; the contract is locked across ports.
@@ -495,22 +513,22 @@ The test is "would this need re-defining for another port to interoperate?" — 
 
 ## Relationship with frames
 
-A variant *is* a frame, registered under its variant keyword. But variant `:events` are NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), while variant `:events` is an explicitly multi-step setup sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
+A variant *is* a frame, registered under its variant keyword. But variant `:setup` is NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), while variant `:setup` is an explicitly multi-step precondition sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
 
 ```clojure
 ;; conceptual setup logic for story/reg-variant
 (defn setup-variant! [variant-id]
-  (let [{:keys [loaders events]} (variant-meta variant-id)
-        story-events             (story-events-for variant-id)
-        all-events               (concat story-events events)]
+  (let [{:keys [loaders setup]} (variant-meta variant-id)
+        story-setup             (story-setup-for variant-id)
+        all-setup               (concat story-setup setup)]
     (rf/reg-frame variant-id {:doc ...})              ;; frame starts with app-db = {}
-    (doseq [ev loaders]                               ;; phase 1 — async loaders
-      (rf/dispatch-sync ev {:frame variant-id})
+    (doseq [step loaders]                             ;; phase 1 — async loaders
+      (rf/dispatch-sync step {:frame variant-id})
       (await-loader-drain variant-id))
-    (doseq [ev all-events]                            ;; phase 2 — :events (incl. story-level)
-      (rf/dispatch-sync ev {:frame variant-id}))
-    (record-variant-meta variant-id {:view ..., :decorators ..., :play ..., :tags ...})))
-;; phase 3 (render) and phase 4 (play) happen later, driven by the host.
+    (doseq [step all-setup]                           ;; phase 2 — :setup (incl. story-level)
+      (rf/dispatch-sync step {:frame variant-id}))
+    (record-variant-meta variant-id {:view ..., :decorators ..., :script ..., :tags ...})))
+;; phase 3 (render) and phase 4 (script) happen later, driven by the host.
 ```
 
 So the variant's *frame* is a normal frame (no `:on-create`); the variant *library* handles the multi-event setup. This keeps `reg-frame :on-create` semantically simple (one event) while letting stories express their richer setup pattern.
@@ -562,6 +580,7 @@ Multiple `:story.*` namespaces can come from different libraries. The story tool
 
 - [`tools/story/`](https://github.com/day8/re-frame2/tree/main/tools/story) — the reference implementation of this spec (`day8/re-frame2-story`).
 - [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) — the implementation contract (decisions, runtime shape, elision, MCP boundary).
+- [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md) — the normative P1 Story-as-test contract: variant plans, the `:setup` / `:script` / `:world` / `:expect` / `:evidence` vocabulary, the three execution verbs, `:cannot-run`, composition, the schema floor, the runner-capability model, and the epoch-tape evidence projection.
 - [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the agent-facing MCP server (`day8/re-frame2-story-mcp`).
 - [Story tutorial](../docs/story/index.md) — the narrative walkthrough of this spec.
 - [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10 (rf2-p8f2s — relocated from `examples/reagent/` as the tool's testbed).

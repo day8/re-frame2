@@ -28,7 +28,7 @@ The two test-only namespaces ship in the same artefact and address the same audi
 
 | Namespace | Axis | Reach |
 |---|---|---|
-| `re-frame.test-support` | **Runtime state** — registrar, frames, `app-db`, drain, in-flight requests | Fixture machinery (`make-reset-runtime-fixture`, `with-fresh-registrar`), event sequencing (`dispatch-sequence`), state assertions (`assert-path-equals`, `assert-db-equals` — the `assert-*-equals` fn-family mirroring the `:rf.assert/*` event-family used inside Story `:play` blocks), bounded-deadline polling (`poll-until`) |
+| `re-frame.test-support` | **Runtime state** — registrar, frames, `app-db`, drain, in-flight requests | Fixture machinery (`make-reset-runtime-fixture`, `with-fresh-registrar`), event sequencing (`dispatch-sequence`), state assertions (`assert-path-equals`, `assert-db-equals` — the `assert-*-equals` fn-family mirroring the `:rf.assert/*` event-family used inside a Story `:script` block), bounded-deadline polling (`poll-until`) |
 | `re-frame.test-helpers` | **View tree** — hiccup data, `:data-testid` selectors, attached handlers | Hiccup walk (`find-by-testid`, `text-content`, `extract-handler`), handler invocation (`invoke-handler`), single-frame e2e fixture trio (`with-app-fixture`, `expect-text`, `wait-until`), authoring helper (`testid`) |
 
 A test that exercises events / subs / machines reaches `re-frame.test-support`. A test that asserts what the user sees in the rendered view reaches `re-frame.test-helpers`. A test that does both `:require`s both. The names carry the role, not the audience; the v1 community noun "test-helpers" referred to the broader surface, so v1 muscle-memory may look for fixture machinery under the wrong namespace — the runtime-state vs view-tree split is the axis that disambiguates.
@@ -62,7 +62,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Machine cleanup on destroy | `(rf/destroy-frame! f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |
 | Sub computation against an `app-db` | `(rf/compute-sub query-v db)` — query-v is `[:sub-id arg1 arg2]`, JVM-runnable |
-| Test-flavoured helpers | `(ts/dispatch-sequence events)` — chained `dispatch-sync`; `(ts/assert-path-equals path expected)` — clojure.test-aware assertion mirroring the `:rf.assert/path-equals` event used inside Story `:play` blocks (see [007 §Play functions](007-Stories.md#play-functions)); `(ts/assert-db-equals expected-db)` — companion full-db form (no event analog). All three ship with `re-frame.test-support`. |
+| Test-flavoured helpers | `(ts/dispatch-sequence events)` — chained `dispatch-sync`; `(ts/assert-path-equals path expected)` — clojure.test-aware assertion mirroring the `:rf.assert/path-equals` event used inside a Story `:script` block (see [007 §Play functions](007-Stories.md#play-functions)); `(ts/assert-db-equals expected-db)` — companion full-db form (no event analog). All three ship with `re-frame.test-support`. |
 | Single-frame e2e fixture | `(th/with-app-fixture {:install f :root-view v} :frame-id body...)` — create + bind frame, run `:install`, stash `:root-view`, destroy on exit. Pair with `(th/expect-text testid expected)` and `(th/wait-until pred-or-testid expected)` for the two-line single-frame test pattern. |
 
 ### `with-frame` and `with-new-frame`
@@ -467,7 +467,7 @@ The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion hel
 ### Event testing — `dispatch-sync` + `get-frame-db` vs the `assert-*-equals` fn-family
 
 - **`dispatch-sync` + `(get-in (get-frame-db f) [path])` + `(is (= ...))`** is the canonical shape for event handler tests. Dispatch settles synchronously; the assertion reads committed state.
-- **`assert-path-equals`** is the `clojure.test`-aware sugar for the path/value form. Reaches for `do-report` directly so the failure message names the frame and path. Reach for it when the test asserts on many path/value pairs in sequence; the inline form reads better for a single assertion. **Mirrors the `:rf.assert/path-equals` event** used inside Story `:play` blocks (per [007 §Play functions](007-Stories.md#play-functions)) — same name root so a reader navigating between the fn-side and the event-side does not need a translation table.
+- **`assert-path-equals`** is the `clojure.test`-aware sugar for the path/value form. Reaches for `do-report` directly so the failure message names the frame and path. Reach for it when the test asserts on many path/value pairs in sequence; the inline form reads better for a single assertion. **Mirrors the `:rf.assert/path-equals` event** used inside a Story `:script` block (per [007 §Play functions](007-Stories.md#play-functions)) — same name root so a reader navigating between the fn-side and the event-side does not need a translation table.
 - **`assert-db-equals`** is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed). Reach for it in small fixtures where "the whole thing should equal this" is the natural assertion shape.
 - **`dispatch-sequence`** composes a vector of events through `dispatch-sync` and optionally runs an `:after-each` between dispatches. Reach for it when the test asserts on a fan-out chain (3+ events with intermediate state) — the `doseq` shape reads worse than the vector form.
 
@@ -607,6 +607,135 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 - `(destroy-frame! f)` — exact teardown contract.
 - Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
 
+## Story plan execution surface and evidence tools
+
+> Forward-reference normative section (NewTestStory EPIC rf2-5x1wt). The
+> Story-as-test work introduces a variant-plan execution model and a set
+> of low-level evidence tools. The tools below live **at the testing-
+> substrate level**, below Story, and run without the Story UI; Story
+> consumes them but does not own them. The full Story-facing contract —
+> variant plans, the three execution verbs (`run` / `is` / `explain`),
+> `:cannot-run`, composition, the schema floor, and the run-result shape
+> — is normative in
+> [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md).
+> This section states the substrate primitives that contract depends on,
+> kept consistent with the existing 008 surfaces (`re-frame.test-support`
+> / `re-frame.test-helpers` / `compute-sub`). These are NET-NEW for P1
+> unless explicitly marked otherwise; an implementer must not assume a
+> hook that does not yet exist.
+
+### `settled-boundary`
+
+`settled-boundary` is the author-facing settlement contract for a
+`[:dispatch event-vector]` step. It is **not** a new headless scheduler:
+in the `:headless` runner it is the existing `dispatch-sync`
+run-to-fixed-point drain (§Normative surface), renamed/projected rather
+than reimplemented. Richer runners add adapter-supplied flushes with a
+declared bound:
+
+- `:headless` — the frame's event queue is drained AND all synchronous
+  re-dispatches have settled (the `dispatch-sync` semantics this Spec
+  already guarantees);
+- `:cljs-reactive` — the above AND reaction recomputation has flushed;
+- `:dom` / `:browser` — the above AND the adapter's `act()` / microtask
+  flush has completed, within a declared maximum (the per-adapter
+  `flush-views!` of [§Adapter-aware test helpers](#adapter-aware-test-helpers--flush-views)).
+
+A runner takes its flush-fn from the adapter-aware caller and MUST NOT
+hard-code `dispatch-sync`. A step that requires a React/DOM flush MUST
+require `>= :cljs-reactive`; a `:headless` runner refuses it
+(`:cannot-run`) rather than under-flushing and passing falsely.
+
+### Inline plans
+
+An inline plan is an executable plan map that is not registered as a
+Story variant. Unit/integration tests MAY run a flow-shaped test through
+the Story plan runner without registering a visible Story:
+
+```clojure
+(story/is
+  {:setup      [[:dispatch [:auth/init]]]
+   :script     [[:dispatch [:auth/login-pressed]]]
+   :checks     [:check/no-runtime-errors]
+   :assertions [[:rf.assert/path-equals [:auth :state] :error]]}
+  {:runner :headless})
+```
+
+`story/is` reports to `clojure.test` / `cljs.test` with per-assertion
+granularity, sharing the one assertion vocabulary (§Resolved decisions —
+`assert-path-equals` / `assert-db-equals` mirror `:rf.assert/*`). Inline
+plans MUST return the same run-result shape as registered variants;
+equivalent inline plans and registered variants SHOULD be a metamorphic
+relation (same final app-db and assertion records after `canonicalize`,
+below).
+
+### Invariant sentinels and first-bad-epoch
+
+The testing substrate SHOULD add two evidence utilities over committed
+epochs:
+
+```clojure
+(test/with-invariants [invariant-spec ...] body...)
+(test/first-bad-epoch epoch-tape invariant)
+```
+
+Invariants run after each committed epoch (via the existing epoch-listener
+seam) and report through the test framework; they MUST NOT throw from the
+listener. Each spec SHOULD carry frame id, epoch id, event, path,
+expected, actual, and source where possible. `first-bad-epoch` is a pure
+utility returning the first epoch where an invariant fails (with trigger
+event, db-diff, and trace events), or `nil`.
+
+### Run-artifact replay and determinism gate
+
+The testing substrate SHOULD add three pure-over-evidence utilities:
+
+```clojure
+(test/replay-run-artifact   artifact opts)
+(test/assert-deterministic  plan-or-artifact opts)   ; N fresh runs, compared via canonicalize
+(test/diff-run-artifacts    baseline current opts)
+```
+
+A **run artifact** is the low-level evidence emitted by generated tests,
+failed runs, replay, determinism checks, or tool/agent exploration —
+`{:artifact/kind :rf.test/run-artifact :seed … :event-program […]
+:fx-decisions […] :epoch-tape […] :trace […] :result run-result …}`. It
+is not a Story variant; it MAY be promoted into one.
+
+**Determinism guarantees apply only to plans free of wall-clock steps.**
+`[:wait-until pred]` (queue/state-based) is preferred and deterministic;
+bare `[:wait ms]` is the explicit opt-out. `assert-deterministic` MUST
+refuse (`:cannot-run`) a plan containing `:wait` rather than running it
+flakily. A virtual clock stays a non-goal (consistent with the post-v1
+items below).
+
+### `canonicalize` / fingerprinting
+
+`canonicalize` is the single canonical projection/hash primitive that
+determinism, semantic diff, snapshot identity, `:plan-hash` / `:run-hash`,
+future golden-slice comparison, and the inline-plan-to-registered-variant
+metamorphic relation all consume. It MUST live in a fingerprinting
+namespace (not the canonical-vocabulary installer), fold the existing
+snapshot-identity `canonical-form` / `content-hash` / `snapshot-tuple`
+path into one implementation, strip accumulator/volatile fields, impose a
+total per-slot ordering, enumerate the `:plan-hash` inputs, and compute
+`:run-hash` over the canonical epoch slice. It MUST be built **before**
+anything consumes it (else the metamorphic gate is vacuous and
+near-duplicate canonicalizers drift) and ship with an adversarial corpus
+proving semantic differences change the hash while volatile fields do
+not.
+
+### One epoch tape, many projections
+
+Run results, schema failures, narrative, semantic diffs, and run artifacts
+SHOULD be **projections from the one epoch tape**, not separately
+accumulated facts that can disagree. In particular, schema violations are
+projected from `:rf.error/schema-validation-failure` trace events in the
+tape rather than via a parallel per-frame accumulator — a second capture
+path can drift from the trace evidence the UI already reads. This is the
+substrate guarantee the Story narrative projection and schema-fail-the-run
+rule (017 §Schema rule) depend on.
+
 ## Notes
 
 ### Why testing has its own Spec
@@ -689,7 +818,7 @@ The canonical helper inventory is the union of three namespaces:
 |---|---|---|
 | `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `subscribe-once`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). `subscribe-once` is the **canonical read-then-discard primitive** — `(rf/subscribe-once [:query])` returns the current sub value and synchronously disposes its ref-count contribution (per [006 §`subscribe-once`](006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-frame-id-query-v--value)). Use it from JVM SSR pre-hydration assertions and CLJS post-hydration assertions alike: same call shape, same semantics, no live ratom returned. Pairs with `compute-sub` (pure / cache-bypassing JVM unit-test form) — pick `subscribe-once` when you want what the running frame would see right now (cache-aware), `compute-sub` when you want to assert sub-body correctness against an explicit `app-db` snapshot. |
 | `dispatch-sequence` | `re-frame.test-support` | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
-| `assert-path-equals` / `assert-db-equals` | `re-frame.test-support` | `(assert-path-equals path expected-val)` for a path check, `(assert-db-equals expected-db)` for a full-db check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). **The `assert-*-equals` fn-family shares a name root with the `:rf.assert/*` event-vector family** (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, …) used inside a Story `:play` block — that surface lives in Spec 007 §Play functions (`:rf.assert/*` is registered, enumerable, and reserved under `:rf.assert/*` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The fn-side is the in-process `clojure.test` sync surface (reports via `do-report`); the event-side is dispatches handled by the story library's test runner (rendered as a checked-step list in dev/docs, fail loudly in test mode, simulation breakpoints in agent mode). Same intent (db-shape assertion), shared `path-equals` root so a reader navigating between the two surfaces does not need a translation table — see [007 §Play functions](007-Stories.md#play-functions). |
+| `assert-path-equals` / `assert-db-equals` | `re-frame.test-support` | `(assert-path-equals path expected-val)` for a path check, `(assert-db-equals expected-db)` for a full-db check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). **The `assert-*-equals` fn-family shares a name root with the `:rf.assert/*` event-vector family** (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, …) used inside a Story `:script` block — that surface lives in Spec 007 §Play functions (`:rf.assert/*` is registered, enumerable, and reserved under `:rf.assert/*` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The fn-side is the in-process `clojure.test` sync surface (reports via `do-report`); the event-side is dispatches handled by the story library's test runner (rendered as a checked-step list in dev/docs, fail loudly in test mode, simulation breakpoints in agent mode). Same intent (db-shape assertion), shared `path-equals` root so a reader navigating between the two surfaces does not need a translation table — see [007 §Play functions](007-Stories.md#play-functions). |
 | `poll-until` | `re-frame.test-support` | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
 | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture` | `re-frame.test-support` | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. `make-reset-runtime-fixture` is a **factory**: `(make-reset-runtime-fixture opts) → fixture-fn` returns the fn used in `(use-fixtures :each ...)`; the `-factory` suffix marks the call shape (contrast `with-fresh-registrar`, which takes a thunk and runs it directly). The four-rung granularity ladder is documented in [§Fixture-granularity ladder](#fixture-granularity-ladder). |
 | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` | `re-frame.test-helpers` | Hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Full inventory and contract: [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers). |
@@ -733,7 +862,7 @@ Capturing intermediate states:
 (ts/assert-db-equals   {:auth {:state :validating}} {:frame :test/auth-flow})
 ```
 
-> **Two assertion surfaces sharing one name root — pick by test context.** `(ts/assert-path-equals path expected)` / `(ts/assert-db-equals expected-db)` is the sync `clojure.test`-aware fn-family for in-process tests (reports via `do-report`). The sibling surface is the `:rf.assert/*` event-vector family (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, `:rf.assert/state-is`, `:rf.assert/dispatched?`, `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`, `:rf.assert/path-matches`) used inside a Story `:play` block — see [007 §Play functions](007-Stories.md#play-functions) for the canonical vocabulary and its dual-mode behaviour (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode). Choose by test surface: `assert-path-equals` from a `deftest` body; `:rf.assert/path-equals` from a story variant's `:play` vector. The shared `path-equals` root is deliberate — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table.
+> **Two assertion surfaces sharing one name root — pick by test context.** `(ts/assert-path-equals path expected)` / `(ts/assert-db-equals expected-db)` is the sync `clojure.test`-aware fn-family for in-process tests (reports via `do-report`). The sibling surface is the `:rf.assert/*` event-vector family (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, `:rf.assert/state-is`, `:rf.assert/dispatched?`, `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`, `:rf.assert/path-matches`) used inside a Story `:script` block — see [007 §Play functions](007-Stories.md#play-functions) for the canonical vocabulary and its dual-mode behaviour (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode). Choose by test surface: `assert-path-equals` from a `deftest` body; `:rf.assert/path-equals` from a story variant's `:script` / `:assertions`. The shared `path-equals` root is deliberate — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table.
 
 #### `poll-until` example
 
@@ -767,7 +896,7 @@ Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "
 
 ### `re-frame-test` library compatibility
 
-re-frame2 does **not** ship a `run-test-sync` shim — the macro existed in v1 to wrap a test body in a synchronous drain, and v2's `dispatch-sync` is already settle-by-default, so the shim was pure migration tax. Existing `re-frame-test` users rewrite the body to inline `dispatch-sync` calls under the per-test `make-reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bodies); see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). The other two re-frame-test helpers ship in `re-frame.test-support`: `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` so the fn-side shares a name root with the `:rf.assert/*` event-family used in Story `:play` blocks. The require move is a mechanical `re-frame.test → re-frame.test-support` namespace rename per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
+re-frame2 does **not** ship a `run-test-sync` shim — the macro existed in v1 to wrap a test body in a synchronous drain, and v2's `dispatch-sync` is already settle-by-default, so the shim was pure migration tax. Existing `re-frame-test` users rewrite the body to inline `dispatch-sync` calls under the per-test `make-reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bodies); see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). The other two re-frame-test helpers ship in `re-frame.test-support`: `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` so the fn-side shares a name root with the `:rf.assert/*` event-family used in a Story `:script` block. The require move is a mechanical `re-frame.test → re-frame.test-support` namespace rename per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
 
 ### Headless rendering for visual regression
 
