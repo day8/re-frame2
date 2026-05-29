@@ -127,9 +127,12 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 | Arg | Form | Examples |
 |---|---|---|
 | `build` | bare build id; a leading colon is also tolerated (rf2-8ohwv). **Omit it when one build is running** — discover-app auto-selects it (rf2-v70kv) | `"examples/step-deck"` or `":examples/step-deck"` — identical |
+| `port` | integer — the port from the browser URL (rf2-fyf0h) | `8031` — see *Connecting from a URL* below |
 | `frame` / `frames` | keyword **with** the colon | `":rf/default"`, `":step-deck"`, `[":rf/default" ":rf/xray"]` |
 
 **Single-build auto-selection (rf2-v70kv).** You usually don't need to pass `build` at all. When exactly one shadow-cljs build is running, a no-arg `discover-app` selects it and reports `:auto-selected-build` plus an explanatory `:note`. When several run, it errors with the running-builds list so you can pick — it never silently guesses.
+
+**Connecting from a URL (rf2-fyf0h).** When you only know the browser URL of the open tab (e.g. `http://localhost:8031/counter`) and several builds are running, pass the port instead of hunting for the build id: `discover-app {port: 8031}`. discover-app reads the shadow-cljs `:dev-http` map and resolves the build whose `:output-dir` is served on that port (8031 → `:examples/step-deck` in this repo) — no manual grep of `shadow-cljs.edn`. A `:port` that matches no build returns `{:ok? false :reason :port-unresolved}` rather than silently falling back. An explicit `:build` arg wins over `:port` if you pass both.
 
 **Output representation.** discover-app reports every build/frame id (`:build-id`, `:frames`, `:running-builds`) as a **full keyword** (`:rf/default`, `:examples/step-deck`) in the canonical EDN result, and its `:note` / `:hint` prose uses the same colon form — one representation throughout. (Hosts that surface the `:structuredContent` JSON view will show the colon stripped — `"rf/default"` — that's the documented lossy JSON projection; read the EDN text for the id exactly as you'd type it back into a `:frame` arg.)
 

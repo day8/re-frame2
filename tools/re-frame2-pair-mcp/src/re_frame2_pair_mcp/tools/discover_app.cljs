@@ -3,30 +3,60 @@
   (:require [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
+(defn- port-unresolved-result
+  "Error envelope for a `:port` arg that didn't resolve to a build via
+  the `:dev-http` map (rf2-fyf0h)."
+  [port]
+  (wire/ok-text
+    {:ok?    false
+     :reason :port-unresolved
+     :port   port
+     :hint   (str "No shadow-cljs build serves port " port " via the "
+                  ":dev-http map (the port may be missing from :dev-http, "
+                  "or no build's :output-dir matches its file roots). "
+                  "Check the port in your browser's address bar, or pass "
+                  ":build with the build-id directly.")}))
+
 (defn- resolve-build-id
-  "Resolve the build-id discover-app should probe. Returns a Promise of
-  `[build-id auto-selected?]`.
+  "Resolve the build discover-app should probe. Returns a Promise of a
+  result map. Precedence (highest first):
 
-  When the caller passed an explicit `:build` arg (or a prior
-  discover-app cached one on the conn), `wire/arg-build` already carries
-  a deliberate choice — honour it verbatim, never auto-select.
+    1. Explicit `:build` arg (or a build cached by a prior discover-app)
+       — `wire/arg-build` carries a deliberate choice; honour it
+       verbatim, never auto-select. Wins over `:port`.
+    2. `:port` arg (rf2-fyf0h) — resolve the serving build from the
+       shadow-cljs `:dev-http` map so an agent that only knows the
+       browser URL (e.g. http://localhost:8031/...) needn't grep the
+       repo for the build-id. A `:port` that resolves to no build is a
+       loud `:port-unresolved` error — NOT a silent fall-through to the
+       `:app` default (the operator asked for that port specifically).
+    3. Single running build (rf2-v70kv) — exactly one → auto-select +
+       flag it. Zero/many → keep the `:app` default so the diagnostic
+       ladder surfaces `:build-not-running` with the running list.
 
-  Otherwise (`arg-build` would fall through to the bare
-  `SHADOW_CLJS_BUILD_ID` / `:app` env default), try to auto-select the
-  single running build (rf2-v70kv): on a checkout where `:app` isn't the
-  running watch, defaulting to `:app` fails by construction on the very
-  first no-arg call. Exactly one running build → select it and flag the
-  auto-selection so the result can note it. Zero or many running → keep
-  the `:app` default and let `ensure-runtime!`'s diagnostic ladder
-  surface `:build-not-running` with the running-builds list (the
-  multi-build path stays ambiguous-and-loud, deliberately)."
+  Return shapes:
+    {:build-id <kw> :auto-selected? <bool>}   — proceed to probe.
+    {:error <js-envelope>}                     — short-circuit (port-unresolved)."
   [conn args]
-  (let [build-id (wire/arg-build conn args)]
-    (if (wire/arg-build-explicit? conn args)
-      (js/Promise.resolve [build-id false])
+  (let [explicit-build (wire/arg-build conn args)
+        port           (wire/arg args :port)]
+    (cond
+      (wire/arg-build-explicit? conn args)
+      (js/Promise.resolve {:build-id explicit-build :auto-selected? false})
+
+      (some? port)
+      (-> (probe/resolve-build-by-port conn port)
+          (.then (fn [resolved]
+                   (if resolved
+                     {:build-id resolved :auto-selected? false}
+                     {:error (port-unresolved-result port)}))))
+
+      :else
       (-> (probe/auto-select-single-build conn)
           (.then (fn [[selected auto?]]
-                   (if auto? [selected true] [build-id false])))))))
+                   (if auto?
+                     {:build-id selected :auto-selected? true}
+                     {:build-id explicit-build :auto-selected? false})))))))
 
 (defn- with-auto-selection
   "Annotate an `:ok? true` discover-app payload with the auto-selection
@@ -48,7 +78,9 @@
 (defn discover-app [conn args]
   (-> (resolve-build-id conn args)
    (.then
-    (fn [[build-id auto-selected?]]
+    (fn [{:keys [build-id auto-selected? error]}]
+    (if error
+     error
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (probe/runtime-health! conn build-id)))
         (.then
@@ -109,4 +141,4 @@
                   (with-auto-selection
                     (assoc health :ok? true :build-id build-id)
                     auto-selected? build-id))))))
-        (.catch (fn [err] (probe/err->result :discover-failed err))))))))
+        (.catch (fn [err] (probe/err->result :discover-failed err)))))))))

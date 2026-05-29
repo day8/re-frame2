@@ -207,7 +207,8 @@
                      "Examples: "
                      "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :note \"...auto-selected it.\"}. "
                      "2. Named build: {:build \"app\"} -> {:ok? true ... :build-id :app}, no auto-selection (explicit build honoured verbatim). "
-                     "3. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
+                     "3. From a browser URL's port: {:port 8031} -> resolves the build serving that port via the shadow-cljs :dev-http map: {:ok? true ... :build-id :examples/step-deck}. {:port <unmapped>} -> {:ok? false :reason :port-unresolved}. "
+                     "4. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
    :typicalTokens 200
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
@@ -218,7 +219,15 @@
                                                         "resolve identically (rf2-8ohwv). "
                                                         "Omit it when exactly one build is running — discover-app "
                                                         "auto-selects it and notes the choice (rf2-v70kv). "
-                                                        "Falls back to app when none can be inferred.")}}
+                                                        "Falls back to app when none can be inferred.")}
+                              :port {:type "integer"
+                                     :description (str "Resolve the serving build from a browser URL's port via "
+                                                       "the shadow-cljs :dev-http map (rf2-fyf0h). E.g. you opened "
+                                                       "http://localhost:8031/counter -> pass {:port 8031} and "
+                                                       "discover-app finds the build whose :output-dir is served "
+                                                       "on that port — no manual grep of shadow-cljs.edn. A port "
+                                                       "that maps to no build -> :reason :port-unresolved. Ignored "
+                                                       "when :build is given.")}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
