@@ -100,11 +100,13 @@
   ## What this layer DEFERS
 
   The runner itself + evidence projection are downstream of this compiler.
-  In particular, wiring the per-route `:network` reply data into the run
-  artifact awaits the run-artifact ns (rf2-5x1wt.7); this layer keeps the
-  reply map at `[:world :network]` and lowers it to the managed-stub
-  fx-override the runner installs, so that bead slots in without reshaping
-  the plan.
+  This layer keeps the per-route `:network` reply map at `[:world :network]`
+  and lowers it to the managed-stub fx-override the runner installs. The
+  run-artifact wiring that threads `[:world :network]` onto the artifact's
+  `:network` slot so replay RE-INSTALLS the route stubs landed in
+  `re-frame.story.determinism/->artifact` + `re-frame.story.artifact`
+  (rf2-tymyh, on top of the run-artifact ns rf2-5x1wt.7) — without
+  reshaping the plan, exactly as this layer anticipated.
 
   ## Purity / elision
 
@@ -735,13 +737,14 @@
 ;;
 ;; The compiler keeps the per-route reply data at `[:world :network]` (the
 ;; source of truth that feeds `:plan-hash` via `plan-hash-input-keys`'s
-;; `:world` slot, and `explain`, and — once rf2-5x1wt.7's run-artifact ns
-;; lands — the run artifact) AND **lowers** it to the existing managed-
-;; request stub machinery: the variant frame overrides `:rf.http/managed`
-;; with the stub fx that `re-frame.http-test-support/install-managed-
-;; request-stubs!` registers. We do NOT invent a new HTTP mock — the
-;; lowering names the existing seam so the (deferred) runner installs the
-;; route map and points the frame's `:fx-overrides` at the stub fx.
+;; `:world` slot, `explain`, and — threaded onto the artifact's `:network`
+;; slot by `re-frame.story.determinism/->artifact`, rf2-tymyh — the run
+;; artifact) AND **lowers** it to the existing managed-request stub
+;; machinery: the variant frame overrides `:rf.http/managed` with the stub
+;; fx that `re-frame.http-test-support/install-managed-request-stubs!`
+;; registers. We do NOT invent a new HTTP mock — the lowering names the
+;; existing seam; the runner (and `replay-run-artifact`, via the `:network`
+;; slot) installs the route map and points `:fx-overrides` at the stub fx.
 ;;
 ;; `:network` is NOT a replacement for generic `:fx-overrides`; it is the
 ;; higher-level affordance for `:rf.http/managed` specifically. Generic

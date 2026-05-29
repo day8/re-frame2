@@ -19,6 +19,7 @@
        :seed          optional
        :event-program [step …]        ; the dispatch program (setup ⧺ script)
        :fx-decisions  {fx-id override} ; reapplied fx overrides / decisions
+       :network       {[m url] {:reply …}} ; per-route HTTP stubs (reinstalled)
        :epoch-tape    [epoch-record …] ; the captured tape (when retained)
        :trace         [trace-event …]  ; optional flat trace
        :result        run-result       ; the projected run-result
@@ -41,11 +42,25 @@
   stubbed `:http/get` replays against the same stub rather than hitting a
   live effect.
 
+  `:network` is the serializable record of the variant's per-route HTTP
+  reply data (`{[method url] {:reply …}}`, spec/017 §The network surface),
+  captured from the plan's `[:world :network]` slot at materialize time.
+  The `:network` world slot LOWERS to a `:fx-decisions` redirect
+  (`{:rf.http/managed :rf.http/managed-test-stub}`), so the redirect alone
+  survives in `:fx-decisions` — but the redirect points at a stub fx that
+  is only registered (with the routes) by
+  `re-frame.http-test-support/install-managed-request-stubs!`. Carrying the
+  route map in `:network` lets replay RE-INSTALL those route stubs before
+  replaying, so a replayed `:network` request matches its route and
+  synthesises the recorded reply rather than fail-closing on
+  \"no stub matched\" (rf2-tymyh, spec/017 §The network surface).
+
   ## Replay
 
   `(replay-run-artifact artifact opts)` replays the artifact's dispatch
-  program into a FRESH frame, reapplying the fx decisions, captures a NEW
-  epoch tape, and projects it through the merged `.4` evidence boundary
+  program into a FRESH frame, reapplying the fx decisions, RE-INSTALLING
+  the `:network` route stubs (when present), captures a NEW epoch tape, and
+  projects it through the merged `.4` evidence boundary
   (`re-frame.story.play.evidence/project-evidence`). The returned
   run-result is the SHARED run-result shape (spec/017 §Run result) — the
   same shape the runner returns and the same one `canonicalize` /
@@ -83,10 +98,16 @@
   §Artifacts — Run artifact). `:artifact/kind` + `:event-program` are the
   load-bearing slots; the rest are optional evidence / provenance.
 
+  `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`)
+  carried so replay can re-install the managed-request stubs the
+  `:fx-decisions` redirect points at (rf2-tymyh, spec/017 §The network
+  surface — \"the runner installs the route map via
+  install-managed-request-stubs!\").
+
   Enumerated so `select-keys` can normalize a hand-built / over-stuffed
   map down to the artifact surface without dropping a future-added slot
   silently elsewhere."
-  #{:artifact/kind :seed :event-program :fx-decisions :epoch-tape
+  #{:artifact/kind :seed :event-program :fx-decisions :network :epoch-tape
     :trace :result :shrink-path :created-at :source})
 
 (defn run-artifact?
@@ -187,6 +208,37 @@
                (rf/with-fx-overrides fx-decisions
                  (inner frame-id event-vector))
                (inner frame-id event-vector))))))
+
+(defn with-network-stubs!
+  "Run `thunk` with the artifact's `:network` per-route HTTP stubs
+  installed, then uninstall them (spec/017 §The network surface). When the
+  artifact carries a non-empty `:network` route map, this installs the
+  managed-request stub fx (`:rf.http/managed-test-stub`) with those routes
+  via `re-frame.core/install-managed-request-stubs!` — the SAME seam a live
+  run uses — so the `:fx-decisions` redirect (`{:rf.http/managed
+  :rf.http/managed-test-stub}`) resolves to a stub that matches the routes
+  rather than fail-closing on \"no stub matched\". The stubs are
+  uninstalled in a `finally` so a replay never leaks the stub fx into a
+  later test.
+
+  When the artifact carries no `:network` routes, `thunk` runs unchanged
+  (no install, no uninstall) — so an artifact without HTTP stays clear of
+  the test-support surface entirely. `re-frame.core/install-managed-
+  request-stubs!` is late-bound (Spec 014 §Testing): the call routes
+  through `re-frame.http-test-support`, which a caller exercising a
+  `:network` artifact already has on its require closure (exactly as the
+  live `:network` run path requires), and raises
+  `:rf.error/http-artefact-missing` if it does not — never silently
+  fail-closing the request."
+  [artifact thunk]
+  (let [network (:network artifact)]
+    (if (seq network)
+      (try
+        (rf/install-managed-request-stubs! network)
+        (thunk)
+        (finally
+          (rf/uninstall-managed-request-stubs!)))
+      (thunk))))
 
 (defn replay-into-frame!
   "Replay an artifact's `:event-program` into the LIVE `frame-id`,
@@ -295,14 +347,20 @@
        (rf/reg-frame frame-id (merge {:doc "rf2-5x1wt.7 run-artifact replay frame"}
                                      frame-config)))
      (try
-       (let [outcomes (replay-into-frame! frame-id artifact hooks)
-             tape     (vec (rf/epoch-history frame-id))
-             app-db   (rf/get-frame-db frame-id)]
-         (replay-result {:epoch-tape tape
-                         :artifact   artifact
-                         :outcomes   outcomes
-                         :frame-id   frame-id
-                         :app-db     app-db}))
+       ;; Re-install the artifact's `:network` route stubs (when any) for the
+       ;; duration of the replay, so the `:fx-decisions` managed-stub redirect
+       ;; resolves to a stub that matches the recorded routes rather than
+       ;; fail-closing (rf2-tymyh, spec/017 §The network surface).
+       (with-network-stubs! artifact
+         (fn []
+           (let [outcomes (replay-into-frame! frame-id artifact hooks)
+                 tape     (vec (rf/epoch-history frame-id))
+                 app-db   (rf/get-frame-db frame-id)]
+             (replay-result {:epoch-tape tape
+                             :artifact   artifact
+                             :outcomes   outcomes
+                             :frame-id   frame-id
+                             :app-db     app-db}))))
        (finally
          (when own-frame?
            (try (rf/destroy-frame! frame-id)
