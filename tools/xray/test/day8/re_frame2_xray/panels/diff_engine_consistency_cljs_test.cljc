@@ -171,3 +171,107 @@
     (let [db {:counter 5 :user {:id 7}}]
       (is (= [] (universal-diff db db))
           "identical map → empty diff"))))
+
+;; ---- rf2-bufw2 empty-collection leaves in changed subtrees --------------
+;;
+;; Inside a wholly-`:added` (or wholly-`:removed`) subtree, an empty-
+;; collection leaf (`[]`, `{}`, `#{}`, `'()`) used to fall through
+;; `op-at` to `:same` — `expand-leaf-paths` recursed into a container
+;; with zero descendant slots and emitted NOTHING, so no `:path-ops`
+;; entry existed. The leaf was the only path in the subtree that lied
+;; to the operator (a green-`:added` cascade with muted `:same` empty
+;; slots). The fix classifies an empty container as a terminal leaf in
+;; BOTH walkers — `expand-leaf-paths` (so the slot carries an explicit
+;; op) and `mark-wholly-changed`'s `collect-leaves` (so the uniformity
+;; check sees the slot and a `:same` empty sibling doesn't get falsely
+;; swept into a wholly-changed promotion). The equivalence is NOT
+;; type-specific: `(container? v)` + `(empty? v)` covers all four kinds.
+
+(def ^:private empty-collections
+  "The four empty-collection kinds the equivalence covers."
+  {:vec  []
+   :map  {}
+   :set  #{}
+   :list '()})
+
+(defn- build-projection
+  "Thin alias for `engine/project` matching the bead's vocabulary."
+  [before after]
+  (engine/project before after))
+
+(deftest empty-collection-leaf-added-direct
+  (testing "rf2-bufw2 — a wholly-added empty-collection leaf at depth 2
+            classifies `:added`, not `:same`, for every collection kind."
+    (doseq [[kind empty-coll] empty-collections]
+      (let [proj (build-projection {} {:a {:b empty-coll}})]
+        (is (= :added (engine/op-at proj [:a :b]))
+            (str "empty " (name kind) " leaf inside an added subtree is :added"))
+        ;; the container that holds the lone empty leaf is wholly-added
+        (is (= :added (engine/op-at proj [:a]))
+            (str "container of a lone added empty " (name kind) " is wholly-:added"))))))
+
+(deftest empty-collection-leaf-added-deeply-nested
+  (testing "rf2-bufw2 — the inheritance holds ≥3 levels deep inside the
+            added subtree (the live epoch-2 witness sat 6 levels deep)."
+    (doseq [[kind empty-coll] empty-collections]
+      (let [proj (build-projection {} {:root {:x {:y {:z empty-coll}}}})]
+        (is (= :added (engine/op-at proj [:root :x :y :z]))
+            (str "deeply-nested empty " (name kind) " leaf is :added"))))))
+
+(deftest empty-collection-leaf-removed-direct
+  (testing "rf2-bufw2 — symmetric: a wholly-removed empty-collection
+            leaf (before-side empty, after-side absent) classifies
+            `:removed`, not `:same`, for every collection kind."
+    (doseq [[kind empty-coll] empty-collections]
+      (let [proj (build-projection {:a {:b empty-coll}} {})]
+        (is (= :removed (engine/op-at proj [:a :b]))
+            (str "empty " (name kind) " leaf inside a removed subtree is :removed"))))))
+
+(deftest empty-collection-leaf-removed-deeply-nested
+  (testing "rf2-bufw2 — symmetric removed inheritance ≥3 levels deep."
+    (doseq [[kind empty-coll] empty-collections]
+      (let [proj (build-projection {:root {:x {:y {:z empty-coll}}}} {})]
+        (is (= :removed (engine/op-at proj [:root :x :y :z]))
+            (str "deeply-nested empty " (name kind) " leaf is :removed"))))))
+
+(deftest empty-collection-leaf-epoch2-witness
+  (testing "rf2-bufw2 — the live step-deck epoch-2 :rf/runtime allocation:
+            `:messages []` and `:rf/spawn-counter {}` paint :added (green)
+            alongside every other leaf under the wholly-added subtree —
+            no :same paint anywhere in the cascade."
+    (let [after {:rf/runtime
+                 {:machines
+                  {:snapshots
+                   {:ws/connection
+                    {:state :disconnected
+                     :data  {:connections 0
+                             :messages    []}
+                     :rf/spawn-counter {}}}}}}
+          proj (build-projection {} after)
+          messages-path [:rf/runtime :machines :snapshots :ws/connection :data :messages]
+          spawn-path    [:rf/runtime :machines :snapshots :ws/connection :rf/spawn-counter]]
+      (is (= :added (engine/op-at proj messages-path))
+          "`:messages []` paints :added, not :same")
+      (is (= :added (engine/op-at proj spawn-path))
+          "`:rf/spawn-counter {}` paints :added, not :same")
+      (is (= :added (engine/op-at proj [:rf/runtime]))
+          "the whole :rf/runtime subtree is wholly-:added"))))
+
+(deftest empty-collection-leaf-same-container-does-not-inherit
+  (testing "rf2-bufw2 — the mid-tree boundary: an UNCHANGED empty-
+            collection leaf does NOT inherit a changed classification.
+            Only genuine absent↔empty transitions classify; an empty
+            collection that is identical on both sides stays `:same`,
+            and its presence must not falsely promote an otherwise
+            mixed container to wholly-changed."
+    (doseq [[kind empty-coll] empty-collections]
+      ;; `:b` is unchanged (empty both sides); a sibling key `:c` is added.
+      (let [proj (build-projection {:a {:b empty-coll}}
+                                   {:a {:b empty-coll :c 1}})]
+        (is (= :same (engine/op-at proj [:a :b]))
+            (str "unchanged empty " (name kind) " leaf stays :same"))
+        (is (= :added (engine/op-at proj [:a :c]))
+            "the genuinely-added sibling is :added")
+        (is (= :children (engine/op-at proj [:a]))
+            (str "container with a :same empty " (name kind)
+                 " + one :added sibling is :children, NOT wholly-:added"))))))

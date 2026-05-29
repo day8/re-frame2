@@ -384,9 +384,27 @@
   "When an edit at `path` operates on a container value (e.g. `[[:flash] :+
   {:level :ok :text \"hi\"}]`), expand it into per-leaf paths so the
   renderer's path-keyed lookup finds an op at every descendant slot. The
-  expansion is recursive over maps / vectors / sets. Pure."
+  expansion is recursive over maps / vectors / sets. Pure.
+
+  rf2-bufw2 — an EMPTY container (`[]`, `{}`, `#{}`, `'()`) is itself a
+  terminal leaf the operator navigates to and sees in the tree: it has
+  no descendant slots to recurse into, so the recursive branches below
+  would emit NOTHING and the slot would fall through `op-at` to `:same`
+  — the only path inside a wholly-`:+`/`:-` subtree that would lie to
+  the operator (a green-`:added` cascade with two muted `:same` empty
+  slots). The renderer treats empty containers as leaf rows (see
+  `render-node`'s `empty?` branch); the engine must classify them as
+  leaves too. Emit the empty container as a single leaf op so the
+  absent↔empty-collection transition surfaces honestly. The check is
+  `container?` + `empty?` (NOT type-specific) because the equivalence
+  covers all four collection kinds, and ordering it before the
+  recursive branches keeps the per-kind walks for the non-empty case
+  untouched."
   [path op value]
   (cond
+    (and (container? value) (empty? value))
+    [{:path path :op op :value value}]
+
     (map? value)
     (mapcat (fn [[k cv]] (expand-leaf-paths (conj (vec path) k) op cv)) value)
 
@@ -433,6 +451,21 @@
   (let [collect-leaves
         (fn collect-leaves [data path]
           (cond
+            ;; rf2-bufw2 — an empty container is a terminal leaf (it has
+            ;; no descendant slots), exactly as `expand-leaf-paths`
+            ;; treats it. The two walkers MUST agree on what a leaf is:
+            ;; if `collect-leaves` skipped an empty-collection slot, a
+            ;; container whose only changed descendants are real `:added`
+            ;; leaves alongside an UNCHANGED (`:same`) empty-collection
+            ;; sibling would be falsely promoted to wholly-changed
+            ;; `:added` (the empty slot being invisible to the
+            ;; uniformity check). Emitting it as a leaf lets
+            ;; `check-uniform` see its `path-ops` op (`:same` when
+            ;; unchanged, `:added`/`:removed` when inside a genuinely
+            ;; wholly-changed subtree) and decide correctly.
+            (and (container? data) (empty? data))
+            [path]
+
             (map? data)
             (mapcat (fn [[k cv]] (collect-leaves cv (conj (vec path) k))) data)
 

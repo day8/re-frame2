@@ -106,6 +106,39 @@ age-out.
 > retained ONLY for the trace panel's `db-changed-diff-triples`
 > surface (out of scope; tracked separately).
 
+### Empty-collection leaves are honest leaves (rf2-bufw2)
+
+An **empty collection** (`[]`, `{}`, `#{}`, `'()`) is a *terminal
+leaf*, not a container to recurse into — it has no descendant slots.
+The projection classifies an empty-collection slot exactly as it
+classifies a scalar:
+
+- Inside a wholly-**added** subtree (absent → present), an empty-
+  collection leaf classifies `:added` — the same green chrome as every
+  other leaf under the new subtree. The absent↔empty-collection
+  transition is a real change the operator must see.
+- Symmetrically, inside a wholly-**removed** subtree, an empty-
+  collection leaf classifies `:removed` (red).
+- An empty-collection leaf that is **identical on both sides** stays
+  `:same`. Its presence never falsely promotes an otherwise-mixed
+  container to a wholly-changed root.
+
+The rule is **kind-agnostic** — `(container? v)` + `(empty? v)` covers
+all four collection kinds, not just the vec + map first witnessed in
+the step-deck epoch-2 `:rf/runtime` allocation (`:messages []` +
+`:rf/spawn-counter {}`).
+
+> **Why this is a contract, not an edge case.** Editscript's A* treats
+> empty-collection-vs-absence as a no-diff (it emits no edit-script
+> entry), so the projection's leaf-expansion would drop the slot and
+> `op-at` would fall through to `:same` — the *only* path inside an
+> otherwise wholly-green added subtree that would lie to the operator.
+> Both the leaf-expansion walker and the wholly-changed uniformity
+> walker treat the empty container as a leaf so the two agree on the
+> classification (rf2-bufw2; this is the third operator-honesty fix in
+> the FULL+DIFF family alongside rf2-9d4j8 root-container and
+> rf2-fyd8u scalar-sub-cache cases).
+
 ## Colour coding
 
 | Op | Visual |
