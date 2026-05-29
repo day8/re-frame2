@@ -30,11 +30,13 @@
                       :failing-id failing-id}
                      extra)})
 
-(defn- warn-trace
-  "A `:warn`-op trace event."
+(defn- warning-trace
+  "A real framework warning trace event — `:op-type :warning` (the canonical
+  severity discriminator every `(trace/emit! :warning …)` site produces;
+  the framework NEVER emits `:warn`). Spec 009 §Op-type vocabulary."
   [id operation category]
   {:operation operation
-   :op-type   :warn
+   :op-type   :warning
    :id        id
    :tags      {:category category}})
 
@@ -107,14 +109,43 @@
 ;; ===========================================================================
 
 (deftest warnings-projected-from-trace-events
-  (testing "every :warn-op trace projects to a warning record, in tape order"
-    (let [tape [(epoch 1 {:trace-events [(warn-trace 10 :rf.warning/foo :rf.warning/foo)
+  (testing "every :warning-op trace projects to a warning record, in tape order"
+    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)
                                          {:operation :rf.event/run-start :op-type :trace :id 11 :tags {}}]})
-                (epoch 2 {:trace-events [(warn-trace 20 :rf.warning/bar :rf.warning/bar)]})]
+                (epoch 2 {:trace-events [(warning-trace 20 :rf.warning/bar :rf.warning/bar)]})]
           ws (evidence/warnings tape)]
       (is (= 2 (count ws)))
       (is (= [:rf.warning/foo :rf.warning/bar] (mapv :operation ws)))
       (is (= [1 2] (mapv :epoch-id ws))))))
+
+(deftest warning-projection-keys-on-canonical-op-type
+  ;; Regression for rf2-v7idy: the framework emits `:op-type :warning`
+  ;; (every `(trace/emit! :warning …)` site; spec/009 §Op-type vocabulary),
+  ;; NEVER `:op-type :warn`. A prior `(= :warn (:op-type …))` predicate left
+  ;; the `:warnings` projection silently always-empty against real tapes,
+  ;; defeating `:rf.assert/no-warnings`. This pins the canonical value: a
+  ;; real `:warning`-op trace MUST project, and a bogus `:warn`-op trace
+  ;; MUST NOT.
+  (testing "a real :op-type :warning trace projects into :warnings"
+    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/real :rf.warning/real)]})]
+          ws   (evidence/warnings tape)]
+      (is (true? (evidence/warning-trace? {:op-type :warning})))
+      (is (= 1 (count ws)) "the canonical :warning op-type is projected")
+      (is (= [:rf.warning/real] (mapv :operation ws)))))
+  (testing "a bogus :op-type :warn trace is NOT a warning (the framework never emits :warn)"
+    (let [bogus-warn {:operation :rf.warning/bogus :op-type :warn :id 99 :tags {:category :rf.warning/bogus}}
+          tape       [(epoch 1 {:trace-events [bogus-warn]})]]
+      (is (false? (evidence/warning-trace? bogus-warn)))
+      (is (= [] (evidence/warnings tape))
+          ":warn is not the canonical discriminator — it must not project")))
+  (testing "the agreement floor sees real warnings only via the canonical op-type"
+    ;; A real warning-only tape carries no FAILURE (warnings are not the
+    ;; failure floor), but the projection must still surface it so a wired
+    ;; :rf.assert/no-warnings has teeth.
+    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)]})]
+          ev   (evidence/project-evidence tape)]
+      (is (= 1 (count (:warnings ev)))
+          "project-evidence surfaces real :warning traces into the run-result slot"))))
 
 (deftest effects-sub-runs-renders-concatenated-from-epochs
   (testing "per-epoch structured rows concatenate in dispatch order, stamped with epoch-id"
@@ -376,7 +407,7 @@
 (deftest projections-agree-with-the-tape
   (testing "project-evidence returns the tape verbatim + every slot derived from it"
     (let [tape [(epoch 1 {:effects [{:fx-id :db :outcome :ok}]
-                          :trace-events [(warn-trace 10 :rf.warning/x :rf.warning/x)]})]
+                          :trace-events [(warning-trace 10 :rf.warning/x :rf.warning/x)]})]
           ev   (evidence/project-evidence tape {:script [[:dispatch [:e]]]})]
       (is (= tape (:epoch-tape ev)) "the retained tape rides verbatim as the evidence source")
       (is (= (evidence/schema-violations tape) (:schema-violations ev)))
