@@ -76,10 +76,14 @@
   plan input) replays into a fresh frame via `.7`'s `replay-run-artifact`.
 
   This ns is bundle-isolated tooling; it `:require`s ONLY the pure
-  fingerprint / diff modules + the artifact replay seam (which itself uses
-  the late-bound `rf/epoch-history` facade), so it introduces NO hard
-  `:require` of a test-only dep into the production Story path."
+  fingerprint / diff / determinism modules + the artifact replay seam
+  (which itself uses the late-bound `rf/epoch-history` facade), so it
+  introduces NO hard `:require` of a test-only dep into the production
+  Story path. The determinism dependency is the pure `->artifact` plan
+  coercion (no runtime), reused so the plan capture path folds a plan to a
+  replayable artifact through the SAME seam the determinism gate uses."
   (:require [re-frame.story.artifact    :as artifact]
+            [re-frame.story.determinism :as determinism]
             [re-frame.story.diff        :as diff]
             [re-frame.story.fingerprint :as fingerprint]))
 
@@ -173,20 +177,51 @@
 ;; ===========================================================================
 
 (defn- ->run-result
-  "Coerce a capture/compare `target` into a run-result. A run-result
-  (carrying a `:status`) is used directly — the PURE path. A
-  `:rf.test/run-artifact` (or a normalized plan, via the determinism gate's
-  `->artifact` fold inside `replay-run-artifact`'s caller) is replayed into
-  a FRESH frame via `re-frame.story.artifact/replay-run-artifact` (the
-  IMPURE path), threading `opts` (`:frame` / `:hooks` / `:frame-config`).
+  "Coerce a capture/compare `target` into a run-result, FAILING CLOSED on an
+  unrecognized input. Dispatched on the target's shape:
 
-  Replaying the artifact means a golden captured from an artifact freezes
+  - a `:rf.test/run-artifact` — replayed into a FRESH frame via
+    `re-frame.story.artifact/replay-run-artifact` (the IMPURE path),
+    threading `opts` (`:frame` / `:hooks` / `:frame-config`);
+  - a normalized plan (a map carrying `:world`) — folded to a replayable
+    artifact via the determinism gate's pure `re-frame.story.determinism/
+    ->artifact` (the SAME `[:world :setup]` ⧺ `:script` fold the gate uses),
+    then replayed into a FRESH frame, also IMPURE;
+  - a run-result (a map carrying `:status`) — used directly, the PURE path
+    (`clojure -M:test`, no runtime).
+
+  Replaying an artifact / plan means a golden frozen from one captures
   exactly the FRESH-frame run the determinism gate + semantic diff would
-  produce — so capture-from-artifact and capture-from-result agree."
+  produce — so capture-from-artifact, capture-from-plan, and
+  capture-from-result agree.
+
+  Any other input (a map that is neither a run-artifact, a plan, nor a
+  run-result, or a non-map) is REJECTED with `:rf.error/golden-bad-target`
+  rather than silently frozen — a golden captured from garbage is worse
+  than a loud failure, because it freezes a near-empty baseline that then
+  reports false GREEN forever (the silent-wrong path this guard closes)."
   [target opts]
-  (if (artifact/run-artifact? target)
+  (cond
+    (artifact/run-artifact? target)
     (artifact/replay-run-artifact target opts)
-    target))
+
+    (and (map? target) (contains? target :world))
+    (artifact/replay-run-artifact (determinism/->artifact target) opts)
+
+    (and (map? target) (contains? target :status))
+    target
+
+    :else
+    (throw (ex-info ":rf.error/golden-bad-target"
+                    {:rf.error/id :rf.error/golden-bad-target
+                     :where    'rf.story/capture-golden
+                     :recovery :fix-target
+                     :reason   (str "re-frame2-story: capture/compare-golden "
+                                    "target is not a run-result (no :status), a "
+                                    ":rf.test/run-artifact, nor a normalized plan "
+                                    "(no :world) — refusing to freeze a golden "
+                                    "from an unrecognized input")
+                     :target   target}))))
 
 (defn capture-golden
   "Capture a `:rf.test/golden` slice from `target` (spec/017 §Golden
@@ -198,7 +233,16 @@
     directly, the PURE path (`clojure -M:test` with no runtime);
   - a `:rf.test/run-artifact` — REPLAYED into a fresh frame via
     `replay-run-artifact` to obtain a run-result first (the impure path);
-    so a golden frozen from an artifact captures the fresh-frame run.
+    so a golden frozen from an artifact captures the fresh-frame run;
+  - a normalized variant plan (a map carrying `:world`) — folded to a
+    replayable artifact via the determinism gate's pure `->artifact`, then
+    replayed like an artifact (the impure path), so a golden frozen from a
+    plan captures the same fresh-frame run the determinism gate + diff
+    would produce.
+
+  Any other input is REJECTED with `:rf.error/golden-bad-target` (see
+  `->run-result`) — capture FAILS CLOSED rather than freezing a garbage
+  golden from an unrecognized shape.
 
   `opts` (all optional):
 
@@ -223,29 +267,59 @@
 ;; COMPARE  (canonical equality + the readable, delegated report)
 ;; ===========================================================================
 
+(defn- canonical+hash
+  "Canonicalize a coerced run-`result`'s behavioural slice ONCE and return
+  `{:canonical … :run-hash …}` off that single canonical value. Pure data →
+  data.
+
+  `run-hash` and `slice-canonical` both `canonicalize` the same behavioural
+  slice; computing the canonical slice once (and hashing the canonical
+  value via `fingerprint/content-hash`, which orders-but-does-not-strip an
+  ALREADY-stripped+ordered value — so it equals `run-hash`'s
+  `canonical-hash` of the raw slice) avoids running `canonicalize` twice per
+  match / compare. The equivalence `content-hash(canonicalize(slice)) =
+  run-hash(result)` is locked by the golden_test run-hash agreement
+  assertions."
+  [result]
+  (let [canon (slice-canonical result)]
+    {:canonical canon
+     :run-hash  (fingerprint/content-hash canon)}))
+
+(defn- matches?
+  "The ONE GREEN/RED authority over an ALREADY-coerced run-`result` (spec/017
+  §Golden slices). True iff `result` matches the `golden` slice. Pure data →
+  data — both `golden-match?` and `compare-golden` route through this so the
+  two-stage equality cannot drift between the predicate and the report.
+
+  Two-stage to avoid a false GREEN: the cheap `:run-hash` is checked first
+  (a mismatched hash ⇒ definitely different, short-circuit), then canonical
+  equality is the AUTHORITY (a hash collision can never report a match
+  because the canonical values still differ)."
+  [golden {:keys [canonical run-hash]}]
+  (and (= (:run-hash golden) run-hash)
+       (= (:canonical golden) canonical)))
+
 (defn golden-match?
   "True iff `run` matches the `golden` slice — the run's canonicalized
   behavioural slice is `=` to the golden's frozen `:canonical` (spec/017
   §Golden slices). Pure when `run` is a run-result.
 
-  Two-stage to avoid a false GREEN: the cheap `:run-hash` is checked first
-  (mismatched hash ⇒ definitely different, short-circuit), then canonical
-  equality is the AUTHORITY (a hash collision can never report a match
-  because the canonical values still differ). The match is robust to
+  Routes through the shared `matches?` authority (the two-stage `:run-hash`
+  pre-check then canonical-equality confirmation, lifted so the predicate
+  and `compare-golden`'s report cannot drift). The match is robust to
   per-run noise — frame ids, timestamps, epoch / dispatch / trace ids do
   NOT cause a false mismatch because `canonicalize` strips them on both
   sides — and sensitive to a real semantic difference (app-db, effect,
   assertion verdict, schema failure, trace spine), which perturbs the
   canonical value.
 
-  `run` MAY be a run-result (pure) or a `:rf.test/run-artifact` (replayed
-  into a fresh frame first — pass `opts` for `:frame` / `:hooks` /
-  `:frame-config`)."
+  `run` MAY be a run-result (pure), a `:rf.test/run-artifact`, or a
+  normalized plan (the latter two replayed into a fresh frame first — pass
+  `opts` for `:frame` / `:hooks` / `:frame-config`); any other shape is
+  rejected (see `->run-result`)."
   ([golden run] (golden-match? golden run nil))
   ([golden run opts]
-   (let [result (->run-result run opts)]
-     (and (= (:run-hash golden) (fingerprint/run-hash result))
-          (= (:canonical golden) (slice-canonical result))))))
+   (matches? golden (canonical+hash (->run-result run opts)))))
 
 (defn compare-golden
   "Compare a `run` against the `golden` slice and return a READABLE report
@@ -278,13 +352,12 @@
   ([golden run] (compare-golden golden run nil))
   ([golden run {:keys [golden-run-result] :as opts}]
    (let [result    (->run-result run (dissoc opts :golden-run-result))
-         match?    (and (= (:run-hash golden) (fingerprint/run-hash result))
-                        (= (:canonical golden) (slice-canonical result)))
+         {:keys [run-hash] :as ch} (canonical+hash result)
          base-run  (or golden-run-result (:run-result golden))]
-     (if match?
-       {:match? true :run-hash (fingerprint/run-hash result)}
+     (if (matches? golden ch)
+       {:match? true :run-hash run-hash}
        (cond-> {:match?          false
-                :run-hash        (fingerprint/run-hash result)
+                :run-hash        run-hash
                 :golden-run-hash (:run-hash golden)}
          base-run       (assoc :diff (diff/diff-runs base-run result))
          (not base-run) (assoc :diff :unavailable-no-run-result))))))
