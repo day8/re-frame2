@@ -1628,7 +1628,7 @@ rendering — the full data tree with inline diff annotations against
 | Epoch HANDLER step `:db`               | FULL+DIFF via edn-inspector with `:before` threaded |
 | App-DB panel                           | Section list, each section FULL+DIFF |
 | Machine Inspector snapshot drill-in    | Single edn-inspector mount, FULL+DIFF |
-| Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF |
+| Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF; a first-run container routes through `:added?` (§10.0.13) for whole-tree `:added` chrome (rf2-kp7bw) |
 
 **R-rule applicability across surfaces**: all R1-R8 rules from
 §9.1.5.1 apply uniformly to every surface. Rules that have no work
@@ -2406,6 +2406,17 @@ reach for `[edn-inspector value opts]` directly.
   §10.0.12 for the contract + per-surface call-site obligation. The
   silent-default chosen here is intentional: it preserves the diff-
   only call sites that should NOT paint mode-3 chrome.
+- `:added?` (rf2-kp7bw) — boolean FIRST-RUN signal. When `true` AND
+  no explicit `:before` is supplied, the widget enters diff mode with
+  the prior side synthesised as `engine/missing-sentinel`, so the
+  projection classifies the WHOLE value tree as `:added` (root op
+  `:added` → green wash + `+` chrome over every descendant). Use for a
+  value that just came into existence — a sub's first cache entry, an
+  app-db key that just appeared — where a plain mount would read as
+  un-annotated. An explicit `:before` always takes precedence (a real
+  prior value is a genuine diff, not a first run), so `:added?` is a
+  no-op when `:before` is present. Empty containers still read
+  `:added`. See §10.0.13. Defaults `false`.
 
 The widget is a **Reagent form-2 component** — the outer fn captures
 a stable `mount-id` (auto-generated UUID, per D4=a — no public
@@ -3209,6 +3220,45 @@ Reagent component that takes `(value, opts)`. The boolean
 panel keep ownership while the widget keeps a pure data interface.
 Audit trail: rf2-ya3nj 24hr audit, finding M3 (spec drift) →
 rf2-6cm03 (this section).
+
+#### §10.0.13 `:added?` opt — first-run / whole-value-added chrome (rf2-kp7bw)
+
+A FIRST-RUN value is one with no prior state to diff against — a
+sub's first cache entry, an app-db key that just appeared. The
+scalar SUBSCRIPTIONS branch (rf2-fyd8u) already paints row-level
+`:added` chrome (green stripe + leading `+`) for such a value, but
+the container branch had no equivalent: a first-run map / vector /
+set fell through to a plain edn-inspector mount with `before` nil,
+so the widget never entered diff mode and the subtree read as
+un-annotated — visually indistinguishable from an unchanged value
+on the cascade that introduced it. Canonical repro: the `[:rf/route]`
+map sub on a `/counter` view-mount epoch (every sibling scalar sub
+painted `:added`; the route map painted plain).
+
+**Contract.**
+
+- **Signal.** `:added? true` (boolean opt). Without an explicit
+  `:before`, the widget synthesises the prior side as
+  `engine/missing-sentinel`. The projection (`diff.engine/project
+  missing-sentinel value`) reports the root op as `:added`, so the
+  whole tree paints the green wash + `+` added chrome.
+- **Precedence.** An explicit `:before` always wins — a real prior
+  value is a genuine diff, not a first run — so `:added?` is a no-op
+  when `:before` is supplied.
+- **Empty containers.** A first-run EMPTY map / vector / set still
+  reads `:added`: the engine reports root `:added` for
+  `(missing-sentinel, {})` / `(missing-sentinel, [])`.
+- **Sentinel discipline.** The synthesised prior is the **engine's**
+  `missing-sentinel` (`:day8.re-frame2-xray.diff.engine/missing`),
+  NOT the edn-inspector's `::missing` walker sentinel — only the
+  engine value drives the projection to a root `:added` classification
+  (the edn-inspector keyword would project as a `:modified` type-flip).
+
+**Consumer call-site** — `panels/epoch/view.cljs` `subs-value-cell`
+container branch passes `:added? true` when the row is `first-run?`
+and carries no `before`. Test surface:
+`first-run-container-sub-renders-added-chrome-test`
+(`view_cljs_test.cljs`).
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 

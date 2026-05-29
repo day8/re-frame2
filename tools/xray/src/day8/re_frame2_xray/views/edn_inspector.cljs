@@ -2963,8 +2963,8 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
-                    max-depth before popup-affordance? card? header zoomable?
-                    full-with-diff?]
+                    max-depth popup-affordance? card? header zoomable?
+                    full-with-diff? added?]
              :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
@@ -2982,7 +2982,26 @@
                     ;; no zoom affordance, no breadcrumb, full tree
                     ;; rendered from the original root.
                     zoomable? false}} opts
-            diff?         (contains? opts :before)
+            ;; rf2-kp7bw — `:added?` is the FIRST-RUN signal: a value
+            ;; that just came into existence (a sub's first cache entry,
+            ;; an app-db key that just appeared). Without an explicit
+            ;; `:before`, `:added? true` synthesises the diff's prior
+            ;; side as `engine/missing-sentinel`, so the projection
+            ;; classifies the WHOLE tree as `:added` (root op `:added`
+            ;; → green wash + `+` chrome over every descendant). This is
+            ;; the container-shaped parity for the scalar first-run
+            ;; `:added` chrome the SUBSCRIPTIONS leaf branch paints at
+            ;; the row level (rf2-fyd8u handled scalars only; containers
+            ;; mounted plain on a first run because `before` was nil and
+            ;; the inspector never entered diff mode). An explicit
+            ;; `:before` always wins (an actual prior value is a real
+            ;; diff, not a first run); empty containers still read
+            ;; `:added` (the engine reports root `:added` for
+            ;; `(missing-sentinel, {})`). See §10.0.13.
+            before        (if (contains? opts :before)
+                            (:before opts)
+                            (when added? engine/missing-sentinel))
+            diff?         (or (contains? opts :before) (boolean added?))
             ;; rf2-okq7p — `:header` opts the widget into the 3-shade
             ;; card chrome (outer SECTION + grey-on-grey HEADER ribbon
             ;; + body), modelled on the Machine panel's `focused-event-
