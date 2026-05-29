@@ -94,12 +94,10 @@
   so they ride the allowlist until the sweep gives them the
   `defaults/default-frame-id` treatment for consistency."
   #{"views/edn_inspector_popup.cljs"
-    "views/edn_widget/widget.cljs"
     "panels/app_db_segment_inspector.cljs"
     "panels/cancellation_cascade.cljs"
     "panels/cancellation_cascade_events.cljs"
     "panels/epoch/view.cljs"
-    "panels/issues_ribbon.cljs"
     "panels/machine_after_rings.cljs"
     "panels/machine_canvas.cljs"
     "panels/machine_inspector.cljs"
