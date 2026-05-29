@@ -171,13 +171,16 @@
     (reset! drag-state nil)))
 
 (defn- on-document-move [^js e]
-  (when-let [{:keys [start-x start-width]} @drag-state]
+  (when-let [{:keys [start-x start-width dispatch-fn]} @drag-state]
     ;; Page-relative X so a drag that moves through a parent with
     ;; CSS transforms still tracks the pointer.
     (let [dx        (- start-x (.-pageX e))
           new-width (+ start-width dx)]
-      (rf/dispatch [:rf.xray/set-panel-width-px new-width]
-                   {:frame :rf/xray}))))
+      ;; rf2-nesy9 — the document-level pointer-move listener fires
+      ;; OUTSIDE the React render scope; dispatch through the frame-aware
+      ;; `dispatch-fn` captured at `start-drag!` so the resize lands on
+      ;; the surrounding instance frame, not a `{:frame :rf/xray}` literal.
+      ((or dispatch-fn rf/dispatch) [:rf.xray/set-panel-width-px new-width]))))
 
 (defn- on-document-up [^js _e]
   (detach-document-listeners!))
@@ -198,9 +201,17 @@
   events spec defines `pageX` on every type, so the same handler
   works without branching.
 
+  `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
+  the `Handle` `reg-view` body; it is stashed in the drag-state so the
+  document-level pointer-move listener (which fires after render
+  unwinds) dispatches on the surrounding instance frame. Defaults to
+  `rf/dispatch` for the test seam, which drives the lifecycle without a
+  real DOM.
+
   Exposed for the shell view's `:on-pointer-down` handler AND for the
   test suite, which drives the drag lifecycle without a real DOM."
-  [^js e current-width]
+  ([^js e current-width] (start-drag! e current-width rf/dispatch))
+  ([^js e current-width dispatch-fn]
   ;; Defensive: clear any stale state from a prior aborted drag.
   (detach-document-listeners!)
   (let [start-x     (.-pageX e)
@@ -214,6 +225,7 @@
     (reset! drag-state {:start-x     start-x
                         :start-width (or current-width 560)
                         :pointer-id  pointer-id
+                        :dispatch-fn dispatch-fn
                         :on-move     on-move
                         :on-up       on-up
                         :on-cancel   on-cancel
@@ -235,7 +247,7 @@
     ;; gesture that begins on pointerdown over a non-input element
     ;; — without it a drag visually selects every piece of text the
     ;; cursor crosses (mouse) or scrolls the page (touch).
-    (try (.preventDefault e) (catch :default _ nil))))
+    (try (.preventDefault e) (catch :default _ nil)))))
 
 ;; Test seam — directly drive the document-level handlers without
 ;; needing a real DOM event listener attached. The view's
@@ -288,16 +300,21 @@
   Returns true iff the keypress was handled (so the caller can
   `preventDefault` to suppress the default behavior — page scroll on
   arrow keys, button activation on space). Other keypresses return
-  false and bubble normally."
-  [^js e current-width]
+  false and bubble normally.
+
+  `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
+  the `Handle` `reg-view` body so the keyboard resize lands on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal.
+  Defaults to `rf/dispatch` for the test seam."
+  ([^js e current-width] (handle-keydown! e current-width rf/dispatch))
+  ([^js e current-width dispatch-fn]
   (let [key      (.-key e)
         shift?   (.-shiftKey e)
         step     (if shift?
                    (* keyboard-step-px keyboard-coarse-multiplier)
                    keyboard-step-px)
         dispatch (fn [px]
-                   (rf/dispatch [:rf.xray/set-panel-width-px px]
-                                {:frame :rf/xray}))]
+                   (dispatch-fn [:rf.xray/set-panel-width-px px]))]
     (case key
       "ArrowLeft"   (do (dispatch (+ current-width step)) true)
       "ArrowRight"  (do (dispatch (- current-width step)) true)
@@ -307,10 +324,9 @@
       ;; without needing a fresh viewport read here.
       "Home"        (do (dispatch 10000) true)
       "End"         (do (dispatch 0) true)
-      ("Enter" " ") (do (rf/dispatch [:rf.xray/reset-panel-width]
-                                     {:frame :rf/xray})
+      ("Enter" " ") (do (dispatch-fn [:rf.xray/reset-panel-width])
                         true)
-      false)))
+      false))))
 
 ;; ---- yield-to-consumer detection (rf2-70u8q) ----------------------------
 
@@ -430,15 +446,14 @@
                                     "Home / End for ends · Enter to reset")
              :tab-index        0
              :on-pointer-down  (fn [^js e]
-                                 (start-drag! e current-width))
+                                 (start-drag! e current-width dispatch))
              :on-key-down      (fn [^js e]
-                                 (when (handle-keydown! e current-width)
+                                 (when (handle-keydown! e current-width dispatch)
                                    (try (.preventDefault e)
                                         (catch :default _ nil))))
              :on-double-click  (fn [^js _e]
-                                 (rf/dispatch
-                                   [:rf.xray/reset-panel-width]
-                                   {:frame :rf/xray}))
+                                 (dispatch
+                                   [:rf.xray/reset-panel-width]))
              :style            (handle-style)}])))
 
 ;; ==========================================================================
@@ -493,14 +508,16 @@
     (reset! seam-drag-state nil)))
 
 (defn- seam-on-document-move [^js e]
-  (when-let [{:keys [start-y start-height]} @seam-drag-state]
+  (when-let [{:keys [start-y start-height dispatch-fn]} @seam-drag-state]
     ;; The seam sits BELOW the event-list and ABOVE the tab-bar. Drag
     ;; DOWN (now-y > start-y) grows the list; drag UP shrinks it.
     ;; dy = (now-y - start-y).
     (let [dy         (- (.-pageY e) start-y)
           new-height (+ start-height dy)]
-      (rf/dispatch [:rf.xray/set-events-list-height-px new-height]
-                   {:frame :rf/xray}))))
+      ;; rf2-nesy9 — dispatch through the frame-aware `dispatch-fn`
+      ;; captured at `start-seam-drag!` (the document-level listener fires
+      ;; outside the React render scope), not a `{:frame :rf/xray}` literal.
+      ((or dispatch-fn rf/dispatch) [:rf.xray/set-events-list-height-px new-height]))))
 
 (defn- seam-on-document-up [^js _e]
   (seam-detach-document-listeners!))
@@ -514,9 +531,16 @@
   listeners that drive the live update. Mirrors `start-drag!` above
   for the vertical axis.
 
+  `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
+  the `SeamHandle` `reg-view` body; stashed in the seam-drag-state so
+  the document-level pointer-move listener dispatches on the
+  surrounding instance frame. Defaults to `rf/dispatch` for the test
+  seam.
+
   Exposed for the seam view's `:on-pointer-down` handler AND for the
   test suite, which drives the lifecycle without a real DOM."
-  [^js e current-height]
+  ([^js e current-height] (start-seam-drag! e current-height rf/dispatch))
+  ([^js e current-height dispatch-fn]
   (seam-detach-document-listeners!)
   (let [start-y     (.-pageY e)
         pointer-id  (.-pointerId e)
@@ -530,6 +554,7 @@
                              :start-height (or current-height
                                                config/default-events-list-height-px)
                              :pointer-id   pointer-id
+                             :dispatch-fn  dispatch-fn
                              :on-move      on-move
                              :on-up        on-up
                              :on-cancel    on-cancel
@@ -543,7 +568,7 @@
            (catch :default _ nil))
       (try (.addEventListener js/document "pointercancel" on-cancel)
            (catch :default _ nil)))
-    (try (.preventDefault e) (catch :default _ nil))))
+    (try (.preventDefault e) (catch :default _ nil)))))
 
 (defn seam-simulate-move!
   "Test-only: drive the document-level pointermove handler for the
@@ -587,8 +612,13 @@
   Returns true iff the keypress was handled (so the caller can
   `preventDefault` to suppress the default behavior — page scroll on
   arrow keys, button activation on space). Other keypresses return
-  false and bubble normally."
-  [^js e current-height]
+  false and bubble normally.
+
+  `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
+  the `SeamHandle` `reg-view` body. Defaults to `rf/dispatch` for the
+  test seam."
+  ([^js e current-height] (handle-seam-keydown! e current-height rf/dispatch))
+  ([^js e current-height dispatch-fn]
   (let [key      (.-key e)
         shift?   (.-shiftKey e)
         step     (if shift?
@@ -596,17 +626,15 @@
                       config/events-list-height-keyboard-coarse-multiplier)
                    config/events-list-height-keyboard-step-px)
         dispatch (fn [px]
-                   (rf/dispatch [:rf.xray/set-events-list-height-px px]
-                                {:frame :rf/xray}))]
+                   (dispatch-fn [:rf.xray/set-events-list-height-px px]))]
     (case key
       "ArrowDown"   (do (dispatch (+ current-height step)) true)
       "ArrowUp"     (do (dispatch (- current-height step)) true)
       "Home"        (do (dispatch 10000) true)
       "End"         (do (dispatch 0) true)
-      ("Enter" " ") (do (rf/dispatch [:rf.xray/reset-events-list-height]
-                                     {:frame :rf/xray})
+      ("Enter" " ") (do (dispatch-fn [:rf.xray/reset-events-list-height])
                         true)
-      false)))
+      false))))
 
 (def ^:private seam-base-height-px
   "Click-area height for the L2/L3 seam handle (rf2-t2dsh). 8px is the
@@ -684,13 +712,12 @@
                                   "Enter to reset")
            :tab-index        0
            :on-pointer-down  (fn [^js e]
-                               (start-seam-drag! e current-height))
+                               (start-seam-drag! e current-height dispatch))
            :on-key-down      (fn [^js e]
-                               (when (handle-seam-keydown! e current-height)
+                               (when (handle-seam-keydown! e current-height dispatch)
                                  (try (.preventDefault e)
                                       (catch :default _ nil))))
            :on-double-click  (fn [^js _e]
-                               (rf/dispatch
-                                 [:rf.xray/reset-events-list-height]
-                                 {:frame :rf/xray}))
+                               (dispatch
+                                 [:rf.xray/reset-events-list-height]))
            :style            (seam-handle-style)}]))

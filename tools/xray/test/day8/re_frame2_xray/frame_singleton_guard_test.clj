@@ -95,7 +95,6 @@
   `defaults/default-frame-id` treatment for consistency."
   #{"config.cljc"
     "frame_switcher.cljs"
-    "resize_handle.cljs"
     "views/edn_inspector_popup.cljs"
     "views/edn_widget/widget.cljs"
     "panels/app_db_segment_inspector.cljs"
