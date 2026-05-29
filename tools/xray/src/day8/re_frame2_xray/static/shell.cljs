@@ -300,12 +300,13 @@
   Per the canonical chrome ARIA pattern (rf2-lvf8t / rf2-q7who Thread
   B), the tab carries `role='tab'` + `aria-selected` so assistive
   tech reads it as a tab, not a generic button."
-  [{:keys [id label mnem active?]}]
-  ;; rf2-nesy9 — render-time frame capture so the deferred select-tab
-  ;; click dispatches into the surrounding instance frame (the tab
-  ;; renders inside the `tab-bar` reg-view), not a `:rf/xray` literal.
-  (let [frame    (rf/current-frame)
-        glyph    (if active? "◉" "○")
+  [dispatch {:keys [id label mnem active?]}]
+  ;; rf2-nesy9 — `dispatch` is the frame-aware dispatcher injected by
+  ;; the `tab-bar` reg-view body and threaded in here (a plain fn
+  ;; invoked as a Reagent component renders in its OWN cycle, so
+  ;; `current-frame` would fall through to :rf/default — threading the
+  ;; captured dispatcher is the reliable path).
+  (let [glyph    (if active? "◉" "○")
         color    (if active? (:text-primary tokens) (:text-secondary tokens))
         ;; rf2-plajx — mirror the Dynamic tab-button pattern: stable
         ;; tab-id + matching tabpanel id so the L4 panel's
@@ -318,8 +319,7 @@
               :aria-selected (if active? "true" "false")
               :aria-controls panel-id
               :on-click      (fn [_]
-                               (rf/dispatch [:rf.xray.static/select-tab id]
-                                            {:frame frame}))
+                               (dispatch [:rf.xray.static/select-tab id]))
               :title         (str label " (" mnem ")")
               :aria-label    (str "Static " label " tab")
               :style {:background    "transparent"
@@ -367,7 +367,7 @@
      ;; rf2-2moh1 — iterate the registry's static-mode entries.
      (for [{:keys [id] :as tab} (tabs)]
        ^{:key id}
-       [tab-button (assoc tab :active? (= id selected))])]))
+       [tab-button dispatch (assoc tab :active? (= id selected))])]))
 
 ;; ---- L4 detail panel (placeholders) -------------------------------------
 

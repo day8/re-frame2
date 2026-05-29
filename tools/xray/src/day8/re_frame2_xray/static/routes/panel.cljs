@@ -98,15 +98,15 @@
                              :font-size      (:body type-scale)}}
      (header)
      (if silent?
-       [browse-list/render data {:expanded   expanded
-                                 :sim-open   sim-open
-                                 :routes-map routes-map}]
+       [browse-list/render dispatch data {:expanded   expanded
+                                          :sim-open   sim-open
+                                          :routes-map routes-map}]
        [:<>
-        (simulate-url/header sim-url sim-result)
+        (simulate-url/header dispatch sim-url sim-result)
         [:div {:style {:flex 1 :overflow "auto"}}
-         [browse-list/render data {:expanded   expanded
-                                   :sim-open   sim-open
-                                   :routes-map routes-map}]]])]))
+         [browse-list/render dispatch data {:expanded   expanded
+                                            :sim-open   sim-open
+                                            :routes-map routes-map}]]])]))
 
 ;; ---- registrations -------------------------------------------------------
 

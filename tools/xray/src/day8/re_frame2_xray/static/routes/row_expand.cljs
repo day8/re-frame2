@@ -101,19 +101,20 @@
 (defn jump-button
   "Cross-link chip `→ Dynamic Routing` per the parent-epic findings
   §4.4 — fires the cross-link event the registry installs so the
-  user lands on the Dynamic Routing lens scoped to this route."
-  [route-id]
-  ;; rf2-nesy9 — render-time frame capture for the deferred jump click.
-  (let [frame (rf/current-frame)]
+  user lands on the Dynamic Routing lens scoped to this route.
+
+  `dispatch` (rf2-nesy9) is threaded from the routes `Panel` reg-view
+  (this button is invoked as a Reagent component and cannot recover the
+  frame itself)."
+  [dispatch route-id]
    [:button {:data-testid (str "rf-xray-static-routes-jump-runtime-"
                               (subs (pr-str route-id) 1))
             :on-click    (fn [e]
                            ;; Prevent the row-toggle click from
                            ;; bubbling up — the jump is its own action.
                            (.stopPropagation e)
-                           (rf/dispatch [:rf.xray.static.routes/jump-to-dynamic
-                                         route-id]
-                                        {:frame frame}))
+                           (dispatch [:rf.xray.static.routes/jump-to-dynamic
+                                      route-id]))
             :title       "Open Dynamic Routing scoped to this route"
             :style       {:background    "transparent"
                           :border        (str "1px solid " (:accent tokens))
@@ -125,22 +126,19 @@
                           :font-size     "10px"
                           :cursor        "pointer"
                           :white-space   "nowrap"}}
-   "→ Dynamic"]))
+   "→ Dynamic"])
 
 (defn- sim-nav-toggle
   "The hermetic 'Simulate navigation' button. Toggles the
   `simulate_nav/preview` surface below it. State lives in the
   per-row preview-open set on `:rf.xray.static.routes/sim-nav-open`."
-  [route-id sim-open?]
-  ;; rf2-nesy9 — render-time frame capture for the deferred toggle click.
-  (let [frame (rf/current-frame)]
+  [dispatch route-id sim-open?]
    [:button {:data-testid (str "rf-xray-static-routes-sim-nav-toggle-"
                               (subs (pr-str route-id) 1))
             :on-click    (fn [e]
                            (.stopPropagation e)
-                           (rf/dispatch [:rf.xray.static.routes/toggle-sim-nav
-                                         route-id]
-                                        {:frame frame}))
+                           (dispatch [:rf.xray.static.routes/toggle-sim-nav
+                                      route-id]))
             :style       {:background    (if sim-open? (:bg-active tokens) "transparent")
                           :border        (str "1px solid " (:accent tokens))
                           :border-radius "3px"
@@ -151,7 +149,7 @@
                           :font-weight   500
                           :cursor        "pointer"
                           :white-space   "nowrap"}}
-   (if sim-open? "Hide preview" "Simulate navigation")]))
+   (if sim-open? "Hide preview" "Simulate navigation")])
 
 (defn- source-coord-chip
   "Render the `:rf.route/registered-at` source coord when present."
@@ -169,7 +167,7 @@
   catalogue row). `sim-open?` is true when the hermetic preview is
   toggled open; `routes-map` is threaded down for the preview
   projection."
-  [row {:keys [sim-open? routes-map]}]
+  [dispatch row {:keys [sim-open? routes-map]}]
   (let [{:keys [route-id path doc meta on-match-event]} row
         on-match (or on-match-event (:on-match meta))
         params   (:params meta)
@@ -193,8 +191,8 @@
       (when path (chip path (:accent tokens)))
       (on-match-summary on-match)
       (source-coord-chip meta)
-      [sim-nav-toggle route-id sim-open?]
-      [jump-button route-id]]
+      [sim-nav-toggle dispatch route-id sim-open?]
+      [jump-button dispatch route-id]]
      (when doc
        [:p {:data-testid (str "rf-xray-static-routes-doc-"
                               (subs (pr-str route-id) 1))

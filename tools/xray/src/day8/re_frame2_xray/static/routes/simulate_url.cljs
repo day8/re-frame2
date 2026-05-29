@@ -84,11 +84,9 @@
   see every matching route ranked. `sim-url` is the current input
   value; `sim-result` is the projection from
   `routing-helpers/simulate-url` (nil when input is blank)."
-  [sim-url sim-result]
-  ;; rf2-nesy9 — render-time frame capture for the deferred input /
-  ;; clear dispatches (rendered inside the routes Panel reg-view).
-  (let [frame (rf/current-frame)]
-   [:div {:data-testid "rf-xray-static-routes-sim"
+  [dispatch sim-url sim-result]
+  ;; rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view.
+  [:div {:data-testid "rf-xray-static-routes-sim"
          :style       {:padding       "10px 16px"
                        :border-top    (str "1px solid " (:border-subtle tokens))
                        :border-bottom (str "1px solid " (:border-subtle tokens))
@@ -108,9 +106,8 @@
              :placeholder "/cart  or  /checkout/payment?step=2"
              :value       (or sim-url "")
              :on-change   (fn [e]
-                            (rf/dispatch [:rf.xray.static.routes/set-sim-url
-                                          (-> e .-target .-value)]
-                                         {:frame frame}))
+                            (dispatch [:rf.xray.static.routes/set-sim-url
+                                       (-> e .-target .-value)]))
              :style       {:flex          1
                            :background    (:bg-3 tokens)
                            :color         (:text-primary tokens)
@@ -122,8 +119,7 @@
     (when (and sim-url (not= "" sim-url))
       [:button {:data-testid "rf-xray-static-routes-sim-clear"
                 :on-click    (fn [_]
-                               (rf/dispatch [:rf.xray.static.routes/set-sim-url ""]
-                                            {:frame frame}))
+                               (dispatch [:rf.xray.static.routes/set-sim-url ""]))
                 :style       {:background    "transparent"
                               :border        (str "1px solid " (:border-default tokens))
                               :border-radius "3px"
@@ -166,4 +162,4 @@
                             :gap            "1px"}}]
               (for [c candidates]
                 ^{:key (str (:route-id c))}
-                [candidate-row c]))]))]))
+                [candidate-row c]))]))])

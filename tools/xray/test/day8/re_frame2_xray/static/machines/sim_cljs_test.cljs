@@ -400,7 +400,7 @@
 (deftest rail-renders-nothing-when-sim-inactive
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (is (nil? (sim/SimRail))
+    (is (nil? (sim/SimRail rf/dispatch*))
         "rail returns nil when sim is inactive")))
 
 (deftest rail-mounts-when-sim-active
@@ -412,7 +412,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail)]
+    (let [tree (sim/SimRail rf/dispatch*)]
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-rail"))
           "rail present when sim is on")
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-banner")))
@@ -432,7 +432,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail)
+    (let [tree (sim/SimRail rf/dispatch*)
           available (find-all-by-testid-prefix
                       tree "rf-xray-static-machines-sim-available-")]
       (is (some? (find-by-testid
@@ -451,7 +451,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail)]
+    (let [tree (sim/SimRail rf/dispatch*)]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-audit-empty"))
           "empty audit message before any steps"))
@@ -459,7 +459,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
-    (let [tree (sim/SimRail)]
+    (let [tree (sim/SimRail rf/dispatch*)]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-audit-list")))
       (is (some? (find-by-testid
@@ -479,7 +479,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:bad]}]))
-    (let [tree (sim/SimRail)]
+    (let [tree (sim/SimRail rf/dispatch*)]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-error"))
           "error toast surfaces inline"))))
@@ -498,7 +498,7 @@
       ;; Pre-condition: no sim-state for the machine.
       (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-state])))
       ;; Render the body — auto-start fires via rf/dispatch (async).
-      (let [_tree (sim/body {:machine-id :auth/login
+      (let [_tree (sim/body rf/dispatch* {:machine-id :auth/login
                              :definition fixture-definition})]
         ;; Drain the event queue so the dispatched :sim-start lands.
         (rf/dispatch-sync [:rf.xray.static.machines/sim-set-pending-data
@@ -521,7 +521,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree (sim/SimChart {:machine-id :auth/login
+      (let [tree (sim/SimChart rf/dispatch* {:machine-id :auth/login
                                 :definition fixture-definition})]
         (is (= "rf-xray-static-machines-sim-chart"
                (:data-testid (second tree)))
@@ -548,7 +548,7 @@
       (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login :event-id :start}]))
-      (let [tree        (sim/SimChart {:machine-id :auth/login
+      (let [tree        (sim/SimChart rf/dispatch* {:machine-id :auth/login
                                        :definition fixture-definition})
             chart-node  (some (fn [node]
                                 (when (and (vector? node)
@@ -577,7 +577,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree (sim/body {:machine-id :auth/login
+      (let [tree (sim/body rf/dispatch* {:machine-id :auth/login
                             :definition fixture-definition})]
         (is (some? (find-by-testid tree "rf-xray-static-machines-sim-body")))
         (is (some? (find-by-testid tree "rf-xray-static-machines-sim-chart-pane"))
@@ -593,14 +593,14 @@
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (select-static-machine! :auth/login)
-    (let [tree (sim/body {:machine-id :auth/login :definition nil})]
+    (let [tree (sim/body rf/dispatch* {:machine-id :auth/login :definition nil})]
       (is (some? (find-by-testid tree
                                  "rf-xray-static-machines-sim-no-definition"))))))
 
 (deftest body-renders-no-machine-hint-when-missing
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (let [tree (sim/body {:machine-id nil :definition fixture-definition})]
+    (let [tree (sim/body rf/dispatch* {:machine-id nil :definition fixture-definition})]
       (is (some? (find-by-testid tree
                                  "rf-xray-static-machines-sim-no-machine"))))))
 
@@ -666,7 +666,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree      (sim/SimRail)
+      (let [tree      (sim/SimRail rf/dispatch*)
             available (raw-find-all-by-testid-prefix
                         tree "rf-xray-static-machines-sim-available-")
             ;; Drop the container <ul> (testid `…-available-list`); we
@@ -699,7 +699,7 @@
                            {:machine-id :auth/login :event [:start]}])
         (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                            {:machine-id :auth/login :event [:ok]}]))
-      (let [tree (sim/SimRail)
+      (let [tree (sim/SimRail rf/dispatch*)
             rows (raw-find-all-by-testid-prefix
                    tree "rf-xray-static-machines-sim-audit-")
             ;; Drop the container <ol> (testid `…-audit-list`).
