@@ -171,7 +171,7 @@
 
 (deftest share-modal-carries-dialog-contract
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog))]
+  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-share-modal-dialog"
                              "Share modal")))
 
@@ -261,7 +261,7 @@
 
 (deftest share-modal-attaches-focus-ref
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog))]
+  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-share-modal-dialog"
                               "Share modal")))
 

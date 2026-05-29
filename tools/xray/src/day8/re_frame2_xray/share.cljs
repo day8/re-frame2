@@ -58,6 +58,7 @@
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.export.cascade :as export-cascade]))
 
 ;; ---- encode / decode ----------------------------------------------------
@@ -419,7 +420,12 @@
   ;;   4. Stash the URL in app-db for test inspection.
   (rf/reg-event-fx :rf.xray/copy-share-url-to-clipboard
     (fn [{:keys [db]} _event]
-      (let [state (let [machine-id  (:selected-machine-id db)
+      ;; rf2-nesy9 — capture the SURROUNDING frame at handler entry so
+      ;; the async clipboard continuations dispatch back to the instance
+      ;; frame (the handler runs in the event's frame context), not a
+      ;; `{:frame :rf/xray}` literal that pins the singleton.
+      (let [frame (rf/current-frame)
+            state (let [machine-id  (:selected-machine-id db)
                         tab         (or (:selected-tab db) :event)
                         position    (:machine-inspector/scrubber-position db)]
                     (cond-> {}
@@ -433,15 +439,15 @@
           (.then p
                  (fn [_]
                    (rf/dispatch [:rf.xray/share-copy-status :copied]
-                                {:frame :rf/xray})
+                                {:frame frame})
                    (js/setTimeout
                      (fn []
                        (rf/dispatch [:rf.xray/share-copy-status :idle]
-                                    {:frame :rf/xray}))
+                                    {:frame frame}))
                      1500))
                  (fn [_]
                    (rf/dispatch [:rf.xray/share-copy-status :failed]
-                                {:frame :rf/xray}))))
+                                {:frame frame}))))
         {:db (assoc db :share/last-encoded-url url)})))
 
   (rf/reg-event-fx :rf.xray/open-share-url-in-new-tab
@@ -474,7 +480,10 @@
   ;; and flips `:share/cascade-export-status` to drive the button label.
   (rf/reg-event-fx :rf.xray/copy-cascade-export-to-clipboard
     (fn [{:keys [db]} _event]
-      (let [;; Build the export by reading the same sub the modal does.
+      (let [;; rf2-nesy9 — capture the surrounding frame for the async
+            ;; clipboard continuations (see copy-share-url above).
+            frame  (rf/current-frame)
+            ;; Build the export by reading the same sub the modal does.
             ;; The sub is layer-2 over `:rf.xray/event-detail` /
             ;; `:rf.xray/epoch-history` / `:rf.xray/focus` so the
             ;; value is the same value the modal renders.
@@ -487,15 +496,15 @@
               (.then p
                      (fn [_]
                        (rf/dispatch [:rf.xray/cascade-export-status :copied]
-                                    {:frame :rf/xray})
+                                    {:frame frame})
                        (js/setTimeout
                          (fn []
                            (rf/dispatch [:rf.xray/cascade-export-status :idle]
-                                        {:frame :rf/xray}))
+                                        {:frame frame}))
                          1500))
                      (fn [_]
                        (rf/dispatch [:rf.xray/cascade-export-status :failed]
-                                    {:frame :rf/xray}))))
+                                    {:frame frame}))))
             {:db (assoc db :share/last-cascade-export edn)})))))
 
   ;; rf2-0us27 — Download the focused cascade's export EDN as a file.
@@ -504,7 +513,10 @@
   ;; the copy event so the button reverts to idle on resolve.
   (rf/reg-event-fx :rf.xray/download-cascade-export
     (fn [{:keys [db]} _event]
-      (let [export   @(rf/subscribe [:rf.xray/cascade-export])
+      (let [;; rf2-nesy9 — capture the surrounding frame for the
+            ;; setTimeout status-flip continuations.
+            frame    (rf/current-frame)
+            export   @(rf/subscribe [:rf.xray/cascade-export])
             edn      (when export (export-cascade/to-edn-string export))
             ts       (try (.toISOString (js/Date.)) (catch :default _ nil))
             filename (when export
@@ -519,12 +531,12 @@
             (js/setTimeout
               (fn []
                 (rf/dispatch [:rf.xray/cascade-export-status :downloaded]
-                             {:frame :rf/xray}))
+                             {:frame frame}))
               0)
             (js/setTimeout
               (fn []
                 (rf/dispatch [:rf.xray/cascade-export-status :idle]
-                             {:frame :rf/xray}))
+                             {:frame frame}))
               1500)
             {:db (assoc db
                         :share/last-cascade-export      edn
@@ -561,8 +573,14 @@
     (let [qs    (.. js/window -location -search)
           state (decode-state (parse-query-string qs))]
       (when state
+        ;; rf2-nesy9 — init-time restore targets the production Xray
+        ;; shell frame via the named `defaults/default-frame-id` Var
+        ;; (NOT a bare `{:frame :rf/xray}` literal). There is no
+        ;; surrounding render/event frame at on-load, so this is the
+        ;; one legitimate production-singleton seam, consistent with
+        ;; `spine-filters/hydrate!` + `config.cljc`.
         (rf/dispatch [:rf.xray/restore-from-share-url state]
-                     {:frame :rf/xray}))
+                     {:frame defaults/default-frame-id}))
       state)
     (catch :default _ nil)))
 

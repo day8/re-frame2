@@ -61,7 +61,7 @@
    :color         (:text-primary tokens)})
 
 (defn- header
-  []
+  [dispatch]
   [:div {:style {:display "flex"
                  :align-items "center"
                  :justify-content "space-between"}}
@@ -76,7 +76,7 @@
    [:button
     {:data-testid "rf-xray-share-modal-close"
      :aria-label  "Close share dialog"
-     :on-click    #(rf/dispatch [:rf.xray/share-modal-close] {:frame :rf/xray})
+     :on-click    #(dispatch [:rf.xray/share-modal-close])
      :style       {:background "transparent"
                    :border "none"
                    :color (:text-tertiary tokens)
@@ -119,7 +119,7 @@
                   :box-sizing "border-box"}}])
 
 (defn- copy-button
-  [copy-status]
+  [dispatch copy-status]
   (let [copied? (= :copied copy-status)
         failed? (= :failed copy-status)
         label   (cond
@@ -133,9 +133,8 @@
     [:button
      {:data-testid    "rf-xray-share-modal-copy"
       :data-status    (name (or copy-status :idle))
-      :on-click       #(rf/dispatch
-                         [:rf.xray/copy-share-url-to-clipboard]
-                         {:frame :rf/xray})
+      :on-click       #(dispatch
+                         [:rf.xray/copy-share-url-to-clipboard])
       :style          {:background tone
                        :border "none"
                        ;; rf2-5kfxe.4 — token-grade dark text for the
@@ -153,11 +152,10 @@
      label]))
 
 (defn- open-in-new-tab-button
-  []
+  [dispatch]
   [:button
    {:data-testid "rf-xray-share-modal-open-new-tab"
-    :on-click    #(rf/dispatch [:rf.xray/open-share-url-in-new-tab]
-                               {:frame :rf/xray})
+    :on-click    #(dispatch [:rf.xray/open-share-url-in-new-tab])
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-default tokens))
                   :color (:text-primary tokens)
@@ -176,7 +174,7 @@
 ;; so the modal's affordances feel consistent.
 
 (defn- cascade-export-copy-button
-  [available? status]
+  [dispatch available? status]
   (let [copied?     (= :copied status)
         failed?     (= :failed status)
         downloaded? (= :downloaded status)
@@ -200,9 +198,8 @@
                      "Focus a cascade in the L2 list to enable export")
       :on-click    (fn [_]
                      (when available?
-                       (rf/dispatch
-                         [:rf.xray/copy-cascade-export-to-clipboard]
-                         {:frame :rf/xray})))
+                       (dispatch
+                         [:rf.xray/copy-cascade-export-to-clipboard])))
       :style       {:background tone
                     :border "none"
                     :color (if available? (:bg-0 tokens) (:text-tertiary tokens))
@@ -216,7 +213,7 @@
      label]))
 
 (defn- cascade-export-download-button
-  [available?]
+  [dispatch available?]
   [:button
    {:data-testid "rf-xray-share-modal-export-cascade-download"
     :disabled    (not available?)
@@ -225,8 +222,7 @@
                    "Focus a cascade in the L2 list to enable export")
     :on-click    (fn [_]
                    (when available?
-                     (rf/dispatch [:rf.xray/download-cascade-export]
-                                  {:frame :rf/xray})))
+                     (dispatch [:rf.xray/download-cascade-export])))
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-default tokens))
                   :color (if available? (:text-primary tokens) (:text-tertiary tokens))
@@ -238,17 +234,15 @@
    "Download .edn"])
 
 (defn- reset-button
-  []
+  [dispatch]
   [:button
    {:data-testid "rf-xray-share-modal-reset"
     :on-click    (fn [_]
                    ;; Reset selection + scrubber so the URL collapses
                    ;; to the bare sentinel. (rf2-y9xmf: forced-mode is
                    ;; gone — the panel is event-driven, no Mode A/B/C.)
-                   (rf/dispatch [:rf.xray/clear-machine-selection]
-                                {:frame :rf/xray})
-                   (rf/dispatch [:rf.xray/set-scrubber-position :present]
-                                {:frame :rf/xray}))
+                   (dispatch [:rf.xray/clear-machine-selection])
+                   (dispatch [:rf.xray/set-scrubber-position :present]))
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-subtle tokens))
                   :color (:text-tertiary tokens)
@@ -298,8 +292,13 @@
 ;; ---- main view ----------------------------------------------------------
 
 (defn share-dialog
-  "The Share dialog body. Pure hiccup."
-  []
+  "The Share dialog body. Pure hiccup.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `Modal` `reg-view` body — threaded to every action button so the
+  copy / reset / export clicks land on the surrounding instance frame,
+  not a `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [share-state    @(rf/subscribe [:rf.xray/share-state])
         share-url      @(rf/subscribe [:rf.xray/share-url])
         copy-status    @(rf/subscribe [:rf.xray/share-copy-status])
@@ -317,10 +316,9 @@
              :on-click    (fn [e] (.stopPropagation e))
              :on-key-down (fn [^js e]
                             (when (= "Escape" (.-key e))
-                              (rf/dispatch [:rf.xray/share-modal-close]
-                                           {:frame :rf/xray})))
+                              (dispatch [:rf.xray/share-modal-close])))
              :style       (dialog-style)})
-     (header)
+     (header dispatch)
      (description)
      (state-summary share-state)
      (url-input share-url)
@@ -328,9 +326,9 @@
                     :align-items "center"
                     :gap "8px"
                     :flex-wrap "wrap"}}
-      (copy-button copy-status)
-      (open-in-new-tab-button)
-      (reset-button)]
+      (copy-button dispatch copy-status)
+      (open-in-new-tab-button dispatch)
+      (reset-button dispatch)]
      ;; rf2-0us27 — per-cascade structured export row. Sits below the
      ;; URL-share row because conceptually it's a separate share unit
      ;; (a snapshot of the focused cascade vs the current Xray view).
@@ -347,8 +345,8 @@
                       :font-size "11px"
                       :margin-right "4px"}}
        "Per-cascade export"]
-      (cascade-export-copy-button export-avail? export-status)
-      (cascade-export-download-button export-avail?)]]))
+      (cascade-export-copy-button dispatch export-avail? export-status)
+      (cascade-export-download-button dispatch export-avail?)]]))
 
 (rf/reg-view Modal
   "The Share modal. Renders only when `:rf.xray/share-modal-open?`
@@ -361,7 +359,6 @@
     (let [positioning @(rf/subscribe [:rf.xray/modal-positioning])]
       [:div {:data-testid "rf-xray-share-modal-backdrop"
              :data-rf-xray-modal-positioning (name (or positioning :fixed))
-             :on-click    #(rf/dispatch [:rf.xray/share-modal-close]
-                                        {:frame :rf/xray})
+             :on-click    #(dispatch [:rf.xray/share-modal-close])
              :style       (backdrop-style positioning)}
-       (share-dialog)])))
+       (share-dialog dispatch)])))
