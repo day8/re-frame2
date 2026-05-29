@@ -325,36 +325,33 @@
     (story/destroy-variant! :story.v2g9/loader-vector)))
 
 (deftest loaders-complete-when-vector-without-listener-stalls
-  ;; rf2-v2g9 — negative companion to the fix. We simulate the pre-fix
-  ;; behaviour by clearing the listener-fed accumulator between the
-  ;; loader dispatch and the predicate evaluation, then re-running the
-  ;; predicate directly. With an empty accumulator the vector form is
-  ;; false — which is the bug the fix prevents in the live pipeline.
-  (testing "vector form with an empty accumulator (pre-fix simulation) returns false"
+  ;; rf2-v2g9 / rf2-q651r — negative companion to the fix. The vector form
+  ;; reads the epoch-tape dispatched-events projection (the SSOT since
+  ;; rf2-q651r — `assertions/dispatched-events`), NOT the retired
+  ;; `trace-accumulators` atom. We drive the projection directly via
+  ;; with-redefs: an empty projection (no loader epoch yet) → false; once
+  ;; the tape carries the required event → true.
+  (testing "vector form with an empty tape projection returns false"
     (let [frame-id :story.v2g9/stalled
           body {:loaders-complete-when [[:fixture/loaded]]}]
-      (reset! assertions/trace-accumulators {})
-      (is (false? (loaders/evaluate-complete-when frame-id body))
-          "predicate is false when the accumulator has no record of the required event")
-      ;; And once the listener-fed accumulator carries the event, the
-      ;; predicate flips to true (the post-fix observable).
-      (assertions/record-dispatched! frame-id [:fixture/loaded])
-      (is (true? (loaders/evaluate-complete-when frame-id body))
-          "predicate is true once the trace listener has fed the accumulator"))))
+      (with-redefs [assertions/dispatched-events (constantly [])]
+        (is (false? (loaders/evaluate-complete-when frame-id body))
+            "predicate is false when the tape carries no record of the required event"))
+      (with-redefs [assertions/dispatched-events (constantly [[:fixture/loaded]])]
+        (is (true? (loaders/evaluate-complete-when frame-id body))
+            "predicate is true once the tape projection carries the loader event")))))
 
 (deftest loaders-complete-when-evaluate-vector-form
-  (testing "vector-of-events evaluation reads the assertions dispatched-events accumulator"
-    ;; Pre-seed the accumulator (this is what the trace listener does
-    ;; during the play sequence).
+  (testing "vector-of-events evaluation reads the epoch-tape dispatched-events projection"
+    ;; rf2-q651r — the projection is the SSOT; drive it directly.
     (let [frame-id :story.predfn/vector
           variant-body {:loaders-complete-when [[:fixture/loaded] [:auth/ready]]}]
-      (assertions/record-dispatched! frame-id [:fixture/loaded])
-      (is (false? (loaders/evaluate-complete-when frame-id variant-body))
-          "missing one of the required events — predicate is false")
-      (assertions/record-dispatched! frame-id [:auth/ready])
-      (is (true? (loaders/evaluate-complete-when frame-id variant-body))
-          "both events observed — predicate is true")
-      (reset! assertions/trace-accumulators {}))))
+      (with-redefs [assertions/dispatched-events (constantly [[:fixture/loaded]])]
+        (is (false? (loaders/evaluate-complete-when frame-id variant-body))
+            "missing one of the required events — predicate is false"))
+      (with-redefs [assertions/dispatched-events (constantly [[:fixture/loaded] [:auth/ready]])]
+        (is (true? (loaders/evaluate-complete-when frame-id variant-body))
+            "both events observed — predicate is true")))))
 
 (deftest loaders-complete-when-fn-form
   (testing "literal fn predicate is invoked with the frame's app-db"

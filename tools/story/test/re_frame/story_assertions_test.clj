@@ -18,6 +18,14 @@
   - `assertions-passing?` predicate.
   - The canonical seven register at boot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            ;; rf2-q651r — the three trace-bus assertions + the q651r
+            ;; regression below project from the epoch tape (the SSOT).
+            ;; Requiring the epoch artefact installs its late-bind hooks so
+            ;; `rf/epoch-history` records a live tape under `clojure -M:test`
+            ;; (the dep rides the shared `:test` alias). Without this the
+            ;; facade degrades to `[]` and the regression has no tape to
+            ;; read.
+            [re-frame.epoch            :as epoch]
             [re-frame.core             :as rf]
             [re-frame.frame            :as frame]
             [re-frame.machines         :as machines]
@@ -43,6 +51,10 @@
   (config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
   (reset! assertions/trace-accumulators {})
+  ;; rf2-q651r — clear the epoch tape + listeners between tests so the
+  ;; tape-projected assertions read only their own freshly-captured tape.
+  (epoch/clear-history!)
+  (epoch/clear-epoch-listeners!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (test-fn))
@@ -402,3 +414,175 @@
       (is (= a (:atom exp)))
       (is (= {:where :event :event :x} (:spec exp)))
       (is (= [:event :x] (:selector exp))))))
+
+;; ===========================================================================
+;; evaluate-no-warnings — the FAIL branch (rf2-bmpn2)
+;;
+;; Of the seven canonical evaluators, no-warnings' FAILING branch (warnings
+;; present) was the only one untested at any layer: the JVM
+;; `no-warnings-pass-when-silent` covers only the empty/pass path, and the
+;; evidence/result projection tests exercise the :warnings SLOT but never
+;; the evaluator's :count / :actual / reason projection. The evaluator is
+;; now a pure fn over the tape-projected warning records (rf2-q651r), so we
+;; reach the fail branch directly via the established var-quote seam.
+;; ===========================================================================
+
+(def ^:private evaluate-no-warnings @#'assertions/evaluate-no-warnings)
+
+(deftest evaluate-no-warnings-fail-branch
+  (testing "warnings present → :passed? false, with :count / :actual / reason"
+    ;; Two projected warning records (the shape `evidence/warnings` yields:
+    ;; `{:operation … :category … :epoch-id … :trace-id …}`).
+    (let [warning-records [{:operation :rf.warning/slow-sub :category :perf
+                            :epoch-id 1 :trace-id 10}
+                           {:operation :rf.warning/deprecated :category :api
+                            :epoch-id 2 :trace-id 20}]
+          out (evaluate-no-warnings warning-records [])]
+      (is (false? (:passed? out))
+          "the empty? test inverts: warnings present → fail")
+      (is (= 2 (:count out))
+          ":count projects the number of warning records")
+      (is (= [:rf.warning/slow-sub :rf.warning/deprecated] (:actual out))
+          ":actual is the (mapv :operation warnings) projection — the ops only")
+      (is (re-find #"2 warning" (:reason out))
+          ":reason names the count"))))
+
+(deftest evaluate-no-warnings-pass-branch-pure
+  (testing "no warnings → :passed? true, :count 0, empty :actual (the pure pass arm)"
+    (let [out (evaluate-no-warnings [] [])]
+      (is (true? (:passed? out)))
+      (is (= 0 (:count out)))
+      (is (= [] (:actual out)))
+      (is (re-find #"no warning" (:reason out))))))
+
+;; ===========================================================================
+;; Causal pure-fn gaps — causal-bounds + causal-effect-surface (rf2-e0rpy)
+;;
+;; These pure projection fns back the rf2-5x1wt.31 causal assertions and
+;; had NO direct unit test — only indirect result_test coverage that never
+;; reached three branches: causal-bounds :exactly, causal-bounds :min over
+;; :caused, and causal-effect-surface :sub-over-:view precedence.
+;; ===========================================================================
+
+(deftest causal-bounds-exactly-shorthand
+  (testing ":exactly pins BOTH bounds to n, regardless of the per-id default"
+    (is (= {:min 2 :max 2}
+           (assertions/causal-bounds :rf.assert/caused {:exactly 2}))
+        ":exactly on :caused pins min=max=2 (overriding the {:min 1} default)")
+    (is (= {:min 0 :max 0}
+           (assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 0}))
+        ":exactly 0 on :no-cascade-rerender pins both to 0")
+    (is (= {:min 3 :max 3}
+           (assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 3}))
+        ":exactly overrides the no-cascade default {:min 0 :max 0}")))
+
+(deftest causal-bounds-min-override-on-caused
+  (testing ":min override on :rf.assert/caused — 'caused at least n times'"
+    (is (= {:min 3}
+           (assertions/causal-bounds :rf.assert/caused {:min 3}))
+        ":min 3 overrides the default {:min 1}; :max stays absent (unbounded)")
+    (is (= {:min 1}
+           (assertions/causal-bounds :rf.assert/caused {}))
+        "default for :caused is {:min 1} (the contrast — no override)")
+    (is (= {:min 2 :max 5}
+           (assertions/causal-bounds :rf.assert/caused {:min 2 :max 5}))
+        "both :min and :max may override on :caused")))
+
+(deftest causal-effect-surface-sub-over-view-precedence
+  (testing ":sub takes precedence over :view when BOTH are present"
+    (is (= [:sub :a]
+           (assertions/causal-effect-surface {:sub :a :view :b}))
+        "a spec naming both measures the sub recompute (sub wins)")
+    (is (= [:sub :a]   (assertions/causal-effect-surface {:sub :a})))
+    (is (= [:view :b]  (assertions/causal-effect-surface {:view :b})))
+    (is (= [:any]      (assertions/causal-effect-surface {}))
+        "neither :sub nor :view → the cause's total recompute+render count")))
+
+;; ===========================================================================
+;; rf2-q651r — SSOT regression: an in-script [:assert [:rf.assert/no-warnings]]
+;; AGREES with the run-result :warnings slot (no atom/tape divergence).
+;;
+;; PRE-fix the three trace-bus assertions read the `trace-accumulators`
+;; atom — a SECOND capture path fed by the play listener, which routed
+;; `:op-type :error` events (e.g. :rf.error/no-such-handler) into the
+;; warnings accumulator. So a play that dispatched an unregistered event
+;; recorded a "warning" in the atom (the in-script [:no-warnings] FAILED)
+;; while the run-result :warnings slot — projected from the tape, keyed on
+;; `:op-type :warning` — stayed EMPTY (the slot said pass). The atom and the
+;; slot DISAGREED. POST-fix both read the tape projection, so they AGREE.
+;; ===========================================================================
+
+(deftest no-warnings-agrees-with-warnings-slot-on-error-only-run
+  (testing "an error-only run: the in-script [:no-warnings] verdict matches the
+            tape-projected :warnings slot (the SSOT — no atom divergence)"
+    ;; Dispatching an unregistered event emits `:op-type :error`
+    ;; (:rf.error/no-such-handler), NOT `:op-type :warning`. The tape's
+    ;; :warnings projection (and therefore the run-result slot) stays empty;
+    ;; the in-script no-warnings assertion reads the SAME projection.
+    (story/reg-variant :story.ssot/error-only
+      {:events []
+       :play-script [[:dispatch-sync [:no/such-handler]]
+                     [:dispatch-sync [:rf.assert/no-warnings]]]})
+    (let [r        (async/deref-blocking
+                     (story/run-variant :story.ssot/error-only) 5000)
+          no-warn  (->> (:assertions r)
+                        (filter #(= :rf.assert/no-warnings (:assertion %)))
+                        last)]
+      (is (zero? (count (:warnings r)))
+          "the run-result :warnings slot is empty — an :error op is not a :warning")
+      (is (true? (:passed? no-warn))
+          "the in-script [:no-warnings] PASSES — it reads the same tape projection")
+      (is (= (count (:warnings r)) (:count no-warn))
+          "the assertion :count AGREES with the run-result :warnings slot count
+           — one SSOT, no atom/tape divergence"))
+    (story/destroy-variant! :story.ssot/error-only)))
+
+(deftest dispatched?-projects-from-tape-trigger-events
+  (testing ":rf.assert/dispatched? reads the epoch-tape :trigger-event
+            projection (the SSOT), matching both a literal vector and a
+            bare keyword head — including a re-dispatched (nested) event"
+    (rf/reg-event-fx :ssot/outer (fn [_ _] {:fx [[:dispatch [:ssot/inner 42]]]}))
+    (rf/reg-event-db :ssot/inner (fn [db [_ n]] (assoc db :inner n)))
+    (story/reg-variant :story.ssot/dispatched
+      {:events []
+       :play-script [[:dispatch-sync [:ssot/outer]]
+                     [:dispatch-sync [:rf.assert/dispatched? [:ssot/inner 42]]]
+                     [:dispatch-sync [:rf.assert/dispatched? :ssot/inner]]
+                     [:dispatch-sync [:rf.assert/dispatched? [:never/fired]]]]})
+    (let [r       (async/deref-blocking
+                    (story/run-variant :story.ssot/dispatched) 5000)
+          by-need (->> (:assertions r)
+                       (filter #(= :rf.assert/dispatched? (:assertion %)))
+                       (map (juxt :expected :passed?))
+                       (into {}))]
+      (is (true?  (get by-need [:ssot/inner 42]))
+          "the re-dispatched event's trigger-event epoch is on the tape (literal match)")
+      (is (true?  (get by-need :ssot/inner))
+          "a bare keyword needle matches the trigger-event's head id")
+      (is (false? (get by-need [:never/fired]))
+          "an event never dispatched does not appear on the tape → fail"))
+    (story/destroy-variant! :story.ssot/dispatched)))
+
+(deftest effect-emitted-projects-from-tape-effects
+  (testing ":rf.assert/effect-emitted reads the epoch-tape :effects projection
+            (the SSOT) for a real (non-stubbed) user fx"
+    (rf/reg-fx :ssot.fx/real {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-event-fx :ssot/emit-real (fn [_ _] {:fx [[:ssot.fx/real {:url "x"}]]}))
+    (story/reg-variant :story.ssot/effect
+      {:events []
+       :play-script [[:dispatch-sync [:ssot/emit-real]]
+                     [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/real]]
+                     [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/never]]]})
+    (let [r       (async/deref-blocking
+                    (story/run-variant :story.ssot/effect) 5000)
+          by-need (->> (:assertions r)
+                       (filter #(= :rf.assert/effect-emitted (:assertion %)))
+                       (map (juxt :expected :passed?))
+                       (into {}))]
+      (is (some #(= :ssot.fx/real (:fx-id %)) (:effects r))
+          "the user fx is on the run-result :effects slot (the tape projection)")
+      (is (true?  (get by-need :ssot.fx/real))
+          "effect-emitted sees the fx via the SAME tape :effects projection")
+      (is (false? (get by-need :ssot.fx/never))
+          "an fx never emitted → fail"))
+    (story/destroy-variant! :story.ssot/effect)))

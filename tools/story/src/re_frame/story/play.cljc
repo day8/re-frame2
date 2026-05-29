@@ -4,11 +4,19 @@
   rf2-0wrud (2026-05-20): the variant body's legacy `:play`
   event-vector slot was REMOVED. `:play-script` is the canonical AND
   ONLY phase-4 surface. This module retains the per-frame trace
-  listener (which feeds the assertion accumulators consumed by
-  `:rf.assert/dispatched?` / `:rf.assert/effect-emitted` /
-  `:rf.assert/no-warnings`) and the step-by-step play-stepper helpers.
-  The rich-DSL execution itself lives in
-  `re-frame.story.play.runner-events`.
+  listener and the step-by-step play-stepper helpers. The rich-DSL
+  execution itself lives in `re-frame.story.play.runner-events`.
+
+  rf2-q651r: `:rf.assert/dispatched?` / `:rf.assert/effect-emitted` /
+  `:rf.assert/no-warnings` no longer read the trace side-table this
+  listener feeds — they PROJECT their fact from the epoch tape (the
+  SSOT, `re-frame.story.assertions/dispatched-events` / `warnings` /
+  `emitted-fx`), the same source the run-result evidence slots read. The
+  listener is retained because it is the load-bearing PRIVACY-suppression
+  seam (Spec 009 §Privacy — default-dropping `:sensitive?` events + the
+  UI redaction counter) and the synchronous handler-exception capture
+  (`pending-exceptions`). The `trace-accumulators` side-table it still
+  writes is a privacy-gated DEV surface, decoupled from the verdict.
 
   ## What this module does
 
@@ -21,26 +29,22 @@
   §2.3 the assertion never throws; the play sequence runs to completion
   regardless of which assertions fail.
 
-  ## Trace-bus accumulators
-
-  Per the IMPL-SPEC §5.1 assertion list shape, three assertions need
-  per-frame trace-bus knowledge:
-
-  - `:rf.assert/no-warnings`   — was any `:warning` trace event emitted?
-  - `:rf.assert/effect-emitted` — was a given fx-id emitted?
-  - `:rf.assert/dispatched?`   — was a given event dispatched?
+  ## Trace-bus side-table (privacy seam + dev surface)
 
   We register a per-frame trace listener at the start of the play
-  sequence that, via the assertion module's `trace-accumulators` atom:
+  sequence. Its two LOAD-BEARING jobs:
 
-  - records `:warning` and `:error` `:op-type` events into the
-    frame's `:warnings` slot,
-  - records every `:rf.event/dispatched` event vector into the
-    frame's `:dispatched` slot,
-  - records every fx call (operations under `:rf.fx/do-fx` /
-    `:rf.fx/handled` op-type `:rf.fx`) into the frame's `:emitted-fx` slot.
+  - PRIVACY (Spec 009 §Privacy): default-drop `:sensitive? true` events
+    and bump the UI redaction counter (`config/note-suppressed!`);
+  - synchronous handler-exception capture into `pending-exceptions`
+    (drained into the assertions list between dispatches).
 
-  The accumulators clear at play-start and live until frame teardown
+  It ALSO mirrors `:warning` / `:rf.event/dispatched` / fx events into
+  the assertion module's `trace-accumulators` side-table for dev-tool
+  surfacing. rf2-q651r — that side-table is NO LONGER the evidence source
+  for `:rf.assert/no-warnings` / `:rf.assert/effect-emitted` /
+  `:rf.assert/dispatched?`: those project from the epoch tape (the SSOT).
+  The side-table clears at play-start and lives until frame teardown
   (per `assertions/drop-trace-accumulators!`).
 
   ## Async surface

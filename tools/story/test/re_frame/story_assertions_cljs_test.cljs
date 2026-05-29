@@ -195,14 +195,17 @@
 ;; optional predicate rejects it, the evaluator must record :passed?
 ;; false with the pred-reject reason (and a thrown predicate is treated
 ;; as a rejection, never propagated).
+;;
+;; rf2-q651r — the evaluator is now a pure fn: its first arg is the
+;; tape-projected emitted-fx SET (`assertions/emitted-fx`), not a frame-id.
+;; We pass the set directly (the realistic shape: the fx WAS emitted).
 
 (def ^:private evaluate-effect-emitted @#'assertions/evaluate-effect-emitted)
 
 (deftest cljs-evaluate-effect-emitted-pred-rejects-present-fx
   (testing "fx present but optional predicate returns false → fail with
             the pred-reject reason"
-    (assertions/record-emitted-fx! :rf/default :http)
-    (let [out (evaluate-effect-emitted :rf/default [:http (constantly false)])]
+    (let [out (evaluate-effect-emitted #{:http} [:http (constantly false)])]
       (is (false? (:passed? out)))
       (is (contains? (:actual out) :http)
           ":actual still reports the emitted-fx set (the fx WAS present)")
@@ -211,16 +214,14 @@
 (deftest cljs-evaluate-effect-emitted-pred-accepts-present-fx
   (testing "fx present and predicate accepts → pass (the positive arm of
             the same branch, for contrast)"
-    (assertions/record-emitted-fx! :rf/default :http)
-    (let [out (evaluate-effect-emitted :rf/default [:http (constantly true)])]
+    (let [out (evaluate-effect-emitted #{:http} [:http (constantly true)])]
       (is (true? (:passed? out)))
       (is (re-find #"emitted during play" (:reason out))))))
 
 (deftest cljs-evaluate-effect-emitted-pred-throws-is-rejection
   (testing "a predicate that throws is swallowed and treated as a
             rejection — never propagates"
-    (assertions/record-emitted-fx! :rf/default :http)
-    (let [out (evaluate-effect-emitted :rf/default
+    (let [out (evaluate-effect-emitted #{:http}
                                        [:http (fn [_] (throw (ex-info "x" {})))])]
       (is (false? (:passed? out))
           "thrown predicate → not passed, no exception escapes"))))

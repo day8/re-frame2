@@ -16,6 +16,10 @@
   | `:rf.assert/no-warnings`       | `[]`                           | No `:warning` trace events since play start |
   | `:rf.assert/effect-emitted`    | `[fx-id (optional pred)]`      | fx-id emitted during play? |
 
+  A NET-NEW eighth canonical id — `:rf.assert/schema-error` (rf2-5x1wt.21)
+  — is *recognised* but is NOT one of the seven REGISTERED handlers: it is
+  tape-evaluated in `result.cljc`, never dispatched (see `canonical-assertion-ids`).
+
   ## Record, don't throw (per IMPL-SPEC §2.3)
 
   Each `:rf.assert/*` event is dispatched through the standard re-frame
@@ -35,9 +39,12 @@
 
   The seven canonical assertions register at Story boot via
   `install-canonical-assertions!`. Production CLJS builds (with
-  `re-frame.story.config/enabled?` false) skip the registrations —
-  any unknown assertion at run-time records a `:rf.assert/unknown`
-  pseudo-record rather than throwing.
+  `re-frame.story.config/enabled?` false) skip the registrations.
+  An unknown assertion id FAILS plan construction with
+  `:rf.error/story-unknown-assertion` (`assertion-id-known?` /
+  `known-assertion-ids`, rf2-5x1wt.18) — there is NO run-time
+  `:rf.assert/unknown` pseudo-record; an unrecognised id never reaches
+  a handler.
 
   Per the `downstream EPs consume foundation` rule each assertion is a
   regular re-frame event registered against `re-frame.core/reg-event-fx`
@@ -54,39 +61,177 @@
   - `passing?` — predicate on the result list: true iff every entry has
     `:passed? true` (used by Stage 5's `run-variant` test entry, and by
     consumer tests via the public `assertions-passing?`).
-  - `canonical-assertion-ids` — the set of registered event ids."
-  (:require [clojure.string              :as str]
-            [re-frame.core               :as rf]
-            [re-frame.elision            :as elision]
-            [re-frame.interop            :as interop]
-            [re-frame.subs               :as subs]
-            [re-frame.story.config       :as config]
-            [re-frame.story.predicates   :as pred]
-            [re-frame.story.registrar    :as registrar]
-            [re-frame.story.requirements :as requirements]
-            [malli.core                  :as malli]))
+  - `canonical-assertion-ids` — the recognised canonical assertion ids:
+    the seven REGISTERED `reg-event-fx` handlers PLUS the tape-evaluated
+    `:rf.assert/schema-error` (rf2-5x1wt.21), which plan construction
+    recognises but which is deliberately NEVER installed as a handler
+    (it is evaluated against the epoch tape in `result.cljc`, not
+    dispatched into the frame). So the set is eight ids, only seven of
+    which are registered."
+  (:require [clojure.string               :as str]
+            [re-frame.core                :as rf]
+            [re-frame.elision             :as elision]
+            [re-frame.interop             :as interop]
+            [re-frame.subs                :as subs]
+            [re-frame.story.config        :as config]
+            [re-frame.story.late-bind     :as late-bind]
+            [re-frame.story.play.evidence :as evidence]
+            [re-frame.story.predicates    :as pred]
+            [re-frame.story.registrar     :as registrar]
+            [re-frame.story.requirements  :as requirements]
+            [malli.core                   :as malli]))
 
 ;; ---------------------------------------------------------------------------
-;; Per-frame trace-bus accumulators (warnings + emitted fx + dispatched)
+;; Trace-bus facts for `:rf.assert/no-warnings` / `:rf.assert/effect-emitted`
+;; / `:rf.assert/dispatched?` — PROJECTED FROM THE EPOCH TAPE (the SSOT)
 ;;
-;; `:rf.assert/no-warnings` needs to know which warning-level trace
-;; events fired during the play sequence. `:rf.assert/effect-emitted`
-;; needs to know which fx-ids the cascade emitted. `:rf.assert/dispatched?`
-;; needs to know which event vectors fired. We expose one per-frame
-;; side-table keyed by frame-id that the play-runner clears at play
-;; start and the assertion handlers consult at evaluation time.
+;; These three assertions reason about three trace-bus facts:
 ;;
-;; This is NOT a new framework registry — it's a Story-internal atom
-;; (analogous to `re-frame.story.ui.trace-buffer/buffers`) that the
-;; runtime populates from the standard trace bus.
+;;   - `:rf.assert/no-warnings`   — which `:warning` trace events fired;
+;;   - `:rf.assert/effect-emitted` — which fx-ids the cascade emitted;
+;;   - `:rf.assert/dispatched?`   — which event vectors were dispatched.
 ;;
-;; Shape:
-;;   {frame-id {:warnings    [trace-event ...]
-;;              :emitted-fx  #{fx-id ...}
-;;              :dispatched  [event-vec ...]}}
+;; rf2-q651r — single source of truth. The framework RETAINS exactly these
+;; facts in the epoch tape (`re-frame.core/epoch-history`), and
+;; `re-frame.story.play.evidence` already PROJECTS them as the run-result
+;; `:warnings` / `:effects` evidence slots. Previously these three handlers
+;; read a SECOND, parallel per-frame accumulator (`trace-accumulators`),
+;; fed by a distinct trace listener in `re-frame.story.play` — a second
+;; capture path that could drift from the tape (different filtering),
+;; reintroducing the documented "false GREEN" the evidence boundary closed.
+;; Schema-error (rf2-5x1wt.21) and causal/cascade (rf2-5x1wt.31) assertions
+;; were already migrated to tape-evaluation in `result.cljc`; these three
+;; were the stragglers. They now read the SAME tape projection the
+;; run-result slots do, so an in-script `[:assert [:rf.assert/no-warnings]]`
+;; checkpoint cannot disagree with the run-result `:warnings` slot.
 ;;
-;; Writes are gated under `config/enabled?`; production builds leave
-;; the atom empty and the assertion handlers read empty defaults.
+;; The projections are PURE (tape data → fact), so the handlers stay pure
+;; data → data; the handler shell reads `rf/epoch-history` once and threads
+;; the projected facts in. Production builds (Story disabled) and hosts
+;; without the epoch artefact see an empty tape (the late-bound
+;; `epoch-history` facade degrades to `[]`), so the handlers read empty
+;; facts — exactly as the run-result evidence slots do.
+;;
+;; ## Privacy
+;;
+;; The retired play-listener default-suppressed `:sensitive? true` events
+;; (Spec 009 §Privacy) before they reached the accumulator. The tape
+;; projections preserve that posture for the only fact that carries a
+;; payload — dispatched event vectors: `dispatched-events` drops the
+;; `:trigger-event` of any epoch flagged `:rf.epoch/sensitive?` while the
+;; `:rf.privacy/show-sensitive?` flag is off, so a sensitive event vector
+;; never lands raw on an assertion record's `:actual`. Warning records
+;; carry only `:operation` / `:category` metadata (no payload), so the
+;; `:warnings` projection — which agrees with the run-result slot — counts
+;; them without a payload-leak risk.
+;; ---------------------------------------------------------------------------
+
+(defn- frame-tape
+  "The retained epoch tape for `frame-id` via the late-bound
+  `re-frame.core/epoch-history` facade (the SSOT the run-result evidence
+  slots read). Degrades to `[]` on a host without the epoch artefact
+  (production Story jars) — exactly what the run-result projection sees.
+  Tolerant: any read error returns `[]`."
+  [frame-id]
+  (try
+    (vec (rf/epoch-history frame-id))
+    (catch #?(:clj Throwable :cljs :default) _ [])))
+
+(defn dispatched-events
+  "Project the events dispatched against `frame-id` from its epoch tape —
+  the per-epoch `:trigger-event` (the cascade-top event each committed
+  epoch settled), in tape order. Pure-ish (the only read is the late-bound
+  tape). The SSOT for `:rf.assert/dispatched?` + the loaders'
+  `:loaders-complete-when` vector form.
+
+  Assertion events (`:rf.assert/*`) are excluded — an `[:assert …]`
+  checkpoint dispatches its wrapped atom, which commits an epoch, but a
+  verdict is not behaviour-under-test (mirrors the retired listener's
+  `assertion-event?` skip + `evidence/narrative`'s span-attribution rule).
+
+  Privacy (Spec 009 §Privacy): the `:trigger-event` of an epoch flagged
+  `:rf.epoch/sensitive?` is dropped while `:rf.privacy/show-sensitive?` is
+  off, so a sensitive event vector never reaches an assertion record's
+  `:actual`. With the flag on, sensitive trigger-events pass through."
+  [frame-id]
+  (let [show? (config/get-show-sensitive)]
+    (into []
+          (comp (remove (fn [{:keys [rf.epoch/sensitive?]}]
+                          (and sensitive? (not show?))))
+                (keep :trigger-event)
+                (remove pred/assertion-event?))
+          (frame-tape frame-id))))
+
+(defn- non-framework-fx?
+  "True iff `fx-id` is a user fx (not the ubiquitous framework `:db` / `:fx`
+  aggregators). Mirrors the retired listener's `framework-fx-id?` gate so
+  `:rf.assert/effect-emitted` reflects USER fx only (rf2-ee38b.3)."
+  [fx-id]
+  (not (contains? #{:db :fx} fx-id)))
+
+(defn emitted-fx
+  "Project the set of USER fx-ids emitted against `frame-id`. The SSOT for
+  `:rf.assert/effect-emitted`. Two sources, both tape-grounded:
+
+  1. The epoch tape's `:effects` rows (`evidence/effects`) — every fx the
+     cascade actually HANDLED (the run-result `:effects` slot reads the
+     same projection), excluding the framework `:db` / `:fx` aggregators.
+  2. The per-frame stub-call log (`re-frame.story.frames/stub-call-log`,
+     read via the `:stub-observed-fx-ids` late-bind hook) — a STUBBED fx
+     lands on the tape under its REWRITTEN stub id
+     (`:rf.story.fx-stub/<dec>+<fx>`), not its original id, so the
+     authoritative record of which ORIGINAL fx-ids a `force-fx-stub`
+     redirected is the stub log `re-frame.story.fx-stubs` already owns.
+     This is NOT a re-introduced parallel accumulator: it is the single
+     canonical source for stub-redirected fx, the one fact the epoch tape
+     cannot carry under the original id.
+
+  Pure-ish (the only reads are the late-bound tape + the stub-log hook).
+  Production builds without the epoch artefact / without fx-stubs see both
+  sources empty."
+  [frame-id]
+  (let [from-tape (into #{}
+                        (comp (keep :fx-id) (filter non-framework-fx?))
+                        (evidence/effects (frame-tape frame-id)))
+        from-stub (if-let [f (late-bind/get-fn :stub-observed-fx-ids)]
+                    (try (set (f frame-id))
+                         (catch #?(:clj Throwable :cljs :default) _ #{}))
+                    #{})]
+    (into from-tape from-stub)))
+
+(defn warnings
+  "Project the warning trace records emitted against `frame-id` from its
+  epoch tape (`evidence/warnings`) — the SAME projection the run-result
+  `:warnings` slot reads, so `:rf.assert/no-warnings` and the slot AGREE
+  (rf2-q651r). Pure-ish (the only read is the late-bound tape)."
+  [frame-id]
+  (evidence/warnings (frame-tape frame-id)))
+
+;; ---------------------------------------------------------------------------
+;; Per-frame trace side-table (privacy-gated) — NO LONGER THE EVIDENCE SOURCE
+;;
+;; rf2-q651r retired this atom AS THE EVIDENCE SOURCE for the three
+;; trace-bus assertions: they now project from the epoch tape (above), so
+;; there is no second evidence path that can drift into the documented
+;; "false GREEN". The atom is RETAINED — not removed — because three
+;; non-evidence consumers still drive it, and full removal would have to
+;; coordinate across lanes this change does not own:
+;;
+;;   1. `re-frame.story.ui.test_mode.stepper-state` (a separate UI lane)
+;;      calls `reset-trace-accumulators!` when it rewinds a stepped run;
+;;   2. the per-frame trace listener in `re-frame.story.play` is the
+;;      load-bearing PRIVACY-suppression seam (Spec 009 §Privacy) — it
+;;      default-drops `:sensitive? true` events and bumps the UI redaction
+;;      counter; its suppression behaviour is pinned by
+;;      `sensitive-trace-cljs-test` against this side-table;
+;;   3. the `force-fx-stub` tap (`re-frame.story.fx-stubs/tap-stub-event!`)
+;;      records redirected fx-ids here for dev-tool surfacing.
+;;
+;; So the atom is a privacy-gated DEV side-table, decoupled from the
+;; assertion verdict. It is keyed by frame-id and reset at play start.
+;; (Follow-up: fully fold this side-table into the tape + stub-log once the
+;; UI stepper-rewind lane can be touched in the same change — rf2-q651r
+;; note.)
 ;; ---------------------------------------------------------------------------
 
 (def ^:private empty-frame-accumulators
@@ -96,43 +241,48 @@
 
 (defonce
   ^{:doc "frame-id → {:warnings [...] :emitted-fx #{...} :dispatched [...]}.
-         The play-runner calls `reset-trace-accumulators!` at play start
-         and `drop-trace-accumulators!` at frame teardown."}
+         A privacy-gated DEV side-table (NOT the assertion evidence source
+         since rf2-q651r — the three trace-bus assertions project from the
+         epoch tape). The play-runner calls `reset-trace-accumulators!` at
+         play start and `drop-trace-accumulators!` at frame teardown."}
   trace-accumulators
   (atom {}))
 
 (defn reset-trace-accumulators!
-  "Clear every per-frame trace-bus accumulator for `frame-id`. The
-  play-runner calls this at play start. Production callers (without
-  config/enabled?) no-op."
+  "Clear every per-frame trace side-table entry for `frame-id`. The
+  play-runner + the UI stepper-rewind call this at play start. Production
+  callers (without config/enabled?) no-op."
   [frame-id]
   (when config/enabled?
     (swap! trace-accumulators assoc frame-id empty-frame-accumulators))
   nil)
 
 (defn drop-trace-accumulators!
-  "Discard the per-frame accumulator entry. Called from frame teardown
-  so destroyed variants don't leak memory."
+  "Discard the per-frame side-table entry. Called from frame teardown so
+  destroyed variants don't leak memory."
   [frame-id]
   (swap! trace-accumulators dissoc frame-id)
   nil)
 
 (defn record-warning!
-  "Append a warning trace event to `frame-id`'s accumulator."
+  "Append a warning trace event to `frame-id`'s side-table (privacy seam +
+  dev surfacing; NOT the `:rf.assert/no-warnings` evidence source)."
   [frame-id ev]
   (when config/enabled?
     (swap! trace-accumulators update-in [frame-id :warnings] (fnil conj []) ev))
   nil)
 
 (defn record-emitted-fx!
-  "Add `fx-id` to `frame-id`'s emitted-fx accumulator."
+  "Add `fx-id` to `frame-id`'s side-table emitted-fx set (dev surfacing;
+  NOT the `:rf.assert/effect-emitted` evidence source)."
   [frame-id fx-id]
   (when config/enabled?
     (swap! trace-accumulators update-in [frame-id :emitted-fx] (fnil conj #{}) fx-id))
   nil)
 
 (defn record-dispatched!
-  "Append `event-vec` to `frame-id`'s dispatched-events accumulator."
+  "Append `event-vec` to `frame-id`'s side-table dispatched vector (dev
+  surfacing; NOT the `:rf.assert/dispatched?` evidence source)."
   [frame-id event-vec]
   (when config/enabled?
     (swap! trace-accumulators update-in [frame-id :dispatched] (fnil conj []) event-vec))
@@ -431,13 +581,14 @@
                             " but got " (pr-str actual)))}))
 
 (defn- evaluate-dispatched?
-  [frame-id [needle]]
-  (let [observed (frame-dispatched frame-id)
-        matched  (some #(event-matches? % needle) observed)
-        passed?  (boolean matched)]
+  "`observed` is the tape-projected dispatched-events vector
+  (`dispatched-events`). Pure data → data."
+  [observed [needle]]
+  (let [matched (some #(event-matches? % needle) observed)
+        passed? (boolean matched)]
     {:passed?  passed?
      :expected needle
-     :actual   observed
+     :actual   (vec observed)
      :reason   (if passed?
                  "matching event was dispatched during play"
                  (str "no dispatched event matched "
@@ -464,22 +615,26 @@
                         " but state is " (pr-str actual)))}))
 
 (defn- evaluate-no-warnings
-  [frame-id _payload]
-  (let [warnings (frame-warnings frame-id)
-        passed?  (empty? warnings)]
+  "`warning-records` is the tape-projected warning vector (`warnings`,
+  i.e. `evidence/warnings` over the frame's epoch tape — the SAME
+  projection the run-result `:warnings` slot reads). Pure data → data."
+  [warning-records _payload]
+  (let [passed? (empty? warning-records)]
     {:passed?  passed?
      :expected :no-warnings
-     :actual   (mapv :operation warnings)
-     :count    (count warnings)
+     :actual   (mapv :operation warning-records)
+     :count    (count warning-records)
      :reason   (if passed?
                  "no warning-level trace events captured during play"
-                 (str (count warnings)
+                 (str (count warning-records)
                       " warning trace event(s) captured during play"))}))
 
 (defn- evaluate-effect-emitted
-  [frame-id [fx-id pred]]
-  (let [emitted   (frame-fx frame-id)
-        present?  (contains? emitted fx-id)
+  "`emitted` is the tape-projected USER fx-id set (`emitted-fx`: the epoch
+  tape's `:effects` rows ∪ the stub-call log's redirected fx-ids). Pure
+  data → data."
+  [emitted [fx-id pred]]
+  (let [present?  (contains? emitted fx-id)
         passed?   (boolean (and present? (or (nil? pred)
                                              (try (pred fx-id) (catch #?(:clj Throwable :cljs :default) _ false)))))]
     {:passed?  passed?
@@ -928,14 +1083,21 @@
 
 (defn- handler-for-evaluator
   "Build the `reg-event-fx` handler body for `assertion-id` whose
-  evaluator returns the record extras given `(db, payload)` (or
-  `(frame-id, payload)` for trace-bus-driven assertions).
+  evaluator returns the record extras.
 
   The handler reads `:db` directly from cofx — which the router has
   populated with the variant frame's app-db (spec/002 §Routing initial
   context) — and returns `{:db (update db :rf.story/assertions conj record)}`.
   This is the record-don't-throw contract per IMPL-SPEC §2.3: the
-  assertion's failure mode is a `:db` write, not an exception."
+  assertion's failure mode is a `:db` write, not an exception.
+
+  The three trace-bus-driven assertions (`:dispatched?` / `:no-warnings`
+  / `:effect-emitted`) project their fact from the frame's EPOCH TAPE (the
+  SSOT — `dispatched-events` / `warnings` / `emitted-fx`), the SAME source
+  the run-result evidence slots read (rf2-q651r). The prior committed
+  epochs (the play steps before this assertion's own dispatch) are already
+  on the tape when this handler runs; the assertion's own epoch has not yet
+  settled — and assertion events are excluded from the projection anyway."
   [assertion-id evaluator-kind]
   (fn [{:keys [db] :as cofx} event-vec]
     (let [start-ms     (interop/now-ms)
@@ -946,10 +1108,10 @@
                          :path-equals     (evaluate-path-equals     frame-id db payload)
                          :path-matches    (evaluate-path-matches    frame-id db payload)
                          :sub-equals      (evaluate-sub-equals      frame-id db payload)
-                         :dispatched?     (evaluate-dispatched?     frame-id payload)
+                         :dispatched?     (evaluate-dispatched?     (dispatched-events frame-id) payload)
                          :state-is        (evaluate-state-is        db payload)
-                         :no-warnings     (evaluate-no-warnings     frame-id payload)
-                         :effect-emitted  (evaluate-effect-emitted  frame-id payload))
+                         :no-warnings     (evaluate-no-warnings     (warnings frame-id) payload)
+                         :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
           elapsed-ms   (- (interop/now-ms) start-ms)
           record       (assertion-record assertion-id payload
                                          (:passed? extras)

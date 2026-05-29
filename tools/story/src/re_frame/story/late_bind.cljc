@@ -19,9 +19,21 @@
   - `:tap-stub-event`              — fx-stubs → frames. Called on
                                      every stub-event firing so the
                                      assertion module's per-frame
-                                     emitted-fx accumulator records
+                                     emitted-fx side-table records
                                      the call. Signature: `(f frame-id
                                      fx-id) → nil`.
+
+  - `:stub-observed-fx-ids`        — fx-stubs → assertions. Returns the
+                                     set of ORIGINAL fx-ids a frame's
+                                     `force-fx-stub` decorators redirected
+                                     (read from the stub-call log). The
+                                     assertions module unions it with the
+                                     epoch tape's effects for
+                                     `:rf.assert/effect-emitted` (rf2-q651r
+                                     — a stubbed fx lands on the tape under
+                                     its rewritten stub id, not its
+                                     original). Signature: `(f frame-id) →
+                                     #{fx-id …}`.
 
   - `:drop-assertion-accumulators` — assertions+play → frames. Called
                                      on frame teardown so per-frame
