@@ -647,23 +647,20 @@
   off the recorder atom — so a fresh `start-recording!` after the
   dialog opens does not mutate the dialog's snippet (rf2-8x9nb).
 
-  Per rf2-d5u89 the 5-arity variant also accepts `entries` (the
-  rich `:entries` slot) so the export dialog can drive the
-  `:play-script` translator with the full DOM+timing record. The
-  4-arity variant defaults `entries` to nil — back-compat for
-  call sites that haven't been updated."
-  ([state variant-id events now-ms]
-   (open-dialog state variant-id events nil now-ms))
-  ([_state variant-id events entries now-ms]
-   (let [base (review-dialog/open review-dialog/initial-state
-                                  variant-id
-                                  {:events  (vec events)
-                                   :entries (vec (or entries []))}
-                                  now-ms
-                                  default-id-prefix)]
-     (-> base
-         (assoc :events  (vec events))
-         (assoc :entries (vec (or entries [])))))))
+  Per rf2-d5u89 the dialog also snapshots `entries` (the rich
+  `:entries` slot) so the export dialog can drive the `:play-script`
+  translator with the full DOM+timing record; pass `nil` when no rich
+  entries are available."
+  [_state variant-id events entries now-ms]
+  (let [base (review-dialog/open review-dialog/initial-state
+                                 variant-id
+                                 {:events  (vec events)
+                                  :entries (vec (or entries []))}
+                                 now-ms
+                                 default-id-prefix)]
+    (-> base
+        (assoc :events  (vec events))
+        (assoc :entries (vec (or entries []))))))
 
 (defn close-dialog
   "Pure: return the dialog's idle state. Aliased to

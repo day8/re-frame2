@@ -35,7 +35,7 @@
   (testing "open-dialog stashes the captured events on the dialog state"
     (let [events [[:counter/inc] [:counter/dec]]
           opened (recorder/open-dialog recorder/initial-dialog-state
-                                       :story.x/y events 12345)]
+                                       :story.x/y events nil 12345)]
       (is (:open? opened))
       (is (= :story.x/y (:source-id opened))
           "the recorded variant-id rides into :source-id (used as :extends)")
@@ -50,14 +50,14 @@
   (testing "the snapshot is decoupled from the caller's events vector"
     (let [events (vec [[:counter/inc]])
           opened (recorder/open-dialog recorder/initial-dialog-state
-                                       :story.x/y events 0)]
+                                       :story.x/y events nil 0)]
       (is (= [[:counter/inc]] (:events opened))
           "the snapshot is a fresh vector, not a reference to a recorder atom"))))
 
 (deftest close-dialog-returns-idle-state
   (testing "close-dialog clears the snapshot — next open starts fresh"
     (let [opened (recorder/open-dialog recorder/initial-dialog-state
-                                       :story.x/y [[:counter/inc]] 0)
+                                       :story.x/y [[:counter/inc]] nil 0)
           closed (recorder/close-dialog opened)]
       (is (false? (:open? closed)))
       (is (nil? (:source-id closed)))
@@ -84,6 +84,7 @@
                (recorder/open-dialog recorder/initial-dialog-state
                                      :story.x/source
                                      [[:counter/inc] [:counter/dec]]
+                                     nil
                                      12345))
        (let [flat (str (ui-rec/save-dialog))]
          (is (str/includes? flat ":counter/inc")
@@ -103,7 +104,7 @@
        (let [a-events [[:counter/inc] [:counter/inc] [:counter/dec]]]
          (reset! ui-rec/ui-dialog
                  (recorder/open-dialog recorder/initial-dialog-state
-                                       :story.a/source a-events 12345))
+                                       :story.a/source a-events nil 12345))
          (let [snippet-before (str (ui-rec/save-dialog))]
            (is (str/includes? snippet-before ":counter/inc"))
            (is (str/includes? snippet-before ":story.a/source"))
@@ -136,7 +137,7 @@
        (let [a-events [[:counter/inc]]]
          (reset! ui-rec/ui-dialog
                  (recorder/open-dialog recorder/initial-dialog-state
-                                       :story.a/source a-events 12345))
+                                       :story.a/source a-events nil 12345))
          (recorder/start-recording! :story.b/target 99999)
          (recorder/record-event! [:auth/login {:email "test@test"}])
          (recorder/record-event! [:auth/logout])

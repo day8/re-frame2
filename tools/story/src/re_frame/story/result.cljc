@@ -113,9 +113,10 @@
   `:passed?` / `:expected` / `:actual` / `:reason` / `:dispatch-id` /
   `:source-coord` / `:elapsed-ms` (from `re-frame.story.assertions`'
   `assertion-record`); this stamps the derived `:status` so the run
-  aggregation reads ONE field, and renames `:source-coord` → `:source`
-  (the spec/017 slot name) while keeping `:source-coord` for back-compat
-  readers. A record that already carries a `:status` is left as-is.
+  aggregation reads ONE field, and renames the accumulator's
+  `:source-coord` → `:source` (the spec/017 slot name) — the unified
+  record emits ONLY `:source`. A record that already carries a `:status`
+  is left as-is.
 
   This is the §B5.5 'adapt the existing assertion accumulator ONLY for
   assertion outcomes that are not already in the tape' boundary: the
@@ -125,7 +126,8 @@
   (let [st (record-status raw)]
     (cond-> (assoc raw :status st)
       (and (contains? raw :source-coord)
-           (not (contains? raw :source))) (assoc :source (:source-coord raw)))))
+           (not (contains? raw :source))) (assoc :source (:source-coord raw))
+      (contains? raw :source-coord)       (dissoc :source-coord))))
 
 (defn assertion-records
   "Normalize a raw assertion accumulator vector into unified assertion

@@ -10,7 +10,8 @@
   The five micro-fns here used to live as private mirrors across
   ~9 sites (args / assertions / recorder / docs / state / test-mode/pure).
   Each mirror was justified locally by a cycle dodge, but the systemic
-  shape is one canonical leaf. See rf2-pzzbw / audit rf2-cgqam.")
+  shape is one canonical leaf. See rf2-pzzbw / audit rf2-cgqam."
+  (:require [clojure.string :as str]))
 
 (def reserved-assertion-ns
   "Reserved namespace string for assertion event ids per Conventions.md
@@ -69,3 +70,44 @@
   (review-dialog) just for this 4-line helper."
   [prefix]
   (str "\n" (apply str (repeat (count prefix) \space))))
+
+;; ---- predicate-symbol resolution -----------------------------------------
+
+(defn resolve-sym-pred
+  "Resolve a predicate symbol to a callable fn. JVM uses
+  `requiring-resolve`; CLJS resolves via a best-effort `goog.global` walk
+  on munged dotted names (works for fns reachable from a global ns like
+  `js/cljs.user.my_pred`). Returns nil on miss.
+
+  CLJS symbol resolution is BEST-EFFORT and FRAGILE under advanced
+  compilation — the closure compiler mangles author namespace names, so
+  the munged-dotted-name walk won't find them. The advanced-safe authoring
+  path is to pass the predicate as a FN DIRECTLY in the
+  `:wait-until [:db path :pred <fn>]` predicate (or the `:assert-db …
+  :pred <fn>` form, which folds to `:rf.assert/path-matches [:fn fn]`); the
+  resolver is only reached for the symbol escape-hatch (rf2-inbad).
+
+  Shared by `assertions/resolve-fn-schema` (the `[:fn sym]` schema fold)
+  and `runner-events/exec-wait-until` (the `:pred sym` form). Lives in this
+  leaf so `assertions` resolves a symbol pred at validation time without a
+  require into the impure `runner-events` ns (rf2-le0p4 dedup)."
+  [sym]
+  (when sym
+    (try
+      #?(:clj
+         (when-let [v (requiring-resolve (symbol sym))]
+           (when (var? v) @v))
+         :cljs
+         (let [ns-part   (namespace sym)
+               name-part (name sym)]
+           (when (and ns-part name-part)
+             (let [dotted (str ns-part "." name-part)
+                   munged (str/replace dotted #"-" "_")
+                   parts  (str/split munged #"\.")]
+               (loop [obj js/window
+                      ks  parts]
+                 (cond
+                   (nil? obj)  nil
+                   (empty? ks) (when (fn? obj) obj)
+                   :else       (recur (aget obj (first ks)) (rest ks))))))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))))

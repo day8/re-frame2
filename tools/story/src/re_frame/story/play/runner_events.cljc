@@ -5,8 +5,11 @@
   `re-frame.story.play.runner`. This namespace owns the impure seams
   the step types reach for:
 
-  - `:dispatch` / `:dispatch-sync` → `rf/dispatch*` / `rf/dispatch-sync*`
-    against the variant's frame.
+  - `:dispatch` → dispatch + settle through `settled-boundary`
+    (`boundary/dispatch-and-settle!`, rf2-5x1wt.2) against the variant's
+    frame; in headless this drains via `dispatch-sync*` to a fixed point
+    (richer runners supply reactive / DOM flushes through flush-hooks).
+    `:dispatch-sync` → the low-level `rf/dispatch-sync*` escape.
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
   - `:assert-db` path value → read from `rf/get-frame-db` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
@@ -34,8 +37,7 @@
   full play timeline with PASS/FAIL outcomes alongside the rest of the
   cascade."
   (:refer-clojure :exclude [run!])
-  (:require [clojure.string             :as str]
-            [re-frame.core              :as rf]
+  (:require [re-frame.core              :as rf]
             #?(:cljs [reagent.core      :as r])
             [re-frame.story.assertions  :as assertions]
             [re-frame.story.config      :as config]
@@ -44,6 +46,7 @@
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
+            [re-frame.story.predicates  :as pred]
             [re-frame.story.registrar   :as registrar]))
 
 ;; ---- per-variant run-state -----------------------------------------------
@@ -431,44 +434,6 @@
     (rf/get-frame-db frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-(defn- resolve-predicate
-  "Resolve a predicate symbol to a callable fn. JVM uses
-  `requiring-resolve`; CLJS resolves via `goog.global` lookup on
-  munged dotted names (works for fns reachable from a global ns
-  like `js/cljs.user.my_pred`). Returns nil on miss.
-
-  CLJS symbol resolution is BEST-EFFORT and FRAGILE under advanced
-  compilation — the closure compiler mangles author namespace names,
-  so the munged-dotted-name walk won't find them. The advanced-safe
-  authoring path is to pass the predicate as a FN DIRECTLY in the
-  `:wait-until [:db path :pred <fn>]` predicate (or the `:assert-db …
-  :pred <fn>` form, which folds to `:rf.assert/path-matches [:fn fn]`);
-  the resolver is only reached for the symbol escape-hatch.
-
-  rf2-inbad: this fn remains for the symbol-form escape hatch (JVM
-  tests + :dev CLJS) — used by `[:wait-until [:db … :pred sym]]` — but is
-  NOT the primary authoring path."
-  [sym]
-  (when sym
-    (try
-      #?(:clj
-         (when-let [v (requiring-resolve (symbol sym))]
-           (when (var? v) @v))
-         :cljs
-         (let [ns-part   (namespace sym)
-               name-part (name sym)]
-           (when (and ns-part name-part)
-             (let [dotted (str ns-part "." name-part)
-                   munged (str/replace dotted #"-" "_")
-                   parts  (str/split munged #"\.")]
-               (loop [obj js/window
-                      ks  parts]
-                 (cond
-                   (nil? obj)  nil
-                   (empty? ks) (when (fn? obj) obj)
-                   :else       (recur (aget obj (first ks)) (rest ks))))))))
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
-
 (defn- pred-label
   "Human-readable label for a `:pred` ref — the symbol literal when
   the author handed a symbol, the marker `<fn>` when they handed a
@@ -721,7 +686,7 @@
                        actual (get-in db path)]
                    (case mode
                      :equals (= expected actual)
-                     :pred   (let [f (if pred-fn? pred-ref (resolve-predicate pred-ref))]
+                     :pred   (let [f (if pred-fn? pred-ref (pred/resolve-sym-pred pred-ref))]
                                (boolean (and f (try (f actual)
                                                     (catch #?(:clj Throwable :cljs :default) _ false)))))
                      false))
@@ -960,23 +925,17 @@
                                     the first play of `:plays`, or the
                                     single `:play-script`).
   - `[variant-id done-cb]`        — as above + completion callback.
-  - `[variant-id spec done-cb]`   — legacy: drive an explicit spec.
-                                    The play-key is read off the spec's
-                                    `:name` (nil for unnamed scripts).
   - `[variant-id play-key spec done-cb]` — rf2-tl7zk multi-play form:
                                     drive a specific play. `play-key`
                                     is the play's `:name` string (or
-                                    nil for the single-script case)."
+                                    nil for the single-script case);
+                                    callers handing a hand-built `spec`
+                                    pass its `:name` as `play-key`."
   ([variant-id]
    (run! variant-id nil nil nil))
   ([variant-id done-cb]
-   ;; Legacy two-arity: variant-id + done-cb. Picks the default play.
+   ;; Two-arity: variant-id + done-cb. Picks the default play.
    (run! variant-id nil nil done-cb))
-  ([variant-id spec done-cb]
-   ;; Legacy three-arity: variant-id + spec + done-cb. The play-key is
-   ;; derived from the spec's :name (nil for unnamed scripts). Preserved
-   ;; for back-compat with callers that hand-build a spec.
-   (run! variant-id (when spec (:name spec)) spec done-cb))
   ([variant-id play-key spec done-cb]
    (let [spec  (or spec
                    (resolve-play variant-id play-key)

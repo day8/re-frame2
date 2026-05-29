@@ -68,8 +68,7 @@
     (it is evaluated against the epoch tape in `result.cljc`, not
     dispatched into the frame). So the set is eight ids, only seven of
     which are registered."
-  (:require [clojure.string               :as str]
-            [re-frame.core                :as rf]
+  (:require [re-frame.core                :as rf]
             [re-frame.elision             :as elision]
             [re-frame.interop             :as interop]
             [re-frame.subs                :as subs]
@@ -461,33 +460,6 @@
                       " at " (pr-str path)
                       " but got "  (pr-str actual)))}))
 
-(defn- resolve-sym-pred
-  "Resolve a predicate symbol to a callable fn. JVM uses
-  `requiring-resolve`; CLJS resolves via a best-effort `goog.global` walk
-  on munged dotted names (fragile under advanced compilation — the fn-
-  direct authoring path is advanced-safe). Returns nil on miss. Mirrors
-  `re-frame.story.play.runner-events/resolve-predicate`; kept here so the
-  `[:fn sym]` schema fold (rf2-5x1wt.18 `:assert-db :pred` form) resolves
-  at validation time without a require into the impure runner-events ns."
-  [sym]
-  (when sym
-    (try
-      #?(:clj
-         (when-let [v (requiring-resolve (symbol sym))]
-           (when (var? v) @v))
-         :cljs
-         (let [ns-part (namespace sym) name-part (name sym)]
-           (when (and ns-part name-part)
-             (let [parts (-> (str ns-part "." name-part)
-                             (str/replace #"-" "_")
-                             (str/split #"\."))]
-               (loop [obj js/window ks parts]
-                 (cond
-                   (nil? obj)  nil
-                   (empty? ks) (when (fn? obj) obj)
-                   :else       (recur (aget obj (first ks)) (rest ks))))))))
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
-
 (defn- resolve-fn-schema
   "Rewrite a `[:fn sym]` schema (the rf2-5x1wt.18 `:assert-db :pred` fold's
   symbol form) into `[:fn resolved-fn]` so Malli can validate it without
@@ -499,7 +471,7 @@
   letting Malli throw an opaque sci error)."
   [schema]
   (if (and (vector? schema) (= :fn (first schema)) (symbol? (second schema)))
-    (if-let [f (resolve-sym-pred (second schema))]
+    (if-let [f (pred/resolve-sym-pred (second schema))]
       [:fn f]
       ::unresolved-pred)
     schema))

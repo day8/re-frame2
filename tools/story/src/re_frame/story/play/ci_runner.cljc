@@ -11,9 +11,9 @@
     body carries a non-empty `:play-script`. Pure data → data; works
     on JVM and CLJS.
 
-  - `play-script-summary` — pure: derive the small metadata bundle
-    a CI runner needs per variant (id, name, step count). No
-    side-effects.
+  - `ci-rows` — pure: enumerate the per-PLAY catalogue (one row per
+    play; a `:plays` variant of size N yields N rows). The metadata
+    bundle a CI runner needs per row (id, play-key, step count).
 
   - `ci-context` — Playwright-readable JSON envelope: the full per-
     variant catalogue, ready for `JSON.parse` on the browser side.
@@ -40,8 +40,8 @@
   ## Pure / impure split
 
   This ns is `.cljc`. The pure seams (`variants-with-play-scripts`,
-  `play-script-summary`, `ci-context`) are JVM-runnable; the
-  CLJS-only `install-ci-hooks!` is gated by reader conditionals."
+  `ci-rows`, `ci-context`) are JVM-runnable; the CLJS-only
+  `install-ci-hooks!` is gated by reader conditionals."
   (:require [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar   :as registrar]
             #?(:cljs [re-frame.story.play.runner-events :as runner-events])))
@@ -99,31 +99,6 @@
         (sort)
         (vec))))
 
-(defn play-script-summary
-  "Return a small metadata map for `variant-id` suitable for the CI
-  runner's per-variant report row. Pure data → data.
-
-  Shape:
-      {:variant-id <kw>
-       :name       <string or nil>     ; from `:play-script` `:name`
-       :script-len <int>               ; number of steps (post-coerce)
-       :auto-run?  <bool>}
-
-  rf2-tl7zk: for variants carrying `:plays` (multi-play), the summary
-  reports the FIRST play (the toolbar's default selection). Use
-  `ci-rows` for the per-play enumeration."
-  [variant-id]
-  (let [body  (registrar/handler-meta :variant variant-id)
-        plays (runner/variant-body->plays body)
-        spec  (or (first plays)
-                  ;; Defensive: no play surface registered — return the
-                  ;; empty-script shape (mirrors the historical contract).
-                  (runner/parse-spec nil))]
-    {:variant-id variant-id
-     :name       (:name spec)
-     :script-len (count (:script spec))
-     :auto-run?  (boolean (:auto-run? spec))}))
-
 (defn ci-rows
   "rf2-tl7zk multi-play: enumerate the CI runner's per-row catalogue.
   Each row is one play; a variant with `:plays` of size N yields N
@@ -161,18 +136,12 @@
 
 (defn ci-context
   "Build the full CI catalogue: every variant with a play surface
-  paired with its summary metadata. Pure data → data. Used by the
-  Playwright runner via `install-ci-hooks!`.
-
-  rf2-tl7zk multi-play: adds `:rows` — the per-play enumeration the
-  multi-play runner uses to drive its per-play assertions. The legacy
-  `:summaries` keeps the per-VARIANT shape (first play of multi-play)
-  for back-compat with consumers that haven't migrated."
+  paired with the per-play `:rows` enumeration the multi-play runner
+  uses to drive its per-play assertions. Pure data → data. Used by the
+  Playwright runner via `install-ci-hooks!` (`ciContext().rows`)."
   []
-  (let [vids (variants-with-play-scripts)]
-    {:variants  vids
-     :summaries (mapv play-script-summary vids)
-     :rows      (ci-rows)}))
+  {:variants (variants-with-play-scripts)
+   :rows     (ci-rows)})
 
 ;; ---- terminal-state helpers ---------------------------------------------
 
