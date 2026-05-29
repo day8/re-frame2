@@ -417,11 +417,18 @@
   [:vector PlayStep])
 
 (def PlaySpec
-  "The full body shape of `:play-script`. Two forms:
+  "The full body shape of the public `:script` slot (and the transitional
+  `:play-script` slot it supersedes). Two forms:
 
   - Bare vector — sugar for `{:script <vector> :auto-run? true}`.
   - Map         — `{:script :auto-run? :name}` with all keys optional
-                  bar `:script`."
+                  bar `:script`.
+
+  Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the
+  public authoring key for ordered behaviour-under-test is `:script`;
+  `:play-script` is the transitional spelling accepted during the
+  pre-alpha rename and lowered to the shipping slot by the registrar
+  (`lower-public-vocabulary`). Both spellings share this body shape."
   [:or
    PlayScript
    [:map
@@ -469,40 +476,80 @@
   their own keys without registration ceremony (per Spec-Schemas's
   open-by-default convention).
 
-  ## Multi-play (rf2-tl7zk)
+  ## Public vocabulary (rf2-5x1wt.11)
 
-  A variant may declare ONE of two play surfaces:
+  Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the P1
+  public authoring vocabulary is:
 
-  - `:play-script` — a single named play (the simple case).
+  - `:setup`  — preconditions (a vector of event vectors).
+  - `:script` — ordered behaviour under test (a `PlaySpec` body).
+
+  These supersede the shipping spellings as a **clean pre-alpha rename,
+  not a long-lived compatibility layer**:
+
+  | Public (target) | Transitional (shipping) |
+  |-----------------|-------------------------|
+  | `:setup`        | `:events`               |
+  | `:script`       | `:play-script`          |
+  | named `:plays`  | `:plays` (kept as named scripts) |
+
+  The schema accepts BOTH spellings so the tree can migrate incrementally
+  while existing tests stay green. The registrar's `lower-public-vocabulary`
+  step folds `:setup` → `:events` and `:script` → `:play-script` into the
+  stored body so every downstream consumer (runtime phase-2, the play
+  runner, snapshot identity, the workspace/canvas readers, the recorder)
+  reads the shipping slot unchanged until the runtime is routed through
+  the variant-plan compiler (rf2-5x1wt.17 / .22). `:plays` is preserved
+  as named scripts in the normalized plan; it is not dropped.
+
+  ## Setup surface — `:setup` xor `:events`
+
+  A variant declares its preconditions through ONE setup spelling. Mixing
+  `:setup` and `:events` is a schema-level error (the author picks one
+  during migration), validated by the `:fn` clause below.
+
+  ## Play surface — `:script` xor `:play-script` xor `:plays` (rf2-tl7zk)
+
+  A variant declares ONE play surface:
+
+  - `:script`      — the public single play (the simple case).
+  - `:play-script` — the transitional spelling of the single play.
   - `:plays`       — a vector of named plays (multiple scenarios).
 
-  These slots are mutually exclusive. If both are present the runner
-  prefers `:plays` and emits a one-time console warning.
+  These three slots are mutually exclusive (validated by the `:fn`
+  clause below). For `:plays` the toolbar surfaces a dropdown and the CI
+  runner enumerates each play as its own result row.
 
-  ## :play-script is the ONLY play surface (rf2-0wrud, 2026-05-20)
+  ## :play was REMOVED (rf2-0wrud, 2026-05-20)
 
-  Pre-alpha posture: `:play-script` is the canonical AND ONLY play
-  surface. The legacy `:play` slot (vector of event vectors) has been
-  removed entirely — there is no transitional dual-acceptance. Authors
-  migrate event-vector lists by wrapping each entry as `[:dispatch-sync
-  <event-vec>]` in a `:play-script` body."
+  Pre-alpha posture: the legacy `:play` slot (vector of event vectors)
+  has been removed entirely — there is no transitional dual-acceptance.
+  Authors migrate event-vector lists by wrapping each entry as
+  `[:dispatch-sync <event-vec>]` in a `:script` body."
   [:and
    [:map
     [:doc                   {:optional true} :string]
     [:extends               {:optional true} :keyword]
+    ;; rf2-5x1wt.11 — `:setup` is the PUBLIC precondition slot; `:events`
+    ;; is the transitional spelling lowered to `:setup`'s shipping slot
+    ;; by the registrar. Mutually exclusive (the `:fn` clause below).
+    [:setup                 {:optional true} [:vector EventVector]]
     [:events                {:optional true} [:vector EventVector]]
-    ;; rf2-8i2a9 — the rich Storybook-style play script. rf2-0wrud
-    ;; (2026-05-20): `:play-script` is the canonical AND ONLY phase-4
-    ;; surface; the legacy `:play` slot is REMOVED. Each step is a
-    ;; tagged vector (`[:dispatch ...]`, `[:dispatch-sync ...]`,
-    ;; `[:wait ms]`, `[:assert-db path value]`, `[:assert-dom selector
-    ;; ...]`, `[:click selector]`, `[:type selector text]`). See
-    ;; `PlaySpec`.
+    ;; rf2-5x1wt.11 — `:script` is the PUBLIC play slot (per spec/017
+    ;; §Public vocabulary). rf2-8i2a9 — the rich Storybook-style play
+    ;; script body shape. Each step is a tagged vector (`[:dispatch ...]`,
+    ;; `[:dispatch-sync ...]`, `[:wait ms]`, `[:assert-db path value]`,
+    ;; `[:assert-dom selector ...]`, `[:click selector]`, `[:type selector
+    ;; text]`). See `PlaySpec`.
+    [:script                {:optional true} PlaySpec]
+    ;; `:play-script` — the transitional spelling of `:script`, lowered
+    ;; to `:script`'s shipping slot by the registrar. rf2-0wrud
+    ;; (2026-05-20): the legacy `:play` slot is REMOVED.
     [:play-script           {:optional true} PlaySpec]
     ;; rf2-tl7zk — multi-play: a vector of named plays. Mutually
-    ;; exclusive with `:play-script` (validated by the `:fn` clause
-    ;; below). The toolbar surfaces a dropdown when `:plays` has more
-    ;; than one entry; the CI runner enumerates each play as its own
+    ;; exclusive with `:script` / `:play-script` (validated by the `:fn`
+    ;; clause below). The toolbar surfaces a dropdown when `:plays` has
+    ;; more than one entry; the CI runner enumerates each play as its own
     ;; result row. See `PlaysSpec`.
     [:plays                 {:optional true} PlaysSpec]
     [:args                  {:optional true} ArgMap]
@@ -536,14 +583,27 @@
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
     [:background            {:optional true} BackgroundSlot]]
-   ;; rf2-tl7zk — mutual-exclusion check. Authors pick ONE play surface
-   ;; per variant; mixing them is a schema-level error so the rejection
-   ;; lands at `reg-variant*` rather than surprising the runner.
+   ;; rf2-5x1wt.11 — setup-surface mutual-exclusion. `:setup` is the
+   ;; public spelling, `:events` the transitional one; an author picks
+   ;; ONE during migration. Mixing both is a schema-level error so the
+   ;; rejection lands at `reg-variant*` rather than the registrar's
+   ;; `lower-public-vocabulary` step silently picking a winner.
    [:fn {:error/message
-         ":play-script and :plays are mutually exclusive — pick one per variant"}
+         ":setup and :events are mutually exclusive — :setup is the public spelling"}
     (fn [body]
-      (not (and (contains? body :play-script)
-                (contains? body :plays))))]])
+      (not (and (contains? body :setup)
+                (contains? body :events))))]
+   ;; rf2-tl7zk + rf2-5x1wt.11 — play-surface mutual-exclusion. Authors
+   ;; pick ONE play surface per variant from `:script` (public) /
+   ;; `:play-script` (transitional) / `:plays` (named scripts); mixing
+   ;; any two is a schema-level error so the rejection lands at
+   ;; `reg-variant*` rather than surprising the runner.
+   [:fn {:error/message
+         (str ":script / :play-script / :plays are mutually exclusive — "
+              "pick one play surface per variant (:script is the public spelling)")}
+    (fn [body]
+      (<= (count (filter #(contains? body %) [:script :play-script :plays]))
+          1))]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
 
@@ -749,3 +809,41 @@
   (when-let [schema (get kind->schema kind)]
     (when-not (m/validate schema body)
       (m/explain schema body))))
+
+;; ---- public-vocabulary lowering (rf2-5x1wt.11) ---------------------------
+
+(defn lower-public-vocabulary
+  "Fold the public Story authoring vocabulary (`:setup` / `:script`) into
+  the shipping body slots (`:events` / `:play-script`). Pure data → data.
+
+  Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the
+  pre-alpha rename makes `:setup` / `:script` the public authoring keys.
+  The variant-plan compiler (`re-frame.story.plan`) already normalizes
+  both spellings, but the shipping RUNTIME — phase-2 events, the play
+  runner's `variant-body->plays`, snapshot identity, the workspace /
+  canvas readers, the recorder — still reads the `:events` / `:play-script`
+  / `:plays` slots. Until the runtime is routed through the plan compiler
+  (rf2-5x1wt.17 / .22) the registrar lowers the public spellings into the
+  shipping slots so a variant authored with `:setup` / `:script` runs
+  unchanged.
+
+  This is the sanctioned 'temporarily normalize current terms while the
+  tree is migrated' step (spec/017 §Public vocabulary), NOT a long-lived
+  compatibility layer — it is removed when the runtime reads the
+  normalized plan directly.
+
+  Lowering rules (only when the public key is present and the shipping
+  sibling is absent — the schema's mutual-exclusion `:fn` already
+  guarantees they never co-exist):
+
+  - `:setup`  → `:events`
+  - `:script` → `:play-script`
+
+  `:plays` (named scripts) is already a shipping slot and passes through
+  untouched. A body carrying only shipping spellings is returned as-is."
+  [body]
+  (cond-> body
+    (contains? body :setup)  (-> (assoc :events (:setup body))
+                                 (dissoc :setup))
+    (contains? body :script) (-> (assoc :play-script (:script body))
+                                 (dissoc :script))))

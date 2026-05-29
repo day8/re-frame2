@@ -25,11 +25,11 @@ Here is the smallest interesting `stories.cljs` you can write. (We're going to u
    :substrates #{:reagent}})
 
 (story/reg-variant :story.counter/empty
-  {:doc         "Fresh counter at zero."
-   :events      [[:counter/initialise 0]]
-   :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
-   :tags        #{:dev :docs :test}
-   :substrates  #{:reagent}})
+  {:doc        "Fresh counter at zero."
+   :setup      [[:counter/initialise 0]]
+   :script     [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+   :tags       #{:dev :docs :test}
+   :substrates #{:reagent}})
 ```
 
 Save. Reload the dev build. Open `#/stories`. You're in.
@@ -56,13 +56,13 @@ This single design call — *keyword references, not function references* — is
 
 `reg-variant` registers **one variant** — one scenario, one frame, one canvas paint. Three slots carry the meat:
 
-- **`:events`** — a sequence of regular event vectors. They dispatch in source order through the same router the live app uses. By the time the canvas paints, the variant frame's `app-db` is exactly what those events left behind. This is your *setup phase*: how do you get the world into the state this variant exercises?
+- **`:setup`** — a sequence of regular event vectors. They dispatch in source order through the same router the live app uses. By the time the canvas paints, the variant frame's `app-db` is exactly what those events left behind. This is your *setup phase*: how do you get the world into the state this variant exercises?
 
 - **`:args`** — the variant's prop overrides. Deep-merged into the parent story's args (and into any active mode's args, and any global args, and any live cell-overrides from the controls panel). The resolved map is what the view renders against.
 
-- **`:play-script`** — the assertion sequence. Runs after `:events` settle and the canvas mounts. Each step in the script is a vector with a step-id (`:dispatch-sync`, `:wait`, `:click`, `:type`, `:assert-db`, `:assert-dom`) and its payload. The canonical assertion events from re-frame2 (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, and the rest of the seven) ride the `:dispatch-sync` step.
+- **`:script`** — the behaviour-under-test sequence. Runs after `:setup` settles and the canvas mounts. Each step in the script is a vector with a step-id (`:dispatch-sync`, `:wait`, `:click`, `:type`, `:assert-db`, `:assert-dom`) and its payload. The canonical assertion events from re-frame2 (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, and the rest of the seven) ride the `:dispatch-sync` step.
 
-> 💡 **Note for Storybook refugees.** Storybook's `play` function is JavaScript — you write async functions that call `userEvent.click(...)` and `expect(...).toBeVisible()`. Story's `:play-script` is *data* — a vector of step tuples that a runner interprets. Same role; different substance. The runner lives at `re-frame.story.play.runner`; the step grammar lives in [`API.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) §`:play-script`. The advantage of the data shape is that the recorder (chapter 3) can *generate* a `:play-script` body from your interactions and you can paste it directly into source. Try generating a TypeScript function from a recording and you'll appreciate the difference.
+> 💡 **Note for Storybook refugees.** Storybook's `play` function is JavaScript — you write async functions that call `userEvent.click(...)` and `expect(...).toBeVisible()`. Story's `:script` is *data* — a vector of step tuples that a runner interprets. Same role; different substance. The runner lives at `re-frame.story.play.runner`; the step grammar lives in [`API.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) §`:play-script`. The advantage of the data shape is that the recorder (chapter 3) can *generate* a `:script` body from your interactions and you can paste it directly into source. Try generating a TypeScript function from a recording and you'll appreciate the difference.
 
 A variant body is **plain EDN**. No fn slots; no closures; no JSX-shaped DSL. We mentioned this in the welcome; we will mention it again throughout this tutorial because every time you reach for "I'll just put a function here" the right answer is "register the thing the function does, reference it by id." It is the discipline that makes the rest of Story work.
 
@@ -137,22 +137,22 @@ Decorators are the only `reg-*` registration where Story authoring legally holds
 
   (story/reg-variant :story.counter/loaded
     {:decorators [[:app/centered-layout]]
-     :events     [[:counter/initialise 7]]
+     :setup      [[:counter/initialise 7]]
      :substrates #{:reagent}})
   ```
 
-- **`:frame-setup` decorators** — patch the variant's frame at allocation time. Used when several variants share a setup like "assume the user is logged in." The events dispatch before the variant's own `:events`; the patch merges into the variant frame's `app-db`. Pure data, no closures.
+- **`:frame-setup` decorators** — patch the variant's frame at allocation time. Used when several variants share a setup like "assume the user is logged in." The events dispatch before the variant's own `:setup`; the patch merges into the variant frame's `app-db`. Pure data, no closures.
 
 - **`:fx-override` decorators** — stub a network call (or *any* fx — analytics, websockets, geolocation, storage, navigation). The marquee shape is `force-fx-stub`, which Story ships built-in:
 
   ```clojure
   (story/reg-variant :story.counter/save-stubbed
-    {:events      [[:counter/initialise 5]]
-     :decorators  [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
-     :play-script [[:dispatch-sync [:counter/save]]
-                   [:dispatch-sync [:rf.assert/path-equals [:saving?] true]]
-                   [:dispatch-sync [:rf.assert/effect-emitted :counter/sync-to-server]]]
-     :substrates  #{:reagent}})
+    {:setup      [[:counter/initialise 5]]
+     :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
+     :script     [[:dispatch-sync [:counter/save]]
+                  [:dispatch-sync [:rf.assert/path-equals [:saving?] true]]
+                  [:dispatch-sync [:rf.assert/effect-emitted :counter/sync-to-server]]]
+     :substrates #{:reagent}})
   ```
 
 The `force-fx-stub-id` Var holds the well-known id for the built-in decorator; we expose it as a Var so you're not memorising keyword paths. Three lines stubs *any* effect handler — `reg-fx`'d HTTP, analytics, websocket, geolocation, storage, navigation. The Storybook ecosystem has a separate addon for each of these (`msw-storybook-addon` for HTTP, separate stuff for analytics, etc.); Story has the one primitive because re-frame2 already names the seam — every side effect runs through a registered `reg-fx` handler the runtime calls. Stubbing it is a one-liner because the seam already exists.
@@ -179,7 +179,7 @@ A few diagnostic notes from the trenches. Tutorials that pretend everything work
 
 - **The variant shows up but the canvas is blank.** Your view-id keyword doesn't resolve to a registered view. Story has no way to render a view that wasn't `reg-view`'d. Check the spelling of the keyword on `:component`; check that the view's namespace is loaded (transitively); check that the `reg-view` macro actually ran (a typo in `defn` vs `reg-view` is silent until render).
 
-- **You see *Canvas* / *Docs* / *Tests* tabs but the *Tests* tab says "no assertions recorded".** You probably wrote `:play` instead of `:play-script`, or you wrote the play-script body as `[:rf.assert/path-equals [:count] 0]` (a bare event vector) instead of `[:dispatch-sync [:rf.assert/path-equals [:count] 0]]` (a `:dispatch-sync` step containing the event vector). The play-script grammar is *step-tuples*; the canonical assertions ride the `:dispatch-sync` step. (This is a recent rename; some external blog posts still show the old shape.)
+- **You see *Canvas* / *Docs* / *Tests* tabs but the *Tests* tab says "no assertions recorded".** You probably wrote `:play` instead of `:script` (the public play slot; `:play-script` is the transitional spelling), or you wrote the script body as `[:rf.assert/path-equals [:count] 0]` (a bare event vector) instead of `[:dispatch-sync [:rf.assert/path-equals [:count] 0]]` (a `:dispatch-sync` step containing the event vector). The script grammar is *step-tuples*; the canonical assertions ride the `:dispatch-sync` step. (This is a recent rename; some external blog posts still show the old shape.)
 
 - **Variant renders but the right-side controls panel doesn't show your arg.** You probably haven't registered a schema on the view, and your parent story doesn't carry `:argtypes`. The controls panel needs *some* hint about how to render an editor; the schema is the preferred source, `:argtypes` is the override channel. We'll get into this more in chapter 4.
 

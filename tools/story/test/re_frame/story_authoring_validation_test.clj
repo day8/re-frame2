@@ -186,6 +186,96 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
+;; rf2-5x1wt.11 — public vocabulary (:setup / :script) + lowering
+;; ===========================================================================
+;;
+;; Per tools/story/spec/017-Testing-Story.md §Public vocabulary, `:setup`
+;; and `:script` are the public authoring keys; `:events` / `:play-script`
+;; are the transitional spellings. The registrar lowers the public
+;; spellings into the shipping slots so the runtime reads them unchanged
+;; until rf2-5x1wt.17 / .22 route it through the variant plan.
+
+(deftest reg-variant-public-setup-script-validate-and-lower
+  (testing ":setup / :script are accepted and lowered to :events / :play-script"
+    (story/reg-variant :story.vocab/public
+      {:setup  [[:counter/initialise 3]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:count] 3]]]})
+    (let [body (story/handler-meta :variant :story.vocab/public)]
+      (is (= [[:counter/initialise 3]] (:events body))
+          ":setup lowered into the shipping :events slot")
+      (is (some? (:play-script body))
+          ":script lowered into the shipping :play-script slot")
+      (is (not (contains? body :setup))  "authored :setup key dropped after lowering")
+      (is (not (contains? body :script)) "authored :script key dropped after lowering"))))
+
+(deftest reg-variant-public-script-map-form-lowers
+  (testing "the :script map form (with :name / :auto-run?) lowers to :play-script"
+    (story/reg-variant :story.vocab/public-map
+      {:setup  []
+       :script {:name "named" :auto-run? true
+                :script [[:dispatch-sync [:counter/initialise 1]]]}})
+    (let [body (story/handler-meta :variant :story.vocab/public-map)]
+      (is (= "named" (get-in body [:play-script :name]))
+          "the named map-form :script lowered into :play-script intact"))))
+
+(deftest reg-variant-setup-and-events-mutually-exclusive
+  (testing "a variant may not declare BOTH :setup (public) and :events (transitional)"
+    (try
+      (story/reg-variant :story.vocab/both-setup
+        {:setup  [[:a]]
+         :events [[:b]]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-variant-script-and-play-script-mutually-exclusive
+  (testing "a variant may not declare BOTH :script (public) and :play-script (transitional)"
+    (try
+      (story/reg-variant :story.vocab/both-script
+        {:setup       []
+         :script      [[:dispatch [:a]]]
+         :play-script [[:dispatch [:b]]]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-variant-script-and-plays-mutually-exclusive
+  (testing "a variant may not declare BOTH :script and :plays"
+    (try
+      (story/reg-variant :story.vocab/script-and-plays
+        {:setup  []
+         :script [[:dispatch [:a]]]
+         :plays  [{:name "p" :script [[:dispatch [:b]]]}]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-variant-public-named-plays-still-accepted
+  (testing "named :plays (named scripts) are preserved alongside the public :setup"
+    (story/reg-variant :story.vocab/named-plays
+      {:setup []
+       :plays [{:name "happy" :script [[:dispatch [:foo]]]}
+               {:name "error" :script [[:dispatch [:bar]]]}]})
+    (let [body (story/handler-meta :variant :story.vocab/named-plays)]
+      (is (= 2 (count (:plays body))) ":plays preserved as named scripts")
+      (is (not (contains? body :play-script))
+          ":plays is not lowered to :play-script"))))
+
+(deftest reg-variant-public-script-extends-overrides-transitional-parent
+  (testing "a child's public :script overrides a parent's transitional :play-script
+            (both lower to :play-script, so the existing sibling-drop applies)"
+    (story/reg-variant :story.vocab/parent
+      {:setup       []
+       :play-script {:script [[:dispatch [:p/legacy]]]}})
+    (story/reg-variant :story.vocab/child
+      {:extends :story.vocab/parent
+       :script  {:script [[:dispatch [:c/new]]]}})
+    (let [body (story/handler-meta :variant :story.vocab/child)]
+      (is (contains? body :play-script) "child's lowered :script survived")
+      (is (= [[:dispatch [:c/new]]] (get-in body [:play-script :script]))
+          "the child's play surface won wholesale — no double-encoding"))))
+
+;; ===========================================================================
 ;; UNKNOWN-TAG CONTRACT — tag-vocab cross-check error carries the offending set
 ;; ===========================================================================
 

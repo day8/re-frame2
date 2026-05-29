@@ -96,6 +96,21 @@ in the normalized plan; they are not dropped in P1. The legacy `:play`
 event-vector slot was already removed (rf2-0wrud); P1 does not
 reintroduce it.
 
+The variant schema (`re-frame.story.schemas/Variant`) accepts both
+spellings and enforces that an author picks ONE setup surface
+(`:setup` xor `:events`) and ONE play surface
+(`:script` xor `:play-script` xor `:plays`). The registrar's
+`schemas/lower-public-vocabulary` step folds `:setup` → `:events` and
+`:script` → `:play-script` into the stored body so every shipping
+RUNTIME reader — phase-2 events, the play runner's `variant-body->plays`,
+snapshot identity, the workspace/canvas readers, and the recorder —
+consumes the shipping slot unchanged while the tree migrates. This
+lowering is the sanctioned temporary normalization, not a long-lived
+shim: it is removed once the runtime is routed through the variant-plan
+compiler (which already normalizes both spellings, §Compiler API and
+normalization contract). Until then, a variant authored with `:setup` /
+`:script` runs identically to one authored with the shipping slots.
+
 ### Four-bucket authoring model
 
 The normalized plan is organized around four buckets:

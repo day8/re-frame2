@@ -276,8 +276,8 @@
   ;; `:count` slot equals zero.
   (story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero. The simplest possible variant."
-     :events [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :setup [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -288,8 +288,8 @@
   (story/reg-variant :story.counter/loaded
     {:doc    "A counter seeded with a non-zero value."
      :args   {:label "Total"}
-     :events [[:counter/initialise 7]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count]              7]]
+     :setup [[:counter/initialise 7]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count]              7]]
               [:dispatch-sync [:rf.assert/sub-equals  [:count-doubled]      14]]
               [:dispatch-sync [:rf.assert/sub-equals  [:count-parity]       :odd]]]
      ;; rf2-7ncf9 — faceted tags alongside the existing canonical seven.
@@ -305,7 +305,7 @@
   (story/reg-variant :story.counter/clicked-three-times
     {:doc    "Counter after three increments from zero, driven from
              the play slot so :rf.assert/dispatched? observes them."
-     :events [[:counter/initialise 0]]
+     :setup [[:counter/initialise 0]]
      ;; rf2-yn825: the play-runner's :rf.assert/* bridge now surfaces
      ;; assertion failures that the buggy runner used to swallow. The
      ;; path-equals [:count] 3 check passes under plain-atom (CLJS unit
@@ -314,7 +314,7 @@
      ;; contract is pinned by the CLJS unit test; the dispatched? assertion
      ;; remains here because it observes the trace bus, not the rendered
      ;; count, so substrate quirks do not affect it.
-     :play-script [[:dispatch-sync [:counter/inc]]
+     :script [[:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:rf.assert/dispatched? [:counter/inc]]]]
@@ -345,7 +345,7 @@
              decorators — the lifecycle takes the fast-path direct to
              `:ready`. Folded in from the retired xray_rhs_smoke
              testbed per rf2-9jfo1.2."
-     :events [[:counter/initialise 5]]
+     :setup [[:counter/initialise 5]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -360,9 +360,9 @@
     {:doc    "The save flow with the network fx stubbed. Demonstrates
              the MSW-shaped force-fx-stub decorator alongside the
              `:rf.assert/effect-emitted` assertion."
-     :events [[:counter/initialise 5]]
+     :setup [[:counter/initialise 5]]
      :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
-     :play-script [[:dispatch-sync [:counter/save]]
+     :script [[:dispatch-sync [:counter/save]]
               [:dispatch-sync [:rf.assert/path-equals     [:saving?] true]]
               [:dispatch-sync [:rf.assert/effect-emitted  :counter/sync-to-server]]]
      :tags   #{:dev :test}
@@ -375,8 +375,8 @@
   (story/reg-variant :story.counter-diagnostics/failing-play
     {:doc    "Deterministic failing play assertion. The counter is
              initialised to 1 but the play assertion expects 999."
-     :events [[:counter/initialise 1]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 999]]]
+     :setup [[:counter/initialise 1]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 999]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -385,8 +385,8 @@
   ;; the test pane can explain the failure without blanking the shell.
   (story/reg-variant :story.counter-diagnostics/failing-event-throws
     {:doc    "Deterministic event-handler exception during :play."
-     :events [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:counter/throw-deterministic]]]
+     :setup [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:counter/throw-deterministic]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -395,8 +395,8 @@
   (story/reg-variant :story.counter-diagnostics/loader-throws
     {:doc     "Deterministic loader exception before events/render."
      :loaders [[:counter/throw-deterministic]]
-     :events  [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :setup  [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -406,8 +406,8 @@
                 id, and stack detail while keeping the Story shell
                 interactive."
      :component :counter-with-stories.views/throwing-card
-     :events    [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :setup    [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -417,7 +417,7 @@
              variant passed."
      :args   {:label "No play"
               :settings {:title "No play" :enabled? true}}
-     :events [[:counter/initialise 2]]
+     :setup [[:counter/initialise 2]]
      :tags   #{:dev :internal}
      :substrates #{:reagent}})
 
@@ -428,7 +428,7 @@
      :args    {:label "Loaded by loader"
                :settings {:title "Loader" :enabled? true}}
      :loaders [[:counter/set 12]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 12]]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 12]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -441,7 +441,7 @@
                :settings {:title "Never" :enabled? true}}
      :loaders [[:counter/set 13]]
      :loaders-complete-when :counter/loader-never-ready?
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 13]]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 13]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -452,8 +452,8 @@
      :args    {:label "Loader rejects"
                :settings {:title "Rejects" :enabled? true}}
      :loaders [[:counter/throw-loader-rejection]]
-     :events  [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :setup  [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -463,8 +463,8 @@
              failing key while the shell stays interactive."
      :args   {:label 42
               :settings {:title "Bad label" :enabled? true}}
-     :events [[:counter/initialise 4]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 4]]]
+     :setup [[:counter/initialise 4]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 4]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -474,8 +474,8 @@
              still expose path-aware nested widgets."
      :args   {:label "Nested"
               :settings {:title "Nested title" :enabled? true}}
-     :events [[:counter/initialise 6]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 6]]]
+     :setup [[:counter/initialise 6]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 6]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -483,9 +483,9 @@
     {:doc        "Decorator failure projection fixture."
      :args       {:label "Decorator failure"
                   :settings {:title "Decorator" :enabled? true}}
-     :events     [[:counter/initialise 8]]
+     :setup     [[:counter/initialise 8]]
      :decorators [[:counter-with-stories/throwing-decorator]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 8]]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 8]]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -495,8 +495,8 @@
                  state rather than leak frames or crash."
      :args       {:label "Substrates"
                   :settings {:title "Substrates" :enabled? true}}
-     :events     [[:counter/initialise 10]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 10]]]
+     :setup     [[:counter/initialise 10]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 10]]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent :uix}})
 
@@ -505,8 +505,8 @@
              different seed."
      :args   {:label "Isolation A"
               :settings {:title "A" :enabled? true}}
-     :events [[:counter/initialise 1]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 1]]]
+     :setup [[:counter/initialise 1]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 1]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -515,8 +515,8 @@
              different seed."
      :args   {:label "Isolation B"
               :settings {:title "B" :enabled? true}}
-     :events [[:counter/initialise 100]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 100]]]
+     :setup [[:counter/initialise 100]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 100]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -528,8 +528,8 @@
      :component :counter-with-stories.views/recorder-redaction-card
      :args      {:label "Recorder redaction"
                  :settings {:title "Recorder" :enabled? true}}
-     :events    [[:counter/initialise 11]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 11]]]
+     :setup    [[:counter/initialise 11]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 11]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -540,8 +540,8 @@
      :component :counter-with-stories.views/a11y-known-good-card
      :args      {:label "A11y known good"
                  :settings {:title "A11y good" :enabled? true}}
-     :events    [[:counter/initialise 21]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 21]]]
+     :setup    [[:counter/initialise 21]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 21]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -552,8 +552,8 @@
      :component :counter-with-stories.views/a11y-known-bad-card
      :args      {:label "A11y known bad"
                  :settings {:title "A11y bad" :enabled? true}}
-     :events    [[:counter/initialise 22]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 22]]]
+     :setup    [[:counter/initialise 22]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 22]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -578,8 +578,8 @@
                 diagnostics/failing-play."
      :args      {:label "failing-fx-stub-miss"
                  :settings {:title "failing-fx-stub-miss" :enabled? true}}
-     :events    [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/effect-emitted :never-stubbed]]]
+     :setup    [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/effect-emitted :never-stubbed]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -613,8 +613,8 @@
                  and assert :count equals 3. Idempotent under any
                  number of auto-run repeats."
      :args       {:label "Play-script pass"}
-     :events     []
-     :play-script
+     :setup     []
+     :script
      {:name      "initialise-three-and-assert-pass"
       :auto-run? true
       :script    [[:dispatch-sync [:counter/initialise 3]]
@@ -630,8 +630,8 @@
                  process-level result stays clean even though the
                  variant deliberately fails."
      :args       {:label "Play-script fail"}
-     :events     []
-     :play-script
+     :setup     []
+     :script
      {:name      "initialise-one-but-expect-nine"
       :auto-run? true
       :script    [[:dispatch-sync [:counter/initialise 1]]
@@ -649,8 +649,8 @@
                  references handed in directly. Survives advanced CLJS
                  because no symbol resolution is performed at run time."
      :args       {:label "Play-script :pred fn-direct"}
-     :events     []
-     :play-script
+     :setup     []
+     :script
      {:name      "pred-fn-direct-passes"
       :auto-run? true
       :script    [[:dispatch-sync [:counter/initialise 3]]
@@ -682,8 +682,8 @@
                  coverage too."
      :component  :counter-with-stories.views/counter-with-input
      :args       {:label "Play-script DOM"}
-     :events     []
-     :play-script
+     :setup     []
+     :script
      {:name      "type-click-and-assert-dom"
       :auto-run? true
       ;; A leading `:wait 300` gives React's first commit a chance to
@@ -713,8 +713,8 @@
                  variant id and asserts the play reaches `:fail`."
      :component  :counter-with-stories.views/counter-with-input
      :args       {:label "Play-script DOM (expected-fail)"}
-     :events     []
-     :play-script
+     :setup     []
+     :script
      {:name      "type-click-and-assert-dom-wrong"
       :auto-run? true
       :script    [[:dispatch-sync [:counter/initialise 0]]
@@ -738,7 +738,7 @@
                  expected status using `failing` / `expected-fail` name
                  markers."
      :args       {:label "Multi-play"}
-     :events     []
+     :setup     []
      :plays      [{:name      "happy-path"
                    :script    [[:dispatch-sync [:counter/initialise 5]]
                                [:assert-db [:count] 5]]}
