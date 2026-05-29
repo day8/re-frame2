@@ -103,6 +103,7 @@
   `:lookup` (a `{variant-id → raw-body}` map or a 1-arg fn) for pure
   tests."
   (:require [re-frame.story.args         :as args]
+            [re-frame.story.assertions   :as assertions]
             [re-frame.story.registrar    :as registrar]
             [re-frame.story.requirements :as requirements]
             [re-frame.story.malli-schema :as msu]
@@ -250,7 +251,15 @@
   "Return `{:script [step ...] :scripts [{:name :script :auto-run?} ...]}`
   for a merged body. Accepts the target `:script` spelling AND the
   shipping `:play-script` / `:plays` spellings, lowering them through the
-  runner's canonical coercion. The primary `:script` is the first play."
+  runner's canonical coercion. The primary `:script` is the first play.
+
+  After coercion every play's script is FOLDED (`assertions/fold-script`,
+  rf2-5x1wt.18): a shipping `:assert-db` / `:assert-dom` step rewrites to
+  the canonical `[:assert assertion-atom]` checkpoint, so EVERY in-script
+  assertion — whatever sugar the author typed — resolves to the ONE
+  assertion atom shape (spec/017 §Assertions — one atom, two positions).
+  Each `:scripts` entry carries the folded script too, so named plays the
+  runner drives also see the canonical checkpoints."
   [body]
   (let [plays (cond
                 (contains? body :script)
@@ -260,7 +269,8 @@
 
                 :else
                 (runner/variant-body->plays body))
-        plays (vec plays)]
+        plays (mapv (fn [p] (update p :script assertions/fold-script))
+                    (vec plays))]
     {:script  (-> plays first :script (or []))
      :scripts plays}))
 
@@ -294,6 +304,51 @@
                 "not judge). Move the assertion to :script (as an "
                 "[:assert …] checkpoint) or to the terminal :assertions slot.")
            {:variant/id id :offending-steps (vec offenders)})))
+
+;; ============================================================================
+;; Assertion-id validation (rf2-5x1wt.18)
+;; ============================================================================
+
+(defn- script-assertion-atoms
+  "Collect the assertion atoms an `[:assert assertion-atom]` checkpoint
+  carries from a folded `script` (rf2-5x1wt.18). The shipping
+  `:assert-db` / `:assert-dom` steps are already folded to `[:assert …]`
+  by `normalize-scripts`, so this single walk covers every in-script
+  assertion position uniformly. Pure data → data."
+  [script]
+  (into [] (keep (fn [step] (when (assert-step? step) (second step)))) script))
+
+(defn- reject-unknown-assertions!
+  "FAIL plan construction when any authored assertion atom — terminal
+  `:assertions` OR an in-script `[:assert …]` checkpoint — names an id
+  that is not in the recognised P1 vocabulary
+  (`assertions/known-assertion-ids`, rf2-5x1wt.18, spec/017 §Assertions).
+  Catching it at compile time surfaces the typo before any run, the same
+  way the other `:rf.error/story-*` plan errors do — never letting an
+  unknown id record a vacuous `:rf.assert/unknown` pseudo-record at run
+  time. `script-assertions` are the atoms pulled from `[:assert …]`
+  checkpoints (post-fold); `terminal-assertions` are the child's own
+  `:assertions` atoms."
+  [id script-assertions terminal-assertions]
+  (let [offenders (into []
+                        (comp (remove nil?)
+                              (remove (fn [a]
+                                        (assertions/assertion-id-known?
+                                          (assertions/assertion-atom-id a)))))
+                        (concat terminal-assertions script-assertions))]
+    (when (seq offenders)
+      (fail! :rf.error/story-unknown-assertion
+             (str "re-frame2-story: variant " id
+                  " — unknown assertion id(s) "
+                  (pr-str (mapv assertions/assertion-atom-id offenders))
+                  " in " (pr-str (vec offenders))
+                  ". An assertion atom must name a recognised :rf.assert/* id "
+                  "(the shipping seven, the DOM family, or a registered "
+                  "requirement id). Check the spelling, or fold a shipping "
+                  ":assert-db / :assert-dom step rather than inventing an id.")
+             {:variant/id id
+              :offending-assertions (vec offenders)
+              :known-ids assertions/known-assertion-ids}))))
 
 ;; ============================================================================
 ;; Arg placeholder substitution
@@ -1083,6 +1138,15 @@
         ;; misplaced verdict surfaces before any run.
         _            (reject-assert-in-setup! id setup)
         script*      (substitute-args script arg-map subs!)
+        ;; rf2-5x1wt.18 — every authored assertion atom (terminal
+        ;; `:assertions` AND an in-script `[:assert …]` checkpoint, incl.
+        ;; the folded `:assert-db` / `:assert-dom` steps) MUST name a
+        ;; recognised :rf.assert/* id. An unknown id FAILS plan
+        ;; construction here, before any run (spec/017 §Assertions). The
+        ;; script is already folded (`normalize-scripts`), so one walk over
+        ;; the `[:assert …]` checkpoints covers every in-script position.
+        _            (reject-unknown-assertions!
+                       id (script-assertion-atoms script*) assertions)
         ;; ---- view-state subscription overrides (rf2-5x1wt.13) ----
         ;; `:sub-overrides` composes like `:network`: composed-fragment
         ;; override maps merge in declared order (a later fragment wins a
