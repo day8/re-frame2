@@ -200,10 +200,10 @@
        (binding [clojure.test/report (fn [m] (swap! reports conj m))]
          (f))
        :cljs
-       ;; cljs.test reports through the test-environment :report-counters
-       ;; / a dynamic var; rebind the report multimethod's sink via
-       ;; with-redefs on `cljs.test/report` is not portable, so we use the
-       ;; testing-context's report var binding.
+       ;; `cljs.test/report` is a multimethod (a `def`, not a `^:dynamic`
+       ;; var), so we swap its root via `with-redefs` for the dynamic
+       ;; extent of `f`. `do-report` resolves `report` at call time, so
+       ;; every report `f` emits routes to our sink and is captured here.
        (with-redefs [cljs.test/report (fn [m] (swap! reports conj m))]
          (f)))
     @reports))

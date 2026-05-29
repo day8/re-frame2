@@ -26,7 +26,16 @@
   - `:drop-assertion-accumulators` — assertions+play → frames. Called
                                      on frame teardown so per-frame
                                      accumulators evict their entries.
-                                     Signature: `(f frame-id) → nil`."
+                                     Signature: `(f frame-id) → nil`.
+
+  - `:render-host`                 — story (via the canonical
+                                     `install-render-host!`) → render. The
+                                     CLJS host's view-render seam, consumed
+                                     by `render-variant` to paint the active
+                                     view. Signature: `(f render-inputs) →
+                                     host-render-result`. Absent on the bare
+                                     JVM (no DOM / substrate), so
+                                     `render-variant` returns `:cannot-run`."
   )
 
 (defonce
