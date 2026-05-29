@@ -56,10 +56,14 @@
   "The edit popup. Renders only when `:rf.xray/edit-popup-open?` is
   true; closed-state is a single subscribe + a `when`. Per rf2-in6l2
   `reg-view`-registered so the body's subscribes route through the
-  React-context tier to `:rf/xray`."
+  React-context tier to `:rf/xray`.
+
+  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch`
+  into `popup-view` so deferred `:on-*` handlers land on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
   []
   (when @(rf/subscribe [:rf.xray/edit-popup-open?])
-    (edit-popup/popup-view)))
+    (edit-popup/popup-view dispatch)))
 
 ;; ---- hydration ---------------------------------------------------------
 

@@ -7,13 +7,13 @@
   `tokens/bg-1` body) so the user gets a consistent affordance
   class for transient overlays.
 
-  ## Why every dispatch carries `{:frame :rf/xray}` (rf2-smvvz)
+  ## Why every deferred dispatch captures the surrounding frame (rf2-smvvz / rf2-r0o63 / rf2-nesy9)
 
   Subscribes resolve through the React-context tier at RENDER time —
-  React's `_currentValue` for the `frame-context` is set to `:rf/xray`
-  while the body of the `frame-provider`'s children is rendering, so
-  `(rf/subscribe …)` from inside the popup picks up the right frame
-  with no explicit opt.
+  React's `_currentValue` for the `frame-context` is set to the
+  instance frame while the body of the `frame-provider`'s children is
+  rendering, so `(rf/subscribe …)` from inside the popup picks up the
+  right frame with no explicit opt.
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` fire
   LATER — after render commits and React has POPPED `_currentValue`
@@ -23,15 +23,19 @@
   `:rf/default`'s router, and the `:rf.xray/settings-*` handler
   reduces `:rf/default`'s db — leaving Xray's `:settings-open?` flag
   untouched. Symptom: X button does nothing, tabs do not switch, Esc
-  does not close — the modal is stuck. Same shape as the
-  `filters/edit_popup.cljs` + `share_modal.cljs` fix that already
-  passes the opt explicitly.
+  does not close — the modal is stuck.
 
-  The fix is mechanical: every `rf/dispatch` from a deferred handler
-  carries `{:frame :rf/xray}` so the envelope's `:frame` is set at
-  call time and never depends on the click-time React-context read.
-  Sister modals (palette) carry the same bug; fixed separately under
-  their own beads to keep this PR scoped."
+  An EARLIER fix pinned every deferred handler to a `{:frame :rf/xray}`
+  literal — correct for the singleton shell, but it entrenched the
+  one-frame lock (rf2-1w07r): two shells on a page collided on the one
+  global app-db. The current contract (rf2-r0o63 / rf2-nesy9) captures
+  the SURROUNDING instance frame instead: `settings/popup.cljs`'s
+  `Modal` `reg-view` body has a frame-aware `dispatch` injected by the
+  macro (closing over the render-time frame), and threads it into
+  `popup-view`, which fans it out to every section helper. Each
+  deferred handler calls that captured `dispatch` (never the global
+  `rf/dispatch`, never a literal), so N isolated instances each route
+  to their own frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.a11y :as a11y]
@@ -239,7 +243,7 @@
   [id]
   (str "rf-xray-settings-tabpanel-" (name id)))
 
-(defn- tab-button [{:keys [id label]} active?]
+(defn- tab-button [dispatch {:keys [id label]} active?]
   ;; rf2-h4mnh — Settings popup inner tabs now carry the full WAI-
   ;; ARIA tab role: `role="tab"` + `aria-selected` per state +
   ;; stable `id` (so the body's `aria-labelledby` resolves) +
@@ -253,8 +257,7 @@
             :aria-selected  (if active? "true" "false")
             :aria-controls  (settings-tabpanel-id id)
             :data-active    (str active?)
-            :on-click       #(rf/dispatch [:rf.xray/settings-select-tab id]
-                                          {:frame :rf/xray})
+            :on-click       #(dispatch [:rf.xray/settings-select-tab id])
             :style          (tab-style active?)}
    label])
 
@@ -317,10 +320,9 @@
     (#{:vscode :cursor :windsurf :zed :idea} override) override
     :else                                              :default))
 
-(defn- dispatch-editor-override! [value]
-  (rf/dispatch [:rf.xray/settings-update
-                :general :editor-override value]
-               {:frame :rf/xray}))
+(defn- dispatch-editor-override! [dispatch value]
+  (dispatch [:rf.xray/settings-update
+             :general :editor-override value]))
 
 (def ^:private custom-template-seed
   "Seed template the Custom radio writes when the user first selects
@@ -333,7 +335,7 @@
   branch."
   "vscode://file/{path}:{line}:{column}")
 
-(defn- editor-override-section [override host-default]
+(defn- editor-override-section [dispatch override host-default]
   (let [active-id   (override->radio-id override)
         custom-tpl  (when (map? override) (:custom override))
         host-label  (cond
@@ -374,10 +376,10 @@
                                   (= id :custom)
                                   (when-not (map? override)
                                     (dispatch-editor-override!
-                                      {:custom custom-template-seed}))
+                                      dispatch {:custom custom-template-seed}))
 
                                   :else
-                                  (dispatch-editor-override! value)))}]
+                                  (dispatch-editor-override! dispatch value)))}]
         label])
 
      ;; Custom URI-template input — visible only when Custom is the
@@ -392,7 +394,7 @@
                  :on-change   (fn [^js e]
                                 (let [tpl (.. e -target -value)]
                                   (dispatch-editor-override!
-                                    {:custom tpl})))
+                                    dispatch {:custom tpl})))
                  :style       {:width        "100%"
                                :padding      "4px 8px"
                                :background   (:bg-2 tokens)
@@ -425,7 +427,7 @@
       [:button {:data-testid "rf-xray-settings-editor-override-reset"
                 :on-click    (fn [^js e]
                                (.stopPropagation e)
-                               (dispatch-editor-override! nil))
+                               (dispatch-editor-override! dispatch nil))
                 :disabled    (nil? override)
                 :style       (merge (ghost-button-style)
                                     (when (nil? override)
@@ -446,7 +448,7 @@
        ":rf.xray/editor"]
       " default doesn't match your installed editor."]]))
 
-(defn- general-section []
+(defn- general-section [dispatch]
   (let [panel-position  @(rf/subscribe [:rf.xray/setting :general :panel-position])
         auto-open?      @(rf/subscribe [:rf.xray/setting :general :auto-open-on-error?])
         epoch-history   @(rf/subscribe [:rf.xray/setting :general :epoch-history])
@@ -479,9 +481,8 @@
                   :type        "radio"
                   :name        "rf-xray-settings-panel-position"
                   :checked     (= panel-position pos)
-                  :on-change   #(rf/dispatch [:rf.xray/settings-update
-                                              :general :panel-position pos]
-                                             {:frame :rf/xray})}]
+                  :on-change   #(dispatch [:rf.xray/settings-update
+                                           :general :panel-position pos])}]
          label])]
 
      ;; ── Auto-open-on-error checkbox ─────────────────────────────
@@ -493,11 +494,10 @@
        [:input {:data-testid "rf-xray-settings-auto-open-on-error"
                 :type        "checkbox"
                 :checked     (boolean auto-open?)
-                :on-change   #(rf/dispatch
+                :on-change   #(dispatch
                                 [:rf.xray/settings-update
                                  :general :auto-open-on-error?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
+                                 (boolean (.. % -target -checked))])}]
        "Auto-open Xray when an issue is observed"]]
 
      ;; ── Epoch history slider ─────────────────────────────────────
@@ -520,10 +520,9 @@
                 :on-change   (fn [^js e]
                                (let [n (js/parseInt (.. e -target -value) 10)]
                                  (when-not (js/isNaN n)
-                                   (rf/dispatch
+                                   (dispatch
                                      [:rf.xray/settings-update
-                                      :general :epoch-history n]
-                                     {:frame :rf/xray}))))
+                                      :general :epoch-history n]))))
                 :style       {:flex 1}}]
        [:span {:data-testid "rf-xray-settings-epoch-history-value"
                :style       {:font-family mono-stack
@@ -559,7 +558,7 @@
      ;; the slot via `:rf.xray/settings-update` and `config/get-editor`
      ;; consults the slot before the host atom — the next chip click
      ;; uses the override URI without a reload.
-     (editor-override-section editor-override host-editor)
+     (editor-override-section dispatch editor-override host-editor)
 
      ;; ── Epoch history slider (rf2-3zyyx; relocated rf2-pu9sb) ──
      ;;
@@ -622,11 +621,10 @@
        [:input {:data-testid "rf-xray-settings-show-ungrouped"
                 :type        "checkbox"
                 :checked     (boolean show-ungrouped?)
-                :on-change   #(rf/dispatch
+                :on-change   #(dispatch
                                 [:rf.xray/settings-update
                                  :general :show-ungrouped?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
+                                 (boolean (.. % -target -checked))])}]
        "Show :ungrouped pseudo-cascade events in L2"]
       [:p {:style (hint-style)}
        "Reveals events outside any dispatch — "
@@ -687,7 +685,7 @@
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
 
-(defn- diff-section []
+(defn- diff-section [dispatch]
   (let [highlight? @(rf/subscribe [:rf.xray/setting :diff :highlight-fn-ref-changes?])]
     [:div {:data-testid "rf-xray-settings-section-diff"}
      [:h2 {:style (section-heading-style)} "Diff"]
@@ -707,11 +705,10 @@
        [:input {:data-testid "rf-xray-settings-diff-highlight-fn-ref"
                 :type        "checkbox"
                 :checked     (boolean highlight?)
-                :on-change   #(rf/dispatch
+                :on-change   #(dispatch
                                 [:rf.xray/settings-update
                                  :diff :highlight-fn-ref-changes?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
+                                 (boolean (.. % -target -checked))])}]
        "Highlight function-ref changes in view hiccup"]
       [:p {:style (hint-style)}
        "Off by default. The hiccup-diff engine treats function-valued "
@@ -947,7 +944,7 @@
    :font-size        (:body type-scale)
    :font-weight      500})
 
-(defn- clear-buffer-confirm-modal []
+(defn- clear-buffer-confirm-modal [dispatch]
   ;; Inner confirmation dialog mounted inside the Settings dialog
   ;; body when `:settings-clear-confirm-open?` is true. Click outside
   ;; (the inner backdrop) cancels; explicit Cancel button cancels;
@@ -955,8 +952,7 @@
   [:div {:data-testid "rf-xray-settings-clear-confirm-backdrop"
          :on-click    (fn [^js e]
                         (.stopPropagation e)
-                        (rf/dispatch [:rf.xray/settings-cancel-clear-buffer]
-                                     {:frame :rf/xray}))
+                        (dispatch [:rf.xray/settings-cancel-clear-buffer]))
          :style {:position "absolute"
                  :inset    "0"
                  :background "rgba(0,0,0,0.45)"
@@ -990,21 +986,19 @@
      [:button {:data-testid "rf-xray-settings-clear-cancel"
                :on-click    (fn [^js e]
                               (.stopPropagation e)
-                              (rf/dispatch
-                                [:rf.xray/settings-cancel-clear-buffer]
-                                {:frame :rf/xray}))
+                              (dispatch
+                                [:rf.xray/settings-cancel-clear-buffer]))
                :style       (ghost-button-style)}
       "Cancel"]
      [:button {:data-testid "rf-xray-settings-clear-confirm"
                :on-click    (fn [^js e]
                               (.stopPropagation e)
-                              (rf/dispatch
-                                [:rf.xray/settings-clear-buffer]
-                                {:frame :rf/xray}))
+                              (dispatch
+                                [:rf.xray/settings-clear-buffer]))
                :style       (danger-button-style)}
       "Clear"]]]])
 
-(defn- buffer-section []
+(defn- buffer-section [dispatch]
   (let [cascades-retained @(rf/subscribe [:rf.xray/setting :buffer :cascades-retained])
         collapse-thresh   @(rf/subscribe [:rf.xray/setting :buffer
                                           :app-db/inspector-collapse-threshold])
@@ -1029,10 +1023,9 @@
         :value     cascades-retained
         :default   50
         :min       1
-        :on-commit #(rf/dispatch
+        :on-commit #(dispatch
                       [:rf.xray/settings-update
-                       :buffer :cascades-retained %]
-                      {:frame :rf/xray})
+                       :buffer :cascades-retained %])
         :hint      "Number of cascades retained in each frame's trace ring."})
 
      (numeric-field
@@ -1041,10 +1034,9 @@
         :value     collapse-thresh
         :default   50
         :min       1
-        :on-commit #(rf/dispatch
+        :on-commit #(dispatch
                       [:rf.xray/settings-update
-                       :buffer :app-db/inspector-collapse-threshold %]
-                      {:frame :rf/xray})
+                       :buffer :app-db/inspector-collapse-threshold %])
         :hint      "Branch factor above which the App-db inspector collapses by default."})
 
      ;; Destructive action — opens confirm modal.
@@ -1052,9 +1044,8 @@
       [:button {:data-testid "rf-xray-settings-clear-buffer-now"
                 :on-click    (fn [^js e]
                                (.stopPropagation e)
-                               (rf/dispatch
-                                 [:rf.xray/settings-confirm-clear-buffer]
-                                 {:frame :rf/xray}))
+                               (dispatch
+                                 [:rf.xray/settings-confirm-clear-buffer]))
                 :style       (danger-button-style)}
        "Clear buffer now"]
       [:p {:style (hint-style)}
@@ -1062,7 +1053,7 @@
        "This cannot be undone."]]
 
      (when confirm-open?
-       [clear-buffer-confirm-modal])]))
+       [clear-buffer-confirm-modal dispatch])]))
 
 ;; ---- key handling -------------------------------------------------------
 
@@ -1081,7 +1072,8 @@
           (.-isContentEditable target)))))
 
 (defn- handle-keydown
-  "Dialog-level keydown handler. Captures:
+  "Build the dialog-level keydown handler, closing over the captured
+  frame-aware `dispatch` (rf2-nesy9). Captures:
 
    - `Escape` → close the Settings popup (always).
    - Bare-letter mnemonics (g/t/f/k/b/d) → switch the active inner
@@ -1094,30 +1086,29 @@
      (panel-width, long-keyword threshold, buffer knobs) are not
      interrupted by an accidental letter.
    - Every other key falls through to the host."
-  [^js e]
-  (cond
-    (or (= "Escape" (.-key e)) (= "Esc" (.-key e)))
-    (do (.preventDefault e)
+  [dispatch]
+  (fn [^js e]
+    (cond
+      (or (= "Escape" (.-key e)) (= "Esc" (.-key e)))
+      (do (.preventDefault e)
+          (.stopPropagation e)
+          (dispatch [:rf.xray/settings-close]))
+
+      ;; Bare-letter mnemonic — only fire when (a) no modifier is held,
+      ;; (b) the focused element is not editable, (c) the key maps to a
+      ;; known tab id.
+      (and (not (.-ctrlKey e))
+           (not (.-metaKey e))
+           (not (.-altKey e))
+           (not (.-shiftKey e))
+           (not (editable-target? e))
+           (contains? mnemonic->tab-id (.-key e)))
+      (let [tab-id (get mnemonic->tab-id (.-key e))]
+        (.preventDefault e)
         (.stopPropagation e)
-        (rf/dispatch [:rf.xray/settings-close]
-                     {:frame :rf/xray}))
+        (dispatch [:rf.xray/settings-select-tab tab-id]))
 
-    ;; Bare-letter mnemonic — only fire when (a) no modifier is held,
-    ;; (b) the focused element is not editable, (c) the key maps to a
-    ;; known tab id.
-    (and (not (.-ctrlKey e))
-         (not (.-metaKey e))
-         (not (.-altKey e))
-         (not (.-shiftKey e))
-         (not (editable-target? e))
-         (contains? mnemonic->tab-id (.-key e)))
-    (let [tab-id (get mnemonic->tab-id (.-key e))]
-      (.preventDefault e)
-      (.stopPropagation e)
-      (rf/dispatch [:rf.xray/settings-select-tab tab-id]
-                   {:frame :rf/xray}))
-
-    :else nil))
+      :else nil)))
 
 ;; ---- public view --------------------------------------------------------
 
@@ -1125,15 +1116,20 @@
   "Hiccup for the open settings popup. Caller (`popup/Modal`) gates
   the mount on `:rf.xray/settings-open?` — this fn assumes it's open
   and always renders. ESC closes; click outside the dialog closes;
-  the ✕ button in the header closes."
-  []
+  the ✕ button in the header closes.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `Modal` `reg-view` body — threaded down to every section helper so
+  deferred handlers land on the surrounding instance frame, not a
+  `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [active-tab  @(rf/subscribe [:rf.xray/settings-active-tab])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])]
+        positioning @(rf/subscribe [:rf.xray/modal-positioning])
+        on-keydown  (handle-keydown dispatch)]
     [:div {:data-testid "rf-xray-settings-backdrop"
            :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(rf/dispatch [:rf.xray/settings-close]
-                                      {:frame :rf/xray})
-           :on-key-down handle-keydown
+           :on-click    #(dispatch [:rf.xray/settings-close])
+           :on-key-down on-keydown
            :style       (backdrop-style positioning)}
      [:div (merge
              ;; rf2-7389r — WAI-ARIA dialog contract: role/aria-modal/
@@ -1148,7 +1144,7 @@
               :data-rf-xray-mode "settings"
               :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
-              :on-key-down handle-keydown
+              :on-key-down on-keydown
               :tab-index   "-1"
               :style       (dialog-style)})
       ;; Header
@@ -1163,8 +1159,7 @@
                  :title       "Close settings (Esc)"
                  :on-click    (fn [^js e]
                                 (.stopPropagation e)
-                                (rf/dispatch [:rf.xray/settings-close]
-                                             {:frame :rf/xray}))
+                                (dispatch [:rf.xray/settings-close]))
                  :style       (close-button-style)}
         "✕"]]
       ;; Tab strip — rf2-h4mnh: the strip wrapper is an explicit
@@ -1177,7 +1172,7 @@
                    :aria-label  "Settings sections"
                    :style       (tab-strip-style)}]
             (for [tab tabs]
-              [tab-button tab (= (:id tab) active-tab)]))
+              [tab-button dispatch tab (= (:id tab) active-tab)]))
       ;; Body — rf2-h4mnh: closes the tabs/tabpanel loop. The body
       ;; carries `role="tabpanel"` + an `id` matching the active
       ;; tab button's `aria-controls`, and `aria-labelledby`
@@ -1189,8 +1184,8 @@
              :aria-labelledby (settings-tab-button-id active-tab)
              :style           (body-style)}
        (case active-tab
-         :general     (general-section)
-         :diff        (diff-section)
+         :general     (general-section dispatch)
+         :diff        (diff-section dispatch)
          :keybindings (keybindings-section)
-         :buffer      (buffer-section)
-         (general-section))]]]))
+         :buffer      (buffer-section dispatch)
+         (general-section dispatch))]]]))

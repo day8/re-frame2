@@ -191,7 +191,7 @@
 ;; ---- view ----------------------------------------------------------------
 
 (defn- mode-radio
-  [{:keys [mode current-mode]}]
+  [dispatch {:keys [mode current-mode]}]
   (let [tone   (case mode :in (:green tokens) :out (:magenta tokens))
         on?    (= mode current-mode)]
     [:label {:data-testid (str "rf-xray-edit-popup-mode-" (name mode))
@@ -206,15 +206,19 @@
               :name      "rf-xray-edit-popup-mode"
               :value     (name mode)
               :checked   on?
-              :on-change #(rf/dispatch
-                            [:rf.xray/edit-popup-set-mode mode]
-                            {:frame :rf/xray})}]
+              :on-change #(dispatch
+                            [:rf.xray/edit-popup-set-mode mode])}]
      (case mode :in "Show only matching events" :out "Hide matching events")]))
 
 (defn popup-view
   "The popup body. Caller (`filters/Modal`) gates the mount on
-  `:rf.xray/edit-popup-open?`."
-  []
+  `:rf.xray/edit-popup-open?`.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `filters/Modal` `reg-view` body — every deferred handler routes
+  through it so the edit lands on the surrounding instance frame, not
+  a `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [trigger     @(rf/subscribe [:rf.xray/edit-popup-trigger])
         draft       @(rf/subscribe [:rf.xray/edit-popup-draft])
         positioning @(rf/subscribe [:rf.xray/modal-positioning])
@@ -229,7 +233,7 @@
                       (and (string? p) (seq (clojure.string/trim p))))]
     [:div {:data-testid "rf-xray-edit-popup-backdrop"
            :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(rf/dispatch [:rf.xray/close-edit-popup] {:frame :rf/xray})
+           :on-click    #(dispatch [:rf.xray/close-edit-popup])
            :style       (backdrop-style positioning)}
      [:div (merge
              ;; rf2-7389r — WAI-ARIA dialog contract. The edit-popup
@@ -248,9 +252,8 @@
        [:span {:id "rf-xray-edit-popup-title"} title]
        [:button {:data-testid "rf-xray-edit-popup-close"
                  :aria-label  "Close filter editor"
-                 :on-click    #(rf/dispatch
-                                 [:rf.xray/close-edit-popup]
-                                 {:frame :rf/xray})
+                 :on-click    #(dispatch
+                                 [:rf.xray/close-edit-popup])
                  :title       "Close (Esc)"
                  :style {:background  "transparent"
                          :border      "none"
@@ -262,8 +265,8 @@
       [:div {:style (section-style)}
        [:label {:style (label-style)} "Action"]
        [:div {:style (radio-row-style)}
-        [mode-radio {:mode :in :current-mode mode}]
-        [mode-radio {:mode :out :current-mode mode}]]]
+        [mode-radio dispatch {:mode :in :current-mode mode}]
+        [mode-radio dispatch {:mode :out :current-mode mode}]]]
 
       [:div {:style (section-style)}
        [:label {:style (label-style) :for "rf-xray-edit-popup-pattern"}
@@ -274,21 +277,18 @@
                 :auto-focus   true
                 :value        (or (:pattern draft) "")
                 :placeholder  ":auth/*, :mouse-move, /login"
-                :on-change    #(rf/dispatch
+                :on-change    #(dispatch
                                  [:rf.xray/edit-popup-set-pattern
-                                  (.. % -target -value)]
-                                 {:frame :rf/xray})
+                                  (.. % -target -value)])
                 :on-key-down  (fn [^js e]
                                 (case (.-key e)
                                   "Enter"  (when can-apply?
                                              (.preventDefault e)
-                                             (rf/dispatch
-                                               [:rf.xray/save-edit-popup]
-                                               {:frame :rf/xray}))
+                                             (dispatch
+                                               [:rf.xray/save-edit-popup]))
                                   "Escape" (do (.preventDefault e)
-                                               (rf/dispatch
-                                                 [:rf.xray/close-edit-popup]
-                                                 {:frame :rf/xray}))
+                                               (dispatch
+                                                 [:rf.xray/close-edit-popup]))
                                   nil))
                 :style        (input-style)}]
        [:div {:style {:margin-top "4px"
@@ -302,25 +302,22 @@
       [:div {:style (footer-style)}
        (if editing?
          [:button {:data-testid "rf-xray-edit-popup-delete"
-                   :on-click    #(rf/dispatch
-                                   [:rf.xray/delete-edit-popup]
-                                   {:frame :rf/xray})
+                   :on-click    #(dispatch
+                                   [:rf.xray/delete-edit-popup])
                    :style       (btn-style {:danger? true})}
           "Delete"]
          [:span])
        [:div {:style {:display "flex" :gap "8px"}}
         [:button {:data-testid "rf-xray-edit-popup-cancel"
-                  :on-click    #(rf/dispatch
-                                  [:rf.xray/close-edit-popup]
-                                  {:frame :rf/xray})
+                  :on-click    #(dispatch
+                                  [:rf.xray/close-edit-popup])
                   :style       (btn-style {})}
          "Cancel"]
         [:button {:data-testid "rf-xray-edit-popup-save"
                   :disabled    (not can-apply?)
                   :on-click    #(when can-apply?
-                                  (rf/dispatch
-                                    [:rf.xray/save-edit-popup]
-                                    {:frame :rf/xray}))
+                                  (dispatch
+                                    [:rf.xray/save-edit-popup]))
                   :style       (merge (btn-style {:primary? true})
                                       (when-not can-apply?
                                         {:opacity 0.4 :cursor "default"}))}

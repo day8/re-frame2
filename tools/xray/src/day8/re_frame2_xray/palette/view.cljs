@@ -27,13 +27,13 @@
   handles open; ESC inside the input also closes so the user does
   not need to drop modifier hands.
 
-  ## Why every dispatch carries `{:frame :rf/xray}` (rf2-w8lxg)
+  ## Why every deferred dispatch captures the surrounding frame (rf2-w8lxg / rf2-r0o63 / rf2-nesy9)
 
   Subscribes resolve through the React-context tier at RENDER time —
-  React's `_currentValue` for the `frame-context` is set to `:rf/xray`
-  while the body of the `frame-provider`'s children is rendering, so
-  `(rf/subscribe …)` from inside the palette picks up the right frame
-  with no explicit opt.
+  React's `_currentValue` for the `frame-context` is set to the
+  instance frame while the body of the `frame-provider`'s children is
+  rendering, so `(rf/subscribe …)` from inside the palette picks up
+  the right frame with no explicit opt.
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` /
   `:on-mouse-enter` fire LATER — after render commits and React has
@@ -43,12 +43,17 @@
   dispatch lands on `:rf/default`'s router, and the `:rf.xray/palette-*`
   handler reduces `:rf/default`'s db — leaving Xray's `:palette-*`
   slots untouched. Symptom: palette appears frozen — arrow keys,
-  Enter, click on a row, ESC, backdrop click all no-op. Sister fix
-  to rf2-smvvz (Settings popup, PR #1465).
+  Enter, click on a row, ESC, backdrop click all no-op.
 
-  The fix is mechanical: every `rf/dispatch` from a deferred handler
-  carries `{:frame :rf/xray}` so the envelope's `:frame` is set at
-  call time and never depends on the click-time React-context read."
+  An EARLIER fix pinned each deferred handler to a `{:frame :rf/xray}`
+  literal — correct for the singleton shell but entrenching the
+  one-frame lock (rf2-1w07r). The current contract (rf2-r0o63 /
+  rf2-nesy9) captures the SURROUNDING instance frame instead:
+  `palette.cljs`'s `Modal` `reg-view` body has a frame-aware `dispatch`
+  injected by the macro and threads it into `palette-view`, which fans
+  it out to every row + key handler. Each deferred handler calls that
+  captured `dispatch` (never the global `rf/dispatch`, never a
+  literal), so N isolated instances each route to their own frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.theme.tokens
@@ -206,7 +211,7 @@
   (str "rf-xray-palette-option-" idx))
 
 (defn- result-row
-  [{:keys [source label hint icon] :as item} active? idx]
+  [dispatch {:keys [source label hint icon] :as item} active? idx]
   [:li {:key          (str "row-" idx)
         :id           (row-id idx)
         :role         "option"
@@ -214,12 +219,10 @@
         :data-testid  (str "rf-xray-palette-row-" idx)
         :data-source  (name source)
         :data-active  (str active?)
-        :on-click     #(rf/dispatch
+        :on-click     #(dispatch
                          [:rf.xray/palette-invoke item
-                          (boolean (or (.-ctrlKey %) (.-metaKey %)))]
-                         {:frame :rf/xray})
-        :on-mouse-enter #(rf/dispatch [:rf.xray/palette-cursor-set idx]
-                                      {:frame :rf/xray})
+                          (boolean (or (.-ctrlKey %) (.-metaKey %)))])
+        :on-mouse-enter #(dispatch [:rf.xray/palette-cursor-set idx])
         :style        (row-style active?)}
    [:span {:style (icon-style source)} icon]
    [:span {:style {:flex             1
@@ -238,7 +241,7 @@
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-input-keydown
-  [^js e results]
+  [dispatch ^js e results]
   (let [k         (.-key e)
         ctrl?     (or (.-ctrlKey e) (.-metaKey e))
         count     (count results)
@@ -247,26 +250,20 @@
                     (nth results cursor))]
     (case k
       "ArrowDown" (do (.preventDefault e)
-                      (rf/dispatch
-                        [:rf.xray/palette-cursor-down (dec count)]
-                        {:frame :rf/xray}))
+                      (dispatch
+                        [:rf.xray/palette-cursor-down (dec count)]))
       "ArrowUp"   (do (.preventDefault e)
-                      (rf/dispatch [:rf.xray/palette-cursor-up]
-                                   {:frame :rf/xray}))
+                      (dispatch [:rf.xray/palette-cursor-up]))
       "Enter"     (when active
                     (.preventDefault e)
-                    (rf/dispatch
-                      [:rf.xray/palette-invoke active (boolean ctrl?)]
-                      {:frame :rf/xray}))
+                    (dispatch
+                      [:rf.xray/palette-invoke active (boolean ctrl?)]))
       "Escape"    (do (.preventDefault e)
-                      (rf/dispatch [:rf.xray/palette-close]
-                                   {:frame :rf/xray}))
+                      (dispatch [:rf.xray/palette-close]))
       "Home"      (do (.preventDefault e)
-                      (rf/dispatch [:rf.xray/palette-cursor-set 0]
-                                   {:frame :rf/xray}))
+                      (dispatch [:rf.xray/palette-cursor-set 0]))
       "End"       (do (.preventDefault e)
-                      (rf/dispatch [:rf.xray/palette-cursor-set (dec count)]
-                                   {:frame :rf/xray}))
+                      (dispatch [:rf.xray/palette-cursor-set (dec count)]))
       nil)))
 
 ;; ---- main view ---------------------------------------------------------
@@ -274,14 +271,18 @@
 (defn palette-view
   "The hiccup for the open palette. Caller (`palette/Modal`) gates
   the mount on `:rf.xray/palette-open?` — this fn assumes it's open
-  and always renders."
-  []
+  and always renders.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `palette/Modal` `reg-view` body — threaded into every row + key
+  handler so deferred handlers land on the surrounding instance frame,
+  not a `{:frame :rf/xray}` literal."
+  [dispatch]
   (let [query   (or @(rf/subscribe [:rf.xray/palette-query]) "")
         results @(rf/subscribe [:rf.xray/palette-results])
         cursor  @(rf/subscribe [:rf.xray/palette-cursor])]
     [:div {:data-testid "rf-xray-palette-backdrop"
-           :on-click    #(rf/dispatch [:rf.xray/palette-close]
-                                      {:frame :rf/xray})
+           :on-click    #(dispatch [:rf.xray/palette-close])
            :style       (backdrop-style)}
      [:div {:data-testid "rf-xray-palette-dialog"
             :data-rf-xray-mode "palette"
@@ -320,11 +321,10 @@
                               (when (and (seq results)
                                          (< cursor (count results)))
                                 (row-id cursor))
-                :on-change    #(rf/dispatch
+                :on-change    #(dispatch
                                  [:rf.xray/palette-set-query
-                                  (.. % -target -value)]
-                                 {:frame :rf/xray})
-                :on-key-down  #(handle-input-keydown % results)
+                                  (.. % -target -value)])
+                :on-key-down  #(handle-input-keydown dispatch % results)
                 :style        (input-style)}]
        [:span {:data-testid "rf-xray-palette-result-count"
                :style {:color (:text-tertiary tokens)
@@ -347,7 +347,7 @@
                     :style       (list-style)}]
               (map-indexed
                 (fn [idx item]
-                  (result-row item (= idx cursor) idx))
+                  (result-row dispatch item (= idx cursor) idx))
                 results)))
       [:div {:style (footer-style)}
        [:div

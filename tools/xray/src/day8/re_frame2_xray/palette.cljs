@@ -31,10 +31,14 @@
   true; closed-state is a single subscribe + a `when` — cheap.
 
   Per rf2-in6l2 `reg-view`-registered so the body's subscribes route
-  through the React-context tier to `:rf/xray`."
+  through the React-context tier to `:rf/xray`.
+
+  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch`
+  into `palette-view` so deferred `:on-*` handlers land on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
   []
   (when @(rf/subscribe [:rf.xray/palette-open?])
-    (view/palette-view)))
+    (view/palette-view dispatch)))
 
 (defn install!
   "Idempotent install for the palette's Xray-side registrations.
