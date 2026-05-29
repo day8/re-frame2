@@ -153,7 +153,20 @@ outside their own provider) resolves to the surrounding **instance**
 frame via a captured frame-aware dispatcher (`reg-view`'s injected
 `(dispatcher)` / `rf/frame-bound-fn` closing over `(rf/current-frame)`
 at render time) — never a literal and never a bare global `rf/dispatch`.
-A `:rf/xray`-literal / global-dispatch guard rejects regressions (see
+For a deeply-fanned tree of plain `defn` renderers (e.g. the Trace /
+Epoch / Machine panels), the canonical idiom is a **render-time
+`(rf/current-frame)` capture** in each leaf renderer (the helper runs
+inside the panel's `reg-view` render, so `current-frame` resolves
+through the React-context tier) — cleaner than threading a `dispatch-fn`
+through every intermediate fn. The de-singleton sweep (rf2-1w07r EPIC,
+closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
+and static surface now captures its instance frame, and the
+`:rf/xray`-literal / global-dispatch guard's `pending-migration`
+allowlist is empty. The few production-singleton seams (trace-collector
+`note-suppressed!`, share-URL on-load restore, per-feature `hydrate!`
+init) have no surrounding render/event frame, so they target the shell
+via the named `defaults/default-frame-id` Var. A `:rf/xray`-literal /
+global-dispatch guard rejects regressions (see
 [`017-Test-Coverage-Matrix.md`](./017-Test-Coverage-Matrix.md)).
 
 Handlers register **globally once** under `:rf.xray/*` (the registrar
