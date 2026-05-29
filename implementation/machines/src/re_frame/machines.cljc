@@ -52,6 +52,7 @@
             [re-frame.machines.lifecycle-fx.update-snapshot :as update-snapshot]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]
@@ -139,7 +140,7 @@
   ([system-id]
    (machine-by-system-id system-id (frame/current-frame)))
   ([system-id frame-id]
-   (get-in (frame/frame-app-db-value frame-id) [:rf/runtime :machines :system-ids system-id])))
+   (get-in (frame/frame-app-db-value frame-id) (paths/system-id-path system-id))))
 
 (defn reset-timers!
   "Cancel in-flight `:after` timers.
@@ -215,7 +216,7 @@
 (subs/reg-sub :rf/machine
   {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via sub-machine."}
   (fn [db [_ machine-id]]
-    (get-in db [:rf/runtime :machines :snapshots machine-id])))
+    (get-in db (paths/snapshot-path machine-id))))
 
 ;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1): the
 ;; `:rf/machine-has-tag?` framework sub returns `true` iff the named
@@ -229,7 +230,7 @@
 (subs/reg-sub :rf/machine-has-tag?
   {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1)."}
   (fn [db [_ machine-id tag]]
-    (contains? (get-in db [:rf/runtime :machines :snapshots machine-id :tags]) tag)))
+    (contains? (get-in db (paths/snapshot-path machine-id :tags)) tag)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

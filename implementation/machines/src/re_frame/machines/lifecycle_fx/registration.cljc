@@ -25,6 +25,7 @@
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
             [re-frame.machines.transition :as transition]
@@ -262,7 +263,7 @@
                              :rf/frame     frame-id
                              :rf/platform  platform
                              :rf/parent-id machine-id)
-        path          [:rf/runtime :machines :snapshots machine-id]
+        path          (paths/snapshot-path machine-id)
         existing-snap (get-in db path)
         snapshot      (cond
                         (nil? existing-snap)

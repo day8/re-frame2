@@ -31,6 +31,7 @@
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]))
@@ -97,7 +98,7 @@
   nil actor-id)."
   [frame-id parent-id invoke-id]
   (let [join-state (get-in (frame/frame-app-db-value frame-id)
-                           [:rf/runtime :machines :spawned parent-id invoke-id])
+                           (paths/spawned-path parent-id invoke-id))
         children   (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
       ;; (rf2-iilco) `destroy-single-actor!` runs the child's `:exit`
@@ -182,7 +183,7 @@
         invoke-id (when tracked? (:rf/spawn-id args))
         old-db    (frame/frame-app-db-value frame-id)
         slot-id   (when (and tracked? old-db)
-                    (get-in old-db [:rf/runtime :machines :spawned parent-id invoke-id]))
+                    (get-in old-db (paths/spawned-path parent-id invoke-id)))
         actor-id  (if tracked? slot-id args)
         ;; rf2-lbjnz — silent-idempotent guard. `live?` is true iff ANY
         ;; liveness signal survives (handler registered / snapshot
@@ -191,7 +192,7 @@
         live?     (and actor-id
                        (or (some? (registrar/lookup :event actor-id))
                            (and (some? old-db)
-                                (contains? (get-in old-db [:rf/runtime :machines :snapshots]) actor-id))
+                                (contains? (get-in old-db (paths/snapshot-path)) actor-id))
                            (some #(= actor-id %)
                                  (spawn-order/frame-order frame-id))
                            (and tracked? (some? slot-id))))]

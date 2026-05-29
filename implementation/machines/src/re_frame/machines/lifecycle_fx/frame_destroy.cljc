@@ -42,6 +42,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
+            [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
@@ -56,7 +57,7 @@
   [frame-id]
   (let [container (frame/app-db-container frame-id)
         db        (when container (adapter/read-container container))]
-    (or (get-in db [:rf/runtime :machines :snapshots]) {})))
+    (or (get-in db (paths/snapshot-path)) {})))
 
 (defn- emit-lifecycle-destroyed!
   "Emit the legacy `:rf.machine.lifecycle/destroyed` notification per

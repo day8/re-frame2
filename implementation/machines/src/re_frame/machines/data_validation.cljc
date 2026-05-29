@@ -37,6 +37,7 @@
   keyword, validator deref, and trace call."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.machines.paths :as paths]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -123,7 +124,7 @@
   [db event-id frame-id]
   (if interop/debug-enabled?
     (if-let [machine-meta (late-bind/get-fn-cached :machines/machine-meta)]
-      (let [snapshots (get-in db [:rf/runtime :machines :snapshots])]
+      (let [snapshots (get-in db (paths/snapshot-path))]
         (loop [entries (seq snapshots)
                ok?     true]
           (if-let [[machine-id snapshot] (first entries)]
