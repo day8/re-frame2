@@ -22,6 +22,8 @@
 
   - `:story` — parent of variants
   - `:variant` — concrete scenario; one per frame at runtime (Stage 3)
+  - `:fragment` — reusable setup/script/world mixin composed via `:compose`
+  - `:check` — reusable assertion pack composed via `:compose` / inherited
   - `:workspace` — layout artefact
   - `:mode` — saved-tuple of args
   - `:story-panel` — extension hook into the story-tool's chrome
@@ -101,6 +103,8 @@
 (defn- fresh-table []
   {:story       {}
    :variant     {}
+   :fragment    {}
+   :check       {}
    :workspace   {}
    :mode        {}
    :story-panel {}
@@ -254,6 +258,8 @@
   (let [ok? (case kind
               :story       schemas/story-id?
               :variant     schemas/variant-id?
+              :fragment    schemas/fragment-id?
+              :check       schemas/check-id?
               :workspace   schemas/workspace-id?
               :mode        schemas/mode-id?
               ;; story-panel, decorator, tag — any keyword.
@@ -357,6 +363,43 @@
                      (->> (validate-shape! :variant id)))
         _        (validate-tag-membership! id (:tags body))]
     (swap! kind->id->body assoc-in [:variant id] body)
+    (bump-tick!)
+    id))
+
+(defn reg-fragment*
+  "Runtime helper for `reg-fragment` macro (rf2-5x1wt.15). A fragment is a
+  reusable setup/script/world mixin a variant pulls in through `:compose`.
+
+  Validates the body against the `Fragment` schema — which enforces the
+  flat-fragment rule (a fragment MUST NOT carry `:compose` / `:extends`)
+  and the world/behaviour-only shape (no `:checks` / `:assertions`). The
+  body is stored verbatim (un-lowered): the plan compiler normalizes both
+  `:setup`/`:events` and `:script`/`:play-script` spellings at compose
+  time, so the fragment keeps the author's spelling."
+  [id body]
+  (maybe-auto-install!)
+  (assert-id! :fragment id)
+  (let [body (-> body
+                 merge-coords
+                 (->> (validate-shape! :fragment id)))]
+    (swap! kind->id->body assoc-in [:fragment id] body)
+    (bump-tick!)
+    id))
+
+(defn reg-check*
+  "Runtime helper for `reg-check` macro (rf2-5x1wt.15). A check is a named,
+  reusable assertion pack — the inheritable expectation form. Validates the
+  body against the `Check` schema (`:assertions` required, no
+  world/behaviour). Check identity (the id) is preserved by the plan
+  compiler and by run results so a failed check shows its id alongside the
+  underlying assertion records."
+  [id body]
+  (maybe-auto-install!)
+  (assert-id! :check id)
+  (let [body (-> body
+                 merge-coords
+                 (->> (validate-shape! :check id)))]
+    (swap! kind->id->body assoc-in [:check id] body)
     (bump-tick!)
     id))
 

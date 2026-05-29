@@ -4,8 +4,10 @@
   registrar side-table, schemas, extends resolution) live under
   `re-frame.story.<sub-ns>`.
 
-  This namespace re-exports the seven `reg-*` macros, the registry
-  query helpers (`registrations` / `handler-meta` / `ids` /
+  This namespace re-exports the `reg-*` macros (`reg-story` /
+  `reg-variant` / `reg-fragment` / `reg-check` / `reg-workspace` /
+  `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`), the
+  registry query helpers (`registrations` / `handler-meta` / `ids` /
   `variants-of` / `variants-with-tags`), the runtime entry points
   (`run-variant` / `reset-variant` / `watch-variant` / `variant->edn` /
   `snapshot-identity`), and the shell mount/unmount surface
@@ -133,9 +135,9 @@
   ;; without an explicit :require-macros clause at the call site.
   ;; Mirror of the `re-frame.core` :require-macros pattern.
   #?(:cljs (:require-macros
-             [re-frame.story :refer [reg-story reg-variant reg-workspace
-                                     reg-mode reg-story-panel reg-decorator
-                                     reg-tag]])))
+             [re-frame.story :refer [reg-story reg-variant reg-fragment
+                                     reg-check reg-workspace reg-mode
+                                     reg-story-panel reg-decorator reg-tag]])))
 
 ;; ---- macros (the seven reg-* forms) --------------------------------------
 ;;
@@ -214,6 +216,66 @@
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-variant*
+                          id metadata)))
+
+#?(:clj
+   (defmacro reg-fragment
+     "Register a fragment — a reusable setup / script / world mixin a
+     variant pulls in through `:compose`. Per spec/017 §Fragments +
+     §Strict composition (rf2-5x1wt.15).
+
+     Fragment body shape — every key is data, no fn-valued slots:
+
+     ```
+     {:doc                   \"...\"
+      :args                  {<arg-key> <value>}
+      :setup                 [[:dispatch [:event-id ...]] ...]
+      :script                {:script [[:dispatch [:event-id ...]] ...]}
+      :network               {[method url] {:reply {:ok|:failure ...}}}
+      :fx-overrides          {<fx-id> <override>}
+      :interceptor-overrides {<interceptor-id> <override>}
+      :loaders               [[:loader-event-id ...]]
+      :decorators            [[:dec-id args...]]}
+     ```
+
+     **P1 fragments MUST be flat.** A fragment MUST NOT carry `:compose`
+     or `:extends` (the schema rejects both, so cycles are impossible).
+     Fragments carry world/behaviour, never judgement — no `:checks` /
+     `:assertions`. Compose a check by naming its id in the variant's
+     `:compose`; put own assertions on the variant.
+
+     When a variant composes two fragments that disagree on a strict-
+     conflict field (`:fx-overrides` / `:interceptor-overrides`) while the
+     variant is silent, plan construction fails — the variant owns its
+     end-state and resolves the conflict by stating the wanted value (no
+     `:resolve-conflicts` escape hatch in P1)."
+     [id metadata]
+     (macros/gen-reg-call (meta &form) *file*
+                          (symbol (str (ns-name *ns*)))
+                          `re-frame.story.registrar/reg-fragment*
+                          id metadata)))
+
+#?(:clj
+   (defmacro reg-check
+     "Register a check — a named, reusable assertion pack. Per spec/017
+     §Checks + §Strict composition (rf2-5x1wt.15).
+
+     Check body shape:
+
+     ```
+     {:doc        \"...\"
+      :assertions [[:rf.assert/no-warnings] ...]}    ;; required
+     ```
+
+     Checks are the inheritable expectation form: they inherit through
+     `:extends` and compose through `:compose` (distinct from a variant's
+     own-only `:assertions`, which do NOT inherit). Check identity (the
+     id) is preserved in the plan and in run results, so a failed check
+     shows both the check id and the underlying assertion records."
+     [id metadata]
+     (macros/gen-reg-call (meta &form) *file*
+                          (symbol (str (ns-name *ns*)))
+                          `re-frame.story.registrar/reg-check*
                           id metadata)))
 
 #?(:clj
@@ -497,6 +559,11 @@
 
 (def reg-story*       registrar/reg-story*)
 (def reg-variant*     registrar/reg-variant*)
+;; rf2-5x1wt.15 — fragment + check runtime helpers, grouped with the
+;; other registrar re-exports (strict composition: `:compose` pulls these
+;; into a variant plan).
+(def reg-fragment*    registrar/reg-fragment*)
+(def reg-check*       registrar/reg-check*)
 (def reg-workspace*   registrar/reg-workspace*)
 (def reg-mode*        registrar/reg-mode*)
 (def reg-story-panel* registrar/reg-story-panel*)

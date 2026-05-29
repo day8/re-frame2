@@ -128,6 +128,61 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-panel-shape (:rf.error/id (ex-data e))))))))
 
+;; ---- fragments + checks (rf2-5x1wt.15) ------------------------------------
+
+(deftest reg-fragment-registers-and-is-queryable
+  (testing "reg-fragment lands a body in the :fragment side-table"
+    (story/reg-fragment :fragment.cart/with-sku
+      {:args  {:sku "A"}
+       :setup [[:dispatch [:cart/add {:sku [:arg :sku]}]]]})
+    (is (story/registered? :fragment :fragment.cart/with-sku))
+    (is (= {:sku "A"}
+           (:args (story/handler-meta :fragment :fragment.cart/with-sku))))))
+
+(deftest reg-check-registers-and-is-queryable
+  (testing "reg-check lands a body in the :check side-table"
+    (story/reg-check :check/no-runtime-errors
+      {:assertions [[:rf.assert/no-warnings]]})
+    (is (story/registered? :check :check/no-runtime-errors))
+    (is (= [[:rf.assert/no-warnings]]
+           (:assertions (story/handler-meta :check :check/no-runtime-errors))))))
+
+(deftest reg-fragment-rejects-nested-compose
+  (testing "a fragment carrying :compose is rejected at registration (flat fragments)"
+    (try
+      (story/reg-fragment :fragment.bad/nested
+        {:compose [:fragment.cart/with-sku]
+         :setup   [[:dispatch [:x]]]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/fragment-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-fragment-rejects-judgement-slots
+  (testing "a fragment carrying :assertions is rejected (fragments carry no judgement)"
+    (try
+      (story/reg-fragment :fragment.bad/judges
+        {:assertions [[:rf.assert/no-warnings]]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/fragment-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-check-requires-assertions
+  (testing "a check body missing :assertions is rejected"
+    (try
+      (story/reg-check :check/empty {:doc "no assertions"})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/check-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-variant-rejects-resolve-conflicts
+  (testing ":resolve-conflicts on a variant body is rejected (no P1 escape hatch)"
+    (try
+      (story/reg-variant :story.bad/resolve
+        {:resolve-conflicts {[:fx-overrides :rf.http/fetch] :stub}})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+
 ;; ===========================================================================
 ;; rf2-tl7zk — :plays multi-play schema contract
 ;; ===========================================================================
