@@ -572,17 +572,57 @@
     id-dom-hidden
     id-dom-text})
 
+;; ---------------------------------------------------------------------------
+;; Browser-tier assertion family — visual snapshot + axe-style a11y +
+;; structural a11y (rf2-5x1wt.28, NET-NEW; spec/017 §Visual, a11y, and
+;; browser checks + §Canonical P1 assertions).
+;;
+;; These are NOT a separate visual-testing system — they are richer
+;; runner-tiered assertions on the SAME variant/result model. They ride the
+;; ONE assertion-record shape every other assertion produces; the executor
+;; (`re-frame.story.play.browser`) projects findings into that record. Each
+;; carries its capability requirement via the requirement registry
+;; (`re-frame.story.requirements/assertion-capabilities`):
+;;
+;;   :rf.assert/visual-snapshot  → :pixels       (real browser; headless → :cannot-run)
+;;   :rf.assert/a11y             → :a11y-engine   (axe-style; headless → :cannot-run)
+;;   :rf.assert/a11y-structural  → :hiccup-structure (hiccup tree; runs at :hiccup)
+;;
+;; The visual / axe-a11y runners are browser-tier and refuse with
+;; `:cannot-run` under a headless runner (the fail-closed contract — never
+;; a silent pass — is the `re-frame.story.requirements` capability gate's
+;; concern, not this id declaration's). The structural-a11y check is pure
+;; over the rendered hiccup tree, so the `:hiccup` runner proves it.
+;; ---------------------------------------------------------------------------
+
+(def ^:const id-visual-snapshot  :rf.assert/visual-snapshot)
+(def ^:const id-a11y             :rf.assert/a11y)
+(def ^:const id-a11y-structural  :rf.assert/a11y-structural)
+
+(def browser-assertion-ids
+  "The browser-tier oracle assertion family (rf2-5x1wt.28). Visual snapshot
+  and axe-style a11y are browser-only (`:pixels` / `:a11y-engine`); the
+  structural a11y check rides the `:hiccup` tier. All three ride the ONE
+  assertion atom + the ONE assertion-record shape — they are runner-tiered
+  assertions, NOT a separate visual-testing system (spec/017 §Visual, a11y,
+  and browser checks)."
+  #{id-visual-snapshot
+    id-a11y
+    id-a11y-structural})
+
 (def known-assertion-ids
   "Every assertion id the P1 vocabulary recognises — the shipping seven,
-  the folded DOM family, and the wider set declared in the requirement
-  registry (`re-frame.story.requirements/assertion-capabilities`: the
-  schema / visual / a11y / reactive-count ids whose runners land later).
-  Plan construction validates authored assertion atoms against this set
-  (`assertion-id-known?`); an unknown id FAILS plan construction with a
-  useful error (rf2-5x1wt.18, spec/017 §Assertions). Reading the
-  requirement registry keeps this list a derived view of the ONE id
-  source of truth rather than a hand-maintained parallel set."
-  (into (into canonical-assertion-ids dom-assertion-ids)
+  the folded DOM family, the browser-tier oracle family (visual / a11y /
+  structural-a11y), and the wider set declared in the requirement registry
+  (`re-frame.story.requirements/assertion-capabilities`: the schema /
+  visual / a11y / reactive-count ids whose runners land later or are
+  browser-tiered). Plan construction validates authored assertion atoms
+  against this set (`assertion-id-known?`); an unknown id FAILS plan
+  construction with a useful error (rf2-5x1wt.18, spec/017 §Assertions).
+  Reading the requirement registry keeps this list a derived view of the
+  ONE id source of truth rather than a hand-maintained parallel set."
+  (into (into (into canonical-assertion-ids dom-assertion-ids)
+              browser-assertion-ids)
         (keys requirements/assertion-capabilities)))
 
 (defn assertion-id-known?

@@ -50,6 +50,7 @@
             [re-frame.core :as rf]
             [re-frame.trace :as trace]
             [re-frame.story.config :as config]
+            [re-frame.story.play.browser :as browser]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -79,6 +80,16 @@
   (swap! violations-by-frame dissoc frame-id)
   (swap! run-state           dissoc frame-id)
   nil)
+
+;; Register this panel's violations atom into the below-the-UI browser-tier
+;; executor's one-way seam (rf2-5x1wt.28), so `:rf.assert/a11y` can reuse the
+;; SAME axe-core findings the panel accumulated WITHOUT the executor needing
+;; a compile-time dependency on this CLJS-only UI ns. Read-only — the
+;; executor only reads `frame-id` → violations.
+(defonce ^:private _a11y-reader-registered
+  (do (browser/register-a11y-reader!
+        (fn [frame-id] (get @violations-by-frame frame-id)))
+      true))
 
 (defn reset-state!
   "Clear every per-frame slot. Test-fixture helper. Note that the

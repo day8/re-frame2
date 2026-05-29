@@ -218,7 +218,32 @@
   `:dom`; visual/a11y need browser-tier tokens. The reactive-count
   assertions (`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`)
   require `:reactive-counts` — a NET-NEW seam (spec/017 §1a), so they fail
-  closed to `:cannot-run` until the recompute probe lands."
+  closed to `:cannot-run` until the recompute probe lands.
+
+  ## Browser-tier oracles (spec/017 §Visual, a11y, and browser checks)
+
+  The two pixel/a11y-engine ids are runner-tiered assertions on the SAME
+  variant/result model, NOT a separate visual-testing system:
+
+  - `:rf.assert/visual-snapshot` requires `:pixels` — a real-browser
+    screenshot + pixel diff (or, reusing the existing visual-regression
+    seam, the `re-frame.story.identity` content-hash as the snapshot
+    IDENTITY key). No P1 headless/hiccup runner advertises `:pixels`, so a
+    headless run resolves to `:cannot-run`.
+  - `:rf.assert/a11y` requires `:a11y-engine` — an axe-style scan, reusing
+    the existing `re-frame.story.ui.a11y` axe-core hook (the
+    `violations-by-frame` atom the MCP `run-a11y` tool already reads). No
+    P1 headless/hiccup runner advertises `:a11y-engine`, so a headless run
+    resolves to `:cannot-run`.
+
+  `:rf.assert/a11y-structural` is the STRUCTURAL accessibility check that
+  needs only `:hiccup-structure` — it inspects the rendered hiccup TREE
+  (data) for structural a11y facts (img missing `:alt`, control missing an
+  accessible name, …) without a real browser / axe engine. Because the
+  hiccup tree is pure data, the `:hiccup` runner satisfies it and the
+  executor (`re-frame.story.play.browser/eval-structural-a11y`) is fully
+  JVM-testable. This is the spec's \"structural a11y checks MAY require
+  only `:hiccup`\" rung (§Visual, a11y, and browser checks)."
   {:rf.assert/path-equals          #{:app-db}
    :rf.assert/path-matches         #{:app-db}
    :rf.assert/sub-equals           #{:app-db :pure-subs}
@@ -232,6 +257,10 @@
    :rf.assert/dom-text             #{:dom}
    :rf.assert/visual-snapshot      #{:pixels}
    :rf.assert/a11y                 #{:a11y-engine}
+   ;; Structural a11y rides the :hiccup tier — the hiccup tree is data, so
+   ;; no real browser / axe engine is needed (spec/017 §Visual, a11y, and
+   ;; browser checks — \"structural a11y checks MAY require only `:hiccup`\").
+   :rf.assert/a11y-structural      #{:hiccup-structure}
    ;; NET-NEW — gated on the recompute probe; no P1 runner provides
    ;; `:reactive-counts`, so these resolve to `:cannot-run` (spec/017 §1a).
    :rf.assert/caused               #{:reactive-counts}

@@ -64,6 +64,45 @@
       (is (not (req/runner-satisfies? (req/runner-provides :headless) hiccup-req))
           ":headless cannot prove hiccup structure"))))
 
+(deftest browser-tier-assertion-tokens
+  (testing "the browser-tier oracle assertions declare their capability tokens (rf2-5x1wt.28)"
+    ;; visual snapshot + axe-a11y are browser-only
+    (is (= #{:pixels}      (req/assertion-tokens [:rf.assert/visual-snapshot])))
+    (is (= #{:a11y-engine} (req/assertion-tokens [:rf.assert/a11y])))
+    (is (= :browser (req/cheapest-runner #{:pixels})))
+    (is (= :browser (req/cheapest-runner #{:a11y-engine})))
+    ;; structural a11y is the :hiccup rung — the NET-NEW id (rf2-5x1wt.28)
+    (is (= #{:hiccup-structure} (req/assertion-tokens [:rf.assert/a11y-structural])))
+    (is (= :hiccup (req/cheapest-runner #{:hiccup-structure}))
+        "structural a11y rides :hiccup, NOT :browser")
+    ;; headless refuses the browser-only pair; the :hiccup runner proves
+    ;; structural a11y but headless does not.
+    (is (not (req/runner-satisfies? (req/runner-provides :headless) #{:pixels})))
+    (is (not (req/runner-satisfies? (req/runner-provides :headless) #{:a11y-engine})))
+    (is (not (req/runner-satisfies? (req/runner-provides :headless) #{:hiccup-structure})))
+    (is (req/runner-satisfies? (req/runner-provides :hiccup)  #{:hiccup-structure}))
+    (is (req/runner-satisfies? (req/runner-provides :browser) #{:pixels :a11y-engine}))))
+
+(deftest headless-cannot-run-browser-tier-assertions
+  (testing "fixed :runner :headless reports :cannot-run for browser-tier assertions"
+    (let [unmet (req/unmet-assertions
+                  :headless
+                  [[:rf.assert/visual-snapshot]
+                   [:rf.assert/a11y]
+                   [:rf.assert/a11y-structural]  ; :hiccup — also unmet under :headless
+                   [:rf.assert/path-equals [:n] 1]])]
+      (is (= 3 (count unmet)) "the three browser/hiccup-tier assertions refuse; app-db does not")
+      (is (every? #(= :cannot-run (:status %)) unmet))
+      (is (= #{[:rf.assert/visual-snapshot]
+               [:rf.assert/a11y]
+               [:rf.assert/a11y-structural]}
+             (set (map :unit unmet)))))
+    ;; under :auto, the browser-only pair escalates to :browser; structural
+    ;; alone escalates only to :hiccup.
+    (let [auto (req/normalize-run-opts {:runner :auto})]
+      (is (= :browser (:runner (req/select-runner #{:pixels :a11y-engine} auto))))
+      (is (= :hiccup  (:runner (req/select-runner #{:hiccup-structure} auto)))))))
+
 (deftest dom-step-requires-dom-or-browser
   (testing "a DOM step requires :dom (or richer :browser)"
     (is (= #{:dom} (req/step-tokens [:click "[data-test=go]"])))

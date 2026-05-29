@@ -1143,9 +1143,11 @@ remains the base. P1 SHOULD include or retain:
 - `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` / `:rf.assert/dom-text`
   (NET-NEW; the `:dom` family the shipping `:assert-dom` step folds to —
   §Assertions — one atom, two positions)
-- `:rf.assert/visual-snapshot` (`:browser`)
-- `:rf.assert/a11y` (`:browser` for axe-style; MAY require only `:hiccup`
-  for explicitly structural checks)
+- `:rf.assert/visual-snapshot` (`:browser` / `:pixels`)
+- `:rf.assert/a11y` (`:browser` / `:a11y-engine` for axe-style)
+- `:rf.assert/a11y-structural` (`:hiccup` — the explicitly STRUCTURAL
+  accessibility check; runs on the rendered hiccup tree without a real
+  browser, §Visual, a11y, and browser checks)
 
 Future assertion candidates after instrumentation support include
 `:rf.assert/caused` and `:rf.assert/no-cascade-rerender`; both require a
@@ -2080,6 +2082,67 @@ MUST opt into their required runner:
 They SHOULD reuse the same run-result shape, and SHOULD pair pixel/DOM
 findings with app-db, args, trace, and epoch evidence when possible.
 
+### The browser-tier assertion ids (rf2-5x1wt.28)
+
+Three assertion ids cover the visual / a11y surface; each carries its
+capability requirement through the requirement registry
+(`re-frame.story.requirements/assertion-capabilities`) and is recognised by
+the plan compiler (`re-frame.story.assertions/known-assertion-ids`):
+
+| Assertion | Token | Runner | Proof |
+|---|---|---|---|
+| `:rf.assert/visual-snapshot` | `:pixels` | `:browser` | real-browser screenshot + pixel diff (or the reused `content-hash` snapshot identity) |
+| `:rf.assert/a11y` | `:a11y-engine` | `:browser` | axe-style scan (reuses the `re-frame.story.ui.a11y` axe-core hook) |
+| `:rf.assert/a11y-structural` | `:hiccup-structure` | `:hiccup` | pure structural a11y facts over the rendered hiccup tree |
+
+`:rf.assert/visual-snapshot` and `:rf.assert/a11y` are browser-only. The
+NET-NEW `:rf.assert/a11y-structural` is the spec's *structural a11y checks
+MAY require only `:hiccup`* rung: it inspects the rendered hiccup TREE
+(data) for structural facts — an `:img` with no `:alt`, an interactive
+control with no accessible name, a positive `:tabIndex` — without a real
+browser or the axe engine. Because the hiccup tree is data, it is fully
+JVM-testable and the `:hiccup` runner satisfies it. Semantic checks that
+genuinely need layout/contrast (colour contrast, computed visibility) stay
+on `:rf.assert/a11y`.
+
+### The executor: reuse, not a second system
+
+The browser-tier executor (`re-frame.story.play.browser`) is the SAME
+shape as the DOM executor (`re-frame.story.play.dom`): pure-data evaluators
+with a single host probe (`browser-available?`) isolated at the edge. It
+produces the ONE assertion record (§Run result — Assertion record) every
+other assertion produces — a visual/a11y finding rides the EXISTING
+assertion-record accumulator, NOT a parallel result accumulator. **No new
+run-result slot is added**; a finding is an assertion record like any
+other, so Test mode, CI, `clojure.test`, and MCP read it through the
+unified result with no special-casing.
+
+The executor REUSES the two seams the tree already ships rather than adding
+a differ or a second axe loader:
+
+- visual — `re-frame.story.identity/snapshot-identity` (the `content-hash`
+  visual-regression KEY the MCP `snapshot-identity` tool already surfaces)
+  is the snapshot identity the finding records; a real pixel diff lands
+  with the `:pixels` browser runner;
+- a11y — `re-frame.story.ui.a11y` (the in-browser axe-core panel + its
+  `violations-by-frame` atom the MCP `run-a11y` tool already reads). The
+  CLJS-only panel REGISTERS its violations-reader into a one-way late-bound
+  seam (`register-a11y-reader!`); the below-the-UI `.cljc` executor reads
+  through it without a compile-time dependency on the UI ns (the
+  bundle-isolation rule: nothing in a production path `:require`s the UI).
+
+### Fail-closed: headless returns `:cannot-run`
+
+A browser-tier assertion under a runner that lacks its token resolves to
+`:cannot-run` — the distinct THIRD status, never a silent pass
+(§`:cannot-run`). This is enforced on two sides: the capability gate
+(§Runner requirements) refuses a `:pixels` / `:a11y-engine` requirement
+under a headless runner at selection time, and the executor itself returns
+a `:cannot-run` record when `browser-available?` is false (JVM, node, or a
+CLJS REPL with no `js/window`). A headless run therefore returns
+`:cannot-run` for `:rf.assert/visual-snapshot` and `:rf.assert/a11y`; the
+structural check runs at `:hiccup`.
+
 ## CI policy
 
 CI MUST keep cheap headless plan tests on the normal path. CI SHOULD run
@@ -2093,6 +2156,34 @@ The Story play/script gate MUST continue to exist under a current name.
 If `test:story-play-scripts` is renamed, docs and package scripts MUST be
 updated together. Browser-tier visual/a11y gates MUST run only variants
 whose assertions require them, or a deliberate selected subset.
+
+### Browser-tier gate policy (rf2-5x1wt.28)
+
+The structural-a11y check (`:rf.assert/a11y-structural`, `:hiccup`) carries
+NO browser dependency, so it runs on the NORMAL test path — the executor's
+structural-issue walk is a pure JVM/CLJS test (`clojure -M:test` /
+`npm run test:cljs`), needing no dedicated browser gate. The
+browser-only ids (`:rf.assert/visual-snapshot` / `:rf.assert/a11y`) require
+a real-browser runner (`:pixels` / `:a11y-engine`); their gate runs ONLY
+the variants whose assertions require those tokens (the `:required-runner`
+union selects them), or a deliberately curated subset — never the whole
+corpus dragged to `:browser`.
+
+The `:cannot-run` policy for the browser-tier gate is **route to a richer
+runner**: a variant carrying a `:pixels` / `:a11y-engine` assertion is
+selected INTO the browser gate (where it can be proven), rather than being
+failed or reported inconclusive on the cheap headless path. On the cheap
+headless path a browser-tier assertion is `:cannot-run` and the gate's
+policy there is **report inconclusive** (the headless gate proves the
+headless floor; it does not fail a run merely for carrying a browser-tier
+assertion it was never meant to attempt). This split keeps the cheap path
+cheap and confines real-browser cost to the variants that genuinely need
+it.
+
+This is the normative POLICY; the concrete CI workflow that wires a
+dedicated browser-tier gate (selecting variants by `:required-runner` and
+running them under a `:pixels` / `:a11y-engine` runner) is a separate
+piece of work and is NOT part of this spec change.
 
 ## Promotion
 
