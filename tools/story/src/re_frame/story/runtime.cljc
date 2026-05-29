@@ -146,15 +146,25 @@
 ;; ---- phase-2 events execution --------------------------------------------
 
 (defn- setup-step->event
-  "Extract the event vector a normalized `[:world :setup]` step carries.
-  Per spec/017 §Setup, setup steps are settled dispatches — the plan
-  compiler coerces every authored setup entry (bare event vector OR a
-  tagged `[:dispatch …]` / `[:dispatch-sync …]`) into a tagged dispatch
-  step, and an `[:assert …]` in setup is rejected at plan-compile time
-  (`re-frame.story.plan/reject-assert-in-setup!`). So a setup step is
-  always `[:dispatch event-vector]` / `[:dispatch-sync event-vector]`;
-  this returns the wrapped event vector (or the step itself when a
-  bare event vector slipped through an out-of-band path)."
+  "Lower a normalized `[:world :setup]` step to the event vector the
+  HEADLESS phase-2 executor dispatches, or `nil` when the step is not a
+  headless dispatch.
+
+  The plan compiler coerces every authored setup entry through the same
+  `coerce-script` the `:script` gets (spec/017 §Script step grammar): a
+  bare event-vector shorthand lifts to `[:dispatch …]`, so a stored setup
+  step is `[:dispatch event-vector]` / `[:dispatch-sync event-vector]`.
+  This returns the wrapped event vector for those, plus a bare event
+  vector that bypassed coercion (an out-of-band path).
+
+  A NON-dispatch step (`[:wait …]`, `[:wait-until …]`, `[:click …]`,
+  `[:type …]`, `[:focus …]`) is legal in `:setup` per the grammar table
+  and contributes its capability token to `:required-runner` — but it
+  needs `>= :dom` / `:cljs-reactive`, which the headless phase-2 path
+  cannot honour. Such a step returns `nil` here; `plan-setup-events`
+  turns that into a loud `:cannot-run`-shaped refusal rather than a
+  silent drop (spec/017 §Script and settled-boundary — a step a runner
+  cannot honour FAILS CLOSED, never under-runs and passes falsely)."
   [step]
   (cond
     (and (vector? step)
@@ -162,12 +172,19 @@
          (vector? (second step)))
     (second step)
 
-    ;; Defensive: a bare event vector (an out-of-band plan that bypassed
-    ;; coercion). Treat it as the event itself.
-    (and (vector? step) (keyword? (first step)))
+    ;; A bare event vector (an out-of-band plan that bypassed coercion):
+    ;; a re-frame event vector whose head is NOT a known step tag. Treat
+    ;; it as the event itself. A known step tag (`:wait`/`:click`/…) is
+    ;; NOT a bare event — it falls through to the refusal below.
+    (and (vector? step)
+         (keyword? (first step))
+         (not (runner/known-step? step)))
     step
 
     :else nil))
+
+(defn- non-dispatch-setup-step? [step]
+  (nil? (setup-step->event step)))
 
 (defn- plan-setup-events
   "The phase-2 event vectors for a run: the parent STORY's `:events`
@@ -184,14 +201,38 @@
 
   An INLINE plan (rf2-5x1wt.20) has no parent story (it is unregistered),
   so `story-id` resolves nil and only the plan's own `[:world :setup]`
-  drives phase 2 — the plan is already the complete setup program."
+  drives phase 2 — the plan is already the complete setup program.
+
+  REFUSES (throws `:rf.error/story-setup-step-unrunnable`) when a setup
+  step is a non-dispatch step (`[:wait …]` / `[:click …]` / `[:type …]`
+  / `[:focus …]` / `[:wait-until …]`). Such a step is legal in `:setup`
+  and lifts `:required-runner` to `:dom` / `:cljs-reactive`, but the
+  headless phase-2 path can only `dispatch-sync` — it cannot honour a
+  DOM/reactive boundary. Per spec/017 §Script and settled-boundary a
+  step a runner cannot honour FAILS CLOSED (`:cannot-run`); silently
+  dropping it (the prior `(keep …)` behaviour) is the forbidden
+  under-run that vanishes a precondition the author wrote. The throw is
+  caught by the orchestrator and projected as an `:error` run result."
   [variant-id plan]
   (let [story-id     (args/parent-story-id variant-id)
         story-body   (when story-id (registrar/handler-meta :story story-id))
         story-events (or (:events story-body) [])
         plan-setup   (get-in plan [:world :setup] [])]
+    (when-let [offenders (seq (filter non-dispatch-setup-step? plan-setup))]
+      (throw (ex-info
+               (str "re-frame2-story: variant " variant-id
+                    " — :setup carries a non-dispatch step "
+                    (pr-str (vec offenders))
+                    " that the headless runner cannot execute. A "
+                    ":wait / :wait-until / :click / :type / :focus step is "
+                    "legal in :setup but requires a :dom / :cljs-reactive "
+                    "runner; run this variant under a richer runner, or move "
+                    "the step to :script.")
+               {:rf.error/id     :rf.error/story-setup-step-unrunnable
+                :variant/id      variant-id
+                :offending-steps (vec offenders)})))
     (vec (concat story-events
-                 (keep setup-step->event plan-setup)))))
+                 (map setup-step->event plan-setup)))))
 
 (defn- run-events!
   "Phase 2: dispatch every phase-2 event into the variant's frame,

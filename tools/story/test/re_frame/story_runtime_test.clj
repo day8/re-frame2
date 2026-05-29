@@ -949,6 +949,53 @@
         (is (false? (:passed? exc)))))
     (story/destroy-variant! :story.planerr/v)))
 
+(deftest run-variant-non-dispatch-setup-step-is-refused
+  (testing "a :setup carrying a non-dispatch step (e.g. [:wait …] / [:click …])
+            is REFUSED at phase-2 with :rf.error/story-setup-step-unrunnable
+            rather than SILENTLY DROPPED (rf2-zaiwl). The step is legal in
+            :setup and lifts :required-runner to :dom/:cljs-reactive, but the
+            headless runner cannot honour that boundary — so it fails closed
+            (:cannot-run shape) instead of vanishing the precondition."
+    (rf/reg-event-db :test/seed-z (fn [db _] (assoc db :seeded? true)))
+    (doseq [[vid bad-step] [[:story.zaiwl/wait  [:wait 100]]
+                            [:story.zaiwl/click [:click "[data-test=open]"]]]]
+      (story/reg-variant vid
+        {:setup [[:dispatch [:test/seed-z]] bad-step]})
+      (let [r (async/deref-blocking (story/run-variant vid) 5000)]
+        (is (= :error (:lifecycle r))
+            "the unrunnable setup step rolled the lifecycle to :error")
+        (is (= :error (:status r))
+            "the unified verdict is :error, not a vacuous green")
+        (let [exc (->> (:assertions r)
+                       (filter #(= :rf.error/story-setup-step-unrunnable
+                                   (get-in % [:error :data :rf.error/id])))
+                       first)]
+          (is (some? exc)
+              "the structured :rf.error/story-setup-step-unrunnable id rides
+               the recorded exception record (not a silent drop)")
+          (is (false? (:passed? exc)))
+          (is (= [bad-step]
+                 (get-in exc [:error :data :offending-steps]))
+              "the refusal names the offending non-dispatch step")))
+      (story/destroy-variant! vid))))
+
+(deftest run-variant-legit-setup-steps-still-compile-and-run
+  (testing "the legit setup shapes — a tagged [:dispatch …] AND a bare event
+            vector (coerced to [:dispatch …]) — still run cleanly through
+            phase 2 (rf2-zaiwl positive control: the refusal targets ONLY
+            non-dispatch steps)"
+    (rf/reg-event-db :test/seed-a (fn [db _] (assoc db :a true)))
+    (rf/reg-event-db :test/seed-b (fn [db _] (assoc db :b true)))
+    (story/reg-variant :story.zaiwl/ok
+      {:setup [[:dispatch [:test/seed-a]]   ; tagged dispatch
+               [:test/seed-b]]})            ; bare event vector → [:dispatch …]
+    (let [r (async/deref-blocking (story/run-variant :story.zaiwl/ok) 5000)]
+      (is (= :ready (:lifecycle r))
+          "both legit setup shapes ran without refusal")
+      (is (true? (-> r :app-db :a)) "the tagged [:dispatch …] setup step ran")
+      (is (true? (-> r :app-db :b)) "the bare-event-vector setup step ran"))
+    (story/destroy-variant! :story.zaiwl/ok)))
+
 ;; ---- plan-construction-error? discrimination (rf2-x3mol) -----------------
 ;;
 ;; PR #2430 (rf2-5x1wt.22) narrowed `plan-construction-error?` from the
