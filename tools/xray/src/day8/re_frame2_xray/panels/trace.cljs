@@ -583,7 +583,12 @@
   `:key` from the row attrs map because the framework hiccup walker
   rebuilds inner vectors via `mapv` and drops their metadata."
   [{:keys [id operation area dispatch-id] :as row} expanded?]
-  (let [row-test-id (str "rf-xray-trace-row-" id)
+  ;; rf2-nesy9 — capture the surrounding instance frame at render time
+  ;; so the deferred row handlers dispatch into it, not a `:rf/xray`
+  ;; literal. op-row-attrs is invoked during the Trace Panel reg-view's
+  ;; render, so `current-frame` resolves through the React-context tier.
+  (let [frame       (rf/current-frame)
+        row-test-id (str "rf-xray-trace-row-" id)
         band-colour (h/op-family-colour row)
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
@@ -597,7 +602,7 @@
      :data-rf-xray-severity (when severity? (name area))
      :on-click              (fn []
                               (rf/dispatch [:rf.xray/toggle-trace-row-expand id]
-                                           {:frame :rf/xray}))
+                                           {:frame frame}))
      :on-context-menu       (when destroy?
                               (fn [e]
                                 (.preventDefault e)
@@ -605,7 +610,7 @@
                                 (rf/dispatch
                                   [:rf.xray/cancellation-cascade-open
                                    {:kind :dispatch-id :id dispatch-id}]
-                                  {:frame :rf/xray})))
+                                  {:frame frame})))
      ;; op-family colour band — 3px LEFT-BORDER (error / warning
      ;; override the band so a failure stands out · spec/023 §7).
      ;; Severity rows carry a faint tinted fill (spec/023 §7);
@@ -630,7 +635,9 @@
   [{:keys [id operation rel-time time area area-badge verb target
            duration-ms source-coord dispatch-id]
     :as row}]
-  (let [row-test-id (str "rf-xray-trace-row-" id)
+  ;; rf2-nesy9 — render-time frame capture for the deferred cell handlers.
+  (let [frame       (rf/current-frame)
+        row-test-id (str "rf-xray-trace-row-" id)
         verb-colour (h/outcome-colour row)
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
@@ -680,7 +687,12 @@
         [:button {:data-testid (str row-test-id "-source-coord")
                   :title       source-coord
                   :on-click    (fn [e]
-                                 (coord-link/open-in-editor! source-coord e))
+                                 ;; rf2-nesy9 — route the open-in-editor
+                                 ;; dispatch through the captured instance
+                                 ;; frame, not the singleton default.
+                                 (coord-link/open-in-editor!
+                                   source-coord e
+                                   #(rf/dispatch % {:frame frame})))
                   :style       op-row-source-coord-button-style}
          "↗"])
       (when destroy?
@@ -691,7 +703,7 @@
                                  (rf/dispatch
                                    [:rf.xray/cancellation-cascade-open
                                     {:kind :dispatch-id :id dispatch-id}]
-                                   {:frame :rf/xray}))
+                                   {:frame frame}))
                   :style       op-row-cancellation-button-style}
          "⟲"])]
      ;; ⑤ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
@@ -724,13 +736,15 @@
   current phase stays labelled while a long arc scrolls (spec/023 §14).
   An empty band's header is dimmed (spec/023 §13)."
   [{:keys [id label count empty?]} expanded?]
-  [:div {:data-testid (str "rf-xray-trace-band-header-" (name id))
+  ;; rf2-nesy9 — render-time frame capture for the deferred collapse click.
+  (let [frame (rf/current-frame)]
+   [:div {:data-testid (str "rf-xray-trace-band-header-" (name id))
          :data-rf-xray-band id
          :data-rf-xray-empty (boolean empty?)
          :on-click    (when-not empty?
                         (fn []
                           (rf/dispatch [:rf.xray/toggle-trace-band-collapse id]
-                                       {:frame :rf/xray})))
+                                       {:frame frame})))
          :style       (assoc band-header-base-style
                              :cursor (if empty? "default" "pointer")
                              :color  (if empty?
@@ -743,7 +757,7 @@
    [:span label]
    [:span {:data-testid (str "rf-xray-trace-band-count-" (name id))
            :style band-header-count-style}
-    (if empty? "(none)" (str count))]])
+    (if empty? "(none)" (str count))]]))
 
 (defn- phase-band
   "Render one phase band — its sticky numbered header + its op rows in
