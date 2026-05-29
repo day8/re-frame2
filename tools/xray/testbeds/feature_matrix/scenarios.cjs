@@ -1291,6 +1291,21 @@ async function runMultiFrame(page, state) {
   // then asserting the event-detail projection. We look up the
   // dispatch-id by walking the bus buffer for the (frame, event-id)
   // pair, which is independent of the cascade-scoped Trace DOM.
+  //
+  // The L2 event list is frame-scoped: in a multi-frame app the
+  // operator first picks the frame they want to inspect (the L1
+  // frame-picker → `:rf.xray/set-target-frame`, which re-seeds the
+  // Xray `:epoch-history` slot from THAT frame's per-frame ring), and
+  // only then does that frame's cascade appear in L2 to click. So we
+  // re-target Xray onto :counter/b BEFORE focusing the B cascade —
+  // mirroring the real picker gesture and the CLJS e2e analogue
+  // `multi_frame_isolation_e2e_cljs_test/xray-focused-frame-tracks-
+  // host-dispatch-frame`. Without the re-seed the focus event resolves
+  // dispatch-id 19's `:epoch-id` against the previously-targeted
+  // frame's history (no match → nil), so the Epoch panel's
+  // head-fallback renders that frame's head cascade (the :log
+  // :log-append fan-out) instead of the chosen :counter/b :inc.
+  await setXrayTargetFrame(page, ':counter/b');
   const selected = await focusCascadeByFrameEvent(page, {
     frame: ':counter/b',
     eventId: ':multi-frame.core/inc',
