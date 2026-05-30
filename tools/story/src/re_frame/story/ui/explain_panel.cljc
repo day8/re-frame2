@@ -56,12 +56,16 @@
   Reagent dep."
   (:require [clojure.string :as str]
             [re-frame.story.plan :as plan]
+            ;; The theme requires are CLJS-only — `typography`/`colors` are
+            ;; referenced solely from the `#?(:cljs (def ^:private styles …))`
+            ;; block. Keeping them inside the `:cljs` reader conditional avoids
+            ;; an unused-namespace warning in the `.cljc` clj view.
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.story.config :as config]
                        [re-frame.story.review-dialog :as review-dialog]
-                       [re-frame.story.ui.state :as state]])
-            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+                       [re-frame.story.ui.state :as state]
+                       [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
+                       [re-frame.story.theme.colors :as colors]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The panel-visibility slot + the scroll anchor id. Shared with the
