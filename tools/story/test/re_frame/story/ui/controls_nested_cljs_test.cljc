@@ -20,6 +20,7 @@
   `:node-test` / `:browser-test` targets (ns suffix `-cljs-test` is
   picked up by both `cljs-test$` and `-cljs-test$` regexes)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.story :as story])
             #?(:cljs [re-frame.story.ui.controls :as controls])
             [re-frame.story.ui.state :as state]))
@@ -125,20 +126,34 @@
      (testing "an unrecognised vector schema-op degrades to :text"
        (is (= :text (:widget (controls/infer-widget [:fn 'pos?])))))))
 
-;; ---- CLJS: resolve-argtypes from a variant :schema ----------------------
+;; ---- CLJS: resolve-argtypes from the component view's props schema -------
+;;
+;; rf2-din8u / rf2-vnedo — the auto-derivation schema is the COMPILED
+;; variant-plan's `[:world :view-args-schema]`, resolved first-match
+;; `[:rf/props :schema]` off the variant's `:component` VIEW metadata. These
+;; exercise the PRODUCTION path: a REGISTERED view carries the props schema
+;; under `:rf/props`; the variant points its `:component` at it; the plan
+;; compiles via the DEFAULT side-table lookup (no `:lookup` / `:view-lookup`
+;; arg). This is the CI-blind-spot gate — the pre-ruling resolver read
+;; `:schema` off the bare variant body, which both missed `:rf/props` AND
+;; never saw the compiled `:component`.
 
 #?(:cljs
-   (deftest resolve-argtypes-picks-up-variant-schema
-     (testing "an explicit :schema on the variant body drives the inference"
+   (deftest resolve-argtypes-picks-up-component-props-schema
+     (testing "the :component view's :rf/props schema drives the inference,
+               resolved off the compiled plan"
+       (rf/reg-view* :view.nest/widget
+         {:rf/props [:map
+                     [:title :string]
+                     [:items [:vector :string]]
+                     [:meta  [:map [:author :string] [:rating :int]]]]}
+         (fn [_] [:div]))
        (story/reg-variant :story.nest/v
-         {:schema [:map
-                   [:title :string]
-                   [:items [:vector :string]]
-                   [:meta  [:map [:author :string] [:rating :int]]]]
-          :args   {:title "Hello"
-                   :items ["a" "b"]
-                   :meta  {:author "ada" :rating 5}}
-          :events []})
+         {:component :view.nest/widget
+          :args      {:title "Hello"
+                      :items ["a" "b"]
+                      :meta  {:author "ada" :rating 5}}
+          :events    []})
        (let [t (controls/resolve-argtypes :story.nest/v)]
          ;; :title scalar
          (is (= :text (-> t :title :widget)))
@@ -152,12 +167,16 @@
 
 #?(:cljs
    (deftest resolve-argtypes-author-argtypes-win
-     (testing "an explicit :argtypes entry trumps the schema-derived widget"
+     (testing "an explicit :argtypes entry trumps the component-schema-
+               derived widget"
+       (rf/reg-view* :view.nest/labelled
+         {:rf/props [:map [:label :string]]}
+         (fn [_] [:div]))
        (story/reg-variant :story.nest/v2
-         {:schema   [:map [:label :string]]
-          :argtypes {:label {:widget :select :options ["a" "b"]}}
-          :args     {:label "a"}
-          :events   []})
+         {:component :view.nest/labelled
+          :argtypes  {:label {:widget :select :options ["a" "b"]}}
+          :args      {:label "a"}
+          :events    []})
        (let [t (controls/resolve-argtypes :story.nest/v2)]
          (is (= :select (-> t :label :widget)))
          (is (= ["a" "b"] (-> t :label :options)))))))

@@ -435,16 +435,20 @@
       (is (= {:x 1} (get-in p [:world :effective-args]))))))
 
 (deftest schema-key-precedence
-  (testing ":rf/props wins over :spec which wins over :schema"
+  (testing ":rf/props wins over :schema; :spec is DEAD (dropped post-M-54)"
     (let [props  [:map [:a :string]]
           spec   [:map [:b :string]]
           schema [:map [:c :string]]]
-      (testing ":rf/props chosen when present"
-        (is (= props (plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
-      (testing ":spec chosen when no :rf/props (the live Spec 010 slot)"
-        (is (= spec (plan/view-args-schema {:spec spec :schema schema}))))
-      (testing ":schema chosen as the last-resort alias"
+      (testing ":rf/props chosen when present (canonical, wins over :schema)"
+        (is (= props (plan/view-args-schema {:rf/props props :schema schema}))))
+      (testing ":schema chosen when no :rf/props (the post-M-54 location)"
         (is (= schema (plan/view-args-schema {:schema schema}))))
+      (testing ":spec is NOT a resolution key — a view carrying ONLY :spec
+                resolves no schema (the framework reads :schema only post-M-54;
+                see migration §M-54). rf2-ayu6n: the stale :spec key is gone."
+        (is (nil? (plan/view-args-schema {:spec spec}))))
+      (testing ":rf/props still wins even when a dead :spec is also present"
+        (is (= props (plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
       (testing "nil when no schema slot present"
         (is (nil? (plan/view-args-schema {:title "x"})))))))
 
@@ -484,9 +488,19 @@
       (testing ":sub-overrides lower to their own [:world :render :sub-overrides] slot"
         (is (= {[:widget/state] :error}
                (get-in p [:world :render :sub-overrides]))))
-      (testing "the two contracts are not conflated — sub-overrides are NOT in view-args-schema"
-        (is (not (contains? (set (get-in p [:world :view-args-schema]))
-                            [:widget/state])))))))
+      (testing "the two contracts are not conflated — the view-args schema's
+                map-entry keys are the explicit-arg keys only, never a
+                sub-override query vector (rf2-p5ivc nit: the prior
+                set-membership assertion here was tautological)"
+        ;; A sub-override key is a QUERY VECTOR (`[:widget/state]`); the
+        ;; view-args schema's entries are scalar arg keys (`:label`). Pull
+        ;; the schema's entry keys and assert the sub-override query vector
+        ;; (and its sub-id) are absent — the real conflation guard.
+        (let [schema     (get-in p [:world :view-args-schema])
+              entry-keys (set (map first (drop 1 schema)))]
+          (is (= #{:label} entry-keys))
+          (is (not (contains? entry-keys [:widget/state])))
+          (is (not (contains? entry-keys :widget/state))))))))
 
 ;; ===========================================================================
 ;; View-state subscription overrides (rf2-5x1wt.13)

@@ -70,6 +70,7 @@
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
             [re-frame.story.malli-schema       :as msu]
+            [re-frame.story.view-args          :as view-args]
             [re-frame.story.ui.author-expectations :as author-expectations]
             [re-frame.story.ui.controls-styles :refer [styles]]
             [re-frame.story.ui.save-variant    :as save-variant-ui]
@@ -259,7 +260,17 @@
   we don't re-run `args/resolve-args` (which itself deep-merges five
   precedence layers and re-reads the registrar). The single-arity
   overload preserves the canonical surface for tests + non-render
-  callers; the render path threads its own resolution."
+  callers; the render path threads its own resolution.
+
+  SCHEMA SOURCE (rf2-vnedo / rf2-din8u): the auto-derivation schema is
+  the COMPILED variant-plan's `[:world :view-args-schema]`, read through
+  the ONE shared resolver `view-args/compiled-view-args-schema` (memoized
+  per variant + registrar tick). This is the SAME slot the schema-
+  validation panel validates against, so a `:rf/props`-declared view now
+  gets BOTH derived controls AND validation from one source — the
+  divergence where this fn read `:schema`-only off the bare body (missing
+  `:rf/props`, and any `:extends`-inherited / `:compose`-d `:component`)
+  is gone."
   ([variant-id]
    (resolve-argtypes variant-id (args/resolve-args variant-id)))
   ([variant-id eff-args]
@@ -268,17 +279,12 @@
          sb      (when story (registrar/handler-meta :story story))
          types   (merge (normalize-argtypes (:argtypes sb))
                         (normalize-argtypes (:argtypes vb)))
-         ;; Prefer an explicit `:schema` slot on the variant/story body
-         ;; (forward-compatible — Spec 010 will land an `:rf/schema`
-         ;; slot on variants for the auto-derivation path). Fall back
-         ;; to the registered :view's `:schema` slot (when reg-view
-         ;; starts carrying one). Per spec/001 §Schema-derivation pipeline.
-         component-id (or (:component vb) (:component sb))
-         component-body (when component-id
-                          (registrar/handler-meta :view component-id))
-         derive-schema (or (:schema vb)
-                           (:schema sb)
-                           (:schema component-body))
+         ;; The view-args (props) schema off the COMPILED plan — the
+         ;; single source of truth (`[:world :view-args-schema]`), resolved
+         ;; first-match `[:rf/props :schema]` through the shared resolver.
+         ;; Per spec/001 §Schema-derivation pipeline + the rf2-din8u
+         ;; compiled-plan invariant.
+         derive-schema (view-args/compiled-view-args-schema variant-id)
          schema-entries (when (and (vector? derive-schema)
                                    (= :map (schema-op derive-schema)))
                           (into {}

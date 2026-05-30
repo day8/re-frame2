@@ -496,15 +496,26 @@ schemas) and it does not seed app-db.
 
 **Metadata key (M0-confirmed).** `reg-view` stamps a view's symbol
 metadata (minus `:rf/id`) onto its `:view` registrar slot, so the props
-schema rides on that slot. The compiler resolves it **first match wins**:
-`:rf/props` (the spec-named props key, for a port that adopts it) →
-`:spec` (the live Spec 010 boundary-schema slot the framework already
-exposes) → `:schema` (the Story-only alias the controls / schema-
-validation panels already read). Story consumes the key the framework
-exposes rather than inventing a parallel one; the controls-panel
-derivation (`re-frame.story.ui.controls`) reads the same slot, so a view
-that declares a props schema gets controls AND validation from one
-source.
+schema rides on that slot. The compiler resolves it **first match wins**
+over `[:rf/props :schema]`: `:rf/props` (the canonical props-schema key
+per [Spec-Schemas §`:rf/registration-metadata`](../../../spec/Spec-Schemas.md#rfregistration-metadata),
+primary) → `:schema` (the post-M-54 `reg-*` metadata key, the alternative
+location). `:rf/props` wins outright when present — there is NO
+composition (a view's only schema surface is its props). `:spec` is NOT a
+resolution key: it is dead post-M-54 (the framework reads `:schema` only
+on `reg-*` metadata, with no back-compat shim — see
+[MIGRATION §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)).
+
+Every Story consumer reads this schema through the ONE shared resolver
+`re-frame.story.view-args/compiled-view-args-schema`, which compiles the
+variant-plan and returns the schema the compiler wrote to
+`[:world :view-args-schema]` — the single source of truth (the compiled-
+plan invariant). No consumer reads the bare registrar body. So the
+controls-panel derivation (`re-frame.story.ui.controls`) and the schema-
+validation panel (`re-frame.story.ui.schema-validation`) read the SAME
+compiled slot, and a view that declares a props schema gets controls AND
+validation from one source — even when its `:component` is
+`:extends`-inherited or `:compose`-d in.
 
 **Plan slots.** When the variant's resolved `:component` view carries a
 schema, the compiler writes:
