@@ -264,18 +264,20 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
-`two_frame_isolation`, `step_deck`, `feature_matrix`, `panel_gallery`,
+`two_frame_isolation`, `button_deck`, `feature_matrix`, `panel_gallery`,
 `perf_counter` — covering the canonical multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
 per-frame trace / events / issues / cascades · Xray target-frame
 round-trip; built from the shared `testdeck/` modules), the
-single-frame step-deck (`step_deck`: the same shared `testdeck/`
-modules mounted once, in one URL-bound frame, as action→check cards —
-the step-by-step counterpart to `two_frame_isolation`), the
-deterministic feature-matrix sweep across panels + shell + launch
-modes + redaction + 20-event load, the Panel-view gallery, and the
-performance probe.
+deliberately-simple single-frame driving surface (`button_deck`,
+rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
+a shared baseline counter + exercising exactly one more feature, so
+clicking top-to-bottom completely exercises any one Xray panel —
+Epoch / App-db / Views / Trace / Issues; no tabs, no routing, no
+machines/SSR; supersedes the old `step_deck`), the deterministic
+feature-matrix sweep across panels + shell + launch modes + redaction
++ 20-event load, the Panel-view gallery, and the performance probe.
 
 Agent access to Xray's surfaces flows through
 `tools/re-frame2-pair-mcp/` against the framework-published Xray
