@@ -81,7 +81,10 @@
             ;; rf2-6jyf6 — Xray's `configure!` to seed `:project-root`
             ;; so the Event lens 'open' chip resolves a classpath-relative
             ;; `:file` slot to an absolute on-disk URI.
-            [day8.re-frame2-xray.config :as xray-config])
+            [day8.re-frame2-xray.config :as xray-config]
+            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; open-in-editor project-root from the build env.
+            [re-frame.testbed.config :as testbed-config])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -147,21 +150,13 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(def ^:private default-project-root
-  "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
-
-(defn- query-param
-  "Return the named URL query param as a string, or nil when absent /
-  blank. Pure-data helper — kept private to this testbed since the
-  query-string override is a per-host knob (not a Xray-API surface)."
-  [param-name]
-  (when (exists? js/window)
-    (let [params (-> js/window .-location .-search (js/URLSearchParams.))
-          v      (.get params param-name)]
-      (when (and (string? v) (seq v)) v))))
-
+;; rf2-5dphw — open-in-editor project-root derived from the build
+;; environment (the build-time `re-frame.testbed.config/repo-root`
+;; goog-define joined with this testbed's tool-relative subdir), not a
+;; hardcoded personal path. `?project-root=<path>` still overrides per
+;; session. See `re-frame.testbed.config` for the cross-platform mechanism.
 (defn- resolve-project-root []
-  (or (query-param "project-root") default-project-root))
+  (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so the preload's auto-open reads

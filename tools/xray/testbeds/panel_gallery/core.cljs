@@ -117,7 +117,10 @@
             ;; mount with the edn-inspector gallery above; the
             ;; variants pass `:full-with-diff? true` to opt into
             ;; the mode-3 chrome (R3 chip + R4 rail).
-            [panel-gallery.gallery-diff-mode-3]))
+            [panel-gallery.gallery-diff-mode-3]
+            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; open-in-editor project-root from the build env.
+            [re-frame.testbed.config :as testbed-config]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -169,24 +172,17 @@
 ;; never reaches into the document. The unit test
 ;; `panel-gallery-project-root-invariant-to-host-url` pins that contract.
 
-(def ^:private default-project-root
-  "Default on-disk root for the panel-gallery testbed. Matches the source-
-  path declared in `implementation/shadow-cljs.edn` for the
-  `:testbeds/panel-gallery` build."
-  "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
-
-(defn- query-param
-  "Return the named URL query param as a string, or nil when absent /
-  blank. Pure data helper — kept private to this testbed since the
-  query-string override is a per-host knob (not a Xray-API surface)."
-  [param-name]
-  (when (exists? js/window)
-    (let [params (-> js/window .-location .-search (js/URLSearchParams.))
-          v      (.get params param-name)]
-      (when (and (string? v) (seq v)) v))))
-
+;; rf2-5dphw — open-in-editor project-root derived from the build
+;; environment (the build-time `re-frame.testbed.config/repo-root`
+;; goog-define joined with this testbed's tool-relative subdir), not a
+;; hardcoded personal path. `?project-root=<path>` still overrides per
+;; session. The URI build stays invariant to the host page URL — the
+;; resolver reads the configured root, not `window.location`; the
+;; query-param branch only influences which root we PASS to `configure!`.
+;; The unit test `panel-gallery-project-root-invariant-to-host-url` pins
+;; that contract.
 (defn- resolve-project-root []
-  (or (query-param "project-root") default-project-root))
+  (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
 (defonce ^:private app-root (atom nil))
 

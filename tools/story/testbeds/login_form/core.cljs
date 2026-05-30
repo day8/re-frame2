@@ -21,7 +21,10 @@
             [login-form.events]
             [login-form.subs]
             [login-form.views :as views]
-            [login-form.stories])
+            [login-form.stories]
+            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; open-in-editor project-root from the build env.
+            [re-frame.testbed.config :as testbed-config])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -64,22 +67,13 @@
 ;; to shop's rf2-6jyf6.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private default-project-root
-  "C:/Users/miket/code/re-frame2/tools/story/testbeds")
-
-(defn- query-param
-  "Return the named URL query param as a string, or nil when absent /
-  blank. Pure-data helper — kept private to this testbed since the
-  query-string override is a per-host knob (not a Story-API surface)."
-  [name]
-  (when (exists? js/window)
-    (let [params (-> js/window .-location .-search
-                     (js/URLSearchParams.))
-          v      (.get params name)]
-      (when (and (string? v) (seq v)) v))))
-
+;; rf2-5dphw — open-in-editor project-root derived from the build
+;; environment (the build-time `re-frame.testbed.config/repo-root`
+;; goog-define joined with this testbed's tool-relative subdir), not a
+;; hardcoded personal path. `?project-root=<path>` still overrides per
+;; session. See `re-frame.testbed.config` for the cross-platform mechanism.
 (defn- resolve-project-root []
-  (or (query-param "project-root") default-project-root))
+  (testbed-config/resolve-project-root "tools/story/testbeds"))
 
 ;; ---------------------------------------------------------------------------
 ;; Hash-routing between the live app and the Story shell
