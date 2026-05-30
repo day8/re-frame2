@@ -139,6 +139,15 @@
    :row-fail-bg        "#2A1818"   ; failing test row tint
    :scrub-row-bg       "#1F2C3F"   ; scrubber-current row tint (cool blue)
 
+   ;; ── Story↔Xray seam (spec/018 §11 + §12.9) ──
+   ;; The RHS hosts Story (warm) above Xray (cool). The seam tokens give
+   ;; the Xray section header a COOL-violet cast that echoes Xray's own
+   ;; `#7C5CFF` identity, so the user reads 'diagnostic boundary' from
+   ;; temperature alone — without restyling Xray's panel interior. The
+   ;; seam is quiet: one accent, one border (spec/018 §12.9).
+   :seam-xray          "#9D8CFF"   ; cool-violet accent — the Xray section label
+   :seam-xray-soft     "#241F3A"   ; deep violet backdrop — the Xray header underline
+
    ;; ── per-tag palette (sidebar badges) ──
    :tag-dev-bg     "#1F2D44"
    :tag-dev-fg     "#9FC4FF"

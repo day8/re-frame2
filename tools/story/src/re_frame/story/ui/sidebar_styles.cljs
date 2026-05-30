@@ -6,7 +6,8 @@
   CLJS-only."
   (:require [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
             [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.motion :as motion]))
+            [re-frame.story.theme.motion :as motion]
+            [re-frame.story.theme.status :as status]))
 
 (def styles
   {:wrap         {:width "260px"
@@ -152,19 +153,23 @@
    :empty        {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
-   ;; rf2-q0irb — status dot + chrome-level test widget.
+   ;; rf2-q0irb — status dot + chrome-level test widget. The dot tints
+   ;; derive from the SHARED status vocabulary (rf2-ba86n.3 —
+   ;; `theme.status`) so a `:pass` dot is the same green as a `:pass`
+   ;; signal chip / result pill. Pending shows an empty ring (the
+   ;; reserved-but-unrun slot).
    :dot          {:width "8px"
                   :height "8px"
                   :border-radius "50%"
                   :flex-shrink "0"
                   :display "inline-block"}
-   :dot-pass     {:background (:success colors/tokens)}
-   :dot-fail     {:background (:danger colors/tokens)}
-   :dot-running  {:background (:warning colors/tokens)
+   :dot-pass     {:background (status/fg :pass)}
+   :dot-fail     {:background (status/fg :fail)}
+   :dot-running  {:background (status/fg :running)
                   :opacity "0.7"}
    :dot-pending  {:background "transparent"
-                  :border "1px solid #5a5a5a"}
-   :widget       {:border-top "1px solid #333"
+                  :border (str "1px solid " (:border-strong colors/tokens))}
+   :widget       {:border-top (str "1px solid " (:border-default colors/tokens))
                   :margin-top "auto"
                   :padding "10px 12px"
                   :display "flex"
@@ -189,7 +194,7 @@
    :widget-btn   {:margin-top "4px"
                   :padding "4px 10px"
                   :background (:accent-amber colors/tokens)
-                  :color "white"
+                  :color (:text-on-accent colors/tokens)
                   :border "none"
                   :border-radius "3px"
                   :cursor "pointer"
@@ -209,7 +214,7 @@
    :watch-btn    {:padding         "2px 8px"
                   :background      "transparent"
                   :color           (:text-tertiary colors/tokens)
-                  :border          "1px solid #444"
+                  :border          (str "1px solid " (:border-default colors/tokens))
                   :border-radius   "10px"
                   :cursor          "pointer"
                   :font-family     mono-stack
@@ -220,7 +225,7 @@
                   :gap             "4px"}
    :watch-btn-on {:background (:success-bg colors/tokens)
                   :color      (:success colors/tokens)
-                  :border     "1px solid #4ec9b0"}
+                  :border     (str "1px solid " (:success colors/tokens))}
    ;; rf2-nwiwr — tag-as-badge affordance on variant rows.
    :tag-badges   {:display     "inline-flex"
                   :flex-wrap   "wrap"
@@ -312,26 +317,24 @@
                      :color         (:text-secondary colors/tokens)}
    ;; ── status axis (spec/018 §12.6 — distinguishable in colour, icon,
    ;;    text, and shape; NOT everything red/green) ──
-   :signal-status-pass       {:background (:success-bg colors/tokens) :color (:success colors/tokens)}
-   :signal-status-fail       {:background (:danger-bg  colors/tokens) :color (:danger  colors/tokens)}
-   ;; cannot-run is a neutral warning, NOT a failure (spec/018 §12.6).
-   :signal-status-cannot-run {:background (:bg-3 colors/tokens)
-                              :color (:warning colors/tokens)
-                              :border (str "1px solid " (:warning colors/tokens))}
-   ;; error is DISTINCT from fail — outlined danger so it never reads as a
-   ;; plain failed expectation.
-   :signal-status-error      {:background (:danger-bg colors/tokens)
-                              :color (:danger colors/tokens)
-                              :border (str "1px solid " (:danger colors/tokens))}
-   :signal-status-running    {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
-   :signal-status-pending    {:background "transparent"
-                              :color (:text-tertiary colors/tokens)
-                              :border (str "1px solid " (:border-default colors/tokens))}
-   :signal-status-blocked    {:background (:mono-3 colors/tokens) :color (:mono-1 colors/tokens)}
-   :signal-status-dirty      {:background (:accent-amber-soft colors/tokens) :color (:accent-amber colors/tokens)}
-   :signal-status-redacted   {:background (:bg-3 colors/tokens)
-                              :color (:text-tertiary colors/tokens)
-                              :border (str "1px dashed " (:border-strong colors/tokens))}
+   ;;
+   ;; rf2-ba86n.3: the per-status tints now DERIVE from the shared status
+   ;; vocabulary (`theme.status/chip-style`) rather than being respecified
+   ;; here. This is the single-source-of-truth move — a `:fail` chip in
+   ;; the sidebar, a `:fail` pill in test mode, and a `:fail` evidence
+   ;; beat all resolve to the same colour + shape because they share one
+   ;; constructor. The shape discriminator (outline / dashed / ring)
+   ;; rides through `chip-style` so cannot-run / error / pending /
+   ;; redacted stay distinguishable beyond hue.
+   :signal-status-pass       (status/chip-style :pass)
+   :signal-status-fail       (status/chip-style :fail)
+   :signal-status-cannot-run (status/chip-style :cannot-run)
+   :signal-status-error      (status/chip-style :error)
+   :signal-status-running    (status/chip-style :running)
+   :signal-status-pending    (status/chip-style :pending)
+   :signal-status-blocked    (status/chip-style :blocked)
+   :signal-status-dirty      (status/chip-style :dirty)
+   :signal-status-redacted   (status/chip-style :redacted)
    ;; ── fidelity axis — purple-violet tint (shared with the :docs tag
    ;;    palette) so it reads as its own family, never as a world input ──
    :signal-fidelity {:background (:tag-docs-bg colors/tokens)

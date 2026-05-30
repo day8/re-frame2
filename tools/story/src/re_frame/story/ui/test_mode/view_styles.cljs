@@ -19,7 +19,7 @@
    :h1            {:font-family      mono-stack
                    :font-size        (:display typography/type-scale)
                    :font-weight      "bold"
-                   :color            "white"
+                   :color            (:text-primary colors/tokens)
                    :margin           "0 0 4px 0"}
    :sub           {:color            (:text-secondary colors/tokens)
                    :font-family      mono-stack
@@ -32,7 +32,7 @@
                    :margin           "12px 0 8px 0"}
    :rerun-btn     {:padding          "6px 14px"
                    :background       (:accent-amber colors/tokens)
-                   :color            "white"
+                   :color            (:text-on-accent colors/tokens)
                    :border           "none"
                    :border-radius    "3px"
                    :cursor           "pointer"
@@ -52,7 +52,7 @@
                    :font-size        (:micro typography/type-scale)
                    :letter-spacing   "0.5px"
                    :margin-bottom    "8px"
-                   :border-bottom    "1px solid #444"
+                   :border-bottom    (str "1px solid " (:border-default colors/tokens))
                    :padding-bottom   "4px"}
    :pill-row      {:display          "flex"
                    :align-items      "center"
@@ -95,12 +95,12 @@
                    :padding          "6px 8px"
                    :background       (:bg-2 colors/tokens)
                    :color            (:text-secondary colors/tokens)
-                   :border-bottom    "1px solid #444"
+                   :border-bottom    (str "1px solid " (:border-default colors/tokens))
                    :text-transform   "uppercase"
                    :font-size        (:micro typography/type-scale)
                    :letter-spacing   "0.5px"}
    :td            {:padding          "6px 8px"
-                   :border-bottom    "1px solid #2d2d30"
+                   :border-bottom    (str "1px solid " (:border-subtle colors/tokens))
                    :color            (:text-primary colors/tokens)
                    :vertical-align   "top"}
    :td-status     {:width            "20px"
@@ -120,7 +120,7 @@
                    :padding          "0"
                    :text-decoration  "underline"}
    :detail-box    {:background       (:bg-2 colors/tokens)
-                   :border-left      "3px solid #f48771"
+                   :border-left      (str "3px solid " (:danger colors/tokens))
                    :padding          "8px 12px"
                    :margin-top       "6px"
                    :color            (:text-primary colors/tokens)
@@ -182,7 +182,7 @@
                    :font-family      mono-stack
                    :font-size        (:micro typography/type-scale)}
    ;; checks grouped by check id (spec/021 §1)
-   :check-box     {:border           "1px solid #2d2d30"
+   :check-box     {:border           (str "1px solid " (:border-subtle colors/tokens))
                    :border-radius    "4px"
                    :margin-bottom    "6px"
                    :background       (:bg-2 colors/tokens)}
@@ -239,7 +239,7 @@
    ;; result → evidence link (spec/021 §2)
    :evidence-row  {:margin-top       "10px"
                    :padding          "8px 12px"
-                   :border           "1px dashed #3a3a3a"
+                   :border           (str "1px dashed " (:border-strong colors/tokens))
                    :border-radius    "4px"
                    :background       (:bg-2 colors/tokens)
                    :color            (:text-secondary colors/tokens)
@@ -252,7 +252,7 @@
    :scrub-wrap    {:margin           "8px 0 0 0"
                    :padding          "8px 10px"
                    :background       (:bg-2 colors/tokens)
-                   :border           "1px solid #3a3a3a"
+                   :border           (str "1px solid " (:border-strong colors/tokens))
                    :border-radius    "4px"}
    :scrub-h       {:font-weight      "bold"
                    :color            (:text-secondary colors/tokens)
@@ -287,7 +287,7 @@
                    :color            (:text-secondary colors/tokens)}
    :tick-skip     {:background       (:bg-2 colors/tokens)
                    :color            (:text-tertiary colors/tokens)}
-   :tick-selected {:outline          "2px solid #9cdcfe"
+   :tick-selected {:outline          (str "2px solid " (:info colors/tokens))
                    :outline-offset   "1px"}
    :scrub-slider  {:width            "100%"
                    :margin           "4px 0"}
@@ -300,7 +300,7 @@
                    :flex-wrap        "wrap"}
    :scrub-release {:padding          "2px 8px"
                    :background       (:border-strong colors/tokens)
-                   :color            "white"
+                   :color            (:text-primary colors/tokens)
                    :border           "none"
                    :border-radius    "3px"
                    :cursor           "pointer"

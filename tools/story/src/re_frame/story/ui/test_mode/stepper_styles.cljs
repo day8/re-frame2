@@ -56,7 +56,7 @@
                     :padding-bottom   "4px"
                     :padding-left     "10px"
                     :background       (:accent-amber colors/tokens)
-                    :color            "white"
+                    :color            (:text-on-accent colors/tokens)
                     :border-style     "solid"
                     :border-width     "1px"
                     :border-color     (:accent-amber colors/tokens)
@@ -99,7 +99,7 @@
                     :margin           "4px 0 2px 0"
                     :max-height       "180px"
                     :overflow-y       "auto"
-                    :border-top       "1px solid #2d2d30"
+                    :border-top       (str "1px solid " (:border-subtle colors/tokens))
                     :padding-top      "6px"}
    :step-row       {:display              "flex"
                     :align-items          "center"

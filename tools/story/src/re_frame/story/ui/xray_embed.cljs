@@ -185,16 +185,19 @@
                    :overflow "hidden"
                    :gap "8px"}
    ;; rf2-v1ach — chip-row picker. Sits above the mounted panel slot;
-   ;; the user clicks a chip to swap which panel renders. Uses Xray's
-   ;; cool slate palette via a thin amber-tinted seam — the chip-row
-   ;; is Story chrome (warm amber accents) but the chips themselves
-   ;; visually point at the Xray panel below.
+   ;; the user clicks a chip to swap which panel renders. The chip-row
+   ;; is Story-owned chrome but visually points at the Xray panel below.
+   ;; rf2-ba86n.3 — the chip-row's underline wears the cool Story↔Xray
+   ;; SEAM tint (spec/018 §12.9) so the whole Xray band — section header
+   ;; AND chip row — reads as the diagnostic boundary, distinct from the
+   ;; warm Story-owned sections stacked above it. One quiet border; Xray
+   ;; still owns the panel interior below.
    :chip-row      {:display "flex"
                    :align-items "center"
                    :gap "4px"
                    :flex-wrap "wrap"
                    :padding-bottom "6px"
-                   :border-bottom (str "1px solid " (:border-subtle colors/tokens))
+                   :border-bottom (str "1px solid " (:seam-xray-soft colors/tokens))
                    :font-family sans-stack}
    :chip          {:padding "3px 10px"
                    :background (:bg-3 colors/tokens)
