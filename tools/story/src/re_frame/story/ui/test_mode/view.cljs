@@ -79,6 +79,7 @@
   (:require [reagent.core                              :as r]
             [re-frame.story.predicates                 :as pred]
             [re-frame.story.ui.open-in-editor          :as open-in-editor]
+            [re-frame.story.ui.promotion               :as promotion]
             [re-frame.story.ui.state                   :as shell-state]
             [re-frame.story.ui.test-mode.pure          :as pure]
             [re-frame.story.ui.test-mode.state         :as state]
@@ -565,6 +566,49 @@
            [:span {:style (:evidence-pending styles)}
             "no retained evidence for this run"])]))))
 
+(defn- promotion-section
+  "Generated-failure promotion entry point (rf2-ba86n.13, spec/021 §3).
+  DISTINCT from save-current-state (spec/019 §3): the source here is the
+  CAPTURED RUN ARTIFACT this run produced, not the live canvas args. The
+  button captures the current run as an artifact (a replay back-link when
+  present, else synthesized from the run's play-events + result) and opens
+  the promotion dialog where the user inspects, names, edits, tags, and
+  registers a curated regression variant. Non-destructive — the captured
+  artifact stays as evidence in the sidebar's 'Captured artifacts'
+  affordance after promoting.
+
+  Renders nothing until a run has produced a capturable program — promotion
+  needs a replayable artifact, so a bare pending slot offers no button."
+  [variant-id]
+  (let [slot        (get @state/results-atom variant-id)
+        result      (:result slot)
+        play-events (or (:play-events slot) [])]
+    (when (and result
+               (some? (promotion/result->artifact result play-events)))
+      [:div {:style     (:evidence-row styles)
+             :data-test "story-test-promotion-row"}
+       [:button
+        {:style     {:padding       "4px 10px"
+                     :background    (:bg-3 colors/tokens)
+                     :color         (:text-secondary colors/tokens)
+                     :border        (str "1px solid " (:border-default colors/tokens))
+                     :border-radius "6px"
+                     :cursor        "pointer"
+                     :font-family   mono-stack
+                     :font-size     (:caption typography/type-scale)}
+         :data-test "story-test-promote-button"
+         :title     "Capture this run as an artifact and promote it to a curated regression variant"
+         :on-click  (fn [_]
+                      (when-let [id (promotion/capture-from-result!
+                                      result play-events variant-id)]
+                        (promotion/open! id)))}
+        "promote run → regression variant…"]
+       [:span {:style {:margin-left "8px"
+                       :color (:text-tertiary colors/tokens)
+                       :font-style "italic"
+                       :font-size (:micro typography/type-scale)}}
+        "captures this run as evidence; distinct from save-current-state"]])))
+
 (defn- empty-state
   "Placeholder when the variant has no `:play-script` slot."
   [variant-id]
@@ -641,4 +685,8 @@
             [cannot-run-section variant-id]
             ;; rf2-ba86n.11 — result → evidence-spine link (spec/021 §2),
             ;; a graceful "evidence pending" until the spine display lands.
-            [evidence-section variant-id]]))})))
+            [evidence-section variant-id]
+            ;; rf2-ba86n.13 — generated-failure promotion entry point
+            ;; (spec/021 §3). Captures THIS run as an artifact and opens the
+            ;; promotion dialog. Distinct from save-current-state.
+            [promotion-section variant-id]]))})))

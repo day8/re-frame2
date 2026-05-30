@@ -77,6 +77,7 @@
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.play-status :as play-status]
+            [re-frame.story.ui.promotion :as promotion]
             [re-frame.story.recorder.dom-capture :as recorder-dom]
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.recorder-export-dialog :as recorder-export-ui]
@@ -1008,6 +1009,12 @@
           ;; three-pane layout via fixed positioning; both surface the
           ;; generated EDN snippet for review-then-commit.
           [save-variant-ui/save-dialog]
+          ;; rf2-ba86n.13: generated-failure promotion dialog. Opens from the
+          ;; Test pane's 'promote run' button + the sidebar's 'Captured
+          ;; artifacts' rows. Distinct from save-current-state (different
+          ;; entry point, captured-artifact source); floats above the layout
+          ;; via the shared review-dialog fixed positioning.
+          [promotion/promotion-dialog]
           [command-palette/command-palette-host]]))}))
 
 ;; ---- mount / unmount surface ---------------------------------------------

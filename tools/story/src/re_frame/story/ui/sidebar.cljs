@@ -60,6 +60,7 @@
             [re-frame.story.registrar         :as registrar]
             [re-frame.story.theme.colors      :as colors]
             [re-frame.story.theme.glyphs      :as glyphs]
+            [re-frame.story.ui.promotion      :as promotion]
             [re-frame.story.ui.sidebar-search :as search]
             [re-frame.story.ui.sidebar-signals :as signals]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
@@ -160,6 +161,24 @@
       {:shown (vec variants) :hidden 0}
       {:shown  (vec (take cap variants))
        :hidden (- total cap)})))
+
+;; ---- captured run artifacts (rf2-ba86n.13) ------------------------------
+;;
+;; Anonymous captured run artifacts (generated / replayed failures) are
+;; surfaced as a BOUNDED, collapsed affordance — NOT a permanent nav row
+;; per artifact (spec/021 §3 acceptance + spec/018 §10; respects ba86n.4's
+;; sidebar bounding). The section is a single collapsible header carrying a
+;; count; expanding it lists the captured artifacts, each row OPENING the
+;; promotion dialog (`promotion/open!`) without becoming a Story variant.
+;; The store lives in `re-frame.story.ui.promotion/captured-atom`; promoting
+;; an artifact is non-destructive (the row stays until the user forgets it).
+
+(def default-artifact-cap
+  "How many captured artifacts the section shows before bounding with a
+  '+N more' expander when the section is open. Captures accumulate across
+  matrix / generated runs; the cap keeps the section scannable while a
+  re-frame.story.ui.promotion/forget! removes one for good."
+  20)
 
 ;; ---- components ----------------------------------------------------------
 
@@ -797,6 +816,85 @@
                :on-click    (fn [_] (reset! query-ratom ""))}
       "×"])])
 
+(defn captured-artifacts-section
+  "Render the bounded, collapsed 'Captured artifacts' affordance
+  (rf2-ba86n.13, spec/021 §3). Anonymous run artifacts (generated /
+  replayed failures captured into `promotion/captured-atom`) surface here
+  as ONE collapsible section — NOT a permanent nav row per artifact — so a
+  matrix of captured failures never floods the sidebar (spec/018 §10).
+
+  Collapsed by default: the header shows the count and toggles open. When
+  open, the captured artifacts list (bounded to `default-artifact-cap` with
+  a '+N more' expander), each row OPENING the promotion dialog
+  (`promotion/open!`) — the artifact is inspected + promoted there, it never
+  becomes a Story variant by appearing here. A '×' forgets a capture (the
+  store entry only; any already-promoted variant is untouched —
+  non-destructive).
+
+  Renders nothing when no artifacts are captured.
+
+  `open?-ratom` / `more?-ratom` are ephemeral local toggles owned by the
+  parent `sidebar` component (not persisted)."
+  [open?-ratom more?-ratom]
+  (let [entries (promotion/captured-entries)
+        n       (count entries)]
+    (when (pos? n)
+      (let [open? @open?-ratom
+            {:keys [shown hidden]} (bound-variants entries default-artifact-cap @more?-ratom)]
+        [:div {:data-test "story-sidebar-captured-artifacts"
+               :data-count (str n)}
+         [:div {:style        (:section styles)
+                :data-test    "story-sidebar-captured-header"
+                :data-open    (str (boolean open?))
+                :role         "button"
+                :tab-index    "0"
+                :aria-expanded (str (boolean open?))
+                :aria-label   (str (if open? "Collapse" "Expand")
+                                    " captured artifacts (" n ")")
+                :on-key-down  (on-row-key-down (fn [] (swap! open?-ratom not)))
+                :on-click     (fn [_] (swap! open?-ratom not))}
+          [:span {:aria-hidden "true"
+                  :style {:margin-right "6px" :color (:text-tertiary colors/tokens)}}
+           (if open? "▾" "▸")]
+          [:span (str "Captured artifacts · " n)]]
+         (when open?
+           [:div {:data-test "story-sidebar-captured-list"}
+            (for [{:keys [id label]} shown]
+              ^{:key id}
+              [:div {:style       (:workspace-row styles)
+                     :data-test   "story-sidebar-captured-row"
+                     :data-artifact-id (str id)
+                     :role         "button"
+                     :tab-index    "0"
+                     :aria-label   (str "Promote captured artifact " (name id))
+                     :on-key-down  (on-row-key-down (fn [] (promotion/open! id)))
+                     :on-click     (fn [_] (promotion/open! id))}
+               [:span {:style {:flex "1" :overflow "hidden" :text-overflow "ellipsis"
+                               :white-space "nowrap"}}
+                label]
+               [:span {:style       {:margin-left "6px" :color (:text-tertiary colors/tokens)
+                                     :cursor "pointer" :flex-shrink "0"}
+                       :data-test   "story-sidebar-captured-forget"
+                       :role         "button"
+                       :tab-index    "0"
+                       :aria-label   (str "Forget captured artifact " (name id))
+                       :title        "Forget this capture (does not unregister a promoted variant)"
+                       :on-key-down  (on-row-key-down (fn [] (promotion/forget! id)))
+                       :on-click     (fn [^js e]
+                                       (.stopPropagation e)
+                                       (promotion/forget! id))}
+                "×"]])
+            (when (pos? hidden)
+              [:div {:style       (:variant-more styles)
+                     :data-test   "story-sidebar-captured-more"
+                     :data-hidden (str hidden)
+                     :role         "button"
+                     :tab-index    "0"
+                     :aria-label   (str "Show " hidden " more captured artifacts")
+                     :on-key-down  (on-row-key-down (fn [] (reset! more?-ratom true)))
+                     :on-click     (fn [_] (reset! more?-ratom true))}
+               (str "+" hidden " more…")])])]))))
+
 (defn sidebar
   "Top-level sidebar component. Reads the registry snapshot + shell
   state, builds the filtered tree, and renders.
@@ -812,7 +910,10 @@
   ([opts]
    (let [query-ratom      (r/atom "")
          ;; rf2-ba86n.4 — ephemeral per-story 'show all' set (not persisted).
-         expanded-stories (r/atom #{})]
+         expanded-stories (r/atom #{})
+         ;; rf2-ba86n.13 — ephemeral 'Captured artifacts' section toggles.
+         captured-open?   (r/atom false)
+         captured-more?   (r/atom false)]
      (fn [opts]
        (let [shell           @state/shell-state-atom
              registry        (state/registry-snapshot)
@@ -892,5 +993,9 @@
                "Workspaces"]
               (for [[wid body] (sort-by key workspaces)]
                 ^{:key wid}
-                [workspace-row wid (= wid sel-ws) body])])]
+                [workspace-row wid (= wid sel-ws) body])])
+           ;; rf2-ba86n.13 — bounded, collapsed 'Captured artifacts'
+           ;; affordance. Self-elides when nothing is captured; never a
+           ;; permanent nav row per artifact (spec/021 §3 + spec/018 §10).
+           [captured-artifacts-section captured-open? captured-more?]]
           [test-widget shell registry testable-vec]])))))
