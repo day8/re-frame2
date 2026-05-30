@@ -407,6 +407,15 @@
                               play-script export dialog (rf2-x9zsr);
                               save-variant does not (no recording to
                               export).
+     - `:primary`           — optional flow-specific PRIMARY action map
+                              `{:label <str> :on-click <fn> :disabled?
+                              <bool> :title <str>}` rendered as the accent
+                              button left of 'copy'. The promotion flow
+                              (rf2-ba86n.13) wires this to its
+                              `promote-run-artifact!` register path; recorder
+                              / save-variant omit it (their commit is the
+                              copy-paste). When `:disabled?` the button is
+                              inert + dimmed.
      - `:on-close`          — `(fn [])` invoked on backdrop-click + on
                               the 'close' button.
      - `:data-test-prefix`  — string prefix for all `:data-test`
@@ -415,7 +424,8 @@
                               `\"story-save-variant\"`)."
      [dialog-state
       {:keys [title hint snippet placeholder-id placeholder-input
-              on-edit-id on-copy on-discard on-export on-close data-test-prefix]}]
+              on-edit-id on-copy on-discard on-export on-close data-test-prefix
+              primary]}]
      (when (:open? dialog-state)
        (let [draft-id     (:draft-id dialog-state)
              effective-id (or draft-id placeholder-id)
@@ -469,8 +479,27 @@
                  :title     "Export the recording as a :play-script (rich DSL)"
                  :on-click  (fn [_] (on-export))}
                 "export as :play-script"])
+             ;; rf2-ba86n.13 — optional flow-specific PRIMARY action. The
+             ;; promotion flow wires this through to register the curated
+             ;; regression variant (the substrate's `promote-run-artifact!`
+             ;; path); recorder / save-variant don't supply it (their commit
+             ;; IS the copy-to-clipboard paste). `primary` is a map
+             ;; `{:label :on-click :disabled? :title}`; when omitted the row
+             ;; is unchanged. Rendered with the accent `:btn` style, left of
+             ;; 'copy', so the registering action reads as the primary intent.
+             (when primary
+               (let [{:keys [label on-click disabled? title]} primary]
+                 [:button
+                  {:style     (merge (:btn styles)
+                                     (when disabled?
+                                       {:opacity 0.5 :cursor "not-allowed"}))
+                   :data-test (dtest "primary")
+                   :disabled  (boolean disabled?)
+                   :title     title
+                   :on-click  (fn [_] (when-not disabled? (on-click)))}
+                  label]))
              [:button
-              {:style     (:btn styles)
+              {:style     (:btn-muted styles)
                :data-test (dtest "copy")
                :on-click  (fn [_] (on-copy))}
               "copy to clipboard"]
