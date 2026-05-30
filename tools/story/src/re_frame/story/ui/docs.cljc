@@ -47,7 +47,8 @@
   walk. The shell's `main-pane` only reaches `docs-view` via the
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
-  (:require [re-frame.story.predicates :as pred]
+  (:require [re-frame.story.budgets    :as budgets]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.plan       :as plan]
             [re-frame.story.registrar  :as registrar]
             [re-frame.story.ui.evidence-spine :as spine]
@@ -324,8 +325,11 @@
   "How many narrative beats the SPARSE docs evidence excerpt surfaces inline
   (spec/022 §2 — 'one or two narrative beats'). Docs is curated documentation,
   not a debug log: the excerpt shows AT MOST this many beats; the rest live in
-  the evidence-spine display / Inspector, reached through the focus link."
-  2)
+  the evidence-spine display / Inspector, reached through the focus link.
+
+  Single source of truth: `re-frame.story.budgets/evidence-gesture-budget`
+  `:excerpt-beats` (X1 — the failure→evidence budget; spec/018 §10)."
+  (:excerpt-beats budgets/evidence-gesture-budget))
 
 (defn evidence-excerpt
   "Project the SAME spine the evidence-spine display renders into a SPARSE

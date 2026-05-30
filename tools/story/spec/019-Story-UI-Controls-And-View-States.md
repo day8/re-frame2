@@ -200,6 +200,23 @@ bites hardest here: render deep/nested controls as summaries until
 expanded, lazy-load nested schema editors, and preserve scroll/focus
 across re-renders rather than freezing on a deep form.
 
+The concrete controls budgets (ratified rf2-ba86n.2) live in the §10.1
+parity-budget table and are mirrored in code by `re-frame.story.budgets`:
+
+- **C1/C4 — nested render depth: lazy past depth 1.** A collapsed nested
+  header renders NO child rows until expanded; expanding a node renders ONE
+  additional level only (grandchildren stay lazy). This is the CURRENT
+  summarise-before-expand contract above.
+- **C2 — flat-panel control-row cap: 60 rows** (`controls-flat-row-cap`).
+  Beyond 60 rows a flat panel bounds with a `+N more` summarise-and-expand
+  affordance (cap-and-page, F1) rather than flooding — mirroring the
+  sidebar `default-variant-cap` idiom. A single view rarely exceeds ~30
+  args, so 60 is generous headroom.
+- **C3 — inline-validation latency: ≤ 4 ms** (documented target in
+  `budgets/latency-targets-ms`). Pure validation of one edited field is
+  well under this; it is a documented target, not a wall-clock CI
+  assertion (the budget gate enforces structure, not the clock).
+
 ## 5. View-state variants and the fidelity ladder
 
 Story pressure: S2, S3, S7.
@@ -252,7 +269,8 @@ The controls and view-state contract is satisfied when:
   proof, while low-fidelity exploration stays fast and is not over-nagged;
 - args are presented as explicit inputs, not a fidelity rung;
 - deep schema controls summarize before expanding and do not freeze the
-  panel at design-system scale.
+  panel at design-system scale, holding the §4 parity budgets (C1–C3,
+  spec/018 §10.1).
 
 ## Cross-references
 

@@ -223,13 +223,13 @@ Minimum parity bars:
 | Matrices | Variant grids remain scannable at design-system scale. |
 | Sharing | Share/export is useful and honest about privacy, even when full safe sharing is blocked. |
 
-Open detail: before the implementation EPIC, these qualitative bars need
-concrete budgets — search/select latency at large story counts,
-edit-to-render latency for ordinary controls, matrix size before
-paging/virtualization, and the gesture/latency budget from a failed
-assertion to useful evidence. Until those budgets are set, "fast enough"
-remains a design-pressure statement, not a measurable acceptance
-criterion. (See §10 for the perf posture and §13 acceptance.)
+These qualitative bars are now backed by concrete, enforceable budgets
+(ratified rf2-ba86n.2): search/rebuild output and latency at large story
+counts, edit-to-render and inline-validate latency for ordinary controls,
+matrix size before paging, and the gesture/latency budget from a failed
+assertion to useful evidence. The normative budget table is §10.1; the
+deterministic enforcement gate and the documented-target latencies are
+described there. (See §10 for the perf posture and §14 acceptance.)
 
 Story should deliberately surpass Storybook where re-frame2 gives
 leverage:
@@ -553,6 +553,56 @@ it bites in
 [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
 §4.)
 
+### 10.1 Parity budgets
+
+Story pressure: S1, S7, S11.
+
+These budgets turn the §3.1 parity bars into measurable numbers
+(ratified rf2-ba86n.2). They are the normative source the implementation
+and the enforcement gate share; the code-side single source of truth is
+`re-frame.story.budgets`, and the deterministic gate
+(`re-frame.story.budgets-cljs-test`, run under `clojure -M:test` and
+`npm run test:cljs`) asserts the structural budgets at the floor scale.
+
+The scale approach is **cap-and-page** (F1): a bounded prefix plus a
+`+N more` / page affordance everywhere, the same idiom the sidebar already
+ships. True virtualization (windowed render) is **FUTURE** — it is not
+required for the first Story UI EPIC, and unlike cap-and-page it cannot be
+a pure-data gate (it needs DOM measurement). If a concrete project hits a
+cap as real pain, virtualization is the named upgrade.
+
+| # | Surface | Budget | Status | Enforcement |
+|---|---|---|---|---|
+| N1 | Sidebar — per-story variant rows before `+N more` | **40** | CURRENT | gate: bounded output (`bound-variants` / `sidebar-variant-cap`) |
+| N2 | Sidebar — captured-artifact rows before `+N more` | **20** | CURRENT | gate: bounded output (`captured-artifact-cap`) |
+| N3 | Realistic project floor (must stay scannable) | **2 000 variants / 200 stories / 50 workspaces** | TARGET | gate: floor fixture, derivation stays bounded + single-pass |
+| N4 | Sidebar — filtered-tree rebuild per search keystroke | **≤ 8 ms** (documented target); gate asserts single bounded pass, no O(n²) | TARGET | gate: structural (single bounded pass); latency is a documented target |
+| C1/C4 | Controls — nested controls render depth | **lazy past depth 1** (summarise before expand) | CURRENT | spec/019 §4; `summarize-value` / `path-expanded?` |
+| C2 | Controls — flat-panel control rows before `+N more` | **60** | TARGET | gate: `controls-flat-row-cap` (`bound-cells`-style bounding) |
+| C3 | Controls — inline-validation of one edited field | **≤ 4 ms** (documented target) | TARGET | documented target; structural validate is single-field, bounded |
+| G1 | Variants-grid — visible cells before page / `+N more` | **100** | TARGET | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`) |
+| G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | TARGET | gate: `matrix-warn?` |
+| G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | TARGET | gate: `matrix-over-hard-cap?` / `matrix-page-count` |
+| X1 | Failure → first useful evidence | **≤ 1 gesture; inline excerpt ≤ 2 beats** | CURRENT/TARGET | gate: excerpt-beat cap; one-gesture reach is a review-checklist bar |
+| X2 | Evidence-spine first paint (typical run, ≤ ~200 beats) | **≤ 100 ms** (documented target) | TARGET | documented target (React-bound; review-checklist / manual) |
+| X3 | Bundle size | **NO NEW BUDGET** — reference `npm run test:perf-bundle` + bundle-isolation | CURRENT | existing gate (reference, not duplicated) |
+
+Enforcement classification (ratified F2 — the gate is DETERMINISTIC, not a
+flaky wall-clock micro-bench):
+
+- **Structurally enforced** (the gate asserts these): N1, N2, N3 (floor
+  fixture), N4 (single bounded pass / no O(n²)), C2, G1, G2, G3, X1
+  (excerpt-beat cap). The gate asserts **bounded output** and a
+  **single-pass derivation**, never wall-clock milliseconds.
+- **Documented latency targets** (data in `budgets/latency-targets-ms`;
+  NOT asserted as wall-clock — flaky in CI): N4 (≤ 8 ms), C3 (≤ 4 ms),
+  X2 (≤ 100 ms). These are review-checklist bars and the contract for any
+  future opt-in micro-bench; the gate enforces the structural shape that
+  makes them achievable.
+- **No new bundle budget** (X3): StoryUI is tool-tier and bundle-isolated;
+  bundle size stays with the existing `test:perf-bundle` and
+  bundle-isolation gates rather than duplicating the concern here.
+
 ## 11. Visual system seam
 
 Story pressure: S1, S7, S10, S11.
@@ -825,7 +875,8 @@ The Story UI north star is satisfied when:
 - pending/pass/fail/error/cannot-run/blocked/dirty/redacted are visually
   distinct;
 - large app-db, long narrative, and large variants-grid cases remain
-  usable;
+  usable AT the parity budgets in §10.1, enforced by the deterministic
+  budget gate (`re-frame.story.budgets-cljs-test`);
 - human UI, Story MCP, and Story-related skills do not diverge into
   separate artifact models;
 - extension work is deferred or constrained unless tied to a concrete
