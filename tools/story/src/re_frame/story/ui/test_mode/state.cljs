@@ -5,13 +5,22 @@
   rf2-8n2fz. The pane keeps its own ratom — one map keyed by variant-id.
   Each entry carries:
 
-      {:result        <run-variant-result-map>
-       :ran-at-ms     <epoch-ms>
-       :running?      <bool>
-       :expanded      #{<row-index>}
-       :play-events   <vector>     ; flat event-vec list derived from :play-script
-       :epoch-ids     <vector>     ; trailing epoch-id slice
-       :selected-step <int|nil>}
+      {:result          <unified-run-result-map>
+       :ran-at-ms       <epoch-ms>
+       :running?        <bool>
+       :expanded        #{<row-key>}      ; expanded assertion rows
+       :expanded-checks #{<check-id>}     ; expanded check groups (rf2-ba86n.11)
+       :failed-only?    <bool>            ; failed-only filter (rf2-ba86n.11)
+       :play-events     <vector>          ; flat event-vec list derived from :play-script
+       :epoch-ids       <vector>          ; trailing epoch-id slice
+       :selected-step   <int|nil>}
+
+  rf2-ba86n.11 — `:result` is the ONE unified run-result the runtime now
+  returns (`re-frame.story.result/run-result` merged with the legacy
+  lifecycle slots): a top-level `:status`, `:checks`, `:schema-violations`,
+  `:cannot-run` refusals, `:runner` / `:required-runner`, plus the
+  `:assertions` records each stamped with their own `:status`. The pane
+  reads it through `re-frame.story.ui.test-mode.pure`'s projection helpers.
 
   Re-run flips `:running?` on, calls `runtime/reset-variant`, swaps the
   result in on resolve.
@@ -146,6 +155,23 @@
                    (if (contains? s row-key)
                      (disj s row-key)
                      (conj s row-key))))))
+
+(defn toggle-check!
+  "Toggle the expand state of a check group, keyed by check id
+  (rf2-ba86n.11). Mirrors `toggle-expanded!` for the per-test rows."
+  [variant-id check-id]
+  (swap! results-atom update-in [variant-id :expanded-checks]
+         (fn [s] (let [s (or s #{})]
+                   (if (contains? s check-id)
+                     (disj s check-id)
+                     (conj s check-id))))))
+
+(defn set-failed-only!
+  "Set the failed-only filter flag for `variant-id`'s slot
+  (rf2-ba86n.11, spec/021 §1 — failed-only filtering). `on?` truthy
+  hides passing rows; falsey shows every row."
+  [variant-id on?]
+  (swap! results-atom assoc-in [variant-id :failed-only?] (boolean on?)))
 
 (defn run-variant-pane!
   "Drive a fresh `reset-variant` against the variant's frame and

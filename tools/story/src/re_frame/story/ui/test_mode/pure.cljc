@@ -27,6 +27,17 @@
 
 (def ^:private assertion-event? pred/assertion-event?)
 
+;; ---- the unified run-result verdicts (spec/017 §Run result) -------------
+;;
+;; The four verdicts every assertion record / check / run carries
+;; (`re-frame.story.result/statuses`). Mirrored here as a local set so the
+;; pure helpers can recognise a stamped `:status` without a require into
+;; `re-frame.story.result` (which loops through the runtime). rf2-ba86n.11.
+
+(def statuses
+  "The unified run / check / assertion verdicts (spec/017 §Run result)."
+  #{:pass :fail :cannot-run :error})
+
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
 (defn- has-play-script?
@@ -92,7 +103,7 @@
   table renders. Each row carries:
 
       {:assertion :rf.assert/path-equals
-       :status    :pass|:fail|:skip
+       :status    :pass|:fail|:error|:cannot-run|:skip
        :label     \":rf.assert/path-equals [[:count] 7]\"
        :row-key   \":rf.assert/path-equals [[:count] 7]\"
        :detail    {:expected ... :actual ... :reason ...
@@ -101,6 +112,15 @@
   `:detail` is always present so the renderer can read uniformly;
   the renderer decides whether to surface it (only failing rows
   expand by default). Pure data → data; JVM-testable.
+
+  rf2-ba86n.11 — the unified run-result (`re-frame.story.result`) stamps a
+  `:status` on every assertion record (`:pass` / `:fail` / `:error` /
+  `:cannot-run`). This helper now PREFERS that stamped `:status` (the
+  unified shape, spec/017 §Run result) and only derives from `:passed?`
+  for a record minted by a status-unaware path. The legacy
+  `:passed?`-only read is the fallback, not the primary — completing the
+  Test-mode migration off the split lifecycle/assertions reading
+  (tools/story/spec/021 §1).
 
   `:row-key` is the stable identity the view uses to thread :expanded
   state across re-runs (rf2-tistm): keying on positional index opened
@@ -115,12 +135,22 @@
   The row's `:detail :source` slot accepts either."
   [record]
   (let [rec      (or record {})
+        st       (:status rec)
         passed?  (:passed? rec)
         aid      (:assertion rec)
         status   (cond
-                   (= :rf.assert/skipped aid) :skip
-                   passed?                    :pass
-                   :else                      :fail)
+                   (= :rf.assert/skipped aid)          :skip
+                   ;; rf2-ba86n.11 — the unified `:status` wins; the
+                   ;; :passed?-only derivation is the legacy fallback.
+                   (contains? statuses st)             st
+                   (:cannot-run? rec)                  :cannot-run
+                   (or (:error rec) (:exception rec))  :error
+                   passed?                             :pass
+                   ;; A record carrying neither a stamped :status nor a
+                   ;; truthy :passed? reads :fail — the conservative
+                   ;; view-side default (a missing pass signal can't be
+                   ;; rendered green). Matches the legacy contract.
+                   :else                               :fail)
         payload  (or (:payload rec) [])
         label    (let [p (pretty-payload payload)]
                    (cond-> (str aid)
@@ -289,3 +319,183 @@
       (not (pos-int? n))    []
       (< (count hv) n)      []
       :else                 (mapv :epoch-id (subvec hv (- (count hv) n))))))
+
+;; ===========================================================================
+;; UNIFIED RUN-RESULT PROJECTION  (rf2-ba86n.11, tools/story/spec/021 §1)
+;; ===========================================================================
+;;
+;; The `:test` pane consumes the ONE unified run-result `run-variant` /
+;; `reset-variant` now return (the `re-frame.story.result/run-result`
+;; shape merged with the legacy lifecycle slots — runtime.cljc
+;; `record-result-map`). These helpers project that result into the
+;; per-section render data the view renders, COMPLETING the migration off
+;; the legacy split `:lifecycle` / `:assertions` reading (spec/021 §1
+;; supersedes 009's result-reading contract):
+;;
+;;   - `run-status`         — the top-level verdict, including the distinct
+;;                            `:cannot-run` THIRD state + a `:pending`
+;;                            never-run / no-signal state.
+;;   - `check-rows`         — `:checks` grouped by check id (spec/021 §1).
+;;   - `schema-rows`        — consumed + unconsumed schema violations
+;;                            (spec/021 §1 — "schema violations, including
+;;                            consumed expected violations").
+;;   - `cannot-run-rows`    — the `:cannot-run` refusal rows (required vs
+;;                            available evidence/runner).
+;;   - `filter-rows`        — the failed-only filter over assertion rows.
+;;   - `evidence-available?`— whether the evidence spine can be linked yet
+;;                            (graceful "evidence pending" until ba86n.10).
+;;
+;; All pure data → data; JVM-testable. Render-what-is-present: a slot the
+;; substrate does not yet populate projects to an empty vector, NEVER a
+;; fabricated row.
+
+(defn run-status
+  "The top-level run verdict for `result` (spec/021 §1; spec/018 §12.6 status
+  vocabulary). Prefers the unified run-level `:status` so a tape-floor `:fail`
+  / a `:cannot-run` refusal surfaces even when the assertion counts alone
+  would read green. Falls back to a count-derived verdict ONLY when the
+  result carries no `:status` (a host without the unified shape):
+
+  - no result / nothing recorded  → `:pending`
+  - explicit unified `:status`    → that verdict (`:pass` / `:fail` /
+                                     `:error` / `:cannot-run`)
+  - else (legacy host) derive from the assertion summary:
+      zero assertions             → `:pending`  (ran, no signal)
+      any fail/error              → `:fail`
+      any cannot-run              → `:cannot-run`
+      else                        → `:pass`
+
+  `summary` is the `aggregate-summary` fold (passed/failed/cannot-run/total).
+  Pure data → data; JVM-testable."
+  [result summary]
+  (let [st (:status result)]
+    (cond
+      (nil? result)             :pending
+      (contains? statuses st)   st
+      :else
+      (let [{:keys [total failed cannot-run all-passed?]} (or summary {})]
+        (cond
+          (zero? (or total 0))     :pending
+          (pos? (or failed 0))     :fail
+          all-passed?              :pass
+          (pos? (or cannot-run 0)) :cannot-run
+          :else                    :fail)))))
+
+(defn check-rows
+  "Project the run-result's `:checks` slot (spec/017 §Checks, surfaced per
+  spec/021 §1 — checks grouped by check id) into render rows:
+
+      [{:check     <check-id>
+        :status    :pass|:fail|:error|:cannot-run
+        :passed    <n>   ; passing assertions in the group
+        :failed    <n>   ; fail + error assertions in the group
+        :total     <n>
+        :rows      [<assertion-row> …]}]   ; the underlying records,
+                                            ; so a failed check shows BOTH
+                                            ; the check id AND its records
+                                            ; (spec/017 §Run result).
+
+  Empty when the plan declared no checks (the common case today — render an
+  honest empty state, never a fabricated check). Pure data → data."
+  [result]
+  (mapv (fn [{:keys [check status assertions]}]
+          (let [rows   (mapv assertion-row (or assertions []))
+                buckets (frequencies (map :status rows))
+                passed  (get buckets :pass 0)
+                failed  (+ (get buckets :fail 0) (get buckets :error 0))]
+            {:check  check
+             :status status
+             :passed passed
+             :failed failed
+             :total  (count rows)
+             :rows   rows}))
+        (or (:checks result) [])))
+
+(defn schema-rows
+  "Project the run-result's `:schema-violations` evidence slot (the SINGLE
+  projected violation source, `re-frame.story.play.evidence/schema-
+  violations`) into render rows, marking each as consumed or unconsumed
+  (spec/021 §1 — \"schema violations, including consumed expected
+  violations\"). Pure data → data.
+
+  A violation is `:consumed?` true iff its `:selector` appears among the
+  selectors a declared `:rf.assert/schema-error` expectation exactly
+  consumed. The unified result does not carry the consumed-selector set
+  directly, so we recover it from the run's `:rf.assert/schema-error`
+  assertion records: a `:pass` schema-error record consumed the violation
+  whose selector matches its `:actual` (the consumed violation's selector,
+  per `re-frame.story.result/schema-error-record`).
+
+      [{:selector   <selector>
+        :where      <surface>
+        :failing-id <id>
+        :consumed?  <bool>
+        :reason     <str|nil>
+        :epoch-id   <id|nil>}]
+
+  An unconsumed violation reads as the agreement-floor failure cause; a
+  consumed one reads as an expected, exactly-paired violation. Empty when
+  the tape carried no schema violations. Pure data → data; JVM-testable."
+  [result]
+  (let [violations (or (:schema-violations result) [])
+        consumed   (into #{}
+                         (comp (filter #(= :rf.assert/schema-error (:assertion %)))
+                               (filter #(= :pass (or (:status %)
+                                                     (when (:passed? %) :pass))))
+                               (keep :actual))
+                         (or (:assertions result) []))]
+    (mapv (fn [{:keys [selector where failing-id reason epoch-id]}]
+            {:selector   selector
+             :where      where
+             :failing-id failing-id
+             :consumed?  (contains? consumed selector)
+             :reason     reason
+             :epoch-id   epoch-id})
+          violations)))
+
+(defn cannot-run-rows
+  "Project the run-result's `:cannot-run` slot (the per-requirement refusal
+  rows the chosen runner could not even attempt,
+  `re-frame.story.requirements/requirement-refusal`) into render rows
+  (spec/021 §1 — \"cannot-run rows with required and available evidence\"):
+
+      [{:required  #{token …}   ; the evidence/runner the unit needed
+        :available #{token …}   ; what the chosen runner provides
+        :missing   #{token …}   ; the gap (required − available)
+        :reason    <keyword>    ; :runner-lacks-capability | :no-runner-satisfies
+        :runner    <kind|nil>   ; the runner that refused
+        :unit      <step|assertion>}]
+
+  A cannot-run row says what was REQUIRED vs AVAILABLE rather than reading
+  as a failure (spec/018 §12.6 — the distinct THIRD status). Empty when the
+  chosen runner satisfied every requirement. Pure data → data; JVM-testable."
+  [result]
+  (mapv (fn [{:keys [required-runner available-runner missing reason runner unit]}]
+          {:required  (or required-runner #{})
+           :available (or available-runner #{})
+           :missing   (or missing #{})
+           :reason    reason
+           :runner    runner
+           :unit      unit})
+        (or (:cannot-run result) [])))
+
+(defn filter-rows
+  "Apply the failed-only filter to a vector of `assertion-row`s (spec/021 §1
+  — \"failed-only filtering\"). When `failed-only?` is truthy, keep only the
+  rows whose `:status` is `:fail` / `:error` / `:cannot-run` (the actionable
+  rows); otherwise return `rows` unchanged. Pure data → data; JVM-testable."
+  [rows failed-only?]
+  (if failed-only?
+    (filterv (fn [r] (#{:fail :error :cannot-run} (:status r))) rows)
+    (vec rows)))
+
+(defn evidence-available?
+  "True iff `result` carries enough retained evidence for a result→evidence
+  spine link (spec/021 §2). The evidence-spine DISPLAY (ba86n.10) is not
+  built yet, so today this gates a graceful \"evidence pending\" affordance
+  rather than a live link: it is true only when the result carries a
+  non-empty `:epoch-tape` / `:narrative` (the retained tape the spine would
+  project). Pure data → data; JVM-testable."
+  [result]
+  (boolean (or (seq (:epoch-tape result))
+               (seq (:narrative result)))))
