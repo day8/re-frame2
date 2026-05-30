@@ -21,7 +21,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
+            [re-frame.story.result :as result]
             [re-frame.story.ui.state :as state]
+            ;; rf2-fslmh — reach the PRIVATE local mirror to assert parity
+            ;; with the canonical `result/record-status`. The mirror is a
+            ;; copy-by-hand of the canonical rule (it can't require `result`,
+            ;; which loops through the runtime); the test CAN require both,
+            ;; tests aren't on that production cycle path.
+            [re-frame.story.ui.state.tests :as state.tests]
             #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]])))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -346,6 +353,68 @@
          (testing "an unedited variant gets nil overrides (no leakage
                    from sibling variants)"
            (is (nil? (:cell-overrides opts-c))))))))
+
+;; ---- rf2-fslmh: the local mirror tracks the canonical verdict-for-verdict
+
+(def ^:private record-status-parity-cases
+  "A table of assertion-record shapes covering every branch of the
+  verdict rule (rf2-fslmh). The load-bearing rows are the `:exception`/
+  `:error`-truthy ones (5 + 6): pre-fix the mirror dropped through to
+  `:else :pass` — a thrown handler counted as a false-green. The mixed
+  rows assert precedence holds identically on both sides (an explicit
+  verdict wins; cannot-run/skipped beat error; error beats pass/fail)."
+  [;; explicit verdicts win, even against contradicting outcome fields
+   {:status :pass}
+   {:status :fail :passed? true}
+   {:status :cannot-run}
+   {:status :error :passed? true}
+   ;; derived: a thrown handler / fx / step — the missing branch
+   {:exception (ex-info "boom" {})}
+   {:error "boom"}
+   ;; error beats a contradicting passed? true (canonical ordering)
+   {:exception (ex-info "boom" {}) :passed? true}
+   ;; cannot-run / skipped beat error (checked earlier in the cond)
+   {:cannot-run? true :exception (ex-info "boom" {})}
+   {:skipped? true :error "boom"}
+   ;; the plain pass / fail / refusal / vacuous rows
+   {:passed? true}
+   {:passed? false}
+   {:cannot-run? true}
+   {:skipped? true}
+   {}
+   {:passed? nil}
+   ;; a non-verdict keyword in :status does NOT win — it falls through
+   ;; (the canonical guards on the four-verdict set, not `keyword?`)
+   {:status :running :passed? false}
+   {:status :running :exception (ex-info "boom" {})}])
+
+(deftest record-status-mirrors-canonical
+  (testing "rf2-fslmh — `ui.state.tests`' private `record-status` mirror
+            returns the SAME verdict as `result/record-status` for every
+            record shape. The mirror is a copy-by-hand of the canonical
+            rule (it can't require `result` — that loops through the
+            runtime). This parity guard is the trip-wire against the
+            drift that mis-counted a thrown-handler record as :pass."
+    (doseq [record record-status-parity-cases]
+      (is (= (result/record-status record)
+             (#'state.tests/record-status record))
+          (str "verdict mismatch for record " (pr-str record))))))
+
+(deftest record-status-error-branch-is-reachable
+  (testing "rf2-fslmh — a derived record with :exception/:error truthy and
+            NO explicit :status now resolves to :error (was :pass — the
+            false-green). This is what makes aggregate-summary's :error
+            accounting (tests.cljc :failed = :fail + :error) reachable."
+    (is (= :error (#'state.tests/record-status {:exception (ex-info "boom" {})})))
+    (is (= :error (#'state.tests/record-status {:error "boom"})))
+    (testing "and the :error bucket lands in the :failed tally"
+      (let [summary (state/aggregate-summary
+                      [{:passed? true}
+                       {:exception (ex-info "boom" {})}
+                       {:error "boom"}])]
+        (is (= 1 (:passed summary)))
+        (is (= 2 (:failed summary)) ":error records count as failures")
+        (is (false? (:all-passed? summary)))))))
 
 #?(:clj
    (deftest jvm-only-summary-from-fixture

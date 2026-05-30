@@ -67,18 +67,38 @@
 
 (defn- record-status
   "The unified verdict for ONE assertion record (rf2-5x1wt.19): the
-  record's own `:status` when present (the unified shape), else derived
-  from `:passed?` / `:skipped?` / `:cannot-run?`. Pure data → data — a
-  local mirror so this leaf needs no require into `re-frame.story.result`
-  (which would loop through the runtime)."
-  [{:keys [status passed? skipped? cannot-run?] :as _record}]
+  record's own `:status` when it is one of the four verdicts (the
+  unified shape), else derived from the outcome fields. Pure data →
+  data — a local mirror so this leaf needs no require into
+  `re-frame.story.result` (which would loop through the runtime via
+  `result` → `runtime`).
+
+  This MUST track `re-frame.story.result/record-status` verdict-for-
+  verdict — it cannot delegate (the cycle above) so the rule is copied
+  by hand. The canonical ordering (and the one reproduced here) is:
+
+  - an explicit `:status` that is one of the four verdicts wins;
+  - `:cannot-run?` / `:skipped?` truthy → `:cannot-run`;
+  - `:exception` / `:error` truthy → `:error` (a thrown handler / fx /
+    step — rf2-fslmh: this branch was missing, so a derived record
+    carrying `:exception`/`:error` but no explicit `:status` was mis-
+    counted as `:pass`, a false-green);
+  - `:passed?` true → `:pass`; `:passed?` false → `:fail`;
+  - otherwise `:pass` (a non-assertion / vacuous record does not fail
+    the run — the spec/007 duality).
+
+  A parity test (`record-status-mirrors-canonical`) runs a table of
+  record shapes through BOTH this mirror and the canonical, asserting
+  identical verdicts, so the two can never silently drift again."
+  [{:keys [status passed? skipped? cannot-run? exception error] :as _record}]
   (cond
-    (keyword? status)  status
-    cannot-run?        :cannot-run
-    skipped?           :cannot-run
-    (true? passed?)    :pass
-    (false? passed?)   :fail
-    :else              :pass))
+    (contains? #{:pass :fail :cannot-run :error} status) status
+    cannot-run?          :cannot-run
+    skipped?             :cannot-run
+    (or exception error) :error
+    (true? passed?)      :pass
+    (false? passed?)     :fail
+    :else                :pass))
 
 (defn aggregate-summary
   "Walk `assertions` (the vector pulled off a `run-variant` result map)
