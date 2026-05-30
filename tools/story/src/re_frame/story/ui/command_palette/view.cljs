@@ -4,6 +4,7 @@
             [reagent.core :as r]
             [re-frame.story.config :as config]
             [re-frame.story.save-variant :as save-variant]
+            [re-frame.story.ui.author-expectations :as author-expectations]
             [re-frame.story.ui.command-palette :as palette]
             [re-frame.story.ui.explain-panel :as explain-panel]
             [re-frame.story.ui.state :as state]
@@ -44,6 +45,12 @@
         ;; selection from shell-state and no-ops (returns nil) when no
         ;; variant is focused, so the palette action needs no extra guard.
         :save-current-as-variant (save-variant/save-current-as-variant!)
+        ;; rf2-ba86n.12 — author EXPECTATIONS onto the focused story
+        ;; (spec/021 §S5). Same dialog as the Controls-panel 'add
+        ;; expectations…' button. Distinct from save-current-state.
+        ;; `open-for-focused-variant!` reads the live selection and no-ops
+        ;; when no variant is focused, so the action needs no extra guard.
+        :author-expectations (author-expectations/open-for-focused-variant!)
         nil)
       true)
 
@@ -237,44 +244,57 @@
            (reset! listener nil)))
        :reagent-render
        (fn []
-         (when @open?
-           (let [results (palette/search
-                           (palette/entries (state/registry-snapshot))
-                           @query
-                           30)
-                 result-count (count results)
-                 active (palette/clamp-active-index @active-index result-count)]
-             (when (not= active @active-index)
-               (reset! active-index active))
-             (render-palette
-               {:query             @query
-                :results           results
-                :active            active
-                :input-ref         #(reset! input %)
-                :on-close          (fn [_] (close!))
-                :on-input-change   (fn [event]
-                                     (reset! query (.. event -target -value))
-                                     (reset! active-index 0))
-                :on-input-keydown  (fn [event]
-                                     (case (.-key event)
-                                       "ArrowDown"
-                                       (do (.preventDefault event)
-                                           (swap! active-index
-                                                  palette/move-active-index 1 result-count))
-                                       "ArrowUp"
-                                       (do (.preventDefault event)
-                                           (swap! active-index
-                                                  palette/move-active-index -1 result-count))
-                                       "Enter"
-                                       (do (.preventDefault event)
-                                           (when-let [entry (get results active)]
-                                             (select-entry! entry)
-                                             (close!)))
-                                       "Escape"
-                                       (do (.preventDefault event)
-                                           (close!))
-                                       nil))
-                :on-row-hover      (fn [idx] (reset! active-index idx))
-                :on-row-select     (fn [entry]
-                                     (select-entry! entry)
-                                     (close!))}))))})))
+         ;; The palette overlay is conditional on its own `@open?`; the
+         ;; author-expectations modal (rf2-ba86n.12) is rendered
+         ;; UNCONDITIONALLY as a sibling so it surfaces whether opened from
+         ;; the controls-panel button OR a `:author-expectations` palette
+         ;; action — and regardless of whether the controls panel is
+         ;; currently visible. It is a `position: fixed` overlay reading its
+         ;; own defonce ratom, so a single mount here (the always-present
+         ;; palette host) is the canonical mount point; it renders nil while
+         ;; its ratom is closed. The shell's own dialog mounts (save-variant
+         ;; / promotion) live in `shell.cljs`; this one rides the palette
+         ;; host to keep the authoring flow's mount in its own lane.
+         [:<>
+          (when @open?
+            (let [results (palette/search
+                            (palette/entries (state/registry-snapshot))
+                            @query
+                            30)
+                  result-count (count results)
+                  active (palette/clamp-active-index @active-index result-count)]
+              (when (not= active @active-index)
+                (reset! active-index active))
+              (render-palette
+                {:query             @query
+                 :results           results
+                 :active            active
+                 :input-ref         #(reset! input %)
+                 :on-close          (fn [_] (close!))
+                 :on-input-change   (fn [event]
+                                      (reset! query (.. event -target -value))
+                                      (reset! active-index 0))
+                 :on-input-keydown  (fn [event]
+                                      (case (.-key event)
+                                        "ArrowDown"
+                                        (do (.preventDefault event)
+                                            (swap! active-index
+                                                   palette/move-active-index 1 result-count))
+                                        "ArrowUp"
+                                        (do (.preventDefault event)
+                                            (swap! active-index
+                                                   palette/move-active-index -1 result-count))
+                                        "Enter"
+                                        (do (.preventDefault event)
+                                            (when-let [entry (get results active)]
+                                              (select-entry! entry)
+                                              (close!)))
+                                        "Escape"
+                                        (do (.preventDefault event)
+                                            (close!))
+                                        nil))
+                 :on-row-hover      (fn [idx] (reset! active-index idx))
+                 :on-row-select     (fn [entry]
+                                      (select-entry! entry)
+                                      (close!))})))
+          [author-expectations/author-dialog]])})))

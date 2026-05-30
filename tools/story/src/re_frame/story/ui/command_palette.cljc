@@ -28,7 +28,13 @@
     variant's live canvas state as a new variant. The SAME flow as the
     Controls-panel 'save as new variant…' button (spec/019 §3 — the flow
     is available from Controls AND the palette). A no-op when no variant
-    is focused; the action handler guards on the live selection."
+    is focused; the action handler guards on the live selection.
+
+  - `:author-expectations` (rf2-ba86n.12) — author EXPECTATIONS onto the
+    focused story so a useful story becomes a regression test (spec/021
+    §S5). Distinct from `:save-current-as-variant` (state authoring) and
+    failure promotion (a captured artifact). A no-op when no variant is
+    focused; the action handler guards on the live selection."
   [{:kind   :command
     :id     :explain
     :action :explain
@@ -36,7 +42,11 @@
    {:kind   :command
     :id     :save-current-as-variant
     :action :save-current-as-variant
-    :doc    "Save current canvas state as a new variant — capture live args, review + copy the reg-variant form"}])
+    :doc    "Save current canvas state as a new variant — capture live args, review + copy the reg-variant form"}
+   {:kind   :command
+    :id     :author-expectations
+    :action :author-expectations
+    :doc    "Add expectations to this story — author app-db / sub / DOM / schema / a11y expectations, see runner cost before save, copy the :assertions form"}])
 
 (defn- doc-text [body]
   (let [doc (:doc body)]

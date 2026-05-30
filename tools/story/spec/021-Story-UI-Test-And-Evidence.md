@@ -117,6 +117,56 @@ Test mode SHOULD support:
 - link assertion failures to the evidence spine and Xray focus (§2) where
   the result carries enough coordinates.
 
+## 1a. Authoring expectations onto a story (S5)
+
+Story pressure: S5.
+
+The S5 workflow — a useful story becomes a regression test without a
+separate fixture — has a CURRENT authoring surface: the expectation-author
+UI `re-frame.story.ui.author-expectations` over the pure
+`re-frame.story.author-expectations` substrate (rf2-ba86n.12). It is a thin
+layer; it reimplements NO assertion vocabulary and NO runner-cost model.
+
+It MUST:
+
+- let the author add/generate expectations for app-db, subscriptions,
+  rendered hiccup/DOM, schema behaviour, and browser/a11y evidence — each
+  authored expectation folds onto the canonical
+  `re-frame.story.assertions` `:rf.assert/*` atom for that surface (the ONE
+  vocabulary, never a parallel expectation model);
+- show the runner cost / `:cannot-run` **before save** — for each
+  expectation, the capability tokens it requires, the cheapest concrete
+  runner that can prove it, and whether it `:cannot-run` under the default
+  headless runner — read from the EXISTING
+  `re-frame.story.requirements` registry (`assertion-tokens` /
+  `cheapest-runner` / `select-runner`), so the cost is honest and never
+  discovered only at run time;
+- make the saved expectations EXPLICIT variant DATA — a `(reg-variant …
+  {:assertions […]})` form whose authored atoms are merged with the source
+  variant's already-declared `:assertions` (additive, round-trips through
+  the registrar), authored via `:extends` of the source — NOT hidden UI
+  state.
+
+It is reachable from the Controls panel (`add expectations…`, beside
+`save as new variant…`) and the command palette (`Add expectations to this
+story`).
+
+Authoring expectations is **distinct** from save-current-state-as-variant
+([`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
+§3 — intentional STATE authoring of the live canvas) and from
+generated-failure promotion (§3 — a captured run ARTIFACT). The three flows
+share the review-then-commit dialog skeleton but have separate entry points
+and source semantics: save-current's source is the live args snapshot,
+promotion's source is a captured artifact, and authoring's source is the
+author's declared INTENT (the expectation). Conflating any two is an
+explicit not-EPIC-ready condition.
+
+The read-only display of a variant's authored (declared, un-run)
+expectations — each atom with its runner-cost / `:cannot-run` flag — is the
+`authored-expectation-strip` companion in
+`re-frame.story.ui.assertion-strip` (distinct from the run-result strip,
+which carries verdicts).
+
 ## 2. Result → evidence linkage
 
 Story pressure: S4.
