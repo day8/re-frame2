@@ -78,7 +78,7 @@ Required control groups:
 | Group | Status | Backing data |
 |---|---|---|
 | Args | CURRENT/TARGET | `:args`, `:effective-args`, view-props schema, argtypes. |
-| View State | CURRENT | `:sub-overrides` + the three labelled fidelity rungs, the honesty guardrail, and the upgrade path (rf2-ba86n.7 — `re-frame.story.ui.view-state`). |
+| View State | CURRENT | `:sub-overrides` + the three labelled fidelity rungs, the honesty guardrail, the upgrade path (rf2-ba86n.7 — `re-frame.story.ui.view-state`), and schema-generated value entry per pinned override (rf2-xon7j — §5.2). |
 | Setup | CURRENT | setup-source summary off the compiled plan (`[:world :setup]` step count + dispatched event ids), surfaced in the View-State section's provenance. Event links + replay are TARGET. |
 | Network | CURRENT | route-level managed HTTP stubs surfaced as world-input provenance (off the plan's `:explain` `:network`). |
 | Effects | CURRENT | non-HTTP `:fx-overrides` surfaced as world-input provenance (off `[:world :frame :fx-overrides]`, minus `:rf.http/managed`). |
@@ -304,9 +304,47 @@ acceptance contract:
   scaffold that KEEPS the artifact a variant, adds the higher rung's
   authoring slot (`:setup` / `:db-seed`), and drops the `:sub-overrides`.
   Source is never written directly (the save-variant / author-expectations
-  idiom). Raw value entry of the upgraded state is deliberately NOT built
-  here — that is the separate, un-greenlit schema-generated input UI
-  (rf2-xon7j).
+  idiom).
+
+### 5.2 Schema-generated value entry for sub-overrides (CURRENT, rf2-xon7j)
+
+When a pinned `:sub-overrides` entry targets a sub that declares an output
+`:schema`, the View-State section generates a **typed input form** from that
+schema so the designer fills fields with the right widgets rather than
+hand-writing the override's raw EDN. A schema good enough to *validate* an
+override (the rf2-7pgiz `:where :sub-override` seam — core validates a HIT
+against the sub's declared `:schema`) is good enough to *generate* its input.
+
+Introspection reads the registered schema's **Malli EDN vector form as DATA**
+through the pure leaf `re-frame.story.malli-schema` (the same decoder the
+controls argtype derivation and the schema-validation panel use); it NEVER
+calls the pluggable validator to introspect structure (spec/010 §"The
+`:schema` value is opaque to re-frame"). No new schemas-artefact introspection
+API is required.
+
+- **Flat shapes only in the first cut** (`re-frame.story.ui.schema-form/
+  field-shape`): `:string` → text, `:int`/`:double`/`:number` → number,
+  `:boolean` → checkbox, keyword-`[:enum …]` → select, and a FLAT `[:map …]`
+  of those → a fieldset. The widget tags reuse the controls panel's scalar
+  vocabulary — one taxonomy, not two.
+
+- **The raw-EDN escape hatch is ALWAYS present.** Any shape the form cannot
+  render — a nested / recursive map, a `:vector`/`:set`/`:tuple` collection,
+  an opaque `[:fn …]` predicate, a registry ref, a compiled schema value, or
+  simply *no declared schema* (the §4 "sub override without output schema"
+  empty state) — drops to a raw-EDN textarea. The generated form NEVER blocks
+  a value; the designer can always type EDN.
+
+- **Same artifact kind, source never written directly.** Either path emits a
+  copy-paste `(story/reg-variant …-pinned {:extends … :sub-overrides { … }})`
+  scaffold (`schema-form/override-snippet`) the author pastes into source —
+  exactly the upgrade-path / save-variant idiom. The pinned value remains the
+  lowest fidelity rung (a picture for design exploration, never proof).
+
+The pure projection (`scalar-widget` / `field-shape` / `widget-default` /
+`coerce-input` / `read-edn-value` / `override-snippet`) is `.cljc` and
+JVM-tested; the React form render, the form/EDN tab toggle, and the
+value-entry dialog are CLJS-only in `re-frame.story.ui.view-state`.
 
 ## 6. Acceptance criteria
 

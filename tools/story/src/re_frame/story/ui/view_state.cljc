@@ -51,11 +51,29 @@
   offers, per available higher rung, a scaffold snippet
   (`upgrade-snippet`) that re-emits the SAME variant (`:extends` the
   source) with a `:setup` (→ `:real-setup`) or `:db-seed` (→ `:db-seed`)
-  slot to fill in, dropping the `:sub-overrides`. Raw value entry of the
-  upgraded state is deliberately NOT built here (that is the separate,
-  un-greenlit rf2-xon7j schema-generated input UI); the upgrade emits a
+  slot to fill in, dropping the `:sub-overrides`. The upgrade emits a
   copy-paste scaffold the author completes, exactly as save-variant /
   author-expectations do (source is never written directly).
+
+  ## Schema-generated value entry (rf2-xon7j)
+
+  When a pinned sub-override targets a sub that declares an output
+  `:schema`, the section generates a TYPED INPUT FORM from that schema
+  (`re-frame.story.ui.schema-form/field-shape`) so the designer fills
+  fields with the right widgets (text / number / checkbox / select / a
+  flat fieldset) rather than hand-writing the override's raw EDN. A schema
+  good enough to VALIDATE an override (the rf2-7pgiz `:where :sub-override`
+  seam) is good enough to GENERATE its input — we read the registered
+  schema's Malli EDN VECTOR form as DATA (via the pure `malli-schema`
+  leaf), never calling the pluggable validator to introspect structure
+  (Spec 010 §The `:schema` value is opaque to re-frame).
+
+  Flat shapes only in the first cut; ANY non-flat shape (nested map,
+  collection, opaque predicate, registry ref, or simply no schema) drops
+  to the raw-EDN escape hatch, which is ALWAYS present — the form never
+  blocks a value. Either path emits the SAME copy-paste `:sub-overrides`
+  scaffold (`schema-form/override-snippet`, source never written
+  directly), exactly as the upgrade path does.
 
   ## Pure / CLJS split
 
@@ -80,7 +98,9 @@
             ;; (the `author_expectations.cljc` idiom).
             #?@(:cljs [[clojure.string :as str]
                        [reagent.core :as r]
+                       [re-frame.registrar :as rf-registrar]
                        [re-frame.story.review-dialog :as review-dialog]
+                       [re-frame.story.ui.schema-form :as schema-form]
                        [re-frame.story.ui.trace-buffer :as trace-buffer]
                        [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
                        [re-frame.story.theme.colors :as colors]])))
@@ -541,7 +561,139 @@
                      :padding "6px"
                      :font-family mono-stack
                      :font-size (:micro typography/type-scale)
-                     :white-space "pre-wrap"}}))
+                     :white-space "pre-wrap"}
+      ;; rf2-xon7j — the schema-generated value-entry surface.
+      :pin-btn      {:padding "2px 8px"
+                     :background (:bg-3 colors/tokens)
+                     :color (:text-primary colors/tokens)
+                     :border (str "1px solid " (:border-default colors/tokens))
+                     :border-radius "3px"
+                     :cursor "pointer"
+                     :font-family sans-stack
+                     :font-size (:nano typography/type-scale)
+                     :margin-left "6px"}
+      :tab-row      {:display "flex" :gap "4px" :margin-bottom "8px"}
+      :tab          {:padding "3px 10px"
+                     :background (:bg-2 colors/tokens)
+                     :color (:text-secondary colors/tokens)
+                     :border (str "1px solid " (:border-subtle colors/tokens))
+                     :border-radius "3px"
+                     :cursor "pointer"
+                     :font-family sans-stack
+                     :font-size (:micro typography/type-scale)}
+      :tab-active   {:background (:info-bg colors/tokens)
+                     :color (:info colors/tokens)
+                     :border (str "1px solid " (:info colors/tokens))}
+      :form-grid    {:display "grid"
+                     :grid-template-columns "auto 1fr"
+                     :gap "6px 10px"
+                     :align-items "baseline"
+                     :margin-bottom "8px"}
+      :form-key     {:font-family mono-stack
+                     :font-size (:micro typography/type-scale)
+                     :color (:warning colors/tokens)}
+      :form-input   {:padding "3px 6px"
+                     :background (:bg-2 colors/tokens)
+                     :color (:text-primary colors/tokens)
+                     :border (str "1px solid " (:border-default colors/tokens))
+                     :border-radius "3px"
+                     :font-family mono-stack
+                     :font-size (:micro typography/type-scale)
+                     :width "100%"
+                     :box-sizing "border-box"}
+      :edn-area     {:padding "6px"
+                     :background "#0e0e10"
+                     :color (:warning colors/tokens)
+                     :border (str "1px solid " (:border-default colors/tokens))
+                     :border-radius "3px"
+                     :font-family mono-stack
+                     :font-size (:micro typography/type-scale)
+                     :width "100%"
+                     :min-height "60px"
+                     :box-sizing "border-box"}
+      :edn-err      {:color (:danger colors/tokens)
+                     :font-size (:micro typography/type-scale)
+                     :margin-top "4px"}}))
+
+;; ---- schema-generated value entry (rf2-xon7j) ----------------------------
+;;
+;; Resolve a pinned sub-override's TARGET sub output `:schema` off the
+;; framework registrar (`re-frame.registrar/lookup :sub <sub-id>` →
+;; `:schema` — the SAME slot core's rf2-7pgiz `maybe-validate-sub-override!`
+;; reads), then project it into a flat field-shape. The schema is read as
+;; DATA (the Malli EDN vector form) via the pure `schema-form` leaf — we
+;; NEVER call the pluggable validator to introspect structure (Spec 010
+;; §The `:schema` value is opaque to re-frame). The lookup is CLJS-only (the
+;; framework registrar side-table is populated at runtime); the field-shape
+;; projection it feeds is pure + JVM-tested in `schema-form`.
+
+#?(:cljs
+   (defn- sub-output-schema
+     "Return the declared output `:schema` of the sub the override `query-v`
+      targets (the query vector's head sub-id), or nil when the sub is
+      unregistered or carries no schema. Best-effort tooling read — never
+      throws."
+     [query-v]
+     (when (vector? query-v)
+       (try
+         (:schema (rf-registrar/lookup :sub (first query-v)))
+         (catch :default _ nil)))))
+
+#?(:cljs
+   (defn override-field-shape
+     "Resolve the field-shape for the sub-override `query-v` — the flat
+      form descriptor derived from the target sub's output schema, or the
+      EDN-escape-hatch descriptor when the sub has no schema / a non-flat
+      one. Returns a `schema-form/field-shape` map. CLJS-only (reaches the
+      framework registrar); pure once the schema is resolved."
+     [query-v]
+     (schema-form/field-shape (sub-output-schema query-v))))
+
+;; ---- the value-entry dialog ratom (reuses the shared review-dialog) ------
+;;
+;; The dialog carries the per-field form value (a ratom map keyed by the
+;; override's query vector) and the raw-EDN escape-hatch text. The snippet
+;; re-generates on every edit so the previewed `:sub-overrides` scaffold
+;; tracks the form. Source is never written directly — the user copies +
+;; pastes (the save-variant / upgrade idiom).
+
+#?(:cljs
+   (defonce ^:private value-entry-dialog
+     (r/atom (assoc review-dialog/initial-state
+                    :form    nil
+                    :edn     ""
+                    :edn?    false
+                    :shape   nil
+                    :query-v nil))))
+
+#?(:cljs
+   (defn- open-value-entry-dialog!
+     "Open the schema-generated value-entry dialog for `variant-id`'s
+      sub-override on `query-v`. Seeds the form with the field-shape's
+      default value (or the row's current pinned `value` when present) and
+      starts on the FORM tab when the shape is flat-renderable, the EDN tab
+      otherwise (the escape hatch is always available)."
+     [variant-id query-v current-value]
+     (let [shape (override-field-shape query-v)
+           form  (if (some? current-value)
+                   current-value
+                   (schema-form/default-form-value shape))]
+       (reset! value-entry-dialog
+               (-> review-dialog/initial-state
+                   (assoc :open?     true
+                          :source-id variant-id
+                          :query-v   query-v
+                          :shape     shape
+                          :form      form
+                          :edn       (if (some? current-value)
+                                       (pr-str current-value) "")
+                          :edn?      (not (:renderable? shape))))))))
+
+#?(:cljs
+   (defn- close-value-entry-dialog! []
+     (reset! value-entry-dialog
+             (assoc review-dialog/initial-state
+                    :form nil :edn "" :edn? false :shape nil :query-v nil))))
 
 ;; ---- the upgrade dialog ratom (reuses the shared review-dialog) ----------
 
@@ -567,6 +719,188 @@
 #?(:cljs
    (defn- close-upgrade-dialog! []
      (reset! upgrade-dialog review-dialog/initial-state)))
+
+;; ---- schema-generated value-entry render (rf2-xon7j) ---------------------
+;;
+;; The dialog has TWO tabs: a generated FORM (when the target sub's output
+;; schema is flat-renderable) and the raw-EDN escape hatch (always present).
+;; The form edits a per-field value map; the EDN tab edits a string parsed
+;; on commit. Both produce the SAME `:sub-overrides` scaffold the user
+;; copies + pastes — source is never written directly.
+
+#?(:cljs
+   (defn- field-widget
+     "Render one flat field widget for `field` (`{:key :widget}`) against
+      the form `value` map, writing typed edits back through `on-edit`
+      `(fn [k typed-value])` (the value is coerced via `schema-form/
+      coerce-input` before it lands). Closed scalar vocabulary —
+      `:text` / `:number` / `:boolean` / `:select`."
+     [{fk :key {:keys [widget options] :as wspec} :widget} value on-edit]
+     (let [v     (get value fk)
+           emit! (fn [raw] (on-edit fk (schema-form/coerce-input wspec raw)))]
+       (case widget
+         :boolean
+         [:input {:type      "checkbox"
+                  :data-test "story-view-state-field"
+                  :data-field (str fk)
+                  :aria-label (str fk)
+                  :checked   (boolean v)
+                  :on-change (fn [e] (emit! (.. e -target -checked)))}]
+
+         :select
+         [:select {:style      (:form-input styles)
+                   :data-test  "story-view-state-field"
+                   :data-field (str fk)
+                   :aria-label (str fk)
+                   :value      (str v)
+                   :on-change  (fn [e]
+                                 ;; map the chosen string back to the
+                                 ;; keyword option it names.
+                                 (let [chosen (.. e -target -value)]
+                                   (on-edit fk (some #(when (= (str %) chosen) %)
+                                                     options))))}
+          (for [opt options]
+            ^{:key (str opt)} [:option {:value (str opt)} (str opt)])]
+
+         :number
+         [:input {:type      "number"
+                  :style     (:form-input styles)
+                  :data-test "story-view-state-field"
+                  :data-field (str fk)
+                  :aria-label (str fk)
+                  :value     (if (nil? v) "" v)
+                  :on-change (fn [e] (emit! (.. e -target -value)))}]
+
+         ;; :text (and any text-coerced scalar)
+         [:input {:type      "text"
+                  :style     (:form-input styles)
+                  :data-test "story-view-state-field"
+                  :data-field (str fk)
+                  :aria-label (str fk)
+                  :value     (if (nil? v) "" (str v))
+                  :on-change (fn [e] (emit! (.. e -target -value)))}]))))
+
+#?(:cljs
+   (defn- value-form
+     "Render the generated input form for `shape` against the form `value`,
+      writing edits back through `set-form!` `(fn [next-form])`. A `:scalar`
+      shape is one widget for the whole value; a `:map` shape is a labelled
+      grid of per-key widgets. Pure-ish — the widgets call back on edit."
+     [shape value set-form!]
+     (case (:kind shape)
+       :scalar
+       [:div {:style (:form-grid styles) :data-test "story-view-state-value-form"}
+        [:span {:style (:form-key styles)} "value"]
+        (field-widget {:key :value :widget (:widget shape)}
+                      {:value value}
+                      (fn [_ typed] (set-form! typed)))]
+
+       :map
+       (into [:div {:style (:form-grid styles) :data-test "story-view-state-value-form"}]
+             (mapcat
+               (fn [{fk :key :as field}]
+                 [^{:key (str "k-" fk)} [:span {:style (:form-key styles)} (str fk)]
+                  ^{:key (str "w-" fk)}
+                  [field-widget field value
+                   (fn [k typed] (set-form! (assoc value k typed)))]])
+               (:fields shape)))
+
+       nil)))
+
+#?(:cljs
+   (defn- value-entry-snippet
+     "Build the live `:sub-overrides` scaffold for the current dialog state.
+      On the FORM tab the value is the coerced form map/scalar; on the EDN
+      tab it is the parsed escape-hatch value (the un-parseable case yields
+      a placeholder so the preview still renders honestly)."
+     [{:keys [source-id query-v form edn edn?]}]
+     (if edn?
+       (let [[ok? v] (schema-form/read-edn-value edn)]
+         (schema-form/override-snippet source-id query-v
+                                       (if ok? v :rf.story/fill-this-value)
+                                       true))
+       (schema-form/override-snippet source-id query-v form false))))
+
+#?(:cljs
+   (defn- value-entry-dialog-view
+     "Render the schema-generated value-entry dialog (visible iff open).
+      Reuses the shared review-dialog skeleton for the snippet preview +
+      copy + close; the FORM / EDN tabs + the per-field widgets render in
+      the dialog's `:hint` slot (the review-dialog is presentational, so
+      the flow-specific entry UI rides the hint, exactly like save-variant
+      threads its slice-report there)."
+     []
+     (let [dialog @value-entry-dialog]
+       (when (:open? dialog)
+         (let [{:keys [query-v shape edn edn? form]} dialog
+               renderable? (:renderable? shape)
+               edn-tab?    (boolean edn?)
+               [edn-ok? edn-err] (when edn-tab? (schema-form/read-edn-value edn))
+               snippet     (value-entry-snippet dialog)
+               set-tab!    (fn [to-edn?]
+                             (swap! value-entry-dialog assoc :edn? to-edn?))]
+           (review-dialog/review-dialog dialog
+             {:title (str "Pin value for " (pr-str query-v))
+              :hint
+              [:div {:data-test "story-view-state-value-entry"
+                     :data-renderable (str (boolean renderable?))
+                     :data-mode (if edn-tab? "edn" "form")}
+               [:div {:style {:margin-bottom "6px"}}
+                "Fill the override value and copy the generated "
+                [:code ":sub-overrides"] " entry into your stories namespace. "
+                "Source is never written directly. This is the lowest "
+                "fidelity rung — a picture for design exploration, never proof."]
+               ;; Tab row — the form tab only when the schema is flat-
+               ;; renderable; the EDN escape hatch is ALWAYS available.
+               [:div {:style (:tab-row styles)}
+                (when renderable?
+                  [:button {:style    (merge (:tab styles)
+                                             (when-not edn-tab? (:tab-active styles)))
+                            :type     "button"
+                            :data-test "story-view-state-value-tab"
+                            :data-tab "form"
+                            :on-click (fn [_] (set-tab! false))}
+                   "form"])
+                [:button {:style    (merge (:tab styles)
+                                           (when edn-tab? (:tab-active styles)))
+                          :type     "button"
+                          :data-test "story-view-state-value-tab"
+                          :data-tab "edn"
+                          :on-click (fn [_] (set-tab! true))}
+                 "raw EDN"]]
+               ;; The active surface.
+               (if edn-tab?
+                 [:div
+                  [:textarea {:style     (:edn-area styles)
+                              :data-test "story-view-state-edn"
+                              :aria-label "Override value as EDN"
+                              :value     (or edn "")
+                              :on-change (fn [e]
+                                           (swap! value-entry-dialog assoc :edn
+                                                  (.. e -target -value)))}]
+                  (when (and (seq (str edn)) (not edn-ok?))
+                    [:div {:style (:edn-err styles)
+                           :data-test "story-view-state-edn-error"}
+                     (str "not valid EDN" (when edn-err (str ": " edn-err)))])]
+                 (when renderable?
+                   [value-form shape form
+                    (fn [next-form]
+                      (swap! value-entry-dialog assoc :form next-form))]))
+               (when-not renderable?
+                 [:div {:style (:blurb styles)
+                        :data-test "story-view-state-no-form"}
+                  (str "no generated form — " (:reason shape)
+                       ". Enter the value as EDN above.")])]
+              :snippet          snippet
+              ;; The scaffold id is DERIVED (stays a variant); the id input
+              ;; is informational, the snippet is the load-bearing output.
+              :placeholder-id   (when (qualified-keyword? (:source-id dialog))
+                                  (keyword (namespace (:source-id dialog))
+                                           (str (name (:source-id dialog)) "-pinned")))
+              :on-edit-id       (fn [_])
+              :on-copy          (fn [] (review-dialog/copy-to-clipboard! snippet))
+              :on-close         close-value-entry-dialog!
+              :data-test-prefix "story-view-state-value"}))))))
 
 ;; ---- render helpers ------------------------------------------------------
 
@@ -639,8 +973,15 @@
      "The sub-override provenance — the exact pinned query vectors + values
      (spec/019 §5 — 'the exact query vectors overridden'), the plan-time
      output-schema validation status, and any LIVE `:where :sub-override`
-     schema-validation failures."
-     [{:keys [present? rows validation]} failures]
+     schema-validation failures.
+
+     rf2-xon7j: each pinned row carries an `edit value` affordance that
+     opens the schema-generated value-entry dialog pre-seeded with the
+     row's current value — a TYPED FORM when the target sub's output schema
+     is flat-renderable, the raw-EDN escape hatch otherwise (always
+     available). The dialog emits a copy-paste `:sub-overrides` scaffold
+     (source never written directly)."
+     [variant-id {:keys [present? rows validation]} failures]
      [:div {:data-test "story-view-state-overrides"}
       (if present?
         [:div
@@ -653,7 +994,17 @@
                         :data-test "story-view-state-override-row"
                         :data-query (pr-str query-v)}
                   [:span {:style (:ovr-query styles)} (pr-str query-v)]
-                  [:span {:style (:ovr-value styles)} (str "→ " (pr-str value))]]))
+                  [:span {:style (:ovr-value styles)}
+                   (str "→ " (pr-str value))
+                   [:button {:style    (:pin-btn styles)
+                             :type     "button"
+                             :data-test "story-view-state-edit-value-btn"
+                             :data-query (pr-str query-v)
+                             :title    "Edit this pinned value via a schema-generated form (or raw EDN)"
+                             :on-click (fn [_]
+                                         (open-value-entry-dialog!
+                                           variant-id query-v value))}
+                    "edit value"]]]))
          ;; plan-time output-schema validation status.
          (when (and validation (= :ok (:status validation)))
            [:div {:style (:empty styles)
@@ -800,11 +1151,13 @@
                   (setup-provenance setup)
                   (network-provenance network)
                   (fx-provenance fx-overrides)
-                  [override-provenance overrides override-failures]]
+                  [override-provenance variant-id overrides override-failures]]
                  ;; ---- honesty guardrail (sub-overrides floor) ----
                  (when low-fidelity?
                    [honesty-guardrail])
                  ;; ---- upgrade path ----
                  [upgrade-path variant-id upgrade-targets]]))
             ;; the upgrade scaffold dialog (portal-less inline; visible iff open)
-            [upgrade-dialog-view]])))))
+            [upgrade-dialog-view]
+            ;; the schema-generated value-entry dialog (rf2-xon7j; visible iff open)
+            [value-entry-dialog-view]])))))
