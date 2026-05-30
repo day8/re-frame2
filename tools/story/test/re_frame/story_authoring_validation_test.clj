@@ -13,12 +13,14 @@
     gen-reg-call` and `expand-reg-story`. The expansion form binds
     `*pending-coords*` from `(meta &form)` and calls the runtime
     `reg-*!` helper, which runs the malli schema check + tag-vocab
-    cross-check + extends resolution. The cross-cutting contract is:
-    an invalid body raises `:rf.error/<kind>-shape` / `:rf.error/
-    unknown-tag` / `:rf.error/extends-unknown` / `:rf.error/extends-
-    cycle` with a clear message and an `ex-data` map carrying the
-    error key. We assert the error shape for each kind so a future
-    schema change that drops a key from `ex-data` is caught.
+    cross-check. (`:extends` is NOT resolved at registration — rf2-f6z88:
+    the raw body is stored, `:extends` intact, and the plan compiler is
+    the single merge authority; the `:rf.error/story-extends-unknown`
+    error surfaces at plan-compile, not registration.) The cross-cutting
+    contract is: an invalid body raises `:rf.error/<kind>-shape` /
+    `:rf.error/unknown-tag` with a clear message and an `ex-data` map
+    carrying the error key. We assert the error shape for each kind so a
+    future schema change that drops a key from `ex-data` is caught.
 
   - **Source-coord stamping.** Every `reg-*` macro stamps `:file` +
     `:line` + `:ns` + `:column` from `&form` meta into the registered
@@ -36,7 +38,8 @@
   `:source` to point back at the same `(reg-story ...)` call."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
-            [re-frame.story.macros :as macros]))
+            [re-frame.story.macros :as macros]
+            [re-frame.story.plan :as plan]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -354,12 +357,18 @@
 ;; ===========================================================================
 
 (deftest reg-variant-extends-unknown-carries-parent-id
-  (testing ":extends to an unregistered variant carries the missing parent id"
+  (testing ":extends to an unregistered parent no longer throws at
+            REGISTRATION (rf2-f6z88 — the raw body is stored, `:extends`
+            intact); the error surfaces at PLAN-COMPILE (the merge
+            authority) and carries the missing parent id."
+    ;; Registration succeeds — raw body stored with the unknown parent.
+    (story/reg-variant :story.x/child
+      {:extends :story.x/no-such-parent
+       :events  []})
+    ;; Plan compile is where the unknown parent FAILS, carrying the id.
     (try
-      (story/reg-variant :story.x/child
-        {:extends :story.x/no-such-parent
-         :events  []})
-      (is false "expected an exception")
+      (plan/variant-plan :story.x/child)
+      (is false "expected a plan-compile exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))
         (is (= :story.x/no-such-parent (:parent (ex-data e))))))))
@@ -403,9 +412,14 @@
       (is (not (contains? body :plays))
           "the inherited :plays was dropped"))))
 
-(deftest reg-variant-extends-inherits-play-surface-when-child-silent
-  (testing "a child that declares NEITHER play encoding inherits the
-            parent's :play-script unchanged"
+(deftest reg-variant-extends-does-not-inherit-play-surface
+  (testing "SCRIPT IS NOT INHERITED through :extends (spec/017 §942-945:
+            context flows down, behaviour/judgement is local). A child
+            that declares NEITHER play encoding does NOT silently run the
+            parent's :play-script. The registrar stores the RAW body
+            (rf2-f6z88) — `:extends` intact, parent NOT merged — so the
+            child's body carries no play surface, and the plan compiler
+            (the merge authority) takes script from the CHILD ONLY."
     (story/reg-variant :story.extplay/parent3
       {:events      []
        :play-script {:script [[:dispatch [:p/keep]]]}})
@@ -413,8 +427,15 @@
       {:extends :story.extplay/parent3
        :doc     "no play override"})
     (let [body (story/handler-meta :variant :story.extplay/child3)]
-      (is (contains? body :play-script) "inherited :play-script kept")
-      (is (= [[:dispatch [:p/keep]]] (:script (:play-script body)))))))
+      (is (= :story.extplay/parent3 (:extends body))
+          ":extends stored raw — the parent body is NOT merged in")
+      (is (not (contains? body :play-script))
+          "the parent's :play-script is NOT inherited — script is local")
+      (is (not (contains? body :plays))
+          "no play surface inherited at all"))
+    ;; The compiler confirms it: the silent child's compiled script is empty.
+    (is (= [] (:script (plan/variant-plan :story.extplay/child3)))
+        "compiled plan takes script CHILD-ONLY — the parent's is not run")))
 
 ;; ===========================================================================
 ;; CANONICAL-ID-GRAMMAR ERROR

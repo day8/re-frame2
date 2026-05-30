@@ -23,6 +23,7 @@
             [re-frame.story.canonical :as canonical]
             [re-frame.story.config :as story-config]
             [re-frame.story.extends :as extends]
+            [re-frame.story.plan :as plan]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.schemas :as schemas]))
 
@@ -228,8 +229,12 @@
 
 ;; ---- :extends resolution -----------------------------------------------
 
-(deftest extends-resolves-at-registration-time
-  (testing ":extends merges parent into child, child wins"
+(deftest extends-stored-raw-at-registration-resolved-by-compiler
+  (testing ":extends is stored RAW at registration (`:extends` intact,
+            parent NOT merged); the PLAN COMPILER is the single merge
+            authority (rf2-f6z88, spec/017 §305-306). The side-table body
+            keeps the child's own slots verbatim; the compiled plan
+            inherits the parent's :decorators via [:world :decorators]."
     (story/reg-variant :story.auth.login/loading
       {:events     [[:auth/initialise]
                     [:auth/email-changed "alice@example.com"]
@@ -244,19 +249,38 @@
                  [:auth/login-pressed]]
        :tags    #{:dev :docs}})
     (let [body (story/handler-meta :variant :story.auth.login/loading-with-prefill)]
-      (is (nil? (:extends body)) ":extends is stripped from the resolved body")
-      (is (= 4 (count (:events body))) "child :events wins")
-      (is (= [[:force-fx-stub :http {:status :pending}]] (:decorators body))
-          ":decorators inherited from parent")
-      (is (= #{:dev :docs} (:tags body)) "child :tags wins"))))
+      (is (= :story.auth.login/loading (:extends body))
+          ":extends is stored RAW — NOT stripped at registration")
+      (is (= 4 (count (:events body))) "child's own :events stored verbatim")
+      (is (nil? (:decorators body))
+          "child declared no :decorators; the raw body carries none —
+           inheritance is the compiler's job, not the registrar's")
+      (is (= #{:dev :docs} (:tags body)) "child's own :tags stored verbatim"))
+    ;; The plan compiler resolves the chain: setup APPENDS, :decorators
+    ;; inherit child-wins. The child declared no decorators, so it
+    ;; inherits the parent's.
+    (let [plan (plan/variant-plan :story.auth.login/loading-with-prefill)]
+      (is (= [[:force-fx-stub :http {:status :pending}]]
+             (get-in plan [:world :decorators]))
+          "compiled plan INHERITS the parent's :decorators"))))
 
 (deftest extends-unknown-parent
-  (testing ":extends to an unregistered variant raises :rf.error/extends-unknown"
+  (testing ":extends to an unregistered parent no longer throws at
+            REGISTRATION (rf2-f6z88 — the raw body is stored with
+            `:extends` intact); the error surfaces at PLAN-COMPILE, where
+            the compiler is the merge authority and walks the chain
+            (spec/017 §305-306)."
+    ;; Registration succeeds — the raw body is stored, :extends intact.
+    (story/reg-variant :story.auth.login/child
+      {:extends :story.auth.login/no-such-parent
+       :events  []})
+    (is (= :story.auth.login/no-such-parent
+           (:extends (story/handler-meta :variant :story.auth.login/child)))
+        "registration stores the raw body with the unknown parent intact")
+    ;; Plan compile is where the unknown parent FAILS.
     (try
-      (story/reg-variant :story.auth.login/child
-        {:extends :story.auth.login/no-such-parent
-         :events  []})
-      (is false "expected an exception")
+      (plan/variant-plan :story.auth.login/child)
+      (is false "expected a plan-compile exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))))))
 

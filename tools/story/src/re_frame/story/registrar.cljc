@@ -37,12 +37,16 @@
   1. Validates the body against the matching `re-frame.story.schemas`
      schema.
   2. Cross-validates `:tags` against the registered tag vocabulary.
-  3. Resolves `:extends` (variants only) — Stage 2 punts the cycle check
-     to `re-frame.story.extends`.
-  4. Stamps source-coords (per spec/009 / spec/001) — the macro layer
+  3. Stamps source-coords (per spec/009 / spec/001) — the macro layer
      captures these from `&form` and threads them via the
      `*pending-coords*` dynamic var (mirroring `re-frame.source-coords`).
-  5. Writes the resolved body into the side-table.
+  4. Writes the RAW body into the side-table.
+
+  `:extends` is NOT resolved here (rf2-f6z88 — Mike RULED (a)): the raw
+  variant body is stored with `:extends` intact and the plan compiler
+  (`re-frame.story.plan`) is the SINGLE merge authority, walking the
+  parent chain per spec/017 §8.4 (setup APPENDS, checks INHERIT). See
+  `reg-variant*` below.
 
   Hot-reload semantics mirror `re-frame.registrar`: re-registering the
   same id replaces the slot atomically; nothing in the runtime is
@@ -65,8 +69,7 @@
   - Play execution
   - Snapshot identity computation"
   (:require [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.schemas   :as schemas]
-            [re-frame.story.extends   :as extends]))
+            [re-frame.story.schemas   :as schemas]))
 
 ;; ---- source-coord plumbing ------------------------------------------------
 ;;
@@ -326,13 +329,27 @@
     id))
 
 (defn reg-variant*
-  "Runtime helper for `reg-variant` macro. Per IMPL-SPEC §10 Stage 2:
+  "Runtime helper for `reg-variant` macro. Per IMPL-SPEC §10 + spec/017
+  §8.4 (rf2-f6z88 — Mike RULED (a): the plan compiler is the SINGLE
+  `:extends` merge authority):
 
-  1. Validate the body shape.
-  2. Resolve `:extends` (merge parent body, child wins).
+  1. Validate the AUTHORED body shape.
+  2. Lower the public vocabulary into the shipping slots.
   3. Cross-check tag membership.
   4. Stamp source coords.
-  5. Write to the side-table."
+  5. Write the RAW body — `:extends` INTACT, parents UNmerged — to the
+     side-table.
+
+  `:extends` is NOT resolved here. The straight registration-time merge
+  (`extends/resolve-extends`, a child-wins-wholesale REPLACE that also
+  STRIPPED `:extends`) used to pre-fold the parent body, which left the
+  plan compiler's per-field merge logic (setup APPENDS, checks INHERIT —
+  spec/017 §8.4) dead for every registered variant: it saw a single-
+  element `:extends` chain. By storing the raw body we make the compiler's
+  `resolve-source-chain` walk the chain on the default side-table lookup,
+  so registered variants and explicit-`:lookup` tests share ONE merge
+  engine (`re-frame.story.plan/compile-body`). There is no second merge
+  here to diverge."
   [id body]
   (maybe-auto-install!)
   (assert-id! :variant id)
@@ -346,19 +363,10 @@
         ;; stored body carries the shipping slots every downstream
         ;; consumer reads (per spec/017 §Public vocabulary; removed when
         ;; the runtime reads the normalized plan — rf2-5x1wt.17 / .22).
+        ;; `:extends` is preserved verbatim — the plan compiler resolves
+        ;; it (rf2-f6z88).
         lowered  (schemas/lower-public-vocabulary body)
-        resolved (extends/resolve-extends
-                   lowered
-                   (fn [pid] (handler-meta :variant pid))
-                   ;; rf2-ee38b.3: :play-script and :plays are sibling
-                   ;; encodings of the play surface. When the child
-                   ;; overrides one, drop the inherited other so the
-                   ;; merged body doesn't carry both (which the schema's
-                   ;; mutual-exclusion :fn would reject). Parents are
-                   ;; already stored lowered, so the public `:script` /
-                   ;; `:plays` distinction is collapsed before this point.
-                   [#{:play-script :plays}])
-        body     (-> resolved
+        body     (-> lowered
                      merge-coords
                      (->> (validate-shape! :variant id)))
         _        (validate-tag-membership! id (:tags body))]

@@ -162,12 +162,13 @@
 (deftest extends-inherits-decorators-when-child-declares-none
   (testing ":extends gives a child variant access to its parent's
             :decorators only when the child does NOT declare its own
-            :decorators slot. Per spec/007 §Composed variants the
-            merge semantics are plain `(merge parent child)` — child
-            keys WIN key-by-key; no per-key concat.
-
-            This pins the rf2-ctlm5 §Decorator inheritance acceptance:
-            inheritance happens via key absence, NOT vector append."
+            :decorators slot. The PLAN COMPILER is the merge authority
+            (rf2-f6z88 / rf2-g74i9, spec/017 §305-306): the registrar
+            stores the RAW body (`:extends` intact); the compiler walks
+            the chain and folds `:decorators` into `[:world :decorators]`
+            child-wins (no per-key concat). `resolve-decorators` reads
+            the compiled plan, so a bare child INHERITS the parent's
+            decorator stack."
     (story/reg-decorator :parent-only-deco
       {:kind :hiccup :wrap (fn [body _] [:div.parent-only body])})
     (story/reg-decorator :child-replacement
@@ -189,19 +190,23 @@
       {:extends    :story.ext.dec/parent
        :decorators [[:child-replacement]]
        :events     []})
-    ;; Case 1: bare child inherits parent's :decorators.
+    ;; Case 1: bare child inherits parent's :decorators via the plan.
     (let [body (story/handler-meta :variant :story.ext.dec/inherit-bare)]
-      (is (= [[:parent-only-deco]] (:decorators body))
-          ":extends with no override → inherit parent's :decorators"))
+      (is (= :story.ext.dec/parent (:extends body))
+          ":extends stored RAW on the side-table body")
+      (is (nil? (:decorators body))
+          "bare child declares no :decorators; the raw body carries none —
+           inheritance is resolved downstream at plan-compile"))
     (let [pack (story/resolve-decorators :story.ext.dec/inherit-bare)]
       (is (= [:parent-only-deco] (mapv :id (:hiccup pack)))
-          "resolved hiccup stack reflects the inherited vector"))
+          "resolved hiccup stack INHERITS the parent's decorator via the
+           compiled plan's [:world :decorators]"))
     ;; Case 2: child with its own :decorators REPLACES parent's.
     (let [body (story/handler-meta :variant :story.ext.dec/inherit-and-replace)]
       (is (= [[:child-replacement]] (:decorators body))
-          ":extends with explicit :decorators → child wins (merge
-           semantics, no concat); this is the spec/007 §Composed
-           variants contract"))
+          "the raw body carries the child's OWN :decorators verbatim")
+      (is (= :story.ext.dec/parent (:extends body))
+          ":extends stored RAW — compiler resolves child-wins (no concat)"))
     (let [pack (story/resolve-decorators :story.ext.dec/inherit-and-replace)]
       (is (= [:child-replacement] (mapv :id (:hiccup pack)))
           "resolved hiccup stack reflects ONLY the child's decorators —
