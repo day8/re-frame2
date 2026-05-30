@@ -19,6 +19,7 @@
             [re-frame.core :as rf]
             [re-frame.subs :as subs]
             [re-frame.registrar :as registrar]
+            [re-frame.adapter.sub-override-context :as ovr-ctx]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.sub-overrides :as sub-overrides]))
 
@@ -58,3 +59,44 @@
                                               (fn [] (throw (ex-info "real-read should not run" {})))))))
           (testing "non-overridden query → falls through to compute-sub"
             (is (= :ok (sub-overrides/read [:login/other] real-read)))))))))
+
+;; ---- the React-context resolver (the LIVE carriage, rf2-7pgiz) -----------
+;;
+;; `resolve-sub-override-hit` is the fn published to core under
+;; `:subs/resolve-sub-override`. It reads the closest enclosing
+;; override-context Provider's value off the shared context object's
+;; `_currentValue` (the substrate-portable read React drives during a real
+;; render). Node has no React renderer, so these tests set `_currentValue`
+;; directly — exactly the field React mutates when a Provider boundary is
+;; entered — to exercise the resolver's read + hit/miss contract without a
+;; browser. The on-screen surfacing is proven by the real-React e2e
+;; (`re-frame.story.sub-overrides-render-dom-cljs-test`).
+
+(defn- with-context-overrides* [m thunk]
+  (let [prev (.-_currentValue ^js ovr-ctx/override-context)]
+    (set! (.-_currentValue ^js ovr-ctx/override-context) m)
+    (try (thunk)
+         (finally (set! (.-_currentValue ^js ovr-ctx/override-context) prev)))))
+
+(deftest context-resolver-returns-one-element-vector-on-hit
+  (testing "resolve-sub-override-hit reads the context Provider value"
+    (with-context-overrides* {[:login/state] :error}
+      (fn []
+        (testing "exact-query-vector hit → [value]"
+          (is (= [:error] (sub-overrides/resolve-sub-override-hit [:login/state]))))
+        (testing "non-overridden query → nil (miss)"
+          (is (nil? (sub-overrides/resolve-sub-override-hit [:login/other]))))))))
+
+(deftest context-resolver-honours-nil-valued-override
+  (testing "a nil-valued override is a HIT — returns [nil], not nil-the-miss"
+    (with-context-overrides* {[:x/value] nil}
+      (fn []
+        (is (= [nil] (sub-overrides/resolve-sub-override-hit [:x/value]))
+            "nil override surfaces as a [nil] hit (one-element-vector contract)")))))
+
+(deftest context-resolver-misses-with-no-provider
+  (testing "no Provider in scope (_currentValue nil) → every query misses"
+    ;; The fixture's runtime reset leaves the context at its createContext
+    ;; default (nil); assert a miss without setting any value.
+    (set! (.-_currentValue ^js ovr-ctx/override-context) nil)
+    (is (nil? (sub-overrides/resolve-sub-override-hit [:anything])))))

@@ -783,7 +783,20 @@
    {:key         :privacy/clear-suppression-cache!
     :producer-ns 're-frame.privacy
     :design-bead "rf2-w3n5u"
-    :description "No-op compatibility teardown hook for the removed registration-time privacy warning cache."}])
+    :description "No-op compatibility teardown hook for the removed registration-time privacy warning cache."}
+
+   ;; NOTE (rf2-7pgiz): `:subs/resolve-sub-override` — the SUBSTITUTIVE
+   ;; dev-only sub-override seam consulted by `re-frame.subs/subscribe`
+   ;; inside its `interop/debug-enabled?` gate — is PUBLISHED from the
+   ;; Story side (`re-frame.story.sub-overrides`, under `tools/`), NOT
+   ;; from `implementation/`. Core only CONSULTS it (consult ≠ publish),
+   ;; so it deliberately has NO entry here: this directory + its drift
+   ;; test (`late_bind_drift_test`) scope the inventory to keys published
+   ;; from `implementation/**/src`. Every other tools-published hook
+   ;; (`:tap-stub-event`, `:run-play-step`, …) is likewise absent. The
+   ;; consult site documents the contract in full; keeping core tools-free
+   ;; (bundle-isolation) is exactly why the resolver lives Story-side.
+   ])
 
 (defn hook-keys
   "Set of every late-bind hook key documented in the directory."

@@ -656,22 +656,50 @@ same rule decorators follow). A consumer reading `(:sub-overrides body)`
 straight off the side-table would see only the variant's OWN slot and drop
 the composed / inherited overrides.
 
-**Render-path read + the honesty rule.** Overrides feed the RENDER PATH
-only. The render-path resolver (`re-frame.story.sub-overrides`) binds the
-variant's resolved override map for the view-render extent; a Story-
-rendered view's subscribed reads that route through `sub-overrides/read`
-surface the override on an **exact** query-vector match (`=` on the whole
-vector — no prefix / sub-id fuzzing, so an override never leaks into a
-sibling query the author did not name; a `nil`-valued override is a
-genuine hit). The resolver never writes app-db and never calls
-`compute-sub`. That boundary is what keeps `:rf.assert/sub-equals` honest:
-the assertion evaluates a sub through `compute-sub` against the frame's
-app-db snapshot (`re-frame.story.assertions/evaluate-sub-equals`), which
-the resolver does not touch — so a `:sub-overrides` value does NOT satisfy
-a subscription assertion. Subscription correctness is proven by real setup
-events, a schema-checked app-db seed, or `compute-sub`, never by an
-override (unless a future assertion explicitly opts into override-source
-semantics).
+**Render-path read + the honesty rule (rf2-7pgiz — wired).** Overrides
+feed the RENDER PATH only, and they now **surface at render**: a
+normally-authored view's `@(rf/subscribe [:q])` paints the pinned value
+with no events, no app-db seed. The carriage is a React context
+(`re-frame.adapter.sub-override-context`), NOT a dynamic var — the var
+does not survive into the view's deferred React render (the view renders
+in its own reaction, after a `binding` would have unwound; empirically
+confirmed under react-dom/server). The render path
+(`re-frame.story.sub-overrides/override-provider`, used by the canvas's
+`sub-overrides-scope` and the host's `render-host-scope`) wraps the
+variant view in that context's Provider; `re-frame.subs/subscribe`
+consults the resolver published under the `:subs/resolve-sub-override`
+late-bind hook (dev-only, inside `subscribe`'s `interop/debug-enabled?`
+gate — it DCEs in production) and, on an **exact** query-vector HIT (`=`
+on the whole vector — no prefix / sub-id fuzzing, so an override never
+leaks into a sibling query the author did not name; a `nil`-valued
+override is a genuine hit), short-circuits build-and-cache with a constant
+reaction holding the pinned value. See [006 §The sub-override subscribe
+seam](../../spec/006-ReactiveSubstrate.md#the-sub-override-subscribe-seam-debug-gated-rf2-7pgiz)
+for the core-side contract.
+
+The override never writes app-db and never calls `compute-sub`. That
+boundary is what keeps `:rf.assert/sub-equals` honest: the assertion
+evaluates a sub through `compute-sub` against the frame's app-db snapshot
+(`re-frame.story.assertions/evaluate-sub-equals`), which the override does
+not touch — so a `:sub-overrides` value does NOT satisfy a subscription
+assertion. Subscription correctness is proven by real setup events, a
+schema-checked app-db seed, or `compute-sub`, never by an override (unless
+a future assertion explicitly opts into override-source semantics).
+
+**Override schema-validation (rf2-7pgiz fold-in).** When an override HIT
+targets a sub that declares an output `:schema`, the pinned value is
+validated against that schema (dev-only, through the same registered
+validator [010 §`:sub-return`](../../spec/010-Schemas.md#validation-order-on-event-processing)
+uses). A violating override emits `:rf.error/schema-validation-failure
+:where :sub-override` and surfaces `nil` (mirroring `:sub-return`'s
+`:replaced-with-default`). This closes the "pin a state the real
+derivation could never produce" gap: an override that violates the sub's
+own output contract is reported, not silently shown. A sub with no
+`:schema`, or an override that conforms, surfaces unchanged.
+
+The pure data → data resolver fns (`resolve` / `read` / `overridden?`)
+remain JVM-runnable for the plan-compiler and resolver tests; the LIVE
+render carriage is the React context above, not the dynamic-var `read`.
 
 ### Network stubs
 

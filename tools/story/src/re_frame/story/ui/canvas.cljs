@@ -306,12 +306,15 @@
 ;; render extent. The binding never touches app-db or `compute-sub`, so
 ;; it can never satisfy a subscription assertion (`:rf.assert/sub-equals`).
 ;;
-;; STATUS (rf2-7pgiz): this binding is currently INERT — a normally-
-;; authored view's subscribed reads do NOT yet surface the override. No
-;; subscribe seam consults `sub-overrides/read` / `*overrides*`, and the
-;; dynamic binding established below does not survive into the view's
-;; deferred React render. Surfacing the override at render needs a core
-;; subscribe shim — pinned + surfaced under rf2-7pgiz. See the
+;; STATUS (rf2-7pgiz): WIRED. The carriage is a React context
+;; (`re-frame.adapter.sub-override-context`), not a dynamic var — the var
+;; does not survive into the view's deferred render. `sub-overrides-scope`
+;; wraps the view in the override-context Provider; a descendant
+;; `@(rf/subscribe)` reads the override at deref time via the
+;; `:subs/resolve-sub-override` core hook (consulted dev-only inside
+;; `subscribe`'s `interop/debug-enabled?` gate). The override feeds only
+;; the constant reaction the view derefs — never app-db / `compute-sub` —
+;; so `:rf.assert/sub-equals` stays unsatisfiable by an override. See the
 ;; `re-frame.story.sub-overrides` ns docstring §STATUS.
 
 (defn- resolve-sub-overrides
@@ -338,26 +341,24 @@
   (render/resolve-render-sub-overrides (plan/variant-plan variant-id) eff-args))
 
 (defn sub-overrides-scope
-  "A Reagent component that binds the variant's resolved `:sub-overrides`
-  map for its child's render extent. The binding never touches app-db /
-  `compute-sub`.
+  "A Reagent component that wraps `child`'s render in the override-context
+  Provider carrying the variant's resolved `:sub-overrides` map (rf2-7pgiz).
+  A descendant view's `@(rf/subscribe)` reads the override at deref time
+  via the `:subs/resolve-sub-override` core hook. The override never
+  touches app-db / `compute-sub`, so it can never satisfy a subscription
+  assertion (`:rf.assert/sub-equals`).
 
-  STATUS (rf2-7pgiz): this binding is currently INERT for a normally-
-  authored view. Two facts compound: (1) no subscribe seam consults
-  `*overrides*` / `re-frame.story.sub-overrides/read`; (2) the dynamic
-  binding established in THIS component's render does NOT survive into the
-  wrapped view's render — the child view renders in its own reaction,
-  after this `binding` has unwound, so its `@(rf/subscribe)` reads the
-  real subscription (empirically confirmed under react-dom/server). The
-  robust survive-into-deferred-render mechanism is React context (what
-  `re-frame.adapter.context` uses for the frame-id). Surfacing the
-  override at render needs a core subscribe shim — pinned + surfaced under
-  rf2-7pgiz. See the `re-frame.story.sub-overrides` ns docstring §STATUS.
+  The carriage is a React CONTEXT, not a dynamic var: the var does not
+  survive into the view's deferred render (the child renders in its own
+  reaction, after a `binding` would have unwound — empirically confirmed
+  under react-dom/server). React context survives arbitrary nesting,
+  exactly how `re-frame.adapter.context` propagates the frame-id.
 
   When the variant authors no overrides the map is nil and this wrapper is
-  render-transparent."
+  render-transparent (the descendant consult misses and the view reads its
+  real subscription)."
   [overrides child]
-  (sub-overrides/with-overrides* overrides (fn [] child)))
+  (sub-overrides/override-provider overrides child))
 
 ;; ---- decorated-view wrapper ---------------------------------------------
 

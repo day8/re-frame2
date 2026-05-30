@@ -293,6 +293,91 @@
                            m))))))
     reaction))
 
+;; ---- the sub-override subscribe seam (rf2-7pgiz; CLJS, dev-only) ----------
+;;
+;; See the block comment inside `subscribe` for the full rationale. These
+;; two helpers are CLJS-only and consulted ONLY inside the
+;; `interop/debug-enabled?` gate, so the whole seam DCEs under `:advanced`
+;; + `goog.DEBUG=false`. The resolver fn + the React-context reader are
+;; published from Story / the CLJS-only carriage ns
+;; (`re-frame.adapter.sub-override-context`) via the
+;; `:subs/resolve-sub-override` late-bind hook, so core never `:require`s
+;; a tools ns (bundle-isolation holds).
+
+#?(:cljs
+   (defn- maybe-validate-sub-override!
+     "FOLD-IN (rf2-7pgiz). When a `:sub-overrides` HIT targets a sub that
+     declares an output `:schema`, validate the pinned `value` against it
+     the SAME way Spec 010 §step 6 validates a `:sub-return` — through the
+     registered validator reached via the `:schemas/validate-with-registered-fn`
+     late-bind hook (NOT a second validation mechanism). On a mismatch,
+     emit `:rf.error/schema-validation-failure` with a NEW `:where
+     :sub-override` discriminator and return nil, mirroring `:sub-return`'s
+     `:replaced-with-default` recovery (observational, dev-only — the
+     failure is surfaced, the violating value is replaced with the
+     default). On a pass / no `:schema` / no registered validator, returns
+     `value` unchanged.
+
+     Rationale: an override that violates the sub's own output contract is
+     exactly the 'pin a state the real derivation could never produce'
+     anti-pattern; schema-validating it closes that honesty gap. Reuses
+     the registered validator so a substituted (non-Malli) validator
+     covers this surface identically to `:sub-return`."
+     [value query-v sub-meta]
+     (let [schema (:schema sub-meta)]
+       (if (and schema (some? sub-meta))
+         (if-let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+           (if (try (validate schema value)
+                    ;; A throwing validator must not crash the render; treat
+                    ;; it as a pass (mirrors `subs.memo/maybe-validate-sub!`).
+                    (catch :default _ true))
+             value
+             (let [sub-id  (first query-v)
+                   explain (when-let [exp (late-bind/get-fn
+                                            :schemas/explain-with-registered-fn)]
+                             (try (exp schema value) (catch :default _ nil)))]
+               (trace/emit-error! :rf.error/schema-validation-failure
+                                  {:where          :sub-override
+                                   :rf.sub/id      sub-id
+                                   :failing-id     sub-id
+                                   :schema-id      sub-id
+                                   :rf.sub/query-v query-v
+                                   :received       value
+                                   :value          value
+                                   :explain        explain
+                                   :reason         (str "Subscription " sub-id
+                                                        " :sub-override value failed schema "
+                                                        (pr-str schema) ".")
+                                   :recovery       :replaced-with-default})
+               nil))
+           value)
+         value))))
+
+#?(:cljs
+   (defn- resolve-sub-override
+     "Consult the `:subs/resolve-sub-override` late-bind hook for an
+     exact-query-vector `:sub-overrides` HIT (rf2-7pgiz). The hook (Story-
+     published) reads the closest enclosing override-context Provider and
+     returns `[value]` on a hit (a one-element vector so a nil-valued
+     override is honoured) or nil on a miss / unbound.
+
+     On a HIT, schema-validate the pinned value (the FOLD-IN — see
+     `maybe-validate-sub-override!`) and return a CONSTANT reaction
+     `(adapter/make-derived-value [] (constantly v))` — no inputs, never
+     recomputes, never cached, never touches app-db / `compute-sub`. On a
+     miss / unbound / unpublished hook, return nil so `subscribe` falls
+     through to the normal build-and-cache path.
+
+     CLJS-only and called ONLY inside `subscribe`'s `interop/debug-enabled?`
+     gate, so this DCEs in production."
+     [_frame-id query-v]
+     (when-let [resolve-override (late-bind/get-fn :subs/resolve-sub-override)]
+       (when-let [hit (resolve-override query-v)]
+         (let [v        (first hit)
+               sub-meta (registrar/lookup :sub (first query-v))
+               v*       (maybe-validate-sub-override! v query-v sub-meta)]
+           (adapter/make-derived-value [] (constantly v*)))))))
+
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity form resolves
@@ -318,6 +403,17 @@
   diagnostic doesn't apply. Use the 2-arity form from a plain
   Reagent fn body when you want to subscribe against a known frame
   without triggering the warning surface.
+
+  Per Spec 006 §The sub-override subscribe seam (rf2-7pgiz, CLJS /
+  dev-only): when a Story render wraps the variant view in the
+  override-context Provider, an exact-query-vector `:sub-overrides` HIT
+  short-circuits build-and-cache and returns a constant reaction holding
+  the pinned value (schema-validated against the sub's declared
+  `:schema` when present). The whole consult sits inside
+  `interop/debug-enabled?` so it DCEs in production, and the override
+  feeds ONLY the derefed reaction the view sees — never app-db, never
+  `compute-sub` — so `:rf.assert/sub-equals` stays unsatisfiable by an
+  override.
 
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and delegates here
@@ -348,47 +444,90 @@
       (when interop/debug-enabled?
         (when-let [record! (late-bind/get-fn :views/record-view-deref!)]
           (record! query-v))))
-   (let [frame-record (frame/frame frame-id)]
-     (cond
-       ;; Missing or destroyed frame: trace and return nil rather than
-       ;; deref-ing nil and exploding. Per Spec 009 §Error contract:
-       ;; recovery is :replaced-with-default — the sub resolves to nil.
-       (nil? frame-record)
-       (do (trace/emit-error! :rf.error/frame-destroyed
-                              {:frame    frame-id
-                               :query-v  query-v
-                               :recovery :replaced-with-default})
-           nil)
+   ;; rf2-7pgiz (CLJS, dev-only): the SUBSTITUTIVE override seam. Story's
+   ;; lowest-fidelity ladder rung (`:sub-overrides`) pins a view into an
+   ;; `:error`/`:loading`/`:empty` state by naming subscription
+   ;; query-vectors and the values they should surface — no events, no
+   ;; app-db (`tools/story/spec/017-Testing-Story.md` §View-state
+   ;; subscription overrides). When a Story render wraps the variant view
+   ;; in the override-context Provider (`re-frame.adapter.sub-override-
+   ;; context`), the resolver published under `:subs/resolve-sub-override`
+   ;; reads the closest enclosing override map and returns `[value]` on an
+   ;; exact-query-vector HIT (a one-element vector so a nil-valued
+   ;; override is still honoured) or nil on a miss / unbound / production.
+   ;;
+   ;; On a HIT we short-circuit build-and-cache and hand back a CONSTANT
+   ;; reaction `(adapter/make-derived-value [] (constantly v))`: it has no
+   ;; inputs, so it never recomputes, is never cached, and feeds ONLY the
+   ;; derefed reaction the view sees. It NEVER touches app-db and NEVER
+   ;; reaches `compute-sub`, so `:rf.assert/sub-equals` (which evaluates a
+   ;; sub through `compute-sub` against the real app-db) still cannot be
+   ;; satisfied by an override — the load-bearing honesty boundary.
+   ;;
+   ;; FOLD-IN (rf2-7pgiz): an override that violates the sub's own
+   ;; declared output `:schema` is exactly the "pin a state the real
+   ;; derivation could never produce" anti-pattern, so we schema-validate
+   ;; the pinned value the SAME way Spec 010 §step 6 validates a
+   ;; `:sub-return` — through the registered validator
+   ;; (`:schemas/validate-with-registered-fn`), dev-only. On a mismatch we
+   ;; emit `:rf.error/schema-validation-failure` with a `:where
+   ;; :sub-override` discriminator and surface nil, mirroring
+   ;; `:sub-return`'s `:replaced-with-default` posture (observational —
+   ;; the failure is emitted, the violating value is not surfaced).
+   ;;
+   ;; This whole block is the same `interop/debug-enabled?` +
+   ;; `late-bind/get-fn` envelope the `:views/*` subscribe hooks above use,
+   ;; so it DCEs under `:advanced` + `goog.DEBUG=false`; the resolver +
+   ;; the context reader live in Story / the CLJS-only carriage ns, so
+   ;; core stays tools-free (bundle-isolation holds). `resolve-sub-override`
+   ;; (CLJS, dev-only) returns the constant override reaction on a HIT, or
+   ;; nil to fall through to the normal build-and-cache path. On the JVM
+   ;; and in production it is always nil (the gate / reader DCE / no-op).
+   (or
+     #?(:cljs
+        (when interop/debug-enabled?
+          (resolve-sub-override frame-id query-v)))
+     (let [frame-record (frame/frame frame-id)]
+       (cond
+         ;; Missing or destroyed frame: trace and return nil rather than
+         ;; deref-ing nil and exploding. Per Spec 009 §Error contract:
+         ;; recovery is :replaced-with-default — the sub resolves to nil.
+         (nil? frame-record)
+         (do (trace/emit-error! :rf.error/frame-destroyed
+                                {:frame    frame-id
+                                 :query-v  query-v
+                                 :recovery :replaced-with-default})
+             nil)
 
-       :else
-       (let [cache (:sub-cache frame-record)
-             k     (cache-key query-v)]
-         (if-let [entry (get @cache k)]
-           ;; Hit. Bump ref-count under CAS-after-snapshot discipline so a
-           ;; concurrent evictor (hot-reload re-registration, `clear-sub-
-           ;; cache!`) that won the race cannot resurrect a phantom entry
-           ;; with no `:reaction` AND hand back the now-disposed reaction.
-           ;; The pure-swap-fn only bumps when the slot is still present
-           ;; holding the SAME reaction; reading `[old new]` from the
-           ;; snapshot pair tells us whether the bump landed. If the slot
-           ;; was concurrently evicted (or rebuilt under a different
-           ;; reaction), fall through to a fresh build — the same
-           ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
-           ;; On single-threaded CLJS the re-check always succeeds (no
-           ;; concurrent evictor can interleave), so the rebuild branch
-           ;; is concurrency-host-only.
-           (let [reaction (:reaction entry)
-                 [_old new]
-                 (swap-vals! cache
-                             (fn [m]
-                               (if (identical? reaction
-                                               (get-in m [k :reaction]))
-                                 (update-in m [k :ref-count] (fnil inc 0))
-                                 m)))]
-             (if (identical? reaction (get-in new [k :reaction]))
-               reaction
-               (compute-and-cache! frame-id query-v)))
-           (compute-and-cache! frame-id query-v)))))))
+         :else
+         (let [cache (:sub-cache frame-record)
+               k     (cache-key query-v)]
+           (if-let [entry (get @cache k)]
+             ;; Hit. Bump ref-count under CAS-after-snapshot discipline so a
+             ;; concurrent evictor (hot-reload re-registration, `clear-sub-
+             ;; cache!`) that won the race cannot resurrect a phantom entry
+             ;; with no `:reaction` AND hand back the now-disposed reaction.
+             ;; The pure-swap-fn only bumps when the slot is still present
+             ;; holding the SAME reaction; reading `[old new]` from the
+             ;; snapshot pair tells us whether the bump landed. If the slot
+             ;; was concurrently evicted (or rebuilt under a different
+             ;; reaction), fall through to a fresh build — the same
+             ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
+             ;; On single-threaded CLJS the re-check always succeeds (no
+             ;; concurrent evictor can interleave), so the rebuild branch
+             ;; is concurrency-host-only.
+             (let [reaction (:reaction entry)
+                   [_old new]
+                   (swap-vals! cache
+                               (fn [m]
+                                 (if (identical? reaction
+                                                 (get-in m [k :reaction]))
+                                   (update-in m [k :ref-count] (fnil inc 0))
+                                   m)))]
+               (if (identical? reaction (get-in new [k :reaction]))
+                 reaction
+                 (compute-and-cache! frame-id query-v)))
+             (compute-and-cache! frame-id query-v))))))))
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then
