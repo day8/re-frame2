@@ -213,3 +213,132 @@
              "the offending key name appears in the hint")
          (is (str/includes? flat "story-save-variant-snippet")
              "the snippet still renders — the hint is non-blocking")))))
+
+;; ---- rf2-ba86n.6: eight-slice capture model -----------------------------
+
+(deftest capture-slices-covers-all-eight-slices
+  (testing "every slice in spec/019 §3 is classified — none silently dropped"
+    (let [report (save-variant/capture-slices {:n 1} nil {})
+          slices (set (map :slice report))]
+      (is (= (set save-variant/slice-order) slices)
+          "the report covers exactly the eight canonical slices")
+      (is (= save-variant/slice-order (mapv :slice report))
+          "rows render in the canonical slice-order"))))
+
+(deftest capture-slices-args-is-projectable
+  (testing "args (+ transient-controls) are the projectable pair; args emits"
+    (let [report   (save-variant/capture-slices {:n 7} nil {})
+          by-slice (into {} (map (juxt :slice identity)) report)]
+      (is (= :projectable (-> by-slice :args :status)))
+      (is (true? (-> by-slice :args :emit?)) "args contributes the :args slot")
+      (is (= {:n 7} (-> by-slice :args :value)))
+      (is (= :projectable (-> by-slice :transient-controls :status)))
+      (is (false? (-> by-slice :transient-controls :emit?))
+          "transient-controls folds into :args — no second slot"))))
+
+(deftest capture-slices-unwired-slices-warn-not-fabricate
+  (testing "with a bare source body, the not-yet-wired slices are :not-wired
+            — captured nothing, honest warning, never a fabricated value"
+    (let [report   (save-variant/capture-slices {:n 1} nil {:viewport :tablet})
+          by-slice (into {} (map (juxt :slice identity)) report)]
+      (doseq [s [:sub-overrides :db-seed :route :network :fx-overrides :viewport]]
+        (is (= :not-wired (-> by-slice s :status))
+            (str s " is honestly not-wired with no declared source value"))
+        (is (false? (-> by-slice s :emit?)) (str s " emits no body slot"))
+        (is (string? (-> by-slice s :note)) (str s " carries an honest note")))
+      (is (str/includes? (-> by-slice :route :note) "7pgiz")
+          "route names the blocking bead")
+      (is (str/includes? (-> by-slice :db-seed :note) "blw1q")
+          "db-seed names the blocking bead")
+      (is (str/includes? (-> by-slice :viewport :note) "FORK")
+          "viewport is flagged as the product fork")
+      (is (str/includes? (-> by-slice :viewport :note) ":tablet")
+          "viewport note names the live chrome-wide selection it is NOT projecting"))))
+
+(deftest capture-slices-declared-source-slots-are-captured-as-declared
+  (testing "when the source variant body declares the unwired slices, they are
+            captured-as-declared (carried forward via :extends), warned, honest"
+    (let [body     {:sub-overrides {[:s] :v}
+                    :network       {[:get "/u"] {:reply {}}}
+                    :fx-overrides  {:my/fx 1}
+                    :setup         [[:e]]
+                    :viewport      :tablet}
+          report   (save-variant/capture-slices {:n 1} body {})
+          by-slice (into {} (map (juxt :slice identity)) report)]
+      (doseq [[s v] {:sub-overrides {[:s] :v}
+                     :network       {[:get "/u"] {:reply {}}}
+                     :fx-overrides  {:my/fx 1}
+                     :db-seed       [[:e]]
+                     :viewport      :tablet}]
+        (is (= :captured-as-declared (-> by-slice s :status))
+            (str s " carries the declared source value forward"))
+        (is (= v (-> by-slice s :value)) (str s " value is the declared slot")))
+      (is (= :not-wired (-> by-slice :route :status))
+          "route has no declared source slot — still not-wired"))))
+
+(deftest slice-warnings-filters-projectable
+  (testing "slice-warnings keeps only the rows the user must see — every slice
+            that is NOT a clean live projection"
+    (let [report   (save-variant/capture-slices {:n 1} nil {})
+          warnings (save-variant/slice-warnings report)]
+      (is (every? #(not= :projectable (:status %)) warnings)
+          "no projectable rows in the warnings")
+      (is (not (some #(= :args (:slice %)) warnings))
+          "args (projectable) is filtered out")
+      (is (some #(= :route (:slice %)) warnings)
+          "route (not-wired) is surfaced"))))
+
+(deftest open-6-arity-stamps-slices
+  (testing "rf2-ba86n.6 — open's 6-arity stamps the slice report on the dialog"
+    (let [report (save-variant/capture-slices {:n 1} nil {})
+          s      (save-variant/open save-variant/initial-dialog-state
+                                    :story.x/y {:n 1} 0 [] report)]
+      (is (true? (:open? s)))
+      (is (= report (:slices s)) "the slice report rides the dialog state"))))
+
+(deftest open-4-arity-defaults-slices-to-empty-vec
+  (testing "rf2-ba86n.6 — back-compat: pre-slices arities default :slices to []"
+    (is (= [] (:slices (save-variant/open save-variant/initial-dialog-state
+                                          :story.x/y {:n 1} 0))))
+    (is (= [] (:slices (save-variant/open save-variant/initial-dialog-state
+                                          :story.x/y {:n 1} 0 []))))))
+
+#?(:cljs
+   (deftest slice-report-renders-warnings-when-present
+     (testing "rf2-ba86n.6 — the slice-report component renders a row per
+               non-projectable slice with its status + honest note"
+       (let [report (save-variant/capture-slices {:n 1} nil {:viewport :tablet})
+             flat   (str (ui-sv/slice-report report))]
+         (is (str/includes? flat "story-save-variant-slice-report")
+             "the report container is present")
+         (is (str/includes? flat "story-save-variant-slice-row")
+             "individual slice rows render")
+         (is (str/includes? flat "not yet projectable")
+             "not-wired slices carry the 'not yet projectable' label")
+         (is (str/includes? flat "FORK")
+             "the viewport fork is surfaced to the user")))))
+
+#?(:cljs
+   (deftest slice-report-nil-when-all-projectable
+     (testing "rf2-ba86n.6 — when every slice projects cleanly there is
+               nothing to warn about and the report renders nil"
+       (let [all-clean [{:slice :args :status :projectable}
+                        {:slice :transient-controls :status :projectable}]]
+         (is (nil? (ui-sv/slice-report all-clean)))))))
+
+#?(:cljs
+   (deftest save-dialog-renders-slice-report-when-open
+     (testing "rf2-ba86n.6 — the open dialog renders the slice report below
+               the snippet so the save is honest about what it captures"
+       (reset! ui-sv/ui-dialog
+               (save-variant/open save-variant/initial-dialog-state
+                                  :story.x/source
+                                  {:n 1}
+                                  12345
+                                  []
+                                  (save-variant/capture-slices {:n 1} nil {})))
+       (let [flat (str (ui-sv/save-dialog))]
+         (is (str/includes? flat "story-save-variant-slice-report")
+             "the slice report renders inside the open dialog")
+         (is (str/includes? flat "story-save-variant-snippet")
+             "the snippet still renders — the report is non-blocking")))))

@@ -141,11 +141,43 @@ the user-story sweep):
   losslessly yet, the UI MUST say what will be omitted or require the
   user to choose a supported slice.
 
-Open detail: the exact projection save-current-state writes when the
-current UI state mixes args, sub-overrides, db seed, route, network,
-fx-overrides, viewport, and transient controls is not yet locked. State
-it as an explicit open-detail for the implementation EPIC, not a product
-fork.
+Save-current-state is reachable from **Controls** (the
+`save as new variant…` button on the controls panel) **and the command
+palette** (`Save current canvas state as a new variant`). Both drive the
+same `re-frame.story.save-variant/save-current-as-variant!` flow over the
+focused variant; the palette entry no-ops when no variant is focused.
+
+#### Per-slice projection (rf2-ba86n.6)
+
+The exact projection save-current-state writes is now locked as a
+**capture-or-warn** model, classified per slice by the pure
+`re-frame.story.save-variant/capture-slices`. Each of the eight slices
+resolves to one honest status — the flow NEVER fabricates a live
+projection for a slice whose substrate is not wired:
+
+| Slice | Status | Projection |
+|---|---|---|
+| Args | projectable | Live effective args (five-layer precedence chain, [`002-Runtime.md`](002-Runtime.md)) → the snippet's `:args` slot. |
+| Transient controls | projectable | In-flight `:cell-overrides` — folded into `:args` by `resolve-args`, not a separate slot. |
+| Sub-overrides | captured-as-declared / not-wired | No live View-State controls (TARGET); the source body's declared `:sub-overrides` carry forward via `:extends` (warned), else not-wired (rf2-7pgiz). |
+| DB seed | captured-as-declared / not-wired | The schema-checked app-db-seed fidelity rung is not wired (rf2-blw1q); the source's declared `:setup` events carry forward via `:extends` (warned), else not-wired. |
+| Route | not-wired | Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured. |
+| Network | captured-as-declared / not-wired | No live Network controls; the source's declared `:network` carries forward via `:extends` (warned), else not-wired. |
+| FX-overrides | captured-as-declared / not-wired | No live Effects controls; the source's declared `:fx-overrides` carries forward via `:extends` (warned), else not-wired. |
+| Viewport | captured-as-declared / not-wired (FORK) | Viewport is **chrome-wide** state, not a per-variant body slot. The source body's declared `:viewport` carries forward via `:extends` (warned); the live chrome-wide selection is NOT projected into the saved variant. |
+
+Slices that are not a clean live projection surface a non-blocking
+warning in the save dialog (the honesty floor): the user sees, before
+pasting, exactly what is captured live, what carries forward as declared,
+and what is not yet projectable.
+
+**Product fork (flagged, not silently decided):** whether a saved variant
+should pin the *live chrome-wide viewport* at all — and, more broadly,
+the canonical projection when a future surface lets args AND a live
+sub-override slice both be set — is not settled by this spec. The
+implementation takes the conservative honest default (capture declared,
+warn the rest) and leaves the lock for a deliberate ruling rather than
+guessing.
 
 ## 4. Control empty states and deep-controls risk
 

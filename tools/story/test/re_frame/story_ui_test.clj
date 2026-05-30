@@ -326,6 +326,21 @@
     (is (= 2 (command-palette/move-active-index 0 -1 3)))
     (is (= 0 (command-palette/move-active-index 0 1 0)))))
 
+(deftest command-palette-carries-save-current-command
+  (testing "rf2-ba86n.6 — the save-current-state flow is reachable from the
+            command palette (spec/019 §3), as a synthetic :command entry"
+    (let [entries (command-palette/command-entries)
+          save    (first (filter #(= :save-current-as-variant (:id %)) entries))]
+      (is (some? save) "the save-current command entry is present")
+      (is (= :command (:kind save)))
+      (is (= :save-current-as-variant (:action save))
+          "the entry carries the action the view dispatches"))
+    (testing "the command is findable by search"
+      (let [entries (command-palette/entries {})
+            hit     (first (command-palette/search entries "save variant"))]
+        (is (= :save-current-as-variant (:id hit))
+            "searching 'save variant' surfaces the save-current command")))))
+
 ;; ---- mode-tabs (rf2-9hc8) ------------------------------------------------
 
 (deftest mode-tabs-canonical-set

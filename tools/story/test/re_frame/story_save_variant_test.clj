@@ -209,13 +209,49 @@
     (state/swap-state! state/select-variant :story.snap/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _now-ms _violations]
+        (fn [source-id args _now-ms _violations & _]
           (reset! captured {:source-id source-id :args args})))
       (let [result (save-variant/save-current-as-variant!)]
         (is (some? @captured) "the callback fired")
         (is (= :story.snap/v (:source-id @captured)))
         (is (= 7 (-> @captured :args :n)))
         (is (= :story.snap/v (:source-id result)))))))
+
+;; ---- rf2-ba86n.6: the eight-slice capture report rides the trigger -------
+
+(deftest save-current-as-variant!-carries-slice-report
+  (testing "the trigger computes the eight-slice capture report and passes
+            it through both the callback and the returned record"
+    (story/reg-variant :story.snap/sliced {:args {:n 3} :events []})
+    (state/swap-state! state/select-variant :story.snap/sliced)
+    (let [captured (atom nil)]
+      (save-variant/set-open-dialog-fn!
+        (fn [_source-id _args _now-ms _violations slices]
+          (reset! captured slices)))
+      (let [result (save-variant/save-current-as-variant!)
+            slices (:slices result)]
+        (is (= (set save-variant/slice-order)
+               (set (map :slice slices)))
+            "every canonical slice is classified — none silently dropped")
+        (is (= slices @captured)
+            "the same report rides the callback's 5th arg")
+        (is (= :projectable (:status (first (filter #(= :args (:slice %)) slices))))
+            "args is the projectable slice")))))
+
+(deftest save-current-as-variant!-declared-slots-captured-as-declared
+  (testing "a source variant declaring the not-yet-wired slices captures them
+            as-declared (carried forward via :extends) — honest, not dropped"
+    (story/reg-variant :story.snap/declared
+      {:args         {:n 1}
+       :sub-overrides {[:s] :v}
+       :events       []})
+    (state/swap-state! state/select-variant :story.snap/declared)
+    (save-variant/set-open-dialog-fn! (fn [& _] nil))
+    (let [result   (save-variant/save-current-as-variant!)
+          by-slice (into {} (map (juxt :slice identity)) (:slices result))]
+      (is (= :captured-as-declared (-> by-slice :sub-overrides :status))
+          "the declared :sub-overrides carry forward as-declared")
+      (is (= {[:s] :v} (-> by-slice :sub-overrides :value))))))
 
 (deftest save-current-as-variant!-nil-when-no-focus
   (testing "without a focused variant the trigger is a no-op"
@@ -233,7 +269,7 @@
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _ _]
+        (fn [source-id args & _]
           (reset! captured {:source-id source-id :args args})))
       (save-variant/save-current-as-variant! {:variant-id :story.snap/override})
       (is (= :story.snap/override (:source-id @captured)))
@@ -253,7 +289,7 @@
     (state/swap-state! state/select-variant :story.event/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _ _]
+        (fn [source-id args & _]
           (reset! captured {:source-id source-id :args args})))
       (rf/dispatch-sync [save-variant/id-save-current-as-variant])
       (is (= :story.event/v (:source-id @captured)))
@@ -265,7 +301,7 @@
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _ _]
+        (fn [source-id args & _]
           (reset! captured {:source-id source-id :args args})))
       (rf/dispatch-sync [save-variant/id-save-current-as-variant
                          {:variant-id :story.event/explicit}])
@@ -284,7 +320,7 @@
     ;; Capture via the impure trigger; harvest snapshot from the callback.
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _ _]
+        (fn [source-id args & _]
           (reset! captured {:source-id source-id :args args})))
       (save-variant/save-current-as-variant!)
       (let [snippet  (save-variant/gen-variant-snippet
