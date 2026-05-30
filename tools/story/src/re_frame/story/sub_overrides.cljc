@@ -44,9 +44,34 @@
   Every fn here is pure data → data, so the resolver is JVM-runnable and
   the test suite needs no host. The render path (`re-frame.story.ui.
   canvas`, CLJS) reads the plan's `[:world :render :sub-overrides]` map
-  and threads it through `with-overrides` so a Story-rendered view's
-  subscribed reads consult `resolve` first; production bundles elide the
-  whole runtime, so the binding is never set there."
+  and binds it through `with-overrides`; production bundles elide the
+  whole runtime, so the binding is never set there.
+
+  ## STATUS — the consuming subscribe-seam is NOT yet wired (rf2-7pgiz)
+
+  This namespace is the read-SIDE resolver, but as of rf2-7pgiz NO
+  subscribe / `compute-sub` / view-render seam consults it: a
+  normally-authored view's `@(rf/subscribe [:q])` hits the real
+  framework subscribe and the bound `*overrides*` map is never read, so
+  a `:sub-overrides` value does NOT actually surface at render. Two
+  facts compound here:
+
+    1. There is no consumer — `subscribe` does not check `*overrides*`.
+    2. Even if it did, a `binding`-bound dynamic var does NOT survive
+       into a view's DEFERRED React render: the canvas binds `*overrides*`
+       during the override-scope component's own render, but the view's
+       `@(rf/subscribe)` runs later, in its own reaction, with the binding
+       already unwound (empirically confirmed under react-dom/server —
+       a parent-render binding reads `:unbound` in a child component's
+       render). The robust survive-into-deferred-render mechanism is
+       React context, which is exactly what `re-frame.adapter.context`
+       uses to propagate the frame-id.
+
+  Mike RULED (a) on rf2-7pgiz: build the frame-scoped subscribe shim so
+  the override surfaces at render (zero-cost when unbound; stays a
+  labelled low-fidelity rung; honesty guarantee preserved). That seam is
+  a NEW core subscribe hook — high-stakes — so it is pinned + surfaced
+  for review under rf2-7pgiz rather than guessed at here."
   (:refer-clojure :exclude [resolve read]))
 
 ;; ============================================================================
@@ -105,9 +130,15 @@
   "Render-path read for a subscribed `query-v`: return the override value
   when one is registered for the active extent, otherwise call `real-read`
   (a 0-arg thunk that performs the genuine subscription) and return its
-  value. This is the seam a Story-rendered view's subscribed reads route
-  through so an override surfaces at render WITHOUT ever touching app-db
-  or `compute-sub`.
+  value. This is the resolve-or-fall-through helper the eventual
+  subscribe-seam will route through so an override surfaces at render
+  WITHOUT ever touching app-db or `compute-sub`.
+
+  NOTE (rf2-7pgiz): as of this commit NO subscribe / view-render seam
+  calls `read` — a normally-authored view's `@(rf/subscribe)` does not
+  route through here, so the override does not yet surface at render. See
+  the ns docstring §STATUS. `read` is exercised by the resolver tests
+  only until the core subscribe shim lands.
 
   `real-read` is invoked ONLY on a miss, so subscribing to a non-
   overridden query is exactly as it would be without overrides — no extra
@@ -131,9 +162,13 @@
    (defmacro with-overrides
      "Evaluate `body` with `*overrides*` bound to `overrides` for its
      dynamic extent. Sugar over `with-overrides*`. The Story render path
-     wraps the variant's view render in this so a `read`-through
-     subscribed value surfaces an override; outside the binding (and in
-     production) every `read` falls through to the real subscription."
+     wraps the variant's view render in this; outside the binding (and in
+     production) `*overrides*` is nil and `resolve` always misses.
+
+     NOTE (rf2-7pgiz): binding `*overrides*` here is currently INERT for a
+     normally-authored view — no subscribe seam consults it, and the
+     dynamic binding does not survive into the view's deferred React
+     render. See the ns docstring §STATUS."
      [overrides & body]
      `(binding [*overrides* ~overrides]
         ~@body)))
