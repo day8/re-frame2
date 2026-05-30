@@ -633,6 +633,38 @@
     (loaders/finish-events! variant-id))
   ctx)
 
+(defn- settle-terminal-assertions!
+  "Evaluate the plan's terminal handler-backed `:assertions` against the
+  FINAL settled state (rf2-nyjoa — Mike RULED B: terminal `:assertions`
+  AUTO-RUN). Called AFTER the script phase settles (after the auto-plays
+  complete, or — for a variant with no script — after phase-2 setup), so the
+  terminal atoms read 'check the FINAL settled state' while an in-script
+  `[:assert …]` checkpoint stays 'check here, now'.
+
+  Routes through the SAME executor the in-script checkpoints use
+  (`runner-events/run-terminal-assertions!` → `exec-assert!`), so the
+  verdict lands on `:rf.story/assertions` via the ONE recording path —
+  `record-result-map` / `result/run-result` already folds that accumulator
+  into the unified `:pass` / `:fail`. The terminal atoms are the plan's
+  `[:expect :assertions]` (the SAME slot `plan-assertion-atoms` reads), so a
+  REGISTERED variant and an INLINE plan both route here.
+
+  The tape-evaluated kinds (`:rf.assert/schema-error`, the causal / cascade
+  family, the browser-tier oracle family) are NOT double-processed: they
+  carry no reg-event-fx handler, so `exec-assert!` records a no-op step-skip
+  for them and never dispatches — `result/run-result` already evaluates them
+  against the epoch tape from the plan's `:schema-expectations` /
+  `:causal-expectations` (collected by `plan-schema-expectations` /
+  `plan-causal-expectations`). Only the handler-backed terminal atoms (the
+  previously-inert surface) are evaluated here. Tolerant — any failure is
+  swallowed (record-don't-throw)."
+  [variant-id plan]
+  (try
+    (runner-events/run-terminal-assertions!
+      variant-id (get-in plan [:expect :assertions]))
+    (catch #?(:clj Throwable :cljs :default) _ nil))
+  nil)
+
 (defn- run-phase-4!
   "Phase 4: run the play-script. Returns `[ctx' play-promise]` — `ctx'`
   carries `:executed-script` (the folded steps the auto-plays ran, for the
@@ -672,7 +704,11 @@
           executed   (vec (mapcat :script auto-plays))
           ctx'       (assoc ctx :executed-script executed)]
       (if (empty? auto-plays)
-        [ctx' (async/resolved (read-assertions variant-id))]
+        ;; No script ran, but the world settled (phase-2 setup committed).
+        ;; The terminal `:assertions` check the FINAL settled state, so they
+        ;; still auto-run here (rf2-nyjoa).
+        [ctx' (async/resolved (do (settle-terminal-assertions! variant-id plan)
+                                  (read-assertions variant-id)))]
         [ctx'
          (async/promise
            (fn [resolve]
@@ -680,11 +716,13 @@
              ;; the folded `[:assert …]` checkpoints dispatch record into
              ;; `:rf.story/assertions` on the frame via the standard
              ;; assertion handlers. Once every auto-play has finished, the
-             ;; orchestrator builds the result map from the frame's
-             ;; accumulated assertions.
+             ;; terminal `:assertions` are evaluated against the FINAL
+             ;; settled state (rf2-nyjoa) and the orchestrator builds the
+             ;; result map from the frame's accumulated assertions.
              (letfn [(step! [remaining]
                        (if (empty? remaining)
-                         (resolve (read-assertions variant-id))
+                         (do (settle-terminal-assertions! variant-id plan)
+                             (resolve (read-assertions variant-id)))
                          (let [spec (first remaining)]
                            (runner-events/run! variant-id (:name spec) spec
                                                (fn [_state]

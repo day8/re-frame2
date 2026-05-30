@@ -928,6 +928,107 @@
           "the first play's checkpoint passed"))
     (story/destroy-variant! :story.plays/v)))
 
+;; ===========================================================================
+;; TERMINAL ASSERTIONS AUTO-RUN (rf2-nyjoa — Mike RULED B)
+;;
+;; The terminal `:assertions` slot is the handler-backed "check the FINAL
+;; settled state" surface. It AUTO-RUNS after the script phase settles and
+;; contributes :pass / :fail verdicts recorded as assertion records on the
+;; SAME `:rf.story/assertions` accumulator the in-script `[:assert …]`
+;; checkpoints write — folded into the unified `:status` by
+;; `result/run-result`. These pin the canonical reg-variant example (a
+;; variant with ONLY a terminal `:assertions` block, no in-script
+;; `[:assert]`), the pass + fail verdicts, and the no-double-processing
+;; guarantee for the tape-evaluated kinds.
+;; ===========================================================================
+
+(deftest run-variant-terminal-assertions-only-pass
+  (testing "the CANONICAL reg-variant example — a variant with ONLY a
+            terminal :assertions block (no in-script [:assert], no :script)
+            now AUTO-RUNS the terminal assertion against the FINAL settled
+            state and produces a :pass verdict (rf2-nyjoa)"
+    (rf/reg-event-db :test/seed-state
+      (fn [db _] (assoc-in db [:checkout :state] :submitted)))
+    (story/reg-variant :story.nyjoa/pass
+      {:setup      [[:test/seed-state]]
+       :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
+    (let [r (async/deref-blocking (story/run-variant :story.nyjoa/pass) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (= :pass (:status r))
+          "the terminal assertion auto-ran and passed → :pass")
+      (let [rec (->> (:assertions r)
+                     (filter #(= :rf.assert/path-equals (:assertion %)))
+                     first)]
+        (is (some? rec)
+            "the terminal assertion was recorded on :rf.story/assertions
+             with no in-script checkpoint authoring it")
+        (is (true? (:passed? rec)))
+        (is (= [[:checkout :state] :submitted] (:payload rec)))))
+    (story/destroy-variant! :story.nyjoa/pass)))
+
+(deftest run-variant-terminal-assertions-only-fail
+  (testing "a FAILING terminal assertion (no in-script [:assert]) flips the
+            unified verdict to :fail (rf2-nyjoa)"
+    (rf/reg-event-db :test/seed-other
+      (fn [db _] (assoc-in db [:checkout :state] :draft)))
+    (story/reg-variant :story.nyjoa/fail
+      {:setup      [[:test/seed-other]]
+       :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
+    (let [r (async/deref-blocking (story/run-variant :story.nyjoa/fail) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (= :fail (:status r))
+          "the terminal assertion auto-ran and failed → :fail")
+      (let [rec (->> (:assertions r)
+                     (filter #(= :rf.assert/path-equals (:assertion %)))
+                     first)]
+        (is (some? rec))
+        (is (false? (:passed? rec))
+            "the failing terminal assertion recorded :passed? false")))
+    (story/destroy-variant! :story.nyjoa/fail)))
+
+(deftest run-variant-terminal-assertion-evaluates-final-state-after-script
+  (testing "a terminal assertion evaluates the FINAL settled state — it sees
+            the state AFTER the script's dispatches commit, not the
+            pre-script state (rf2-nyjoa: terminal = check the FINAL state)"
+    (rf/reg-event-db :test/set-n (fn [db [_ n]] (assoc db :n n)))
+    (story/reg-variant :story.nyjoa/after-script
+      {:script     [[:dispatch [:test/set-n 7]]]
+       :assertions [[:rf.assert/path-equals [:n] 7]]})
+    (let [r (async/deref-blocking
+              (story/run-variant :story.nyjoa/after-script) 5000)]
+      (is (= 7 (-> r :app-db :n)) "the script dispatch committed")
+      (is (= :pass (:status r))
+          "the terminal assertion saw the post-script value 7"))
+    (story/destroy-variant! :story.nyjoa/after-script)))
+
+(deftest run-variant-terminal-tape-evaluated-not-double-counted
+  (testing "a tape-evaluated terminal assertion (:rf.assert/schema-error) is
+            NOT double-processed by the terminal auto-run — it carries no
+            reg-event-fx handler, so the auto-run records NO handler-backed
+            record for it; the result boundary owns its single verdict
+            against the epoch tape. Pinned alongside a handler-backed
+            terminal assertion in the same block so the split is exercised
+            (rf2-nyjoa critical guard)."
+    (rf/reg-event-db :test/seed-ok (fn [db _] (assoc db :ok? true)))
+    (story/reg-variant :story.nyjoa/mixed
+      {:setup      [[:test/seed-ok]]
+       :assertions [[:rf.assert/path-equals [:ok?] true]
+                    [:rf.assert/schema-error {:where :event :event :some/evt}]]})
+    (let [r (async/deref-blocking (story/run-variant :story.nyjoa/mixed) 5000)
+          path-recs (->> (:assertions r)
+                         (filter #(= :rf.assert/path-equals (:assertion %))))
+          schema-recs (->> (:assertions r)
+                           (filter #(= :rf.assert/schema-error (:assertion %))))]
+      (is (= 1 (count path-recs))
+          "the handler-backed terminal assertion recorded EXACTLY ONE record
+           (not double-counted)")
+      (is (true? (:passed? (first path-recs))))
+      (is (<= (count schema-recs) 1)
+          "the schema-error expectation is minted at most ONCE — by the
+           result boundary's tape matcher, NOT a second time by the terminal
+           auto-run dispatching a (non-existent) handler"))
+    (story/destroy-variant! :story.nyjoa/mixed)))
+
 (deftest run-variant-plan-error-projects-as-run-error
   (testing "a plan-construction failure (an [:assert …] checkpoint placed
             in :setup) surfaces through the run-error projection rather

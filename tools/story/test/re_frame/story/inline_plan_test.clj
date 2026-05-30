@@ -87,6 +87,27 @@
       (is (= :fail (:status result)))
       (is (not (every? :passed? (:assertions result)))))))
 
+(deftest inline-plan-terminal-assertions-only-auto-run
+  (testing "an INLINE plan with ONLY a terminal :assertions block (no
+            in-script [:assert], no :script) AUTO-RUNS the terminal assertion
+            against the FINAL settled state and produces a verdict — the same
+            lifecycle a registered variant gets (rf2-nyjoa). Both a PASS and a
+            FAIL are pinned so the verdict is load-bearing, not vacuous."
+    (let [pass (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
+                            :assertions [[:rf.assert/path-equals [:status] :loaded]]})]
+      (is (= :pass (:status pass))
+          "the inline terminal assertion auto-ran and passed → :pass")
+      (is (= :ready (:lifecycle pass)))
+      (let [rec (first (filter #(= :rf.assert/path-equals (:assertion %))
+                               (:assertions pass)))]
+        (is (some? rec) "the terminal assertion recorded with no checkpoint")
+        (is (true? (:passed? rec)))))
+    (let [fail (run-target {:setup      [[:dispatch [:inline/set-status :idle]]]
+                            :assertions [[:rf.assert/path-equals [:status] :loaded]]})]
+      (is (= :fail (:status fail))
+          "a failing inline terminal assertion flips the verdict to :fail")
+      (is (not (every? :passed? (:assertions fail)))))))
+
 (deftest inline-plan-setup-and-script-both-drive-state
   (testing "an inline plan's :setup establishes preconditions, :script runs after"
     (let [result (run-target {:setup  [[:dispatch [:inline/inc]]]
