@@ -98,3 +98,36 @@
 (deftest chrome-pane-visible-unknown-pane
   (testing "unknown pane kw → defaults visible (forward-compat)"
     (is (true? (transitions/chrome-pane-visible? :unknown {})))))
+
+;; ---- Xray-embed collapse (rf2-ba86n.19) ---------------------------------
+;;
+;; Lazy Xray-diff mounting: the `:xray-embed-collapsed?` slot defers the
+;; panel mount + its diff compute until expanded. Pure transition coverage
+;; here; the render-path proof (no panel-host in the tree while collapsed)
+;; lives in the embed e2e CLJS test.
+
+(deftest xray-embed-collapsed-default-expanded
+  (testing "unset slot reads as expanded (false)"
+    (is (false? (transitions/xray-embed-collapsed? {})))
+    (is (false? (transitions/xray-embed-collapsed? {:xray-embed-collapsed? nil}))))
+  (testing "explicit slot is read through"
+    (is (true?  (transitions/xray-embed-collapsed? {:xray-embed-collapsed? true})))
+    (is (false? (transitions/xray-embed-collapsed? {:xray-embed-collapsed? false})))))
+
+(deftest toggle-xray-embed-collapsed-flip
+  (testing "first toggle from default collapses (expanded → collapsed)"
+    (is (true? (transitions/xray-embed-collapsed?
+                 (transitions/toggle-xray-embed-collapsed {})))))
+  (testing "double toggle round-trips back to expanded"
+    (let [a (transitions/toggle-xray-embed-collapsed {})
+          b (transitions/toggle-xray-embed-collapsed a)]
+      (is (false? (transitions/xray-embed-collapsed? b))))))
+
+(deftest set-xray-embed-collapsed-coerces
+  (testing "set true / set false / coerce truthy"
+    (is (true?  (transitions/xray-embed-collapsed?
+                  (transitions/set-xray-embed-collapsed {} true))))
+    (is (false? (transitions/xray-embed-collapsed?
+                  (transitions/set-xray-embed-collapsed {:xray-embed-collapsed? true} false))))
+    (is (true?  (transitions/xray-embed-collapsed?
+                  (transitions/set-xray-embed-collapsed {} "truthy"))))))

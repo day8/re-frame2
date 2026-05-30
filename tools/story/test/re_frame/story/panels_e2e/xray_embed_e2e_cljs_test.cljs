@@ -201,6 +201,101 @@
                              (ui-state/get-state) variant-id))
                 "effective-panel resolves the override directly")))))))
 
+;; ---- lazy Xray-diff mounting: no compute on a collapsed embed -----------
+;;
+;; rf2-ba86n.19 (spec/018 §10) — the embed defers the panel MOUNT until it
+;; is expanded. `panel-host-component` is the SOLE caller of `mount-fn-for`
+;; → `mount-<panel>!` (the fn that runs the panel's expensive diff compute:
+;; app-db structural diff, epoch timeline). So the render-path proof that
+;; "no diff is computed on a collapsed embed" reduces to: while collapsed,
+;; the embed hiccup MUST NOT contain a `panel-host-component` slot — there
+;; is no mount target, hence no `mount-<panel>!`, hence no diff compute.
+;;
+;; The `expand-tree` walker (e2e helper) does NOT invoke class-3 components,
+;; so a `[panel-host-component pid]` vector surfaces in the tree as-is when
+;; present; its absence is decisive.
+
+(defn- panel-host-slot
+  "Find the `[panel-host-component <panel-id>]` slot in an embed tree, or
+  nil. The slot is the 2-element fn-headed vector whose second element is
+  one of the catalogued panel-ids (the resolved panel argv)."
+  [tree]
+  (some (fn [child]
+          (when (and (vector? child)
+                     (= 2 (count child))
+                     (contains? xray-embed/panel-ids (second child)))
+            child))
+        (e2e/find-by-test-id tree "story-xray-embed")))
+
+(deftest collapsed-embed-does-not-mount-panel-host
+  (testing "rf2-ba86n.19 — a COLLAPSED embed renders no panel-host slot, so
+            no mount-<panel>! fires and the panel's expensive diff is never
+            computed; expanding restores the panel-host"
+    (e2e/with-story-and-xray-frames
+      {:register-stories register-variant!}
+      (fn []
+        (e2e/select-variant! variant-id)
+        ;; Expanded (default) → the panel-host slot IS present (the mount
+        ;; target the diff-compute path hangs off).
+        (let [expanded-tree (xray-embed/xray-embed-panel)]
+          (is (some? (panel-host-slot expanded-tree))
+              "default (expanded) embed mounts the panel-host → diff compute path live")
+          (is (= "false" (get-in (e2e/find-by-test-id expanded-tree "story-xray-embed")
+                                 [1 :data-xray-embed-collapsed]))
+              "data-xray-embed-collapsed reflects the expanded state"))
+        ;; Collapse the embed (the same write the disclosure toggle does).
+        (ui-state/swap-state! ui-state/set-xray-embed-collapsed true)
+        (let [collapsed-tree (xray-embed/xray-embed-panel)
+              wrapper        (e2e/find-by-test-id collapsed-tree "story-xray-embed")
+              placeholder    (e2e/find-by-test-id collapsed-tree "story-xray-embed-collapsed")]
+          (is (nil? (panel-host-slot collapsed-tree))
+              "COLLAPSED embed renders NO panel-host slot → mount-<panel>! is
+               never invoked → the panel's expensive diff is not computed
+               (rf2-ba86n.19 acceptance)")
+          (is (some? placeholder)
+              "collapsed embed shows the quiet placeholder in place of the panel")
+          (is (= "true" (get-in wrapper [1 :data-xray-embed-collapsed]))
+              "data-xray-embed-collapsed reflects the collapsed state")
+          ;; The chip-row picker still paints while collapsed (cheap; no Xray
+          ;; symbol) so the author's lens choice survives a collapse.
+          (is (= 7 (count (e2e/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
+              "chip-row picker survives a collapse (no compute, just data)"))
+        ;; Expand again → panel-host slot returns (mount resumes on next commit).
+        (ui-state/swap-state! ui-state/set-xray-embed-collapsed false)
+        (let [reexpanded-tree (xray-embed/xray-embed-panel)]
+          (is (some? (panel-host-slot reexpanded-tree))
+              "expanding restores the panel-host slot → mount + diff compute resume"))))))
+
+(deftest disclosure-toggle-flips-collapsed-state
+  (testing "rf2-ba86n.19 — the disclosure toggle's on-click flips the
+            embed-collapsed shell slot (expanded → collapsed → expanded)"
+    (e2e/with-story-and-xray-frames
+      {:register-stories register-variant!}
+      (fn []
+        (e2e/select-variant! variant-id)
+        (let [tree    (xray-embed/xray-embed-panel)
+              toggle  (e2e/find-by-test-id tree "story-xray-disclosure")
+              handler (e2e/handler-for toggle :on-click)]
+          (is (some? toggle) "disclosure toggle present in the chip-row")
+          (is (= "true" (get-in toggle [1 :aria-expanded]))
+              "toggle starts aria-expanded=true (embed expanded by default)")
+          (is (fn? handler) ":on-click wired on the disclosure toggle")
+          ;; Default expanded → first click collapses.
+          (is (false? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+              "starts expanded")
+          (handler (e2e/fake-event {}))
+          (is (true? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+              "first click collapses the embed")
+          ;; Re-derive the toggle from the new tree + click again → expands.
+          (let [tree2    (xray-embed/xray-embed-panel)
+                toggle2  (e2e/find-by-test-id tree2 "story-xray-disclosure")
+                handler2 (e2e/handler-for toggle2 :on-click)]
+            (is (= "false" (get-in toggle2 [1 :aria-expanded]))
+                "aria-expanded reflects the collapsed state")
+            (handler2 (e2e/fake-event {}))
+            (is (false? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+                "second click re-expands the embed")))))))
+
 ;; ---- React lifecycle invariant ------------------------------------------
 ;;
 ;; The `panel-host-component` symbol is the React class owning the DOM
