@@ -1,10 +1,10 @@
 # Story-MCP — Tool Registry
 
-> The 19 tools the server exposes, across four categories — Dev (3),
-> Docs (9), Testing (4), Write (3). One section per category, one
+> The 20 tools the server exposes, across four categories — Dev (3),
+> Docs (10), Testing (4), Write (3). One section per category, one
 > paragraph per tool. The wire-shape for each tool (input schema,
 > output shape) lives in [`API.md`](API.md); this document is the
-> orientation read. The canonical 19-tool name list ships as the
+> orientation read. The canonical 20-tool name list ships as the
 > shared fixture `test/fixtures/tool-names.json` (rf2-36upq TE7); JVM
 > and Node test corpora compare against it so the spec text and the
 > running registry can't drift independently.
@@ -19,8 +19,32 @@
 
 Two deferred tool sections (`subscribe` / `unsubscribe` and
 `evaluate-cljs`) appear at the end of the Docs category for forward-
-visibility only; they are NOT in the shipped 19 and are explicitly
+visibility only; they are NOT in the shipped 20 and are explicitly
 flagged "Status: deferred to a future drop."
+
+## The unified run-result (run/read tools speak ONE result vocabulary)
+
+The Testing run/read tools (`run-variant`, `read-failures`) and the Dev
+`preview-variant` tool return the SAME unified run-result the human
+Story UI reads (rf2-ba86n.17, spec/017 §Run result) — not a parallel
+agent-only result vocabulary. The headline is the top-level `:status` ∈
+`#{:pass :fail :cannot-run :error}`; the result also carries the unified
+`:assertions` records (each with a derived `:status`), the `:checks`
+groups, the `:consumed-selectors` agreement-floor set, and the evidence-
+slot projections (`:schema-violations` / `:warnings` / `:effects` /
+`:sub-runs` / `:renders` / `:narrative`). `story/run-variant` already
+assembles this shape through `re-frame.story.result/run-result`; the MCP
+handlers project its slots (scrubbing the value-bearing ones at egress)
+rather than re-deriving a verdict.
+
+**Clean break (pre-alpha, Mike 2026-05-31).** The pre-unification flat
+shape (`:passing?` boolean, the `:lifecycle` *verdict*, a flat
+`:assertions` vector with no `:status`) is REMOVED outright — NO compat
+alias. `:status` is the one verdict, and only it can express the distinct
+`:cannot-run` third outcome (the runner could not even attempt the plan),
+which an agent must handle as 'not runnable here', not as a fail.
+(`preview-variant` keeps `:lifecycle` as the loader-lifecycle STATE
+`:ready` / `:error` — that is not the run verdict.)
 
 The toolset split borrows the Storybook MCP shape (Dev / Docs /
 Testing) and adds the gated Write surface for the self-healing loop.
@@ -70,27 +94,32 @@ belongs on the predicate, not on the data key whose wire form
 disallows it).
 
 ```clojure
-{:lifecycle      :ok | :failed-loaders | :failed-events | ...
+{:status         :pass | :fail | :cannot-run | :error   ; the unified verdict
+ :lifecycle      :ready | :error                         ; loader STATE (not the verdict)
  :share-url      "..."
  :app-db         {...}
- :assertions     [...]
+ :assertions     [...]   ; unified records, each with a derived :status
+ :checks         [...]
  :rendered-hiccup [...]
  :snapshot       {...}
  :elapsed-ms     ...
  :effective-args {...}}
 ```
 
-Differs from `run-variant` in semantics: `preview-variant` is the
-"show me what this would look like" call; `run-variant` (in the
-Testing category) is the "execute and report pass/fail" call.
+Differs from `run-variant` in EXTRA slots, not in result vocabulary:
+`preview-variant` is the "show me what this would look like" call (it
+adds `:share-url` / `:rendered-hiccup` / `:effective-args`); `run-variant`
+(in the Testing category) is the "execute and report the verdict" call.
+Both speak the same unified run-result — `preview-variant` does NOT ship a
+third result dialect (rf2-ba86n.17).
 
 **Annotation (rf2-8h778).** `preview-variant` carries
 `:destructiveHint true` — the same annotation as `run-variant`.
 Both tools invoke the same `(story/run-variant vk opts)` lifecycle
 under the covers; they dispatch events into the variant's frame
 and accumulate assertions. The semantic split (`preview-variant`
-returns the share URL; `run-variant` returns the `:passing?`
-boolean) does not change the side-effect surface, and the
+returns the share URL + rendered view; `run-variant` is the headline
+run/verdict call) does not change the side-effect surface, and the
 annotation must reflect that side-effect surface (agent hosts
 that auto-approve `readOnlyHint true` would otherwise auto-approve
 a call that mutates the frame).
@@ -103,11 +132,12 @@ opt-in per host). JVM-standalone hosts return `[]`.
 
 ## Docs — for agents reading the story library
 
-Nine introspection tools — the seven core read primitives
+Ten introspection tools — the seven core read primitives
 (`list-stories`, `get-story`, `get-variant`, `list-tags`,
 `list-modes`, `list-assertions`, `variant->edn`) plus
-`list-decorators` (rf2-mqp1u) and `get-docs-markdown` (rf2-i0kyy)
-filled in during Stage 7 polish.
+`list-decorators` (rf2-mqp1u), `get-docs-markdown` (rf2-i0kyy), and
+`explain-variant` (rf2-ba86n.17 — the agent mirror of the human Explain
+panel).
 
 ### `list-stories`
 
@@ -248,22 +278,61 @@ human collaborator (issue tracker, chat, README excerpt). The
 markdown rides both the wire-canonical `:content` text slot and a
 structured `:markdown` slot for hosts that distinguish.
 
+### `explain-variant` (rf2-ba86n.17)
+
+The agent mirror of the human Explain panel — the variant-plan
+`:explain` projection (spec/017 §Explain API), a thin wrapper over the
+shipped `re-frame.story/explain` data API. The Explain panel was the
+single biggest agent↔human divergence: humans had it, agents had no MCP
+reach to it. Returns `{:variant-id <kw> :explain <map>}` where `:explain`
+answers "why did the plan resolve this way": the `:extends`
+`:source-chain` / `:parent-chain`, resolved `:compose` fragments/checks,
+`:strict-conflicts` (winning + losing sources + the deciding rule), the
+per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`,
+view-arg schema + validation, `:network` route stubs + their lowered fx,
+`:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`,
+`:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
+
+Pure plan-derived data — no run, no live frame state, so no egress scrub
+(it carries no `:app-db` slice). The `:extends`-resolved variant body is
+already public via `get-variant` / `variant->edn`; this adds the plan
+compiler's source/merge/lowering reasoning on top. `:readOnlyHint true`.
+
 ## Testing — for agents running stories headlessly
 
 Four execution tools.
 
 ### `run-variant`
 
-Full lifecycle invocation; returns
+Full lifecycle invocation; returns the unified run-result (see
+§The unified run-result):
 
 ```clojure
-{:frame :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :lifecycle :passing?}
+{:status             :pass | :fail | :cannot-run | :error  ; the verdict
+ :frame              <variant-id>
+ :assertions         [...]   ; unified records, each with a derived :status
+ :checks             [...]
+ :consumed-selectors #{...}
+ :schema-violations  [...]   ; evidence-slot projections (.4)
+ :warnings           [...]
+ :effects            [...]
+ :sub-runs           [...]
+ :renders            [...]
+ :narrative          {...}
+ :app-db             {...}
+ :rendered-hiccup    [...]
+ :snapshot           {...}
+ :elapsed-ms         ...}
 ```
 
 Inputs: `{:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ... :timeout-ms?}`.
 
-The `:passing?` boolean is the headline "did this pass?" answer —
-truthy when every assertion in the play sequence passed.
+The top-level `:status` is the headline "did this pass?" answer
+(rf2-ba86n.17 clean break — the retired `:passing?` boolean is gone).
+`:cannot-run` is the distinct third verdict the old boolean could not
+express — the runner could not even attempt the plan; an agent handles it
+as "not runnable here", NOT as a fail. `:cannot-run` refusals are surfaced
+on a `:cannot-run` slot when present.
 
 `:timeout-ms` is clamped DOWN to 30 s (rf2-g9fje); the MCP server's
 stdio loop is single-threaded so an unbounded `:timeout-ms` would
@@ -288,6 +357,19 @@ hint that axe-core requires the in-browser panel.
 Diagnostic for the variant's accumulated `:rf.story/assertions`
 accumulator (no re-run). Useful for agents that want to inspect the
 last-run state without paying the cost of a fresh `run-variant`.
+Returns `{:variant-id <kw> :status <verdict> :total <int> :failures
+[record …] :assertions [record …]}`.
+
+Rides the SAME unified assertion records `run-variant` emits
+(rf2-ba86n.17): each record is normalized to carry a derived `:status`,
+`:status` is the aggregate verdict over the records, and `:failures` is
+filtered to the genuine failure statuses (`:fail` / `:error`) — a
+`:cannot-run` record is not a failure (the runner proved nothing) and
+surfaces via the run-level `:status`. The retired `:passing?` boolean is
+gone. This is a re-READ of the accumulator, not a re-run: it has no epoch
+tape, so `:status` is the assertion-record aggregate only (it cannot apply
+the agreement floor or the runner-refusal fold a fresh `run-variant`
+does — re-run for the full run verdict).
 
 Assertion records carrying `:sensitive? true` are dropped at egress
 by default; `:include-sensitive true` opts back in subject to the

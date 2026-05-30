@@ -45,18 +45,25 @@ predicate FUNCTION `args/include-sensitive?` retains its `?` —
 the idiom belongs on the predicate, not on the data key whose wire
 form disallows it.
 
-**Output.**
+**Output.** The unified run-result + the preview-specific slots
+(rf2-ba86n.17 — `preview-variant` speaks the SAME result vocabulary as
+`run-variant`):
 
 ```clojure
-{:lifecycle      :ok | :failed-loaders | :failed-events | :failed-play
+{:status         :pass | :fail | :cannot-run | :error  ; the unified verdict
+ :lifecycle      :ready | :error                        ; loader STATE (not the verdict)
  :share-url      string
  :app-db         map
- :assertions     [map]
+ :assertions     [map]    ; unified records, each with a derived :status
+ :checks         [map]
  :rendered-hiccup [vector]
  :snapshot       {:variant-id ..., :mode ..., :substrate ..., :content-hash ...}
  :elapsed-ms     number
  :effective-args map}
 ```
+
+`:status` is the verdict; `:lifecycle` is the loader-lifecycle STATE,
+not the verdict (the retired `:passing?` boolean is gone).
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
@@ -197,6 +204,23 @@ that surface it separately.
 **Output.** Text content of canonical EDN form (text-only, no JSON
 projection — byte stability matters for round-tripping).
 
+### `explain-variant` (rf2-ba86n.17)
+
+**Input.** `{:variant-id keyword (required)}`.
+
+**Output.** `{:variant-id keyword :explain map}` — the variant-plan
+`:explain` projection (spec/017 §Explain API), a thin mirror over the
+shipped `re-frame.story/explain` data API (the agent mirror of the human
+Explain panel). `:explain` carries `:source-chain` / `:parent-chain`,
+`:compose`, `:strict-conflicts`, the per-field `:merge` rules, `:args` /
+`:substitutions` / `:effective-args`, `:view-args-schema` /
+`:view-args-validation`, `:network`, `:sub-overrides`, `:fidelity`,
+`:setup-order` / `:script-order`, `:checks` / `:assertions`,
+`:required-runner`, `:platforms`, `:tags`. Pure plan-derived data — no
+run, no live frame state, no egress scrub (no `:app-db` slice).
+
+**Errors.** `isError: true` when `:variant-id` is not registered.
+
 ## Testing tools
 
 ### `run-variant`
@@ -216,21 +240,37 @@ projection — byte stability matters for round-tripping).
 baseline per rf2-it1cd; rf2-g9fje). `:include-sensitive` follows
 the same `--allow-sensitive-reads` gate as `preview-variant`.
 
-**Output.**
+**Output.** The unified run-result (rf2-ba86n.17 clean break — the same
+shape the human Story UI reads; `re-frame.story.result/run-result`):
 
 ```clojure
-{:frame           keyword
- :app-db          map
- :assertions      [map]
- :rendered-hiccup [vector]
- :elapsed-ms      number
- :snapshot        map
- :lifecycle       keyword
- :passing?        boolean}
+{:status             :pass | :fail | :cannot-run | :error  ; the verdict
+ :frame              keyword
+ :assertions         [map]    ; unified records, each with a derived :status
+ :checks             [map]
+ :consumed-selectors #{...}
+ :schema-violations  [map]    ; evidence-slot projections (.4)
+ :warnings           [map]
+ :effects            [map]
+ :sub-runs           [map]
+ :renders            [map]
+ :narrative          map
+ :app-db             map
+ :rendered-hiccup    [vector]
+ :snapshot           map
+ :elapsed-ms         number}
 ```
 
-**Errors.** `isError: true` on unknown variant id, timeout, or
-unrecoverable exception.
+`:status` is the headline verdict. The retired `:passing?` boolean and
+`:lifecycle` *verdict* are gone — `:status` is the one verdict, and only
+it can express `:cannot-run` (the runner could not even attempt the plan;
+handle as "not runnable here", not a fail). A `:cannot-run` slot carries
+the refusals when present. On an unrecoverable exception / timeout the
+tool mints the SAME unified shape with `:status :error` rather than a
+special-case payload.
+
+**Errors.** `isError: true` on unknown variant id (the four-verdict
+`:status :error` covers in-run failures within a successful envelope).
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Testing.
 
@@ -273,34 +313,40 @@ violations atom is read by this tool."}`.
  :include-sensitive boolean (optional, gated — see `preview-variant`)}
 ```
 
-**Output.**
+**Output.** The unified assertion records `run-variant` emits, plus the
+aggregate verdict (rf2-ba86n.17):
 
 ```clojure
 {:variant-id keyword            ; the frame the failures came from
+ :status     :pass | :fail | :cannot-run | :error  ; aggregate verdict
  :total      integer            ; total assertion records seen post-scrub
- :failures   [{:assertion :passed? ...}]
-                                ; records where :passed? is NOT true
- :passing?   boolean}           ; vacuous pass when :total is 0
+ :failures   [{:assertion :passed? :status ...}]
+                                ; records whose :status is :fail / :error
+ :assertions [{:assertion :passed? :status ...}]}  ; ALL records, unified
 ```
 
-No re-run. The `:failures` slot is filtered to records where
-`:passed?` is not `true` — the wire-budget optimisation per
-`tools/testing.cljc:147–151`; agents wanting the full assertion
-vec read it via `run-variant`'s `:assertions` slot. `:total` is
-the count of all records (including passed) so an agent can
-distinguish "we have records and they're all green" from "no
-assertions ran" without re-running. Pinned by the end-to-end
-conformance harness at
+No re-run. Each record is normalized to carry a derived `:status`;
+`:status` is the aggregate verdict over the records (the ONE rule:
+`:error` > `:fail` > `:cannot-run` > `:pass`). `:failures` is filtered to
+the genuine failure statuses (`:fail` / `:error`) — a `:cannot-run`
+record is not a failure (the runner proved nothing) and surfaces via the
+run-level `:status`. The retired `:passing?` boolean is gone. `:total` is
+the count of all records (including passed) so an agent can distinguish
+"we have records and they're all green" from "no assertions ran" without
+re-running. This is a re-READ of the accumulator (no epoch tape), so
+`:status` is the assertion-record aggregate only — re-run via
+`run-variant` for the full run verdict (the agreement floor + refusals).
+Pinned by the end-to-end conformance harness at
 `tools/mcp-conformance/test/end-to-end-story.cjs` (asserts on the
-`:total` + `:failures` slots, locking the shape — rf2-zx0p0).
+`:status` + `:total` + `:failures` slots, locking the shape).
 
 `:include-sensitive` follows the same `--allow-sensitive-reads`
 boot gate as `preview-variant` / `run-variant`. Assertion records
 stamped `:sensitive? true` are dropped at egress by default; the
-`:passing?` predicate runs against the SCRUBBED vec so an
-agent's view of green/red is consistent with the records it
+`:status` aggregate runs against the SCRUBBED vec so an
+agent's view of the verdict is consistent with the records it
 actually sees (a dropped sensitive failure does not quietly flip
-`:passing?` to true).
+`:status` to `:pass`).
 
 ## Write tools (gated)
 
@@ -424,7 +470,7 @@ Full wire details in
 - [`000-Vision.md`](000-Vision.md) — what this jar is for.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — JSON-RPC envelope
   + framing.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools in
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 20 tools in
   prose.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   write-gate behaviour.

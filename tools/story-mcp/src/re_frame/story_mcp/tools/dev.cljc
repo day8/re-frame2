@@ -11,6 +11,7 @@
   both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
+            [re-frame.story.result :as story-result]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -32,7 +33,7 @@
     "\n"
     "  (reg-story   :story.<path>              { :doc :component :decorators :args :argtypes\n"
     "                                            :tags :modes :substrates :platforms :variants })\n"
-    "  (reg-variant :story.<path>/<variant>    { :doc :extends :events :play-script :args :argtypes\n"
+    "  (reg-variant :story.<path>/<variant>    { :doc :extends :setup :script :expect :args :argtypes\n"
     "                                            :tags :decorators :loaders :loaders-complete-when\n"
     "                                            :args->events :platforms :substrates :modes })\n"
     "  (reg-workspace :Workspace.<path>/<name> { :doc :layout :variants :content :render :modes })\n"
@@ -58,10 +59,13 @@
     "    is exactly expected+consumed by a `:rf.assert/schema-error`\n"
     "    (there is NO `no-schema-errors` knob; schema-clean is the floor).\n"
     "\n"
-    "Lifecycle (`run-variant`): four phases — loaders → events → render\n"
-    "→ play. `:rf.assert/*` steps in `:play-script` accumulate records on\n"
-    "the frame; they do NOT throw on failure. `assertions-passing?` is the\n"
-    "vacuous-pass predicate (empty assertions vector is green).\n"
+    "Lifecycle (`run-variant`): four phases — loaders → setup → render\n"
+    "→ script. `:rf.assert/*` steps in `:script` accumulate records on\n"
+    "the frame; they do NOT throw on failure. `run-variant` returns the\n"
+    "unified run-result: read the top-level `:status` ∈ {:pass :fail\n"
+    ":cannot-run :error} for the verdict (a zero-assertion run is\n"
+    "vacuously `:pass`). `:cannot-run` means the runner could not attempt\n"
+    "the plan — handle it as 'not runnable here', not as a fail.\n"
     "\n"
     "Snapshots: `snapshot-identity` hashes the canonical (variant ×\n"
     "args × decorators × loaders × substrate × modes) tuple. Stable\n"
@@ -90,9 +94,17 @@
   assertions list'. We invoke `run-variant`, deref the promise (JVM
   side has `async/deref-blocking`), and serialise the result map.
 
-  Also includes the variant share URL (per IMPL-SPEC §2.8.5 + Stage 6
-  `story/variant-share-url`) so the agent can hand the cell to a
-  human collaborator.
+  `preview-variant` runs the SAME `story/run-variant` lifecycle as
+  `run-variant`, so it speaks the SAME unified run-result vocabulary
+  (rf2-ba86n.17) — it does NOT ship a third result dialect. It surfaces
+  the unified `:status` verdict + the unified `:assertions` records (each
+  with a derived `:status`) + `:checks`, and ADDS the preview-specific
+  slots: the `:share-url` (per IMPL-SPEC §2.8.5 + Stage 6
+  `story/variant-share-url`) so the agent can hand the cell to a human
+  collaborator, plus `:rendered-hiccup` / `:effective-args`. `:lifecycle`
+  here is the loader-lifecycle STATE (`:ready` / `:error`), not the run
+  verdict — the verdict is `:status` (the old `:passing?` boolean was
+  removed in the clean break).
 
   Wire-egress posture (rf2-73wuj): the `:app-db` slot is routed
   through `re-frame.core/elide-wire-value`; the `:assertions` vec is
@@ -110,18 +122,27 @@
                                                ;; not a long-running load.
                                                5000)
                          (catch Throwable e
-                           {:lifecycle :error
-                            :assertions [{:assertion :rf.error/run-failed
-                                          :passed? false
-                                          :reason (ex-message e)}]}))
+                           ;; A throw never produced a unified result; mint the
+                           ;; :error verdict directly so preview speaks the SAME
+                           ;; unified shape a settled run emits.
+                           {:status     :error
+                            :lifecycle  :error
+                            :assertions [(story-result/assertion-record
+                                           {:assertion :rf.error/run-failed
+                                            :passed?   false
+                                            :error     true
+                                            :reason    (ex-message e)})]
+                            :checks     []}))
             incl?      (targs/include-sensitive? arguments)
             raw-db     (:app-db outcome)
             payload    {:variant-id   vk
                         :share-url    share-url
+                        :status       (:status outcome)
                         :lifecycle    (:lifecycle outcome)
                         :elapsed-ms   (:elapsed-ms outcome)
                         :app-db       (egress/elide-app-db raw-db vk incl?)
                         :assertions   (egress/scrub-assertions (:assertions outcome) incl?)
+                        :checks       (vec (:checks outcome))
                         ;; Derived trees re-key the same sensitive value at a
                         ;; non-app-db path, so the path-based walker can't
                         ;; reach them — value-redact instead (rf2-ee38b.17).
@@ -172,7 +193,7 @@
     :category       :dev
     :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
-                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :lifecycle :ok :app-db {...} :assertions [] :rendered-hiccup [...]}. "
+                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :rendered-hiccup [...]}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
                          "3. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
@@ -201,8 +222,9 @@
     ;; (rf2-3pn6c Finding #2) caught the asymmetry — `read-only-annotations`
     ;; here would have allowed agent hosts to auto-approve a call that
     ;; mutates the frame. The semantic distinction between the two tools
-    ;; (`preview-variant` returns the share URL too; `run-variant` returns
-    ;; the `:passing?` boolean) is real but doesn't change the destructive
+    ;; (`preview-variant` adds the share URL + rendered view; `run-variant`
+    ;; is the headline run/verdict call — both return the same unified
+    ;; run-result `:status`) is real but doesn't change the destructive
     ;; nature of the underlying lifecycle run.
     :annotations  s/run-variant-annotations
     :handler     tool-preview-variant}

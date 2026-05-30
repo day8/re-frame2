@@ -14,9 +14,9 @@ Do **not** load this leaf to learn what a story is, or to author a variant body 
 
 ## Canvas-as-fixture — why the recorder is trivial here
 
-A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:events` reach the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches with `:event/dispatched` emissions per Spec 009 §Listener contract.
+A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:setup` reaches the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches with `:event/dispatched` emissions per Spec 009 §Listener contract.
 
-So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay under `:play-script`, which is the canonical AND ONLY phase-4 surface. No DOM-event capture, no Testing-Library translation, no page-object layer.
+So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The recorder still EMITS the transitional `:play-script` spelling, which the registrar lowers to `:script` — note that honestly; the authored/public target is `:script`. No DOM-event capture, no Testing-Library translation, no page-object layer.
 
 ## Public surface
 

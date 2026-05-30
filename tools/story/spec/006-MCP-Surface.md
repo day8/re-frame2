@@ -167,7 +167,15 @@ The MCP jar:
   `shutdown` dispatcher.
 - Owns the newline-delimited JSON-RPC over stdio transport.
 - Owns the protocol-version pin.
-- Owns the 16-tool registry (Dev / Docs / Testing / Write).
+- Owns the 20-tool registry (Dev / Docs / Testing / Write). The run/read
+  tools (`run-variant` / `read-failures` / `preview-variant`) return the
+  UNIFIED `re-frame.story.result/run-result` shape the human Story UI
+  reads — top-level `:status` ∈ `#{:pass :fail :cannot-run :error}`,
+  unified assertion records, `:checks`, evidence slots — never a parallel
+  agent-only verdict vocabulary (rf2-ba86n.17). `explain-variant` mirrors
+  the human Explain panel over the shipped `story/explain` data API. The
+  canonical name list is the `tools/story-mcp/test/fixtures/tool-names.json`
+  fixture.
 - Owns the `:rf.story-mcp/allow-writes?` config gate.
 
 Story core owns:

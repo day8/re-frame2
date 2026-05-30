@@ -65,6 +65,8 @@
     "unregister"
     "run"
     "preview"
+    "explain"     ; rf2-ba86n.17 — `explain-variant` (story-mcp; the agent
+                  ; mirror of the human Explain panel over `story/explain`)
     "record-as"
     "tail"})
 
