@@ -553,6 +553,21 @@ it bites in
 [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
 §4.)
 
+The cap-and-page mitigations are WIRED into the render paths (rf2-ba86n.18):
+the sidebar bounds variant + captured-artifact rows (N1/N2); the
+variants-grid renderer bounds visible cells at the G1 cap, surfaces the
+G2/G3 matrix-size advisory, and never renders past the G3 hard cap (it
+pages instead, so a generated matrix can never freeze the canvas); the
+controls panel bounds flat-panel rows at the C2 cap and renders nested
+controls as summaries until expanded (C1/C4). Each bound is the SAME
+`re-frame.story.budgets/bound-cells` cap-and-page primitive (F1), and each
+expander is additive — revealing more never reorders the rows/cells already
+on screen, so scroll/focus survives the re-render (stable React keys:
+variant-id-keyed cells, arg-key-keyed rows, monotonic repeater row ids).
+Lazy Xray-diff mounting (compute expensive diffs only when the panel is
+expanded) is the remaining named upgrade; the embed already mounts ONE
+panel at a time, so the flood risk is already bounded.
+
 ### 10.1 Parity budgets
 
 Story pressure: S1, S7, S11.
@@ -578,11 +593,11 @@ cap as real pain, virtualization is the named upgrade.
 | N3 | Realistic project floor (must stay scannable) | **2 000 variants / 200 stories / 50 workspaces** | TARGET | gate: floor fixture, derivation stays bounded + single-pass |
 | N4 | Sidebar — filtered-tree rebuild per search keystroke | **≤ 8 ms** (documented target); gate asserts single bounded pass, no O(n²) | TARGET | gate: structural (single bounded pass); latency is a documented target |
 | C1/C4 | Controls — nested controls render depth | **lazy past depth 1** (summarise before expand) | CURRENT | spec/019 §4; `summarize-value` / `path-expanded?` |
-| C2 | Controls — flat-panel control rows before `+N more` | **60** | TARGET | gate: `controls-flat-row-cap` (`bound-cells`-style bounding) |
+| C2 | Controls — flat-panel control rows before `+N more` | **60** | CURRENT | gate: `controls-flat-row-cap`; render-wired in `ui/controls` `args-editor` (rf2-ba86n.18) |
 | C3 | Controls — inline-validation of one edited field | **≤ 4 ms** (documented target) | TARGET | documented target; structural validate is single-field, bounded |
-| G1 | Variants-grid — visible cells before page / `+N more` | **100** | TARGET | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`) |
-| G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | TARGET | gate: `matrix-warn?` |
-| G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | TARGET | gate: `matrix-over-hard-cap?` / `matrix-page-count` |
+| G1 | Variants-grid — visible cells before page / `+N more` | **100** | CURRENT | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`); render-wired in `ui/workspace` capped-grid renderer (rf2-ba86n.18) |
+| G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | CURRENT | gate: `matrix-warn?`; render-wired advisory (rf2-ba86n.18) |
+| G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | CURRENT | gate: `matrix-over-hard-cap?` / `matrix-page-count`; render-wired — grid never renders past the hard cap (rf2-ba86n.18) |
 | X1 | Failure → first useful evidence | **≤ 1 gesture; inline excerpt ≤ 2 beats** | CURRENT/TARGET | gate: excerpt-beat cap; one-gesture reach is a review-checklist bar |
 | X2 | Evidence-spine first paint (typical run, ≤ ~200 beats) | **≤ 100 ms** (documented target) | TARGET | documented target (React-bound; review-checklist / manual) |
 | X3 | Bundle size | **NO NEW BUDGET** — reference `npm run test:perf-bundle` + bundle-isolation | CURRENT | existing gate (reference, not duplicated) |

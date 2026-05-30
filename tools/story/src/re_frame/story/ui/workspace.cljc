@@ -71,6 +71,7 @@
   Per IMPL-SPEC §2.8.4 the `:variants-grid` layout is the v1 devcards-
   style multi-variant pane."
   (:require [re-frame.story.registrar :as registrar]
+            [re-frame.story.budgets :as budgets]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
                        [re-frame.story.args :as args]
@@ -150,6 +151,51 @@
     ;; unknown — degrade to empty
     []))
 
+;; ---- pure: variants-grid cap-and-page (rf2-ba86n.18 / G1–G3) ------------
+;;
+;; A `:variants-grid` / `:grid` enumerates one cell per variant of the
+;; anchor story. At matrix / design-system scale that can be hundreds of
+;; cells — rendering them all freezes the canvas (spec/018 §10 — never
+;; freeze or flood). The grid uses the SAME cap-and-page idiom (F1) as the
+;; sidebar and the controls panel, wiring the shared `budgets/bound-cells`
+;; helper + the matrix dimension guard. Pure data → data so the budget gate
+;; exercises the bounding contract at floor scale without a DOM.
+
+(defn bound-grid-cells
+  "Pure data → data: bound a grid's `cells` vector for render.
+  Returns `{:shown [...] :hidden <n> :warn? <bool> :over-hard-cap? <bool>
+  :total <n>}`.
+
+  - `:shown` is the first `budgets/grid-visible-cell-cap` (100) cells (G1)
+    unless `expanded?`, in which case it is the full set UP TO
+    `budgets/matrix-hard-cap` (400). Beyond the hard cap the grid NEVER
+    renders all cells (G3 — paginate, never freeze): expansion still tops
+    out at the hard cap and `:over-hard-cap?` flags that the tail is paged.
+  - `:hidden` is the count paged out of `:shown`.
+  - `:warn?` is true when the total reaches `budgets/matrix-warn-threshold`
+    (144) — the soft advisory the renderer surfaces (G2).
+  - `:over-hard-cap?` is true when the total exceeds the hard cap (G3).
+
+  Routes through `budgets/bound-cells` (the shared cap-and-page primitive)
+  so the grid and the budget gate move with one number. JVM-testable."
+  [cells expanded?]
+  (let [cells (vec cells)
+        total (count cells)
+        over? (budgets/matrix-over-hard-cap? [total])
+        ;; G3 — even when the user expands, never render past the hard cap.
+        ;; The visible budget is the per-page cap (100); expansion lifts it
+        ;; to the hard cap (400) but no further. Over the hard cap we force
+        ;; the bound (`expanded?` must NOT short-circuit `bound-cells` to
+        ;; the full set — that is the freeze G3 forbids).
+        cap   (if expanded? budgets/matrix-hard-cap budgets/grid-visible-cell-cap)
+        {:keys [shown hidden]} (budgets/bound-cells cells cap
+                                                    (and expanded? (not over?)))]
+    {:shown          shown
+     :hidden         hidden
+     :total          total
+     :warn?          (budgets/matrix-warn? [total])
+     :over-hard-cap? over?}))
+
 ;; ---- styling -------------------------------------------------------------
 
 #?(:cljs
@@ -187,7 +233,31 @@
       :empty         {:color (:text-tertiary colors/tokens)
                       :font-style "italic"
                       :padding "24px"
-                      :text-align "center"}}))
+                      :text-align "center"}
+      ;; rf2-ba86n.18 / G1 — the "+N more" cap-and-page expander a grid
+      ;; renders when its cell count exceeds the visible cap. Mirrors the
+      ;; sidebar's `:variant-more` affordance language (spec/018 §10).
+      :grid-more     {:padding "8px 0 2px"
+                      :color (:text-tertiary colors/tokens)
+                      :font-family mono-stack
+                      :font-size (:caption typography/type-scale)
+                      :font-style "italic"
+                      :background "none"
+                      :border "none"
+                      :cursor "pointer"
+                      :user-select "none"
+                      :text-align "left"}
+      ;; rf2-ba86n.18 / G2 — the soft matrix-size advisory shown above a
+      ;; dense grid (≥ 144 cells). Advisory only; the grid still renders its
+      ;; capped page below. The G3 hard-cap note reuses this style.
+      :grid-warn     {:padding "6px 8px"
+                      :margin-bottom "8px"
+                      :color (:warning colors/tokens)
+                      :background (:bg-2 colors/tokens)
+                      :border-left (str "3px solid " (:warning colors/tokens))
+                      :border-radius "3px"
+                      :font-family mono-stack
+                      :font-size (:caption typography/type-scale)}}))
 
 ;; ---- the Reagent renderer ------------------------------------------------
 
@@ -605,6 +675,82 @@
                 "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
+;; ---- capped grid renderer (rf2-ba86n.18 / G1–G3) ------------------------
+;;
+;; The `:grid` / `:variants-grid` (isolated) layouts enumerate one cell per
+;; variant. At matrix / design-system scale that is a flood risk
+;; (spec/018 §10 — never freeze the canvas). This renderer wires the shared
+;; cap-and-page bounding (`bound-grid-cells`): the first 100 cells render
+;; (G1), a `+N more` expander reveals the rest up to the 400 hard cap (G3 —
+;; never render all past the hard cap), and a soft advisory surfaces past
+;; 144 cells (G2). The expand flag is a per-mount `r/atom` — ephemeral
+;; component-local UI state, never shell-state. The workspace root remounts
+;; on workspace swap (workspace-id-keyed `<section>`) so the atom's lifetime
+;; matches one workspace selection, mirroring `tabs-renderer` /
+;; `shared-grid-renderer`.
+
+#?(:cljs
+   (defn- grid-cell-hiccup
+     "Render one resolved cell to keyed hiccup (variant / prose / custom).
+     Shared by the capped grid renderer so the cell dispatch lives in one
+     place."
+     [i cell]
+     (case (:type cell)
+       :variant
+       ^{:key (cell-key i cell)}
+       [variant-cell (:variant-id cell)]
+       :prose
+       ^{:key (cell-key i cell)}
+       [prose-block (:body cell)]
+       :custom
+       ^{:key (cell-key i cell)}
+       [:div {:style (:cell styles)}
+        "custom render: " (pr-str (:render cell))]
+       nil)))
+
+#?(:cljs
+   (defn- capped-grid-renderer
+     "Reagent component for the `:grid` / isolated `:variants-grid` layout
+     with cap-and-page bounding (G1–G3). Renders the bounded cell page, the
+     matrix-size advisory (G2/G3), and a `+N more` expander (G1).
+
+     Cells render in a CSS grid; the expander + advisory sit outside it so
+     they read as page chrome, not cells. Per spec/018 §10 the grid fails by
+     summarizing + offering expansion, never by flooding the canvas."
+     [cells]
+     (r/with-let [expanded? (r/atom false)]
+       (let [{:keys [shown hidden total warn? over-hard-cap?]}
+             (bound-grid-cells cells @expanded?)]
+         [:div {:data-test-grid-total (str total)}
+          ;; G2/G3 — soft matrix-size advisory above the grid. Advisory
+          ;; only: the capped page still renders below.
+          (when warn?
+            [:div {:style (:grid-warn styles)
+                   :role  "status"
+                   :data-test-grid-warn (str total)
+                   :data-test-grid-over-hard-cap (str (boolean over-hard-cap?))}
+             (if over-hard-cap?
+               (str "⚠ " total " cells exceed the " budgets/matrix-hard-cap
+                    "-cell hard cap — the grid is paged and will never render "
+                    "all cells. Narrow the story's variants or filter.")
+               (str "⚠ dense matrix: " total " cells (≥ "
+                    budgets/matrix-warn-threshold
+                    "). Consider narrowing the variants axis."))])
+          [:div {:style (:grid styles)}
+           (for [[i cell] (map-indexed vector shown)]
+             (grid-cell-hiccup i cell))]
+          ;; G1 — the cap-and-page expander. Reveals the elided cells up to
+          ;; the hard cap (G3); over the hard cap the tail stays paged.
+          (when (pos? hidden)
+            [:button {:style       (:grid-more styles)
+                      :type        "button"
+                      :data-test   "story-workspace-grid-more"
+                      :data-test-grid-hidden (str hidden)
+                      :aria-label  (str "Show " hidden " more grid cells")
+                      :on-click    (fn [_] (reset! expanded? true))}
+             (str "+" hidden " more"
+                  (if over-hard-cap? " (paged)" "") "…")])]))))
+
 #?(:cljs
    (defn workspace-view
      "Render a workspace. Resolves the cells and dispatches per layout.
@@ -676,18 +822,12 @@
                    ^{:key (cell-key i cell)}
                    [variant-cell (:variant-id cell)]))]
 
+              ;; rf2-ba86n.18 / G1–G3: `:grid` and isolated
+              ;; `:variants-grid` enumerate one cell per variant — a flood
+              ;; risk at matrix scale. The capped renderer bounds visible
+              ;; cells (G1), warns past the matrix thresholds (G2/G3), and
+              ;; offers a `+N more` expander rather than freezing the canvas
+              ;; (spec/018 §10). Cells stay variant-id-keyed inside it, so
+              ;; the rf2-kgn0c frame-allocation invariant is preserved.
               :else
-              [:div {:style (:grid styles)}
-               (for [[i cell] (map-indexed vector cells)]
-                 (case (:type cell)
-                   :variant
-                   ^{:key (cell-key i cell)}
-                   [variant-cell (:variant-id cell)]
-                   :prose
-                   ^{:key (cell-key i cell)}
-                   [prose-block (:body cell)]
-                   :custom
-                   ^{:key (cell-key i cell)}
-                   [:div {:style (:cell styles)}
-                    "custom render: " (pr-str (:render cell))]
-                   nil))])])))))
+              [capped-grid-renderer cells])])))))

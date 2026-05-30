@@ -40,7 +40,9 @@
             [re-frame.story.budgets :as budgets]
             [re-frame.story.ui.state.filters :as filters]
             [re-frame.story.ui.sidebar-search :as search]
+            [re-frame.story.ui.workspace :as workspace]
             #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]
+                       [re-frame.story.ui.controls :as controls]
                        [re-frame.story.ui.docs :as docs]])))
 
 ;; ---------------------------------------------------------------------------
@@ -200,6 +202,90 @@
     (is (= 24 (budgets/matrix-product [2 3 4])))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-ba86n.18 — the WIRED render-path bounding (perf fixtures)
+;;
+;; The tests above assert the pure budget primitives. These exercise the
+;; helpers the RENDER PATHS actually call (`workspace/bound-grid-cells`,
+;; `controls/bound-arg-rows`) against floor-scale fixtures — the proof that
+;; the variants-grid and controls panel emit bounded output at the 2 000-
+;; variant floor without rendering all cells / rows (spec/018 §10).
+;; ---------------------------------------------------------------------------
+
+(deftest variants-grid-render-path-is-bounded
+  (testing "the grid renderer's `bound-grid-cells` caps visible cells at the
+            G1 cell cap, however large the enumerated grid (floor scale)"
+    (let [cells (vec (range floor))
+          {:keys [shown hidden total warn? over-hard-cap?]}
+          (workspace/bound-grid-cells cells false)]
+      (is (= floor total) "the helper reports the true total")
+      (is (= budgets/grid-visible-cell-cap (count shown))
+          "visible cells are capped at the G1 visible cell cap")
+      (is (= (- floor budgets/grid-visible-cell-cap) hidden)
+          "the remainder is paged (reachable), not dropped")
+      (is warn? "a floor-scale grid trips the G2 dense-matrix advisory")
+      (is over-hard-cap? "a floor-scale grid trips the G3 hard-cap flag")))
+  (testing "G3 — even EXPANDED, a grid past the hard cap never renders all
+            cells: expansion tops out at the hard cap, the tail stays paged
+            (never freeze the canvas)"
+    (let [cells (vec (range floor))
+          {:keys [shown hidden over-hard-cap?]}
+          (workspace/bound-grid-cells cells true)]
+      (is (= budgets/matrix-hard-cap (count shown))
+          "expanded render is bounded by the hard cap, not the full set")
+      (is (= (- floor budgets/matrix-hard-cap) hidden)
+          "the over-hard-cap tail is still paged after expansion")
+      (is over-hard-cap?)))
+  (testing "a grid AT/UNDER the visible cap is never bounded and never warns"
+    (let [cells (vec (range budgets/grid-visible-cell-cap))
+          {:keys [shown hidden warn? over-hard-cap?]}
+          (workspace/bound-grid-cells cells false)]
+      (is (= budgets/grid-visible-cell-cap (count shown)))
+      (is (zero? hidden))
+      (is (not warn?) "100 cells is under the 144 warn threshold")
+      (is (not over-hard-cap?))))
+  (testing "a mid-size grid (≤ hard cap) EXPANDS fully — one page-all gesture
+            reveals every cell when that is safe (≤ 400)"
+    (let [cells (vec (range 300))
+          {:keys [shown hidden warn? over-hard-cap?]}
+          (workspace/bound-grid-cells cells true)]
+      (is (= 300 (count shown)) "≤ hard cap: expansion reveals the full grid")
+      (is (zero? hidden))
+      (is warn? "300 cells is past the 144 warn threshold")
+      (is (not over-hard-cap?) "300 cells is under the 400 hard cap"))))
+
+;; ---------------------------------------------------------------------------
+;; C2 — controls flat-panel row cap render path (CLJS-only — controls.cljs)
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (deftest controls-flat-panel-render-path-is-bounded
+     (testing "the controls editor's `bound-arg-rows` caps visible rows at the
+               C2 flat-row cap, however many args a variant declares"
+       (let [entries (mapv (fn [i] [(keyword (str "arg" i)) i]) (range floor))
+             {:keys [shown hidden]} (controls/bound-arg-rows entries false)]
+         (is (= budgets/controls-flat-row-cap (count shown))
+             "visible rows are capped at the C2 flat-row cap")
+         (is (= (- floor budgets/controls-flat-row-cap) hidden)
+             "the remainder is paged behind +N more, not dropped")
+         (is (= floor (+ (count shown) hidden))
+             "shown + hidden = total — nothing lost")))
+     (testing "a panel AT/UNDER the cap is never bounded"
+       (let [entries (mapv (fn [i] [(keyword (str "arg" i)) i])
+                           (range budgets/controls-flat-row-cap))
+             {:keys [hidden]} (controls/bound-arg-rows entries false)]
+         (is (zero? hidden))))
+     (testing "expanded? reveals every row (one explicit page-all gesture)"
+       (let [entries (mapv (fn [i] [(keyword (str "arg" i)) i]) (range 150))
+             {:keys [shown hidden]} (controls/bound-arg-rows entries true)]
+         (is (= 150 (count shown)))
+         (is (zero? hidden))))
+     (testing "the flat-expanded sentinel is a keyword (never a vector path),
+               so it can never collide with a nested-control path in the
+               shared `:expanded` ratom set"
+       (is (keyword? controls/flat-expanded-sentinel))
+       (is (not (vector? controls/flat-expanded-sentinel))))))
+
+;; ---------------------------------------------------------------------------
 ;; Ratified numbers — the budget table matches the ratification verbatim
 ;; ---------------------------------------------------------------------------
 
@@ -242,4 +328,11 @@
              {:keys [shown hidden]} (sidebar/bound-variants
                                       vs budgets/sidebar-variant-cap false)]
          (is (= budgets/sidebar-variant-cap (count shown)))
-         (is (= (- floor budgets/sidebar-variant-cap) hidden))))))
+         (is (= (- floor budgets/sidebar-variant-cap) hidden))))
+     (testing "rf2-ba86n.18 — the controls flat-panel cap render path reads
+               the C2 budget single-source (no parallel copy)"
+       (let [entries (mapv (fn [i] [(keyword (str "a" i)) i])
+                           (range (inc budgets/controls-flat-row-cap)))
+             {:keys [shown]} (controls/bound-arg-rows entries false)]
+         (is (= budgets/controls-flat-row-cap (count shown))
+             "bound-arg-rows caps at budgets/controls-flat-row-cap")))))

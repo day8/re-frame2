@@ -155,4 +155,19 @@
    :summary     {:color (:text-tertiary colors/tokens)
                  :font-style "italic"
                  :margin-left "4px"
-                 :font-size (:micro typography/type-scale)}})
+                 :font-size (:micro typography/type-scale)}
+   ;; rf2-ba86n.18 — flat-panel row cap (C2, budgets/controls-flat-row-cap).
+   ;; A controls panel whose top-level arg count exceeds the cap renders the
+   ;; first `cap` rows and a "+N more" expander rather than flooding the
+   ;; panel (spec/018 §10 — cap or page; fail by summarizing, not flooding).
+   ;; Mirrors the sidebar's `:variant-more` affordance language.
+   :more        {:padding "4px 0 2px"
+                 :color (:text-tertiary colors/tokens)
+                 :font-family mono-stack
+                 :font-size (:micro typography/type-scale)
+                 :font-style "italic"
+                 :background "none"
+                 :border "none"
+                 :cursor "pointer"
+                 :user-select "none"
+                 :text-align "left"}})
