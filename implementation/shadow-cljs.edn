@@ -123,6 +123,15 @@
                 ;; `:examples/counter-with-stories` and
                 ;; `:story-static/counter-with-stories` builds below.
                 "../tools/story/testbeds"
+                ;; tools/testbed-support (rf2-5dphw — shared testbed-config
+                ;; helper). Single ns `re-frame.testbed.config` that derives
+                ;; the open-in-editor project-root from the build-env
+                ;; `re-frame.testbed.config/repo-root` goog-define (seeded
+                ;; per build below via `#shadow/env`), replacing the six
+                ;; hardcoded personal-path defaults the Xray / Story
+                ;; testbeds previously copied. Bundle-isolation contract
+                ;; holds (nothing under implementation/ :requires it).
+                "../tools/testbed-support/src"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
@@ -595,12 +604,20 @@
   ;; Xray preload auto-mounts inline so the frame-picker switching
   ;; between :above and :below is one click away.
   :examples/two-frame-isolation
-  {:target     :browser
-   :output-dir "out/examples/two-frame-isolation"
-   :asset-path "."
-   :modules    {:main {:init-fn two-frame-isolation.core/run}}
-   :devtools   {:preloads [re-frame2-pair.runtime
-                           day8.re-frame2-xray.preload]}}
+  {:target           :browser
+   :output-dir       "out/examples/two-frame-isolation"
+   :asset-path       "."
+   ;; rf2-5dphw — seed the build-env project-root for open-in-editor. The
+   ;; `dev` npm script exports RF2_TESTBED_PROJECT_ROOT (node-resolved
+   ;; repo root, cross-platform); the shared `re-frame.testbed.config`
+   ;; helper joins it with the tool subdir. `#shadow/env` reads the env
+   ;; var at config load (default "" when unset → graceful no-op).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn two-frame-isolation.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Single-frame button-deck testbed (rf2-gsr6z) — the deliberately
   ;; simple Xray driving surface that SUPERSEDES the old step-deck. A
@@ -618,12 +635,17 @@
   ;; preload auto-mounts inline so every lens reads the single frame.
   ;; Served at http://localhost:8031 via the top-level `:dev-http` map.
   :examples/button-deck
-  {:target     :browser
-   :output-dir "out/examples/button-deck"
-   :asset-path "."
-   :modules    {:main {:init-fn button-deck.core/run}}
-   :devtools   {:preloads [re-frame2-pair.runtime
-                           day8.re-frame2-xray.preload]}}
+  {:target           :browser
+   :output-dir       "out/examples/button-deck"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn button-deck.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Xray panel-gallery testbed (rf2-1o7mp) — visual gallery of Xray
   ;; panels under varying state magnitude. Sources live under
@@ -644,11 +666,16 @@
   ;; by `release`, so the preload never reaches a production bundle
   ;; (testbed isn't released anyway — it's served via dev-http only).
   :testbeds/panel-gallery
-  {:target     :browser
-   :output-dir "out/testbeds/panel-gallery"
-   :asset-path "."
-   :modules    {:main {:init-fn panel-gallery.core/run}}
-   :devtools   {:preloads [re-frame2-pair.runtime]}}
+  {:target           :browser
+   :output-dir       "out/testbeds/panel-gallery"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn panel-gallery.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime]}}
 
   :examples/temperature
   {:target     :browser
@@ -883,10 +910,15 @@
   ;; examples/counter build (via the Story-sentinel addition to
   ;; scripts/check-bundle-isolation.cjs).
   :examples/counter-with-stories
-  {:target     :browser
-   :output-dir "out/examples/counter-with-stories"
-   :asset-path "."
-   :modules    {:main {:init-fn counter-with-stories.core/run}}}
+  {:target           :browser
+   :output-dir       "out/examples/counter-with-stories"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn counter-with-stories.core/run}}}
 
   ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
   ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
@@ -907,11 +939,16 @@
   ;; Xray preload is wired so a reader can press Ctrl+Shift+C to
   ;; observe Story's frame-per-variant isolation in real time.
   :examples/login-form
-  {:target     :browser
-   :output-dir "out/examples/login-form"
-   :asset-path "."
-   :modules    {:main {:init-fn login-form.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+  {:target           :browser
+   :output-dir       "out/examples/login-form"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn login-form.core/run}}
+   :devtools         {:preloads [day8.re-frame2-xray.preload]}}
 
   ;; Story static-export build (rf2-8wgpm) — see
   ;; tools/story/spec/013-Static-Build.md. Same source tree as
@@ -932,7 +969,15 @@
   {:target           :browser
    :output-dir       "out/story-static/counter-with-stories"
    :asset-path       "."
-   :compiler-options {:closure-defines {re-frame.story.config/static-mode? true}}
+   ;; rf2-5dphw — the build-env project-root define rides alongside the
+   ;; static-mode? define here (see :examples/two-frame-isolation for the
+   ;; mechanism). In a published static export the open-in-editor chip is
+   ;; effectively dev-only, so the slot is harmless; seeding it keeps the
+   ;; static entry structurally identical to the dev entry.
+   :compiler-options {:closure-defines
+                      {re-frame.story.config/static-mode? true
+                       re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn counter-with-stories.story-static/run}}}
 
   ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked

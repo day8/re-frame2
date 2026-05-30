@@ -15,6 +15,7 @@
     "todomvc-common": "1.0.5"
   },
   "scripts": {
+    "dev": "node scripts/dev-testbed.cjs",
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",

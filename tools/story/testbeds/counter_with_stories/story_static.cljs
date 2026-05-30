@@ -29,7 +29,10 @@
             ;; Source the stories ns so all `reg-*` calls fire on namespace
             ;; load. The variant bodies reference views / events / subs by
             ;; id; the stories ns transitively requires them.
-            [counter-with-stories.stories]))
+            [counter-with-stories.stories]
+            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; open-in-editor project-root from the build env.
+            [re-frame.testbed.config :as testbed-config]))
 
 (defn ^:export run
   "Mount the Story shell at `#app`. Idempotent on hot-reload (which
@@ -54,8 +57,10 @@
   ;; keeps the two `run` fns structurally identical and makes future
   ;; "live-on-static" experiments (e.g. a published site that links
   ;; back into the author's editor) trivial.
+  ;; rf2-5dphw — project-root derived from the build env (see
+  ;; `re-frame.testbed.config`), not a hardcoded personal path.
   (story/configure! {:rf.story/global-args  {:locale :en}
-                     :rf.story/project-root "C:/Users/miket/code/re-frame2/tools/story/testbeds"})
+                     :rf.story/project-root (testbed-config/resolve-project-root "tools/story/testbeds")})
   ;; Seed the live-app's :count slot so any embedded `counter-card`
   ;; view that renders under the variant canvas starts from a
   ;; deterministic value rather than `nil`.

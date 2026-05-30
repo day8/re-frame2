@@ -30,7 +30,10 @@
             ;; subs, and exposes `install-listener!` for the boot
             ;; sequence below.
             [counter-with-stories.elision-demo :as elision]
-            [counter-with-stories.stories])
+            [counter-with-stories.stories]
+            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; open-in-editor project-root from the build env.
+            [re-frame.testbed.config :as testbed-config])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app root view ------------------------------------------------
@@ -46,43 +49,31 @@
    [views/counter-card {:label "Count"}]
    [elision/elision-card]])
 
-;; -- rf2-r1uod — Xray 'Open in editor' project-root for the live testbed.
+;; -- rf2-r1uod / rf2-5dphw — Xray 'Open in editor' project-root.
 ;;
 ;; Story testbeds register source-coords with classpath-relative `:file`
 ;; slots (e.g. `"counter_with_stories/core.cljs"`); OS-side editor URI
 ;; handlers (`vscode://file/<path>...` etc.) resolve `<path>` against the
-;; filesystem and reject relative paths. Mike's live testbed runs from
-;; the mayor checkout `C:/Users/miket/code/re-frame2`; the Story
-;; testbeds source-path under shadow-cljs is `../tools/story/testbeds`
-;; so the absolute on-disk root that prepends to a coord like
-;; `counter_with_stories/core.cljs:42` is the testbeds dir below.
+;; filesystem and reject relative paths, so a testbed must hand Story an
+;; absolute on-disk root that prepends to a coord like
+;; `counter_with_stories/core.cljs:42`. That root is `<repo>/tools/story/
+;; testbeds` (the Story testbeds source-path under shadow-cljs).
 ;;
-;; The value is plumbed via `story/configure! :rf.story/project-root` and bridged
-;; into Xray's slot by `re-frame.story.xray-preset/propagate-project-
-;; root!` so both Story's own 'Open' chips and Xray-as-RHS's chips (the
-;; Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
+;; The value is plumbed via `story/configure! :rf.story/project-root` and
+;; bridged into Xray's slot by `re-frame.story.xray-preset/propagate-
+;; project-root!` so both Story's own 'Open' chips and Xray-as-RHS's chips
+;; (the Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
 ;; ribbon) resolve against the same root.
 ;;
-;; Symmetric to shop's rf2-6jyf6; other hosts (CI, other devs) can
-;; override at runtime via the `?project-root=...` query string — no
-;; code change needed.
-
-(def ^:private default-project-root
-  "C:/Users/miket/code/re-frame2/tools/story/testbeds")
-
-(defn- query-param
-  "Return the named URL query param as a string, or nil when absent
-  / blank. Pure-data helper — kept private to this testbed since the
-  query-string override is a per-host knob (not a Story-API surface)."
-  [name]
-  (when (exists? js/window)
-    (let [params (-> js/window .-location .-search
-                     (js/URLSearchParams.))
-          v      (.get params name)]
-      (when (and (string? v) (seq v)) v))))
-
+;; rf2-5dphw — the root is DERIVED from the build environment (the
+;; build-time `re-frame.testbed.config/repo-root` goog-define joined with
+;; this testbed's tool-relative subdir), NOT a hardcoded personal path, so
+;; a fresh clone at any path on any OS gets working open-in-editor. A
+;; `?project-root=<path>` query string still overrides per session (CI,
+;; another dev's machine) — no code change needed. See
+;; `re-frame.testbed.config` for the cross-platform mechanism.
 (defn- resolve-project-root []
-  (or (query-param "project-root") default-project-root))
+  (testbed-config/resolve-project-root "tools/story/testbeds"))
 
 ;; -- Routing between app and story shell ----------------------------------
 ;;
