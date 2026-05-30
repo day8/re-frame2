@@ -264,7 +264,24 @@
 
 (defn- mount-shell-into! [node mode]
   (ensure-xray-frame!)
-  (let [unmount (substrate-adapter/render [shell/shell-view {:mode mode}] node nil)]
+  ;; rf2-tqlmq — wrap `shell-view` ITSELF in the shell's frame-provider at
+  ;; the mount so the whole shell (not just its panels) renders in the
+  ;; Xray frame. `shell-view` is a `reg-view`, so its `:rf.view/rendered`
+  ;; trace carries `(provider/current-frame)`; rendered BARE (no enclosing
+  ;; provider — its own provider sits INSIDE its body, around the panels)
+  ;; `current-frame` fell through to `:rf/default`, so the shell-view's own
+  ;; render trace leaked into the inspected app frame's epoch `:renders`.
+  ;; With the provider moved out one level, `shell-view`'s render resolves
+  ;; to `default-frame-id` (the trace-disabled `:rf/xray` frame registered
+  ;; by `ensure-xray-frame!` just above) and the existing
+  ;; `:rf.trace/frame-no-emit?` gate (trace.cljc/`tagged-frame-trace-
+  ;; disabled?`, which keys off the render emit's `:frame` tag) suppresses
+  ;; it. Threads the shell's actual frame-id (NOT a `:rf/xray` literal),
+  ;; matching the frame `ensure-xray-frame!` registered.
+  (let [unmount (substrate-adapter/render
+                  [rf/frame-provider {:frame shell/default-frame-id}
+                   [shell/shell-view {:mode mode}]]
+                  node nil)]
     (set-mode-attrs! node mode)
     (reset! mount-state
             {:node     node
@@ -955,7 +972,18 @@
               (set! (.-id node) "rf-xray-popout-root")
               (.setAttribute node "data-rf-xray-mode" "popout")
               (.appendChild body node)
-              (let [unmount      (substrate-adapter/render [shell/shell-view {:mode :popout}] node nil)
+              (let [unmount      (substrate-adapter/render
+                                    ;; rf2-tqlmq — same mount-wrap as
+                                    ;; `mount-shell-into!`: wrap the popout
+                                    ;; shell in the shell's frame-provider so
+                                    ;; its own `:rf.view/rendered` trace
+                                    ;; resolves to the trace-disabled Xray
+                                    ;; frame instead of falling through to
+                                    ;; `:rf/default` and leaking into the
+                                    ;; inspected app frame's epoch `:renders`.
+                                    [rf/frame-provider {:frame shell/default-frame-id}
+                                     [shell/shell-view {:mode :popout}]]
+                                    node nil)
                     overlay-node (install-opener-gone-overlay! doc)
                     watchdog-id  (start-opener-gone-watchdog! win overlay-node)
                     state        {:ok?          true

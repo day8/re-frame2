@@ -67,6 +67,18 @@
            unlike the post-settle render / sub-run / mount cases (back-filled
            to their CAUSING cascade), an orphan belongs to NO cascade and is
            dropped at the capture seam.
+    inv-7  a tool / inspector frame's OWN render (a view rendered under a
+           `:rf.trace/frame-no-emit? true` frame) never lands in the INSPECTED
+           app frame's epoch `:renders` — the frame-no-emit gate suppresses the
+           render-trace emit at source, so no back-fill ever runs (rf2-tqlmq,
+           the cross-frame / observer sibling of inv-3). The defect: Xray's
+           own `shell-view` rendered ONE LEVEL ABOVE its `:rf/xray`
+           frame-provider, so its `:rf.view/rendered` carried `:frame :rf/default`
+           (fall-through) and back-filled into the inspected app's boot epoch.
+           The fix wraps `shell-view` in the frame-provider AT THE MOUNT so its
+           render resolves to the trace-disabled frame; this invariant pins that
+           the gate then suppresses the emit (so the observer cannot pollute the
+           observed tape).
 
   Supporting cases pin the boundary behaviour each fix also relies on:
   in-flight emits ride their own cascade (not back-filled); the back-fill
@@ -102,6 +114,11 @@
   (reset! schemas/schemas-by-frame {})
   (flows/reset-last-inputs!)
   (trace/clear-listeners!)
+  ;; rf2-tqlmq — the per-frame trace-emission gate (`:rf.trace/frame-no-emit?`)
+  ;; is process-sticky (it tracks frame registrations, which `reset! frames {}`
+  ;; does not unwind). inv-7 registers a trace-disabled observer frame; clear
+  ;; the set between tests so a prior case's registration cannot leak in.
+  (trace/clear-frame-no-emit!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
@@ -789,6 +806,102 @@
             "the child's dispatch-id marker stays buffered for the child's own
              settle; the nil-id orphan is discarded")
         (state/drop-frame-buffer! frame)))))
+
+;; ===========================================================================
+;; INVARIANT 7 — a tool / inspector frame's OWN render never pollutes the
+;;                INSPECTED app frame's epoch :renders (rf2-tqlmq — the
+;;                cross-frame / observer sibling of inv-3)
+;; ===========================================================================
+;;
+;; The LIVE repro (build :examples/button-deck): the :rf/default boot epoch's
+;; :renders carried ["shell-view" 27] (mount + update) — Xray's OWN shell-view,
+;; the observer, leaking into the observed app's render tape. Root cause:
+;; `shell-view` is a `reg-view` (its :rf.view/rendered carries
+;; `(provider/current-frame)`), but mount.cljs rendered it BARE — its own
+;; `[frame-provider {:frame :rf/xray}]` sat INSIDE its body around the panels —
+;; so `shell-view`'s OWN render resolved `current-frame` to `:rf/default` by
+;; fall-through and back-filled into the inspected app's boot epoch.
+;;
+;; The fix (mount-wrap) moves the provider OUT one level so `shell-view`'s own
+;; render resolves to the trace-disabled `:rf/xray` frame. This invariant pins
+;; the load-bearing consequence: a `:rf.view/rendered` tagged with a
+;; `:rf.trace/frame-no-emit? true` frame is SUPPRESSED at `trace/emit!` (the
+;; gate keys off the emit's `:frame` tag — trace.cljc/`tagged-frame-trace-
+;; disabled?`), so the back-fill machinery never even sees it and the observed
+;; frame's :renders stays clean. The contrapositive case proves the test
+;; discriminates: the SAME render, were it tagged with the app frame
+;; (the pre-fix fall-through), DOES land — i.e. the suppression, not some
+;; unrelated filter, is what keeps the tape clean.
+
+(deftest inv-7-tool-frame-render-does-not-pollute-inspected-app-epoch
+  (testing "rf2-tqlmq — a render emitted under a trace-disabled (tool /
+            inspector) frame, while an APP frame has a settled epoch in flight,
+            does NOT land in the app frame's epoch :renders. The frame-no-emit
+            gate suppresses the emit at source so no back-fill runs. The
+            cross-frame / observer sibling of inv-3 (whose lag was WITHIN one
+            frame; this leak is ACROSS frames — observer into observed)."
+    (let [app      :test/app
+          observer :test/observer]
+      ;; Mirror the runtime: the observer frame registers
+      ;; `:rf.trace/frame-no-emit? true` (what `mount/ensure-xray-frame!` does
+      ;; for `:rf/xray`); reg-frame routes the flag to the trace gate.
+      (rf/reg-frame app {})
+      (rf/reg-frame observer {:rf.trace/frame-no-emit? true})
+      (is (trace/frame-trace-disabled? observer)
+          "the observer frame is registered trace-disabled (reg-frame honoured
+           :rf.trace/frame-no-emit?)")
+      (is (not (trace/frame-trace-disabled? app))
+          "the inspected app frame is NOT trace-disabled")
+
+      (rf/reg-event-db :app/seed (fn [_ _] {:counter 0}))
+      (rf/reg-event-db :app/inc  (fn [db _] (update db :counter inc)))
+
+      ;; The app frame produces a boot epoch (a last-settled epoch the
+      ;; back-fill would attribute to).
+      (rf/dispatch-sync [:app/seed] {:frame app})
+      (rf/dispatch-sync [:app/inc]  {:frame app})
+      (let [app-epoch (last-epoch app)]
+        ;; The observer's OWN render fires post-settle (React-commit timing),
+        ;; tagged with the observer frame — exactly what the mount-wrap makes
+        ;; `shell-view`'s render carry. The gate must suppress it.
+        (emit-render! observer :shell-view)
+
+        (let [e (epoch-by-id app app-epoch)]
+          (is (= :app/inc (:event-id e))
+              "the app frame's last epoch is its own :app/inc cascade")
+          (is (not (contains? (rendered-view-ids e) :shell-view))
+              "the inspector's shell-view render did NOT leak into the
+               inspected app frame's epoch :renders — the frame-no-emit gate
+               suppressed the emit before any back-fill (rf2-tqlmq)")
+          (is (empty? (rendered-view-ids e))
+              "the app frame's epoch carries NO renders at all from the
+               observer's post-settle commit — the observer is invisible to the
+               observed tape"))))))
+
+(deftest inv-7-contrapositive-untagged-render-still-back-fills
+  (testing "rf2-tqlmq — the discriminator. The SAME post-settle render, were it
+            tagged with the APP frame (the PRE-fix fall-through: shell-view
+            rendering above its provider resolved to the app's :rf/default), DOES
+            back-fill into the app epoch. Proves inv-7's clean result is the
+            frame-no-emit SUPPRESSION at work, not an unrelated filter — and is
+            the exact leak the bug exhibited."
+    (let [app :test/app]
+      (rf/reg-frame app {})
+      (rf/reg-event-db :app/seed (fn [_ _] {:counter 0}))
+      (rf/reg-event-db :app/inc  (fn [db _] (update db :counter inc)))
+
+      (rf/dispatch-sync [:app/seed] {:frame app})
+      (rf/dispatch-sync [:app/inc]  {:frame app})
+      (let [app-epoch (last-epoch app)]
+        ;; Render tagged with the APP frame (NOT trace-disabled) — the pre-fix
+        ;; fall-through. This is precisely the leak the live repro showed.
+        (emit-render! app :shell-view)
+
+        (let [e (epoch-by-id app app-epoch)]
+          (is (contains? (rendered-view-ids e) :shell-view)
+              "a render tagged with the (non-disabled) app frame DOES back-fill
+               into the app epoch — this is the leak the mount-wrap fixes by
+               retagging shell-view's render with the trace-disabled frame"))))))
 
 ;; ===========================================================================
 ;; rf2-8wrzz.1 — the :renders projection carries per-view cause + timing
