@@ -70,6 +70,7 @@
             [re-frame.story.ui.dispatch-console :as dispatch-console]
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.element-inspector :as element-inspector]
+            [re-frame.story.ui.evidence-spine :as evidence-spine]
             [re-frame.story.ui.explain-panel :as explain-panel]
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.keybindings :as keybindings]
@@ -599,6 +600,32 @@
                          :letter-spacing "0.04em"}}
           "provenance + lowering"]]
         [explain-panel/explain-panel]])
+     ;; rf2-ba86n.10 — Evidence spine. The Story-owned narrative/evidence
+     ;; DISPLAY over the retained epoch tape (spec/020 §3 + spec/021 §2).
+     ;; Sits under Explain in the RHS inspector rail: script spans over
+     ;; epoch beats, each beat labelled with its evidence strength (direct
+     ;; vs attributed) + a compact summary, and per-beat "open in Xray"
+     ;; focus links that drive the closed rf2-crtmq focus API. Story owns
+     ;; the narrative; the focus links open Xray's detailed diagnostics —
+     ;; the spine LINKS via the host-facing `day8.re-frame2-xray.core/focus!`
+     ;; entry point, it never embeds Xray panel interiors (spec/020 §1.2).
+     ;;
+     ;; Gated on a focused variant (the narrative is per-variant) and the
+     ;; `:evidence` visibility slot. Defaults to ON when unset (nil) so the
+     ;; entry is reachable out of the box; the result-row links in Test mode
+     ;; + the command palette flip it on + scroll here.
+     (when (and variant-id
+                (not (false? (get vis evidence-spine/panel-key)))) ;; nil/true → show
+       [:section {:id evidence-spine/anchor-id
+                  :style (:rhs-section styles)
+                  :data-rf-rhs-section "evidence"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Evidence"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "narrative + Xray focus"]]
+        [evidence-spine/evidence-spine-panel]])
      (when (:controls vis)
        [:section {:style (:rhs-section styles)
                   :data-rf-rhs-section "controls"}
