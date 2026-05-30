@@ -673,6 +673,41 @@
           has-prev? (assoc :rf.sub/prev-value (redact-with-paths (:rf.sub/prev-value tags) sens large))
           prop-l?   (assoc :large? true))))))
 
+(defn- frame-has-declarations?
+  "True when `frame-id` carries any schema- or marks-sourced elision
+  declaration (sensitive or large). Cheap registry read used to gate
+  the full-db walk so the no-marks common case stays
+  reference-preserving (no `elide-wire-value` rebuild). Mirrors the
+  bead's `no extra work for values with no marks` constraint."
+  [frame-id]
+  (boolean (or (seq (elision/sensitive-declarations frame-id))
+               (seq (elision/declarations frame-id)))))
+
+(defn- project-db-tags
+  "Walk the `:rf.event/db` slot carried by the `:rf.event/db-pending`
+  (t1) and `:rf.event/db-pending-post-flow` (t2) trace events (router
+  `flows-after-interceptor`, rf2-ta0y7). The slot stamps the FULL
+  pending `app-db` value, so — unlike the per-registration event / fx /
+  cofx / sub slots — its declared paths are the FRAME's app-db elision
+  registry (schema `:sensitive?` / `:large?` plus `add-marks` /
+  `set-marks`), rooted at the db root. We route it through the schema-
+  first wire walker `re-frame.elision/elide-wire-value` — the SAME
+  normative emission site the epoch off-box `projected-record` uses for
+  `:db-before` / `:db-after` — so sensitive slots elide to `:rf/redacted`
+  and large slots to `:rf.size/large-elided` before the snapshot reaches
+  any trace listener or epoch-capture sink. Per rf2-6773q.
+
+  Gated on `frame-has-declarations?` so a frame with no marks keeps the
+  reference-identity the `:rf.event/db` stamp promises (rf2-ta0y7's
+  pointer-sized, copy-free posture) — the walker rebuilds maps, so we
+  must not invoke it when there is nothing to elide."
+  [tags frame-id]
+  (if (and (contains? tags :rf.event/db)
+           (frame-has-declarations? frame-id))
+    (assoc tags :rf.event/db
+           (elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
+    tags))
+
 (defn- project-machine-tags
   "Walk machine-snapshot tag shapes (`:rf.machine/transition`,
   `:rf.machine/snapshot-updated`): `:before` and `:after` are full
@@ -733,6 +768,12 @@
 
                       (and (map? tags) (contains? tags :rf.event/coeffects))
                       (project-cofx-tags)
+
+                      ;; The t1 / t2 pending-`:db` emits stamp the full
+                      ;; app-db under `:rf.event/db`; redact against the
+                      ;; frame's elision registry (rf2-6773q).
+                      (and (map? tags) (contains? tags :rf.event/db))
+                      (project-db-tags frame-id)
 
                       (and (map? tags) (= :rf.cofx/run operation))
                       (project-cofx-run-tags)
