@@ -337,10 +337,14 @@
   [body status]
   (let [{:keys [status fidelity world-inputs runner-requirement frame-binding]}
         (signals/variant-signals body status)]
+    ;; Each `signal-chip` is invoked as a FUNCTION (not a `[component …]`
+    ;; vector) so the returned hiccup is fully expanded — the same pattern
+    ;; `tag-badges` uses. This keeps the strip a single pure hiccup tree
+    ;; the test corpus can walk without a Reagent render pass.
     [:div {:style       (:signal-row styles)
            :data-test   "story-sidebar-signal-row"}
      [:span {:style (:signal-group styles) :data-axis "status"}
-      [signal-chip status]]
+      (signal-chip status)]
      (when (seq fidelity)
        [:span {:style (:signal-group styles) :data-axis "fidelity"}
         (for [s fidelity] (signal-chip s))])
@@ -348,9 +352,9 @@
        [:span {:style (:signal-group styles) :data-axis "world-inputs"}
         (for [s world-inputs] (signal-chip s))])
      [:span {:style (:signal-group styles) :data-axis "runner-requirement"}
-      [signal-chip runner-requirement]]
+      (signal-chip runner-requirement)]
      [:span {:style (:signal-group styles) :data-axis "frame-binding"}
-      [signal-chip frame-binding]]]))
+      (signal-chip frame-binding)]]))
 
 (defn- highlighted-label
   "rf2-yngai — render a variant / story label with the matched
