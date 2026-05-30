@@ -1626,6 +1626,29 @@ Because the check reads the SAME `project-evidence` projection the
 run-result slots derive from, a duplicate accumulator cannot report green
 while the tape is empty.
 
+### Run-path wiring (rf2-baah3)
+
+The run path (`re-frame.story.runtime` — `run-variant` / `run-inline-plan`)
+THREADS this registry end-to-end, so the selection + refusal + validation
+above are run-time behaviour, not merely pure facts the registry can
+compute:
+
+1. it normalizes the run opts (`normalize-run-opts`) and SELECTS the runner
+   (`select-runner`) from the plan's `:required-runner` once, up front (the
+   cheapest capable runner under `:auto`, or the caller's fixed runner);
+2. it surfaces the chosen `:runner` and the plan's `:required-runner` on the
+   unified result;
+3. it folds the per-requirement refusals into the result's `:unmet` /
+   `:cannot-run` slot — the `:auto` no-capable-runner refusal, the
+   fixed-runner per-unit `unmet-assertions` / `unmet-steps` gaps, AND the
+   post-run `validate-run-evidence` fail-closed slot check (read against the
+   SAME `project-evidence` projection the result slots derive from).
+
+So an UNMET requirement (a `:pixels` `:rf.assert/visual-snapshot` under
+`:headless`) makes the run `:cannot-run` — the distinct THIRD status — never
+a false pass; a met-and-passing headless run is not falsely refused (the
+empty-is-healthy slots impose no gate).
+
 ### MCP is a frame binding, not a runner tier
 
 MCP is NOT a runner. It is a transport/control surface over the same
@@ -2358,6 +2381,27 @@ a differ or a second axe loader:
   seam (`register-a11y-reader!`); the below-the-UI `.cljc` executor reads
   through it without a compile-time dependency on the UI ns (the
   bundle-isolation rule: nothing in a production path `:require`s the UI).
+
+### Run-path routing (rf2-9ikj0)
+
+The browser-tier executor is reached from the run path the SAME way the DOM
+family is: the in-script `[:assert …]` executor
+(`re-frame.story.play.runner-events`) routes a browser-tier oracle atom to
+`browser/eval-browser-assertion` and records its canonical assertion record
+on the frame's accumulator (the terminal `:assertions` route through the
+SAME executor). It is NOT classified as a tape-evaluated family — it has its
+own executor, so a `:rf.assert/a11y-structural` checkpoint EVALUATES rather
+than recording a no-op skip.
+
+`:rf.assert/a11y-structural` walks the rendered hiccup TREE, which the run
+path supplies through the `:render-hiccup` late-bind seam (`frame-id →
+hiccup-tree`): a `:hiccup`-or-richer host installs it so the structural-a11y
+check runs on the normal test path. When NO tree is available (the bare
+headless floor — no `:render-hiccup` host), the check FAILS CLOSED to
+`:cannot-run` rather than passing vacuously over a nil tree — the honesty
+floor (§`:cannot-run`). The browser-only pair (`:rf.assert/visual-snapshot`
+/ `:rf.assert/a11y`) record `:cannot-run` headless through their own
+`browser-available?` guard.
 
 ### Fail-closed: headless returns `:cannot-run`
 

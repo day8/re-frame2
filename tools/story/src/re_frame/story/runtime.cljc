@@ -49,9 +49,11 @@
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.plan      :as plan]
             [re-frame.story.play      :as play]
+            [re-frame.story.play.evidence :as evidence]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.requirements :as requirements]
             [re-frame.story.result    :as result]
             [re-frame.interop         :as interop]
             [re-frame.trace           :as trace]
@@ -477,6 +479,59 @@
   [plan executed-script]
   (filterv assertions/causal? (plan-assertion-atoms plan executed-script)))
 
+(defn- selection-refusal
+  "The `requirements/select-runner` refusal as a one-element `:unmet` vector
+  when no runner could be chosen (`:auto` and NO concrete runner satisfies
+  the plan's required tokens — `:reason :no-runner-satisfies`), or `[]` when
+  a runner WAS chosen (`{:status :ok …}`). rf2-baah3. Pure data → data."
+  [runner-selection]
+  (if (= :cannot-run (:status runner-selection))
+    [runner-selection]
+    []))
+
+(defn- requirements-unmet
+  "The per-requirement `:cannot-run` refusals derived from the requirements
+  registry for a run (rf2-baah3 — wire `re-frame.story.requirements` into the
+  run path). Pure data → data. Three sources, unioned:
+
+  1. the `select-runner` refusal, when `:auto` selection found NO capable
+     runner (`selection-refusal`);
+  2. the FIXED-RUNNER per-unit refusals — every terminal/in-script ASSERTION
+     (`requirements/unmet-assertions`) and every setup/script STEP
+     (`requirements/unmet-steps`) whose required capability tokens the chosen
+     runner lacks (a `:pixels` `visual-snapshot` / a `:dom` `[:click …]`
+     under `:headless`);
+  3. the POST-RUN, fail-closed evidence-slot validation
+     (`requirements/validate-run-evidence`) — an assertion that REQUIRED a
+     proof but whose evidence SLOT the tape never produced fails closed to
+     `:cannot-run` (the proof was promised, not delivered).
+
+  Under `:auto` selection the chosen runner satisfies every requirement, so
+  (2) is empty (the cheapest CAPABLE runner was chosen); under fixed
+  `:headless` it surfaces the per-requirement gaps. Both the fixed and auto
+  policies feed the SAME `:unmet` slot `result/run-result` folds into the
+  verdict (a run whose only unmet expectations are `:cannot-run` is itself
+  `:cannot-run`, never a vacuous pass — spec/017 §`:cannot-run`)."
+  [plan runner-selection evidence-slots executed-script]
+  (let [runner    (:runner runner-selection)
+        ;; All declared assertion atoms (terminal + check + in-script) — the
+        ;; SAME collector the schema/causal expectation filters read.
+        atoms     (plan-assertion-atoms plan executed-script)
+        ;; setup + script steps — the executed script the auto-plays ran,
+        ;; plus the plan's setup program.
+        steps     (into (vec (get-in plan [:world :setup] []))
+                        (or executed-script []))
+        ;; Post-run evidence validation reads the SAME projected evidence the
+        ;; result slots derive from (no second derivation).
+        evidence  (or evidence-slots {})
+        post-run  (when runner
+                    (:missing-evidence
+                      (requirements/validate-run-evidence atoms evidence runner)))]
+    (vec (concat (selection-refusal runner-selection)
+                 (when runner (requirements/unmet-assertions runner atoms))
+                 (when runner (requirements/unmet-steps runner steps))
+                 (or post-run [])))))
+
 (defn- record-result-map
   "Build the unified run-result returned by `run-variant` (rf2-5x1wt.19,
   spec/017 §Run result + §Unified run result). Gathers whatever the
@@ -501,7 +556,8 @@
   Checks + schema-expectations are sourced from the compiled `:plan`
   (rf2-5x1wt.20), so a registered variant and an INLINE plan assemble the
   same result through one path."
-  [{:keys [variant-id decorator-stack effective-args snapshot executed-script plan]} start-ms]
+  [{:keys [variant-id decorator-stack effective-args snapshot executed-script
+           plan runner-selection]} start-ms]
   (let [app-db   (rf/get-frame-db variant-id)
         ;; rf2-5x1wt.19 follow-through — read the epoch tape through the
         ;; late-bound `re-frame.core/epoch-history` facade (mirroring
@@ -512,24 +568,41 @@
         ;; (per `re-frame.core/epoch-history`'s contract) while the
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
         tape     (vec (rf/epoch-history variant-id))
-        ;; rf2-q5jw4 — thread the run-state's `:cannot-run` refusals into the
-        ;; unified result's `:unmet` slot. The runner's per-step `:results`
-        ;; carry the SAME refusal facts `runner/finish` reads to compute the
-        ;; run-state status (a no-DOM `[:assert-dom …]` skip, a boundary
-        ;; `:cannot-run?`), but those steps record NO `:rf.story/assertions`
-        ;; entry — so without this the unified result aggregated to `:pass`
-        ;; (vacuous green) while the run-state read `:cannot-run`. Folding the
-        ;; refusals here makes both consumers agree (spec/017 §Unified run
-        ;; result — "a run whose only unmet expectations are :cannot-run is
-        ;; itself :cannot-run"). The facade degrades to nil run-state (and so
-        ;; an empty `:unmet`) on a host with no runner-events run-state.
-        unmet    (runner/run-state-refusals (runner-events/current-state variant-id))
+        ;; rf2-baah3 — project the tape ONCE here so the post-run evidence
+        ;; validation (`requirements-unmet` → `validate-run-evidence`) reads
+        ;; the SAME projected slots `result/run-result` derives the result
+        ;; slots from. One tape, one projection — a duplicate accumulator
+        ;; cannot report a proof present while the tape's slot is empty.
+        evidence (evidence/project-evidence tape {:script executed-script})
+        ;; rf2-q5jw4 — the run-state's `:cannot-run` refusals (a no-DOM
+        ;; `[:assert-dom …]` skip, a boundary `:cannot-run?`): steps that
+        ;; recorded NO `:rf.story/assertions` entry, so without this fold the
+        ;; unified result aggregated to `:pass` (vacuous green) while the
+        ;; run-state read `:cannot-run`. The facade degrades to nil run-state
+        ;; (empty refusals) on a host with no runner-events run-state.
+        run-state-unmet (runner/run-state-refusals
+                          (runner-events/current-state variant-id))
+        ;; rf2-baah3 — the requirements-registry refusals: the `:auto`
+        ;; no-capable-runner refusal, the fixed-runner per-unit capability
+        ;; gaps (`unmet-assertions` / `unmet-steps`), and the post-run
+        ;; fail-closed evidence-slot validation (`validate-run-evidence`).
+        ;; Wired through `runner-selection` (chosen in `prepare-context`).
+        req-unmet (requirements-unmet plan runner-selection evidence executed-script)
+        ;; The unified `:unmet` slot folds BOTH refusal sources (spec/017
+        ;; §Unified run result — "a run whose only unmet expectations are
+        ;; :cannot-run is itself :cannot-run").
+        unmet    (into (vec run-state-unmet) req-unmet)
         unified  (result/run-result
                    {:variant/id          variant-id
                     :epoch-tape          tape
                     :assertions          (or (:rf.story/assertions app-db) [])
                     :script              executed-script
                     :check->atoms        (plan-checks plan)
+                    ;; rf2-baah3 — the CHOSEN runner + the plan's required
+                    ;; capability set, surfaced on the result so Test mode /
+                    ;; CI / MCP read which runner ran + what it needed.
+                    :runner              (:runner runner-selection)
+                    :required-runner     (get plan :required-runner #{})
                     ;; rf2-5x1wt.21 — the declared `:rf.assert/schema-error`
                     ;; expectations, EXACT-consumed against the projected
                     ;; tape violations (§Schema rule). Tape-evaluated, NOT
@@ -561,6 +634,29 @@
             :effective-args  effective-args
             :lifecycle       (loaders/current-state variant-id)})))
 
+(defn- resolve-runner-selection
+  "Normalize the run `opts` and SELECT the runner for `plan` (rf2-baah3 —
+  wire `re-frame.story.requirements` into the run path). Returns the
+  `requirements/select-runner` outcome — either `{:status :ok :runner …
+  :unmet …}` (a runner was chosen; under `:auto` it satisfies all, under
+  fixed `:headless` its `:unmet` may be non-empty) or a
+  `requirements/requirement-refusal` (`:auto` and NO runner satisfies, e.g.
+  a `:reactive-counts` requirement → `:no-runner-satisfies`).
+
+  `normalize-run-opts` collapses `:runner` / `:escalate` into the canonical
+  `{:mode :fixed|:auto :runner …}` shape (the ONE normalization the spec
+  pins, §Run / `is` opts); `select-runner` then chooses the cheapest capable
+  runner under `:auto`, or runs the whole plan single-pass under the fixed
+  runner. The plan's `:required-runner` slot is the union capability set the
+  compiler already filled through this SAME registry (`plan/compute-required-
+  runner` → `requirements/plan-required-runner`), so selection reads the ONE
+  source of truth, never a re-derivation. Pure aside from nothing — `opts`
+  and `plan` in, the selection map out."
+  [plan opts]
+  (let [norm-opts (requirements/normalize-run-opts opts)
+        required  (get plan :required-runner #{})]
+    (requirements/select-runner required norm-opts)))
+
 (defn- prepare-context
   "Resolve the per-run inputs that every phase needs: the NORMALIZED
   PLAN, the decorator stack, the effective args, and the identity
@@ -582,14 +678,20 @@
   removed; phase-4 drives the rich-DSL step executor through
   `runner-events/run!`."
   [variant-id variant-body opts]
-  (let [{:keys [active-modes]} opts]
-    {:variant-id      variant-id
-     :variant-body    variant-body
-     :plan            (plan/variant-plan variant-id)
-     :decorator-stack (decorators/resolve-decorators variant-id
-                                                     {:active-modes active-modes})
-     :effective-args  (args/resolve-args variant-id opts)
-     :snapshot        (ident/snapshot-identity variant-id opts)}))
+  (let [{:keys [active-modes]} opts
+        plan (plan/variant-plan variant-id)]
+    {:variant-id       variant-id
+     :variant-body     variant-body
+     :plan             plan
+     ;; rf2-baah3 — select the runner for this plan up front (the cheapest
+     ;; capable runner under :auto, or the fixed runner the caller asked for).
+     ;; Threaded down so `record-result-map` can surface the chosen runner +
+     ;; fold UNMET requirements into the unified result's :cannot-run.
+     :runner-selection (resolve-runner-selection plan opts)
+     :decorator-stack  (decorators/resolve-decorators variant-id
+                                                      {:active-modes active-modes})
+     :effective-args   (args/resolve-args variant-id opts)
+     :snapshot         (ident/snapshot-identity variant-id opts)}))
 
 (defn- run-phase-0!
   "Phase 0: allocate the variant frame with its decorator stack, then
@@ -923,16 +1025,23 @@
                           snapshot identity.
 
   Pure aside from the decorator-body registrar reads (a decorator is a
-  registered artefact even when the plan is not)."
-  [frame-id plan]
-  {:variant-id      frame-id
-   :plan            plan
-   :decorator-stack (decorators/resolve-decorator-refs
-                      (get-in plan [:world :decorators] []))
-   :effective-args  (get-in plan [:world :effective-args] {})
-   :loader-body     {:loaders               (get-in plan [:world :loaders])
-                     :loaders-complete-when (get-in plan [:world :loaders-complete-when])}
-   :snapshot        nil})
+  registered artefact even when the plan is not).
+
+  rf2-baah3 — `:runner-selection` is selected from the SAME compiled plan +
+  run `opts` a registered run uses (`resolve-runner-selection`), so an inline
+  plan threads requirements selection identically — an UNMET requirement
+  surfaces `:cannot-run` on the inline path too."
+  ([frame-id plan] (prepare-inline-context frame-id plan nil))
+  ([frame-id plan opts]
+   {:variant-id       frame-id
+    :plan             plan
+    :runner-selection (resolve-runner-selection plan opts)
+    :decorator-stack  (decorators/resolve-decorator-refs
+                        (get-in plan [:world :decorators] []))
+    :effective-args   (get-in plan [:world :effective-args] {})
+    :loader-body      {:loaders               (get-in plan [:world :loaders])
+                       :loaders-complete-when (get-in plan [:world :loaders-complete-when])}
+    :snapshot         nil}))
 
 (defn- inline-events-only?
   "True iff the inline `plan` drives no loaders / loaders-complete-when and
@@ -999,7 +1108,7 @@
            (async/promise
              (fn [resolve]
                (try
-                 (let [ctx          (-> (prepare-inline-context frame-id plan)
+                 (let [ctx          (-> (prepare-inline-context frame-id plan opts)
                                         run-inline-phase-0!
                                         run-phase-1!
                                         run-phase-2!)
