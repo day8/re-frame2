@@ -589,7 +589,7 @@
      ;; scrolls here when the user has toggled it off.
      (when (and variant-id
                 (not (false? (get vis explain-panel/panel-key)))) ;; nil/true → show
-       [:section {:id (explain-panel/anchor-id)
+       [:section {:id explain-panel/anchor-id
                   :style (:rhs-section styles)
                   :data-rf-rhs-section "explain"}
         [:div {:style (:rhs-section-h styles)}
