@@ -3,6 +3,27 @@
   `run-a11y`, `read-failures`. Per IMPL-SPEC §7.2 these execute (or
   inspect the post-execution state of) variants.
 
+  ## Unified run-result mirror (rf2-ba86n.17)
+
+  `run-variant` and `read-failures` speak the SAME unified
+  `re-frame.story.result/run-result` model the human Story UI reads
+  (spec/017 §Run result): the top-level `:status` ∈
+  `#{:pass :fail :cannot-run :error}` verdict, the unified assertion
+  records (each carrying a derived `:status`), the `:checks` groups, the
+  `:consumed-selectors` agreement-floor set, and the `.4` evidence-slot
+  projections (`:schema-violations` / `:warnings` / `:effects` /
+  `:sub-runs` / `:renders` / `:narrative`). There is NO agent-only result
+  vocabulary — the agent reads off the same verdict a human reads.
+
+  The pre-unification flat shape (`:passing?` / `:lifecycle` / a flat
+  `:assertions` vector) was REMOVED outright (pre-alpha clean break, Mike
+  2026-05-31): `:status` is the verdict; `:passing?` is gone (it could not
+  express the distinct `:cannot-run` third status, and re-derived a
+  green/red bit the result unification existed to fold out).
+  `story/run-variant` already assembles the unified shape through
+  `result/run-result`; these handlers project its slots rather than
+  re-deriving a parallel verdict.
+
   Wire-egress posture: `run-variant` and `read-failures` route their
   `:app-db` / `:assertions` slots through
   `re-frame.story-mcp.tools.egress` (rf2-73wuj)."
@@ -10,11 +31,21 @@
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
+            [re-frame.story.requirements :as requirements]
+            [re-frame.story.result :as story-result]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
+
+(def failure-statuses
+  "The unified assertion `:status` values `read-failures` filters to —
+  the records an agent should localise + heal (spec/017 §Run result). A
+  `:cannot-run` record is NOT a failure (the runner proved nothing, not a
+  mismatch); it is surfaced via the run-level `:status` instead, never
+  conflated with a real assertion failure."
+  #{:fail :error})
 
 (def ^:const max-timeout-ms
   "Hard ceiling on `:timeout-ms` for `run-variant` (rf2-g9fje, fix 3/3).
@@ -37,10 +68,35 @@
   10000)
 
 (defn tool-run-variant
-  "Testing: execute a variant, return the run-variant result map.
+  "Testing: execute a variant, return the UNIFIED run-result
+  (spec/017 §Run result — the same shape the human Story UI reads).
 
-  Per IMPL-SPEC §3.2 + §3.5 the result shape is
-  `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms ...}`.
+  `story/run-variant` already assembles the unified result through
+  `re-frame.story.result/run-result`; this handler projects its slots
+  (scrubbing the value-bearing ones at egress) — it does NOT re-derive a
+  parallel verdict. The headline an agent reads is the top-level
+  `:status` ∈ `#{:pass :fail :cannot-run :error}` (rf2-ba86n.17 clean
+  break — the old `:passing?` boolean / `:lifecycle` verdict were
+  removed; `:status` is the one verdict, and only it can express the
+  distinct `:cannot-run` third outcome an agent must handle as 'the
+  runner could not attempt this', NOT as a fail).
+
+  Payload slots:
+    :status             #{:pass :fail :cannot-run :error} — the verdict
+    :frame              the variant frame id
+    :assertions         unified assertion records (each with a derived
+                        :status); scrubbed of :sensitive? records
+    :checks             named check records grouping their assertions
+    :consumed-selectors the agreement-floor's exactly-consumed
+                        schema-violation selectors (single source of truth)
+    :schema-violations / :warnings / :effects / :sub-runs / :renders /
+    :narrative          the .4 evidence-slot projections (one tape, one
+                        projection); :schema-violations / :effects /
+                        :renders value-redacted at egress
+    :app-db             post-run app-db, elided at egress
+    :rendered-hiccup / :snapshot  value-redacted derived trees
+    :elapsed-ms         wall-clock run time
+    :cannot-run         present iff the run carried :cannot-run refusals
 
   Args:
     :variant-id     required
@@ -62,24 +118,50 @@
             outcome  (try
                        (async/deref-blocking (story/run-variant vk opts) timeout)
                        (catch Throwable e
-                         {:lifecycle :error
-                          :variant-id vk
-                          :assertions [{:assertion :rf.error/run-failed
-                                        :passed? false
-                                        :reason (ex-message e)}]}))
+                         ;; A throw / timeout never produced a unified
+                         ;; result; mint the :error verdict directly so the
+                         ;; wire shape is the SAME unified shape a settled run
+                         ;; emits (one vocabulary, no special-case branch for
+                         ;; agents to learn).
+                         {:status     :error
+                          :frame      vk
+                          :assertions [(story-result/assertion-record
+                                         {:assertion :rf.error/run-failed
+                                          :passed?   false
+                                          :error     true
+                                          :reason    (ex-message e)})]
+                          :checks     []}))
             incl?    (targs/include-sensitive? arguments)
             raw-db   (:app-db outcome)
-            payload  {:frame           (:frame outcome vk)
-                      :app-db          (egress/elide-app-db raw-db vk incl?)
-                      :assertions      (egress/scrub-assertions (:assertions outcome) incl?)
-                      ;; Derived trees re-key the same sensitive value at a
-                      ;; non-app-db path, so the path-based walker can't reach
-                      ;; them — value-redact instead (rf2-ee38b.17).
-                      :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
-                      :elapsed-ms      (:elapsed-ms outcome)
-                      :snapshot        (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
-                      :lifecycle       (:lifecycle outcome)
-                      :passing?        (story/assertions-passing? outcome)}]
+            payload  (cond-> {:status             (:status outcome)
+                              :frame              (:frame outcome vk)
+                              :app-db             (egress/elide-app-db raw-db vk incl?)
+                              :assertions         (egress/scrub-assertions (:assertions outcome) incl?)
+                              :checks             (vec (:checks outcome))
+                              :consumed-selectors (:consumed-selectors outcome #{})
+                              ;; Evidence-slot projections (.4 — one tape, one
+                              ;; projection). The value-bearing slots
+                              ;; (:schema-violations / :effects / :renders) are
+                              ;; value-redacted against the frame's declared-
+                              ;; sensitive values, same as :rendered-hiccup —
+                              ;; a secret reappears there at a non-app-db path
+                              ;; the path walker can't reach (rf2-ee38b.17).
+                              :schema-violations  (egress/scrub-rendered (:schema-violations outcome) raw-db vk incl?)
+                              :warnings           (vec (:warnings outcome))
+                              :effects            (egress/scrub-rendered (:effects outcome) raw-db vk incl?)
+                              :sub-runs           (vec (:sub-runs outcome))
+                              :renders            (egress/scrub-rendered (:renders outcome) raw-db vk incl?)
+                              :narrative          (:narrative outcome)
+                              ;; Derived trees re-key the same sensitive value
+                              ;; at a non-app-db path — value-redact (rf2-ee38b.17).
+                              :rendered-hiccup    (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                              :elapsed-ms         (:elapsed-ms outcome)
+                              :snapshot           (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
+                       ;; Surface the :cannot-run refusals only when present —
+                       ;; the run-result carries them iff the runner could not
+                       ;; attempt some expectation.
+                       (contains? outcome :cannot-run)
+                       (assoc :cannot-run (:cannot-run outcome)))]
         (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-snapshot-identity
@@ -132,32 +214,53 @@
 
 (defn tool-read-failures
   "Testing: the variant frame's current accumulated assertion records
-  (as of the most recent `run-variant`). Reads the frame's
-  `:rf.story/assertions` accumulator once via
+  (as of the most recent `run-variant`), as UNIFIED assertion records.
+  Reads the frame's `:rf.story/assertions` accumulator once via
   `re-frame.story/read-assertions` — no re-run, no cross-call history; a
   later `run-variant` overwrites the accumulator.
 
   Useful for an agent that ran a variant a moment ago and wants to
   inspect failures without re-running.
 
+  The records ride the SAME unified shape `run-variant` emits
+  (spec/017 §Run result, rf2-ba86n.17): each record is normalized through
+  `re-frame.story.result/assertion-records` so it carries a derived
+  `:status`, and the headline `:status` is the aggregate verdict over the
+  records (`requirements/aggregate-status` — the ONE rule:
+  `:error` > `:fail` > `:cannot-run` > `:pass`). The clean break removed
+  the re-derived `:passing?` boolean; `:status` is the one verdict, read
+  off the records rather than recomputed as a green/red bit. `:failures`
+  is filtered to the genuine failure statuses (`:fail` / `:error`) — a
+  `:cannot-run` record is not a failure (the runner proved nothing) and
+  surfaces via the run-level `:status`, not the failures list.
+
+  NOTE this is a re-READ of the accumulator, not a re-run: it has no
+  epoch tape, so it cannot apply the agreement floor or the
+  runner-refusal `:cannot-run` fold a fresh `run-variant` does. The
+  status is the assertion-record aggregate only; for the full run verdict
+  (tape floor + refusals) re-run via `run-variant`.
+
   Wire-egress posture (rf2-73wuj): assertion records carrying the
-  top-level `:sensitive? true` stamp are dropped via
-  `strip-sensitive`. The `:passing?` predicate runs against the
-  scrubbed vec so the agent's view of green/red is consistent with
-  the records it actually sees — a dropped sensitive failure doesn't
-  quietly flip `:passing?` to true. Default off; opt out with
-  `:include-sensitive true`."
+  top-level `:sensitive? true` stamp are dropped via `strip-sensitive`.
+  The `:status` aggregate runs against the scrubbed vec so the agent's
+  view of the verdict is consistent with the records it actually sees — a
+  dropped sensitive failure doesn't quietly flip the verdict to `:pass`.
+  Default off; opt out with `:include-sensitive true`."
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
       (let [incl?      (targs/include-sensitive? arguments)
             raw        (assertions/read-assertions vk)
-            all        (egress/scrub-assertions raw incl?)
-            failures   (filterv (complement :passed?) all)
+            scrubbed   (egress/scrub-assertions raw incl?)
+            ;; Stamp the derived :status on every record so the agent reads
+            ;; the SAME unified record shape `run-variant` emits.
+            records    (story-result/assertion-records scrubbed)
+            failures   (filterv #(contains? failure-statuses (:status %)) records)
             payload    {:variant-id vk
-                        :total      (count all)
-                        :failures   (vec failures)
-                        :passing?   (story/assertions-passing? all)}]
+                        :status     (requirements/aggregate-status records nil)
+                        :total      (count records)
+                        :failures   failures
+                        :assertions records}]
         (result/text-result (result/pr-edn payload) payload)))))
 
 ;; ---------------------------------------------------------------------------
@@ -168,11 +271,12 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` / evidence value-slots are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
-                         "1. Green run: {:variant-id \":story.cart/full\"} -> {:frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true}] :elapsed-ms 42 :passing? true :lifecycle :ok}. "
-                         "2. Red run: {:variant-id \":story.cart/bad\"} -> {:assertions [{:assertion :rf.assert/sub-equals :passed? false :actual nil :expected 3}] :passing? false}. "
-                         "3. Clamped timeout: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:lifecycle :error :assertions [{:assertion :rf.error/run-failed ...}]}.")
+                         "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
+                         "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
+                         "3. Cannot-run (a causal assertion under a non-reactive runner): {:variant-id \":story.cart/caused\"} -> {:status :cannot-run :cannot-run [...] :assertions [{:status :cannot-run :cannot-run? true ...}]}. "
+                         "4. Clamped timeout / error: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:status :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}.")
     :typicalTokens  2000
     ;; rf2-90eft — `run-variant` ships the variant's `:app-db` re-keyed
     ;; into `:rendered-hiccup` and `:snapshot`; structural dedup
@@ -238,11 +342,11 @@
 
    {:name           "read-failures"
     :category       :testing
-    :description    (str "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Accumulated assertion records for a variant frame (since the most recent `run-variant`), as UNIFIED records. Returns `{:status :total :failures :assertions}` — the same record shape `run-variant` emits: each record carries a derived `:status`, `:status` is the aggregate verdict over the records, and `:failures` is filtered to the genuine failure statuses (`:fail` / `:error`). A re-read of the accumulator, not a re-run — no epoch tape, so the status is the assertion-record aggregate only (re-run via `run-variant` for the full run verdict incl. the agreement floor). Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
-                         "1. Clean run: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :total 3 :failures [] :passing? true}. "
-                         "2. Mixed pass/fail: {:variant-id \":story.cart/bad\"} -> {:variant-id :story.cart/bad :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? false :reason \"...\"}] :passing? false}. "
-                         "3. Never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :total 0 :failures [] :passing? true} (vacuous pass).")
+                         "1. Clean run: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :status :pass :total 3 :failures [] :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass} ...]}. "
+                         "2. Mixed pass/fail: {:variant-id \":story.cart/bad\"} -> {:variant-id :story.cart/bad :status :fail :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? false :status :fail :reason \"...\"}] :assertions [...]}. "
+                         "3. Never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :status :pass :total 0 :failures [] :assertions []} (vacuously green).")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens

@@ -73,8 +73,10 @@
   trailing `?` (today: `:include-sensitive` and `:write-back`).
   Response-payload keys (in `structuredContent`) are NOT bound by the
   Anthropic regex and retain the Clojure-idiomatic `?` — that's why
-  `:passing?`, `:registered?`, `:unregistered?`, `:written-back?`,
-  `:has-wrap?` survive on the response side."
+  `:registered?`, `:unregistered?`, `:written-back?`, `:has-wrap?`
+  survive on the response side. (The run/read tools' `:passing?` boolean
+  was retired in the unified-run-result clean break — rf2-ba86n.17; the
+  verdict is now the `?`-free `:status`.)"
   {:type "boolean"
    :description (str "Opt in to forwarding sensitive `:app-db` slots and "
                      "assertion records. Default false (declared-sensitive paths "
@@ -229,7 +231,8 @@
 ;;   - READ-ONLY tools: get-story-instructions, list-substrates,
 ;;     list-stories, get-story, get-variant, list-tags, list-modes,
 ;;     list-decorators, list-assertions, get-docs-markdown, variant->edn,
-;;     snapshot-identity, run-a11y, read-failures.
+;;     explain-variant (rf2-ba86n.17), snapshot-identity, run-a11y,
+;;     read-failures.
 ;;
 ;;   - DESTRUCTIVE tools: preview-variant (dispatches events into a
 ;;     variant's frame via the same `story/run-variant` lifecycle as

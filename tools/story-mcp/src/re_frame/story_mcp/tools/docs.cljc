@@ -260,6 +260,35 @@
                            meta)]
         (result/text-result (result/pr-edn payload) payload)))))
 
+(defn tool-explain-variant
+  "Docs: the variant-plan `:explain` projection for a variant — the SAME
+  data the human Explain panel renders (spec/017 §Explain API). A thin
+  mirror over the already-shipped `re-frame.story/explain` data API
+  (rf2-ba86n.17): the single biggest agent↔human divergence today —
+  humans have the Explain panel, agents had no MCP reach to it.
+
+  The `:explain` map answers 'why did the plan resolve this way':
+  `:source-chain` / `:parent-chain` (the `:extends` lineage),
+  `:compose` (the resolved fragments / checks), `:strict-conflicts`
+  (winning + losing sources + the rule that chose the winner), `:merge`
+  (the per-field merge rules), `:args` / `:substitutions` /
+  `:effective-args` (arg resolution), `:view-args-schema` /
+  `:view-args-validation`, `:network` (per-route stubs + their lowered fx),
+  `:sub-overrides` (+ fidelity), `:setup-order` / `:script-order`,
+  `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
+
+  Pure plan-derived data — no run, no live frame state, so no egress
+  scrub (it carries no `:app-db` slice). The `:extends`-resolved variant
+  body is already public via `get-variant` / `variant->edn`; this adds
+  the plan-compiler's source/merge/lowering reasoning on top."
+  [args]
+  (targs/with-variant args
+    (fn [vk _body]
+      (let [explain  (story/explain vk)
+            payload  {:variant-id vk
+                      :explain    explain}]
+        (result/text-result (result/pr-edn payload) payload)))))
+
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
   to `get-variant`; the text slot is the byte-stable `pr-str` EDN
@@ -400,7 +429,7 @@
     :category       :docs
     :description    (str "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time). "
                          "Examples: "
-                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :play-script {:script [...]} :tags #{:dev}}}. "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :script [...] :tags #{:dev}}}. "
                          "2. With extends already applied: {:variant-id \":story.cart/full-with-discount\"} -> {:body {... merged from :story.cart/full ...}}. "
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
@@ -478,7 +507,7 @@
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
-                         "3. Pair with run-variant: discover the assertion vocab here, then write :play-script sequences referencing those event ids. "
+                         "3. Pair with run-variant: discover the assertion vocab here, then write :script sequences referencing those event ids. "
                          "4. Paginated: {:limit 5} -> {:canonical [...7...] :registered [...5...] :total 14 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema    {:type "object"
@@ -492,7 +521,7 @@
     :category       :docs
     :description    (str "Round-trippable EDN of a registered variant. The text slot is the byte-stable pr-str EDN (keyword keys preserved); a matching :structuredContent carries the same body map. Use the text slot when you want byte-stable EDN for diffing. "
                          "Examples: "
-                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :play-script {:script [...]}} (as pr-str EDN text). "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :script [...]} (as pr-str EDN text). "
                          "2. Byte-stable for diffing two registries: same input always emits same text bytes (no JSON re-projection). "
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
@@ -503,6 +532,22 @@
     :outputSchema s/default-output-schema
     :annotations  s/read-only-annotations
     :handler     tool-variant->edn}
+
+   {:name           "explain-variant"
+    :category       :docs
+    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. Pure plan-derived data — no run, no live frame state, no egress scrub. The agent mirror of the human Explain panel (rf2-ba86n.17). "
+                         "Examples: "
+                         "1. Plain variant: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :explain {:source-chain [:story.cart/full] :parent-chain [] :compose [] :strict-conflicts [] :effective-args {...} :required-runner #{} ...}}. "
+                         "2. Extends + compose: {:variant-id \":story.cart/full-with-discount\"} -> {:explain {:source-chain [:story.cart/full :story.cart/full-with-discount] :parent-chain [:story.cart/full] :compose [{:kind :fragment :id :frag/logged-in}] ...}}. "
+                         "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
+    :typicalTokens  1500
+    :inputSchema {:type "object"
+                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :required ["variant-id"]
+                  :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
+    :handler     tool-explain-variant}
 
    {:name           "get-docs-markdown"
     :category       :docs

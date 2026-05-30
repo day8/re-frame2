@@ -22,26 +22,27 @@ Do **not** load this leaf to learn how to author a variant — see `stories.md`.
    └──────────────────────────────────────────────────────────────┘
                               ↑                            │
                               └────────────────────────────┘
-                                  loop until :passing? true
+                                  loop until :status :pass
 ```
 
-Each step has a story-mcp tool. The loop terminates when `run-variant` returns `:passing? true` or the agent hits its retry ceiling.
+Each step has a story-mcp tool. The loop terminates when `run-variant` returns `:status :pass` or the agent hits its retry ceiling. `run-variant` / `read-failures` / `preview-variant` all speak the SAME unified run-result the human Story UI reads (spec/017 §Run result) — there is no agent-only result vocabulary. The headline is the top-level `:status` ∈ `{:pass :fail :cannot-run :error}`. `:cannot-run` is a distinct THIRD outcome (the runner could not even attempt the plan, e.g. a causal assertion run under a non-reactive runner) — handle it as "not runnable here", **not** as a fail; refining the assertion won't help, the runner needs to change.
 
 ## Tool catalogue — by step
 
-Per `tools/story-mcp/spec/002-Tool-Registry.md`, nineteen tools across four categories. The seven that participate in the loop:
+Per `tools/story-mcp/spec/002-Tool-Registry.md`, twenty tools across four categories. The seven that participate in the loop:
 
 | Step | Tool | Category | What it does |
 |---|---|---|---|
 | 1 | `register-variant` | Write (gated) | `re-frame.story/reg-variant*` with the agent's body |
 | 1 | `unregister-variant` | Write (gated) | symmetric tear-down between iterations |
-| 2 | `run-variant` | Testing | full four-phase lifecycle; returns `:passing?` boolean |
-| 2 | `preview-variant` | Dev | "show me what this looks like" — post-pipeline state plus share URL |
-| 3 | `read-failures` | Testing | diagnostic over `:rf.story/assertions` accumulator (no re-run) |
+| 2 | `run-variant` | Testing | full four-phase lifecycle; returns the unified run-result (headline `:status`) |
+| 2 | `preview-variant` | Dev | "show me what this looks like" — same unified run-result plus the share URL + rendered view |
+| 3 | `read-failures` | Testing | diagnostic over `:rf.story/assertions` accumulator (no re-run); unified records + aggregate `:status` |
 | 4 | `get-variant` | Docs | full variant body as canonical EDN, for the agent to read before editing |
+| 4 | `explain-variant` | Docs | "why did the plan resolve this way" — the variant-plan `:explain` (source chain, merge, runner requirements); the agent's mirror of the human Explain panel |
 | 4 | `register-variant` | Write (gated) | re-registration with the refined body (overwrites) |
 
-`get-story-instructions` (Dev) is the agent's onboarding read — it returns the EDN-first constraint, the canonical variant body keys, the seven `:rf.assert/*` events, the four-phase lifecycle, and the inclusion-tag vocabulary as one self-contained string. Agents call it once per session, before authoring.
+`get-story-instructions` (Dev) is the agent's onboarding read — it returns the EDN-first constraint, the canonical variant body keys, the seven `:rf.assert/*` events, the four-phase lifecycle, and the inclusion-tag vocabulary as one self-contained string. Agents call it once per session, before authoring. When a run resolves `:cannot-run` or merges/composes in a surprising way, `explain-variant` is the read that shows the resolved plan — source/parent chain, composed fragments/checks, strict-conflict winners, the selected runner + what it required.
 
 ## Worked loop
 
@@ -51,20 +52,21 @@ The agent has been asked to add a "user clicks delete then confirms" variant for
 agent → register-variant
   {:variant-id :story.todos/delete-confirmed
    :body {:extends :story.todos/list-with-items
-          :play-script [[:dispatch-sync [:todo/delete-pressed 3]]
-                        [:dispatch-sync [:todo/confirm-pressed]]
-                        [:dispatch-sync [:rf.assert/path-equals [:todos :items] []]]]}}
+          :script [[:dispatch-sync [:todo/delete-pressed 3]]
+                   [:dispatch-sync [:todo/confirm-pressed]]
+                   [:dispatch-sync [:rf.assert/path-equals [:todos :items] []]]]}}
 
 agent → run-variant {:variant-id :story.todos/delete-confirmed}
-  ← {:passing? false :lifecycle :ok :elapsed-ms 18 ...}
+  ← {:status :fail :assertions [...] :checks [] :elapsed-ms 18 ...}
 
 agent → read-failures {:variant-id :story.todos/delete-confirmed}
-  ← [{:assertion :rf.assert/path-equals
-      :path [:todos :items]
-      :expected []
-      :actual  [{:id 1 :text "buy milk"} {:id 2 :text "..."}]
-      :passed? false
-      :source {:file ".../todos.cljs" :line 47}}]
+  ← {:status :fail :total 1
+     :failures [{:assertion :rf.assert/path-equals
+                 :path [:todos :items]
+                 :expected []
+                 :actual  [{:id 1 :text "buy milk"} {:id 2 :text "..."}]
+                 :passed? false :status :fail
+                 :source {:file ".../todos.cljs" :line 47}}]}
 ```
 
 The agent reads the failure: two items still remain because the parent variant seeded *three* todos and the delete only removed id `3`. The assertion was wrong. The agent refines:
@@ -73,13 +75,13 @@ The agent reads the failure: two items still remain because the parent variant s
 agent → register-variant   ; overwrites
   {:variant-id :story.todos/delete-confirmed
    :body {:extends :story.todos/list-with-items
-          :play-script [[:dispatch-sync [:todo/delete-pressed 3]]
-                        [:dispatch-sync [:todo/confirm-pressed]]
-                        [:dispatch-sync [:rf.assert/path-equals [:todos :items] [{:id 1} {:id 2}]]]
-                        [:dispatch-sync [:rf.assert/dispatched? [:todo/deleted 3]]]]}}
+          :script [[:dispatch-sync [:todo/delete-pressed 3]]
+                   [:dispatch-sync [:todo/confirm-pressed]]
+                   [:dispatch-sync [:rf.assert/path-equals [:todos :items] [{:id 1} {:id 2}]]]
+                   [:dispatch-sync [:rf.assert/dispatched? [:todo/deleted 3]]]]}}
 
 agent → run-variant {:variant-id :story.todos/delete-confirmed}
-  ← {:passing? true ...}
+  ← {:status :pass ...}
 ```
 
 Loop terminates. The agent reports the final variant body back to the user.
@@ -92,8 +94,8 @@ Loop terminates. The agent reports the final variant body back to the user.
 
 ## Common gotchas — loop-specific
 
-- **`:rf.assert/*` events record, they do not throw.** A failing assertion does not abort the play-script. `read-failures` returns the full failure list per iteration — the agent sees every mismatch at once, not just the first. Assertion events ride the `:dispatch-sync` rail in `:play-script`, which is the canonical AND ONLY phase-4 surface.
-- **`:passing?` is the loop terminator.** Truthy when every assertion in the play sequence passed. Equivalent to `(every? :passed? (:assertions result))` but pre-computed by `run-variant`.
+- **`:rf.assert/*` events record, they do not throw.** A failing assertion does not abort the script. `read-failures` returns the full failure list per iteration — the agent sees every mismatch at once, not just the first. Assertion events ride the `:dispatch-sync` rail in `:script` (the public phase-4 play surface — spec/017 §Public vocabulary; `:play-script` is the transitional spelling the registrar still lowers, but author against `:script`).
+- **`:status :pass` is the loop terminator.** The top-level `:status` ∈ `{:pass :fail :cannot-run :error}` is the unified verdict `run-variant` returns (spec/017 §Run result). Distinguish `:fail` (an assertion mismatched — refine the variant) from `:cannot-run` (the runner could not attempt the plan — change the runner, refining won't help) from `:error` (a handler / fx / step threw).
 - **Snapshot-identity for skip-when-unchanged.** `snapshot-identity` returns a content hash of `(variant × args × decorators × loaders × substrate × modes)`. Agents that iterate across N variants skip cells whose identity matches a previous run.
 - **Source-coord stamping survives MCP registration.** `register-variant` stamps `{:file <agent-supplied> :line <n>}` if provided in the body; without it, `:source` is omitted and failure records carry no jump-to-line affordance. Agents that want clickable failures supply `:source` from the file they'll write the variant back into.
 

@@ -217,8 +217,8 @@
           ro-tools ["get-story-instructions" "list-substrates"
                     "list-stories" "get-story" "get-variant" "list-tags"
                     "list-modes" "list-decorators" "list-assertions"
-                    "get-docs-markdown" "variant->edn" "snapshot-identity"
-                    "run-a11y" "read-failures"]]
+                    "get-docs-markdown" "variant->edn" "explain-variant"
+                    "snapshot-identity" "run-a11y" "read-failures"]]
       (doseq [n ro-tools]
         (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
             (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
@@ -267,6 +267,7 @@
       (is (contains? names "list-assertions"))
       (is (contains? names "get-docs-markdown"))
       (is (contains? names "variant->edn"))
+      (is (contains? names "explain-variant"))
       ;; Testing
       (is (contains? names "run-variant"))
       (is (contains? names "snapshot-identity"))
@@ -420,7 +421,12 @@
     (is (= :story.button/primary (:variant-id s)))
     (is (string? (:share-url s)))
     (is (re-find #"story\.button(/|%2F)primary" (:share-url s)))
-    (is (some? (:lifecycle s)))))
+    ;; :lifecycle is the loader STATE (retained adjunct); the verdict is
+    ;; the unified :status — preview speaks the same vocabulary run-variant
+    ;; does (rf2-ba86n.17), so a vacuous-pass preview reads :status :pass.
+    (is (some? (:lifecycle s)))
+    (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
+    (is (vector? (:checks s)))))
 
 (deftest preview-variant-not-found
   (let [r (invoke "preview-variant" {:variant-id "story.nope/missing"})]
@@ -475,6 +481,30 @@
     (is (success? r))
     (is (= :story.button/primary (-> r :structuredContent :id)))
     (is (= "Primary button." (-> r :structuredContent :body :doc)))))
+
+(deftest explain-variant-happy
+  ;; rf2-ba86n.17 — the agent mirror of the human Explain panel: the
+  ;; variant-plan `:explain` projection (spec/017 §Explain API), a thin
+  ;; wrapper over the shipped `story/explain` data API.
+  (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
+        s (:structuredContent r)
+        e (:explain s)]
+    (is (success? r))
+    (is (= :story.button/primary (:variant-id s)))
+    (is (map? e) "the :explain projection is a map")
+    ;; The source/merge/runner-requirement slots the human Explain panel
+    ;; renders must round-trip — these are the exact slots that gate-check
+    ;; this tool is a faithful mirror, not a re-projection.
+    (is (= [:story.button/primary] (:source-chain e)))
+    (is (= [] (:parent-chain e)))
+    (is (contains? e :merge) "the per-field merge rules are surfaced")
+    (is (contains? e :effective-args) "arg resolution is surfaced")
+    (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
+
+(deftest explain-variant-unknown
+  (let [r (invoke "explain-variant" {:variant-id "story.nope/missing"})]
+    (is (error? r))
+    (is (re-find #"not found" (-> r :content first :text)))))
 
 (deftest list-tags-includes-canonical
   (let [r (invoke "list-tags" {})
@@ -755,13 +785,39 @@
         s (:structuredContent r)]
     (is (success? r))
     (is (= :story.button/primary (:frame s)))
-    (is (true? (:passing? s)) "no assertions ⇒ vacuously passing")
-    (is (vector? (:assertions s)))))
+    ;; rf2-ba86n.17 clean break — the verdict is the unified :status, not
+    ;; the retired :passing? boolean. A zero-assertion run is vacuously :pass.
+    (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
+    (is (not (contains? s :passing?)) "the retired :passing? boolean is gone")
+    (is (vector? (:assertions s)))
+    (is (vector? (:checks s)) "the unified :checks group is present")))
 
 (deftest run-variant-unknown
   (let [r (invoke "run-variant" {:variant-id "story.nope/missing"})]
     (is (error? r))
     (is (re-find #"not found" (-> r :content first :text)))))
+
+(deftest run-variant-cannot-run-reachable
+  ;; rf2-ba86n.17 — the distinct THIRD verdict `:cannot-run` must be
+  ;; reachable over the wire (the old :passing? boolean could not express
+  ;; it). A `:rf.assert/caused` expectation needs reactive evidence; run
+  ;; under the default no-reactive headless runner, the causal matcher
+  ;; fails closed to :cannot-run rather than silently passing against an
+  ;; empty projection (spec/017 §Causal and cascade assertions).
+  (testing "a causal assertion with no reactive evidence drives :status :cannot-run"
+    (config/set-allow-writes! true)
+    (let [reg (invoke "register-variant"
+                      {:variant-id "story.cause/unrunnable"
+                       :body (str "{:doc \"A causal expectation with no reactive evidence.\""
+                                  " :assertions"
+                                  "  [[:rf.assert/caused {:event :some/event :surface [:any] :min 1}]]}")})]
+      (is (success? reg)))
+    (let [run (invoke "run-variant" {:variant-id "story.cause/unrunnable"})
+          s   (:structuredContent run)]
+      (is (success? run))
+      (is (= :cannot-run (:status s))
+          "no reactive evidence ⇒ the causal expectation is :cannot-run, not a silent pass"))
+    (invoke "unregister-variant" {:variant-id "story.cause/unrunnable"})))
 
 (deftest snapshot-identity-stable
   (testing "the same args produce the same content-hash"
@@ -786,13 +842,17 @@
       (is (re-find #"CLJS-only" (:note s))))))
 
 (deftest read-failures-empty-after-no-run
-  (testing "no run yet ⇒ zero accumulated assertions"
+  (testing "no run yet ⇒ zero accumulated assertions, vacuously :pass"
     (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
       (is (success? r))
       (is (= 0 (:total s)))
       (is (empty? (:failures s)))
-      (is (true? (:passing? s))))))
+      (is (empty? (:assertions s)))
+      ;; rf2-ba86n.17 clean break — :status is the unified verdict; the
+      ;; retired :passing? boolean is gone.
+      (is (= :pass (:status s)))
+      (is (not (contains? s :passing?))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Self-healing loop — failing :rf.assert/* through run-variant → read-failures
@@ -803,8 +863,8 @@
 ;; side contract an agent would consume.
 ;;
 ;; The agent self-healing loop has four steps:
-;;   1. register-variant with a `:play` body whose assertion will fail
-;;   2. run-variant — :passing? false; :assertions carries the failed record
+;;   1. register-variant with a `:script` body whose assertion will fail
+;;   2. run-variant — :status :fail; :assertions carries the failed record
 ;;   3. read-failures — non-empty :failures vector with structured data
 ;;   4. (agent proposes a fix — out of scope for this contract test)
 ;;
@@ -828,35 +888,35 @@
 (deftest self-healing-loop-failing-assertion-shape
   (testing "register → run → read-failures surfaces the :rf.assert/path-equals failure shape"
     (config/set-allow-writes! true)
-    ;; Step 1 — agent registers a variant whose :play-script body asserts a
-    ;; slot that no `:events` step populated. The assertion will fail because
+    ;; Step 1 — agent registers a variant whose :script body asserts a
+    ;; slot that no setup step populated. The assertion will fail because
     ;; `(get-in @app-db [:auth :status])` is nil, not :authenticated.
     ;;
-    ;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
-    ;; phase-4 slot. Each assertion event is wrapped as
+    ;; Public vocabulary (spec/017 §Public vocabulary): `:script` is the
+    ;; phase-4 play surface. Each assertion event is wrapped as
     ;; `[:dispatch-sync <event-vec>]` so the `:rf.assert/*` event runs
     ;; through the standard re-frame cascade and lands its record on the
     ;; frame's `[:rf.story/assertions]` BEFORE `read-failures` / the
-    ;; `run-variant` result-map is built.
+    ;; `run-variant` result is built.
     (let [reg (invoke "register-variant"
                       {:variant-id "story.auth/sad"
                        :body (str "{:doc \"Deliberately-failing assertion.\""
-                                  " :events []"
-                                  " :play-script [[:dispatch-sync"
+                                  " :script [[:dispatch-sync"
                                   " [:rf.assert/path-equals [:auth :status] :authenticated]]]}")})]
       (is (success? reg) "fixture registration succeeds")
       (is (true? (-> reg :structuredContent :registered?))))
 
-    ;; Step 2 — run-variant. The wire result carries :passing? false and a
-    ;; non-empty :assertions vector. The failed record carries the
-    ;; assertion-id, payload, and expected/actual slots — enough for the
+    ;; Step 2 — run-variant. The wire result carries the unified :status
+    ;; :fail and a non-empty :assertions vector. The failed record carries
+    ;; the assertion-id, payload, and expected/actual slots — enough for the
     ;; agent to localise the failure without re-fetching anything.
     (let [run (invoke "run-variant" {:variant-id "story.auth/sad"})
           s   (:structuredContent run)
           a   (first (:assertions s))]
       (is (success? run))
-      (is (false? (:passing? s))
-          "a failed assertion flips :passing? — the wire-side green-light bit")
+      (is (= :fail (:status s))
+          "a failed assertion drives the unified verdict to :fail")
+      (is (= :fail (:status a)) "the failed record carries the derived :status :fail")
       (is (= 1 (count (:assertions s))) "one assertion fired, one record")
       (is (= :rf.assert/path-equals (:assertion a))
           "the failed record names the canonical assertion id")
@@ -872,7 +932,7 @@
 
     ;; Step 3 — read-failures (the dedicated agent-facing read of accumulated
     ;; failures without re-running). The shape per `tool-read-failures`:
-    ;;   {:variant-id <kw> :total <int> :failures <vec> :passing? <bool>}
+    ;;   {:variant-id <kw> :status <kw> :total <int> :failures <vec> :assertions <vec>}
     (let [rf (invoke "read-failures" {:variant-id "story.auth/sad"})
           s  (:structuredContent rf)
           f  (first (:failures s))]
@@ -881,12 +941,13 @@
           ":variant-id round-trips so the agent can correlate the read with its source variant")
       (is (= 1 (:total s)) ":total counts every assertion (passed + failed)")
       (is (= 1 (count (:failures s)))
-          ":failures filters to those with :passed? false")
-      (is (false? (:passing? s))
-          ":passing? is the same bit `run-variant` returned — consistent across the read surface")
+          ":failures filters to the genuine failure statuses (:fail / :error)")
+      (is (= :fail (:status s))
+          ":status is the same unified verdict `run-variant` returned — consistent across the read surface")
       ;; The failure record's keys match the run-variant projection — the
-      ;; agent sees the same record shape regardless of which tool read it.
+      ;; agent sees the same unified record shape regardless of which tool read it.
       (is (= :rf.assert/path-equals (:assertion f)))
+      (is (= :fail (:status f)) "the failure record carries the derived :status :fail")
       (is (false? (:passed? f)))
       (is (= :authenticated (:expected f)))
       (is (nil? (:actual f)))
@@ -907,16 +968,15 @@
     ;; the sequence runs to completion. The agent's view of `read-failures`
     ;; therefore reflects EVERY failure observed, not just the first.
     (config/set-allow-writes! true)
-    ;; rf2-0wrud (2026-05-20): wrap each `:rf.assert/*` event vector as a
-    ;; `[:dispatch-sync ...]` step inside `:play-script`. The runner walks
-    ;; both steps even if the first one's assertion fails — record-don't-
-    ;; throw lets the play sequence complete and both records land on
-    ;; `[:rf.story/assertions]` for `read-failures` to surface.
+    ;; Wrap each `:rf.assert/*` event vector as a `[:dispatch-sync ...]`
+    ;; step inside `:script` (the public phase-4 play surface). The runner
+    ;; walks both steps even if the first one's assertion fails —
+    ;; record-don't-throw lets the play sequence complete and both records
+    ;; land on `[:rf.story/assertions]` for `read-failures` to surface.
     (let [reg (invoke "register-variant"
                       {:variant-id "story.auth/double-fail"
                        :body (str "{:doc \"Two failing assertions; both must record.\""
-                                  " :events []"
-                                  " :play-script"
+                                  " :script"
                                   " [[:dispatch-sync"
                                   "   [:rf.assert/path-equals [:auth :status] :authenticated]]"
                                   "  [:dispatch-sync"
@@ -926,7 +986,7 @@
     (let [run (invoke "run-variant" {:variant-id "story.auth/double-fail"})
           s   (:structuredContent run)]
       (is (success? run))
-      (is (false? (:passing? s)))
+      (is (= :fail (:status s)))
       (is (= 2 (count (:assertions s)))
           "BOTH assertions recorded — the play sequence ran to completion despite the first fail"))
 
@@ -1975,15 +2035,19 @@
 ;; produce (the leak exists regardless of WHICH view renders the secret).
 
 (defn- secret-bearing-run-result
-  "A `run-variant`-shaped result whose :app-db carries the secret at a
+  "A unified-run-result-shaped value whose :app-db carries the secret at a
   declared-sensitive path AND whose derived trees re-embed the same value
-  at non-app-db positions."
+  at non-app-db positions. Carries the unified `:status` / `:checks`
+  slots (rf2-ba86n.17) so it is a faithful stand-in for what
+  `story/run-variant` actually returns."
   [vid]
-  {:frame          vid
-   :lifecycle      :ok
+  {:status         :pass
+   :frame          vid
+   :lifecycle      :ready
    :elapsed-ms     1
    :app-db         {:public "ok" :token "TOPSECRET"}
    :assertions     []
+   :checks         []
    :rendered-hiccup [:input {:type "password" :value "TOPSECRET"}]
    :effective-args {:label "Save" :token "TOPSECRET"}
    :snapshot       {:db {:token "TOPSECRET"}}})
@@ -2061,8 +2125,8 @@
         (is (success? r))
         (is (= 1 (:total s)) "only the non-sensitive record survives")
         (is (empty? (:failures s)) "the sensitive failure is filtered out")
-        (is (true? (:passing? s))
-            ":passing? runs against the scrubbed vec — agent's view is consistent")))))
+        (is (= :pass (:status s))
+            ":status aggregates the scrubbed vec — agent's view is consistent; a dropped sensitive failure doesn't flip the verdict")))))
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (testing ":include-sensitive true preserves sensitive records"
@@ -2082,7 +2146,7 @@
         (is (success? r))
         (is (= 2 (:total s)) "both records survive the egress")
         (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
-        (is (false? (:passing? s)) "the visible failure flips :passing?")))))
+        (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing :app-db or assertions accepts :include-sensitive"

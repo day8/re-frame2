@@ -32,8 +32,12 @@
 //      preview tool; assert a :lifecycle key surfaces (ex-live-server
 //      smoke #2)
 //   6. run-variant — exercise lifecycle via the testing-category tool,
-//      assert :passing?=true
-//   7. read-failures — zero failures expected
+//      assert the UNIFIED run-result shape (:status === "pass" for the
+//      vacuous run; the retired :passing? boolean is gone — rf2-ba86n.17)
+//   7. read-failures — zero failures, run :status surfaces (unified shape)
+//   7b. explain-variant — the human Explain panel's data mirror; assert
+//      the source-chain / merge / runner-requirement slots round-trip
+//      (rf2-ba86n.17)
 //   8. snapshot-identity — same args ⇒ stable content-hash twice in a
 //      row (ex-live-server smoke #3)
 //   9. record-as-variant — zero-duration capture; proves the recorder
@@ -265,8 +269,10 @@ runWithWatchdog(
     }
     console.log('OK   preview-variant -> lifecycle=' + prevStruct.lifecycle);
 
-    // 6. run-variant — exercise lifecycle; vacuous pass since :play
-    // is empty.
+    // 6. run-variant — exercise lifecycle; vacuous pass since :script
+    // is empty. The UNIFIED run-result (rf2-ba86n.17 clean break) returns
+    // the top-level :status verdict + unified :assertions records (each
+    // with a :status) + :checks — NOT the retired :passing? boolean.
     const runResp = await client.callTool({
       name: 'run-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -278,15 +284,24 @@ runWithWatchdog(
     if (!Array.isArray(runStruct.assertions)) {
       throw new Error('run-variant :assertions not an array: ' + JSON.stringify(runResp));
     }
-    if (runStruct['passing?'] !== true) {
+    if (!Array.isArray(runStruct.checks)) {
+      throw new Error('run-variant :checks not an array: ' + JSON.stringify(runResp));
+    }
+    if (runStruct.status !== 'pass') {
       throw new Error(
-        'run-variant :passing? expected true (vacuous pass); got: ' + JSON.stringify(runResp),
+        'run-variant :status expected "pass" (vacuous pass); got: ' + JSON.stringify(runResp),
       );
     }
-    console.log('OK   run-variant -> :passing?=true, assertions=[] (vacuous pass)');
+    if ('passing?' in runStruct) {
+      throw new Error(
+        'run-variant must NOT carry the retired :passing? boolean (clean break); got: ' +
+          JSON.stringify(runResp),
+      );
+    }
+    console.log('OK   run-variant -> :status="pass", assertions=[], checks=[] (vacuous pass)');
 
     // 7. read-failures — zero failures expected after a vacuous-pass
-    // run.
+    // run; the run :status surfaces on the unified shape (not :passing?).
     const failResp = await client.callTool({
       name: 'read-failures',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -303,7 +318,49 @@ runWithWatchdog(
         'read-failures :failures expected empty vector; got: ' + JSON.stringify(failResp),
       );
     }
-    console.log('OK   read-failures -> total=0, failures=[]');
+    if (failStruct.status !== 'pass') {
+      throw new Error(
+        'read-failures :status expected "pass" (vacuous); got: ' + JSON.stringify(failResp),
+      );
+    }
+    if ('passing?' in failStruct) {
+      throw new Error(
+        'read-failures must NOT carry the retired :passing? boolean (clean break); got: ' +
+          JSON.stringify(failResp),
+      );
+    }
+    console.log('OK   read-failures -> total=0, failures=[], :status="pass"');
+
+    // 7b. explain-variant — the agent mirror of the human Explain panel
+    // (rf2-ba86n.17). Assert the source-chain / merge / runner-requirement
+    // slots round-trip — a structuredContent shape pin, exactly like the
+    // existing reads. New net-additive Docs tool over story/explain.
+    const explainResp = await client.callTool({
+      name: 'explain-variant',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (explainResp.isError) {
+      throw new Error('explain-variant failed: ' + JSON.stringify(explainResp));
+    }
+    const explainStruct = structured(explainResp);
+    const explain = explainStruct.explain;
+    if (!explain || typeof explain !== 'object') {
+      throw new Error(
+        'explain-variant :explain not an object: ' + JSON.stringify(explainResp),
+      );
+    }
+    if (!Array.isArray(explain['source-chain']) || explain['source-chain'].length === 0) {
+      throw new Error(
+        'explain-variant :explain missing :source-chain: ' + JSON.stringify(explainResp),
+      );
+    }
+    if (typeof explain.merge !== 'object' || !('required-runner' in explain)) {
+      throw new Error(
+        'explain-variant :explain missing :merge / :required-runner slots: ' +
+          JSON.stringify(explainResp),
+      );
+    }
+    console.log('OK   explain-variant -> source-chain + merge + required-runner round-trip');
 
     // 8. snapshot-identity — same args ⇒ same content-hash. Absorbed
     // from live-server.js (rf2-2mx0q): proves the stable-hash identity
