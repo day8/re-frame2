@@ -22,6 +22,12 @@ The registrar matters. Views, machines, routes, schemas, and runtime metadata ar
 
 The trace matters. Xray, Story, MCP tools, test artifacts, and debugging all depend on structured evidence from the runtime.
 
+## The devtools moved house
+
+In v1, a lot of debugging muscle memory lived around re-frame-10x and browser-side inspection. In v2, that job moves into Xray and the Story surface around it: Xray reads epochs, traces, app-db diffs, subscriptions, renders, machines, routing, and issues from the runtime instead of reconstructing the scene from the outside.
+
+That sounds like a tooling detail until you hit a production-shaped bug at 4:47 p.m. and discover that the evidence is already organized by frame and epoch. Story can show the example or failing variant, while Xray explains what changed and why. The old habit was "open devtools and hunt"; the new habit is "open the evidence and follow the causality."
+
 ## Removed or renamed habits
 
 Some v1 surfaces are gone or tightened: broad globals, fuzzy keyword view lookup, older override names, and patterns that made multi-frame isolation ambiguous. The migration docs carry the full table. The guide-level rule is simpler: prefer explicit ids, explicit frames when crossing boundaries, and named effects at the edge.
