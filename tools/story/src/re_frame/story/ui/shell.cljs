@@ -70,6 +70,7 @@
             [re-frame.story.ui.dispatch-console :as dispatch-console]
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.element-inspector :as element-inspector]
+            [re-frame.story.ui.explain-panel :as explain-panel]
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.keybindings :as keybindings]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
@@ -573,6 +574,31 @@
                        :letter-spacing "0.04em"}}
         "diagnostic"]]
       [xray-embed/xray-embed-panel]]
+     ;; rf2-ba86n.9 — Explain panel. The Story-owned provenance +
+     ;; lowering surface over `story/explain` data (spec/020 §4). Sits
+     ;; directly under the Xray embed: same RHS inspector rail, but a
+     ;; STATIC-plan lens (where did this plan come from / how was it
+     ;; lowered) versus Xray's RUNTIME diagnostics. It consumes the pure
+     ;; plan compiler's `:explain` map and pulls NO Xray symbol — the
+     ;; two never share code (spec/020 §1.2 + §4 Xray-independence).
+     ;;
+     ;; Gated on a focused variant (the explain map is per-variant) and
+     ;; the `:explain` visibility slot. The slot defaults to ON when
+     ;; unset (nil) so the inspector entry is reachable out of the box;
+     ;; the command palette's `Explain variant` command flips it on +
+     ;; scrolls here when the user has toggled it off.
+     (when (and variant-id
+                (not (false? (get vis explain-panel/panel-key)))) ;; nil/true → show
+       [:section {:id (explain-panel/anchor-id)
+                  :style (:rhs-section styles)
+                  :data-rf-rhs-section "explain"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Explain"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "provenance + lowering"]]
+        [explain-panel/explain-panel]])
      (when (:controls vis)
        [:section {:style (:rhs-section styles)
                   :data-rf-rhs-section "controls"}
