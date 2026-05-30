@@ -2,7 +2,7 @@
 
 > The Story `:docs` mode as curated, executable variant documentation
 > with evidence excerpts; and the **human-facing egress** surface — share
-> URLs, static export, copied EDN, screenshots, and promoted variants —
+> URLs, static export, copied EDN, and screenshots —
 > shipping freely and each labelled with its **reproducibility status**
 > (fully / partially / view-only) so a recipient knows what they can
 > replay. This spec **extends** [`008-Docs-Mode.md`](008-Docs-Mode.md)
@@ -145,8 +145,14 @@ is not the goal (the reframe). The human egress commands are:
 - share URL;
 - static build (`story:build`);
 - copied EDN;
-- screenshots;
-- promoted variants.
+- screenshots.
+
+Promotion (turning a captured run artifact into a named variant) is NOT in
+this set: it is registrar-WRITE authoring owned by
+[`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md)
+§3, not an outbound artifact. A promoted variant becomes a first-class
+registered variant that is then shareable through the four egress commands
+above.
 
 Each of these MUST be **enabled and working** — none is disabled pending a
 redaction seam, and none is fronted with a "are you sure this is
@@ -222,8 +228,8 @@ The docs-and-share contract is satisfied when:
 - evidence excerpts are a curated pointer into the evidence spine, not a
   second evidence renderer;
 - the human egress commands (share URL, static build, copy EDN,
-  screenshot, promoted variants) ship enabled and are NOT privacy-gated —
-  no "is this sensitive?" friction on egress of the dev's own app;
+  screenshot) ship enabled and are NOT privacy-gated — no "is this
+  sensitive?" friction on egress of the dev's own app;
 - every human egress command states the artifact's reproducibility status
   (fully / partially / view-only) and, where partial or view-only, says
   WHAT made it so;

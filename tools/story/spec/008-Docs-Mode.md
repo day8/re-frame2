@@ -9,7 +9,9 @@
 > The Story-UI docs contract carries this read-only pane forward and adds
 > evidence excerpts, fidelity / world-input / runner / frame-binding
 > chips, a view-arg schema table, test + visual/a11y status summaries,
-> and the common egress redaction seam for share / static / copy.
+> and the human share / export surface (share URL, copy EDN, screenshot,
+> static build) — shipping freely and each labelled with its
+> reproducibility status (fully / partially / view-only).
 
 ## Why a dedicated docs pane
 
