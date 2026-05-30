@@ -84,6 +84,7 @@
             [re-frame.story.ui.test-mode.pure          :as pure]
             [re-frame.story.ui.test-mode.state         :as state]
             [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
+            [re-frame.story.ui.test-mode.visual-a11y-view :as visual-a11y-view]
             [re-frame.story.ui.test-mode.view-styles   :refer [styles]]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -683,6 +684,14 @@
             [rows-section variant-id]
             [schema-section variant-id]
             [cannot-run-section variant-id]
+            ;; rf2-ba86n.15 — visual + a11y check RESULTS (spec/021 §4).
+            ;; Reads the browser-tier oracle records (structural-a11y /
+            ;; axe-a11y / visual-snapshot) off the SAME unified `:assertions`
+            ;; slot and presents them readably (violations as a
+            ;; finding+locus list; screenshot identity; honest cannot-run),
+            ;; rather than as the raw `:actual` EDN blob the generic
+            ;; assertions table would show.
+            [visual-a11y-view/visual-a11y-section variant-id]
             ;; rf2-ba86n.11 — result → evidence-spine link (spec/021 §2),
             ;; a graceful "evidence pending" until the spine display lands.
             [evidence-section variant-id]
