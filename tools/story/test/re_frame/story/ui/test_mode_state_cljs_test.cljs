@@ -12,7 +12,7 @@
   platform pure assertions on `assertion-row :row-key` live in
   `re-frame.story-ui-test` (JVM)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.epoch :as epoch]
+            [re-frame.core :as rf]
             [re-frame.story.ui.test-mode.state :as tm-state]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -37,11 +37,11 @@
       (swap! tm-state/results-atom assoc variant-id
              {:running?  true
               :epoch-ids epoch-ids})
-      (with-redefs [epoch/restore-epoch (fn [vid eid]
-                                          (swap! restored conj [vid eid]))]
+      (with-redefs [rf/restore-epoch (fn [vid eid]
+                                       (swap! restored conj [vid eid]))]
         (tm-state/select-step! variant-id 1))
       (is (= [] @restored)
-          "epoch/restore-epoch is not called while :running? is true")
+          "rf/restore-epoch is not called while :running? is true")
       (is (nil? (get-in @tm-state/results-atom [variant-id :selected-step]))
           ":selected-step is NOT mutated while :running? is true — preserving
            the prior scrubber position so the post-resolve render is
@@ -57,8 +57,8 @@
       (swap! tm-state/results-atom assoc variant-id
              {:running?  false
               :epoch-ids epoch-ids})
-      (with-redefs [epoch/restore-epoch (fn [vid eid]
-                                          (swap! restored conj [vid eid]))]
+      (with-redefs [rf/restore-epoch (fn [vid eid]
+                                       (swap! restored conj [vid eid]))]
         (tm-state/select-step! variant-id 1))
       (is (= [[variant-id :epoch/b]] @restored)
           "the idle path still calls restore-epoch against the targeted slot")
