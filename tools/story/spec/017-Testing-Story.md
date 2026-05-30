@@ -689,7 +689,7 @@ a future assertion explicitly opts into override-source semantics).
 **Override schema-validation (rf2-7pgiz fold-in).** When an override HIT
 targets a sub that declares an output `:schema`, the pinned value is
 validated against that schema (dev-only, through the same registered
-validator [010 §`:sub-return`](../../spec/010-Schemas.md#validation-order-on-event-processing)
+validator [010 §`:sub-return`](../../../spec/010-Schemas.md#validation-order-on-event-processing)
 uses). A violating override emits `:rf.error/schema-validation-failure
 :where :sub-override` and surfaces `nil` (mirroring `:sub-return`'s
 `:replaced-with-default`). This closes the "pin a state the real
