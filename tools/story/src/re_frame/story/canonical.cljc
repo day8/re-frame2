@@ -57,10 +57,10 @@
 #?(:cljs
    (defn- render-host-scope
      "A Reagent component that renders the active `:view` under the host
-     substrate — wrapped in the variant's `:hiccup` decorators — binding the
-     resolved `:sub-overrides` for the render extent (the same pattern the
-     canvas's `sub-overrides-scope` uses); the binding never touches app-db /
-     `compute-sub`.
+     substrate — wrapped in the variant's `:hiccup` decorators — inside the
+     override-context Provider carrying the resolved `:sub-overrides` (the
+     same carriage the canvas's `sub-overrides-scope` uses); the override
+     never touches app-db / `compute-sub`.
 
      Per rf2-hzhmv / rf2-ba86n.8 the host paints through the SHARED
      `ui-multi-substrate/render-decorated-view` seam the canvas single-pane
@@ -71,19 +71,17 @@
      (theme/provider/chrome dropped); now `render-variant` and the live shell
      paint the SAME decorated tree.
 
-     NOTE (rf2-7pgiz): the `:sub-overrides` binding is currently INERT — a
-     design variant's pinned sub values do NOT yet surface to a
-     normally-authored view. No subscribe seam consults `*overrides*`, and
-     the dynamic binding established here does not survive into the view's
-     deferred React render (the view's `@(rf/subscribe)` runs in its own
-     reaction, after this binding has unwound). Surfacing the override at
-     render needs a core subscribe shim — pinned + surfaced under rf2-7pgiz.
-     See `re-frame.story.sub-overrides` ns docstring §STATUS."
+     rf2-7pgiz: the `:sub-overrides` carriage is a React CONTEXT, not a
+     dynamic var — the var does not survive into the view's deferred React
+     render (the view's `@(rf/subscribe)` runs in its own reaction). A
+     descendant subscribe reads the override at deref time via the
+     `:subs/resolve-sub-override` core hook (consulted dev-only inside
+     `subscribe`'s `interop/debug-enabled?` gate). See
+     `re-frame.story.sub-overrides` ns docstring §STATUS."
      [{:keys [view frame effective-args sub-overrides decorators]}]
-     (sub-overrides/with-overrides* sub-overrides
-       (fn []
-         (ui-multi-substrate/render-decorated-view
-           :reagent frame view effective-args decorators)))))
+     (sub-overrides/override-provider sub-overrides
+       (ui-multi-substrate/render-decorated-view
+         :reagent frame view effective-args decorators))))
 
 #?(:cljs
    (defn- install-render-host!
@@ -94,8 +92,9 @@
      fn, wrapped in the variant's `:hiccup` decorators via the SHARED
      `re-frame.story.ui.multi-substrate/render-decorated-view` seam the
      canvas single-pane path also uses (rf2-hzhmv / rf2-ba86n.8), inside the
-     `render-host-scope` component so the resolved `:sub-overrides` bind at
-     React render time (spec/017 §View-state subscription overrides). The
+     `render-host-scope` component so the resolved `:sub-overrides` surface
+     at React render time via the override-context carriage (rf2-7pgiz;
+     spec/017 §View-state subscription overrides). The
      result is a hiccup tree (the Reagent default) — the SAME decorated
      render the canvas paints, so render-variant and the live shell agree.
 
