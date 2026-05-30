@@ -162,6 +162,66 @@
         (is (= 1 (:idx out)))
         (is (= step (:step out)))))))
 
+;; ---- CLJS+JVM: terminal assertions auto-run (rf2-nyjoa) -----------------
+;;
+;; `run-terminal-assertions!` is the lifecycle entry the runtime calls after
+;; the script phase settles. It reuses the ONE in-script executor
+;; (`exec-assert!`) per terminal atom, so a handler-backed atom records its
+;; verdict on `:rf.story/assertions` (same path the checkpoints use) and a
+;; tape-evaluated atom is NEVER dispatched (no double-processing). Exercised
+;; directly here on a live bridge frame on both runtimes.
+
+(defn- seed-db!
+  "Merge `m` into `bridge-frame`'s app-db via a real dispatch-sync, so the
+  terminal assertion has a FINAL settled state to read."
+  [m]
+  (rf/dispatch-sync [::seed-db m] {:frame bridge-frame})
+  (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+
+(deftest run-terminal-assertions-records-handler-backed-pass-and-fail
+  (testing "run-terminal-assertions! dispatches each handler-backed terminal
+            atom through the ONE executor, recording the canonical pass/fail
+            record on :rf.story/assertions — no parallel evaluator"
+    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (seed-db! {:status :loaded})
+    (re/run-terminal-assertions!
+      bridge-frame
+      [[:rf.assert/path-equals [:status] :loaded]    ; passes
+       [:rf.assert/path-equals [:status] :idle]])    ; fails
+    (let [recs (vec (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+          pe   (filterv #(= :rf.assert/path-equals (:assertion %)) recs)]
+      (is (= 2 (count pe)) "both handler-backed terminal atoms recorded")
+      (is (true?  (:passed? (first pe)))  "the matching expectation passed")
+      (is (false? (:passed? (second pe))) "the mismatching expectation failed"))))
+
+(deftest run-terminal-assertions-skips-tape-evaluated-no-double-process
+  (testing "a tape-evaluated terminal atom (:rf.assert/schema-error) is NOT
+            dispatched by run-terminal-assertions! — it carries no
+            reg-event-fx handler; the result boundary owns its verdict
+            against the tape, so no handler-backed record is minted here
+            (rf2-nyjoa critical guard against double-processing)"
+    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (seed-db! {:status :loaded})
+    (re/run-terminal-assertions!
+      bridge-frame
+      [[:rf.assert/path-equals [:status] :loaded]
+       [:rf.assert/schema-error {:where :event :event :some/evt}]])
+    (let [recs (vec (:rf.story/assertions (rf/get-frame-db bridge-frame)))]
+      (is (= 1 (count (filterv #(= :rf.assert/path-equals (:assertion %)) recs)))
+          "the handler-backed atom recorded exactly once")
+      (is (empty? (filterv #(= :rf.assert/schema-error (:assertion %)) recs))
+          "the tape-evaluated schema-error atom minted NO record here —
+           it is not dispatched (no double-processing)"))))
+
+(deftest run-terminal-assertions-empty-is-noop
+  (testing "run-terminal-assertions! with no atoms records nothing"
+    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (seed-db! {:status :loaded})
+    (re/run-terminal-assertions! bridge-frame [])
+    (re/run-terminal-assertions! bridge-frame nil)
+    (is (empty? (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+        "an empty / nil terminal-assertions vector is a clean no-op")))
+
 ;; ---- CLJS-runnable: pure-data coverage of the script lift ---------------
 ;;
 ;; (rf2-uhq5j) the former `bare-event-vector-lift-via-coerce` test here

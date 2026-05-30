@@ -887,9 +887,42 @@ the epoch-narrative work consumes).
 
 An assertion inside `:script` (via `[:assert …]`) is a **checkpoint**: it
 must be true at that exact point in the script. An assertion in
-`:assertions` is **terminal**: it runs after script completion. The same
+`:assertions` is **terminal**: it **AUTO-RUNS** after script completion and
+contributes a `:pass` / `:fail` verdict to the run result. The same
 expectation SHOULD NOT be duplicated in both places unless the timing
 distinction matters.
+
+**Terminal `:assertions` auto-run against the FINAL settled state.** After
+the script phase settles (after the auto-plays complete, or — for a variant
+with no script — after setup settles), the runtime EVALUATES every terminal
+`:assertions` entry and records its verdict as an assertion record on the
+frame's `:rf.story/assertions` slot, exactly like an in-script `[:assert …]`
+checkpoint. The two positions differ only in *when* the verdict runs:
+terminal = "check the FINAL settled state" (post-script), checkpoint =
+"check here, now" (at that exact script position). There is no
+"doc/explain-only" terminal assertion — a terminal `:assertions` entry is a
+live expectation that passes or fails the run.
+
+Terminal assertions route through the SAME executor the in-script
+checkpoints use, so they evaluate by the SAME family rules
+(§Script step runner, `[:assert …]`):
+
+- **Handler-backed (dispatchable) atoms** (`:rf.assert/path-equals` /
+  `path-matches` / `sub-equals` / `dispatched?` / `state-is` /
+  `no-warnings` / `effect-emitted`) are DISPATCHED into the frame; the
+  reg-event-fx handler records the canonical record.
+- **DOM-family atoms** are evaluated by the DOM executor (`:cannot-run`
+  under a headless runner).
+- **Tape-evaluated atoms** (`:rf.assert/schema-error`, the causal / cascade
+  family, the browser-tier oracle family) are NOT dispatched here — they are
+  minted by the result boundary against the epoch tape (§Schema rule,
+  §Causal and cascade assertions, §Visual, a11y, and browser checks), so the
+  terminal auto-run records a no-op for them and does NOT double-process the
+  verdict.
+
+This applies equally to **registered variants** and **inline plans** — both
+source their terminal atoms from the compiled plan's `[:expect :assertions]`
+and run them through the one terminal-assertion lifecycle step.
 
 ## Composition
 

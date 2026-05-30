@@ -749,6 +749,64 @@
       :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
       (runner/unknown-step idx step))))
 
+;; ---- terminal assertions (rf2-nyjoa) -------------------------------------
+;;
+;; A variant's terminal `:assertions` are the handler-backed "check the
+;; FINAL settled state" surface (spec/017 §Inline script assertions vs
+;; terminal assertions): each is the SAME assertion atom an in-script
+;; `[:assert …]` checkpoint wraps, but evaluated ONCE after the script
+;; phase has settled rather than at a mid-script point. Mike RULED B
+;; (rf2-nyjoa): they AUTO-RUN — they contribute `:pass` / `:fail` verdicts
+;; recorded as assertion-records on `:rf.story/assertions`, exactly like an
+;; in-script checkpoint.
+;;
+;; This reuses the ONE in-script executor (`exec-assert!`) rather than a
+;; parallel evaluator: each terminal atom is wrapped in its `[:assert …]`
+;; checkpoint shape and run through `exec-assert!`, which routes by atom
+;; family precisely as the mid-script position does —
+;;
+;;   - handler-backed atoms (`:rf.assert/path-equals` / `path-matches` /
+;;     `sub-equals` / `dispatched?` / `state-is` / `no-warnings` /
+;;     `effect-emitted`) are DISPATCHED through `settled-boundary`; the
+;;     reg-event-fx handler records the canonical record on the slot;
+;;   - DOM-family atoms are evaluated by the DOM executor;
+;;   - tape-evaluated atoms (`:rf.assert/schema-error`, the causal / cascade
+;;     family, the browser-tier oracle family) record a no-op step-skip and
+;;     are NEVER dispatched — the result boundary owns their verdict against
+;;     the epoch tape. So this path does NOT double-process the schema /
+;;     causal kinds the plan collector already feeds to `result/run-result`'s
+;;     tape matchers (rf2-nyjoa critical guard — the `exec-assert!`
+;;     `tape-evaluated-assertion?` branch is the single source of truth for
+;;     that split).
+
+(defn run-terminal-assertions!
+  "Evaluate `frame-id`'s terminal handler-backed `:assertions` against the
+  FINAL settled state, AFTER the script phase (rf2-nyjoa). `atoms` is the
+  plan's `[:expect :assertions]` vector — the bare assertion atoms
+  (`[:rf.assert/id & args]`), the same atoms an in-script `[:assert …]`
+  checkpoint wraps.
+
+  Each atom is wrapped in its canonical `[:assert atom]` checkpoint shape
+  and run through the ONE in-script executor (`exec-assert!`), so the
+  verdict lands on `:rf.story/assertions` via the SAME recording path the
+  mid-script checkpoints use — no parallel evaluator, no second record
+  shape. The per-atom step-results are discarded (terminal assertions are
+  not a runner step stream; their verdict is the slot record
+  `record-result-map` / `result/run-result` folds into the unified status).
+
+  The tape-evaluated families (schema-error / causal / browser-tier) carry
+  no reg-event-fx handler; `exec-assert!` records a no-op step-skip for them
+  and never dispatches — the result boundary already evaluates them against
+  the epoch tape from the plan, so they are NOT double-processed here.
+
+  Idempotent w.r.t. an empty / nil `atoms` (no-op). Production callers
+  (Story disabled) no-op."
+  [frame-id atoms]
+  (when (and config/enabled? (seq atoms))
+    (doseq [[idx atom-v] (map-indexed vector atoms)]
+      (exec-assert! frame-id idx [:assert atom-v])))
+  nil)
+
 ;; ---- single-step driver (rf2-ee38b.3 — step-debugger re-base) ------------
 ;;
 ;; The play step-debugger (`re-frame.story.ui.test-mode.stepper-state`)
