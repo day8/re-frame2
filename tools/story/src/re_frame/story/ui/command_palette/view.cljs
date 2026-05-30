@@ -4,6 +4,7 @@
             [reagent.core :as r]
             [re-frame.story.config :as config]
             [re-frame.story.ui.command-palette :as palette]
+            [re-frame.story.ui.explain-panel :as explain-panel]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.toolbar :as toolbar]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]))
@@ -24,12 +25,21 @@
 (defn select-entry!
   "Apply a palette entry to shell state, then return true when handled.
 
-  Variants and workspaces are navigable. Stories jump to their first
-  registered child variant when one exists. Modes reuse the toolbar
-  toggle so persistence stays in one place. Decorators are registry
-  data only in the MVP, so selecting them simply closes the palette."
+  Commands run a UI action (e.g. open the Explain panel). Variants and
+  workspaces are navigable. Stories jump to their first registered
+  child variant when one exists. Modes reuse the toolbar toggle so
+  persistence stays in one place. Decorators are registry data only in
+  the MVP, so selecting them simply closes the palette."
   [entry]
   (case (:kind entry)
+    :command
+    (do
+      (case (:action entry)
+        ;; rf2-ba86n.9 — open the Explain panel + scroll it into view.
+        :explain (explain-panel/open!)
+        nil)
+      true)
+
     :variant
     (do
       (state/swap-state!

@@ -4,14 +4,30 @@
             [re-frame.story.predicates :as pred]))
 
 (def searchable-kinds
-  [:story :variant :workspace :mode :decorator])
+  [:command :story :variant :workspace :mode :decorator])
 
 (def kind-labels
-  {:story     "Story"
+  {:command   "Command"
+   :story     "Story"
    :variant   "Variant"
    :workspace "Workspace"
    :mode      "Mode"
    :decorator "Decorator"})
+
+(def commands
+  "Synthetic palette entries that run a UI action rather than navigate
+  the registry (rf2-ba86n.9). Each carries an `:action` keyword the
+  impure `select-entry!` dispatches. Kept tiny + data-only so the JVM
+  search corpus can rank them alongside registry entries; the action →
+  side-effect mapping lives in the CLJS view.
+
+  - `:explain` — open the Explain panel (provenance + lowering over
+    `story/explain`) and scroll it into view. Reachable here AND from
+    the RHS inspector rail per spec/020 §4."
+  [{:kind   :command
+    :id     :explain
+    :action :explain
+    :doc    "Explain variant — source chain, merges, substitutions, lowering"}])
 
 (defn- doc-text [body]
   (let [doc (:doc body)]
@@ -36,33 +52,55 @@
        sort
        vec))
 
+(def ^:private registry-kinds
+  "The `searchable-kinds` that resolve to a registry slot — i.e. all
+  except the synthetic `:command` kind, which is folded in separately."
+  [:story :variant :workspace :mode :decorator])
+
+(defn command-entries
+  "Build the synthetic command entries (rf2-ba86n.9) in palette-entry
+  shape. Pure data → data so the search corpus can include them."
+  []
+  (mapv (fn [{:keys [kind id action doc]}]
+          {:kind       kind
+           :kind-label (get kind-labels kind (name kind))
+           :id         id
+           :id-label   (id-text id)
+           :action     action
+           :doc        (or doc "")})
+        commands))
+
 (defn entries
   "Build palette entries from a `state/registry-snapshot` map.
 
-  Stories include their child variants so the impure selector can jump
-  to the first concrete variant when a story row is chosen."
+  Synthetic `:command` entries (e.g. `Explain variant`) lead the list
+  so an action like `explain` is one keystroke away; registry entries
+  follow. Stories include their child variants so the impure selector
+  can jump to the first concrete variant when a story row is chosen."
   [snapshot]
   (let [variants (:variants snapshot)]
-    (->> searchable-kinds
-         (mapcat
-           (fn [kind]
-             (let [slot (case kind
-                          :story     :stories
-                          :variant   :variants
-                          :workspace :workspaces
-                          :mode      :modes
-                          :decorator :decorators)]
-               (map (fn [[id body]]
-                      (cond-> {:kind        kind
-                               :kind-label  (get kind-labels kind (name kind))
-                               :id          id
-                               :id-label    (id-text id)
-                               :doc         (doc-text body)
-                               :body        body}
-                        (= kind :story)
-                        (assoc :variant-ids (variants-for-story variants id))))
-                    (sort-by (comp str first) (get snapshot slot {}))))))
-         vec)))
+    (into
+      (command-entries)
+      (->> registry-kinds
+           (mapcat
+             (fn [kind]
+               (let [slot (case kind
+                            :story     :stories
+                            :variant   :variants
+                            :workspace :workspaces
+                            :mode      :modes
+                            :decorator :decorators)]
+                 (map (fn [[id body]]
+                        (cond-> {:kind        kind
+                                 :kind-label  (get kind-labels kind (name kind))
+                                 :id          id
+                                 :id-label    (id-text id)
+                                 :doc         (doc-text body)
+                                 :body        body}
+                          (= kind :story)
+                          (assoc :variant-ids (variants-for-story variants id))))
+                      (sort-by (comp str first) (get snapshot slot {}))))))
+           vec))))
 
 (defn normalize-query [query]
   (-> (or query "")
@@ -112,6 +150,7 @@
         (when (every? some? scores)
           (+ (reduce + scores)
              (case (:kind entry)
+               :command   9
                :variant   8
                :workspace 7
                :story     6
