@@ -294,3 +294,55 @@
            (is (= 0 (:setup-count draft)) "conservative cut — whole program is behaviour")
            (is (= :story.counter/happy (:extends draft))
                "extends the origin variant for component/decorator inheritance"))))))
+
+;; ===========================================================================
+;; CLJS-only: the promote-confirmation gate is part of the dialog lifecycle
+;; (rf2-lc0cp) — `mark-promoted!` records the green confirmation; `open!`
+;; resets it so a freshly-opened artifact ALWAYS reads as un-promoted.
+;; ===========================================================================
+
+#?(:cljs
+   (deftest mark-promoted-gates-confirmation-and-open-resets-it
+     (testing "the confirmation shows after mark-promoted! and clears on open!"
+       (reset! ui-promo/captured-atom {})
+       (reset! ui-promo/dialog-atom ui-promo/initial-dialog-state)
+       (let [art-a (artifact/make-run-artifact
+                     {:event-program [[:dispatch [:counter/inc]]]
+                      :seed          1 :result {:status :fail}})
+             art-b (artifact/make-run-artifact
+                     {:event-program [[:dispatch [:counter/dec]]]
+                      :seed          2 :result {:status :fail}})
+             id-a  (ui-promo/capture! art-a :story.counter/happy)
+             id-b  (ui-promo/capture! art-b :story.counter/happy)
+             comp  (ui-promo/promotion-dialog)
+             flat  #(str (comp))]
+         ;; --- promote A: confirmation appears ---
+         (ui-promo/open! id-a)
+         (is (not (str/includes? (flat) "story-promotion-confirmation"))
+             "a freshly-opened artifact reads as un-promoted")
+         (ui-promo/mark-promoted! :story.counter/regression-a)
+         (is (str/includes? (flat) "story-promotion-confirmation")
+             "after mark-promoted! the green confirmation renders")
+         (is (str/includes? (flat) "regression-a")
+             "the confirmation names the promoted id")
+         ;; --- open B: stale confirmation MUST NOT leak across (rf2-lc0cp) ---
+         (ui-promo/open! id-b)
+         (is (nil? (:promoted-id @ui-promo/dialog-atom))
+             "open! resets :promoted-id — B starts un-promoted")
+         (is (not (str/includes? (flat) "story-promotion-confirmation"))
+             "B shows NO stale 'Promoted to A' confirmation")
+         (is (not (str/includes? (flat) "regression-a"))
+             "no trace of A's promoted id on B's fresh dialog")))))
+
+#?(:cljs
+   (deftest close-resets-confirmation
+     (testing "close! clears a recorded confirmation as part of the lifecycle"
+       (reset! ui-promo/captured-atom {})
+       (reset! ui-promo/dialog-atom ui-promo/initial-dialog-state)
+       (let [id (ui-promo/capture! (sample-artifact) :story.counter/happy)]
+         (ui-promo/open! id)
+         (ui-promo/mark-promoted! :story.counter/regression-1)
+         (is (= :story.counter/regression-1 (:promoted-id @ui-promo/dialog-atom)))
+         (ui-promo/close!)
+         (is (nil? (:promoted-id @ui-promo/dialog-atom))
+             "close! returns the dialog to the idle, un-promoted state")))))

@@ -294,10 +294,15 @@
    (def initial-dialog-state
      "Idle promotion-dialog state. `:open?` flips true on `open!`; the
      `:artifact-id` / `:draft` slots populate as the author drives the
-     flow."
+     flow. `:promoted-id` holds the registered id after a successful promote
+     (it gates the green confirmation) — it lives on the dialog state, NOT a
+     component-local ratom, so `open!`/`close!` reset it as part of the
+     lifecycle and a freshly-opened artifact always reads as un-promoted
+     (rf2-lc0cp)."
      {:open?       false
       :artifact-id nil
-      :draft       nil}))
+      :draft       nil
+      :promoted-id nil}))
 
 #?(:cljs
    (defonce ^{:doc "Reagent ratom holding the promotion dialog state."}
@@ -334,15 +339,29 @@
      (when (and config/enabled? (contains? @captured-atom artifact-id))
        (let [entry (get @captured-atom artifact-id)
              now   (.now js/Date)]
+         ;; Full reset (incl. `:promoted-id nil`) — a freshly-opened artifact
+         ;; ALWAYS reads as un-promoted; no stale confirmation from a prior
+         ;; artifact's promote leaks across (rf2-lc0cp).
          (reset! dialog-atom
                  {:open?       true
                   :artifact-id artifact-id
-                  :draft       (entry->initial-draft entry now)})
+                  :draft       (entry->initial-draft entry now)
+                  :promoted-id nil})
          nil))))
 
 #?(:cljs
    (defn close! []
      (reset! dialog-atom initial-dialog-state)
+     nil))
+
+#?(:cljs
+   (defn mark-promoted!
+     "Record `promoted-id` as the registered variant id after a successful
+     promote — gates the green confirmation. Stored on the dialog state (not
+     a component-local ratom) so the next `open!`/`close!` clears it as part
+     of the lifecycle (rf2-lc0cp)."
+     [promoted-id]
+     (swap! dialog-atom assoc :promoted-id promoted-id)
      nil))
 
 #?(:cljs
@@ -573,48 +592,52 @@
      Public so tests can render the dialog hiccup directly after seeding the
      dialog + capture ratoms."
      []
-     (let [promoted (r/atom nil)]
-       (fn []
-         (let [dialog @dialog-atom]
-           (when (:open? dialog)
-             (let [{:keys [artifact-id draft]} dialog
-                   entry      (get @captured-atom artifact-id)
-                   artifact   (:artifact entry)]
-               (when artifact
-                 (let [snippet  (promotion-snippet artifact draft)
-                       has-id?  (some? (:variant-id draft))
-                       rv-state {:open?     true
-                                 :draft-id  (:variant-id draft)
-                                 :source-id (:extends draft)}]
-                   (review-dialog/review-dialog rv-state
-                     {:title  "Promote captured run artifact to regression variant"
-                      :hint   [:div
-                               [:div (str "Promoting captured artifact "
-                                          (pr-str artifact-id)
-                                          " (" (:label entry) "). This is DISTINCT "
-                                          "from save-current-state — the source is a "
-                                          "captured run, not the live canvas. The "
-                                          "original artifact stays as evidence.")]
-                               (curation-controls artifact draft)
-                               (when-let [pid @promoted]
-                                 (promote-confirmation pid))]
-                      :snippet           snippet
-                      :placeholder-id    :story.regression/example
-                      :placeholder-input ":story.your-story/regression-042"
-                      :on-edit-id        set-draft-id!
-                      :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
-                      ;; rf2-ba86n.13 — the PRIMARY action drives the
-                      ;; substrate's `promote-run-artifact!` register path
-                      ;; (review-dialog renders it as the accent button left
-                      ;; of 'copy'). Disabled until the draft carries a
-                      ;; promoted id (the substrate throws on a missing id).
-                      :primary           {:label     "promote to variant"
-                                          :disabled? (not has-id?)
-                                          :title     (if has-id?
-                                                       "Register this curated regression variant"
-                                                       "Name the variant first (edit the id above)")
-                                          :on-click  (fn []
-                                                       (when-let [pid (promote! artifact-id draft)]
-                                                         (reset! promoted pid)))}
-                      :on-close          close!
-                      :data-test-prefix  "story-promotion"}))))))))))
+     ;; form-2 (the render closes over the dialog ratom deref each pass). The
+     ;; promote-confirmation gate reads `:promoted-id` from `dialog-atom` — NOT
+     ;; a component-local ratom — so `open!`/`close!` reset it as part of the
+     ;; lifecycle and a freshly-opened artifact never inherits a prior promote's
+     ;; stale confirmation (rf2-lc0cp).
+     (fn []
+       (let [dialog @dialog-atom]
+         (when (:open? dialog)
+           (let [{:keys [artifact-id draft promoted-id]} dialog
+                 entry      (get @captured-atom artifact-id)
+                 artifact   (:artifact entry)]
+             (when artifact
+               (let [snippet  (promotion-snippet artifact draft)
+                     has-id?  (some? (:variant-id draft))
+                     rv-state {:open?     true
+                               :draft-id  (:variant-id draft)
+                               :source-id (:extends draft)}]
+                 (review-dialog/review-dialog rv-state
+                   {:title  "Promote captured run artifact to regression variant"
+                    :hint   [:div
+                             [:div (str "Promoting captured artifact "
+                                        (pr-str artifact-id)
+                                        " (" (:label entry) "). This is DISTINCT "
+                                        "from save-current-state — the source is a "
+                                        "captured run, not the live canvas. The "
+                                        "original artifact stays as evidence.")]
+                             (curation-controls artifact draft)
+                             (when-let [pid promoted-id]
+                               (promote-confirmation pid))]
+                    :snippet           snippet
+                    :placeholder-id    :story.regression/example
+                    :placeholder-input ":story.your-story/regression-042"
+                    :on-edit-id        set-draft-id!
+                    :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+                    ;; rf2-ba86n.13 — the PRIMARY action drives the
+                    ;; substrate's `promote-run-artifact!` register path
+                    ;; (review-dialog renders it as the accent button left
+                    ;; of 'copy'). Disabled until the draft carries a
+                    ;; promoted id (the substrate throws on a missing id).
+                    :primary           {:label     "promote to variant"
+                                        :disabled? (not has-id?)
+                                        :title     (if has-id?
+                                                     "Register this curated regression variant"
+                                                     "Name the variant first (edit the id above)")
+                                        :on-click  (fn []
+                                                     (when-let [pid (promote! artifact-id draft)]
+                                                       (mark-promoted! pid)))}
+                    :on-close          close!
+                    :data-test-prefix  "story-promotion"})))))))))
