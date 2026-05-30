@@ -55,6 +55,7 @@
   inert (the filter row owns interaction) — purely a scan affordance."
   (:require [clojure.string                   :as str]
             [reagent.core                     :as r]
+            [re-frame.story.budgets           :as budgets]
             [re-frame.story.runtime           :as runtime]
             [re-frame.story.async             :as async]
             [re-frame.story.registrar         :as registrar]
@@ -145,8 +146,12 @@
   SHOULD fail by summarizing and offering expansion, not by flooding the
   screen). Sized so a typical design-system story (a handful to a dozen
   variants) is never bounded, but a matrix-scale story stays scannable
-  until the author opts to expand it."
-  40)
+  until the author opts to expand it.
+
+  Single source of truth: `re-frame.story.budgets/sidebar-variant-cap`
+  (N1). This alias keeps the in-file call sites (`bound-variants … cap`)
+  textually stable while the number lives in one budget table."
+  budgets/sidebar-variant-cap)
 
 (defn bound-variants
   "Pure data → data: bound a story's variant seq to at most `cap` entries
@@ -177,8 +182,11 @@
   "How many captured artifacts the section shows before bounding with a
   '+N more' expander when the section is open. Captures accumulate across
   matrix / generated runs; the cap keeps the section scannable while a
-  re-frame.story.ui.promotion/forget! removes one for good."
-  20)
+  re-frame.story.ui.promotion/forget! removes one for good.
+
+  Single source of truth: `re-frame.story.budgets/captured-artifact-cap`
+  (N2)."
+  budgets/captured-artifact-cap)
 
 ;; ---- components ----------------------------------------------------------
 
