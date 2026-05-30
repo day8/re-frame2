@@ -7,6 +7,11 @@
 > downstream surface rf2-p0mv specifies; the contract rf2-wk41
 > (Backgrounds + Viewport addon UX) builds on.
 
+See [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §7.2 for
+the Story-UI toolbar contract: the five-cluster vocabulary (MODES, DATA,
+VIEW, DEBUG, REC) is preserved, and the DEBUG cluster carries the
+Story-to-Xray focus / explain / evidence-spine commands.
+
 ## Why a dedicated toolbar surface
 
 `reg-mode` (per [`001-Authoring.md`](001-Authoring.md) §reg-mode +

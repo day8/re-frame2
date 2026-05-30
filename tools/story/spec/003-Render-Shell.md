@@ -13,6 +13,14 @@ See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 chrome-identity token contracts (typography / colour / motion /
 backdrop / glyphs / toolbar 5-cluster) the shell composes.
 
+See [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) for the
+Story-UI product contract that composes this shell into the target
+workshop, and
+[`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+for the Inspector region and the single canonical statement of the
+Story/Xray ownership boundary (the right-hand Xray per-panel embed
+remains owned here).
+
 ## UI shell substrate
 
 Story's own UI shell (sidebar, control panel, embedded Xray inspector,

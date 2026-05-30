@@ -9,6 +9,14 @@
 > and Node test corpora compare against it so the spec text and the
 > running registry can't drift independently.
 
+> These tools are the agent entry points over the same variant / plan /
+> result / evidence model the human Story UI drives — not a second
+> artifact model. See the human-UI / MCP / skill mirroring crosswalk in
+> [`../../story/spec/020-Story-UI-Inspector-And-Xray.md`](../../story/spec/020-Story-UI-Inspector-And-Xray.md)
+> §1.3, and the egress-redaction parity requirement in
+> [`../../story/spec/022-Story-UI-Docs-And-Share.md`](../../story/spec/022-Story-UI-Docs-And-Share.md)
+> §4.
+
 Two deferred tool sections (`subscribe` / `unsubscribe` and
 `evaluate-cljs`) appear at the end of the Docs category for forward-
 visibility only; they are NOT in the shipped 19 and are explicitly

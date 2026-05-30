@@ -6,6 +6,11 @@
 > ship. The contract rf2-9hc8 implements; the surface rf2-rodx
 > (`:docs`) and rf2-qmjo (`:test`) build on.
 
+See [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §7.2 for
+the Story-UI mode model: the `:dev` / `:docs` / `:test` list stays
+closed (no fourth Evidence mode tab — evidence is a shared spine in the
+Inspector), and the toolbar axis stays separate from these mode tabs.
+
 ## Why a mode-tabs primitive
 
 Story already carries every substrate the three canonical modes need:
