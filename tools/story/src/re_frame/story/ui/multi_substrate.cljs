@@ -33,6 +33,7 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.args :as args]
+            [re-frame.story.decorators :as decorators]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -156,6 +157,78 @@
     (render-fn variant-id view-id eff-args)
     [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
      (str "substrate :" (name substrate) " is not registered")]))
+
+;; ---- shared decorate-and-render seam (rf2-hzhmv / rf2-ba86n.8) -----------
+;;
+;; The canvas single-pane path AND the `render-variant` host hook
+;; (`re-frame.story.canonical/render-host-scope`) paint the SAME variant
+;; through the SAME decorate-and-render seam, so a decorated variant looks
+;; identical on the live canvas and through `render-variant`. Before this
+;; consolidation only the canvas applied the variant's `:hiccup` decorators
+;; — the host hook rendered the BARE view (rf2-hzhmv), diverging from the
+;; canvas for any decorated variant. The decorator REFS both consume are the
+;; compiled plan's already-merged `[:world :decorators]` (the single merge
+;; authority, rf2-g74i9 / spec/017 §305-306), so the registered + inline
+;; paths agree too.
+
+(def ^:private decorator-error-styles
+  {:wrap   {:background (:danger-bg colors/tokens)
+            :border "1px solid #be4040"
+            :color (:danger colors/tokens)
+            :padding "8px"
+            :margin-top "8px"
+            :font-family mono-stack
+            :font-size (:caption typography/type-scale)
+            :border-radius "3px"}
+   :uncoated {:margin-top "8px"
+              :padding "8px"
+              :background (:bg-canvas colors/tokens)
+              :border "1px dashed #555"}})
+
+(defn safe-decorated-view
+  "Wrap `view-hiccup` with the `:hiccup`-kind `hiccup-decorators`, catching
+  any exception a `:wrap` fn throws so a decorator failure renders an inline
+  error block (with the bare view beneath it) rather than bubbling into a
+  render-tree crash that blanks the shell (IMPL-SPEC §2.2 / §5.5 — failures
+  render inline rather than aborting). `effective-args` is the resolved args
+  map every `:wrap` fn receives as `[body effective-args]`.
+
+  The ONE decorate primitive both the canvas single-pane path and the
+  `render-variant` host hook call, so the two agree on the decorated tree
+  (rf2-hzhmv / rf2-ba86n.8)."
+  [view-hiccup hiccup-decorators effective-args]
+  (try
+    (decorators/apply-hiccup-decorators hiccup-decorators view-hiccup effective-args)
+    (catch :default e
+      [:div {:style (:wrap decorator-error-styles)}
+       [:div "Decorator wrap threw — variant rendered without decorators."]
+       [:div {:style {:margin-top "4px"}} (str (.-message e))]
+       (when-let [ids (seq (keep :id hiccup-decorators))]
+         [:div {:style {:margin-top "4px" :color (:danger colors/tokens)}}
+          (str "decorators in stack: " (str/join ", " (map pr-str ids)))])
+       ;; Render the variant body itself uncoated so the user still sees
+       ;; *something* — the page never blanks on a decorator failure.
+       [:div {:style (:uncoated decorator-error-styles)} view-hiccup]])))
+
+(defn render-decorated-view
+  "Render `view-id` under `substrate` with `eff-args` (via `render-view`),
+  then wrap the result with the variant's `:hiccup` decorators resolved from
+  `decorator-refs` (the compiled plan's `[:world :decorators]`). This is the
+  single decorate-and-render seam (rf2-hzhmv / rf2-ba86n.8): the
+  `render-variant` host hook calls it so a render-variant render of a
+  decorated variant paints the SAME tree the live canvas paints.
+
+  `decorator-refs` is a vector of `[decorator-id & args]` refs (raw refs, as
+  the plan carries them); only the `:hiccup`-kind decorators wrap the view —
+  `:frame-setup` / `:fx-override` decorators are frame concerns applied at
+  allocate time, not view-wrapping. A nil/empty `decorator-refs` is
+  render-transparent (the bare view)."
+  [substrate variant-id view-id eff-args decorator-refs]
+  (let [view-hiccup (render-view substrate variant-id view-id eff-args)]
+    (if (seq decorator-refs)
+      (let [hiccup-decorators (:hiccup (decorators/resolve-decorator-refs decorator-refs))]
+        (safe-decorated-view view-hiccup hiccup-decorators eff-args))
+      view-hiccup)))
 
 ;; ---- failure-tolerant cell render ---------------------------------------
 

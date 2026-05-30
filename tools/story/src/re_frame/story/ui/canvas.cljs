@@ -26,6 +26,7 @@
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.plan :as plan]
+            [re-frame.story.render :as render]
             [re-frame.story.runtime :as runtime]
             [re-frame.story.sub-overrides :as sub-overrides]
             [re-frame.story.ui.assertion-strip :as assertion-strip]
@@ -310,16 +311,27 @@
 ;; `re-frame.story.sub-overrides` ns docstring §STATUS.
 
 (defn- resolve-sub-overrides
-  "Return the variant's resolved `:sub-overrides` map (exact query
-  vectors → values, `[:arg key]` placeholders substituted against
-  `eff-args`), or nil when the variant authors none. Pure-ish: reuses the
-  plan compiler's `substitute-args` so the render-path resolution matches
-  the plan-path resolution exactly."
+  "Return the variant's resolved `:sub-overrides` map (exact query vectors →
+  values, `[:arg key]` placeholders substituted against `eff-args`), or nil
+  when the variant authors none.
+
+  Routes through the COMPILED variant-plan (`plan/variant-plan`) and the
+  SHARED `render/resolve-render-sub-overrides` resolver — the SAME source
+  `render-variant` reads — NOT the bare registrar body (rf2-45zvx /
+  rf2-bhaqt, rf2-din8u invariant). Reading `(:sub-overrides body)` off the
+  side-table saw ONLY the variant's OWN slot, dropping overrides contributed
+  by a `:compose`d fragment or an `:extends` parent (the plan compiler
+  COMPOSES them into `[:render-raw :sub-overrides]` — plan.cljc §sub-overrides
+  composition). The canvas and `render-variant` therefore diverged for
+  composed / extended overrides; routing both through the compiled plan
+  removes the divergence (single source of truth).
+
+  `eff-args` is the post-control effective args; `resolve-render-sub-overrides`
+  re-substitutes the RAW (pre-`[:arg]`) overrides against them so a
+  control-driven override value reflects the live control, exactly as on the
+  render-variant path."
   [variant-id eff-args]
-  (let [body (registrar/handler-meta :variant variant-id)
-        ovr  (:sub-overrides body)]
-    (when (seq ovr)
-      (plan/substitute-args ovr (or eff-args {}) (atom [])))))
+  (render/resolve-render-sub-overrides (plan/variant-plan variant-id) eff-args))
 
 (defn sub-overrides-scope
   "A Reagent component that binds the variant's resolved `:sub-overrides`
@@ -345,43 +357,19 @@
 
 ;; ---- decorated-view wrapper ---------------------------------------------
 
-(defn safe-decorated-view
-  "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators,
-  catching any exception thrown by a `:wrap` fn so the canvas never
-  bubbles into a render-tree crash that blanks the shell.
+(def safe-decorated-view
+  "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators, catching
+  any exception a `:wrap` fn throws so the canvas never bubbles into a
+  render-tree crash that blanks the shell (IMPL-SPEC §2.2 + §5.5 — failures
+  render inline; the rf2-zme7 'never blank the canvas' rule).
 
-  Per IMPL-SPEC §2.2 + §5.5 the canvas's contract is 'failures render
-  inline rather than aborting'. The Stage 4 path collected
-  `resolve-decorators` errors only — runtime throws from inside a
-  user-supplied `:wrap` fn used to propagate up Reagent's render
-  machinery and React unmounted the whole shell (rf2-zme7). This wrapper
-  closes that loop: a thrown exception becomes a hiccup error block
-  alongside the variant frame.
-
-  Returns either the decorator-applied hiccup tree, or, on throw, a
-  hiccup error block that names the offending decorator stack."
-  [view-hiccup hiccup-decorators effective-args]
-  (try
-    (decorators/apply-hiccup-decorators
-      hiccup-decorators
-      view-hiccup
-      effective-args)
-    (catch :default e
-      [:div {:style (:error styles)}
-       [:div "Decorator wrap threw — variant rendered without decorators."]
-       [:div {:style {:margin-top "4px"}}
-        (str (.-message e))]
-       (when-let [ids (seq (keep :id hiccup-decorators))]
-         [:div {:style {:margin-top "4px" :color (:danger colors/tokens)}}
-          (str "decorators in stack: "
-               (str/join ", " (map pr-str ids)))])
-       ;; Render the variant body itself uncoated so the user still sees
-       ;; *something* — the page never blanks on a decorator failure.
-       [:div {:style {:margin-top "8px"
-                      :padding "8px"
-                      :background (:bg-canvas colors/tokens)
-                      :border "1px dashed #555"}}
-        view-hiccup]])))
+  rf2-hzhmv / rf2-ba86n.8 — the decorate-and-render primitive is the SHARED
+  seam in `re-frame.story.ui.multi-substrate`, called by BOTH the canvas
+  single-pane path (below), the workspace cell, AND the `render-variant`
+  host hook (`re-frame.story.canonical/render-host-scope`), so the live
+  canvas and render-variant paint the identical decorated tree. Re-exported
+  here so the canvas / workspace call sites keep one import."
+  multi-substrate/safe-decorated-view)
 
 ;; ---- error projection ---------------------------------------------------
 
