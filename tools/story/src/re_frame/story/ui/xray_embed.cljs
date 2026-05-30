@@ -248,7 +248,38 @@
                    :color (:text-tertiary colors/tokens)
                    :font-family sans-stack
                    :font-size (:caption typography/type-scale)
-                   :font-style "italic"}})
+                   :font-style "italic"}
+   ;; rf2-ba86n.19 — lazy Xray-diff mounting. The disclosure toggle that
+   ;; collapses / expands the embed. Sits at the LEFT edge of the chip-row
+   ;; (before the panel chips) so it reads as 'this whole band folds'. The
+   ;; chevron points right when collapsed, rotates down when expanded.
+   :disclosure    {:display "inline-flex"
+                   :align-items "center"
+                   :justify-content "center"
+                   :padding "2px"
+                   :background "transparent"
+                   :color (:text-secondary colors/tokens)
+                   :border "none"
+                   :cursor "pointer"
+                   :line-height "0"
+                   :transition (:chip motion/transitions)}
+   :disclosure-glyph {:display "inline-flex"
+                      :transition (:chip motion/transitions)
+                      :transform "rotate(90deg)"}
+   :disclosure-glyph-collapsed {:transform "rotate(0deg)"}
+   ;; rf2-ba86n.19 — the collapsed placeholder. Replaces the panel-host
+   ;; (and therefore the panel's expensive diff compute) while collapsed.
+   ;; A single quiet line; clicking it expands.
+   :collapsed-rest {:display "flex"
+                    :align-items "center"
+                    :flex "1 1 auto"
+                    :min-height "0"
+                    :padding "10px 8px"
+                    :cursor "pointer"
+                    :color (:text-tertiary colors/tokens)
+                    :font-family sans-stack
+                    :font-size (:caption typography/type-scale)
+                    :font-style "italic"}})
 
 ;; ---- chip rendering ------------------------------------------------------
 
@@ -436,6 +467,30 @@
                 :data-test "story-xray-panel-host"
                 :style (:panel-host styles)}])})))
 
+;; ---- disclosure toggle (rf2-ba86n.19) ------------------------------------
+
+(defn disclosure-toggle
+  "Render the collapse/expand disclosure button for the embed. Clicking
+  flips `:xray-embed-collapsed?` on the shell ratom. The chevron points
+  right when collapsed and rotates down when expanded.
+
+  Public so tests can introspect the toggle's hiccup + click handler
+  without driving the full host."
+  [collapsed?]
+  [:button
+   {:style (:disclosure styles)
+    :data-test "story-xray-disclosure"
+    :aria-expanded (str (not collapsed?))
+    :aria-label (if collapsed? "Expand Xray embed" "Collapse Xray embed")
+    :title (if collapsed?
+             "Expand the Xray panel (resume diff compute)"
+             "Collapse the Xray panel (defer diff compute)")
+    :on-click (fn [_]
+                (state/swap-state! state/toggle-xray-embed-collapsed))}
+   [:span {:style (merge (:disclosure-glyph styles)
+                         (when collapsed? (:disclosure-glyph-collapsed styles)))}
+    [glyphs/chevron-right 11]]])
+
 ;; ---- public surface: the embed panel -------------------------------------
 
 (defn xray-embed-panel
@@ -462,14 +517,24 @@
        "Xray is not loaded in this build — embed surface unavailable."]
 
       :else
-      (let [active-panel (effective-panel shell variant-id)]
+      (let [active-panel (effective-panel shell variant-id)
+            ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When
+            ;; collapsed we DON'T render `panel-host-component`, so no
+            ;; `mount-<panel>!` fires and the panel's expensive diff compute
+            ;; (app-db structural diff, epoch timeline) is deferred until the
+            ;; user expands. The chip-row picker still paints (cheap — it's
+            ;; pure data + click handlers, no Xray symbol), so the author's
+            ;; lens choice survives a collapse round-trip.
+            collapsed?   (state/xray-embed-collapsed? shell)]
         [:div {:style (:wrap styles)
                :data-test "story-xray-embed"
-               :data-active-panel (name active-panel)}
-         ;; chip-row + popout
+               :data-active-panel (name active-panel)
+               :data-xray-embed-collapsed (str collapsed?)}
+         ;; chip-row + disclosure + popout
          [:div {:style (:chip-row styles)
                 :role "tablist"
                 :aria-label "Xray panel picker"}
+          [disclosure-toggle collapsed?]
           (for [{:keys [panel label title]} panel-catalog]
             ^{:key panel}
             [chip panel label title (= panel active-panel)])
@@ -481,24 +546,42 @@
             :on-click (fn [_] (popout-full-shell!))}
            [:span "Pop out"]
            [glyphs/external-link 11]]]
-         ;; the panel-host. rf2-4l7t2: NO React key on this slot —
-         ;; the host class persists across panel-id swaps so
-         ;; `:component-did-update` handles the in-place mount round-
-         ;; trip. Keying the slot on `active-panel` (the pre-fix
-         ;; "belt-and-braces" shape) would force a full unmount/remount
-         ;; of the host on every chip click, and the synchronous
-         ;; `.unmount` of the Xray-owned React root would fire inside
-         ;; the parent's chip-click render cycle — exactly the
-         ;; "Attempted to synchronously unmount a root while React was
-         ;; already rendering" warning React 18+ guards against. The
-         ;; host's `:component-did-update` lifecycle keyed by panel-id
-         ;; argv-diff drives the swap; the inner unmount runs deferred
-         ;; (see `release!` inside `panel-host-component`).
+         ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When
+         ;; collapsed a quiet placeholder stands in for the panel-host;
+         ;; crucially it does NOT render `panel-host-component`, so the
+         ;; Xray mount + its expensive diff compute never fire while
+         ;; collapsed. Clicking the placeholder expands. When the embed was
+         ;; previously expanded, dropping the panel-host from the tree
+         ;; unmounts it → its `:component-will-unmount` releases the Xray
+         ;; React root via the existing microtask path (rf2-4l7t2); no
+         ;; teardown is duplicated here.
          ;;
-         ;; Variant focus changes still re-render this hiccup via the
-         ;; outer `effective-panel` resolution; the host's argv-diff
-         ;; in `:component-did-update` re-runs the mount when the
-         ;; resolved panel-id changes, and same-panel-id variant
-         ;; changes are absorbed by the Xray panel's own subs
-         ;; (`:rf.xray/focus` tracks the variant-driven cascade).
-         [panel-host-component active-panel]]))))
+         ;; The panel-host slot (when expanded). rf2-4l7t2: NO React key on
+         ;; this slot — the host class persists across panel-id swaps so
+         ;; `:component-did-update` handles the in-place mount round-trip.
+         ;; Keying the slot on `active-panel` (the pre-fix "belt-and-braces"
+         ;; shape) would force a full unmount/remount of the host on every
+         ;; chip click, and the synchronous `.unmount` of the Xray-owned
+         ;; React root would fire inside the parent's chip-click render
+         ;; cycle — exactly the "Attempted to synchronously unmount a root
+         ;; while React was already rendering" warning React 18+ guards
+         ;; against. The host's `:component-did-update` lifecycle keyed by
+         ;; panel-id argv-diff drives the swap; the inner unmount runs
+         ;; deferred (see `release!` inside `panel-host-component`).
+         ;;
+         ;; Variant focus changes still re-render this hiccup via the outer
+         ;; `effective-panel` resolution; the host's argv-diff in
+         ;; `:component-did-update` re-runs the mount when the resolved
+         ;; panel-id changes, and same-panel-id variant changes are absorbed
+         ;; by the Xray panel's own subs (`:rf.xray/focus` tracks the
+         ;; variant-driven cascade).
+         (if collapsed?
+           [:div {:style (:collapsed-rest styles)
+                  :data-test "story-xray-embed-collapsed"
+                  :on-click (fn [_]
+                              (state/swap-state! state/set-xray-embed-collapsed false))}
+            (str (or (some #(when (= active-panel (:panel %)) (:label %))
+                           panel-catalog)
+                     "Xray")
+                 " panel collapsed — expand to compute diffs.")]
+           [panel-host-component active-panel])]))))

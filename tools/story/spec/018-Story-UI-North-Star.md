@@ -564,9 +564,18 @@ controls as summaries until expanded (C1/C4). Each bound is the SAME
 expander is additive — revealing more never reorders the rows/cells already
 on screen, so scroll/focus survives the re-render (stable React keys:
 variant-id-keyed cells, arg-key-keyed rows, monotonic repeater row ids).
-Lazy Xray-diff mounting (compute expensive diffs only when the panel is
-expanded) is the remaining named upgrade; the embed already mounts ONE
-panel at a time, so the flood risk is already bounded.
+Lazy Xray-diff mounting is now CURRENT (rf2-ba86n.19): the RHS Xray embed
+defers the panel MOUNT — and therefore the panel's expensive diff compute
+(app-db structural diff, epoch timeline) — until the embed is expanded. The
+embed already mounted ONE panel at a time with deferred microtask unmount
+(rf2-4l7t2); the upgrade gates that mount on a `:xray-embed-collapsed?`
+shell slot, so a collapsed embed renders only the (cheap, pure-data)
+chip-row picker plus a quiet placeholder and never instantiates the
+panel-host component that drives `mount-<panel>!`. Collapsing drops the
+panel-host from the tree, which releases the Xray React root via the same
+existing microtask path (rf2-4l7t2) — no teardown is duplicated. The embed
+e2e CLJS gate asserts no panel-host slot (hence no diff compute) renders
+while collapsed.
 
 ### 10.1 Parity budgets
 

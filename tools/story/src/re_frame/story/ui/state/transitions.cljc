@@ -315,6 +315,35 @@
   [state panel-id]
   (update-in state [:panel-visibility panel-id] not))
 
+;; ---- Xray-embed collapse (rf2-ba86n.19) ---------------------------------
+;;
+;; Lazy Xray-diff mounting (spec/018 §10): the RHS Xray embed defers its
+;; panel MOUNT — and therefore the expensive diff compute the panel runs
+;; (app-db structural diff, epoch timeline) — until the embed is expanded.
+;; The slot defaults to expanded (false) so the out-of-the-box RHS still
+;; paints the panel; the user can collapse the band to halt compute when
+;; they're not inspecting. Collapsing unmounts the panel-host component,
+;; which releases the Xray React root via the existing microtask path
+;; (rf2-4l7t2) — no duplicate teardown lives here.
+
+(defn xray-embed-collapsed?
+  "Whether the RHS Xray embed is collapsed (panel mount + diff compute
+  deferred). Defaults to false (expanded) when the slot is unset. Pure
+  data → data; JVM-testable."
+  [state]
+  (boolean (:xray-embed-collapsed? state)))
+
+(defn toggle-xray-embed-collapsed
+  "Flip the RHS Xray embed's collapsed state. A nil/unset slot reads as
+  expanded (false), so the first toggle collapses. Pure data → data."
+  [state]
+  (assoc state :xray-embed-collapsed? (not (xray-embed-collapsed? state))))
+
+(defn set-xray-embed-collapsed
+  "Set the RHS Xray embed's collapsed state to `value`. Pure data → data."
+  [state value]
+  (assoc state :xray-embed-collapsed? (boolean value)))
+
 ;; ---- chrome visibility (rf2-p3i0t / rf2-g8l8x / rf2-pucku) --------------
 
 (def chrome-visibility-defaults

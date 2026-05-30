@@ -159,7 +159,15 @@
                          :sidebar?     true
                          :rhs?         true
                          :toolbar?     true
-                         :embed?       false}})
+                         :embed?       false}
+   ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When true the
+   ;; RHS Xray embed is COLLAPSED: the panel-host is not rendered, so no
+   ;; `mount-<panel>!` fires and the panel's expensive diff compute (app-db
+   ;; structural diff, epoch timeline) is deferred. Defaults false
+   ;; (expanded) so the out-of-the-box RHS paints the panel; collapsing
+   ;; releases the Xray React root via the existing microtask path
+   ;; (rf2-4l7t2). The chip-row's disclosure toggle flips this slot.
+   :xray-embed-collapsed? false})
 
 ;; ---- pure transitions (extracted to state.transitions, rf2-gcpon) -------
 
@@ -183,6 +191,12 @@
 (def record-fingerprints       state.transitions/record-fingerprints)
 (def pin-snapshot              state.transitions/pin-snapshot)
 (def toggle-panel              state.transitions/toggle-panel)
+
+;; ---- Xray-embed collapse re-exports (rf2-ba86n.19) ----------------------
+
+(def xray-embed-collapsed?       state.transitions/xray-embed-collapsed?)
+(def toggle-xray-embed-collapsed state.transitions/toggle-xray-embed-collapsed)
+(def set-xray-embed-collapsed    state.transitions/set-xray-embed-collapsed)
 
 ;; ---- chrome visibility re-exports (rf2-p3i0t / rf2-g8l8x / rf2-pucku) ---
 
