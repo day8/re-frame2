@@ -744,12 +744,24 @@
   router's internal \"dispatcher\" concept (the engine that drains the
   event queue). The verb-form alternative `bound-dispatcher` was
   considered and cut as a pure alias — the noun's capture-at-call-time
-  semantics are part of the contract here."
-  []
-  (let [frame (current-frame)]
-    (fn dispatch-fn
-      ([event]      (dispatch* event {:frame frame}))
-      ([event opts] (dispatch* event (assoc opts :frame frame))))))
+  semantics are part of the contract here.
+
+  Per rf2-cry25 (Spec 005 §Source-coord stamping) the optional
+  `view-opts` map is a base set of dispatch opts merged BELOW the
+  captured `:frame` and any per-call `opts`. `reg-view` injects
+  `{:source :ui :rf.trace/call-site <view-coord>}` here so a view's
+  on-click `#(dispatch [...])` — which shadows the coord-capturing
+  `dispatch` MACRO with this noun — still classifies as `:source :ui`
+  and carries the reg-view definition's call-site for Xray's dispatch
+  'go to code'. The render-time frame capture is unchanged: `:frame`
+  is assoc'd LAST so it always wins, and the click-time closure routes
+  to the render frame, not a click-time `:rf/default` fall-through."
+  ([] (dispatcher nil))
+  ([view-opts]
+   (let [frame (current-frame)]
+     (fn dispatch-fn
+       ([event]      (dispatch* event (assoc view-opts :frame frame)))
+       ([event opts] (dispatch* event (merge view-opts opts {:frame frame})))))))
 
 (defn subscriber
   "Return a fn that subscribes under the current frame, captured at call
@@ -760,12 +772,27 @@
   not thread the frame id; `subscriber` is distinct from the router or
   reactive-substrate notion of a \"subscriber\" (a subscribed
   reaction). The verb-form alternative `bound-subscriber` was
-  considered and cut as a pure alias."
-  []
-  (let [frame (current-frame)]
-    (fn subscribe-fn
-      [query-v]
-      (subs/subscribe frame query-v))))
+  considered and cut as a pure alias.
+
+  Per rf2-cry25 (Spec 005 §Source-coord stamping) the optional
+  `view-coord` is the reg-view definition's source-coord; `reg-view`
+  injects it here so a view's `#(subscribe [...])` — which shadows the
+  coord-capturing `subscribe` MACRO with this noun — carries the
+  view's `:rf.trace/call-site` on any error emitted inside the
+  synchronous miss path (`:rf.error/no-such-sub`,
+  `:rf.error/frame-destroyed`). Mirrors the `subscribe` macro's
+  `trace/with-call-site` wrapper (subscriptions carry no `:source`
+  axis). The binding rides `interop/debug-enabled?` so it DCEs in
+  production; the render-time frame capture is unchanged."
+  ([] (subscriber nil))
+  ([view-coord]
+   (let [frame (current-frame)]
+     (fn subscribe-fn
+       [query-v]
+       (if (and view-coord interop/debug-enabled?)
+         (trace/with-call-site view-coord
+           (subs/subscribe frame query-v))
+         (subs/subscribe frame query-v))))))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
 
