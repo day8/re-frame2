@@ -48,8 +48,11 @@
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
   (:require [re-frame.story.predicates :as pred]
+            [re-frame.story.plan       :as plan]
             [re-frame.story.registrar  :as registrar]
+            [re-frame.story.ui.evidence-spine :as spine]
             [re-frame.story.ui.markdown :as md]
+            [re-frame.story.ui.test-mode.pure :as test-pure]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
@@ -173,6 +176,186 @@
 ;; rf2-ee38b.3: the `docs/parent-story-id` re-export was dropped; the
 ;; header chips now call `pred/parent-story-id` directly.
 
+;; ---- pure: status / fidelity / schema / evidence excerpt ----------------
+;;
+;; rf2-ba86n.14 (spec/022 §1 + §2) — Docs mode SHOULD add fidelity badges,
+;; world-input / runner-requirement chips, a view-arg schema table, a current
+;; test-status summary, and a SPARSE evidence excerpt that links into
+;; Inspector/Xray. The contract that load-bears this whole section: Docs and
+;; Test MUST agree because they read the SAME plan/result. So:
+;;
+;;   - the status verdict is `test-pure/run-status` over the SAME unified
+;;     run-result Test mode wrote (the `evidence-spine/result-for` slot) —
+;;     docs never re-runs the variant nor re-derives the verdict;
+;;   - fidelity / world-input / runner-requirement come from the variant's
+;;     compiled PLAN (`plan/variant-plan`) — the same plan the runner builds,
+;;     so the badges match what a run would rest on;
+;;   - the evidence excerpt is a SPARSE projection of the SAME spine the
+;;     evidence-spine display renders (`spine/spine-spans`), capped to a couple
+;;     of beats — a curated pointer, NOT a second evidence renderer (spec/022
+;;     §2). The deep beat tree / app-db diff stays in Inspector/Xray, reached
+;;     through the spine's focus links.
+;;
+;; All four are pure data → data so the JVM test corpus covers the shaping
+;; without booting Reagent / the runtime / Xray.
+
+(defn variant-plan-quietly
+  "Compile `variant-id` into its normalized plan (`plan/variant-plan`),
+  returning nil rather than throwing when compilation fails (an unknown
+  variant, a malformed `:extends` chain, an invalid view-arg / sub-override
+  value). Pure data → data. Docs is a read-only projection — a variant whose
+  plan does not compile still renders its header / prose / args; the
+  status-and-fidelity surface just degrades to 'plan unavailable' rather than
+  taking the whole pane down."
+  [variant-id]
+  (try
+    (plan/variant-plan variant-id)
+    (catch #?(:clj Exception :cljs :default) _ nil)))
+
+(def fidelity-rungs
+  "The fidelity-ladder rungs (highest → lowest, spec/017 §View-state
+  subscription overrides → `plan/compute-fidelity`). Pure data so the badge
+  renderer can order + label the `:fidelity` SET a plan carries. A reviewer
+  reads the rungs to know which evidence a variant's render rests on:
+  `:real-setup` (real events) beats `:db-seed` (a schema-checked app-db seed)
+  beats `:sub-overrides` (pinned sub values, legitimate when labelled)."
+  [{:rung :real-setup    :label "real setup"    :strength :high}
+   {:rung :db-seed       :label "db seed"       :strength :mid}
+   {:rung :sub-overrides :label "sub overrides" :strength :low}])
+
+(defn fidelity-badges
+  "Project a plan's `:fidelity` SET into ordered badge rows (highest-fidelity
+  rung first). Pure data → data. Each row is `{:rung … :label … :strength …
+  :present? <bool>}` — the renderer tints a present rung by strength and
+  greys an absent one, so the ladder reads as a whole (a variant resting only
+  on `:sub-overrides` visibly lacks the higher rungs). An empty `:fidelity`
+  set (the render-the-view-as-mounted variant) marks every rung absent."
+  [plan]
+  (let [present (or (:fidelity plan) #{})]
+    (mapv (fn [rung] (assoc rung :present? (contains? present (:rung rung))))
+          fidelity-rungs)))
+
+(defn world-input-chips
+  "Project a plan's `:world` slot into the world-input chips Docs surfaces
+  (spec/022 §1). Pure data → data. Each chip is `{:key … :label … :present?
+  <bool>}` for the world inputs a variant may declare — setup events, a
+  script, a db-seed, sub-overrides, and network stubs. A chip is `:present?`
+  only when the variant actually declares that input, so the row reads as 'what
+  drives this variant's world' rather than a fixed checklist. Returns only the
+  PRESENT chips (a docs surface stays terse — absent world inputs are simply
+  not shown)."
+  [plan]
+  (let [world (:world plan)
+        chips [{:key :setup         :label "setup events" :present? (boolean (seq (:setup plan)))}
+               {:key :script        :label "script"       :present? (boolean (seq (:script plan)))}
+               {:key :db-seed       :label "db seed"      :present? (some? (:db-seed world))}
+               {:key :sub-overrides :label "sub overrides"
+                :present? (boolean (seq (get-in world [:render :sub-overrides])))}
+               {:key :network       :label "network stubs"
+                :present? (boolean (seq (:network world)))}]]
+    (filterv :present? chips)))
+
+(defn required-runner-tokens
+  "The sorted vector of runner-requirement capability tokens a plan carries
+  (`plan`'s `:required-runner` SET — the tokens a unit needs, spec/017
+  §Runner requirements). Pure data → data. Docs renders these as chips so a
+  reader sees what the variant's evidence requires of a runner BEFORE opening
+  Test mode. Empty when the plan needs no special capability."
+  [plan]
+  (vec (sort (:required-runner plan))))
+
+(defn status-summary
+  "Project the SAME unified run-result Test mode wrote into the compact
+  status summary Docs shows (spec/022 §1 — a current test-status summary).
+  Pure data → data. THE docs↔Test agreement point: the verdict is
+  `test-pure/run-status` over the result + its `aggregate-summary` fold, the
+  EXACT projection Test mode's summary pill uses — so a tape-floor `:fail` /
+  a `:cannot-run` refusal reads identically in Docs and Test, and Docs can
+  never disagree with Test about whether a variant is green.
+
+  `result` is the variant's unified run-result (or nil — never run yet);
+  `summary` is its `aggregate-summary` fold (pass/fail/cannot-run/total).
+  Returns:
+
+      {:status :pass|:fail|:error|:cannot-run|:pending
+       :passed <n> :failed <n> :cannot-run <n> :total <n>
+       :ran?   <bool>}                ; a run has executed (vs :pending)
+
+  A nil result is `:pending` with zero counts — Docs renders 'not run yet'
+  and points at Test mode rather than fabricating a verdict."
+  [result summary]
+  (let [{:keys [passed failed cannot-run total]} (or summary {})
+        status (test-pure/run-status result summary)]
+    {:status     status
+     :passed     (or passed 0)
+     :failed     (or failed 0)
+     :cannot-run (or cannot-run 0)
+     :total      (or total 0)
+     :ran?       (boolean (and result (not= :pending status)))}))
+
+(defn view-arg-schema-rows
+  "Project a plan's `[:world :view-args-schema]` into the view-arg schema
+  table rows (spec/022 §1 — a view-arg schema table). Pure data → data.
+  Distinct from the Args table (which shows resolved DEFAULT values): the
+  schema table shows the view's declared INPUT contract — which props the
+  rendered view accepts, and whether each is required.
+
+  Reads a top-level Malli `[:map …]` schema's entries; each row is
+  `{:key … :required? <bool> :schema <entry-schema>}` (a non-`{:optional
+  true}` entry is required, mirroring `plan/validate-effective-args`'
+  required-key floor). A non-`[:map]` schema (or no schema on file) yields an
+  empty vector — Docs omits the section rather than inventing a table."
+  [plan]
+  (let [schema (get-in plan [:world :view-args-schema])]
+    (if (and (vector? schema) (= :map (first schema)))
+      (let [entries (filter vector? (rest schema))]
+        (mapv (fn [[k props child :as entry]]
+                (let [;; a [:map [k child]] entry has no props; [k {…} child] has
+                      props?    (map? props)
+                      required? (not (and props? (:optional props)))
+                      ent-sch   (if props? child props)]
+                  {:key       k
+                   :required? required?
+                   :schema    (if (= 3 (count entry)) ent-sch (or ent-sch props))}))
+              entries))
+      [])))
+
+(def evidence-excerpt-beat-cap
+  "How many narrative beats the SPARSE docs evidence excerpt surfaces inline
+  (spec/022 §2 — 'one or two narrative beats'). Docs is curated documentation,
+  not a debug log: the excerpt shows AT MOST this many beats; the rest live in
+  the evidence-spine display / Inspector, reached through the focus link."
+  2)
+
+(defn evidence-excerpt
+  "Project the SAME spine the evidence-spine display renders into a SPARSE
+  docs excerpt (spec/022 §2). Pure data → data. NOT a second evidence
+  renderer — a curated pointer: it reuses `spine/spine-spans` (the canonical
+  projection over the run's `:narrative`), flattens to the run's beats, and
+  caps the inline excerpt to `evidence-excerpt-beat-cap` beats. Each excerpt
+  beat carries only the compact, readable fields (its trigger / epoch /
+  strength / summary + focus coords) — never the full beat tree, app-db diff,
+  or trace dump (those stay in Inspector/Xray, reached via the focus link).
+
+  Returns:
+
+      {:available? <bool>           ; the run retained a non-empty narrative
+       :beats      [<beat> …]       ; AT MOST the cap, the run's leading beats
+       :beat-count <int>            ; total beats in the run
+       :more       <int>}           ; beats beyond the excerpt (link to see all)
+
+  An empty / nil narrative is `{:available? false :beats [] :beat-count 0
+  :more 0}` — Docs renders an honest 'no evidence yet' line pointing at Test
+  mode, never a fabricated excerpt."
+  [narrative]
+  (let [spans (spine/spine-spans narrative)
+        beats (vec (mapcat :beats spans))
+        n     (count beats)]
+    {:available? (pos? n)
+     :beats      (vec (take evidence-excerpt-beat-cap beats))
+     :beat-count n
+     :more       (max 0 (- n evidence-excerpt-beat-cap))}))
+
 ;; ---- CLJS-side rendering -------------------------------------------------
 
 #?(:cljs
@@ -261,7 +444,95 @@
                       :color            "white"}
       :empty         {:color            (:text-tertiary colors/tokens)
                       :font-style       "italic"
-                      :padding          "6px 0"}}))
+                      :padding          "6px 0"}
+      ;; ---- status / fidelity / evidence excerpt (rf2-ba86n.14, spec/022) ----
+      :badge-row     {:display          "flex"
+                      :flex-wrap        "wrap"
+                      :gap              "6px"
+                      :align-items      "center"
+                      :margin-bottom    "8px"}
+      :status-pill   {:padding          "3px 10px"
+                      :border-radius    "10px"
+                      :font-family      mono-stack
+                      :font-size        (:caption typography/type-scale)
+                      :font-weight      "bold"
+                      :text-transform   "uppercase"
+                      :letter-spacing   "0.5px"}
+      :status-pass   {:background       (:success-bg colors/tokens)
+                      :color            (:success colors/tokens)}
+      :status-fail   {:background       (:danger-bg colors/tokens)
+                      :color            (:danger colors/tokens)}
+      :status-error  {:background       (:danger-bg colors/tokens)
+                      :color            (:danger colors/tokens)
+                      :border           (str "1px solid " (:danger colors/tokens))}
+      :status-cannot {:background       (:warning-bg colors/tokens)
+                      :color            (:warning colors/tokens)}
+      :status-pending {:background      (:bg-3 colors/tokens)
+                       :color           (:text-tertiary colors/tokens)}
+      :status-counts {:color            (:text-secondary colors/tokens)
+                      :font-family      mono-stack
+                      :font-size        (:caption typography/type-scale)}
+      :label-key     {:color            (:text-tertiary colors/tokens)
+                      :font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
+                      :text-transform   "uppercase"
+                      :letter-spacing   "0.4px"
+                      :margin-right     "2px"}
+      :badge         {:padding          "2px 8px"
+                      :border-radius    "8px"
+                      :font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
+                      :background       (:bg-3 colors/tokens)
+                      :color            (:text-secondary colors/tokens)
+                      :border           (str "1px solid " (:border-subtle colors/tokens))}
+      :badge-high    {:background       (:success-bg colors/tokens)
+                      :color            (:success colors/tokens)}
+      :badge-mid     {:background       (:info-bg colors/tokens)
+                      :color            (:info colors/tokens)}
+      :badge-low     {:background       (:warning-bg colors/tokens)
+                      :color            (:warning colors/tokens)}
+      :badge-absent  {:background       "transparent"
+                      :color            (:text-tertiary colors/tokens)
+                      :border           (str "1px dashed " (:border-subtle colors/tokens))
+                      :opacity          "0.7"}
+      :runner-chip   {:padding          "2px 8px"
+                      :border-radius    "3px"
+                      :font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
+                      :background       (:bg-3 colors/tokens)
+                      :color            (:text-primary colors/tokens)}
+      :excerpt-beat  {:display          "flex"
+                      :flex-direction   "column"
+                      :gap              "3px"
+                      :padding          "8px 10px"
+                      :margin-bottom    "6px"
+                      :border-radius    "4px"
+                      :background       (:bg-2 colors/tokens)
+                      :border-left      (str "3px solid " (:border-subtle colors/tokens))}
+      :excerpt-h     {:display          "flex"
+                      :align-items      "baseline"
+                      :gap              "8px"
+                      :flex-wrap        "wrap"}
+      :excerpt-trig  {:font-family      mono-stack
+                      :font-size        (:caption typography/type-scale)
+                      :color            (:text-primary colors/tokens)
+                      :word-break       "break-all"}
+      :excerpt-epoch {:font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
+                      :color            (:text-tertiary colors/tokens)}
+      :excerpt-link  {:font-family      sans-stack
+                      :font-size        (:caption typography/type-scale)
+                      :background       (:bg-3 colors/tokens)
+                      :color            (:info colors/tokens)
+                      :border           (str "1px solid " (:border-default colors/tokens))
+                      :border-radius    "6px"
+                      :padding          "3px 10px"
+                      :cursor           "pointer"
+                      :user-select      "none"}
+      :excerpt-more  {:color            (:text-tertiary colors/tokens)
+                      :font-style       "italic"
+                      :font-size        (:caption typography/type-scale)
+                      :margin-top       "4px"}}))
 
 #?(:cljs
    (defn- pretty-value
@@ -473,30 +744,266 @@
                  (state/swap-state! state/toggle-tag-filter tag))}
               (str tag)])])])))
 
+#?(:cljs
+   (defn- status-pill-style
+     "Pick the status-pill style for a `:test`-agreed verdict."
+     [status]
+     (case status
+       :pass       (:status-pass styles)
+       :fail       (:status-fail styles)
+       :error      (:status-error styles)
+       :cannot-run (:status-cannot styles)
+       (:status-pending styles))))
+
+#?(:cljs
+   (defn- status-pill-text
+     "Human-readable pill text for a verdict — mirrors Test mode's
+     summary-pill wording so the two surfaces read the same."
+     [{:keys [status passed failed cannot-run total]}]
+     (case status
+       :pass       (str passed " passed")
+       :error      "error"
+       :cannot-run (str cannot-run " cannot-run of " total)
+       :pending    "not run yet"
+       (str failed " failed of " total))))
+
+#?(:cljs
+   (defn- badge-strength-style
+     [strength]
+     (case strength
+       :high (:badge-high styles)
+       :mid  (:badge-mid styles)
+       :low  (:badge-low styles)
+       nil)))
+
+#?(:cljs
+   (defn- status-fidelity-section
+     "Status + fidelity + world-input + runner-requirement summary (spec/022
+     §1). The status verdict is `status-summary` over the SAME unified
+     run-result Test mode wrote (`spine/result-for`) — Docs and Test agree by
+     reading one result, not two. Fidelity badges / world-input chips /
+     runner-requirement chips come from the variant's compiled PLAN, the same
+     plan the runner builds. Read-only — a curated status snapshot, not a
+     control surface; the Re-run affordance lives in Test mode."
+     [variant-id plan]
+     (let [result   (spine/result-for variant-id)
+           summary  (state/aggregate-summary (:assertions result))
+           status   (status-summary result summary)
+           badges   (fidelity-badges plan)
+           worlds   (world-input-chips plan)
+           runners  (required-runner-tokens plan)]
+       [:div {:style     (:section styles)
+              :data-test "story-docs-status-section"}
+        [:div {:style (:section-h styles)} "Status & fidelity"]
+        ;; status pill — the docs↔Test agreement point.
+        [:div {:style (:badge-row styles)}
+         [:span {:style       (merge (:status-pill styles) (status-pill-style (:status status)))
+                 :data-test   "story-docs-status-pill"
+                 :data-status (name (:status status))}
+          (status-pill-text status)]
+         (when (:ran? status)
+           [:span {:style     (:status-counts styles)
+                   :data-test "story-docs-status-counts"}
+            (str "✓ " (:passed status) "  ✗ " (:failed status)
+                 "  ⊘ " (:cannot-run status))])]
+        ;; fidelity ladder — every rung, present tinted by strength.
+        [:div {:style (:badge-row styles)}
+         [:span {:style (:label-key styles)} "fidelity"]
+         (for [{:keys [rung label strength present?]} badges]
+           ^{:key (name rung)}
+           [:span {:style       (merge (:badge styles)
+                                       (if present?
+                                         (badge-strength-style strength)
+                                         (:badge-absent styles)))
+                   :data-test   "story-docs-fidelity-badge"
+                   :data-rung   (name rung)
+                   :data-present (str (boolean present?))}
+            label])]
+        ;; world inputs — only the ones the variant declares.
+        (when (seq worlds)
+          [:div {:style (:badge-row styles)}
+           [:span {:style (:label-key styles)} "world"]
+           (for [{:keys [key label]} worlds]
+             ^{:key (name key)}
+             [:span {:style     (:badge styles)
+                     :data-test "story-docs-world-chip"
+                     :data-world (name key)}
+              label])])
+        ;; runner requirements — what the variant's evidence needs of a runner.
+        (when (seq runners)
+          [:div {:style (:badge-row styles)}
+           [:span {:style (:label-key styles)} "runner"]
+           (for [token runners]
+             ^{:key (str token)}
+             [:span {:style     (:runner-chip styles)
+                     :data-test "story-docs-runner-chip"}
+              (str token)])])])))
+
+#?(:cljs
+   (defn- schema-section
+     "View-arg schema table (spec/022 §1) — the rendered view's declared
+     INPUT contract (which props it accepts + which are required), distinct
+     from the Args table's resolved defaults. Renders nothing when the view
+     has no `:view-args-schema` on file — Docs omits the section rather than
+     inventing an empty table."
+     [_variant-id plan]
+     (let [rows (view-arg-schema-rows plan)]
+       (when (seq rows)
+         [:div {:style     (:section styles)
+                :data-test "story-docs-schema-section"}
+          [:div {:style (:section-h styles)} "View-arg schema"]
+          [:table {:style     (:table styles)
+                   :data-test "story-docs-schema-table"}
+           [:thead
+            [:tr
+             [:th {:style (:th styles)} "prop"]
+             [:th {:style (:th styles)} "required"]
+             [:th {:style (:th styles)} "schema"]]]
+           [:tbody
+            (for [{:keys [key required? schema]} rows]
+              ^{:key (str key)}
+              [:tr {:data-test     "story-docs-schema-row"
+                    :data-prop-key (str key)
+                    :data-required (str (boolean required?))}
+               [:td {:style (merge (:td styles) (:td-key styles))}
+                (str key)]
+               [:td {:style (merge (:td styles) (:td-doc styles))}
+                (if required? "required" "optional")]
+               [:td {:style (merge (:td styles) (:td-value styles))}
+                (pr-str schema)]])]]]))))
+
+#?(:cljs
+   (defn- excerpt-beat-row
+     "Render ONE sparse excerpt beat — the trigger event, its epoch, the
+     evidence-strength tags, and the compact summary chips, plus a single
+     'Open in Inspector' focus link. Reuses the evidence-spine's
+     `strength`/`summary` projection (decorated by `spine/spine-spans`) and
+     its `focus-beat!` side effect — Docs LINKS into the spine/Xray, it never
+     rebuilds the beat tree."
+     [variant-id beat]
+     [:div {:style       (:excerpt-beat styles)
+            :data-test   "story-docs-evidence-beat"
+            :data-epoch-id (str (:epoch-id beat))}
+      [:div {:style (:excerpt-h styles)}
+       [:span {:style (:excerpt-trig styles)}
+        (if-let [te (:trigger-event beat)]
+          (pr-str (if (vector? te) (first te) te))
+          "(no trigger event)")]
+       [:span {:style (:excerpt-epoch styles)}
+        (str "epoch " (:epoch-id beat))]]
+      (let [{:keys [direct? attributed?]} (:strength beat)
+            {:keys [precise?]}            (:focus beat)]
+        [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap" :align-items "center"}}
+         (for [{:keys [k label count]} (:summary beat)]
+           ^{:key (name k)}
+           [:span {:style     (:badge styles)
+                   :data-test "story-docs-evidence-chip"
+                   :data-slot (name k)}
+            (str label " " count)])
+         (when (and (not direct?) attributed?)
+           [:span {:style     (merge (:badge styles) (:badge-low styles))
+                   :data-test "story-docs-evidence-attributed"}
+            "attributed only"])
+         ;; Per-beat link into Xray — reuses the evidence-spine's host-facing
+         ;; `focus-beat!` (the closed rf2-crtmq focus seam). Docs LINKS to the
+         ;; detailed diagnostics; it never inlines the beat tree / app-db diff.
+         [:button {:style     (:excerpt-link styles)
+                   :data-test "story-docs-evidence-focus"
+                   :data-precise (str (boolean precise?))
+                   :title     (if precise?
+                                "Focus this beat's epoch in the Xray Inspector"
+                                "Open the Xray Inspector (no epoch pin for this beat)")
+                   :on-click  (fn [e]
+                                (.stopPropagation e)
+                                (spine/focus-beat! variant-id beat spine/default-focus-panel))}
+          "Inspect in Xray"]])]))
+
+#?(:cljs
+   (defn- evidence-excerpt-section
+     "Sparse evidence excerpt (spec/022 §2). Reads the SAME run-result Test
+     mode wrote (`spine/result-for`) and projects a couple of leading
+     narrative beats through `evidence-excerpt` — a curated pointer into the
+     evidence spine, NOT a debugging log. Detailed diagnostics (the full beat
+     tree, app-db diff, trace) live in the Inspector / Xray, reached through
+     the 'Open full evidence' link (`spine/open!`) and the spine's own focus
+     links. When the variant has not been run (or retained no narrative) the
+     section reads an honest 'no evidence yet' line pointing at Test mode."
+     [variant-id]
+     (let [result    (spine/result-for variant-id)
+           narrative (:narrative result)
+           {:keys [available? beats beat-count more]} (evidence-excerpt narrative)]
+       [:div {:style     (:section styles)
+              :data-test "story-docs-evidence-section"}
+        [:div {:style (:section-h styles)} "Evidence"]
+        (if-not available?
+          [:div {:style     (:empty styles)
+                 :data-test "story-docs-evidence-empty"}
+           "No retained run evidence yet — run this variant in Test mode to "
+           "see its narrative."]
+          [:div {:data-test "story-docs-evidence-excerpt"
+                 :data-beat-count (str beat-count)}
+           [:div {:style (:doc-blurb styles)}
+            "A sparse excerpt of the run narrative — the detailed diagnostics "
+            "live in the Inspector."]
+           (for [[i beat] (map-indexed vector beats)]
+             ^{:key i}
+             [excerpt-beat-row variant-id beat])
+           [:div {:style (:excerpt-more styles)}
+            (when (pos? more)
+              [:span {:data-test "story-docs-evidence-more"}
+               (str "+ " more " more beat" (when (not= 1 more) "s")
+                    " in the full evidence spine. ")])
+            [:button {:style     (:excerpt-link styles)
+                      :data-test "story-docs-evidence-open"
+                      :title     "Open the full evidence spine in the Inspector"
+                      :on-click  (fn [_] (spine/open! variant-id nil))}
+             "Open full evidence in Inspector"]]])])))
+
 ;; ---- pure: TOC entries (rf2-8c7tk) --------------------------------------
 
 (def docs-toc-entries
-  "Canonical TOC entry table for the `:docs` mode pane (rf2-8c7tk).
-  Pure data → data so JVM tests can assert the table shape. The
-  header section renders as the variant's `<h1>` and is intentionally
-  NOT in the TOC list — it sits beside that h1 and would self-reference."
-  [{:id "docs-prose"      :label "Prose"      :level 2 :conditional? true}
-   {:id "docs-args"       :label "Args"       :level 2}
-   {:id "docs-decorators" :label "Decorators" :level 2}
-   {:id "docs-parameters" :label "Parameters" :level 2}
-   {:id "docs-tags"       :label "Tags"       :level 2}])
+  "Canonical TOC entry table for the `:docs` mode pane (rf2-8c7tk, extended
+  for rf2-ba86n.14 / spec/022). Pure data → data so JVM tests can assert the
+  table shape. The header section renders as the variant's `<h1>` and is
+  intentionally NOT in the TOC list — it sits beside that h1 and would
+  self-reference.
+
+  Two conditional entries beyond `docs-prose`: `docs-schema` (dropped when
+  the view declares no `:view-args-schema`) and `docs-status` (dropped when
+  the variant's plan does not compile — a degenerate variant whose
+  status/fidelity surface degrades to 'plan unavailable'). `docs-evidence`
+  is unconditional — it always renders, reading an honest 'no evidence yet'
+  line until the variant is run (so the TOC entry stays stable)."
+  [{:id "docs-status"     :label "Status"      :level 2 :conditional? true}
+   {:id "docs-prose"      :label "Prose"       :level 2 :conditional? true}
+   {:id "docs-args"       :label "Args"        :level 2}
+   {:id "docs-schema"     :label "View-arg schema" :level 2 :conditional? true}
+   {:id "docs-decorators" :label "Decorators"  :level 2}
+   {:id "docs-parameters" :label "Parameters"  :level 2}
+   {:id "docs-evidence"   :label "Evidence"    :level 2}
+   {:id "docs-tags"       :label "Tags"        :level 2}])
 
 (defn visible-toc-entries
-  "Pure data → data: prune conditional TOC entries that don't apply to
-  this variant. The prose section is the only conditional one — we
-  drop it when `(prose-for-variant variant-id)` returns empty."
+  "Pure data → data: prune conditional TOC entries that don't apply to this
+  variant. Three conditionals:
+
+  - `docs-prose`  — dropped when `prose-for-variant` returns empty;
+  - `docs-status` — dropped when the variant's plan does not compile
+                    (`variant-plan-quietly` → nil); the section then renders
+                    its degraded 'plan unavailable' line without a TOC entry;
+  - `docs-schema` — dropped when the view declares no `:view-args-schema`
+                    (`view-arg-schema-rows` empty)."
   [variant-id]
-  (let [prose? (seq (prose-for-variant variant-id))]
+  (let [prose?  (seq (prose-for-variant variant-id))
+        plan    (variant-plan-quietly variant-id)
+        status? (some? plan)
+        schema? (seq (view-arg-schema-rows plan))
+        drop?   {"docs-prose"  (not prose?)
+                 "docs-status" (not status?)
+                 "docs-schema" (not schema?)}]
     (vec
       (remove (fn [{:keys [id conditional?]}]
-                (and conditional?
-                     (= id "docs-prose")
-                     (not prose?)))
+                (and conditional? (get drop? id false)))
               docs-toc-entries))))
 
 #?(:cljs
@@ -614,26 +1121,43 @@
    (defn docs-view
      "Top-level `:docs` mode pane for `variant-id`.
 
-     Renders the six sections (header / prose / args / decorators /
-     parameters / tags) inside a flex layout alongside a sticky TOC
-     pane on the right edge (rf2-8c7tk; auto-hides below 1024px)."
+     Renders the docs sections inside a flex layout alongside a sticky TOC
+     pane on the right edge (rf2-8c7tk; auto-hides below 1024px). Per
+     rf2-ba86n.14 / spec/022 the page now also carries a Status & fidelity
+     summary (the SAME run-result Test mode reads, projected through the
+     SAME `run-status` — Docs and Test agree), a view-arg schema table, and
+     a SPARSE evidence excerpt that links into the Inspector/Xray. The
+     status + schema sections compile the variant's plan ONCE here and thread
+     it down so the page does not recompile it per section. A variant whose
+     plan does not compile degrades to a 'plan unavailable' status line
+     (`variant-plan-quietly` → nil) without taking the pane down."
      [variant-id]
      (when variant-id
-       [:div {:style     {:display "flex"
-                          :flex "1"
-                          :overflow "auto"
-                          :background (:bg-canvas colors/tokens)}
-              :data-test "story-docs-layout"}
-        [:section {:style     (:wrap styles)
-                   :data-test "story-docs-view"
-                   :aria-label "Variant documentation"}
-         [header variant-id]
-         [:section {:id "docs-prose"} [prose-section variant-id]]
-         [:section {:id "docs-args"} [args-section variant-id]]
-         [:section {:id "docs-decorators"} [decorators-section variant-id]]
-         [:section {:id "docs-parameters"} [parameters-section variant-id]]
-         [:section {:id "docs-tags"} [tags-section variant-id]]]
-        [toc-pane variant-id]])))
+       (let [plan (variant-plan-quietly variant-id)]
+         [:div {:style     {:display "flex"
+                            :flex "1"
+                            :overflow "auto"
+                            :background (:bg-canvas colors/tokens)}
+                :data-test "story-docs-layout"}
+          [:section {:style     (:wrap styles)
+                     :data-test "story-docs-view"
+                     :aria-label "Variant documentation"}
+           [header variant-id]
+           [:section {:id "docs-status"}
+            (if plan
+              [status-fidelity-section variant-id plan]
+              [:div {:style     (:empty styles)
+                     :data-test "story-docs-status-unavailable"}
+               "plan unavailable — this variant does not compile to a plan; "
+               "fidelity and test status can't be summarised."])]
+           [:section {:id "docs-prose"} [prose-section variant-id]]
+           [:section {:id "docs-args"} [args-section variant-id]]
+           [:section {:id "docs-schema"} [schema-section variant-id plan]]
+           [:section {:id "docs-decorators"} [decorators-section variant-id]]
+           [:section {:id "docs-parameters"} [parameters-section variant-id]]
+           [:section {:id "docs-evidence"} [evidence-excerpt-section variant-id]]
+           [:section {:id "docs-tags"} [tags-section variant-id]]]
+          [toc-pane variant-id]]))))
 
 ;; ---- per-story rollup docs page (rf2-8j7wg, audit C-4) -----------------
 ;;
@@ -671,24 +1195,31 @@
 
 #?(:cljs
    (defn- rollup-variant-block
-     "Render one variant's docs sections in the rollup. Mirrors
-     `docs-view` minus the per-variant `<h1>` (each variant gets an h2
-     instead — the rollup's h1 is the story id at the top)."
+     "Render one variant's docs sections in the rollup. Mirrors `docs-view`
+     minus the per-variant `<h1>` (each variant gets an h2 instead — the
+     rollup's h1 is the story id at the top). Carries the Status & fidelity
+     summary (the same docs↔Test-agreed projection, rf2-ba86n.14) so a
+     reviewer scanning the rollup sees each variant's verdict + fidelity at a
+     glance; the full SPARSE evidence excerpt stays on the single-variant
+     `docs-view` to keep the rollup terse (documentation, not a debug log)."
      [variant-id]
-     [:div {:style     (merge (:section styles)
-                              {:padding-top "16px"
-                               :border-top  "1px solid #444"})
-            :data-test "story-docs-rollup-variant"
-            :data-variant-id (str variant-id)}
-      [:h2 {:style (merge (:h1 styles)
-                          {:font-size (:body typography/type-scale)
-                           :margin-top "0"})}
-       (str variant-id)]
-      [prose-section     variant-id]
-      [args-section      variant-id]
-      [decorators-section variant-id]
-      [parameters-section variant-id]
-      [tags-section       variant-id]]))
+     (let [plan (variant-plan-quietly variant-id)]
+       [:div {:style     (merge (:section styles)
+                                {:padding-top "16px"
+                                 :border-top  "1px solid #444"})
+              :data-test "story-docs-rollup-variant"
+              :data-variant-id (str variant-id)}
+        [:h2 {:style (merge (:h1 styles)
+                            {:font-size (:body typography/type-scale)
+                             :margin-top "0"})}
+         (str variant-id)]
+        (when plan [status-fidelity-section variant-id plan])
+        [prose-section     variant-id]
+        [args-section      variant-id]
+        [schema-section    variant-id plan]
+        [decorators-section variant-id]
+        [parameters-section variant-id]
+        [tags-section       variant-id]])))
 
 #?(:cljs
    (defn docs-rollup-view

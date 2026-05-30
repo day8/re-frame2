@@ -2,10 +2,12 @@
   "Multi-frame e2e coverage for the `:docs` mode pane TOC (rf2-y3w2q;
   rf2-8c7tk).
 
-  The `:docs` mode pane composes header / prose / args / decorators /
-  parameters / tags sections vertically; the TOC pane on the right
-  edge of the layout (per spec/008 + rf2-8c7tk) exposes a sticky
-  table-of-contents that lets the reader jump between sections.
+  The `:docs` mode pane composes header / status / prose / args /
+  view-arg schema / decorators / parameters / evidence / tags sections
+  vertically (rf2-ba86n.14 added status / view-arg schema / evidence per
+  spec/022); the TOC pane on the right edge of the layout (per spec/008 +
+  rf2-8c7tk) exposes a sticky table-of-contents that lets the reader jump
+  between sections.
 
   ## What this catches
 
@@ -217,10 +219,15 @@
           (is (not (contains? ids "docs-prose"))
               "no-prose variant: prose TOC entry pruned — the renderer
                omits the prose section, so the TOC must omit the link")
-          (is (= ["docs-args" "docs-decorators" "docs-parameters" "docs-tags"]
+          ;; rf2-ba86n.14 — the no-prose variant DOES compile to a plan
+          ;; (so docs-status is visible) but declares no :view-args-schema
+          ;; (so docs-schema is pruned). docs-evidence is unconditional.
+          (is (= ["docs-status" "docs-args" "docs-decorators"
+                  "docs-parameters" "docs-evidence" "docs-tags"]
                  (mapv :id empty-prose))
-              "the four unconditional TOC entries remain — in declared
-               order, sorted by docs-toc-entries' source position"))))))
+              "prose + schema pruned; status / args / decorators /
+               parameters / evidence / tags remain — in docs-toc-entries'
+               source order"))))))
 
 ;; ===========================================================================
 ;; rf2-y3w2q — entering docs mode mounts the docs-view (incl. TOC)
