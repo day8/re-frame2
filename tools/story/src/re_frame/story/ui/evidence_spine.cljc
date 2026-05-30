@@ -133,16 +133,22 @@
       {:direct?     <bool>   ; any committed db-transition / effect / trace
        :attributed? <bool>}  ; any post-settle sub-run / render row
 
-  A beat with a `:db-before`/`:db-after` transition, ANY effect row, OR any
-  trace event reads as carrying direct evidence. A beat with sub-run /
-  render rows reads as carrying attributed evidence. The two are NOT
-  mutually exclusive — most settled dispatch beats carry both, and the
-  renderer labels each present strength distinctly so attributed evidence
-  is never presented as direct."
+  A beat with an actual `:db-before`/`:db-after` transition (the two
+  differ), ANY effect row, OR any trace event reads as carrying direct
+  evidence. A beat with sub-run / render rows reads as carrying attributed
+  evidence. The two are NOT mutually exclusive — most settled dispatch beats
+  carry both, and the renderer labels each present strength distinctly so
+  attributed evidence is never presented as direct.
+
+  Note the db test compares VALUES, not key presence: `evidence/epoch-beat`
+  ALWAYS materializes `:db-before` / `:db-after` (they sit in its base map,
+  not its `cond->` tail), so `contains?` would read true for every projected
+  beat — including a read-only dispatch that changed nothing. A beat counts
+  as carrying direct db-evidence only when the two values DIFFER; absent keys
+  (older beats) read as nil = nil → no transition."
   [beat]
   {:direct?     (boolean
-                  (or (contains? beat :db-before)
-                      (contains? beat :db-after)
+                  (or (not= (:db-before beat) (:db-after beat))
                       (seq (:effects beat))
                       (seq (:trace-events beat))))
    :attributed? (boolean
@@ -169,13 +175,16 @@
   carries.
 
   `:db` is a synthetic 0/1 marker — a beat either committed an app-db
-  transition (`:db-before`/`:db-after` present) or it did not. The
-  rendered shape `db Δ` reads as 'app-db changed at this beat' rather than
-  inventing a diff (the diff itself is Xray's, surfaced via focus)."
+  transition (its `:db-before` / `:db-after` values DIFFER) or it did not.
+  The rendered shape `db Δ` reads as 'app-db changed at this beat' rather
+  than inventing a diff (the diff itself is Xray's, surfaced via focus).
+  The test compares values, not key presence: `evidence/epoch-beat` always
+  materializes both keys, so a key-presence test would show the `db Δ` chip
+  on every beat — even a dispatch that changed nothing."
   [beat]
   (let [schema-n (count (filter evidence/schema-violation-trace?
                                 (:trace-events beat)))
-        db?      (or (contains? beat :db-before) (contains? beat :db-after))
+        db?      (not= (:db-before beat) (:db-after beat))
         entries  [{:k :db       :label "db Δ"     :count (if db? 1 0) :strength :direct}
                   {:k :effects  :label "effects"  :count (count (:effects beat)) :strength :direct}
                   {:k :schemas  :label "schemas"  :count schema-n :strength :direct}

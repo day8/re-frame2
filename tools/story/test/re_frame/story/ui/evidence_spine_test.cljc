@@ -81,6 +81,61 @@
     (is (= {:direct? false :attributed? false}
            (spine/beat-evidence-strength {})))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-v917m regression — the db-evidence marker must test for an ACTUAL
+;; transition (`:db-before` ≠ `:db-after`), not key PRESENCE. `epoch-beat`
+;; ALWAYS materializes `:db-before` / `:db-after` (they sit in its base map,
+;; not its `cond->` tail), so a key-presence test reads true for EVERY
+;; projected beat — including a read-only dispatch that committed no db
+;; change. These cases drive a real `epoch-beat`-projected beat (the gap the
+;; earlier hand-built beats never exercised, because they all omitted or
+;; differed the db keys) and pin: no transition → NOT direct db-evidence /
+;; NO `db Δ` chip; a real transition → direct + chip present.
+;; ---------------------------------------------------------------------------
+
+(def ^:private no-db-change-record
+  "An epoch record whose dispatch changed no app-db (e.g. a read-only / no-op
+  event): `:db-before` and `:db-after` are equal, no effects, no trace."
+  {:epoch-id    200
+   :dispatch-id 200
+   :trigger-event [:counter/noop]
+   :db-before   {:count 6}
+   :db-after    {:count 6}
+   :effects     []
+   :sub-runs    []
+   :renders     []
+   :trace-events []
+   :outcome     :ok})
+
+(deftest db-evidence-tests-transition-not-key-presence
+  (testing "a REAL epoch-beat-projected beat with equal db-before/db-after
+            carries the keys (epoch-beat always materializes them) but is
+            NOT direct db-evidence and emits NO `db Δ` chip (rf2-v917m)"
+    (let [beat (evidence/epoch-beat no-db-change-record)]
+      ;; the keys ARE present — proving the old contains? test would mis-fire
+      (is (contains? beat :db-before))
+      (is (contains? beat :db-after))
+      (is (= (:db-before beat) (:db-after beat)) "no transition occurred")
+      ;; ...yet strength must report no direct evidence (no effects/trace either)
+      (is (= {:direct? false :attributed? false}
+             (spine/beat-evidence-strength beat)))
+      ;; ...and the summary must carry NO db marker
+      (let [by-k (into {} (map (juxt :k :count)) (spine/beat-summary beat))]
+        (is (nil? (:db by-k)) "no `db Δ` chip when db did not change"))))
+  (testing "a REAL epoch-beat-projected beat WITH a db transition is direct
+            db-evidence and emits the `db Δ` chip (rf2-v917m)"
+    (let [beat (evidence/epoch-beat
+                (assoc no-db-change-record :db-after {:count 7}))]
+      (is (:direct? (spine/beat-evidence-strength beat)))
+      (let [by-k (into {} (map (juxt :k :count)) (spine/beat-summary beat))]
+        (is (= 1 (:db by-k)) "`db Δ` chip present when db changed"))))
+  (testing "absent db keys (an older beat) read as no transition, robustly"
+    (is (= {:direct? false :attributed? false}
+           (spine/beat-evidence-strength {})))
+    (is (nil? (-> (spine/beat-summary {})
+                  (->> (into {} (map (juxt :k :count))))
+                  :db)))))
+
 ;; ===========================================================================
 ;; compact summary  (spec/020 §3)
 ;; ===========================================================================
