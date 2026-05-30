@@ -71,6 +71,16 @@
                    :color            (:danger colors/tokens)}
    :pill-empty    {:background       (:bg-3 colors/tokens)
                    :color            (:text-secondary colors/tokens)}
+   ;; rf2-ba86n.11 — `:error` reads as a louder fail; `:cannot-run` is the
+   ;; distinct THIRD state (spec/018 §12.6 — visually distinct from
+   ;; pass/fail/error); `:pending` is the muted never-run/no-signal state.
+   :pill-error    {:background       (:danger-bg colors/tokens)
+                   :color            (:danger colors/tokens)
+                   :border           (str "1px solid " (:danger colors/tokens))}
+   :pill-cannot   {:background       (:warning-bg colors/tokens)
+                   :color            (:warning colors/tokens)}
+   :pill-pending  {:background       (:bg-3 colors/tokens)
+                   :color            (:text-tertiary colors/tokens)}
    :counts        {:color            (:text-secondary colors/tokens)
                    :font-family      mono-stack
                    :font-size        (:caption typography/type-scale)}
@@ -132,6 +142,111 @@
                    :font-family      mono-stack
                    :margin-top       "8px"
                    :display          "block"}
+
+   ;; ---- unified run-result surfaces (rf2-ba86n.11) ----------------
+   ;; runner selected vs required badge (spec/021 §1)
+   :runner-row    {:display          "flex"
+                   :align-items      "center"
+                   :gap              "8px"
+                   :flex-wrap        "wrap"
+                   :margin-top       "6px"
+                   :color            (:text-secondary colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:micro typography/type-scale)}
+   :runner-badge  {:padding          "2px 7px"
+                   :border-radius    "3px"
+                   :background       (:bg-3 colors/tokens)
+                   :color            (:text-primary colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:micro typography/type-scale)}
+   :runner-key    {:color            (:text-tertiary colors/tokens)
+                   :text-transform   "uppercase"
+                   :letter-spacing   "0.4px"}
+   ;; failed-only filter toggle (spec/021 §1)
+   :filter-row    {:display          "flex"
+                   :align-items      "center"
+                   :gap              "8px"
+                   :margin-bottom    "8px"}
+   :filter-toggle {:padding          "3px 10px"
+                   :border           (str "1px solid " (:border-strong colors/tokens))
+                   :border-radius    "3px"
+                   :background       "none"
+                   :color            (:text-secondary colors/tokens)
+                   :cursor           "pointer"
+                   :font-family      mono-stack
+                   :font-size        (:micro typography/type-scale)}
+   :filter-on     {:background       (:accent-amber-soft colors/tokens)
+                   :color            (:accent-amber colors/tokens)
+                   :border           (str "1px solid " (:accent-amber-deep colors/tokens))}
+   :filter-hint   {:color            (:text-tertiary colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:micro typography/type-scale)}
+   ;; checks grouped by check id (spec/021 §1)
+   :check-box     {:border           "1px solid #2d2d30"
+                   :border-radius    "4px"
+                   :margin-bottom    "6px"
+                   :background       (:bg-2 colors/tokens)}
+   :check-head    {:display          "flex"
+                   :align-items      "center"
+                   :gap              "8px"
+                   :padding          "6px 10px"
+                   :cursor           "pointer"
+                   :font-family      mono-stack
+                   :font-size        (:caption typography/type-scale)}
+   :check-id      {:color            (:text-primary colors/tokens)
+                   :font-weight      "bold"}
+   :check-counts  {:color            (:text-secondary colors/tokens)
+                   :font-size        (:micro typography/type-scale)
+                   :margin-left      "auto"}
+   :check-body    {:padding          "0 10px 8px 10px"}
+   ;; schema-violation rows (spec/021 §1)
+   :schema-row    {:padding          "6px 10px"
+                   :border-left      "3px solid"
+                   :margin-bottom    "5px"
+                   :background       (:bg-2 colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:caption typography/type-scale)}
+   :schema-consumed {:border-left-color (:success colors/tokens)}
+   :schema-unconsumed {:border-left-color (:danger colors/tokens)}
+   :schema-tag    {:display          "inline-block"
+                   :padding          "1px 6px"
+                   :border-radius    "8px"
+                   :font-size        (:micro typography/type-scale)
+                   :text-transform   "uppercase"
+                   :letter-spacing   "0.4px"
+                   :margin-right     "8px"}
+   :schema-tag-ok {:background       (:success-bg colors/tokens)
+                   :color            (:success colors/tokens)}
+   :schema-tag-bad {:background      (:danger-bg colors/tokens)
+                   :color            (:danger colors/tokens)}
+   :schema-sel    {:color            (:text-primary colors/tokens)}
+   :schema-meta   {:color            (:text-tertiary colors/tokens)
+                   :font-size        (:micro typography/type-scale)
+                   :margin-top       "3px"}
+   ;; cannot-run rows (spec/021 §1; spec/018 §12.6 — distinct THIRD state)
+   :cannot-row    {:padding          "6px 10px"
+                   :border-left      (str "3px solid " (:warning colors/tokens))
+                   :margin-bottom    "5px"
+                   :background       (:warning-bg colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:caption typography/type-scale)}
+   :cannot-key    {:color            (:warning colors/tokens)
+                   :text-transform   "uppercase"
+                   :font-size        (:micro typography/type-scale)
+                   :letter-spacing   "0.4px"
+                   :margin-right     "6px"}
+   :cannot-val    {:color            (:text-primary colors/tokens)}
+   ;; result → evidence link (spec/021 §2)
+   :evidence-row  {:margin-top       "10px"
+                   :padding          "8px 12px"
+                   :border           "1px dashed #3a3a3a"
+                   :border-radius    "4px"
+                   :background       (:bg-2 colors/tokens)
+                   :color            (:text-secondary colors/tokens)
+                   :font-family      mono-stack
+                   :font-size        (:micro typography/type-scale)}
+   :evidence-pending {:color         (:text-tertiary colors/tokens)
+                      :font-style    "italic"}
 
    ;; ---- step-through scrubber (rf2-lc36w) -------------------------
    :scrub-wrap    {:margin           "8px 0 0 0"

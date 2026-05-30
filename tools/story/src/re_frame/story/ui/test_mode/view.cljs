@@ -1,25 +1,49 @@
 (ns re-frame.story.ui.test-mode.view
   "The `:test` mode pane — in-canvas aggregated test-runner view.
-  Per rf2-qmjo + spec/009.
+  Per rf2-qmjo + spec/009, migrated to the unified run-result UX per
+  tools/story/spec/021-Story-UI-Test-And-Evidence.md §1 (rf2-ba86n.11).
 
   Replaces the `mode-tabs/tests-placeholder` stub that landed with the
   mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:play-script`
-  sequence via `run-variant`, reads the `:assertions` vector off the
-  result, and renders an aggregated pass/fail summary inside the
+  sequence via `run-variant`, consumes the ONE unified run-result the
+  runtime returns (`re-frame.story.result/run-result` merged with the
+  legacy lifecycle slots), and renders the result/proof surface inside the
   canvas:
 
       ┌──────────────────────────────────────────────────────┐
       │  Header — variant id · parent story · Re-run button   │
       │           · last-run timestamp + elapsed              │
+      │           · runner selected vs required               │
       ├──────────────────────────────────────────────────────┤
-      │  Summary badge — status pill (pass/fail/empty) +      │
-      │           ✓ N passed · ✗ N failed · ⊘ N skipped       │
+      │  Summary badge — status pill (pass/fail/error/        │
+      │           cannot-run/pending) + ✓/✗/⊘ counts          │
       ├──────────────────────────────────────────────────────┤
-      │  Per-test table — one row per assertion record, in    │
-      │           execution order; collapsible failure detail │
-      │           surfaces :expected / :actual / :reason +    │
-      │           the source-coord stamping                   │
+      │  Checks — grouped by check id, each disclosing its    │
+      │           underlying assertion records                │
+      ├──────────────────────────────────────────────────────┤
+      │  Assertions — one row per assertion record (terminal  │
+      │           + script-checkpoint), failed-only filter,   │
+      │           collapsible :expected/:actual/:reason +     │
+      │           source-coord 'open in editor'               │
+      ├──────────────────────────────────────────────────────┤
+      │  Schema violations — consumed (expected) vs           │
+      │           unconsumed (agreement-floor failure)        │
+      ├──────────────────────────────────────────────────────┤
+      │  Cannot run — runner refusals: required vs available  │
+      ├──────────────────────────────────────────────────────┤
+      │  Evidence — result→spine link (graceful pending)      │
       └──────────────────────────────────────────────────────┘
+
+  ## Migration (rf2-ba86n.11, spec/021 §1 supersedes 009 result-reading)
+
+  The pane no longer derives status from a split `:lifecycle` /
+  `:assertions` reading. It reads the unified run-level `:status`, the
+  `:checks` groups, the `:schema-violations` evidence, and the
+  `:cannot-run` refusal rows through the pure projection helpers in
+  `re-frame.story.ui.test-mode.pure` (`run-status` / `check-rows` /
+  `schema-rows` / `cannot-run-rows` / `filter-rows` / `evidence-available?`).
+  Slots the substrate does not yet populate render an honest empty/dash
+  state — never a fabricated row.
 
   When the variant body's `:play-script` slot is empty / absent the pane
   short-circuits and renders an empty-state placeholder pointing at
@@ -102,43 +126,61 @@
          [:span " · "])
        (when (number? elapsed)
          [:span {:data-test "story-test-elapsed"}
-          (pure/format-elapsed-ms elapsed)])]]]))
+          (pure/format-elapsed-ms elapsed)])]]
+     ;; rf2-ba86n.11 — runner selected vs required (spec/021 §1). The
+     ;; unified result threads `:runner` / `:required-runner` verbatim;
+     ;; render an honest "—" when the host did not stamp them.
+     (when result
+       (let [runner   (:runner result)
+             required (:required-runner result)]
+         [:div {:style     (:runner-row styles)
+                :data-test "story-test-runner-row"}
+          [:span {:style (:runner-key styles)} "runner"]
+          [:span {:style     (:runner-badge styles)
+                  :data-test "story-test-runner-selected"}
+           (if runner (str runner) "—")]
+          [:span {:style (:runner-key styles)} "required"]
+          [:span {:style     (:runner-badge styles)
+                  :data-test "story-test-runner-required"}
+           (if (seq required) (pr-str required) "—")]]))]))
 
 (defn- summary-section
-  "Status pill + ✓ / ✗ / ⊘ counts. Renders nothing until at least
-  one run has executed; the renderer composes its own placeholder
-  in that interim state."
+  "Top-level status pill + ✓ / ✗ / ⊘ counts (spec/021 §1 — overall status,
+  including the distinct `:cannot-run` THIRD state + a `:pending`
+  never-run/no-signal state). Renders nothing until at least one run has
+  executed; the renderer composes its own placeholder in that interim
+  state."
   [variant-id]
   (let [slot   (get @state/results-atom variant-id)
         result (:result slot)]
     (when result
       (let [summary (shell-state/aggregate-summary (:assertions result))
-            {:keys [total passed failed cannot-run skipped all-passed?]} summary
+            {:keys [passed failed cannot-run total]} summary
             cannot-run (or cannot-run 0)
-            ;; rf2-5x1wt.19 — prefer the unified run-level `:status` so a
-            ;; tape-floor `:fail` / a `:cannot-run` refusal renders even when
-            ;; the assertion counts alone would read green.
-            status     (or (:status result)
-                           (cond (zero? total)      :pending
-                                 all-passed?        :pass
-                                 (pos? cannot-run)  :cannot-run
-                                 :else              :fail))
+            ;; rf2-ba86n.11 — the unified run-level verdict (spec/021 §1),
+            ;; via the pure projection. A tape-floor `:fail` / `:cannot-run`
+            ;; refusal / `:error` surfaces even when assertion counts alone
+            ;; would read green.
+            status     (pure/run-status result summary)
             pill-style (case status
                          :pass       (:pill-pass styles)
-                         :cannot-run (:pill-empty styles)
-                         (:pending)  (:pill-empty styles)
+                         :error      (:pill-error styles)
+                         :cannot-run (:pill-cannot styles)
+                         :pending    (:pill-pending styles)
                          (:pill-fail styles))
             pill-text  (case status
                          :pass       (str passed " passed")
+                         :error      "error"
                          :cannot-run (str cannot-run " cannot-run of " total)
-                         (:pending)  "no assertions recorded"
+                         :pending    "no assertions recorded"
                          (str failed " failed of " total))]
         [:div {:style     (:section styles)
                :data-test "story-test-summary-section"}
          [:div {:style (:section-h styles)} "Summary"]
          [:div {:style (:pill-row styles)}
-          [:span {:style     (merge (:pill styles) pill-style)
-                  :data-test "story-test-status-pill"}
+          [:span {:style       (merge (:pill styles) pill-style)
+                  :data-test   "story-test-status-pill"
+                  :data-status (name status)}
            pill-text]
           [:span {:style     (:counts styles)
                   :data-test "story-test-counts"}
@@ -304,68 +346,224 @@
 (defn- status-glyph
   [status]
   (case status
-    :pass [:span {:style (:status-pass styles)} "●"]
-    :fail [:span {:style (:status-fail styles)} "●"]
-    :skip [:span {:style (:status-skip styles)} "○"]
+    :pass       [:span {:style (:status-pass styles)} "●"]
+    :fail       [:span {:style (:status-fail styles)} "●"]
+    :error      [:span {:style (:status-fail styles)} "✖"]
+    :cannot-run [:span {:style (:status-skip styles)} "⊘"]
+    :skip       [:span {:style (:status-skip styles)} "○"]
     [:span {:style (:status-skip styles)} "○"]))
 
+(defn- assertion-table
+  "Render the assertion `rows` as the per-test table. `expanded` is the
+  set of expanded row-keys (`row-key`). Factored out so both the
+  assertions section and a check group can render the same table shape."
+  [variant-id rows expanded]
+  [:table {:style     (:table styles)
+           :data-test "story-test-table"}
+   [:thead
+    [:tr
+     [:th {:style (merge (:th styles) (:td-status styles))} ""]
+     [:th {:style (:th styles)} "assertion"]
+     [:th {:style (:th styles)} "detail"]]]
+   [:tbody
+    ;; rf2-tistm — :expanded is keyed by the row's stable identity
+    ;; (:row-key from assertion-row, the rendered label string) rather
+    ;; than positional index. A re-run that reorders or inserts
+    ;; assertions would otherwise open the wrong row.
+    (for [[i row] (map-indexed vector rows)]
+      (let [rk    (:row-key row)
+            open? (contains? expanded rk)
+            ;; rf2-ba86n.11 — :error / :cannot-run disclose detail too.
+            bad?  (#{:fail :error :cannot-run} (:status row))]
+        ^{:key (str rk "#" i)}
+        [:tr {:data-test      "story-test-row"
+              :data-status    (name (:status row))
+              :data-assertion (str (:assertion row))
+              :style          (when bad? (:row-fail styles))}
+         [:td {:style (merge (:td styles) (:td-status styles))}
+          (status-glyph (:status row))]
+         [:td {:style (:td styles)}
+          (:label row)]
+         [:td {:style (:td styles)}
+          (cond
+            bad?
+            [:div
+             [:button
+              {:style    (:details-tog styles)
+               :on-click (fn [_] (state/toggle-expanded! variant-id rk))
+               :aria-expanded (if open? "true" "false")}
+              (if open? "hide detail" "show detail")]
+             (when open? (row-detail (:detail row)))]
+
+            (= :skip (:status row))
+            [:span {:style (:status-skip styles)} "skipped"]
+
+            :else
+            "")]]))]])
+
+(defn- filter-toggle
+  "The failed-only filter toggle (spec/021 §1). Hides passing rows so the
+  user lands on the actionable ones. `failed-only?` is the current flag;
+  `hidden` is the count of passing rows the filter would hide (rendered as
+  a hint)."
+  [variant-id failed-only? hidden]
+  [:div {:style (:filter-row styles)}
+   [:button
+    {:style          (merge (:filter-toggle styles)
+                            (when failed-only? (:filter-on styles)))
+     :data-test      "story-test-failed-only"
+     :aria-pressed   (if failed-only? "true" "false")
+     :on-click       (fn [_] (state/set-failed-only! variant-id (not failed-only?)))}
+    (if failed-only? "✓ failed only" "failed only")]
+   (when (and failed-only? (pos? hidden))
+     [:span {:style     (:filter-hint styles)
+             :data-test "story-test-filter-hint"}
+      (str hidden " passing row" (when (not= 1 hidden) "s") " hidden")])])
+
 (defn- rows-section
-  "Per-test rows. Empty when no run has executed; renders nothing
-  when the run recorded zero assertions (the summary pill already
-  told the user)."
+  "Per-test assertion rows (spec/021 §1 — terminal + script-checkpoint
+  assertions; the substrate folds both onto one `:assertions` slot today,
+  so the pane renders them as one ordered list). Carries the failed-only
+  filter. Empty when no run has executed; renders nothing when the run
+  recorded zero assertions (the summary pill already told the user)."
+  [variant-id]
+  (let [slot         (get @state/results-atom variant-id)
+        result       (:result slot)
+        expanded     (or (:expanded slot) #{})
+        failed-only? (boolean (:failed-only? slot))]
+    (when result
+      (let [all-rows (mapv pure/assertion-row (:assertions result))]
+        (when (seq all-rows)
+          (let [shown  (pure/filter-rows all-rows failed-only?)
+                hidden (- (count all-rows) (count shown))]
+            [:div {:style     (:section styles)
+                   :data-test "story-test-rows-section"}
+             [:div {:style (:section-h styles)} "Assertions"]
+             (filter-toggle variant-id failed-only? hidden)
+             (if (seq shown)
+               (assertion-table variant-id shown expanded)
+               [:div {:style     (:filter-hint styles)
+                      :data-test "story-test-rows-all-passed"}
+                "all assertions passed — nothing to show"])]))))))
+
+(defn- checks-section
+  "Checks grouped by check id (spec/021 §1; spec/017 §Checks — a failed
+  check shows BOTH the check id AND its underlying assertion records).
+  Renders nothing when the plan declared no checks (the common case
+  today — an honest empty state, never a fabricated check group)."
   [variant-id]
   (let [slot     (get @state/results-atom variant-id)
         result   (:result slot)
-        expanded (or (:expanded slot) #{})]
+        expanded (or (:expanded slot) #{})
+        checks   (some-> result pure/check-rows)
+        expanded-checks (or (:expanded-checks slot) #{})]
+    (when (seq checks)
+      [:div {:style     (:section styles)
+             :data-test "story-test-checks-section"}
+       [:div {:style (:section-h styles)} "Checks"]
+       (for [{:keys [check status passed failed total rows]} checks]
+         (let [open? (contains? expanded-checks check)]
+           ^{:key (str check)}
+           [:div {:style     (:check-box styles)
+                  :data-test "story-test-check"
+                  :data-status (name status)}
+            [:div {:style    (:check-head styles)
+                   :on-click (fn [_] (state/toggle-check! variant-id check))
+                   :aria-expanded (if open? "true" "false")}
+             (status-glyph status)
+             [:span {:style (:check-id styles)} (str check)]
+             [:span {:style (:check-counts styles)}
+              (str passed "/" total " passed"
+                   (when (pos? failed) (str " · " failed " failed")))]]
+            (when open?
+              [:div {:style (:check-body styles)}
+               (assertion-table variant-id rows expanded)])]))])))
+
+(defn- schema-section
+  "Schema violations, marking consumed expected violations distinctly from
+  unconsumed ones (spec/021 §1). Renders nothing when the tape carried no
+  schema violations."
+  [variant-id]
+  (let [slot   (get @state/results-atom variant-id)
+        result (:result slot)
+        rows   (some-> result pure/schema-rows)]
+    (when (seq rows)
+      [:div {:style     (:section styles)
+             :data-test "story-test-schema-section"}
+       [:div {:style (:section-h styles)} "Schema violations"]
+       (for [[i {:keys [selector where failing-id consumed? reason epoch-id]}]
+             (map-indexed vector rows)]
+         ^{:key (str selector "#" i)}
+         [:div {:style       (merge (:schema-row styles)
+                                    (if consumed?
+                                      (:schema-consumed styles)
+                                      (:schema-unconsumed styles)))
+                :data-test   "story-test-schema-row"
+                :data-consumed (str consumed?)}
+          [:span {:style (merge (:schema-tag styles)
+                                (if consumed?
+                                  (:schema-tag-ok styles)
+                                  (:schema-tag-bad styles)))}
+           (if consumed? "consumed" "unconsumed")]
+          [:span {:style (:schema-sel styles)} (pr-str selector)]
+          [:div {:style (:schema-meta styles)}
+           (str (when where (str (name where) " "))
+                (when failing-id (str (pr-str failing-id) " "))
+                (when epoch-id (str "· epoch " epoch-id)))
+           (when reason [:div (str reason)])]])])))
+
+(defn- cannot-run-section
+  "Cannot-run rows — the runner refusals (spec/021 §1; spec/018 §12.6 — the
+  distinct THIRD state). Each row says what evidence/runner was REQUIRED vs
+  what was AVAILABLE, so it reads as a refusal rather than a failure.
+  Renders nothing when the chosen runner satisfied every requirement."
+  [variant-id]
+  (let [slot   (get @state/results-atom variant-id)
+        result (:result slot)
+        rows   (some-> result pure/cannot-run-rows)]
+    (when (seq rows)
+      [:div {:style     (:section styles)
+             :data-test "story-test-cannot-run-section"}
+       [:div {:style (:section-h styles)} "Cannot run"]
+       (for [[i {:keys [required available missing reason runner]}]
+             (map-indexed vector rows)]
+         ^{:key (str i)}
+         [:div {:style     (:cannot-row styles)
+                :data-test "story-test-cannot-run-row"}
+          [:div
+           [:span {:style (:cannot-key styles)} "required"]
+           [:span {:style (:cannot-val styles)} (pr-str required)]]
+          [:div
+           [:span {:style (:cannot-key styles)} "available"]
+           [:span {:style (:cannot-val styles)} (pr-str available)]]
+          (when (seq missing)
+            [:div
+             [:span {:style (:cannot-key styles)} "missing"]
+             [:span {:style (:cannot-val styles)} (pr-str missing)]])
+          [:div {:style (:schema-meta styles)}
+           (str (when reason (name reason))
+                (when runner (str " · runner " runner)))]])])))
+
+(defn- evidence-section
+  "Result → evidence-spine link (spec/021 §2). The evidence-spine DISPLAY
+  (ba86n.10) is not built yet, and the Story→Xray focus API (rf2-crtmq) is
+  not wired here, so this renders a graceful affordance honestly: when the
+  run retained an epoch tape the link target exists but the surface is
+  pending; otherwise there is no evidence to link. No fabricated link."
+  [variant-id]
+  (let [slot   (get @state/results-atom variant-id)
+        result (:result slot)]
     (when result
-      (let [rows (mapv pure/assertion-row (:assertions result))]
-        (when (seq rows)
-          [:div {:style     (:section styles)
-                 :data-test "story-test-rows-section"}
-           [:div {:style (:section-h styles)} "Per-test"]
-           [:table {:style     (:table styles)
-                    :data-test "story-test-table"}
-            [:thead
-             [:tr
-              [:th {:style (merge (:th styles) (:td-status styles))} ""]
-              [:th {:style (:th styles)} "assertion"]
-              [:th {:style (:th styles)} "detail"]]]
-            [:tbody
-             ;; rf2-tistm — :expanded is keyed by the row's stable
-             ;; identity (:row-key from assertion-row, the rendered
-             ;; label string) rather than positional index. A re-run
-             ;; that reorders or inserts assertions (e.g. a new :play-script
-             ;; step lands between two existing ones) would otherwise
-             ;; open the wrong row.
-             (for [[i row] (map-indexed vector rows)]
-               (let [rk    (:row-key row)
-                     open? (contains? expanded rk)
-                     fail? (= :fail (:status row))]
-                 ^{:key (str rk "#" i)}
-                 [:tr {:data-test     "story-test-row"
-                       :data-status   (name (:status row))
-                       :data-assertion (str (:assertion row))
-                       :style         (when fail? (:row-fail styles))}
-                  [:td {:style (merge (:td styles) (:td-status styles))}
-                   (status-glyph (:status row))]
-                  [:td {:style (:td styles)}
-                   (:label row)]
-                  [:td {:style (:td styles)}
-                   (cond
-                     fail?
-                     [:div
-                      [:button
-                       {:style    (:details-tog styles)
-                        :on-click (fn [_] (state/toggle-expanded! variant-id rk))
-                        :aria-expanded (if open? "true" "false")}
-                       (if open? "hide detail" "show detail")]
-                      (when open? (row-detail (:detail row)))]
-
-                     (= :skip (:status row))
-                     [:span {:style (:status-skip styles)} "skipped"]
-
-                     :else
-                     "")]]))]]])))))
+      (let [evidence? (pure/evidence-available? result)]
+        [:div {:style     (:evidence-row styles)
+               :data-test "story-test-evidence-row"
+               :data-evidence (str evidence?)}
+         (if evidence?
+           [:span {:style (:evidence-pending styles)}
+            "evidence spine pending — failures will link here once the "
+            "evidence panel lands"]
+           [:span {:style (:evidence-pending styles)}
+            "no retained evidence for this run"])]))))
 
 (defn- empty-state
   "Placeholder when the variant has no `:play-script` slot."
@@ -431,6 +629,16 @@
                       :aria-label "Variant tests"}
             [header variant-id]
             [summary-section variant-id]
+            ;; rf2-ba86n.11 — the unified run-result surfaces (spec/021 §1):
+            ;; checks grouped by id, the per-test assertions (terminal +
+            ;; script-checkpoint, with the failed-only filter), schema
+            ;; violations (consumed + unconsumed), and cannot-run refusals.
+            [checks-section variant-id]
             [stepper-view/stepper-section variant-id]
             [scrubber-section variant-id]
-            [rows-section variant-id]]))})))
+            [rows-section variant-id]
+            [schema-section variant-id]
+            [cannot-run-section variant-id]
+            ;; rf2-ba86n.11 — result → evidence-spine link (spec/021 §2),
+            ;; a graceful "evidence pending" until the spine display lands.
+            [evidence-section variant-id]]))})))

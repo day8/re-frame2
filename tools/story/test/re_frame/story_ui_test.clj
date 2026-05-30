@@ -902,6 +902,129 @@
           "different payloads produce distinct row-keys — keys do not collide
            on a re-run that inserts a sibling path-equals on a different path"))))
 
+(deftest test-mode-assertion-row-unified-status
+  (testing "rf2-ba86n.11 — assertion-row PREFERS the unified `:status` over
+            the legacy :passed? read (spec/021 §1 migration)"
+    (is (= :cannot-run (:status (test-mode/assertion-row
+                                  {:assertion :rf.assert/caused
+                                   :status    :cannot-run
+                                   :passed?   false})))
+        "a stamped :cannot-run wins — NOT folded into :fail")
+    (is (= :error (:status (test-mode/assertion-row
+                             {:assertion :rf.assert/path-equals
+                              :status    :error
+                              :passed?   false})))
+        "a stamped :error reads :error, not :fail")
+    (is (= :pass (:status (test-mode/assertion-row
+                            {:assertion :rf.assert/path-equals
+                             :status    :pass
+                             :passed?   false})))
+        "the stamped :status wins even when :passed? disagrees")
+    (testing "unstamped records still derive :cannot-run / :error from flags"
+      (is (= :cannot-run (:status (test-mode/assertion-row
+                                    {:assertion :rf.assert/caused
+                                     :cannot-run? true}))))
+      (is (= :error (:status (test-mode/assertion-row
+                               {:assertion :rf.assert/path-equals
+                                :error "boom"})))))))
+
+(deftest test-mode-run-status
+  (testing "rf2-ba86n.11 — run-status prefers the unified run-level :status"
+    (is (= :pass       (test-mode/run-status {:status :pass} {})))
+    (is (= :fail       (test-mode/run-status {:status :fail} {})))
+    (is (= :error      (test-mode/run-status {:status :error} {})))
+    (is (= :cannot-run (test-mode/run-status {:status :cannot-run} {}))))
+  (testing "no result → :pending; a result without :status derives from counts"
+    (is (= :pending (test-mode/run-status nil nil)))
+    (is (= :pending (test-mode/run-status {} {:total 0})))
+    (is (= :pass    (test-mode/run-status {} {:total 2 :failed 0 :all-passed? true})))
+    (is (= :fail    (test-mode/run-status {} {:total 2 :failed 1})))
+    (is (= :cannot-run (test-mode/run-status {} {:total 2 :failed 0 :cannot-run 1})))))
+
+(deftest test-mode-check-rows
+  (testing "rf2-ba86n.11 — check-rows groups the result's :checks by id, with
+            pass/fail counts + the underlying assertion rows (spec/021 §1)"
+    (let [result {:checks [{:check  :auth/logged-in
+                            :status :fail
+                            :assertions [{:assertion :rf.assert/path-equals
+                                          :status :pass :payload [[:user] 1]}
+                                         {:assertion :rf.assert/path-equals
+                                          :status :fail :payload [[:role] :admin]}]}]}
+          rows   (test-mode/check-rows result)]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :auth/logged-in (:check r)))
+        (is (= :fail (:status r)))
+        (is (= 1 (:passed r)))
+        (is (= 1 (:failed r)))
+        (is (= 2 (:total r)))
+        (is (= 2 (count (:rows r))) "underlying assertion rows are projected"))))
+  (testing "no checks → empty (honest empty state, never a fabricated check)"
+    (is (= [] (test-mode/check-rows {})))
+    (is (= [] (test-mode/check-rows {:checks []})))))
+
+(deftest test-mode-schema-rows
+  (testing "rf2-ba86n.11 — schema-rows marks consumed vs unconsumed
+            violations (spec/021 §1 — incl. consumed expected violations)"
+    (let [result {:schema-violations
+                  [{:selector [:event :auth/login] :where :event
+                    :failing-id :auth/login :epoch-id 3}
+                   {:selector [:app-db [:user] [:role]] :where :app-db
+                    :failing-id nil :epoch-id 4 :reason "invalid role"}]
+                  ;; a :pass schema-error record consumed the first selector
+                  :assertions
+                  [{:assertion :rf.assert/schema-error :status :pass
+                    :actual [:event :auth/login]}]}
+          rows   (test-mode/schema-rows result)]
+      (is (= 2 (count rows)))
+      (is (true?  (:consumed? (first rows)))  "exactly-consumed expected violation")
+      (is (false? (:consumed? (second rows))) "unconsumed → agreement-floor failure")
+      (is (= "invalid role" (:reason (second rows))))))
+  (testing "no violations → empty"
+    (is (= [] (test-mode/schema-rows {})))))
+
+(deftest test-mode-cannot-run-rows
+  (testing "rf2-ba86n.11 — cannot-run-rows surfaces required vs available
+            evidence/runner for each refusal (spec/021 §1; spec/018 §12.6)"
+    (let [result {:cannot-run
+                  [{:status :cannot-run
+                    :required-runner  #{:dom}
+                    :available-runner #{:headless}
+                    :missing          #{:dom}
+                    :reason           :runner-lacks-capability
+                    :runner           :headless
+                    :unit             [:click "#go"]}]}
+          rows   (test-mode/cannot-run-rows result)]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= #{:dom}      (:required r)))
+        (is (= #{:headless} (:available r)))
+        (is (= #{:dom}      (:missing r)))
+        (is (= :runner-lacks-capability (:reason r)))
+        (is (= :headless    (:runner r))))))
+  (testing "no refusals → empty"
+    (is (= [] (test-mode/cannot-run-rows {})))))
+
+(deftest test-mode-filter-rows
+  (testing "rf2-ba86n.11 — failed-only filter keeps only actionable rows
+            (:fail/:error/:cannot-run) when on (spec/021 §1)"
+    (let [rows [{:status :pass}  {:status :fail}  {:status :error}
+                {:status :cannot-run} {:status :skip} {:status :pass}]]
+      (is (= 6 (count (test-mode/filter-rows rows false)))
+          "filter off → every row")
+      (let [kept (test-mode/filter-rows rows true)]
+        (is (= 3 (count kept)))
+        (is (= [:fail :error :cannot-run] (mapv :status kept))
+            ":pass / :skip rows are filtered out")))))
+
+(deftest test-mode-evidence-available?
+  (testing "rf2-ba86n.11 — evidence-available? gates the graceful pending
+            affordance on a retained tape/narrative (spec/021 §2)"
+    (is (true?  (test-mode/evidence-available? {:epoch-tape [{:epoch-id 1}]})))
+    (is (true?  (test-mode/evidence-available? {:narrative [{:span 1}]})))
+    (is (false? (test-mode/evidence-available? {:epoch-tape [] :narrative []})))
+    (is (false? (test-mode/evidence-available? {})))))
+
 (deftest test-mode-format-elapsed-ms
   (testing "format-elapsed-ms switches at the 1s boundary"
     (is (= "0 ms"   (test-mode/format-elapsed-ms 0)))
