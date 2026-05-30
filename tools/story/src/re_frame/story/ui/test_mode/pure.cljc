@@ -13,7 +13,9 @@
 
   Everything in this namespace is `.cljc` so it runs unchanged on both
   the JVM (for the test corpus) and CLJS (consumed by `view.cljs`)."
-  (:require [re-frame.story.predicates :as pred]
+  (:require [clojure.string            :as str]
+            [re-frame.story.assertions :as assertions]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.registrar  :as registrar]))
 
 ;; ---- aliases on the leaf predicates ns ----------------------------------
@@ -508,3 +510,152 @@
   [result]
   (boolean (or (seq (:epoch-tape result))
                (seq (:narrative result)))))
+
+;; ===========================================================================
+;; VISUAL + A11Y CHECK RESULTS  (rf2-ba86n.15, tools/story/spec/021 §4)
+;; ===========================================================================
+;;
+;; The run path (post-#2484) evaluates the browser-tier oracle family —
+;; `:rf.assert/a11y-structural` (the `:hiccup` structural-a11y check),
+;; `:rf.assert/a11y` (the axe-style browser check), and
+;; `:rf.assert/visual-snapshot` (the `:pixels` screenshot check) — through
+;; `re-frame.story.play.browser/eval-browser-assertion`. Each rides the ONE
+;; assertion-record shape (`re-frame.story.play.browser` — "a finding is an
+;; assertion record like any other"); they accumulate alongside every other
+;; assertion in the run-result's `:assertions` slot, with NO parallel slot.
+;;
+;; These helpers project those records into the per-section render data the
+;; dedicated visual/a11y results component renders (spec/021 §4):
+;;
+;;   - the structural a11y VIOLATIONS as a readable {:finding :locus} list
+;;     (not the raw `:actual` issue-map blob the generic assertions table
+;;     would `pr-str`);
+;;   - the axe-style a11y violations ({:id :impact :help}) likewise;
+;;   - the visual-snapshot screenshot/identity presentation (the reused
+;;     `content-hash` snapshot identity — a real pixel diff lands later with
+;;     the `:pixels` runner);
+;;   - the honest `:cannot-run` row for a browser-tier check the headless /
+;;     hiccup runner could not even attempt (spec/017 §`:cannot-run` — never
+;;     a false pass or silent blank).
+;;
+;; All pure data → data; JVM-testable. The browser-tier records are READ off
+;; the unified `:assertions` slot — the SAME source Test mode + docs project
+;; — so this is not a re-derivation of the run path's verdicts.
+
+(defn- humanize-rule
+  "Render a structural-a11y `:rule` keyword as a short readable finding
+  phrase (`:img-missing-alt` → `\"image missing alt text\"`). Falls back to
+  the kebab-spelling of an unknown rule so a future rule still reads. Pure."
+  [rule]
+  (case rule
+    :img-missing-alt      "image missing alt text"
+    :control-missing-name "interactive control has no accessible name"
+    :positive-tabindex    "positive tabIndex breaks the natural focus order"
+    (some-> rule name (str/replace "-" " "))))
+
+(defn structural-a11y-findings
+  "Project a `:rf.assert/a11y-structural` record's `:actual` issue vector
+  (`re-frame.story.play.browser/structural-issues` — `{:rule :tag :detail}`
+  maps) into a readable findings list (spec/021 §4 — \"render the structural
+  a11y VIOLATIONS as a readable list … with the finding + locus\"):
+
+      [{:finding <human phrase>   ; the issue, in words
+        :locus   <\"<tag>\">      ; where in the rendered tree, e.g. \"<button>\"
+        :detail  <str>            ; the executor's verbatim detail line
+        :rule    <keyword>}]      ; the raw rule id, for keying / data-attr
+
+  `:locus` is the offending element's hiccup tag (the structural check works
+  over the rendered hiccup TREE, so the tag is the locus the `:hiccup` tier
+  can prove — a real-browser selector/source link is the axe / `:browser`
+  tier's job). Empty when the record carried no issues. Pure data → data;
+  JVM-testable."
+  [record]
+  (mapv (fn [{:keys [rule tag detail]}]
+          {:finding (humanize-rule rule)
+           :locus   (when tag (str "<" (name tag) ">"))
+           :detail  detail
+           :rule    rule})
+        (or (:actual record) [])))
+
+(defn axe-a11y-findings
+  "Project a `:rf.assert/a11y` record's `:actual` violation vector
+  (`re-frame.story.play.browser/eval-a11y` — `{:id :impact :help}` maps, the
+  axe-core surface) into a readable findings list (spec/021 §4 — a11y
+  findings with the finding + locus). Empty when no violation. Pure data →
+  data; JVM-testable."
+  [record]
+  (mapv (fn [{:keys [id impact help]}]
+          {:finding (or help (some-> id name) "a11y violation")
+           :locus   (some-> id name)
+           :impact  impact
+           :rule    id})
+        (or (:actual record) [])))
+
+(defn browser-result-rows
+  "Project the run-result's browser-tier oracle records (visual / a11y /
+  structural-a11y — `re-frame.story.assertions/browser-assertion-ids`, read
+  off the unified `:assertions` slot) into the render rows the dedicated
+  visual/a11y results component renders (spec/021 §4). One row per
+  browser-tier record, in record order:
+
+      {:assertion :rf.assert/a11y-structural
+       :kind      :a11y-structural        ; :visual | :a11y | :a11y-structural
+       :status    :pass|:fail|:cannot-run|:error
+       :reason    <str>                   ; the executor's diagnostic line
+       :count     <n|nil>                 ; finding count (a11y kinds)
+       :findings  [{:finding :locus …} …] ; readable list (a11y kinds)
+       :snapshot  <content-hash|nil>      ; visual identity (visual kind)
+       :baseline  <content-hash|nil>      ; visual baseline (visual kind)}
+
+  A `:cannot-run` row (a browser-tier check the headless / hiccup runner
+  could not even attempt) carries its `:reason` so it reads as a refusal,
+  never a false pass or a silent blank (spec/017 §`:cannot-run`). The status
+  is the record's unified `:status` (the run path stamped it); the legacy
+  `:passed?`-only read is the fallback. Empty when the run recorded no
+  browser-tier checks (the common headless case — an honest empty state,
+  never a fabricated row). Pure data → data; JVM-testable."
+  [result]
+  (let [browser? (fn [rec] (contains? assertions/browser-assertion-ids
+                                      (:assertion rec)))
+        kind-of  (fn [aid]
+                   (condp = aid
+                     assertions/id-visual-snapshot :visual
+                     assertions/id-a11y            :a11y
+                     assertions/id-a11y-structural :a11y-structural
+                     :browser))
+        status-of (fn [rec]
+                    (let [st (:status rec)]
+                      (cond
+                        (contains? statuses st)            st
+                        (:cannot-run? rec)                 :cannot-run
+                        (or (:error rec) (:exception rec)) :error
+                        (:passed? rec)                     :pass
+                        :else                              :fail)))]
+    (->> (or (:assertions result) [])
+         (filterv browser?)
+         (mapv (fn [rec]
+                 (let [aid    (:assertion rec)
+                       kind   (kind-of aid)
+                       status (status-of rec)]
+                   (cond-> {:assertion aid
+                            :kind      kind
+                            :status    status
+                            :reason    (some-> (:reason rec) str)}
+                     (= kind :a11y-structural)
+                     (assoc :count    (:count rec)
+                            :findings (if (= status :cannot-run)
+                                        []
+                                        (structural-a11y-findings rec)))
+
+                     (= kind :a11y)
+                     (assoc :count    (:count rec)
+                            :findings (if (= status :cannot-run)
+                                        []
+                                        (axe-a11y-findings rec)))
+
+                     (= kind :visual)
+                     (assoc :snapshot (when (not= status :cannot-run)
+                                        (:actual rec))
+                            :baseline (when (and (not= status :cannot-run)
+                                                 (not (keyword? (:expected rec))))
+                                        (:expected rec))))))))))
