@@ -476,6 +476,16 @@ inline plan. By default it prepares `:world` for rendering and renders
 the active view. It MUST NOT execute `:script` or terminal `:expect`
 unless a future option explicitly asks for a test run.
 
+When a host renders the active view, it MUST apply the variant's
+view-wrapping `:hiccup` decorators (the compiled plan's
+`[:world :decorators]`, threaded onto the render inputs) — the SAME
+decorate-and-render seam the live canvas uses
+(`re-frame.story.ui.multi-substrate/render-decorated-view`, which resolves
+the refs and wraps via `safe-decorated-view`). A host that paints the bare
+view would diverge from the live canvas for any decorated variant
+(theme / provider / chrome dropped). With no host installed (the bare JVM),
+`render-variant` returns `:cannot-run` — never a silent empty render.
+
 ### View arg schemas
 
 A registered view MAY expose a schema for its explicit args/props through
@@ -633,6 +643,18 @@ type it.
 | `[:world :fidelity]` | the resolved fidelity-ladder set (present when non-empty) |
 | `[:explain :sub-overrides]` | `{:overrides … :validation {:status :ok :violations []}}` — overrides are visible in explain |
 | `[:explain :fidelity]` | the same fidelity set, surfaced for docs / review |
+
+**Single-source resolution.** Both the live canvas and `render-variant`
+resolve the override map from the COMPILED variant-plan — the canvas
+re-substitutes the plan's composed `[:render-raw :sub-overrides]` against
+the post-control effective args through the same resolver
+(`re-frame.story.render/resolve-render-sub-overrides`) `render-variant`
+uses; neither re-reads the bare registrar body. This is what makes the two
+agree on overrides contributed by a `:compose`d fragment or an `:extends`
+parent (the plan compiler is the single merge authority — §305-306, the
+same rule decorators follow). A consumer reading `(:sub-overrides body)`
+straight off the side-table would see only the variant's OWN slot and drop
+the composed / inherited overrides.
 
 **Render-path read + the honesty rule.** Overrides feed the RENDER PATH
 only. The render-path resolver (`re-frame.story.sub-overrides`) binds the

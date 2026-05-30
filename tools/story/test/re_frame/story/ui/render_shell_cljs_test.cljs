@@ -36,7 +36,6 @@
     cell. Pin the shape so the user sees a loading-affordance-style
     inline message rather than a blank cell."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core             :as rf]
             [re-frame.frame            :as frame]
             [re-frame.machines         :as machines]
@@ -45,6 +44,8 @@
             [re-frame.story            :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.plan       :as plan]
+            [re-frame.story.render     :as render]
             [re-frame.story.runtime    :as runtime]
             [re-frame.story.ui.canvas  :as canvas]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
@@ -298,3 +299,101 @@
         ;; outer wrap renders.
         (is (= :div (first hiccup))
             "grid outer wrap rendered")))))
+
+;; ===========================================================================
+;; rf2-hzhmv / rf2-ba86n.8 — render-variant host APPLIES decorators
+;;
+;; The host-application gap rf2-hzhmv flagged: the render-variant host hook
+;; (`canonical/render-host-scope`) used to render the BARE view, dropping the
+;; variant's :decorators — so a render-variant render of a decorated variant
+;; diverged from the live canvas (which wraps via safe-decorated-view). The
+;; consolidation routes BOTH through the shared
+;; `multi-substrate/render-decorated-view` seam, so they paint the same tree.
+;; These CLJS tests prove the HOST actually applies the decorators — the
+;; existing render_test §decorators-are-view-wrapping only pinned that
+;; :decorators RIDE render-inputs, never that the host APPLIES them. Uses a
+;; REGISTERED variant via the DEFAULT lookup (the production path the
+;; rf2-din8u gate mandates).
+;; ===========================================================================
+
+(deftest render-decorated-view-wraps-via-shared-seam
+  (testing "the shared render-decorated-view seam (the host hook + the canvas
+            both call it) wraps the rendered view in the variant's :hiccup
+            decorators resolved from the compiled plan's [:world :decorators]"
+    (story/reg-decorator :deco/themed
+      {:kind :hiccup :wrap (fn [body _] [:div.themed body])})
+    (rf/reg-sub :probe/label (fn [db _] (:label db)))
+    (rf/reg-view* :views/probe (fn [_] [:span.leaf "leaf"]))
+    (story/reg-variant :story.hostdeco/v
+      {:component  :views/probe
+       :decorators [[:deco/themed]]
+       :events     []})
+    (let [plan        (plan/variant-plan :story.hostdeco/v)
+          deco-refs   (get-in plan [:world :decorators])
+          rendered    (multi-substrate/render-decorated-view
+                        :reagent :story.hostdeco/v :views/probe {} deco-refs)
+          ;; the OUTERMOST node must be the decorator wrap, not the bare view.
+          outer       (first rendered)]
+      (is (= [[:deco/themed]] deco-refs)
+          "the compiled plan carries the decorator refs at [:world :decorators]")
+      (is (= :div.themed outer)
+          "render-decorated-view wraps the view in the :hiccup decorator —
+           the host no longer paints the bare view (rf2-hzhmv)"))))
+
+(deftest render-decorated-view-bare-when-no-decorators
+  (testing "a variant with NO :decorators renders bare through the shared
+            seam — render-transparent (no spurious wrapper)"
+    (rf/reg-view* :views/plain (fn [_] [:span.leaf "leaf"]))
+    (story/reg-variant :story.hostnodeco/v
+      {:component :views/plain :events []})
+    (let [plan      (plan/variant-plan :story.hostnodeco/v)
+          deco-refs (get-in plan [:world :decorators])
+          rendered  (multi-substrate/render-decorated-view
+                      :reagent :story.hostnodeco/v :views/plain {} deco-refs)]
+      (is (nil? deco-refs) "no decorators on the plan")
+      ;; render-view returns the bare [view eff-args] vector for :reagent.
+      (is (not= :div.themed (first rendered))
+          "no decorator wrapper engaged — the bare view passes through"))))
+
+(deftest render-variant-and-canvas-resolve-same-inherited-decorators
+  (testing "render-variant's render-inputs and the canvas decorator pack
+            resolve the SAME :extends-inherited decorator off the compiled
+            plan — the registered (DEFAULT-lookup) production path
+            (rf2-hzhmv / rf2-ba86n.8 / rf2-g74i9)"
+    (story/reg-decorator :deco/parent-themed
+      {:kind :hiccup :wrap (fn [body _] [:div.parent-themed body])})
+    (story/reg-variant :story.inhdeco/parent
+      {:component  :views/probe
+       :decorators [[:deco/parent-themed]]
+       :events     []})
+    ;; child inherits the parent's decorator via :extends, declares none.
+    (story/reg-variant :story.inhdeco/child
+      {:extends :story.inhdeco/parent
+       :events  []})
+    (let [prepared    (render/prepare-render :story.inhdeco/child)
+          rv-refs     (get-in prepared [:render-inputs :decorators])
+          canvas-ids  (mapv :id (:hiccup (story/resolve-decorators :story.inhdeco/child)))]
+      (is (= [[:deco/parent-themed]] rv-refs)
+          "render-variant carries the INHERITED decorator refs (NOT empty —
+           the bare-body read would have dropped the :extends-inherited stack)")
+      (is (= [:deco/parent-themed] canvas-ids)
+          "the canvas resolves the SAME inherited decorator — both off the
+           compiled plan's [:world :decorators]"))))
+
+(deftest render-variant-renders-decorated-variant-end-to-end
+  (testing "render-variant returns :rendered for a registered decorated
+            variant (the host is installed by the canonical vocabulary), so
+            the single render path paints — not :cannot-run"
+    (story/reg-decorator :deco/e2e
+      {:kind :hiccup :wrap (fn [body _] [:div.e2e body])})
+    (rf/reg-view* :views/e2e (fn [_] [:span "v"]))
+    (story/reg-variant :story.e2edeco/v
+      {:component  :views/e2e
+       :decorators [[:deco/e2e]]
+       :events     []})
+    (let [r (render/render-variant :story.e2edeco/v)]
+      (is (= :rendered (:status r))
+          "the host is installed (CLJS canonical vocabulary) → :rendered")
+      (is (some? (:rendered r))
+          "the host returns a render result (the render-host-scope component
+           vector) — the single render path paints the decorated tree"))))
