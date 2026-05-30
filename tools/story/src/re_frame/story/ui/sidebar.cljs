@@ -61,6 +61,7 @@
             [re-frame.story.registrar         :as registrar]
             [re-frame.story.theme.colors      :as colors]
             [re-frame.story.theme.glyphs      :as glyphs]
+            [re-frame.story.theme.status      :as status]
             [re-frame.story.ui.promotion      :as promotion]
             [re-frame.story.ui.sidebar-search :as search]
             [re-frame.story.ui.sidebar-signals :as signals]
@@ -336,20 +337,35 @@
   "Render one signal chip. `axis` selects the per-axis tint (status chips
   additionally key on their value for the per-status colour/shape). The
   chip carries `data-axis` + `data-value` so the test corpus + a11y users
-  can read which axis/value it represents without parsing the label."
+  can read which axis/value it represents without parsing the label.
+
+  Status chips additionally render the status descriptor's `:glyph`
+  (`✓ ✗ ! ⊘ …`) as a leading mark — the spec/018 §12.6 headline channel
+  that keeps the status distinguishable under colour-blindness AND
+  Windows High-Contrast Mode (where `forced-colors` strips the inline
+  tint). The glyph is `aria-hidden` because the text label + `data-value`
+  already carry the value to AT / the test corpus — the glyph is a
+  redundant VISUAL channel, never a second voice for screen readers."
   [{:keys [axis value label]}]
-  (let [tint (if (= :status axis)
-               (get styles (status-signal->style-key value))
-               (let [base (get styles (axis->group-style-key axis))]
-                 (if (and (= :frame-binding axis) (= :attached value))
-                   (merge base (:signal-frame-attached styles))
-                   base)))]
+  (let [status? (= :status axis)
+        tint    (if status?
+                  (get styles (status-signal->style-key value))
+                  (let [base (get styles (axis->group-style-key axis))]
+                    (if (and (= :frame-binding axis) (= :attached value))
+                      (merge base (:signal-frame-attached styles))
+                      base)))
+        glyph   (when status? (status/glyph value))]
     ^{:key (str (name axis) "-" (name value))}
     [:span {:style       (merge (:signal-chip styles) tint)
             :data-test   "story-sidebar-signal-chip"
             :data-axis   (name axis)
             :data-value  (name value)
             :title       (str (name axis) ": " label)}
+     (when glyph
+       [:span {:style       (:signal-chip-glyph styles)
+               :data-test   "story-sidebar-signal-glyph"
+               :aria-hidden "true"}
+        glyph])
      label]))
 
 (defn signal-chips

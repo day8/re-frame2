@@ -315,6 +315,15 @@
                      :flex-shrink   "0"
                      :background    (:bg-3 colors/tokens)
                      :color         (:text-secondary colors/tokens)}
+   ;; rf2-ba86n.3 / rf2-gsqbp — the status GLYPH channel (spec/018 §12.6).
+   ;; Status chips lead with the descriptor's structural glyph (✓ ✗ ! …)
+   ;; so the status survives colour-blindness AND Windows HCM, where
+   ;; `forced-colors` strips the chip tint and the colour channel is gone.
+   ;; A hair of right-margin separates the mark from the text label; it
+   ;; inherits the chip's `:color` so the glyph rides the same hue as the
+   ;; status (and goes mono in forced-colors, where SHAPE + glyph carry it).
+   :signal-chip-glyph {:margin-right "3px"
+                       :font-weight  "600"}
    ;; ── status axis (spec/018 §12.6 — distinguishable in colour, icon,
    ;;    text, and shape; NOT everything red/green) ──
    ;;
