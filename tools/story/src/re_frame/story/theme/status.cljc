@@ -33,8 +33,11 @@
     the state survives colour-blindness AND Windows High-Contrast Mode
     (where `forced-colors` strips the inline colour — see
     `theme.motion/motion-css`).
-  - `:shape` — `:solid` / `:outline` / `:dashed` / `:ring` — the chip /
-    dot border treatment, a third non-colour channel.
+  - `:shape` — `:solid` / `:outline` / `:dashed` / `:ring` / `:half` —
+    the chip / dot border treatment, a third non-colour channel. Each
+    shape renders a VISUALLY DISTINCT border (solid edge / dashed edge /
+    double ring / one-sided accent bar), so the shape discriminates even
+    when the hue is stripped (see `shape-decoration`).
   - `:label` — the canonical short human label.
 
   Plus a presentation hint:
@@ -98,14 +101,16 @@
   label) plus an `:emphasis` presentation hint. Colours resolve through
   `theme.colors/tokens` — zero raw hex (rf2-i3i5j).
 
-  Shape vocabulary:
+  Shape vocabulary (each renders a DISTINCT border — see
+  `shape-decoration`):
   - `:solid`   — filled ground, no special border (settled states).
-  - `:outline` — 1px solid border in the fg colour (states that need a
-                 second channel: cannot-run, error).
-  - `:dashed`  — 1px dashed border (redacted — reads as 'removed').
-  - `:ring`    — transparent ground + neutral 1px ring (pending — the
-                 reserved-but-empty slot).
-  - `:half`    — a partial / in-flight treatment (running)."
+  - `:outline` — 1px SOLID border in the status colour (states that need
+                 a second channel: cannot-run, error).
+  - `:dashed`  — 1px DASHED border (redacted — reads as 'removed').
+  - `:ring`    — 2px DOUBLE border (pending — the reserved-but-empty slot
+                 reads as a hollow double-ring, never a solid edge).
+  - `:half`    — 3px SOLID left-accent bar (running — a one-sided
+                 in-flight mark, visibly a partial treatment)."
   {:pending    {:fg (:text-tertiary colors/tokens)
                 :bg "transparent"
                 :border (:border-default colors/tokens)
@@ -180,28 +185,54 @@
   [status]
   (:label (descriptor status)))
 
-(defn- border-style
-  "Map a descriptor `:shape` to the CSS border the chip wears."
+(defn- shape-decoration
+  "Map a descriptor `:shape` to the inline-style FRAGMENT that gives the
+  chip its non-colour SHAPE channel (spec/018 §12.6 — distinguishable in
+  shape, not only colour). Returns a style-map fragment merged into
+  `chip-style`, or `nil` for `:solid` (the filled ground carries the
+  signal alone). Each shape renders VISUALLY DISTINCT so the five shapes
+  are genuinely five channels, not two:
+
+  - `:solid`   — no border; the filled `:bg` ground is the signal.
+  - `:outline` — a 1px SOLID border in the status colour (error /
+                 cannot-run — a crisp ring that reads 'flagged').
+  - `:dashed`  — a 1px DASHED border (redacted — reads as 'removed').
+  - `:ring`    — a 2px DOUBLE border (pending — the reserved-but-empty
+                 slot reads as a hollow double-ring, never a solid edge).
+  - `:half`    — a 3px SOLID left-accent BAR (running — a one-sided
+                 in-flight mark, visibly a partial treatment not a full
+                 border).
+
+  Distinct CSS per shape — `border` vs `border-style: double` vs a
+  one-sided `border-left` — so the shape survives a greyscale / forced-
+  colors pass where the hue collapses."
   [{:keys [shape border]}]
   (case shape
-    :outline (str "1px solid " border)
-    :dashed  (str "1px dashed " border)
-    :ring    (str "1px solid " border)
-    :half    (str "1px solid " border)
+    :outline {:border (str "1px solid " border)}
+    :dashed  {:border (str "1px dashed " border)}
+    :ring    {:border (str "2px double " border)}
+    :half    {:border-left (str "3px solid " border)}
     ;; :solid — no explicit border; the ground carries the signal.
     nil))
 
 (defn chip-style
   "Build an inline `:style` map for a status chip / pill. Composes the
-  descriptor's ground + foreground + the shape-derived border. Regions
+  descriptor's ground + foreground + the shape-derived decoration. Regions
   layer their own padding / radius / type-scale on top — this fn owns
   ONLY the status-bearing colour + shape so every region's chip reads
-  the same status the same way. Pure data → data."
+  the same status the same way. The colour channel (`:background` /
+  `:color`) plus the shape channel (`:border` / `:border-left`, see
+  `shape-decoration`) are both carried so a chip survives a colour-blind
+  / Windows-HCM pass on shape alone. Pure data → data.
+
+  Public read-shape (the canvas + sidebar consume this directly):
+  always a `:style`-mergeable map with `:background` + `:color`, plus a
+  shape decoration for every non-`:solid` status."
   [status]
   (let [d (descriptor status)]
-    (cond-> {:background (:bg d)
-             :color      (:fg d)}
-      (border-style d) (assoc :border (border-style d)))))
+    (merge {:background (:bg d)
+            :color      (:fg d)}
+           (shape-decoration d))))
 
 (defn rollup
   "Given a seq of statuses, return the single most-attention-demanding
