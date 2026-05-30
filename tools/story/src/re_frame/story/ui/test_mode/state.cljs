@@ -40,7 +40,7 @@
     and the top-level `test-view` component (the sole consumer of the
     helpers below)."
   (:require [reagent.core                 :as r]
-            [re-frame.epoch               :as epoch]
+            [re-frame.core                :as rf]
             [re-frame.interop             :as interop]
             [re-frame.story.async         :as async]
             [re-frame.story.play          :as play]
@@ -87,7 +87,7 @@
         ;; — the same shape the legacy `:play` slot carried, so the
         ;; scrubber's slot-shape stays stable.
         play-events  (play/variant-play-events variant-id)
-        history      (epoch/epoch-history variant-id)
+        history      (rf/epoch-history variant-id)
         epoch-ids    (pure/epoch-id-slice history (count play-events))]
     (swap! results-atom assoc variant-id
            {:result        result
@@ -142,7 +142,7 @@
     (when-not (:running? s)
       (swap! results-atom assoc-in [variant-id :selected-step] idx)
       (when target-id
-        (epoch/restore-epoch variant-id target-id)))))
+        (rf/restore-epoch variant-id target-id)))))
 
 (defn toggle-expanded!
   "Toggle the expand state of an assertion row, keyed by stable

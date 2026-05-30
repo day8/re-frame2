@@ -3,12 +3,12 @@
   §Play step-debugger).
 
   The substantive runtime calls (`runtime/reset-variant`,
-  `play/begin-stepper!`, `epoch/restore-epoch`) are exercised by the
+  `play/begin-stepper!`, `rf/restore-epoch`) are exercised by the
   feature-load browser gate. These unit tests pin the mutator semantics
   by redef-ing the substrate calls so the slot transitions can be
   observed deterministically without booting the runtime."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.epoch :as epoch]
+            [re-frame.core :as rf]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.play :as play]
             [re-frame.story.registrar :as registrar]
@@ -53,7 +53,7 @@
       (seed-slot! vid events)
       (with-redefs [play/step-once!    (fn [v]
                                          (swap! dispatched conj v))
-                    epoch/epoch-history (fn [_]
+                    rf/epoch-history (fn [_]
                                           [{:epoch-id :epoch/before-a}])
                     assertions/read-assertions (fn [_] [])]
         (st/step! vid)
@@ -70,7 +70,7 @@
       (seed-slot! vid [[:e/a]])
       (swap! st/results-atom assoc-in [vid :cursor] 1)
       (with-redefs [play/step-once!    (fn [v] (swap! dispatched conj v))
-                    epoch/epoch-history (fn [_] [{:epoch-id :x}])
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
         (st/step! vid)
         (is (empty? @dispatched) "play/step-once! is NOT called")
@@ -84,7 +84,7 @@
       (seed-slot! vid [[:e/a]])
       (swap! st/results-atom assoc-in [vid :active?] false)
       (with-redefs [play/step-once!    (fn [v] (swap! dispatched conj v))
-                    epoch/epoch-history (fn [_] [{:epoch-id :x}])
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
         (st/step! vid)
         (is (empty? @dispatched))))))
@@ -105,9 +105,9 @@
                          (assoc :epoch-stack [:epoch/seed
                                               :epoch/before-a
                                               :epoch/before-b]))))
-      (with-redefs [epoch/restore-epoch (fn [v eid]
-                                          (swap! restored conj [v eid]))
-                    epoch/epoch-history (fn [_] [{:epoch-id :x}])
+      (with-redefs [rf/restore-epoch (fn [v eid]
+                                       (swap! restored conj [v eid]))
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
         (st/step-back! vid)
         (let [s (get @st/results-atom vid)]
@@ -122,9 +122,9 @@
     (let [vid      :story.unit/back-start
           restored (atom [])]
       (seed-slot! vid [[:e/a]])
-      (with-redefs [epoch/restore-epoch (fn [v eid]
-                                          (swap! restored conj [v eid]))
-                    epoch/epoch-history (fn [_] [{:epoch-id :x}])
+      (with-redefs [rf/restore-epoch (fn [v eid]
+                                       (swap! restored conj [v eid]))
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
         (st/step-back! vid)
         (is (empty? @restored))
@@ -145,9 +145,9 @@
                          (assoc :epoch-stack [:epoch/seed
                                               :epoch/before-a
                                               :epoch/before-b]))))
-      (with-redefs [epoch/restore-epoch (fn [v eid]
-                                          (swap! restored conj [v eid]))
-                    epoch/epoch-history (fn [_] [{:epoch-id :x}])
+      (with-redefs [rf/restore-epoch (fn [v eid]
+                                       (swap! restored conj [v eid]))
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/reset-trace-accumulators!
                                         (fn [v] (swap! cleared conj v))
                     assertions/read-assertions (fn [_] [])]
@@ -170,8 +170,8 @@
                          (assoc :cursor 1)
                          (assoc :auto-playing? true)
                          (assoc :interval-id 999))))
-      (with-redefs [epoch/restore-epoch (fn [_ _] nil)
-                    epoch/epoch-history (fn [_] [])
+      (with-redefs [rf/restore-epoch (fn [_ _] nil)
+                    rf/epoch-history (fn [_] [])
                     assertions/reset-trace-accumulators! (fn [_] nil)
                     assertions/read-assertions (fn [_] [])
                     js/clearInterval (fn [_] nil)]
