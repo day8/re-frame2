@@ -70,6 +70,7 @@
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
             [re-frame.story.malli-schema       :as msu]
+            [re-frame.story.ui.author-expectations :as author-expectations]
             [re-frame.story.ui.controls-styles :refer [styles]]
             [re-frame.story.ui.save-variant    :as save-variant-ui]
             [re-frame.story.ui.schema-validation :as schema-validation]
@@ -920,11 +921,18 @@
   state (effective args after the five-layer precedence chain) and
   surfaces an EDN `(reg-variant ...)` form in a review-then-commit
   modal — the SB9 story-from-UI parity affordance (per
-  spec/005-SOTA-Features §Save current canvas state as variant)."
+  spec/005-SOTA-Features §Save current canvas state as variant).
+
+  rf2-ba86n.12: the 'add expectations…' button authors EXPECTATIONS onto
+  the story (app-db / sub / DOM / schema / a11y), shows the runner cost /
+  `:cannot-run` BEFORE save, and emits an `:assertions` reg-variant form.
+  DISTINCT from save-current-state (state authoring) and failure promotion
+  (a captured artifact) — spec/021 §S5."
   [variant-id]
   [:div {:style (:wrap styles)}
    (when variant-id
      [args-editor variant-id])
    (when variant-id
      [decorator-list variant-id])
-   [save-variant-ui/save-variant-button variant-id]])
+   [save-variant-ui/save-variant-button variant-id]
+   [author-expectations/author-expectations-button variant-id]])
