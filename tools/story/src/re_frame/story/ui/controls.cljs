@@ -76,7 +76,8 @@
             [re-frame.story.ui.controls-styles :refer [styles]]
             [re-frame.story.ui.save-variant    :as save-variant-ui]
             [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.ui.state           :as state]))
+            [re-frame.story.ui.state           :as state]
+            [re-frame.story.ui.view-state      :as view-state]))
 
 ;; Styles live in `re-frame.story.ui.controls-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -993,11 +994,21 @@
   the story (app-db / sub / DOM / schema / a11y), shows the runner cost /
   `:cannot-run` BEFORE save, and emits an `:assertions` reg-variant form.
   DISTINCT from save-current-state (state authoring) and failure promotion
-  (a captured artifact) — spec/021 §S5."
+  (a captured artifact) — spec/021 §S5.
+
+  rf2-ba86n.7: the View-State section (`view-state/view-state-section`)
+  sits BELOW the args editor — the orthogonal fidelity-ladder channel
+  (the three labelled rungs + source/provenance + the honesty guardrail
+  + the upgrade path). Args are an explicit CONTROL channel (above), NOT
+  a fidelity rung; the View-State section is the rung surface. The order
+  reads top-down: explicit inputs → state fidelity → decorators →
+  authoring actions (spec/019 §1 control-group order)."
   [variant-id]
   [:div {:style (:wrap styles)}
    (when variant-id
      [args-editor variant-id])
+   (when variant-id
+     [view-state/view-state-section variant-id])
    (when variant-id
      [decorator-list variant-id])
    [save-variant-ui/save-variant-button variant-id]

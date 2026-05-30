@@ -78,10 +78,10 @@ Required control groups:
 | Group | Status | Backing data |
 |---|---|---|
 | Args | CURRENT/TARGET | `:args`, `:effective-args`, view-props schema, argtypes. |
-| View State | TARGET | `:sub-overrides`, labelled lower fidelity. |
-| Setup | TARGET | setup summary, event links, replay affordance. |
-| Network | TARGET | route-level managed HTTP stubs. |
-| Effects | TARGET | non-HTTP `:fx-overrides`. |
+| View State | CURRENT | `:sub-overrides` + the three labelled fidelity rungs, the honesty guardrail, and the upgrade path (rf2-ba86n.7 — `re-frame.story.ui.view-state`). |
+| Setup | CURRENT | setup-source summary off the compiled plan (`[:world :setup]` step count + dispatched event ids), surfaced in the View-State section's provenance. Event links + replay are TARGET. |
+| Network | CURRENT | route-level managed HTTP stubs surfaced as world-input provenance (off the plan's `:explain` `:network`). |
+| Effects | CURRENT | non-HTTP `:fx-overrides` surfaced as world-input provenance (off `[:world :frame :fx-overrides]`, minus `:rf.http/managed`). |
 | Route | TARGET | route/params when route support is present. |
 | Runner | TARGET | selected runner, auto/escalate policy, cannot-run behaviour. |
 | Save/Authoring | CURRENT/TARGET | save-current-state-as-variant placement, representable-slice warnings, diff before save. |
@@ -251,6 +251,62 @@ When `:sub-overrides` are used, the UI MUST show:
   known;
 - that `:rf.assert/sub-equals` still tests real subscription logic, not
   the override value.
+
+### 5.1 The implemented View-State section (CURRENT, rf2-ba86n.7)
+
+The View-State controls section is built as `re-frame.story.ui.view-state`
+and mounted in the Controls panel BELOW the args editor (the orthogonal
+fidelity channel — args above are explicit controls, the View-State
+section is the rung surface). Its pure projection
+(`view-state-model` over the COMPILED variant-plan + its `:explain` — the
+single source of truth, never the bare registrar body) is JVM-testable;
+the React render + the upgrade dialog are CLJS-only. It delivers the §5
+acceptance contract:
+
+- **Three labelled rungs, never collapsed.** `fidelity-ladder` projects
+  the FIXED three-rung vocabulary (`ladder-order` =
+  `[:real-setup :db-seed :sub-overrides]`, strongest → weakest), each
+  rendered with a distinct rank (1/2/3), tone (`:real`/`:mid`/`:low` — a
+  fidelity tone, NOT a pass/fail status per
+  [`018` §12.6](018-Story-UI-North-Star.md)), label, and
+  active/inactive state read from the plan's resolved `[:world :fidelity]`
+  (computed by `re-frame.story.plan/compute-fidelity`, never typed by
+  authors). Inactive rungs are KEPT, not dropped — they are the upgrade
+  targets.
+
+- **Args stay a control channel.** The section's blurb pins that args are
+  an explicit control channel (the editor above), not a fidelity rung
+  (§5 — "view args are explicit controls, not a state-fidelity rung").
+
+- **Source / provenance.** `setup-summary` / `network-summary` /
+  `fx-overrides-summary` / `override-rows` surface WHERE the state came
+  from: the dispatched setup/script event ids, the managed HTTP routes,
+  the non-HTTP fx-override ids (excluding `:rf.http/managed`, which the
+  network channel owns), and the exact pinned subscription query vectors
+  + values.
+
+- **The honesty guardrail.** When `:sub-overrides` is the fidelity floor
+  the section surfaces — calm during exploration, explicit on claim
+  ([`018` §12.7](018-Story-UI-North-Star.md) T2) — the structural
+  boundary: an override is a render-only picture and NEVER satisfies
+  `:rf.assert/sub-equals` (which reads through `compute-sub` against
+  app-db, which the override does not touch — see
+  [`017` §View-state subscription overrides](017-Testing-Story.md#view-state-subscription-overrides)).
+  And when an override violated its sub's output schema at render
+  (`:rf.error/schema-validation-failure :where :sub-override`, the
+  rf2-7pgiz fold-in), `sub-override-failures` projects those per-frame
+  trace failures honestly — an override the real derivation could never
+  produce is reported, not silently shown.
+
+- **The upgrade path, no artifact-kind change.** `upgrade-targets` lists
+  the rungs stronger than the variant's floor; each offers an
+  `upgrade-snippet` — a copy-paste `(story/reg-variant … {:extends … })`
+  scaffold that KEEPS the artifact a variant, adds the higher rung's
+  authoring slot (`:setup` / `:db-seed`), and drops the `:sub-overrides`.
+  Source is never written directly (the save-variant / author-expectations
+  idiom). Raw value entry of the upgraded state is deliberately NOT built
+  here — that is the separate, un-greenlit schema-generated input UI
+  (rf2-xon7j).
 
 ## 6. Acceptance criteria
 
