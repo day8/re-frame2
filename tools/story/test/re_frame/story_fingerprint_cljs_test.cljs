@@ -90,6 +90,25 @@
               (fp/canonicalize {:status :pass :app-db {:id 2 :time 20 :frame :r}}))
         "semantic app-db data on common keys survives canonicalization")))
 
+(deftest collection-types-do-not-collide-on-cljs
+  (testing "map / set / vector type tags keep the kinds distinct on CLJS
+            (rf2-lvrqa) — host-portable structural tagging"
+    (is (not= (fp/content-hash {}) (fp/content-hash [])))
+    (is (not= (fp/content-hash #{}) (fp/content-hash [])))
+    (is (not= (fp/content-hash {:k 1}) (fp/content-hash [:k 1])))
+    (is (not= (fp/content-hash #{:k}) (fp/content-hash [:k])))
+    (is (not= (fp/canonical-hash {:effects [{:k 1}]})
+              (fp/canonical-hash {:effects [[:k 1]]})))))
+
+(deftest fn-slot-deterministic-on-cljs
+  (testing "a fn folds to the opaque sentinel on CLJS (rf2-4gwja) — a JS fn
+            in a hashed slot hashes stably, keywords/colls are not folded"
+    (is (= fp/opaque-fn (fp/canonical-form (fn [] 1))))
+    (is (= (fp/run-hash {:status :pass :app-db {:cb (fn [] 1)}})
+           (fp/run-hash {:status :pass :app-db {:cb (fn [] 1)}})))
+    (is (not= fp/opaque-fn (fp/canonical-form :kw)))
+    (is (not= fp/opaque-fn (fp/canonical-form #{:a})))))
+
 (deftest snapshot-fold-strip-free-on-cljs
   (testing "identity content-hash IS the fingerprint content-hash (folded)"
     (is (identical? ident/content-hash fp/content-hash)))

@@ -8,7 +8,10 @@
   - strip `:rf.story/*` accumulator keys from app-db;
   - project away the volatile record fields
     `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
-      :plan-hash}` (reconciling the shipping `:variant-id` spelling first);
+      :plan-hash :run-hash}` (reconciling the shipping `:variant-id`
+    spelling first; the authoritative `fp/volatile-fields` set also carries
+    the per-run epoch / trace stamps `:epoch-id :trace-id :committed-at
+    :schema-digest`);
   - impose a total per-slot ordering;
   - enumerate the `:plan-hash` input fields;
   - compute `:run-hash` over the canonical epoch slice;
@@ -178,6 +181,125 @@
       ;; A second canonicalize over the projected value must not alter the
       ;; canonical-form hash (no volatile keys remain to strip).
       (is (= (fp/content-hash once) (fp/content-hash once))))))
+
+;; ===========================================================================
+;; STRUCTURAL TYPE TAGS — map / set / vector / seq are distinguishable (rf2-lvrqa)
+;; ===========================================================================
+;;
+;; The former canon flattened `{:a 1}` to the bare vector `[:a 1]` and `#{}`
+;; to `[]`, so `{}` / `#{}` / `[]` and `{:a 1}` / `[:a 1]` collapsed to
+;; byte-identical canonical forms and hashed EQUAL — a soundness hole every
+;; downstream consumer (determinism, diff, golden, snapshot identity)
+;; inherited. The fix wraps each collection under a reserved structural tag.
+
+(deftest collection-types-do-not-collide
+  (testing "empty collections of different kinds are canonically distinct"
+    (is (not= (fp/canonicalize {}) (fp/canonicalize [])))
+    (is (not= (fp/canonicalize #{}) (fp/canonicalize [])))
+    (is (not= (fp/canonicalize {}) (fp/canonicalize #{})))
+    (is (not= (fp/content-hash {}) (fp/content-hash []))
+        "{} and [] must hash differently")
+    (is (not= (fp/content-hash #{}) (fp/content-hash []))
+        "#{} and [] must hash differently")
+    (is (not= (fp/content-hash {}) (fp/content-hash #{}))
+        "{} and #{} must hash differently"))
+  (testing "a one-entry map and the flattened 2-element vector are distinct"
+    (is (not= (fp/canonicalize {:k 1}) (fp/canonicalize [:k 1])))
+    (is (not= (fp/content-hash {:k 1}) (fp/content-hash [:k 1]))
+        "{:k 1} and [:k 1] must hash differently — the rf2-lvrqa proof"))
+  (testing "a one-element set and the same-element vector are distinct"
+    (is (not= (fp/canonicalize #{:k}) (fp/canonicalize [:k])))
+    (is (not= (fp/content-hash #{:k}) (fp/content-hash [:k]))))
+  (testing "a list/seq is distinct from a vector at the canonical-form /
+            content-hash layer (the seq-tag vs vec-tag). NOTE: the
+            `canonicalize` path normalizes seqs to vectors UPSTREAM (its
+            `project` / `strip-run-stamps` passes `mapv` every sequential),
+            so seq-vs-vec is deliberately collapsed there; the distinction
+            lives at the raw ordering layer the snapshot identity hashes."
+    (is (= [fp/seq-tag [:a :b]] (fp/canonical-form (list :a :b))))
+    (is (= [fp/vec-tag [:a :b]] (fp/canonical-form [:a :b])))
+    (is (not= (fp/content-hash (list :a :b)) (fp/content-hash [:a :b]))))
+  (testing "the collision is closed NESTED, not just at the root — a slot
+            whose value flips between a map and a vector perturbs the hash"
+    (is (not= (fp/canonical-hash {:effects [{:k 1}]})
+              (fp/canonical-hash {:effects [[:k 1]]})))
+    (is (not= (fp/canonicalize {:k {}}) (fp/canonicalize {:k []})))
+    (is (not= (fp/canonicalize {:k {:a 1}}) (fp/canonicalize {:k [:a 1]}))))
+  (testing "type-tagging does not break the volatile-strip equivalence —
+            equivalent runs still canonicalize = and hash equal"
+    (is (= (fp/canonicalize base-run) (fp/canonicalize volatile-twin)))
+    (is (= (fp/run-hash base-run) (fp/run-hash volatile-twin)))))
+
+;; ===========================================================================
+;; FN-SLOT DETERMINISM — a fn-valued hashed slot hashes STABLY (rf2-4gwja)
+;; ===========================================================================
+;;
+;; `pr-str` of a raw Clojure fn embeds the object's per-process identity
+;; (`#object[…0x4a2f…]`), so the former Object/default branch made any hashed
+;; slice carrying a fn NON-DETERMINISTIC across processes / allocations with
+;; NO error. The fix folds every fn to the stable `opaque-fn` sentinel.
+
+(deftest fn-valued-slot-hashes-deterministically
+  (testing "a plan with an inline fn fx-override hashes IDENTICALLY across
+            repeated INDEPENDENT computations — each builds a FRESH closure,
+            the exact per-allocation nondeterminism 4gwja flagged"
+    ;; Two independently-built plans whose ONLY difference is the IDENTITY of
+    ;; freshly-allocated closures must produce the same plan-hash. This is the
+    ;; cross-process determinism proof: a fresh process re-allocates closures,
+    ;; so identity-stable-across-builds == identity-stable-across-processes.
+    (let [build-plan (fn []
+                       {:story/id :story.fn/v
+                        :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :stub)}
+                                        :interceptors [(fn [ctx] ctx)]}}
+                        :script [[:dispatch [:go]]]
+                        :expect {:checks []}})
+          h1 (fp/plan-hash (build-plan))
+          h2 (fp/plan-hash (build-plan))]
+      (is (= h1 h2)
+          "an inline-fn plan must hash identically across independent builds")))
+  (testing "the same holds on the RUN-HASH path — a fn in :app-db or an
+            effect :args hashes stably across distinct fn instances (rf2-ewrse)"
+    (let [run-with (fn [f] {:status :pass :app-db {:cb f}
+                            :effects [{:fx-id :x :args f :outcome :ok}]})]
+      (is (= (fp/run-hash (run-with (fn [] 1)))
+             (fp/run-hash (run-with (fn [] 1))))
+          "two distinct closures in the run-slice must hash equal")
+      (is (= (fp/canonicalize (run-with (fn [] 1)))
+             (fp/canonicalize (run-with (fn [] 1))))
+          "and canonicalize = (the determinism gate's authority)")))
+  (testing "a fn canonicalizes to the stable opaque sentinel, never an
+            object-identity pr-str"
+    (is (= fp/opaque-fn (fp/canonical-form (fn [] 1))))
+    (is (= (fp/canonical-form (fn [] 1)) (fp/canonical-form (fn [x] x))))
+    (is (not (re-find #"object\[" (pr-str (fp/canonical-form (fn [] 1))))))
+    (testing "keywords / symbols / colls are IFn but NOT folded to the
+              sentinel — only genuine fns are"
+      (is (= :kw  (fp/canonical-form :kw)))
+      (is (not= fp/opaque-fn (fp/canonical-form :kw)))
+      (is (not= fp/opaque-fn (fp/canonical-form #{:a})))))
+  (testing "DELIBERATE TRADE-OFF (rf2-4gwja): two plans differing ONLY in fn
+            identity hash EQUAL — determinism is the contract, not fn
+            discrimination. A non-fn semantic difference still perturbs."
+    (let [base-fn-plan {:story/id :story.fn/v
+                        :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :a)}}}
+                        :script [] :expect {}}]
+      (is (= (fp/plan-hash base-fn-plan)
+             (fp/plan-hash (assoc-in base-fn-plan
+                                     [:world :frame :fx-overrides :rf.http/managed]
+                                     (fn [_] :b))))
+          "two fn overrides hash equal — accepted trade-off")
+      (is (not= (fp/plan-hash base-fn-plan)
+                (fp/plan-hash (assoc-in base-fn-plan [:world :args :sku] "X")))
+          "a non-fn semantic difference still perturbs the plan-hash"))))
+
+;; ===========================================================================
+;; CANONICAL VERSION — the bumped tag is recorded (rf2-lvrqa)
+;; ===========================================================================
+
+(deftest canonical-version-is-bumped-to-v2
+  (testing "the canonical-version tag is :rf/snapshot-canonical-v2 — bumped
+            for the type-tag + fn-sentinel soundness fix"
+    (is (= :rf/snapshot-canonical-v2 fp/canonical-version))))
 
 ;; ===========================================================================
 ;; ORDERING — effects / epochs keep producer order; reordering is semantic

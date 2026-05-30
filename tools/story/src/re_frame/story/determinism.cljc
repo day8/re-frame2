@@ -178,14 +178,16 @@
         ;; Canonicalize each run-slice ONCE and reuse the result for BOTH the
         ;; hash and the equality. `fingerprint/run-hash` would re-canonicalize
         ;; the same slice internally (`canonical-hash` → `canonicalize`), so
-        ;; hashing the canon directly via `content-hash` avoids the second
-        ;; pass while staying byte-identical: `run-hash` ≡ `(content-hash
-        ;; (canonicalize (slice r)))`, since `content-hash` only orders (it
-        ;; does NOT re-strip) and `canonicalize` is already the stripped,
-        ;; ordered form. The two-stage contract — the hash is the cheap
-        ;; discriminator, canonical `=` is the authority — is preserved exactly.
+        ;; hashing the canon directly via `hash-canonical` avoids the second
+        ;; pass while staying byte-identical: `run-hash` ≡ `(hash-canonical
+        ;; (canonicalize (slice r)))` by definition of `canonical-hash`
+        ;; (rf2-lvrqa — `canonical-form` is no longer idempotent under the
+        ;; type-tags, so the canon MUST NOT be re-canonicalized; `hash-canonical`
+        ;; hashes an already-canonical value with no second pass). The two-stage
+        ;; contract — the hash is the cheap discriminator, canonical `=` is the
+        ;; authority — is preserved exactly.
         canons   (mapv (comp fingerprint/canonicalize slice) results)
-        hashes   (mapv fingerprint/content-hash canons)
+        hashes   (mapv fingerprint/hash-canonical canons)
         base     (first canons)
         diverged (first (keep-indexed
                           (fn [i c] (when (and (pos? i) (not= base c)) i))

@@ -43,8 +43,10 @@
   - strip `:rf.story/*` accumulator keys from any app-db it projects;
   - project away the volatile record fields
     `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
-      :plan-hash}` (and the shipping `:variant-id` spelling, reconciled to
-    `:variant/id` first);
+      :plan-hash :run-hash}` (and the shipping `:variant-id` spelling,
+    reconciled to `:variant/id` first; the authoritative set
+    `volatile-fields` also carries the per-run epoch / trace stamps —
+    `:epoch-id :trace-id :committed-at :schema-digest`);
   - impose a total per-slot ordering — effects keep emission order,
     sub-runs are topo-then-id, epochs are dispatch order, trace events
     keep emission order;
@@ -55,28 +57,44 @@
 
   The hash is the same portable hash the former identity ns used: a
   stable string serialisation (deterministic key order; sets/vectors
-  written in stable order) hashed with `hash` (JVM
-  `clojure.lang.Util/hasheq`, CLJS `cljs.core/hash`), rendered as an
-  8-char lowercase hex string. It is 32-bit and per-artefact, not
+  written in stable order; each collection wrapped under a reserved
+  structural type-tag so the four collection kinds are distinguishable —
+  rf2-lvrqa; functions folded to the `opaque-fn` sentinel so a hashed slot
+  carrying a fn is deterministic across processes — rf2-4gwja) hashed with
+  `hash` (JVM `clojure.lang.Util/hasheq`, CLJS `cljs.core/hash`), rendered
+  as an 8-char lowercase hex string. It is 32-bit and per-artefact, not
   cryptographic; callers that need collision-resistance against an
   external service dedupe by `[id content-hash]`. The sha-256 path is a
   later extension.
 
-  The canonical-form keyword `:rf/snapshot-canonical-v1` is the first
-  slot of the hashed structure, so a future canonical-form revision can
-  introduce `:rf/snapshot-canonical-v2` without breaking v1 baselines.")
+  The canonical-form keyword `canonical-version`
+  (`:rf/snapshot-canonical-v2`) is the first slot of the hashed structure,
+  so a canonical-form revision bumps the version and old baselines are
+  detectably stale rather than silently mis-compared.")
 
 ;; ===========================================================================
 ;; CANONICAL VERSION TAG
 ;; ===========================================================================
 
 (def canonical-version
-  "The canonical-form version tag. Folded verbatim from the former
-  `re-frame.story.identity` `:rf/snapshot-canonical-v1` so existing
-  snapshot-identity baselines keep the same first hash slot — the
-  migration is a pure relocation, not a version bump (see
-  `re-frame.story.identity` for the migration path)."
-  :rf/snapshot-canonical-v1)
+  "The canonical-form version tag — the first slot of every hashed
+  structure, so a canonical-form revision bumps it and old baselines are
+  detectably stale rather than silently mis-compared.
+
+  Bumped `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`
+  (rf2-lvrqa) for the soundness fix that type-tags the canonical form: maps
+  / sets / vectors / seqs are now wrapped under reserved structural tags
+  (`map-tag` / `set-tag` / `vec-tag` / `seq-tag`) plus functions fold to the
+  `opaque-fn` sentinel (rf2-4gwja). Both change the byte shape of the
+  canonical form, so EVERY hash this primitive emits — `content-hash`
+  (snapshot identity), `canonical-hash`, `plan-hash`, `run-hash` — changes
+  value. Pre-alpha: re-stamping baselines is cheap, and there are NO
+  in-repo stored hash fixtures (every consumer asserts hash STABILITY /
+  SENSITIVITY relationally, never a pinned hex literal — verified
+  rf2-lvrqa), so the bump invalidates only EXTERNAL visual-regression
+  baselines, which re-stamp on their next capture. The v1 → v2 bump is
+  exactly the signal that drives that external re-stamp."
+  :rf/snapshot-canonical-v2)
 
 ;; ===========================================================================
 ;; VOLATILE FIELDS
@@ -295,35 +313,109 @@
 ;; CANONICAL FORM — stable ordering + host-portable serialisation
 ;; ===========================================================================
 ;;
-;; Folded verbatim from the former `re-frame.story.identity`
-;; canonical-form path (rf2-ee38b.3). Maps become `[k v k v ...]` vectors
-;; sorted by the canonicalised key's `pr-str`; sets become element-sorted
-;; vectors; vectors/seqs recurse; scalars pass through. `pr-str` over
-;; canonical scalars is host-identical across JVM + CLJS, so the ordering
-;; is stable across hosts.
+;; Folded from the former `re-frame.story.identity` canonical-form path
+;; (rf2-ee38b.3) and hardened for soundness (rf2-lvrqa + rf2-4gwja):
+;;
+;; - STRUCTURAL TYPE TAGS (rf2-lvrqa). Each collection is wrapped in a
+;;   `[<type-tag> [<canon-elems> …]]` vector keyed by a reserved sentinel
+;;   keyword, so the four collection types are mutually distinguishable
+;;   AFTER `pr-str`. The former code flattened a map `{:a 1}` to the bare
+;;   vector `[:a 1]` and a set `#{}` to `[]`, so `{}` / `#{}` / `[]` and
+;;   `{:a 1}` / `[:a 1]` collapsed to byte-identical canonical forms and
+;;   hashed equal — a soundness hole every downstream consumer (determinism
+;;   gate, semantic diff, golden, snapshot identity) inherited. Tagging
+;;   closes it: a map<->vector or set<->vector flip now perturbs the hash.
+;; - OPAQUE FN SENTINEL (rf2-4gwja). A function value is canonicalised to
+;;   the stable `:rf/opaque-fn` sentinel rather than passing through the
+;;   Object/default branch, where `pr-str` would embed the fn's per-process
+;;   object identity (`#object[…0x4a2f…]`) and make any hashed slice
+;;   carrying a raw fn NON-DETERMINISTIC across processes. The sentinel is
+;;   the deliberate trade-off (see `-canon` for fns): two plans/runs that
+;;   differ ONLY in fn identity hash EQUAL — determinism is the requirement,
+;;   so fn identity is intentionally NOT discriminated.
+;;
+;; Maps sort entries by the canonicalised key's `pr-str`; sets sort
+;; elements by `pr-str`; vectors/seqs keep producer order and recurse;
+;; scalars pass through. `pr-str` over canonical scalars is host-identical
+;; across JVM + CLJS, so the ordering — and the tags — are stable across
+;; hosts.
+
+(def map-tag
+  "Reserved structural type-tag prefixing a map's canonical form
+  (rf2-lvrqa). A map `{:a 1}` canonicalises to `[:rf/map [:a 1]]`, never
+  the bare `[:a 1]`, so it cannot collide with a literal vector of the same
+  flattened shape."
+  :rf/map)
+
+(def set-tag
+  "Reserved structural type-tag prefixing a set's canonical form
+  (rf2-lvrqa). A set `#{:a}` canonicalises to `[:rf/set [:a]]`, never the
+  bare `[:a]`, so it cannot collide with a vector or a one-entry map."
+  :rf/set)
+
+(def vec-tag
+  "Reserved structural type-tag prefixing a vector's canonical form
+  (rf2-lvrqa). A vector `[:a]` canonicalises to `[:rf/vec [:a]]`, so it is
+  distinguishable from a list/seq of the same elements and from a tagged
+  map/set."
+  :rf/vec)
+
+(def seq-tag
+  "Reserved structural type-tag prefixing a seq/list's canonical form
+  (rf2-lvrqa). A list `(:a)` canonicalises to `[:rf/seq [:a]]`, so seq vs
+  vector is a distinguishable structural difference."
+  :rf/seq)
+
+(def opaque-fn
+  "Stable opaque sentinel a function value canonicalises to (rf2-4gwja).
+  Replaces the per-process object-identity `pr-str` of a raw fn so any
+  hashed slice carrying a fn (a `:fx-overrides` / `:interceptors` plan slot,
+  an app-db closure-as-value, an effect `:args` callback) hashes
+  DETERMINISTICALLY across processes. The deliberate trade-off: two values
+  differing ONLY in fn identity hash EQUAL — determinism, not fn
+  discrimination, is the contract."
+  :rf/opaque-fn)
 
 (defprotocol Canonicalise
   "Render a value into a canonical form: stable key order in maps, stable
-  element order in sets, terminal types (strings, keywords, numbers,
+  element order in sets, structural type tags distinguishing the four
+  collection kinds (rf2-lvrqa), function values folded to a stable opaque
+  sentinel (rf2-4gwja), terminal types (strings, keywords, numbers,
   booleans, nil) unchanged. Returns a value that round-trips through
-  `pr-str` deterministically across hosts."
+  `pr-str` deterministically across hosts and processes."
   (-canon [x]))
 
 (defn- canon-map-entries
   "Map canon: sort by the canonicalised key (via `pr-str` of the
-  canon-key) then flatten into a `[k v k v ...]` vector. Symmetric across
-  JVM + CLJS because `pr-str` over canonical scalars is host-identical."
+  canon-key), flatten into a `[k v k v ...]` vector, then wrap under the
+  reserved `map-tag` so a map is never byte-identical to a vector / set of
+  the same flattened shape (rf2-lvrqa). Symmetric across JVM + CLJS because
+  `pr-str` over canonical scalars is host-identical."
   [m]
   (let [entries (->> m
                      (map (fn [[k v]] [(-canon k) (-canon v)]))
                      (sort-by (fn [[k _]] (pr-str k))))]
-    (into [] (mapcat identity) entries)))
+    [map-tag (into [] (mapcat identity) entries)]))
 
 (defn- canon-set
   "Set canon: sort canonicalised elements by their `pr-str` into a stable
-  vector."
+  vector, then wrap under the reserved `set-tag` so a set is never
+  byte-identical to a vector / map (rf2-lvrqa)."
   [s]
-  (vec (sort-by pr-str (map -canon s))))
+  [set-tag (vec (sort-by pr-str (map -canon s)))])
+
+(defn- canon-vector
+  "Vector canon: recurse over elements (producer order preserved — it is
+  semantic) and wrap under the reserved `vec-tag` (rf2-lvrqa)."
+  [v]
+  [vec-tag (mapv -canon v)])
+
+(defn- canon-seq
+  "Seq/list canon: realise + recurse (producer order preserved) and wrap
+  under the reserved `seq-tag`, so a seq is distinguishable from a vector
+  (rf2-lvrqa)."
+  [s]
+  [seq-tag (mapv -canon s)])
 
 (extend-protocol Canonicalise
   nil
@@ -344,26 +436,41 @@
   #?(:clj  clojure.lang.Symbol  :cljs Symbol)
   (-canon [x] x)
 
+  ;; FUNCTION → stable opaque sentinel (rf2-4gwja). `clojure.lang.Fn` is the
+  ;; marker interface fns / closures implement but keywords, symbols, maps,
+  ;; vectors, and sets do NOT (they are IFn but not Fn), so this extension
+  ;; catches only genuine functions and does not shadow the collection
+  ;; branches. CLJS `function` is the native JS fn type (keywords / colls are
+  ;; not `function`), the symmetric host case.
+  #?(:clj  clojure.lang.Fn  :cljs function)
+  (-canon [_] opaque-fn)
+
   #?(:clj  clojure.lang.IPersistentMap  :cljs IMap)
   (-canon [x] (canon-map-entries x))
 
   #?(:clj  clojure.lang.IPersistentVector :cljs PersistentVector)
-  (-canon [x] (mapv -canon x))
+  (-canon [x] (canon-vector x))
 
   #?(:clj  clojure.lang.IPersistentList :cljs List)
-  (-canon [x] (mapv -canon x))
+  (-canon [x] (canon-seq x))
 
   #?(:clj  clojure.lang.IPersistentSet  :cljs PersistentHashSet)
   (-canon [x] (canon-set x))
 
   #?(:clj  Object             :cljs default)
   (-canon [x]
-    ;; Fallback for ISeq / LazySeq / etc — realise into a vector with
-    ;; canonical recursion. `pr-str` over the result is deterministic.
+    ;; Fallback for ISeq / LazySeq / Cons / etc — realise into a tagged seq
+    ;; with canonical recursion. A raw fn reaching here (an `IFn` host type
+    ;; the `Fn` / `function` branch above did not match) is mapped to the
+    ;; opaque sentinel BEFORE the collection branches, so it can never fall
+    ;; through to an object-identity `pr-str` (rf2-4gwja). `pr-str` over the
+    ;; result is deterministic across hosts AND processes.
     (cond
-      (sequential? x) (mapv -canon x)
-      (set? x)        (canon-set x)
+      (fn? x)         opaque-fn
       (map? x)        (canon-map-entries x)
+      (set? x)        (canon-set x)
+      (vector? x)     (canon-vector x)
+      (sequential? x) (canon-seq x)
       :else           x)))
 
 (defn canonical-form
@@ -427,27 +534,44 @@
                  (str (apply str (repeat pad "0")) hs)
                  hs)))))
 
+(defn hash-canonical
+  "Hash an ALREADY-canonical value (rf2-lvrqa). Prepends `canonical-version`
+  as the first hashed slot and renders the `[version canonical-value]` pair
+  to an 8-char-hex hash via a SINGLE `pr-str` — it does NOT re-run
+  `canonical-form` over its input.
+
+  This is the load-bearing primitive `content-hash` and `canonical-hash`
+  share. The former code re-applied `canonical-form` to the already-canonical
+  value before hashing; that was harmless only while `canonical-form` was
+  idempotent, but the rf2-lvrqa type-tags make it NON-idempotent (a second
+  pass would re-wrap `[:rf/map …]` as `[:rf/vec [:rf/map …]]`), so the
+  double-canon is removed. A consequence the determinism gate + golden rely
+  on: a caller holding an already-`canonicalize`d value `c` gets
+  `(hash-canonical c)` == `(canonical-hash <the raw value>)` == `run-hash`,
+  with no second canonicalization pass and no idempotence assumption."
+  [canonical-value]
+  (hex8 (pr-str [canonical-version canonical-value])))
+
 (defn content-hash
   "Stable 8-char-hex content hash of the *exact* value `x` — ordering
   imposed, but the volatile-field strip is NOT applied.
 
   The canonical form is keyed by `canonical-version`
-  (`:rf/snapshot-canonical-v1`) as the first hashed slot, so a future
-  canonical-form revision can bump the version without breaking
-  baselines. Map key order does not affect the hash; a semantic
-  difference does.
+  (`:rf/snapshot-canonical-v2`) as the first hashed slot, so a
+  canonical-form revision bumps the version and old baselines are
+  detectably stale. Map key order does not affect the hash; a semantic
+  difference — including a map<->vector / set<->vector type flip
+  (rf2-lvrqa) — does.
 
   This is the low primitive the shipping `re-frame.story.identity`
-  snapshot tuple hashes. Keeping it strip-free means the snapshot
-  content-hash is byte-identical across the rf2-5x1wt.3 fold (existing
-  visual-regression baselines stay valid). Determinism / run-equivalence
+  snapshot tuple hashes. The rf2-lvrqa canonical-version bump
+  (`:rf/snapshot-canonical-v2`) re-stamps the snapshot content-hash, so
+  external visual-regression baselines re-capture on their next run (there
+  are no in-repo stored hash fixtures). Determinism / run-equivalence
   callers want the strip — use `canonical-hash` (or `plan-hash` /
   `run-hash`) there."
   [x]
-  (-> [canonical-version (canonical-form x)]
-      canonical-form
-      pr-str
-      hex8))
+  (hash-canonical (canonical-form x)))
 
 (defn canonical-hash
   "Stable 8-char-hex hash of the `canonicalize`d projection of `x` —
@@ -458,12 +582,11 @@
   equivalent values that differ only in volatile fields hash equal; a
   semantic difference perturbs it. `plan-hash` and `run-hash` are this
   primitive applied to enumerated slices — there is no second hash
-  implementation."
+  implementation. `(canonical-hash x)` == `(hash-canonical (canonicalize
+  x))`, the equivalence the determinism gate + golden reuse to hash a canon
+  they already hold without a second canonicalization."
   [x]
-  (-> [canonical-version (canonicalize x)]
-      canonical-form
-      pr-str
-      hex8))
+  (hash-canonical (canonicalize x)))
 
 ;; ===========================================================================
 ;; PLAN HASH — enumerated plan inputs

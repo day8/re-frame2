@@ -192,9 +192,12 @@
                 (get-in c [:divergence :run-hash-n])))))
 
   ;; rf2-12wg5 — compare-runs canonicalizes each run-slice ONCE and derives
-  ;; the hash from the canon (via content-hash) rather than re-canonicalizing
-  ;; inside run-hash. The reported hashes MUST stay byte-identical to run-hash,
-  ;; so a recorded :run-hash and a determinism-gate hash never disagree.
+  ;; the hash from the canon (via fp/hash-canonical) rather than
+  ;; re-canonicalizing inside run-hash. The reported hashes MUST stay
+  ;; byte-identical to run-hash, so a recorded :run-hash and a
+  ;; determinism-gate hash never disagree. (rf2-lvrqa — the type-tagged
+  ;; canonical-form is NOT idempotent, so the canon is hashed via
+  ;; hash-canonical with no second canonicalization pass.)
   (testing "the reported hashes are byte-identical to fp/run-hash (no double canon)"
     (let [r0 {:status :pass :app-db {:n 1 :nested {:b 2 :a 1}}
               :warnings #{:w2 :w1}}
@@ -207,6 +210,30 @@
           "content-hash of the canon equals run-hash for every run")
       (is (= (fp/run-hash r0) (:run-hash c))
           "the shared run-hash is the canonical run-hash"))))
+
+;; rf2-ewrse — the determinism gate inherited the rf2-4gwja fn-slot
+;; nondeterminism: a raw fn in the run-slice (`:app-db` or an effect `:args`)
+;; re-allocated per replay hashed by object identity, so compare-runs read a
+;; genuinely-deterministic program as a FALSE `:non-deterministic`. The
+;; rf2-4gwja `opaque-fn` fold closes it — these runs must now compare
+;; `:deterministic?` true.
+(deftest compare-runs-fn-slot-is-deterministic
+  (testing "two runs whose ONLY difference is the IDENTITY of fns in :app-db
+            / effect :args compare deterministic (rf2-ewrse) — each replay
+            re-allocates the closure, the exact false-RED the gate produced"
+    (let [run-with (fn [f] {:status :pass
+                            :app-db  {:n 1 :cb f}
+                            :effects [{:fx-id :x :args f :outcome :ok}]})
+          c        (det/compare-runs [(run-with (fn [] 1))
+                                      (run-with (fn [] 1))
+                                      (run-with (fn [] 1))])]
+      (is (:deterministic? c) "fn-identity-only difference is NOT non-determinism")
+      (is (nil? (:divergence c)))
+      (is (some? (:run-hash c)) "a stable run-hash is reported")))
+  (testing "a fn in app-db does NOT mask a real semantic difference"
+    (let [c (det/compare-runs [{:status :pass :app-db {:n 1 :cb (fn [] 1)}}
+                               {:status :pass :app-db {:n 2 :cb (fn [] 1)}}])]
+      (is (not (:deterministic? c)) "the :n 1 vs :n 2 difference still diverges"))))
 
 ;; ===========================================================================
 ;; HEADLESS gate: against a live frame  (the §A4 acceptance)

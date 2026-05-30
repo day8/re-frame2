@@ -22,13 +22,18 @@
   and the back-compat `canonical-form` / `content-hash` re-exports) so the
   shipping watch-mode + visual-regression call sites keep working
   unchanged. Snapshot identity hashes its tuple through the fingerprint
-  `content-hash` low primitive, which is the **strip-free** ordered hash:
-  same `:rf/snapshot-canonical-v1` first slot, same ordering, same
-  8-char-hex `hash`. The snapshot content-hash is therefore
-  **byte-identical** to the pre-fold value — existing visual-regression
-  baselines stay valid and no re-stamp is required. The migration is a
-  pure relocation of the hashing code into the single primitive, not a
-  value change.
+  `content-hash` low primitive — the **strip-free** ordered hash.
+
+  The rf2-5x1wt.3 *fold* was a pure relocation of the hashing code (no
+  value change). The later rf2-lvrqa *soundness* fix is a deliberate
+  canonical-form REVISION: it type-tags the canonical form (so `{}` ≠ `[]`,
+  `{:k 1}` ≠ `[:k 1]`) and folds functions to a stable sentinel, and BUMPS
+  `canonical-version` `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`.
+  Because the version is the first hashed slot, the snapshot content-hash
+  VALUE changes. External visual-regression baselines therefore re-capture
+  on their next run (the bump is the re-stamp signal); there are no in-repo
+  stored hash fixtures to migrate. The hashing CODE still lives in the
+  single fingerprint primitive — this ns only re-exports it.
 
   The volatile-field strip + `:variant-id` → `:variant/id` reconciliation
   live in the fingerprint `canonicalize` path that backs determinism /
@@ -80,10 +85,10 @@
   as a Stage 6+ extension when an external service needs cryptographic
   collision-resistance.
 
-  The canonical-form keyword `:rf/snapshot-canonical-v1` is included as
-  the first slot of the hashed structure, so future canonical-form
-  revisions can introduce `:rf/snapshot-canonical-v2` without breaking
-  v1 baselines."
+  The canonical-form keyword `canonical-version`
+  (now `:rf/snapshot-canonical-v2`, bumped by rf2-lvrqa) is the first slot
+  of the hashed structure, so a canonical-form revision bumps the version
+  and old baselines are detectably stale rather than silently mis-compared."
   (:require [re-frame.late-bind         :as late-bind]
             [re-frame.story.args        :as args]
             [re-frame.story.fingerprint :as fingerprint]
@@ -96,7 +101,8 @@
 ;; vars are thin re-exports so the shipping watch-mode + visual-regression
 ;; call sites (and the JVM/CLJS runtime tests that assert on them) keep
 ;; their import surface. New consumers should call the fingerprint ns
-;; directly. The hash is byte-identical to the pre-fold value.
+;; directly. The rf2-lvrqa canonical-version v2 bump re-stamps the hash
+;; value (type tags + fn sentinel); the re-export wiring is unchanged.
 
 (def canonical-form
   "Back-compat re-export of `re-frame.story.fingerprint/canonical-form`.
@@ -109,9 +115,10 @@
 (def content-hash
   "Back-compat re-export of `re-frame.story.fingerprint/content-hash`.
   The single content-hash primitive now lives in the fingerprint ns; this
-  alias keeps the shipping import surface and is byte-identical to the
-  former local implementation (same `:rf/snapshot-canonical-v1` first
-  slot, same ordering, same 8-char-hex `hash`)."
+  alias keeps the shipping import surface. The hash VALUE was re-stamped by
+  the rf2-lvrqa canonical-form revision (`canonical-version`
+  `:rf/snapshot-canonical-v2`: structural type tags + the `:rf/opaque-fn`
+  fn sentinel); the re-export wiring is unchanged."
   fingerprint/content-hash)
 
 ;; ---- snapshot tuple -------------------------------------------------------
