@@ -5,6 +5,12 @@
 > tags sections for a single variant. The downstream surface the
 > mode-tabs primitive (rf2-9hc8, spec/007) was built to host.
 
+> **Extended by [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md).**
+> The Story-UI docs contract carries this read-only pane forward and adds
+> evidence excerpts, fidelity / world-input / runner / frame-binding
+> chips, a view-arg schema table, test + visual/a11y status summaries,
+> and the common egress redaction seam for share / static / copy.
+
 ## Why a dedicated docs pane
 
 The render shell already exposes every datum the docs pane needs —

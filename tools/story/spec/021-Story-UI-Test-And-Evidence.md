@@ -1,0 +1,225 @@
+# Story UI — Test Mode and Evidence
+
+> The Story `:test` mode as a proof/results surface: the unified
+> run-result presentation, the `:cannot-run` third state, per-assertion
+> detail, schema-violation reporting, visual/a11y check results, the
+> result→evidence-spine linkage, and generated-failure promotion (distinct
+> from save-current-state). This spec **supersedes** the current
+> result-reading contract in [`009-Test-Mode.md`](009-Test-Mode.md) once
+> the substrate's unified run-result lands.
+
+## Builds on
+
+- [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) — the
+  product contract, the failure-state visual hierarchy (§12.4), and the
+  status vocabulary (§12.6).
+- [`009-Test-Mode.md`](009-Test-Mode.md) — the **current** `:test` pane,
+  the chrome-level test widget + sidebar status dots, and the play
+  step-debugger. This spec carries that surface forward and supersedes
+  only its result-reading shape (see §1).
+- [`004-Assertions.md`](004-Assertions.md) — the seven canonical
+  `:rf.assert/*` events and record-don't-throw semantics that the result
+  presentation reads.
+- [`017-Testing-Story.md`](017-Testing-Story.md) — the unified run
+  result, the `:cannot-run` third result state, the runner-capability-set
+  model, and the epoch-tape evidence projection. **Source of truth for
+  the substrate; this spec presents its result.**
+
+## Supersedes
+
+- **[`009-Test-Mode.md`](009-Test-Mode.md) result-reading contract.**
+  Once the substrate's unified run-result
+  ([`017-Testing-Story.md`](017-Testing-Story.md)) lands, Test mode MUST
+  migrate to that single status/result/evidence shape. The current pane's
+  split `:lifecycle` / `:assertions` reading is superseded by the unified
+  result; the migration is through one converged path, not a parallel
+  schema. The current pane's other contracts (read-only contract, Re-run
+  semantics, chrome widget + sidebar dots, play step-debugger) are carried
+  forward, not superseded.
+
+## Depends on
+
+- The substrate's unified run-result and `:cannot-run` state (BLOCKED
+  until [`017-Testing-Story.md`](017-Testing-Story.md) lands; the UI MAY
+  adapt the current result shape until then — see §1).
+- The evidence-spine **display** for failure investigation — owned by
+  [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+  §3; this spec owns the result→span **linkage** (§2).
+- The Story-to-Xray focus API (`rf2-crtmq`) for focusing the relevant
+  Xray panel from a failed assertion —
+  [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+  §2.1.
+- Run-artifact promotion substrate for generated-failure promotion
+  (BLOCKED; §3).
+
+## Out of scope
+
+- The Xray embed interior, evidence-spine display, and Explain panel —
+  [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md).
+- Save-current-state-as-variant (intentional authoring; distinct from
+  failure promotion) —
+  [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
+  §3.
+- The substrate runner execution and result schema —
+  [`017-Testing-Story.md`](017-Testing-Story.md).
+- Sharing/export of run artifacts and screenshot egress —
+  [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3.
+
+## Status labels
+
+This spec uses the Story UI status labels (CURRENT / TARGET / BLOCKED /
+SUPERSEDES / FUTURE / OUT) defined in
+[`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md)
+§"Normative language".
+
+## 1. Test mode and the unified run result
+
+Story pressure: S4, S5, S7.
+
+Test mode is the "run this example as proof" surface.
+
+It MUST show:
+
+- overall status: pass, fail, cannot-run, error, pending;
+- runner selected and runner required;
+- checks grouped by check id;
+- terminal assertions;
+- script-checkpoint assertions;
+- schema violations, including consumed expected violations;
+- cannot-run rows with required and available evidence;
+- source links;
+- re-run and richer-run affordances.
+
+The current test pane reads the existing runtime result shape (CURRENT;
+see [`009-Test-Mode.md`](009-Test-Mode.md)). When the substrate
+([`017-Testing-Story.md`](017-Testing-Story.md)) lands unified run
+results, Test mode MUST migrate to that shape **without** maintaining a
+parallel schema. This is the supersession recorded above; until the
+migration lands, the UI MUST treat the current `:lifecycle` /
+`:assertions` results as transitional/adapted input and MUST NOT pretend
+the false-green class is already impossible.
+
+`:cannot-run` is a first-class third result state, visually distinct from
+pass/fail/error (see [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md)
+§12.6) — a cannot-run row says what evidence/runner was required and what
+was available, rather than reading as a failure.
+
+Test mode SHOULD support:
+
+- failed-only filtering;
+- cannot-run filtering;
+- per-assertion diff/detail;
+- copy repro as inline plan or run artifact;
+- promote generated failure to variant (§3, BLOCKED until run-artifact
+  promotion exists);
+- link assertion failures to the evidence spine and Xray focus (§2) where
+  the result carries enough coordinates.
+
+## 2. Result → evidence linkage
+
+Story pressure: S4.
+
+The evidence spine **display** is owned by
+[`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+§3. This section owns the **linkage**: how a run-result row drives the
+selected span and the focused Xray panel.
+
+- A selected result row (a failed assertion, a schema violation, a
+  cannot-run row) MUST be able to drive the evidence spine's selected
+  span, so the failure investigation follows the failure-state hierarchy
+  in [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §12.4.
+- Where the result carries the coordinates, a failed assertion SHOULD
+  offer "open in Xray" that focuses the relevant Xray panel/epoch/path via
+  the focus API
+  ([`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+  §2.1).
+- When a selected run has failures, Test mode SHOULD make the evidence
+  spine the main body of the failure investigation (the T1 resolution in
+  [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §4), with
+  result rows and assertion detail driving the selected span.
+
+This linkage is the mechanism by which evidence can be primary during
+debugging without becoming a fourth top-level mode.
+
+## 3. Generated-failure promotion
+
+Story pressure: S6.
+
+Promotion turns a generated/captured run artifact (typically a failure)
+into a curated named variant. It is BLOCKED until run-artifact promotion
+substrate exists.
+
+Promotion MUST be **distinct** from save-current-state-as-variant
+([`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
+§3): save-current-state is intentional authoring of a useful state from
+the live controls/canvas; promotion captures a run artifact (often a
+failure surfaced by a runner or generated by a matrix) and registers it
+as a regression variant. Conflating the two is an explicit
+"not-EPIC-ready" condition.
+
+The promoted variant MUST record the fidelity of the captured state and
+MUST respect the egress redaction posture
+([`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3)
+when the artifact leaves the process.
+
+## 4. Visual and a11y checks
+
+Story pressure: S5, S7.
+
+Visual and a11y checks are assertions on the same plan/result model.
+
+The UI MUST:
+
+- show when browser evidence is required;
+- keep browser-only checks out of default headless paths unless explicitly
+  requested;
+- render cannot-run distinctly;
+- show visual diffs beside app evidence;
+- show a11y findings with selector/source/context links.
+
+Visual-diff UX MUST define:
+
+- baseline source: golden slice, previous run, or named visual baseline;
+- update/bless semantics;
+- the relation between a visual diff and the evidence/narrative beat;
+- privacy/redaction behaviour for screenshots (egress posture per
+  [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3).
+
+Story owns variant/chrome a11y. Xray does **not** own a duplicate a11y
+panel.
+
+## 5. Acceptance criteria
+
+The Test-mode and evidence-linkage contract is satisfied when:
+
+- Test mode shows overall status including the `:cannot-run` third state,
+  the runner selected vs required, checks grouped by check id, terminal +
+  script-checkpoint assertions, schema violations (including consumed
+  expected violations), and source links;
+- the current result shape is clearly treated as transitional until the
+  unified run-result lands, and the migration is one converged path with
+  no parallel schema;
+- cannot-run is visually distinct from pass/fail/error and explains what
+  was required vs available;
+- a selected result row drives the evidence spine and (where coordinates
+  exist) focuses the relevant Xray panel, so failures explain themselves
+  through variant → script span → epoch beat → assertion → Xray panel;
+- generated-failure promotion is distinct from save-current-state, records
+  fidelity, and respects egress redaction;
+- visual/a11y results show browser-evidence requirements, render
+  cannot-run distinctly, and present diffs/findings beside app evidence
+  with source links;
+- failed runs do not first confront the user with a raw app-db diff, trace
+  tree, or EDN blob.
+
+## Cross-references
+
+| Concern | Source |
+|---|---|
+| Product contract + failure hierarchy + status vocab | [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) |
+| Current `:test` pane / widget / step-debugger | [`009-Test-Mode.md`](009-Test-Mode.md) |
+| Canonical `:rf.assert/*` events | [`004-Assertions.md`](004-Assertions.md) |
+| Unified run-result + `:cannot-run` + runners | [`017-Testing-Story.md`](017-Testing-Story.md) |
+| Evidence-spine display + Xray focus API | [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md) |
+| Save-current-state (distinct from promotion) | [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md) |
+| Egress redaction of artifacts/screenshots | [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) |

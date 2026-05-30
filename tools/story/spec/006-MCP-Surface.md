@@ -7,6 +7,12 @@
 > tooling embeds. The wire-protocol / tool-registry details live in
 > [`tools/story-mcp/spec/`](../../story-mcp/spec/).
 
+See [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+§1.3 for the human-UI / MCP / skill mirroring crosswalk: human-visible
+Story operations are the product source of truth, and the MCP tools
+expose gated/structured versions over the same variant/plan/result/
+evidence model — no second artifact model.
+
 ## Architecture
 
 ```

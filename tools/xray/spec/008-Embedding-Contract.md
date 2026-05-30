@@ -210,9 +210,10 @@ spine's existing placeholder UX, not an error).
 
 `CURRENT` (rf2-crtmq). The Story-UI **consumption** of this API —
 wiring narrative beats / assertion rows to call `focus!` — is owned by
-the StoryUI render-shell work and is NOT part of this contract. The
-command + entry point are the contract; how a host invokes it is the
-host's surface.
+the StoryUI render-shell work
+([`../../story/spec/020-Story-UI-Inspector-And-Xray.md`](../../story/spec/020-Story-UI-Inspector-And-Xray.md)
+§2.1) and is NOT part of this contract. The command + entry point are
+the contract; how a host invokes it is the host's surface.
 
 ## State isolation (Option-C frame-provider)
 

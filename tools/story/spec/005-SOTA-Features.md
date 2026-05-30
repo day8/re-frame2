@@ -8,6 +8,13 @@
 > (`:rf.story/enabled?` sentinel pattern). The contract Stage 6
 > implements + the production hygiene rules that apply across stages.
 
+See [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
+§3 for the Story-UI placement of save-current-state-as-variant (this
+spec owns the affordance; `019` places it coherently in Controls and
+keeps it distinct from generated-failure promotion in
+[`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md)
+§3).
+
 ## `force-fx-stub` — mock anything, not just the network
 
 **Don't mock just the network. Mock anything.**

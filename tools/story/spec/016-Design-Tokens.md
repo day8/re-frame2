@@ -13,6 +13,11 @@
 > the file's docstrings carry the per-token rationale this spec
 > consolidates. The contracts named here are normative.
 
+See [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §12 for
+the Story-UI visual quality contract that builds on these tokens —
+visual thesis, region character, status/colour vocabulary, failure-state
+hierarchy, and the Story/Xray visual seam.
+
 ## Why a token contract
 
 Story is a **workshop / playground** UI — the surface developers hover

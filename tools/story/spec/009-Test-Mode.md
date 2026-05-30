@@ -7,6 +7,16 @@
 > The downstream surface the mode-tabs primitive (rf2-9hc8, spec/007)
 > was built to host. Mirrors the docs-pane (spec/008) shape.
 
+> **Result-reading superseded by [`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md).**
+> The split `:lifecycle` / `:assertions` result-reading contract below is
+> superseded by the unified run-result presentation once the
+> [`017-Testing-Story.md`](017-Testing-Story.md) substrate lands. Test
+> mode MUST migrate to that single status/result/evidence shape through
+> one converged path — no parallel schema. The pane's other contracts
+> (read-only contract, Re-run semantics, the chrome-level test widget +
+> sidebar status dots, and the play step-debugger) are carried forward by
+> `021`, not superseded.
+
 ## Why a dedicated test pane
 
 re-frame2-story already ships the programmatic test harness:
