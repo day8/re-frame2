@@ -242,6 +242,89 @@
       (is (= :rf/redacted (nth ev 1))))
     (trace-tooling/unregister-listener! :whole)))
 
+;; ---- :rf.event/db (t1/t2 pending-db snapshot) redaction (rf2-6773q) ------
+;;
+;; The `:rf.event/db-pending` (t1) and `:rf.event/db-pending-post-flow`
+;; (t2) trace events stamp the FULL pending `app-db` under `:tags
+;; :rf.event/db` (router `flows-after-interceptor`, rf2-ta0y7). Because
+;; the slot carries the whole db, its declared paths are the FRAME's
+;; app-db elision registry — schema `:sensitive?` / `:large?` plus
+;; `add-marks` / `set-marks` — rooted at the db root. The marks
+;; chokepoint routes the slot through `elide-wire-value` so sensitive
+;; slots elide BEFORE the snapshot reaches any trace listener / epoch
+;; sink. NB: a handler that REPLACES app-db wipes `[:rf/runtime
+;; :elision]`, so we seed, then mark, then write into the marked path
+;; (mirrors `sub-auto-propagates-when-app-db-has-sensitive-marks`).
+
+(deftest db-pending-sensitive-app-db-path-redacts
+  (rf/reg-event-db :db/seed (fn [_ _] {:user {:ssn nil :name "A"}}))
+  (rf/dispatch-sync [:db/seed])
+  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
+  (rf/reg-event-db :db/write-ssn
+    (fn [db _] (assoc-in db [:user :ssn] "123-45-6789")))
+  (let [traces (collect-traces! :db-sensitive)]
+    (rf/dispatch-sync [:db/write-ssn])
+    (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)
+          db   (-> t1 :tags :rf.event/db)]
+      (is (some? t1) ":rf.event/db-pending fired")
+      (is (= :rf/redacted (get-in db [:user :ssn]))
+          "the sensitive app-db slot is redacted in the t1 db snapshot")
+      (is (= "A" (get-in db [:user :name]))
+          "an unmarked sibling slot passes through unchanged"))
+    (trace-tooling/unregister-listener! :db-sensitive)))
+
+(deftest db-pending-large-app-db-path-emits-marker
+  (rf/reg-event-db :db/seed (fn [_ _] {:docs {:csv nil :note "ok"}}))
+  (rf/dispatch-sync [:db/seed])
+  (rf/set-marks :rf/default {[:docs :csv] :large})
+  (let [big (apply str (repeat 500 "X"))]
+    (rf/reg-event-db :db/write-csv
+      (fn [db _] (assoc-in db [:docs :csv] big)))
+    (let [traces (collect-traces! :db-large)]
+      (rf/dispatch-sync [:db/write-csv])
+      (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)
+            slot (-> t1 :tags :rf.event/db (get-in [:docs :csv]))]
+        (is (some? t1) ":rf.event/db-pending fired")
+        (is (elision/marker? slot)
+            "the large app-db slot elides to an :rf.size/large-elided marker")
+        (is (= [:docs :csv] (get-in slot [:rf.size/large-elided :path])))
+        (is (= "ok" (-> t1 :tags :rf.event/db (get-in [:docs :note])))
+            "an unmarked sibling slot passes through unchanged"))
+      (trace-tooling/unregister-listener! :db-large))))
+
+(deftest db-pending-unmarked-db-passes-through-by-reference
+  ;; No marks / declarations on the frame → the t1 `:rf.event/db` stamp
+  ;; is the SAME persistent reference the handler returned (rf2-ta0y7's
+  ;; copy-free posture). The marks chokepoint must NOT rebuild the value
+  ;; when there is nothing to elide.
+  (let [payload {:counter 1 :nested {:k :v}}]
+    (rf/reg-event-db :db/return-shared (fn [_ _] payload))
+    (let [traces (collect-traces! :db-unmarked)]
+      (rf/dispatch-sync [:db/return-shared])
+      (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)]
+        (is (some? t1) ":rf.event/db-pending fired")
+        (is (identical? payload (-> t1 :tags :rf.event/db))
+            "unmarked db snapshot is the same reference (no walk, no copy)"))
+      (trace-tooling/unregister-listener! :db-unmarked))))
+
+(deftest db-pending-schema-sensitive-app-db-path-redacts
+  ;; Schema-sourced `:sensitive?` slot metadata (not add-marks) also
+  ;; drives the t1 db-snapshot redaction — the schema + marks sources
+  ;; union at the elision registry, and the chokepoint reads the same
+  ;; registry via `elide-wire-value`.
+  (rf/reg-app-schema [:auth]
+                     [:map [:token {:sensitive? true} [:maybe :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (rf/reg-event-db :db/login
+    (fn [db _] (assoc-in db [:auth :token] "Bearer xyz")))
+  (let [traces (collect-traces! :db-schema-sensitive)]
+    (rf/dispatch-sync [:db/login])
+    (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)]
+      (is (some? t1) ":rf.event/db-pending fired")
+      (is (= :rf/redacted (-> t1 :tags :rf.event/db (get-in [:auth :token])))
+          "the schema-declared sensitive slot is redacted in the db snapshot"))
+    (trace-tooling/unregister-listener! :db-schema-sensitive)))
+
 ;; ---- redact-with-paths primitive ---------------------------------------
 
 (deftest redact-with-paths-walks-nested
