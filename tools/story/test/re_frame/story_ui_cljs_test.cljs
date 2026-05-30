@@ -369,6 +369,12 @@
        (remove nil?)
        set))
 
+;; rf2-ba86n.18 — `find-tabs-renderer-call` (defined with the tabs helpers
+;; below) ALSO extracts the capped-grid renderer's `[fn cells]` call; the
+;; grid-key tests just below it use it, so forward-declare to avoid an
+;; undeclared-var warning (the helper body lives with its siblings).
+(declare find-tabs-renderer-call)
+
 (deftest workspace-grid-cells-key-on-variant-id-rf2-kgn0c
   (testing ":grid layout cells use variant-id-derived React keys so
             React mounts fresh cells when a workspace swap changes the
@@ -383,10 +389,16 @@
     (story/reg-workspace :Workspace.rf2-kgn0c.b/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.b/p :story.rf2-kgn0c.b/q]})
-    (let [keys-a (collect-cell-keys
-                   (workspace/workspace-view :Workspace.rf2-kgn0c.a/grid))
-          keys-b (collect-cell-keys
-                   (workspace/workspace-view :Workspace.rf2-kgn0c.b/grid))]
+    ;; rf2-ba86n.18 — the `:grid` branch now mounts the capped-grid
+    ;; renderer (`[capped-grid-renderer cells]`); extract + invoke its
+    ;; inner fn (same `[fn cells]` shape as tabs) to get the rendered
+    ;; cell tree, then walk for variant-id keys.
+    (let [render  (fn [ws-id]
+                    (let [{renderer :fn cells :cells}
+                          (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+                      (renderer cells)))
+          keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c.a/grid))
+          keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c.b/grid))]
       (is (= 2 (count keys-a)) "workspace-a yields one key per cell")
       (is (= 2 (count keys-b)) "workspace-b yields one key per cell")
       (is (empty? (set/intersection keys-a keys-b))
@@ -409,10 +421,14 @@
       {:layout :variants-grid})
     (story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
       {:layout :variants-grid})
-    (let [keys-a (collect-cell-keys
-                   (workspace/workspace-view :Workspace.rf2-kgn0c-vg.a/all))
-          keys-b (collect-cell-keys
-                   (workspace/workspace-view :Workspace.rf2-kgn0c-vg.b/all))]
+    ;; rf2-ba86n.18 — isolated `:variants-grid` also mounts the capped-grid
+    ;; renderer; extract + invoke its inner fn to reach the cell tree.
+    (let [render  (fn [ws-id]
+                    (let [{renderer :fn cells :cells}
+                          (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+                      (renderer cells)))
+          keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.a/all))
+          keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.b/all))]
       (is (seq keys-a))
       (is (seq keys-b))
       (is (empty? (set/intersection keys-a keys-b))
@@ -459,8 +475,11 @@
   "Walk `tree` for a hiccup vector of the shape `[fn cells-vec]` where
   cells-vec is a non-empty vector of cell maps. Returns
   `{:fn renderer :cells cells}` or nil. The workspace-view mounts
-  `:tabs` as `[tabs-renderer cells]` so this is the unambiguous shape
-  of the tabs branch."
+  `:tabs` as `[tabs-renderer cells]` AND `:grid` / isolated
+  `:variants-grid` as `[capped-grid-renderer cells]` (rf2-ba86n.18) —
+  both share this `[fn cells]` shape, so this helper extracts either
+  renderer's inner call. Callers invoke `(renderer cells)` to get the
+  rendered hiccup tree they walk."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -674,7 +693,13 @@
        :variants [:story.rf2-ktnl8.gt/a
                   :story.rf2-ktnl8.gt/b
                   :story.rf2-ktnl8.gt/c]})
-    (let [grid-tree  (workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid)
+    ;; rf2-ba86n.18 — `:grid` mounts the capped-grid renderer; invoke its
+    ;; inner fn to reach the rendered cells (3 variants < the 100 visible
+    ;; cap, so all three render and the layout-difference contract holds).
+    (let [{grid-fn :fn grid-cells :cells}
+                     (find-tabs-renderer-call
+                       (workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid))
+          grid-tree  (grid-fn grid-cells)
           grid-n     (count-variant-cells-in grid-tree)
           {tabs-fn :fn tabs-cells :cells}
                      (find-tabs-renderer-call

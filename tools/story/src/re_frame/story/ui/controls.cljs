@@ -66,6 +66,7 @@
     (§6 acceptance criterion)."
   (:require [clojure.string                    :as str]
             [reagent.core                      :as r]
+            [re-frame.story.budgets            :as budgets]
             [re-frame.story.registrar          :as registrar]
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
@@ -503,6 +504,32 @@
     [:span {:style (:empty styles)}
      (str "unsupported widget " widget)]))
 
+;; ---- flat-panel row cap (rf2-ba86n.18 / C2) -----------------------------
+;;
+;; A controls panel whose top-level arg count exceeds
+;; `budgets/controls-flat-row-cap` (60) renders the first `cap` rows and a
+;; `+N more` expander rather than flooding the panel (spec/018 §10). The
+;; reveal flag rides the SAME component-local `:expanded` ratom that drives
+;; the nested summarise-before-expand state, under a reserved sentinel so it
+;; never collides with a real nested-control path. Pure helpers stay
+;; JVM-/data-testable.
+
+(def flat-expanded-sentinel
+  "Reserved key the flat-panel-cap reveal flag occupies in the controls
+  editor's `:expanded` ratom set. A namespaced keyword (not a vector path)
+  so it can never collide with a nested-control path (paths are vectors of
+  arg-keys / indices). Public so the gate can assert the bounding contract."
+  ::flat-expanded)
+
+(defn bound-arg-rows
+  "Pure data → data: bound the sorted top-level arg entries `entries` (a seq
+  of `[k v]` pairs) to at most `budgets/controls-flat-row-cap` rows unless
+  `expanded?`. Returns `{:shown [...] :hidden <n>}` via the shared
+  `budgets/bound-cells` so the controls panel uses the SAME cap-and-page
+  idiom (F1) as the sidebar and the variants-grid. JVM-testable."
+  [entries expanded?]
+  (budgets/bound-cells entries budgets/controls-flat-row-cap (boolean expanded?)))
+
 ;; ---- summarise-before-expand (rf2-ba86n.5) ------------------------------
 ;;
 ;; Nested controls render a one-line summary with a disclosure toggle and
@@ -834,6 +861,18 @@
   - keeps args a control surface, not a fidelity rung — every value
     here is an explicit view input.
 
+  FLAT-PANEL CAP (rf2-ba86n.18 / C2): a panel whose top-level arg count
+  exceeds `budgets/controls-flat-row-cap` (60) renders the first `cap` rows
+  and a `+N more` expander rather than flooding the panel (spec/018 §10 —
+  cap or page; fail by summarizing, not flooding). The reveal flag is the
+  SAME component-local ephemeral `expanded` ratom that drives the nested
+  summarise-before-expand state, keyed under the reserved
+  `::flat-expanded` sentinel so it never collides with a real nested-control
+  path and is never written to `:cell-overrides` / shell-state (controls
+  must not become hidden panel state, spec/019 §6). The validation banner
+  still counts ALL violations (capped or not — the honest 'N args block
+  proof' signal is never paged away).
+
   HOT PATH (rf2-wb4y3): every keystroke in a control row writes through
   `:cell-overrides`, the shell-state ratom re-renders this component,
   which re-runs the whole derivation. We resolve args ONCE here and
@@ -872,13 +911,34 @@
          (validation-banner (count viols))
          (if (empty? eff-args)
            [:div {:style (:empty styles)} "no args resolved"]
-           (for [[k v] (sort-by key eff-args)]
-             ^{:key k}
-             (args-row variant-id k v (get argtypes k {:widget :text})
-                       {:violation   (get viols-by-key k)
-                        :changed?    (arg-changed? eff-args saved-args k)
-                        :overridden? (contains? overrides k)
-                        :opts        opts})))
+           ;; rf2-ba86n.18 / C2 — flat-panel row cap. Bound the sorted
+           ;; top-level rows at `controls-flat-row-cap` (60) with a
+           ;; `+N more` expander rather than flooding the panel. The reveal
+           ;; flag rides the component-local `expanded` ratom under the
+           ;; reserved `flat-expanded-sentinel` so it stays ephemeral UI
+           ;; state (never `:cell-overrides` / shell-state, spec/019 §6).
+           (let [flat-open? (contains? @expanded flat-expanded-sentinel)
+                 {:keys [shown hidden]} (bound-arg-rows (sort-by key eff-args)
+                                                        flat-open?)]
+             [:div
+              (for [[k v] shown]
+                ^{:key k}
+                (args-row variant-id k v (get argtypes k {:widget :text})
+                          {:violation   (get viols-by-key k)
+                           :changed?    (arg-changed? eff-args saved-args k)
+                           :overridden? (contains? overrides k)
+                           :opts        opts}))
+              (when (pos? hidden)
+                [:button {:style       (:more styles)
+                          :type        "button"
+                          :data-controls-more "true"
+                          :data-controls-hidden (str hidden)
+                          :aria-label  (str "Show " hidden
+                                            " more control rows")
+                          :on-click    (fn [_]
+                                         (swap! expanded conj
+                                                flat-expanded-sentinel))}
+                 (str "+" hidden " more…")])]))
          (when (seq overrides)
            [:button {:style    (:button styles)
                      :data-controls-action "reset-all"
