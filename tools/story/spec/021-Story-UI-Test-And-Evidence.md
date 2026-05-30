@@ -50,7 +50,8 @@
   [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
   §2.1.
 - Run-artifact promotion substrate for generated-failure promotion
-  (BLOCKED; §3).
+  (CURRENT — `re-frame.story.promotion` + its UI `re-frame.story.ui.promotion`
+  now exist; §3).
 
 ## Out of scope
 
@@ -110,8 +111,9 @@ Test mode SHOULD support:
 - cannot-run filtering;
 - per-assertion diff/detail;
 - copy repro as inline plan or run artifact;
-- promote generated failure to variant (§3, BLOCKED until run-artifact
-  promotion exists);
+- promote generated failure to variant (§3, CURRENT — the promotion UI
+  `re-frame.story.ui.promotion` over the run-artifact promotion substrate
+  now exists);
 - link assertion failures to the evidence spine and Xray focus (§2) where
   the result carries enough coordinates.
 
