@@ -279,4 +279,103 @@
    :search-hit     {:background (:accent-amber-soft colors/tokens)
                     :color (:accent-amber colors/tokens)
                     :border-radius "2px"
-                    :padding "0 1px"}})
+                    :padding "0 1px"}
+   ;; rf2-ba86n.4 — per-variant SIGNAL CHIPS (spec/018 §7.1 + §12.6). Five
+   ;; DISTINCT axes — status / fidelity / world-inputs / runner-requirement
+   ;; / frame-binding — rendered as adjacent-but-separate chip groups. The
+   ;; per-axis tints keep the axes visually distinguishable so the labels
+   ;; are NEVER read as one collapsed 'fidelity' concept. Chips sit on the
+   ;; row below the variant id (a second, dense line) so a long signal set
+   ;; never overflows the variant row itself (spec/018 §10 — text MUST NOT
+   ;; overflow rows / chips).
+   :signal-row      {:display      "flex"
+                     :flex-wrap    "wrap"
+                     :align-items  "center"
+                     :gap          "4px"
+                     :padding      "1px 12px 3px 26px"
+                     :margin-top   "-1px"}
+   :signal-group    {:display      "inline-flex"
+                     :flex-wrap    "wrap"
+                     :align-items  "center"
+                     :gap          "2px"}
+   ;; The base chip — each axis layers its tint on top via the per-axis /
+   ;; per-status maps below.
+   :signal-chip     {:padding       "0 5px"
+                     :border-radius "8px"
+                     :font-family   mono-stack
+                     :font-size     (:nano typography/type-scale)
+                     :line-height   "14px"
+                     :letter-spacing "0.2px"
+                     :user-select   "none"
+                     :flex-shrink   "0"
+                     :background    (:bg-3 colors/tokens)
+                     :color         (:text-secondary colors/tokens)}
+   ;; ── status axis (spec/018 §12.6 — distinguishable in colour, icon,
+   ;;    text, and shape; NOT everything red/green) ──
+   :signal-status-pass       {:background (:success-bg colors/tokens) :color (:success colors/tokens)}
+   :signal-status-fail       {:background (:danger-bg  colors/tokens) :color (:danger  colors/tokens)}
+   ;; cannot-run is a neutral warning, NOT a failure (spec/018 §12.6).
+   :signal-status-cannot-run {:background (:bg-3 colors/tokens)
+                              :color (:warning colors/tokens)
+                              :border (str "1px solid " (:warning colors/tokens))}
+   ;; error is DISTINCT from fail — outlined danger so it never reads as a
+   ;; plain failed expectation.
+   :signal-status-error      {:background (:danger-bg colors/tokens)
+                              :color (:danger colors/tokens)
+                              :border (str "1px solid " (:danger colors/tokens))}
+   :signal-status-running    {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
+   :signal-status-pending    {:background "transparent"
+                              :color (:text-tertiary colors/tokens)
+                              :border (str "1px solid " (:border-default colors/tokens))}
+   :signal-status-blocked    {:background (:mono-3 colors/tokens) :color (:mono-1 colors/tokens)}
+   :signal-status-dirty      {:background (:accent-amber-soft colors/tokens) :color (:accent-amber colors/tokens)}
+   :signal-status-redacted   {:background (:bg-3 colors/tokens)
+                              :color (:text-tertiary colors/tokens)
+                              :border (str "1px dashed " (:border-strong colors/tokens))}
+   ;; ── fidelity axis — purple-violet tint (shared with the :docs tag
+   ;;    palette) so it reads as its own family, never as a world input ──
+   :signal-fidelity {:background (:tag-docs-bg colors/tokens)
+                     :color (:tag-docs-fg colors/tokens)}
+   ;; ── world-inputs axis — info-blue tint (distinct from fidelity) ──
+   :signal-world    {:background (:info-bg colors/tokens)
+                     :color (:info colors/tokens)}
+   ;; ── runner-requirement axis — teal tint (shared with the :agent tag
+   ;;    palette) so a capability requirement never reads as a tier of
+   ;;    fidelity ──
+   :signal-runner   {:background (:tag-agent-bg colors/tokens)
+                     :color (:tag-agent-fg colors/tokens)}
+   ;; ── frame-binding axis — neutral mono tint; an attached / MCP-bound
+   ;;    binding is a binding, not a runner tier (spec/018 §7.2) ──
+   :signal-frame    {:background (:bg-3 colors/tokens)
+                     :color (:text-secondary colors/tokens)
+                     :border (str "1px solid " (:border-default colors/tokens))}
+   :signal-frame-attached  {:background (:tag-experimental-bg colors/tokens)
+                            :color (:tag-experimental-fg colors/tokens)
+                            :border (str "1px solid " (:tag-experimental-fg colors/tokens))}
+   ;; rf2-ba86n.4 — large-list virtualization / bounding (spec/018 §10 —
+   ;; cap or page; the UI SHOULD fail by summarizing, not flooding). The
+   ;; "+N more" affordance row a story-block renders when its variant count
+   ;; exceeds the per-story cap.
+   :variant-more    {:padding "2px 12px 4px 26px"
+                     :color (:text-tertiary colors/tokens)
+                     :font-family mono-stack
+                     :font-size (:micro typography/type-scale)
+                     :font-style "italic"
+                     :cursor "pointer"
+                     :user-select "none"}
+   ;; rf2-ba86n.4 — variants-grid grouping affordance (spec/018 §7.1 —
+   ;; 'visible grouping for :variants-grid generated variants'). A compact
+   ;; sub-header above a generated grid's variant rows so the grid reads as
+   ;; one scannable group rather than loose siblings.
+   :grid-group      {:padding "2px 12px 2px 22px"
+                     :margin-top "2px"
+                     :display "flex"
+                     :align-items "center"
+                     :gap "6px"
+                     :color (:text-tertiary colors/tokens)
+                     :font-family sans-stack
+                     :font-size (:nano typography/type-scale)
+                     :text-transform "uppercase"
+                     :letter-spacing (:label-wide typography/letter-spacing)}
+   :grid-group-count {:color (:accent-amber colors/tokens)
+                      :font-family mono-stack}})
