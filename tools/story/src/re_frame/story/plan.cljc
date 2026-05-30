@@ -267,20 +267,55 @@
 ;; `[:world :scripts]` so `:plays` is not dropped (§Public vocabulary —
 ;; "named scripts in the normalized plan").
 
+(defn- reject-malformed-steps!
+  "FAIL plan construction when any COERCED (but not-yet-folded) script step
+  is structurally malformed — an unknown step tag or a tag with the wrong
+  arity/shape (rf2-zha5z, spec/017 §Script step grammar). Reuses the
+  runner's `validate-script` (`runner/step-arity-ok?` + `known-step?`) — the
+  ONE encoding of the per-tag shape constraints — so the plan compiler and
+  the runtime runner agree on what a well-formed step is.
+
+  This gate MUST run BEFORE `assertions/fold-script`: the fold helpers
+  (`assertions/assert-db->atom` / `assert-dom->atom`) assume a well-formed
+  shipping step (a 3-/4-arity `:assert-db`, a recognised `:assert-dom`
+  mode), so a malformed one folded raw throws an opaque HOST exception
+  (IndexOutOfBounds / `No matching clause`) at plan-compile rather than the
+  project's structured `:rf.error/story-*` shape. Catching it here surfaces
+  the typo through the SAME error vocabulary every other plan error uses
+  (cf `reject-unknown-assertions!` / `reject-assert-in-setup!`)."
+  [id script]
+  (when-let [offenders (seq (runner/validate-script script))]
+    (fail! :rf.error/story-bad-step
+           (str "re-frame2-story: variant " id
+                " — malformed script step(s) "
+                (pr-str (mapv (fn [{:keys [idx step reason]}]
+                                {:idx idx :step step :reason reason})
+                              offenders))
+                ". Each step must be a recognised tagged step with the right "
+                "shape (e.g. [:assert-db path value] / [:assert-db path :pred "
+                "fn], [:assert-dom selector :visible|:hidden] / [:assert-dom "
+                "selector :text string]). Fix the step tag, arity, or mode.")
+           {:variant/id id :offending-steps (vec offenders)})))
+
 (defn- normalize-scripts
   "Return `{:script [step ...] :scripts [{:name :script :auto-run?} ...]}`
   for a merged body. Accepts the target `:script` spelling AND the
   shipping `:play-script` / `:plays` spellings, lowering them through the
   runner's canonical coercion. The primary `:script` is the first play.
 
-  After coercion every play's script is FOLDED (`assertions/fold-script`,
+  Each play's coerced script is first SHAPE-VALIDATED
+  (`reject-malformed-steps!`, rf2-zha5z) so a malformed `:assert-db` /
+  `:assert-dom` (or any step) FAILS with a structured `:rf.error/story-bad-
+  step` BEFORE the fold — the fold helpers assume well-formed input.
+
+  After validation every play's script is FOLDED (`assertions/fold-script`,
   rf2-5x1wt.18): a shipping `:assert-db` / `:assert-dom` step rewrites to
   the canonical `[:assert assertion-atom]` checkpoint, so EVERY in-script
   assertion — whatever sugar the author typed — resolves to the ONE
   assertion atom shape (spec/017 §Assertions — one atom, two positions).
   Each `:scripts` entry carries the folded script too, so named plays the
   runner drives also see the canonical checkpoints."
-  [body]
+  [id body]
   (let [plays (cond
                 (contains? body :script)
                 ;; Target spelling: a bare step vector, coerced the same
@@ -289,7 +324,9 @@
 
                 :else
                 (runner/variant-body->plays body))
-        plays (mapv (fn [p] (update p :script assertions/fold-script))
+        plays (mapv (fn [p]
+                      (reject-malformed-steps! id (:script p))
+                      (update p :script assertions/fold-script))
                     (vec plays))]
     {:script  (-> plays first :script (or []))
      :scripts plays}))
@@ -1153,9 +1190,9 @@
         ;; `:extends`): composed-fragment scripts in declared order, THEN
         ;; the child's own script (§Merge rules). Each fragment's script is
         ;; coerced the same way the child's is.
-        compose-script (vec (mapcat (fn [l] (:script (normalize-scripts l)))
+        compose-script (vec (mapcat (fn [l] (:script (normalize-scripts id l)))
                                     frag-layers))
-        {child-script :script scripts :scripts} (normalize-scripts child)
+        {child-script :script scripts :scripts} (normalize-scripts id child)
         script       (vec (concat compose-script child-script))
         ;; terminal assertions are CHILD-ONLY (verdict is local)
         assertions   (vec (:assertions child))
