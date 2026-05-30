@@ -100,4 +100,59 @@
                  :cursor "pointer"
                  :font-size (:micro typography/type-scale)
                  :margin-left "4px"}
-   :empty       {:color (:text-tertiary colors/tokens) :font-style "italic"}})
+   :empty       {:color (:text-tertiary colors/tokens) :font-style "italic"}
+   ;; ---- rf2-ba86n.5: validation, diff-from-saved, summarise-before-expand
+   ;;
+   ;; Inline schema error rendered under a control whose committed value
+   ;; violates the component's Spec 010 schema. The danger-bg ground +
+   ;; left rule mirror the schema-validation panel's `:violation` style so
+   ;; the two surfaces read as one validation language.
+   :error       {:color (:danger colors/tokens)
+                 :background (:danger-bg colors/tokens)
+                 :border-left "3px solid #ff4040"
+                 :padding "2px 6px"
+                 :margin-top "2px"
+                 :font-size (:micro typography/type-scale)}
+   ;; Panel-level banner shown when ≥1 committed arg violates the schema —
+   ;; render / test proof is gated until the violation clears.
+   :banner      {:color (:danger colors/tokens)
+                 :background (:danger-bg colors/tokens)
+                 :border "1px solid #ff4040"
+                 :border-radius "3px"
+                 :padding "4px 6px"
+                 :margin-bottom "6px"
+                 :font-size (:micro typography/type-scale)}
+   ;; The arg-changed-from-saved dot + per-arg reset affordance. The dot
+   ;; is amber (Story's "work in progress" signal); the reset is a tight
+   ;; inline glyph button sharing the rep-button ground.
+   :diff-row    {:display "inline-flex"
+                 :gap "4px"
+                 :align-items "center"}
+   :diff-dot    {:color (:accent-amber colors/tokens)
+                 :font-weight "bold"
+                 :title "changed from saved"}
+   :reset-arg   {:padding "0 4px"
+                 :background (:bg-3 colors/tokens)
+                 :color (:text-secondary colors/tokens)
+                 :border "1px solid #444"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :font-size (:micro typography/type-scale)}
+   ;; The summarise-before-expand toggle for nested (group / repeater /
+   ;; tuple) controls. The disclosure triangle + the one-line summary of
+   ;; the collapsed value sit in the group header row (rf2-ba86n.5 / the
+   ;; deep-controls perf risk in spec 019 §4).
+   :disclosure  {:cursor "pointer"
+                 :user-select "none"
+                 :color (:info colors/tokens)
+                 :font-weight "bold"
+                 :background "none"
+                 :border "none"
+                 :padding "0"
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)
+                 :text-align "left"}
+   :summary     {:color (:text-tertiary colors/tokens)
+                 :font-style "italic"
+                 :margin-left "4px"
+                 :font-size (:micro typography/type-scale)}})

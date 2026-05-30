@@ -18,6 +18,9 @@
                            walker (rf2-agshe). The `-scalar` wrapper
                            handles the bare top-level arg-key case.
   - `clear-cell-overrides` — drop all overrides for the focused variant.
+  - `clear-cell-override`  — drop one top-level arg-key's override,
+                             reverting that arg to its saved value (the
+                             controls panel's per-arg reset, rf2-ba86n.5).
   - `filter-variants`    — pure fn: given a set of variant bodies + the
                            shell state, return the visible subset.
   - `group-variants-by-story` — pure fn: build the sidebar tree.
@@ -171,6 +174,7 @@
 (def set-cell-override         state.transitions/set-cell-override)
 (def set-cell-override-scalar  state.transitions/set-cell-override-scalar)
 (def clear-cell-overrides      state.transitions/clear-cell-overrides)
+(def clear-cell-override       state.transitions/clear-cell-override)
 (def ensure-repeater-row-ids   state.transitions/ensure-repeater-row-ids)
 (def repeater-row-ids          state.transitions/repeater-row-ids)
 (def append-repeater-row-id    state.transitions/append-repeater-row-id)
