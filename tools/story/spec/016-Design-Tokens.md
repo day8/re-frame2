@@ -243,6 +243,88 @@ Per rf2-i3i5j AC#3 — **no hex literals at call sites in
 - [`014-Chrome-Features.md`](014-Chrome-Features.md) §Sidebar tag-as-
   badge affordance — the seven canonical tag-palette pairs.
 
+## §Status vocabulary (rf2-ba86n.3)
+
+> Shipped: [`theme/status.cljc`](../src/re_frame/story/theme/status.cljc).
+> Visual-foundation pass — [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §12.6.
+
+### Lock
+
+The nine tool-wide status values (`:pending` / `:running` / `:pass` /
+`:fail` / `:error` / `:cannot-run` / `:blocked` / `:dirty` /
+`:redacted`) resolve through ONE shared constructor —
+`theme.status/descriptor` — so a status reads identically in every
+region (sidebar signal chip, sidebar status dot, test-mode result pill,
+evidence-spine beat, play-status banner). Before this namespace each
+region re-specified its own status→colour map; they agreed by
+convention, not by construction. Spec/018 §12.6 makes the vocabulary
+normative and tool-wide; this namespace makes it constructed.
+
+### The four discriminators (spec/018 §12.6)
+
+> Do not encode everything as red/green. `pending`, `fail`, `error`,
+> `cannot-run`, `blocked`, `dirty`, and `redacted` MUST remain
+> distinguishable in colour, **icon, text, and shape**.
+
+Each descriptor therefore carries four channels, not one:
+
+| Channel     | Slot                | Purpose                                                       |
+|-------------|---------------------|---------------------------------------------------------------|
+| Colour      | `:fg` `:bg` `:border` | resolved from `theme.colors/tokens` — zero raw hex            |
+| Icon        | `:glyph`            | one structural char (`✓ ✗ ! ⊘ ▣ ● ◌ ◐ ▢`) — survives HCM      |
+| Shape       | `:shape`            | `:solid` / `:outline` / `:dashed` / `:ring` / `:half`         |
+| Text        | `:label`            | canonical short human label                                    |
+
+Plus an `:emphasis` presentation hint (`:high` / `:normal` / `:low`)
+so regions can size/weight a status without re-deriving the priority
+order, and an `order` vector + `rollup` fn so an aggregate (a sidebar
+story row over many variants) surfaces its worst member.
+
+### Public API
+
+| Fn / def              | Use                                                          |
+|-----------------------|--------------------------------------------------------------|
+| `descriptor`          | full `{:fg :bg :border :glyph :shape :label :emphasis}` map  |
+| `chip-style`          | inline `:style` map (ground + fg + shape-derived border)     |
+| `fg` / `bg` / `glyph` / `label` | the individual channels                            |
+| `rollup`              | most-attention-demanding status from a seq (per `order`)     |
+| `order`               | canonical priority vector (error → … → pass)                 |
+
+### Zero-raw + single-source contract
+
+Status tints are NEVER respecified at a call site. `sidebar.cljs`'s
+`:signal-status-*` keys + `:dot-*` keys derive from `chip-style` / `fg`;
+test-mode + evidence regions consume the same constructor. A drift in
+one region is now impossible — there is one map.
+
+## §Spacing + radius rhythm (rf2-ba86n.3)
+
+> Shipped: [`theme/space.cljc`](../src/re_frame/story/theme/space.cljc).
+> Visual-foundation pass — [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §12.2.
+
+### Lock
+
+Spacing keys onto a **4px base scale** (`:px-0` … `:px-8` → `0` … `32px`)
+and radius onto a tight five-step scale (`:none` / `:xs` / `:sm` /
+`:md` / `:pill`). Spec/018 §12.2 demands "high information density with
+stable spacing; strong alignment and grouping" — before this namespace
+the chrome's padding / gap / margin were scattered raw px strings, so
+the rhythm was implicit and drifted between regions (one panel `12px`,
+its sibling `10px`, no rule). The scale makes the rhythm constructed.
+
+### Public API
+
+| Fn / def        | Use                                                    |
+|-----------------|--------------------------------------------------------|
+| `scale`         | `{:px-0 … :px-8}` CSS-string map                       |
+| `pad` / `gap`   | `(pad 5)` → `"12px"`; `gap` aliases `pad`, named at call site |
+| `radius`        | `{:none :xs :sm :md :pill}` border-radius map          |
+
+Radius rounds **functionally, never decoratively** — chips/pills round
+`:pill` (10px), inputs/buttons `:sm` (3px), panels `:md` (4px); nothing
+rounds at a "large rounded decorative surface" scale (spec/018 §12.2
+explicitly rejects it).
+
 ## §Motion (rf2-3lt89)
 
 > Shipped: [`theme/motion.cljc`](../src/re_frame/story/theme/motion.cljc).

@@ -96,7 +96,6 @@
             [re-frame.story.ui.workspace :as workspace]
             [re-frame.story.backgrounds :as backgrounds]
             [re-frame.story.viewport :as viewport]
-            [re-frame.story.theme.colors :as colors]
             [re-frame.story.theme.depth :as depth]
             [re-frame.story.theme.motion :as motion]))
 
@@ -568,12 +567,15 @@
      ;; empty state when Xray is not on the classpath.
      [:section {:style (:rhs-section styles)
                 :data-rf-rhs-section "xray"}
+      ;; The Story↔Xray seam (spec/018 §12.9): this is the ONE RHS band
+      ;; whose header goes COOL. The violet accent + violet underline
+      ;; echo Xray's own identity so the diagnostic boundary reads from
+      ;; temperature alone — Story still owns the title row + chip row,
+      ;; only the accent points at the embedded surface.
       [:div {:style (merge (:rhs-section-h styles)
-                           (:rhs-section-h-accent styles))}
+                           (:rhs-section-h-xray styles))}
        [:span "Xray"]
-       [:span {:style {:font-weight "400"
-                       :color (:text-tertiary colors/tokens)
-                       :letter-spacing "0.04em"}}
+       [:span {:style (:rhs-section-sub-xray styles)}
         "diagnostic"]]
       [xray-embed/xray-embed-panel]]
      ;; rf2-ba86n.9 — Explain panel. The Story-owned provenance +
@@ -596,9 +598,7 @@
                   :data-rf-rhs-section "explain"}
         [:div {:style (:rhs-section-h styles)}
          [:span "Explain"]
-         [:span {:style {:font-weight "400"
-                         :color (:text-tertiary colors/tokens)
-                         :letter-spacing "0.04em"}}
+         [:span {:style (:rhs-section-sub styles)}
           "provenance + lowering"]]
         [explain-panel/explain-panel]])
      ;; rf2-ba86n.10 — Evidence spine. The Story-owned narrative/evidence
@@ -622,9 +622,7 @@
                   :data-rf-rhs-section "evidence"}
         [:div {:style (:rhs-section-h styles)}
          [:span "Evidence"]
-         [:span {:style {:font-weight "400"
-                         :color (:text-tertiary colors/tokens)
-                         :letter-spacing "0.04em"}}
+         [:span {:style (:rhs-section-sub styles)}
           "narrative + Xray focus"]]
         [evidence-spine/evidence-spine-panel]])
      (when (:controls vis)
@@ -632,9 +630,7 @@
                   :data-rf-rhs-section "controls"}
         [:div {:style (:rhs-section-h styles)}
          [:span "Controls"]
-         [:span {:style {:font-weight "400"
-                         :color (:text-tertiary colors/tokens)
-                         :letter-spacing "0.04em"}}
+         [:span {:style (:rhs-section-sub styles)}
           "args + modes"]]
         [controls/panel variant-id]])
      ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
@@ -669,9 +665,7 @@
                   :data-rf-rhs-section "dispatch"}
         [:div {:style (:rhs-section-h styles)}
          [:span "Dispatch"]
-         [:span {:style {:font-weight "400"
-                         :color (:text-tertiary colors/tokens)
-                         :letter-spacing "0.04em"}}
+         [:span {:style (:rhs-section-sub styles)}
           "free-form events"]]
         [dispatch-console/panel variant-id]])
      ;; Stage 6: render any registered :right-placement story panels.
@@ -775,11 +769,19 @@
        ;; (the user navigated FROM the rollup into a leaf).
        story-id [docs/docs-rollup-view story-id]
        :else
-       [:div {:style {:padding "32px"
-                      :color (:text-tertiary colors/tokens)
-                      :font-style "italic"
-                      :text-align "center"}}
-        "Select a variant or workspace from the sidebar."])]))
+       ;; Calm first-run / empty state (spec/018 §12.5). Not an
+       ;; explanatory poster — a quiet centred prompt on the transparent
+       ;; canvas that names what is missing (no selection) and the
+       ;; command available now (pick from the sidebar). The amber
+       ;; diamond echoes the sidebar's story glyph so the eye knows
+       ;; where to look.
+       [:div {:style       (:empty-canvas styles)
+              :data-test   "story-canvas-empty"}
+        [:div {:style (:empty-canvas-glyph styles)} "◆"]
+        [:div {:style (:empty-canvas-title styles)}
+         "No variant selected"]
+        [:div {:style (:empty-canvas-hint styles)}
+         "Pick a story, variant, or workspace from the sidebar to render it here."]])]))
 
 (defn shell
   "The top-level shell component. Composes the sidebar, main pane, and

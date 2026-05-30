@@ -13,7 +13,7 @@
                  :color (:text-primary colors/tokens)
                  :font-family mono-stack
                  :font-size (:caption typography/type-scale)
-                 :border-top "1px solid #444"}
+                 :border-top (str "1px solid " (:border-default colors/tokens))}
    :section     {:margin-bottom "12px"}
    :section-h   {:font-weight "bold"
                  :color (:text-secondary colors/tokens)
@@ -31,7 +31,7 @@
                  :gap "8px"
                  :padding "2px 0"
                  :padding-left "12px"
-                 :border-left "1px solid #3a3a3a"
+                 :border-left (str "1px solid " (:border-strong colors/tokens))
                  :margin-left "4px"
                  :align-items "center"}
    :group-h     {:color (:info colors/tokens)
@@ -43,14 +43,14 @@
                  :font-size (:micro typography/type-scale)}
    :input       {:background (:bg-canvas colors/tokens)
                  :color (:text-primary colors/tokens)
-                 :border "1px solid #444"
+                 :border (str "1px solid " (:border-default colors/tokens))
                  :padding "2px 6px"
                  :font-family mono-stack
                  :font-size (:caption typography/type-scale)
                  :width "100%"}
    :textarea    {:background (:bg-canvas colors/tokens)
                  :color (:text-primary colors/tokens)
-                 :border "1px solid #444"
+                 :border (str "1px solid " (:border-default colors/tokens))
                  :padding "4px 6px"
                  :font-family mono-stack
                  :font-size (:caption typography/type-scale)
@@ -58,7 +58,7 @@
                  :min-height "48px"
                  :resize "vertical"}
    :color-input {:background (:bg-canvas colors/tokens)
-                 :border "1px solid #444"
+                 :border (str "1px solid " (:border-default colors/tokens))
                  :padding "0"
                  :width "36px"
                  :height "20px"
@@ -83,10 +83,10 @@
                  :font-size (:micro typography/type-scale)
                  :user-select "none"}
    :chip-active {:background (:accent-amber colors/tokens)
-                 :color "white"}
+                 :color (:text-on-accent colors/tokens)}
    :button      {:padding "4px 8px"
                  :background (:accent-amber colors/tokens)
-                 :color "white"
+                 :color (:text-on-accent colors/tokens)
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
@@ -95,7 +95,7 @@
    :rep-button  {:padding "2px 6px"
                  :background (:bg-3 colors/tokens)
                  :color (:text-primary colors/tokens)
-                 :border "1px solid #444"
+                 :border (str "1px solid " (:border-default colors/tokens))
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-size (:micro typography/type-scale)
@@ -109,7 +109,7 @@
    ;; the two surfaces read as one validation language.
    :error       {:color (:danger colors/tokens)
                  :background (:danger-bg colors/tokens)
-                 :border-left "3px solid #ff4040"
+                 :border-left (str "3px solid " (:danger colors/tokens))
                  :padding "2px 6px"
                  :margin-top "2px"
                  :font-size (:micro typography/type-scale)}
@@ -117,7 +117,7 @@
    ;; render / test proof is gated until the violation clears.
    :banner      {:color (:danger colors/tokens)
                  :background (:danger-bg colors/tokens)
-                 :border "1px solid #ff4040"
+                 :border (str "1px solid " (:danger colors/tokens))
                  :border-radius "3px"
                  :padding "4px 6px"
                  :margin-bottom "6px"
@@ -134,7 +134,7 @@
    :reset-arg   {:padding "0 4px"
                  :background (:bg-3 colors/tokens)
                  :color (:text-secondary colors/tokens)
-                 :border "1px solid #444"
+                 :border (str "1px solid " (:border-default colors/tokens))
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-size (:micro typography/type-scale)}
