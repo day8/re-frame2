@@ -333,7 +333,7 @@ Required P1 shape:
 {:artifact/kind :rf.test/run-artifact
  :seed optional
  :event-program [...]
- :fx-decisions [...]
+ :fx-decisions {fx-id override}
  :network {[method url] {:reply …}}  ; optional — per-route HTTP stubs, re-installed on replay
  :epoch-tape [...]
  :trace [...]
@@ -773,11 +773,15 @@ not every step is legal in both positions:
 Future steps MAY add drag, keypress, pointer, file, route, or agent/MCP
 operations. Every step MUST declare its runner requirement.
 
-**Bare event-vector shorthand is NOT supported.** The grammar is
-uniformly tagged because an app event genuinely named `:dispatch`,
-`:click`, `:wait`, `:type`, or `:focus` would otherwise be silently
-un-dispatchable — a reserved-word hazard precisely in the slot where it
-bites hardest. `explain` therefore shows identical normalized forms for
+**Bare event-vector shorthand is NOT the P1 public form** — bare vectors
+are accepted ONLY as a transitional MIGRATION lift (see §Script step
+runner > Migration normalization, where `coerce-script` lifts a bare event
+vector to `[:dispatch event-vector]`), and that lift is slated for removal
+at GA. The P1 public grammar is uniformly tagged because an app event
+genuinely named `:dispatch`, `:click`, `:wait`, `:type`, or `:focus` would
+otherwise be silently un-dispatchable — a reserved-word hazard precisely in
+the slot where it bites hardest; the lift never re-wraps a step whose head
+is a known tag. `explain` therefore shows identical normalized forms for
 setup and script.
 
 #### Script step runner
@@ -1602,20 +1606,20 @@ only by FRAME BINDING (`:fresh` vs `:attached`) — modeled as the
 API) collapse into the canonical selection shape:
 
 ```clojure
-{:runner :headless | :hiccup | :dom | :browser | :auto
+{:runner :headless | :hiccup | :cljs-reactive | :dom | :browser | :auto
  :escalate boolean              ; synonym for :runner :auto when true
  :frame-binding :fresh | :attached
  :platform :client | :server}
 ```
 
 `:escalate true` OR `:runner :auto` collapse into `{:mode :auto}` (the
-cheapest qualifying runner is chosen); any other `:runner` → `{:mode
-:fixed :runner <kind>}`. The default is fixed `:headless`. An
-unrecognised or non-P1-selectable `:runner` (e.g. `:cljs-reactive`) falls
-back to the fixed `:headless` policy — an unknown tier never silently
-escalates. `:frame-binding` and `:platform` carry through untouched so the
-(deferred) three-verb surface and the MCP transport thread the SAME
-normalization.
+cheapest qualifying runner is chosen); any other recognised `:runner` (one
+of the `runner-kinds`) → `{:mode :fixed :runner <kind>}`. The default is
+fixed `:headless`. An unrecognised `:runner` not in `runner-kinds` (e.g.
+`:gpu`) falls back to the fixed `:headless` policy — an unknown tier never
+silently escalates. `:frame-binding` and `:platform` carry through
+untouched so the (deferred) three-verb surface and the MCP transport thread
+the SAME normalization.
 
 ## Run result
 
@@ -1876,7 +1880,7 @@ variant or an inline map.
 P1 run/is opts:
 
 ```clojure
-{:runner :headless | :hiccup | :dom | :browser | :auto
+{:runner :headless | :hiccup | :cljs-reactive | :dom | :browser | :auto
  :escalate boolean              ; synonym for :runner :auto when true
  :frame-binding :fresh | :attached
  :platform :client | :server}
@@ -2137,9 +2141,11 @@ The epoch tape is also the substrate for **invariant sentinels** — the
 "this MUST hold after every committed epoch" assertion form (NewTestStory
 §A1 / §A2). Two surfaces share one notion of an invariant: a live
 fixture (`with-invariants`) and a pure post-hoc utility
-(`first-bad-epoch`). Both live in `re-frame.story.invariants`; the
-fixture USES the utility for its "which epoch failed?" reporting so the
-live and post-hoc verdicts agree by construction.
+(`first-bad-epoch`). Both live in `re-frame.story.invariants` and both
+evaluate through `check-epoch` (the one per-epoch evaluation primitive),
+so a violation the live sentinel reports and the violation
+`first-bad-epoch` returns are computed identically — the live and post-hoc
+verdicts agree by construction.
 
 ### What an invariant is
 

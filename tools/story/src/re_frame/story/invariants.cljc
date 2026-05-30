@@ -24,9 +24,10 @@
     retained epoch tape and an invariant, it returns the first epoch
     where the invariant fails (enriched with the trigger event, the
     db-diff, and the trace events), or `nil` when the invariant holds
-    across the whole tape. The fixture USES this utility to answer
-    \"which epoch failed?\" so the live and post-hoc surfaces agree by
-    construction.
+    across the whole tape. Both surfaces share `check-epoch` (the one
+    per-epoch evaluation primitive), so a violation the live sentinel
+    reports and the violation `first-bad-epoch` returns are computed
+    identically — the live and post-hoc surfaces agree by construction.
 
   ## Invariant shape
 
@@ -208,9 +209,10 @@
 ;; epoch tape. It walks the tape forward and returns the FIRST epoch where
 ;; the invariant fails, enriched with the trigger event, the db-diff, and
 ;; the trace events (the spec's named enrichment slots), or `nil` when the
-;; invariant holds across the whole tape. `with-invariants` uses this for
-;; its "which epoch failed?" reporting, so the live and post-hoc surfaces
-;; agree.
+;; invariant holds across the whole tape. `first-bad-epoch` and the live
+;; `with-invariants` sentinel both evaluate through `check-epoch` (the one
+;; per-epoch primitive), so the violation each surface reports is computed
+;; identically — the live and post-hoc surfaces agree.
 
 (defn- db-diff
   "A shallow before→after diff for the report: the set of top-level
