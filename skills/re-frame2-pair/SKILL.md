@@ -46,6 +46,7 @@ allowed-tools:
   # registry — peer surfaces to the authoring skill's allow-list.
   - mcp__re-frame2-story-mcp__list-decorators
   - mcp__re-frame2-story-mcp__get-docs-markdown
+  - mcp__re-frame2-story-mcp__explain-variant
   - Read
   - Edit
   - Write
