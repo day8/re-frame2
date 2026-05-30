@@ -37,6 +37,7 @@ allowed-tools:
   - mcp__re-frame2-story-mcp__list-assertions
   - mcp__re-frame2-story-mcp__list-substrates
   - mcp__re-frame2-story-mcp__preview-variant
+  - mcp__re-frame2-story-mcp__explain-variant
   - mcp__re-frame2-story-mcp__get-docs-markdown
   - mcp__re-frame2-story-mcp__register-variant
   - mcp__re-frame2-story-mcp__unregister-variant
