@@ -26,23 +26,23 @@
 
   Storybook 8 has no schema-introspection equivalent. JSON Schema /
   PropTypes are descriptive metadata, not runtime conformance — Story
-  consumes the same `:spec` slot the framework's dev-mode validator
+  consumes the same `:schema` slot the framework's dev-mode validator
   consumes and renders failures from the live trace bus. The reader
   sees 'the args you're rendering this variant with violate the
   component's contract' immediately.
 
   ## Schema lookup
 
-  The panel looks for the component schema in this order (first match
-  wins):
-
-    1. The variant body's `:schema` slot — explicit per-variant
-       override (forward-compatible with the `:rf/schema` Spec 010
-       slot per IMPL-SPEC §9.4).
-    2. The parent story body's `:schema` slot — story-wide schema.
-    3. The framework registrar's `:view` metadata for the variant's
-       `:component`, looking at `:spec` (Spec 010 canonical) then
-       `:schema` (legacy / Story-only alias).
+  The panel resolves the component (view-args / props) schema off the
+  COMPILED variant-plan — the single source of truth — through the ONE
+  shared resolver `re-frame.story.view-args/compiled-view-args-schema`.
+  That resolver routes through `re-frame.story.plan/variant-plan` (so an
+  `:extends`-inherited / `:compose`-d `:component` resolves) and reads the
+  schema the compiler wrote to `[:world :view-args-schema]`, resolved
+  first-match `[:rf/props :schema]` off the component view's `:view`
+  metadata (rf2-din8u / rf2-p5ivc (b)). The controls panel derives its
+  argtypes from the SAME slot, so validation and controls share one
+  source.
 
   When no schema is on file, the args section reports 'no schema
   registered' and the trace section still surfaces any
@@ -81,8 +81,8 @@
                        [re-frame.story.args       :as args]
                        [re-frame.story.config     :as config]
                        [re-frame.story.registrar  :as story-registrar]
-                       [re-frame.story.ui.trace-buffer :as trace-buffer]
-                       [re-frame.registrar        :as framework-registrar]])
+                       [re-frame.story.view-args  :as view-args]
+                       [re-frame.story.ui.trace-buffer :as trace-buffer]])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -289,29 +289,25 @@
 
 #?(:cljs
    (defn resolve-component-schema
-     "Resolve the component schema for `variant-id`, looking in:
+     "Resolve the component (view-args / props) schema for `variant-id`
+     off the COMPILED variant-plan — the single source of truth
+     (`[:world :view-args-schema]`), resolved first-match `[:rf/props
+     :schema]` through the ONE shared resolver
+     `re-frame.story.view-args/compiled-view-args-schema` (memoized per
+     variant + registrar tick). Returns the schema value, or nil when none
+     is registered.
 
-       1. The variant body's `:schema` slot.
-       2. The parent story body's `:schema` slot.
-       3. The framework registrar's `:view` metadata for the
-          `:component` id, looking at `:spec` first (Spec 010
-          canonical) then `:schema`.
+     This is the SAME slot the controls panel derives argtypes from
+     (`re-frame.story.ui.controls/resolve-argtypes`), so validation and
+     controls share one source (rf2-din8u / rf2-vnedo). Routing through the
+     compiled plan also resolves an `:extends`-inherited / `:compose`-d
+     `:component` that the previous bare-body read (`(:component vb)` /
+     `(:component sb)`) missed.
 
-     Returns the schema value, or nil when none is registered.
-
-     The panel's CLJS-only render path calls this; the pure
-     helpers (`args-violations`) take a pre-resolved schema and
-     are JVM-friendly."
+     The panel's CLJS-only render path calls this; the pure helpers
+     (`args-violations`) take a pre-resolved schema and are JVM-friendly."
      [variant-id]
-     (let [vb         (story-registrar/handler-meta :variant variant-id)
-           story-id   (args/parent-story-id variant-id)
-           sb         (when story-id (story-registrar/handler-meta :story story-id))
-           comp-id    (or (:component vb) (:component sb))
-           view-meta  (when comp-id (framework-registrar/handler-meta :view comp-id))]
-       (or (:schema vb)
-           (:schema sb)
-           (:spec   view-meta)
-           (:schema view-meta)))))
+     (view-args/compiled-view-args-schema variant-id)))
 
 ;; ---- CLJS: validator lookup via late-bind -------------------------------
 

@@ -242,7 +242,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
     [:rf/id        {:optional true} :keyword]                                ;; explicit id override (auto-derived from *ns* + symbol when absent)
     [:rf/args      {:optional true} [:vector :symbol]]                       ;; the macro-captured args-vector symbols (defn-shape introspection)
     [:rf/form      {:optional true} [:enum :form-1 :form-2 :form-3]]         ;; the view body's Reagent form discriminator
-    [:rf/props     {:optional true} :any]                                    ;; Malli schema for the view's props (when supplied); composes with the base :schema key per [010](010-Schemas.md)
+    [:rf/props     {:optional true} :any]                                    ;; Malli schema for the view's props (when supplied); the canonical props-schema slot, resolved first-match over `[:rf/props :schema]` (not composed — `:rf/props` wins outright over `:schema` for the view-args boundary) per [010](010-Schemas.md)
     ]])
 ```
 

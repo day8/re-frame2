@@ -57,3 +57,36 @@
     (if (properties? (first r))
       (second r)
       (first r))))
+
+;; ---- view-args (props) schema key resolution -----------------------------
+;;
+;; The ONE canonical first-match order for a view's explicit-input (props)
+;; schema, shared by the plan compiler (`re-frame.story.plan`, which writes
+;; the resolved schema to `[:world :view-args-schema]`) and the
+;; compiled-plan resolver (`re-frame.story.view-args`). Lives at this leaf
+;; (alongside the Malli introspection helpers, no plan dependency) so both
+;; consumers agree on the slots WITHOUT a require cycle (view-args requires
+;; plan; plan must not require view-args).
+;;
+;; Per the rf2-p5ivc (b) ruling: first match wins over `[:rf/props :schema]`;
+;; `:rf/props` is canonical and wins over `:schema` (no composition). `:spec`
+;; is NOT here — it is dead post-M-54 (the framework reads `:schema` only on
+;; `reg-*` metadata; see migration/from-re-frame-v1/README.md §M-54).
+
+(def view-args-schema-keys
+  "View-metadata keys carrying the explicit-input (props) schema, in
+  resolution order (first present wins): `:rf/props` (canonical) then
+  `:schema` (the post-M-54 alternative location). `:spec` is deliberately
+  ABSENT — it is dead post-M-54 (no framework reads it)."
+  [:rf/props :schema])
+
+(defn view-args-schema
+  "Return the explicit view-args/props schema from a `view-meta` map (the
+  `:view` registrar slot), or nil when none is present. Picks the first
+  of `view-args-schema-keys` that is set — `:rf/props` wins over
+  `:schema`; no composition. This is the LOW-LEVEL key picker over an
+  already-resolved view-meta map."
+  [view-meta]
+  (when (map? view-meta)
+    (some (fn [k] (let [s (get view-meta k)] (when (some? s) s)))
+          view-args-schema-keys)))

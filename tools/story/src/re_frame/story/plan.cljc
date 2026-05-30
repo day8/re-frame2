@@ -509,33 +509,33 @@
 ;;
 ;; **Metadata key.** The spec names `:rf/props` for the props schema and
 ;; `:rf/args` for macro-captured argument *symbols* (introspection, NOT a
-;; validation schema — so it is never consumed here). The live framework
-;; view-metadata contract (Spec 010) carries the boundary schema on
-;; `:spec`, with `:schema` as the Story-only alias the controls /
-;; schema-validation panels already read. We therefore resolve, first
-;; match wins: `:rf/props` (the spec-named props key, when a port adopts
-;; it) → `:spec` (the live Spec 010 slot) → `:schema` (the alias). This
-;; consumes the key the framework already exposes rather than inventing a
-;; parallel one (§View arg schemas — "M0 MUST confirm the exact key").
+;; validation schema — so it is never consumed here). The first-match key
+;; order — `:rf/props` (canonical, `spec/Spec-Schemas.md`
+;; §`:rf/registration-metadata`) then `:schema` (the post-M-54 `reg-*`
+;; metadata key) — is the canonical resolution shared with every Story
+;; consumer through `re-frame.story.malli-schema/view-args-schema`. `:rf/props`
+;; wins over `:schema`; there is NO composition (a view's only schema
+;; surface is its props — the rf2-p5ivc (b) ruling). `:spec` is NOT a slot:
+;; it is dead post-M-54 (the framework reads `:schema` only on `reg-*`
+;; metadata — see migration/from-re-frame-v1/README.md §M-54).
 ;;
 ;; **Boundary.** This validates EXPLICIT view inputs only. Values
 ;; returned from subscriptions are validated by subscription-output
 ;; schemas (§View-state subscription overrides); the two are different
 ;; contracts and are not conflated here.
 
-(def ^:private view-args-schema-keys
-  "View-metadata keys carrying the explicit-input (props) schema, in
-  resolution order (first present wins). See the section comment."
-  [:rf/props :spec :schema])
+(def view-args-schema-keys
+  "Re-export of `re-frame.story.malli-schema/view-args-schema-keys` — the
+  canonical first-match key order `[:rf/props :schema]`."
+  msu/view-args-schema-keys)
 
-(defn view-args-schema
-  "Return the explicit view-args/props schema from a `view-meta` map (the
-  `:view` registrar slot), or nil when none is present. Picks the first
-  of `view-args-schema-keys` that is set."
-  [view-meta]
-  (when (map? view-meta)
-    (some (fn [k] (let [s (get view-meta k)] (when (some? s) s)))
-          view-args-schema-keys)))
+(def view-args-schema
+  "Re-export of `re-frame.story.malli-schema/view-args-schema` — the
+  first-match key picker over a resolved `view-meta` map. The compiler
+  uses it to write `[:world :view-args-schema]`; the shared resolver
+  `re-frame.story.view-args/compiled-view-args-schema` (which consumers
+  call) reads that compiled slot back."
+  msu/view-args-schema)
 
 (defn- map-entry-optional?
   "True iff a Malli `[:map …]` entry `[k props? child]` is marked
@@ -1044,8 +1044,8 @@
 (defn- default-view-lookup
   "Default view-metadata lookup — reads the **framework** `:view`
   registrar slot (where `reg-view` stamps a view's symbol metadata, incl.
-  any props/`:spec`/`:schema` slot). Production bundles that elide views
-  return nil; pure tests thread an explicit `:view-lookup`."
+  any `:rf/props` / `:schema` props-schema slot). Production bundles that
+  elide views return nil; pure tests thread an explicit `:view-lookup`."
   [view-id]
   (framework-registrar/handler-meta :view view-id))
 
@@ -1495,8 +1495,8 @@
     (and the keyword target itself). Defaults to the side-table.
   - `:view-lookup` — a 1-arg fn `(view-id) → view-meta` OR a
     `{view-id → view-meta}` map, used to resolve the `:component` view's
-    props/`:spec`/`:schema` slot for view-args validation. Defaults to
-    the framework `:view` registrar (§View arg schemas).
+    `:rf/props` / `:schema` props-schema slot for view-args validation.
+    Defaults to the framework `:view` registrar (§View arg schemas).
   - `:validator-fns` — `{:validate (fn …) :explain (fn …)}` for
     malformed-value checking of `:effective-args`; with none supplied
     only required-key presence is checked.

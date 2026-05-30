@@ -29,6 +29,7 @@
   body is CLJS-only (`#?(:cljs ...)`). The ns suffix `-cljs-test` is
   picked up by both `cljs-test$` and `-cljs-test$` regexes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.story :as story])
             #?(:cljs [re-frame.story.ui.controls :as controls])
             [re-frame.story.ui.state :as state]))
@@ -184,10 +185,16 @@
      (testing "a :group widget is collapsed by default — the disclosure
                header is present + collapsed, and the nested child rows
                are NOT in the tree (summarise-before-expand, spec/019 §4)"
+       ;; rf2-din8u / rf2-vnedo — the controls schema is the COMPILED plan's
+       ;; view-args-schema (off the :component view's :rf/props), not a bare
+       ;; variant-body :schema slot. Register the component view + point at it.
+       (rf/reg-view* :view.ba86n/grp
+         {:rf/props [:map [:meta [:map [:author :string] [:rating :int]]]]}
+         (fn [_] [:div]))
        (story/reg-variant :story.ba86n/grp
-         {:schema [:map [:meta [:map [:author :string] [:rating :int]]]]
-          :args   {:meta {:author "ada" :rating 5}}
-          :events []})
+         {:component :view.ba86n/grp
+          :args      {:meta {:author "ada" :rating 5}}
+          :events    []})
        (let [tree   (render :story.ba86n/grp)
              toggle (button-with-action tree "toggle-expand")]
          (is (some? toggle) "disclosure toggle present")
@@ -201,10 +208,13 @@
    (deftest disclosure-toggle-expands-and-reveals-children
      (testing "clicking the disclosure toggle flips the (component-local)
                expand state and a re-render reveals the nested child rows"
+       (rf/reg-view* :view.ba86n/grp2
+         {:rf/props [:map [:meta [:map [:author :string]]]]}
+         (fn [_] [:div]))
        (story/reg-variant :story.ba86n/grp2
-         {:schema [:map [:meta [:map [:author :string]]]]
-          :args   {:meta {:author "ada"}}
-          :events []})
+         {:component :view.ba86n/grp2
+          :args      {:meta {:author "ada"}}
+          :events    []})
        ;; ONE editor instance — the expand ratom lives on its closure, so
        ;; the toggle + re-render must go through the same instance.
        (let [editor (controls/args-editor :story.ba86n/grp2)
@@ -235,14 +245,17 @@
 
 #?(:cljs
    (deftest inline-error-and-banner-track-the-live-validator
-     (testing "a committed value that violates the variant's :schema
-               surfaces an inline error + a panel banner when a live
+     (testing "a committed value that violates the component view's props
+               schema surfaces an inline error + a panel banner when a live
                validator is present, and soft-passes otherwise"
+       (rf/reg-view* :view.ba86n/bad
+         {:rf/props [:map [:age :int]]}
+         (fn [_] [:div]))
        (story/reg-variant :story.ba86n/bad
-         {:schema [:map [:age :int]]
+         {:component :view.ba86n/bad
           ;; :age is a string but the schema says :int.
-          :args   {:age "not-a-number"}
-          :events []})
+          :args      {:age "not-a-number"}
+          :events    []})
        (let [tree    (render :story.ba86n/bad)
              banner  (node-with-attr tree :data-controls-validation "invalid")
              err-row (node-with-attr tree :data-controls-error)
