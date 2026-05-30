@@ -161,7 +161,7 @@
 ;; Per the rf2-5m5n2 contract Xray exposes `:rf.xray/project-root`. The
 ;; panel-gallery boots with its known on-disk repo position by default; a
 ;; `?project-root=<path>` query string overrides for cross-machine portability
-;; (mirroring the `step_deck` testbed's resolver).
+;; (mirroring the `button_deck` testbed's resolver).
 ;;
 ;; The URI build is invariant to the host page URL — `resolve-uri` reads the
 ;; configured root, not `window.location`. The query-param branch only

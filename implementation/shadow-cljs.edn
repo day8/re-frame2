@@ -224,14 +224,14 @@
             ;; per the same cascade as :testbeds/panel-gallery above.
             8030 ["../tools/xray/testbeds/two_frame_isolation"
                   "out/examples/two-frame-isolation"]
-            ;; Single-frame step-deck testbed (rf2-6qgbs.2). The
-            ;; single-frame counterpart to two-frame-isolation; mounts
-            ;; the SAME shared testdeck modules once. Source dir first so
-            ;; the hand-written index.html resolves at `/`; the compiled
-            ;; main.js falls through to out/examples/step-deck per the
-            ;; same cascade as the entries above.
-            8031 ["../tools/xray/testbeds/step_deck"
-                  "out/examples/step-deck"]}
+            ;; Single-frame button-deck testbed (rf2-gsr6z) — the
+            ;; deliberately simple Xray driving surface that superseded
+            ;; the old step-deck. Source dir first so the hand-written
+            ;; index.html resolves at `/`; the compiled main.js falls
+            ;; through to out/examples/button-deck per the same cascade
+            ;; as the entries above.
+            8031 ["../tools/xray/testbeds/button_deck"
+                  "out/examples/button-deck"]}
 
  :builds
  {:node-test
@@ -581,11 +581,13 @@
   ;;
   ;; The app code path is the SHARED testdeck (tools/xray/testbeds/
   ;; testdeck/) — Counter / Machine / Routing / Async&errors tabs
-  ;; navigated AS ROUTES — which the single-frame step-deck testbed
-  ;; (rf2-6qgbs.2) mounts too. Both frames are registered :url-bound?
-  ;; false (Spec 012 §Multi-frame routing) so per-frame tab nav does
-  ;; not fight over the single browser URL. No deliberate bugs, no
-  ;; teaching layers, no anti-pattern demonstrations — per Mike's
+  ;; navigated AS ROUTES. This testbed is now the sole consumer of the
+  ;; shared testdeck.* modules; it covers the multi-frame isolation +
+  ;; routing surface the deliberately-simple single-frame button-deck
+  ;; (rf2-gsr6z) intentionally drops. Both frames are registered
+  ;; :url-bound? false (Spec 012 §Multi-frame routing) so per-frame tab
+  ;; nav does not fight over the single browser URL. No deliberate bugs,
+  ;; no teaching layers, no anti-pattern demonstrations — per Mike's
   ;; saved-memory rules (feedback_frames_are_isolated_contexts +
   ;; feedback_testbeds_are_test_surfaces), testbeds are TEST surfaces.
   ;;
@@ -600,22 +602,26 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame step-deck testbed (rf2-6qgbs.2) — the single-frame
-  ;; counterpart to :examples/two-frame-isolation above. Mounts the SAME
-  ;; shared testdeck modules (tools/xray/testbeds/testdeck/) ONCE, in
-  ;; one URL-bound frame, wrapped in an action→check card framing. A TEST
-  ;; surface — no deliberate bugs, no teaching layers, no anti-pattern
-  ;; demos (feedback_testbeds_are_test_surfaces).
+  ;; Single-frame button-deck testbed (rf2-gsr6z) — the deliberately
+  ;; simple Xray driving surface that SUPERSEDES the old step-deck. A
+  ;; tall column of numbered buttons in ONE plainly-mounted frame; each
+  ;; button bumps a shared baseline counter and exercises exactly one
+  ;; more feature, so clicking top-to-bottom completely exercises any one
+  ;; Xray panel (Epoch / App-db / Views / Trace / Issues). No tabs, no
+  ;; URL machinery, no machines / routes / SSR. A TEST surface — no
+  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
   ;;
-  ;; Sources live under tools/xray/testbeds/step_deck/; the Xray
-  ;; preload auto-mounts inline so every lens reads the single
-  ;; :step-deck frame. Served at http://localhost:8031 via the top-level
-  ;; `:dev-http` map.
-  :examples/step-deck
+  ;; The events / subs / views are OWNED in button_deck/core.cljs — it
+  ;; does NOT reuse the shared testdeck.* modules (those still back the
+  ;; two-frame-isolation testbed for the multi-frame + routing surface).
+  ;; Sources live under tools/xray/testbeds/button_deck/; the Xray
+  ;; preload auto-mounts inline so every lens reads the single frame.
+  ;; Served at http://localhost:8031 via the top-level `:dev-http` map.
+  :examples/button-deck
   {:target     :browser
-   :output-dir "out/examples/step-deck"
+   :output-dir "out/examples/button-deck"
    :asset-path "."
-   :modules    {:main {:init-fn step-deck.core/run}}
+   :modules    {:main {:init-fn button-deck.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 

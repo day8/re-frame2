@@ -124,8 +124,8 @@ classifies a scalar:
   container to a wholly-changed root.
 
 The rule is **kind-agnostic** — `(container? v)` + `(empty? v)` covers
-all four collection kinds, not just the vec + map first witnessed in
-the step-deck epoch-2 `:rf/runtime` allocation (`:messages []` +
+all four collection kinds, not just the vec + map first witnessed in a
+testbed epoch-2 `:rf/runtime` allocation (`:messages []` +
 `:rf/spawn-counter {}`).
 
 > **Why this is a contract, not an edge case.** Editscript's A* treats
