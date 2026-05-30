@@ -19,7 +19,7 @@ Usage (from repo root):
 
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -75,18 +75,71 @@ COLOURS = {
 }
 
 
-def find_font(size: int) -> ImageFont.FreeTypeFont:
-    """Best-effort font lookup; falls back to the bundled default."""
-    candidates = [
+# Per-OS TrueType candidates, ordered most-likely-present first. The
+# running platform's list is tried first; the others follow as defensive
+# fallbacks (e.g. a Linux box with a macOS font mounted). Every entry is a
+# common system path or font directory — no single hardcoded path is load-
+# bearing, and the PIL default backstops any platform with none of these.
+_FONT_CANDIDATES = {
+    "win32": [
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/calibri.ttf",
+        "C:/Windows/Fonts/tahoma.ttf",
+    ],
+    "darwin": [
         "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial.ttf",
+        str(Path.home() / "Library" / "Fonts" / "Arial.ttf"),
+    ],
+    # Linux + other POSIX: distro font trees plus the user font dir.
+    "linux": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        str(Path.home() / ".fonts" / "DejaVuSans.ttf"),
+        str(Path.home() / ".local" / "share" / "fonts" / "DejaVuSans.ttf"),
+    ],
+}
+
+
+def _ordered_candidates() -> list[str]:
+    """Candidate font paths, the running OS first then the rest as fallbacks."""
+    if sys.platform.startswith("win"):
+        primary = "win32"
+    elif sys.platform == "darwin":
+        primary = "darwin"
+    else:
+        primary = "linux"  # treat all other POSIX platforms as Linux-like
+    ordered = list(_FONT_CANDIDATES[primary])
+    for key, paths in _FONT_CANDIDATES.items():
+        if key != primary:
+            ordered.extend(paths)
+    return ordered
+
+
+def find_font(size: int) -> ImageFont.ImageFont:
+    """Resolve a TrueType font cross-platform.
+
+    Tries the running OS's common font locations first, then the other
+    platforms' as defensive fallbacks. When no TrueType is found anywhere
+    (e.g. a minimal CI image), degrades gracefully to PIL's bundled default
+    so the script never hard-fails on a missing platform path.
+    """
+    for path in _ordered_candidates():
+        if Path(path).exists():
             return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+    # Final fallback: PIL's bundled default. Pillow >= 10.1 honours `size`
+    # (older builds ignore it but still return a usable font).
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def draw_placeholder(out: Path, caption: str, tool: str) -> None:
