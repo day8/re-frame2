@@ -68,10 +68,13 @@
 (deftest command-entry-present-in-corpus
   (testing "the synthetic Explain command is built into the palette corpus"
     (let [entries  (palette/entries (state/registry-snapshot))
-          commands (filterv #(= :command (:kind %)) entries)]
-      (is (= 1 (count commands)) "exactly one synthetic command")
-      (is (= :explain (:id (first commands))))
-      (is (= :explain (:action (first commands)))))))
+          commands (filterv #(= :command (:kind %)) entries)
+          explain  (first (filter #(= :explain (:id %)) commands))]
+      ;; rf2-ba86n.6 added the :save-current-as-variant command, so the
+      ;; corpus now carries more than one synthetic command — assert the
+      ;; Explain command is PRESENT rather than the sole entry.
+      (is (some? explain) "the Explain command is in the corpus")
+      (is (= :explain (:action explain))))))
 
 (deftest command-entry-ranks-for-explain-query
   (testing "an `explain` query surfaces the command at the top of results"

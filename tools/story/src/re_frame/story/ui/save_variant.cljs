@@ -53,12 +53,20 @@
   `schema-validation/args-violations` against the live component
   schema — used by the dialog to render a non-blocking 'Args do not
   match the variant's Spec 010 schema' hint when non-empty. May be
-  nil/empty (no schema registered, or all args conform)."
+  nil/empty (no schema registered, or all args conform).
+
+  `slices` (rf2-ba86n.6) is the eight-slice capture report from
+  `save-variant/capture-slices` — the dialog renders its honesty-floor
+  warnings (which slices are captured-as-declared / not-yet-projectable)
+  so a saved variant is honest about what it does and does NOT capture.
+  May be nil (legacy 3/4-arity callers)."
   ([source-variant-id args-snapshot now-ms]
-   (open-dialog! source-variant-id args-snapshot now-ms nil))
+   (open-dialog! source-variant-id args-snapshot now-ms nil nil))
   ([source-variant-id args-snapshot now-ms violations]
+   (open-dialog! source-variant-id args-snapshot now-ms violations nil))
+  ([source-variant-id args-snapshot now-ms violations slices]
    (swap! ui-dialog save-variant/open
-          source-variant-id args-snapshot now-ms violations)))
+          source-variant-id args-snapshot now-ms violations slices)))
 
 (defn- close-dialog! []
   (swap! ui-dialog save-variant/close))
@@ -176,6 +184,73 @@
               " = "
               (pr-str (:value v)))])]]))
 
+;; ---------------------------------------------------------------------------
+;; rf2-ba86n.6 — the eight-slice capture report.
+;;
+;; spec/019 §3 requires the save flow to be HONEST about which canvas
+;; slices it can represent losslessly and which it cannot: "if the
+;; current state contains data that cannot be represented losslessly yet,
+;; the UI MUST say what will be omitted". The pure
+;; `save-variant/capture-slices` classifies every slice; this component
+;; renders the warnings (every slice that is NOT a clean live projection)
+;; so the user knows, BEFORE pasting, that a saved variant captures args
+;; live, carries declared slices forward via `:extends`, and does NOT yet
+;; project sub-overrides / db-seed / route / network / fx-overrides, nor
+;; the chrome-wide viewport. The honesty floor is load-bearing — we warn,
+;; never silently drop or fabricate.
+;; ---------------------------------------------------------------------------
+
+(def ^:private slice-status-styles
+  "Per-status stripe colours for the slice-report rows."
+  {:captured-as-declared {:background "#2a2f3a" :color "#9fb4d0" :border "#3a5070"}
+   :not-wired            {:background "#332a2a" :color "#d09f9f" :border "#704040"}})
+
+(defn slice-report
+  "Render the non-blocking eight-slice capture report (rf2-ba86n.6). Lists
+  every slice that is NOT a clean live projection — `:captured-as-declared`
+  (carried forward via `:extends`) and `:not-wired` (not yet projectable)
+  — with its honest note. Returns nil when every slice projects cleanly
+  (nothing to warn about). Public so tests can render it directly."
+  [slices]
+  (let [warnings (save-variant/slice-warnings slices)]
+    (when (seq warnings)
+      [:div {:data-test "story-save-variant-slice-report"
+             :data-warning-count (count warnings)
+             :style {:padding "8px 10px"
+                     :margin "8px 0 0 0"
+                     :background "#22242c"
+                     :color "#c8c8d0"
+                     :border "1px solid #3a3a44"
+                     :border-radius "3px"
+                     :font-family mono-stack
+                     :font-size (:micro typography/type-scale)
+                     :line-height "1.5"}}
+       [:div {:style {:font-weight "bold" :margin-bottom "6px"}}
+        "What this save captures — and what it does not"]
+       (for [{:keys [slice label status note]} warnings]
+         (let [sty (slice-status-styles status)]
+           ^{:key (str slice)}
+           [:div {:data-test "story-save-variant-slice-row"
+                  :data-slice (name slice)
+                  :data-slice-status (name status)
+                  :style {:display "flex"
+                          :align-items "baseline"
+                          :gap "8px"
+                          :padding "3px 6px"
+                          :margin "3px 0"
+                          :background (:background sty)
+                          :border (str "1px solid " (:border sty))
+                          :border-radius "3px"}}
+            [:span {:style {:font-weight "bold"
+                            :color (:color sty)
+                            :white-space "nowrap"}}
+             label]
+            [:span {:style {:color "#a8a8b0"}}
+             (if (= status :captured-as-declared)
+               "captured as declared"
+               "not yet projectable")]
+            [:span {:style {:flex 1}} note]]))])))
+
 (defn save-dialog
   "Render the save-variant modal. Visible iff `:open?` is true on the
   dialog ratom. The snippet re-generates on every keystroke as the user
@@ -187,12 +262,17 @@
   violating keys. Non-blocking — the user can still paste; the snippet
   carries the violating args as captured (paste at your own risk).
 
+  rf2-ba86n.6: the eight-slice capture report renders below the snippet,
+  warning which slices are captured-as-declared (carried via `:extends`)
+  and which are not yet projectable — the honesty floor for a saved
+  variant (spec/019 §3).
+
   Public so tests can render the dialog hiccup directly after seeding
   the dialog ratom."
   []
   (let [dialog @ui-dialog]
     (when (:open? dialog)
-      (let [{:keys [draft-id source-id args violations]} dialog
+      (let [{:keys [draft-id source-id args violations slices]} dialog
             snippet (save-variant/gen-variant-snippet
                       {:variant-id (or draft-id :story.saved/example)
                        :extends    source-id
@@ -204,7 +284,8 @@
                                           (pr-str source-id)
                                           " — edit the new variant id and copy + paste into your "
                                           "stories namespace. Source is never written directly.")]
-                               (violations-hint violations)]
+                               (violations-hint violations)
+                               (slice-report slices)]
            :snippet           snippet
            :placeholder-id    :story.saved/example
            :placeholder-input ":story.your-story/saved-flow"

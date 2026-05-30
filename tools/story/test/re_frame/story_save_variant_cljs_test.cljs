@@ -122,7 +122,7 @@
   (state/swap-state! state/select-variant :story.snap/v)
   (let [captured (atom nil)]
     (save-variant/set-open-dialog-fn!
-      (fn [source-id args _]
+      (fn [source-id args & _]
         (reset! captured {:source-id source-id :args args})))
     (let [result (save-variant/save-current-as-variant!)]
       (is (some? @captured))

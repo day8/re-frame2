@@ -42,6 +42,7 @@
             [re-frame.story.args                 :as args]
             [re-frame.story.config               :as config]
             [re-frame.story.predicates           :as pred]
+            [re-frame.story.registrar            :as registrar]
             [re-frame.story.review-dialog        :as review-dialog]
             [re-frame.story.ui.schema-validation :as schema-validation]
             [re-frame.story.ui.state             :as state]))
@@ -90,6 +91,183 @@
   soft-pass)."
   [args-snapshot schema validator-fns]
   (schema-validation/args-violations args-snapshot schema validator-fns))
+
+;; ---------------------------------------------------------------------------
+;; Pure: the eight-slice capture model (rf2-ba86n.6)
+;;
+;; spec/019 §3 lists the slices a save-current-state flow MAY have to
+;; project — args, sub-overrides, db-seed, route, network, fx-overrides,
+;; viewport, transient-controls — and §3's open-detail leaves the exact
+;; projection unlocked. The HONESTY FLOOR is load-bearing: the flow must
+;; never fabricate a projection for a slice whose live substrate isn't
+;; wired. So each slice resolves to one of three honest statuses:
+;;
+;;   :projectable          — a live, controls-driven projection exists and
+;;                           lands in the generated reg-variant body. Today
+;;                           this is `:args` (the five-layer precedence chain
+;;                           per spec/002), which already FOLDS the
+;;                           transient `:cell-overrides` in — so transient-
+;;                           controls is captured-as-args, not a second slot.
+;;   :captured-as-declared — the slice has NO live controls surface yet, but
+;;                           the SOURCE variant body declares a value. We
+;;                           carry it forward verbatim (via `:extends`) and
+;;                           WARN that it is the declared value, not a live
+;;                           projection of the current canvas.
+;;   :not-wired            — the slice has no live controls surface AND the
+;;                           source declares nothing. We capture nothing and
+;;                           WARN that the slice is not yet projectable.
+;;
+;; The slice→shell/substrate wiring map (the "where does each slice's live
+;; value come from?" reference):
+;;
+;;   slice              live source                       substrate
+;;   -----              -----------                       ---------
+;;   args               :cell-overrides + :active-modes   args/resolve-args → :args
+;;   transient-controls in-flight :cell-overrides          folds into :args (no 2nd slot)
+;;   sub-overrides      — (View State group is TARGET)     reg-variant :sub-overrides
+;;   db-seed            — (fidelity rung not wired, blw1q) reg-variant :setup/:db
+;;   route              — (route sub not consumed, 7pgiz)  —
+;;   network            — (no live Network controls)       reg-variant :network
+;;   fx-overrides       — (no live Effects controls)       reg-variant :fx-overrides
+;;   viewport           shell :viewport (CHROME-WIDE)      — (chrome-wide, not a body slot)
+;;
+;; Viewport is the one genuine PRODUCT FORK (flagged for the mayor in the
+;; PR): the live viewport is chrome-wide shell state, NOT a per-variant
+;; body slot the way the reg-variant body's other slices are. spec/019 §3
+;; / §5 do not settle whether a saved variant should pin the viewport at
+;; all. The conservative honest default below: capture it as-declared from
+;; the SOURCE body's `:viewport` slot when present (so a variant that
+;; already pins a viewport round-trips), and otherwise WARN that the live
+;; chrome-wide viewport is not projected into the saved variant.
+;; ---------------------------------------------------------------------------
+
+(def slice-order
+  "Canonical render/report order for the eight save-current slices
+  (spec/019 §3). `:args` and `:transient-controls` lead because they are
+  the projectable pair; the rest follow in the spec's listed order."
+  [:args :transient-controls :sub-overrides :db-seed
+   :route :network :fx-overrides :viewport])
+
+(def slice-labels
+  "Human labels for the slice report rows."
+  {:args               "Args"
+   :transient-controls "Transient controls"
+   :sub-overrides      "Sub-overrides"
+   :db-seed            "DB seed"
+   :route              "Route"
+   :network            "Network"
+   :fx-overrides       "FX-overrides"
+   :viewport           "Viewport"})
+
+(defn- declared-slot
+  "Read a declared slot from the resolved SOURCE variant body, or nil.
+  `variant-body` is `(registrar/handler-meta :variant id)` (may be nil
+  for an unregistered source — then every declared slot is nil)."
+  [variant-body k]
+  (when (map? variant-body) (get variant-body k)))
+
+(defn capture-slices
+  "Return the eight-slice capture report for a save-current-state flow.
+  Pure data → vector of slice descriptors in `slice-order`. The HONESTY
+  FLOOR (rf2-ba86n.6): each slice is classified honestly — a slice is
+  only `:projectable` when a LIVE controls projection exists; otherwise
+  it is `:captured-as-declared` (the source body declares a value we
+  carry forward via `:extends`) or `:not-wired` (nothing to capture, and
+  a warning is surfaced). The flow NEVER fabricates a live projection for
+  an unwired slice.
+
+  Inputs:
+  - `args-snapshot` — the resolved effective args (the live `:args`
+                      projection; transient `:cell-overrides` already
+                      folded in by `resolve-args`).
+  - `variant-body`  — the resolved source variant body (or nil) — read
+                      for declared `:sub-overrides` / `:network` /
+                      `:fx-overrides` / `:setup` / `:viewport` slots.
+  - `shell`         — the shell-state map — read for the live chrome-wide
+                      `:viewport` selection (the viewport fork).
+
+  Each descriptor:
+  - `:slice`  — the slice keyword (one of `slice-order`).
+  - `:label`  — the human label.
+  - `:status` — `:projectable` | `:captured-as-declared` | `:not-wired`.
+  - `:emit?`  — true iff the slice contributes a slot to the generated
+                reg-variant body (only `:args` today; `:extends` carries
+                the `:captured-as-declared` slices implicitly).
+  - `:value`  — the captured value (present for `:projectable` and
+                `:captured-as-declared`; absent/nil for `:not-wired`).
+  - `:note`   — the honest one-line explanation rendered in the report."
+  [args-snapshot variant-body shell]
+  (let [sub-ovr   (declared-slot variant-body :sub-overrides)
+        network   (declared-slot variant-body :network)
+        fx-ovr    (declared-slot variant-body :fx-overrides)
+        setup     (or (declared-slot variant-body :setup)
+                      (declared-slot variant-body :events))
+        body-vp   (declared-slot variant-body :viewport)
+        live-vp   (:viewport shell)
+        declared  (fn [slice label value note]
+                    {:slice slice :label label :status :captured-as-declared
+                     :emit? false :value value :note note})
+        not-wired (fn [slice label note]
+                    {:slice slice :label label :status :not-wired
+                     :emit? false :note note})]
+    [{:slice  :args :label (slice-labels :args)
+      :status :projectable :emit? true :value args-snapshot
+      :note   "Live effective args (five-layer precedence chain, spec/002) — projected into the snippet."}
+
+     {:slice  :transient-controls :label (slice-labels :transient-controls)
+      :status :projectable :emit? false :value args-snapshot
+      :note   "In-flight control edits — folded into :args by resolve-args, not a separate slot."}
+
+     (if (some? sub-ovr)
+       (declared :sub-overrides (slice-labels :sub-overrides) sub-ovr
+                 "No live View-State controls yet — the source's declared :sub-overrides carry forward via :extends, captured-as-declared (not a live projection).")
+       (not-wired :sub-overrides (slice-labels :sub-overrides)
+                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable (rf2-7pgiz)."))
+
+     ;; db-seed: the schema-checked app-db seed fidelity rung is not wired
+     ;; (rf2-blw1q). The closest declared analogue on the source body is
+     ;; `:setup` (real setup events) — surfaced as captured-as-declared so
+     ;; the report is honest about what carries forward via :extends.
+     (if (some? setup)
+       (declared :db-seed (slice-labels :db-seed) setup
+                 "DB-seed fidelity rung not wired (rf2-blw1q) — the source's declared :setup events carry forward via :extends, captured-as-declared.")
+       (not-wired :db-seed (slice-labels :db-seed)
+                  "DB-seed fidelity rung not wired (rf2-blw1q) and no :setup declared — not yet projectable."))
+
+     (not-wired :route (slice-labels :route)
+                "Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured.")
+
+     (if (some? network)
+       (declared :network (slice-labels :network) network
+                 "No live Network controls yet — the source's declared :network stubs carry forward via :extends, captured-as-declared.")
+       (not-wired :network (slice-labels :network)
+                  "No live Network controls and none declared on the source — network state is not yet projectable."))
+
+     (if (some? fx-ovr)
+       (declared :fx-overrides (slice-labels :fx-overrides) fx-ovr
+                 "No live Effects controls yet — the source's declared :fx-overrides carry forward via :extends, captured-as-declared.")
+       (not-wired :fx-overrides (slice-labels :fx-overrides)
+                  "No live Effects controls and none declared on the source — fx-overrides are not yet projectable."))
+
+     ;; viewport — the flagged PRODUCT FORK. Chrome-wide live state, not a
+     ;; per-variant body slot. Honest default: carry the SOURCE body's
+     ;; declared :viewport forward (captured-as-declared) when present;
+     ;; otherwise warn the live chrome-wide selection is not projected.
+     (if (some? body-vp)
+       (declared :viewport (slice-labels :viewport) body-vp
+                 "Viewport is chrome-wide state, not a per-variant body slot (FORK) — the source's declared :viewport carries forward via :extends.")
+       (not-wired :viewport (slice-labels :viewport)
+                  (str "Viewport is chrome-wide state, not a per-variant body slot (FORK) — the live selection ("
+                       (pr-str live-vp)
+                       ") is NOT projected into the saved variant.")))]))
+
+(defn slice-warnings
+  "Filter `capture-slices`' report to the rows the user MUST see — every
+  slice that is NOT a clean live projection. Returns the descriptors for
+  `:captured-as-declared` + `:not-wired` slices (the honesty-floor
+  warnings), in `slice-order`. Pure data → vector; JVM-testable."
+  [slice-report]
+  (vec (remove (fn [{:keys [status]}] (= status :projectable)) slice-report)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: code-gen — `(reg-variant ... :args {...})` snippet
@@ -190,19 +368,25 @@
   violations; defaults to no violations. 4-arity stamps the violations
   vector onto the dialog state so the save dialog can render the
   rf2-lancu 'Args do not match the variant's Spec 010 schema' hint
-  pre-paste."
+  pre-paste. 5-arity (rf2-ba86n.6) additionally stamps the eight-slice
+  capture report so the dialog can render the per-slice honesty-floor
+  warnings (which slices are captured-as-declared / not-yet-projectable)."
   ([state source-variant-id args-snapshot now-ms]
-   (open state source-variant-id args-snapshot now-ms nil))
-  ([_state source-variant-id args-snapshot now-ms violations]
+   (open state source-variant-id args-snapshot now-ms nil nil))
+  ([state source-variant-id args-snapshot now-ms violations]
+   (open state source-variant-id args-snapshot now-ms violations nil))
+  ([_state source-variant-id args-snapshot now-ms violations slices]
    (let [base (review-dialog/open review-dialog/initial-state
                                   source-variant-id
                                   {:args       args-snapshot
-                                   :violations (vec violations)}
+                                   :violations (vec violations)
+                                   :slices     (vec slices)}
                                   now-ms
                                   default-id-prefix)]
      (-> base
          (assoc :args args-snapshot)
-         (assoc :violations (vec violations))))))
+         (assoc :violations (vec violations))
+         (assoc :slices (vec slices))))))
 
 (defn close
   "Close the dialog — returns the idle state."
@@ -239,11 +423,15 @@
 
 (defn set-open-dialog-fn!
   "Register the UI-layer dialog-open callback. The callback is invoked
-  as `(callback source-variant-id args-snapshot now-ms violations)`
+  as `(callback source-variant-id args-snapshot now-ms violations slices)`
   where `violations` is the vector returned by
-  `schema-validation/args-violations` against the live
-  component schema (rf2-lancu — may be empty/nil).
-  Idempotent — calling again replaces."
+  `schema-validation/args-violations` against the live component schema
+  (rf2-lancu — may be empty/nil) and `slices` is the eight-slice capture
+  report from `capture-slices` (rf2-ba86n.6 — carries the per-slice
+  honesty-floor warnings the dialog renders). Idempotent — calling again
+  replaces. The registered callback is invoked with all five positional
+  args, so it must accept arity-5 (a variadic `& _` tail is the easy way
+  to ignore the args it does not bind)."
   [f]
   (reset! open-dialog-fn f))
 
@@ -294,12 +482,23 @@
                                      (schema-validation/resolve-component-schema target)
                                      (schema-validation/validator-fns))
                              :clj  [])
+               ;; rf2-ba86n.6 — the eight-slice capture report. The honesty
+               ;; floor: every slice without a live projection is captured-
+               ;; as-declared (carried via :extends) or not-wired, and warned
+               ;; about. Never fabricated. Read the resolved source body so
+               ;; declared :sub-overrides / :network / :fx-overrides /
+               ;; :setup / :viewport slots surface as captured-as-declared.
+               slices     (capture-slices
+                            snapshot
+                            (registrar/handler-meta :variant target)
+                            shell)
                record     {:source-id  target
                            :args       snapshot
                            :violations violations
+                           :slices     slices
                            :now-ms     now-ms}]
            (when-let [cb @open-dialog-fn]
-             (cb target snapshot now-ms violations))
+             (cb target snapshot now-ms violations slices))
            record))))))
 
 ;; ---------------------------------------------------------------------------

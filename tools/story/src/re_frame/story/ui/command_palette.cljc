@@ -23,11 +23,20 @@
 
   - `:explain` — open the Explain panel (provenance + lowering over
     `story/explain`) and scroll it into view. Reachable here AND from
-    the RHS inspector rail per spec/020 §4."
+    the RHS inspector rail per spec/020 §4.
+  - `:save-current-as-variant` (rf2-ba86n.6) — capture the focused
+    variant's live canvas state as a new variant. The SAME flow as the
+    Controls-panel 'save as new variant…' button (spec/019 §3 — the flow
+    is available from Controls AND the palette). A no-op when no variant
+    is focused; the action handler guards on the live selection."
   [{:kind   :command
     :id     :explain
     :action :explain
-    :doc    "Explain variant — source chain, merges, substitutions, lowering"}])
+    :doc    "Explain variant — source chain, merges, substitutions, lowering"}
+   {:kind   :command
+    :id     :save-current-as-variant
+    :action :save-current-as-variant
+    :doc    "Save current canvas state as a new variant — capture live args, review + copy the reg-variant form"}])
 
 (defn- doc-text [body]
   (let [doc (:doc body)]

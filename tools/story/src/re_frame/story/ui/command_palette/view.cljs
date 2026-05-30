@@ -3,6 +3,7 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.story.config :as config]
+            [re-frame.story.save-variant :as save-variant]
             [re-frame.story.ui.command-palette :as palette]
             [re-frame.story.ui.explain-panel :as explain-panel]
             [re-frame.story.ui.state :as state]
@@ -37,6 +38,12 @@
       (case (:action entry)
         ;; rf2-ba86n.9 — open the Explain panel + scroll it into view.
         :explain (explain-panel/open!)
+        ;; rf2-ba86n.6 — capture the focused variant's live canvas state
+        ;; as a new variant. Same flow as the Controls-panel button
+        ;; (spec/019 §3). `save-current-as-variant!` reads the live
+        ;; selection from shell-state and no-ops (returns nil) when no
+        ;; variant is focused, so the palette action needs no extra guard.
+        :save-current-as-variant (save-variant/save-current-as-variant!)
         nil)
       true)
 
