@@ -58,11 +58,17 @@
    (defn- render-host-scope
      "A Reagent component that renders the active `:view` under the host
      substrate, binding the resolved `:sub-overrides` for the render extent
-     INSIDE the render fn (not at hiccup-construction time, which would have
-     unwound before React's deferred child render — the same pattern the
-     canvas's `sub-overrides-scope` uses). A design variant's pinned sub
-     values surface through `sub-overrides/read`; the binding never touches
-     app-db / `compute-sub`."
+     (the same pattern the canvas's `sub-overrides-scope` uses); the
+     binding never touches app-db / `compute-sub`.
+
+     NOTE (rf2-7pgiz): this binding is currently INERT — a design
+     variant's pinned sub values do NOT yet surface to a normally-authored
+     view. No subscribe seam consults `*overrides*`, and the dynamic
+     binding established here does not survive into the view's deferred
+     React render (the view's `@(rf/subscribe)` runs in its own reaction,
+     after this binding has unwound). Surfacing the override at render
+     needs a core subscribe shim — pinned + surfaced under rf2-7pgiz. See
+     `re-frame.story.sub-overrides` ns docstring §STATUS."
      [{:keys [view frame effective-args sub-overrides]}]
      (sub-overrides/with-overrides* sub-overrides
        (fn []
