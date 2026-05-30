@@ -43,6 +43,7 @@
             [re-frame.story.config      :as config]
             [re-frame.story.late-bind   :as late-bind]
             [re-frame.story.play        :as play]
+            [re-frame.story.play.browser :as browser]
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
@@ -556,13 +557,138 @@
 
 (declare exec-assert-dom-atom!)
 
+;; ---- browser-tier assertion atom executor (rf2-9ikj0) --------------------
+;;
+;; The browser-tier oracle family (`:rf.assert/visual-snapshot` /
+;; `:rf.assert/a11y` / `:rf.assert/a11y-structural`) has its dedicated pure
+;; executor in `re-frame.story.play.browser` (`eval-browser-assertion`,
+;; rf2-5x1wt.28) — but until now that executor was ORPHANED from the run
+;; path: `exec-assert!` routed EVERY browser-tier atom to a no-op step-skip
+;; via `tape-evaluated-assertion?`, so a `[:assert [:rf.assert/a11y-structural
+;; …]]` checkpoint recorded nothing and a headless run never surfaced the
+;; honest `:cannot-run` for the browser-only pair. rf2-9ikj0 wires the
+;; executor IN, mirroring how the DOM family is routed to
+;; `exec-assert-dom-atom!`:
+;;
+;;   - `:rf.assert/a11y-structural` is the `:hiccup` rung — it walks the
+;;     rendered hiccup TREE (data). When a host can supply that tree (the
+;;     `:render-hiccup` late-bind seam — a `:hiccup`-or-richer runner), the
+;;     check EVALUATES (:pass / :fail) on the normal run path. When NO hiccup
+;;     tree is available (the bare headless floor), it FAILS CLOSED to
+;;     `:cannot-run` — NEVER a vacuous pass over a nil tree.
+;;   - `:rf.assert/visual-snapshot` / `:rf.assert/a11y` are browser-only
+;;     (`:pixels` / `:a11y-engine`); the executor's own `browser-available?`
+;;     fail-closed guard returns `:cannot-run` under a headless run.
+;;
+;; The canonical assertion record the executor produces is recorded on the
+;; frame's `:rf.story/assertions` slot (the ONE accumulator
+;; `record-result-map` / `result/run-result` folds into the unified verdict),
+;; exactly as the DOM family is. A `:cannot-run` finding rides the SAME
+;; refusal shape (`:status :cannot-run`) the rest of the run path uses, so a
+;; browser-tier assertion the runner could not prove surfaces as the distinct
+;; THIRD status, never a false pass/fail.
+
+(defn- render-hiccup-for
+  "Resolve the rendered hiccup tree for `frame-id` via the `:render-hiccup`
+  late-bind seam (`re-frame.story.late-bind`), or nil when no host installed
+  one (the bare headless floor — no `:hiccup-structure` proof). Tolerant: a
+  throwing host yields nil. This is the `:hiccup`-tier proof surface
+  `:rf.assert/a11y-structural` walks."
+  [frame-id]
+  (when-let [f (late-bind/get-fn :render-hiccup)]
+    (try (f frame-id)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn- browser-assertion-ctx
+  "Build the per-run `ctx` `browser/eval-browser-assertion` consumes for
+  `frame-id`. Carries `:frame-id` (so the a11y evaluator can read the live
+  axe-violations atom) and the rendered `:hiccup` tree from the
+  `:render-hiccup` seam (so the structural-a11y evaluator can walk it). The
+  visual evaluator computes its own snapshot identity; nothing more is
+  threaded here."
+  [frame-id hiccup]
+  {:frame-id frame-id
+   :hiccup   hiccup})
+
+(defn- structural-a11y-cannot-run-finding
+  "The `:cannot-run` record for an `:rf.assert/a11y-structural` checkpoint on
+  a runner that cannot supply a rendered hiccup tree (the bare headless floor
+  — no `:render-hiccup` host, no `:hiccup-structure` proof). Rides the ONE
+  refusal shape (`:status :cannot-run`) so it is the distinct THIRD status,
+  never a vacuous pass over a nil tree (the honesty floor — spec/017
+  §`:cannot-run`)."
+  [payload]
+  {:assertion   assertions/id-a11y-structural
+   :payload     (vec payload)
+   :passed?     false
+   :cannot-run? true
+   :status      :cannot-run
+   :reason      (str "structural a11y requires a rendered hiccup tree "
+                     "(:hiccup-structure); the headless runner produced none "
+                     "(no :render-hiccup host)")})
+
+(defn- exec-assert-browser-atom!
+  "Evaluate a browser-tier oracle assertion atom `[:rf.assert/visual-snapshot
+  | :rf.assert/a11y | :rf.assert/a11y-structural & args]` at this checkpoint
+  (rf2-9ikj0 — wire the previously-orphaned `browser/eval-browser-assertion`
+  into the run path). Mirrors `exec-assert-dom-atom!`: drives the pure
+  executor, records the CANONICAL assertion record on the frame slot (so the
+  unified result's `:assertions` carries the real browser-tier id), and
+  returns the runner step-result.
+
+  - `:rf.assert/a11y-structural` runs at the `:hiccup` tier: it walks the
+    rendered hiccup tree from the `:render-hiccup` seam. With NO tree
+    available it FAILS CLOSED to `:cannot-run` (never a vacuous pass over a
+    nil tree); with a tree it EVALUATES (:pass / :fail).
+  - `:rf.assert/visual-snapshot` / `:rf.assert/a11y` are browser-only; the
+    executor's `browser-available?` guard returns `:cannot-run` headless.
+
+  A `:cannot-run` finding is recorded on the slot (so the run aggregates to
+  `:cannot-run`, never a silent pass) and surfaced as a step-fail carrying the
+  refusal."
+  [frame-id idx step atom-v]
+  (let [aid    (assertions/assertion-atom-id atom-v)
+        hiccup (render-hiccup-for frame-id)
+        result (if (and (= assertions/id-a11y-structural aid) (nil? hiccup))
+                 ;; Honesty floor: a11y-structural with no hiccup tree cannot
+                 ;; be proven — refuse rather than pass over an empty tree.
+                 (structural-a11y-cannot-run-finding (vec (rest atom-v)))
+                 (browser/eval-browser-assertion
+                   atom-v (browser-assertion-ctx frame-id hiccup)))]
+    ;; Record the canonical browser-tier assertion record on the slot so the
+    ;; unified verdict folds it (a :cannot-run record aggregates to the THIRD
+    ;; status; a :fail flips the run to :fail).
+    (assertions/record!
+      frame-id
+      (cond-> {:assertion    aid
+               :passed?      (boolean (:passed? result))
+               :payload      (vec (rest atom-v))
+               :source-coord (:source (registrar/handler-meta :variant frame-id))}
+        (contains? result :status)   (assoc :status   (:status result))
+        (:cannot-run? result)        (assoc :cannot-run? true)
+        (contains? result :expected) (assoc :expected (:expected result))
+        (contains? result :actual)   (assoc :actual   (:actual result))
+        (:reason result)             (assoc :reason   (:reason result))))
+    (cond
+      (:cannot-run? result)
+      (runner/step-fail idx step
+                        {:cannot-run? true
+                         :reason      (:reason result)
+                         :message     (or (:reason result)
+                                          (str "cannot run " (pr-str atom-v)))})
+      (:passed? result) (runner/step-pass idx step)
+      :else             (runner/step-fail idx step
+                                          {:expected (:expected result)
+                                           :actual   (:actual result)
+                                           :message  (:reason result)}))))
+
 (defn- tape-evaluated-assertion?
   "True iff the assertion atom `atom-v` (`[:rf.assert/id & args]`) is
   evaluated AGAINST THE EPOCH TAPE in the result boundary rather than by
   dispatching a `reg-event-fx` handler into the frame (rf2-8y47c +
   rf2-fh7g4).
 
-  Three assertion families carry NO `reg-event-fx` handler and are minted
+  Two assertion families carry NO `reg-event-fx` handler and are minted
   by the result boundary (`re-frame.story.result`), not by a dispatch:
 
   - `:rf.assert/schema-error` — paired against the projected
@@ -570,9 +696,6 @@
   - the causal / cascade family (`:rf.assert/caused` /
     `:rf.assert/no-cascade-rerender`) — paired against the
     `:reactive-counts` `:by-cause` projection (rf2-5x1wt.31).
-  - the browser-tier oracle family (`:rf.assert/visual-snapshot` /
-    `:rf.assert/a11y` / `:rf.assert/a11y-structural`) — projected by the
-    browser executor into the same assertion record (rf2-5x1wt.28).
 
   This is the SINGLE classifier the in-script `[:assert …]` executor
   consults so a tape-evaluated checkpoint is NEVER dispatched into the
@@ -581,13 +704,20 @@
   It deliberately reads the existing `re-frame.story.assertions`
   predicates / id-sets — the ONE source of truth for which family an id
   belongs to — so a future tape-evaluated family is covered by adding it
-  there, with no special-case to grow here. The DOM family is NOT here:
-  it has its own inline executor (`exec-assert-dom-atom!`), routed ahead
-  of this classifier."
+  there, with no special-case to grow here.
+
+  Two families are NOT here — each has its own inline executor routed
+  AHEAD of this classifier: the DOM family (`exec-assert-dom-atom!`) and
+  the browser-tier oracle family (`exec-assert-browser-atom!`, rf2-9ikj0).
+  The browser-tier family was PREVIOUSLY mis-classified here, which made
+  `browser/eval-browser-assertion` dead weight w.r.t. the run path: a
+  `:rf.assert/a11y-structural` checkpoint recorded a no-op step-skip
+  instead of evaluating the rendered hiccup tree, and the browser-only
+  pair never surfaced their honest `:cannot-run`. They are now routed to
+  the dedicated executor, so they are NO LONGER tape-evaluated."
   [atom-v]
   (or (assertions/schema-error? atom-v)
-      (assertions/causal? atom-v)
-      (contains? assertions/browser-assertion-ids (first atom-v))))
+      (assertions/causal? atom-v)))
 
 (defn- exec-assert!
   "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint
@@ -600,20 +730,28 @@
   / `:assert-dom` executor minting synthetic `:rf.assert/db` /
   `:rf.assert/dom` records.
 
-  Three routes, by atom family:
+  Four routes, by atom family:
 
   - The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
     `:rf.assert/dom-text`) has no reg-event-fx handler yet (the DOM runner
     that proves it lands later); it is EVALUATED directly through the DOM
     executor (`exec-assert-dom-atom!`), recording a canonical
     `:rf.assert/dom-*` record on the slot.
+  - The browser-tier oracle family (`:rf.assert/visual-snapshot` /
+    `:rf.assert/a11y` / `:rf.assert/a11y-structural`) is EVALUATED directly
+    through `exec-assert-browser-atom!` (rf2-9ikj0 — the previously-orphaned
+    `browser/eval-browser-assertion` wired into the run path). At the
+    `:hiccup` tier `:rf.assert/a11y-structural` walks the rendered hiccup
+    tree and records a real `:pass` / `:fail`; with no tree (the headless
+    floor) it records `:cannot-run`. The browser-only pair record
+    `:cannot-run` under a headless run (their `browser-available?` guard).
   - The tape-evaluated families (`tape-evaluated-assertion?`: schema-error,
-    the causal / cascade family, the browser-tier oracle family) ALSO carry
-    no reg-event-fx handler — they are minted by the result boundary
-    against the epoch tape, not by a dispatch. An in-script checkpoint for
-    one of these records a no-op step-skip (the boundary owns its verdict);
-    dispatching it would mint a spurious `:rf.error/no-such-handler` trace
-    AND skip the real tape evaluation (rf2-8y47c + rf2-fh7g4).
+    the causal / cascade family) carry no reg-event-fx handler — they are
+    minted by the result boundary against the epoch tape, not by a dispatch.
+    An in-script checkpoint for one of these records a no-op step-skip (the
+    boundary owns its verdict); dispatching it would mint a spurious
+    `:rf.error/no-such-handler` trace AND skip the real tape evaluation
+    (rf2-8y47c + rf2-fh7g4).
   - Every other (dispatchable) `:rf.assert/*` atom dispatches the event
     through `settled-boundary` — the standard reg-event-fx handler records
     the `:passed?` record on the frame's `:rf.story/assertions` slot — and
@@ -624,6 +762,13 @@
     (cond
       (contains? assertions/dom-assertion-ids (first atom-v))
       (exec-assert-dom-atom! frame-id idx step atom-v)
+
+      ;; Browser-tier oracle family — route to the dedicated executor
+      ;; (rf2-9ikj0). a11y-structural runs at :hiccup; visual / a11y fail
+      ;; closed to :cannot-run headless. NEVER a no-op skip (which is what
+      ;; left the executor orphaned).
+      (contains? assertions/browser-assertion-ids (first atom-v))
+      (exec-assert-browser-atom! frame-id idx step atom-v)
 
       ;; Tape-evaluated families carry no reg-event-fx handler; the result
       ;; boundary owns their verdict. Record a no-op step-skip — never a

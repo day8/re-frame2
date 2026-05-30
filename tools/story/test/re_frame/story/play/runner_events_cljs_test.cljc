@@ -1052,15 +1052,22 @@
 (def ^:private tape-evaluated-assertion? @#'re/tape-evaluated-assertion?)
 
 (deftest tape-evaluated-assertion?-classifies-every-non-dispatched-family
-  (testing "schema-error, the causal family, and the browser-tier oracle
-            family are tape-evaluated (no reg-event-fx handler); the
-            dispatchable seven + the DOM family are NOT"
+  (testing "schema-error and the causal family are tape-evaluated (no
+            reg-event-fx handler); the dispatchable seven, the DOM family,
+            and the browser-tier oracle family are NOT"
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/schema-error {}]))))
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/caused {:event :e}]))))
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/no-cascade-rerender {:event :e}]))))
-    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/visual-snapshot]))))
-    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/a11y]))))
-    (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/a11y-structural]))))
+    ;; rf2-9ikj0 — the browser-tier oracle family now has its OWN inline
+    ;; executor (`exec-assert-browser-atom!`), so it is NO LONGER
+    ;; tape-evaluated: a11y-structural EVALUATES at :hiccup, visual / a11y
+    ;; fail closed to :cannot-run headless — neither is a no-op skip.
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/visual-snapshot])))
+        "visual-snapshot is routed to the browser executor, not this classifier")
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/a11y])))
+        "a11y is routed to the browser executor, not this classifier")
+    (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/a11y-structural])))
+        "a11y-structural is routed to the browser executor, not this classifier")
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/path-equals [:k] 1])))
         "a dispatchable canonical assertion (has a reg-event-fx handler) is NOT tape-evaluated")
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/state-is :loaded])))

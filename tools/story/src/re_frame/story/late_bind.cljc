@@ -47,7 +47,22 @@
                                      view. Signature: `(f render-inputs) →
                                      host-render-result`. Absent on the bare
                                      JVM (no DOM / substrate), so
-                                     `render-variant` returns `:cannot-run`."
+                                     `render-variant` returns `:cannot-run`.
+
+  - `:render-hiccup`               — a host that can render the active view
+                                     to a HICCUP TREE (data) → the play
+                                     runner's browser-tier executor
+                                     (`re-frame.story.play.runner-events` →
+                                     `re-frame.story.play.browser`). Signature:
+                                     `(f frame-id) → hiccup-tree | nil`. This
+                                     is the `:hiccup-structure` proof surface
+                                     `:rf.assert/a11y-structural` consumes on
+                                     the run path: a `:hiccup`-or-richer host
+                                     installs it so the structural-a11y check
+                                     can walk the rendered tree. The bare
+                                     headless floor leaves it nil, so the
+                                     executor refuses `:cannot-run` (never a
+                                     vacuous pass over a nil tree)."
   )
 
 (defonce
