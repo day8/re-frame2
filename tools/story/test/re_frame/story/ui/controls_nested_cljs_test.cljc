@@ -260,3 +260,62 @@
           s2 (state/set-cell-override-scalar s1 :story.a/x  :meta {:author "bob"})]
       (is (= {:author "bob"}
              (get-in s2 [:cell-overrides :story.a/x :meta]))))))
+
+;; ---- JVM + CLJS: per-arg clear-cell-override (rf2-ba86n.5) ---------------
+
+(deftest clear-cell-override-drops-one-arg-keeps-others
+  (testing "clear-cell-override reverts a single arg-key, leaving the
+            variant's other overrides intact"
+    (let [s0 state/default-shell-state
+          s1 (-> s0
+                 (state/set-cell-override-scalar :story.a/x :label "hi")
+                 (state/set-cell-override-scalar :story.a/x :n     42))
+          s2 (state/clear-cell-override s1 :story.a/x :label)]
+      (is (nil? (get-in s2 [:cell-overrides :story.a/x :label])))
+      (is (= 42 (get-in s2 [:cell-overrides :story.a/x :n]))))))
+
+(deftest clear-cell-override-prunes-empty-variant-entry
+  (testing "clearing the LAST override for a variant prunes the empty
+            :cell-overrides entry — callers reading
+            (seq (get-in state [:cell-overrides variant])) see 'no
+            overrides', matching clear-cell-overrides"
+    (let [s0 state/default-shell-state
+          s1 (state/set-cell-override-scalar s0 :story.a/x :label "hi")
+          s2 (state/clear-cell-override s1 :story.a/x :label)]
+      (is (not (contains? (:cell-overrides s2) :story.a/x))))))
+
+(deftest clear-cell-override-leaves-other-variants
+  (testing "clearing one variant's arg does not touch another variant's
+            overrides"
+    (let [s0 state/default-shell-state
+          s1 (-> s0
+                 (state/set-cell-override-scalar :story.a/x :label "hi")
+                 (state/set-cell-override-scalar :story.b/y :label "yo"))
+          s2 (state/clear-cell-override s1 :story.a/x :label)]
+      (is (not (contains? (:cell-overrides s2) :story.a/x)))
+      (is (= "yo" (get-in s2 [:cell-overrides :story.b/y :label]))))))
+
+(deftest clear-cell-override-drops-matching-repeater-row-ids
+  (testing "clearing a collection arg drops only the repeater row-id
+            bookkeeping anchored on that arg-key; sibling collection
+            row-ids survive (rf2-c8kfy lockstep)"
+    (let [s0 state/default-shell-state
+          ;; Two collection args under one variant, each with row ids.
+          s1 (-> s0
+                 (state/set-cell-override-scalar :story.a/x :items ["a" "b"])
+                 (state/ensure-repeater-row-ids :story.a/x [:items] 2)
+                 (state/set-cell-override-scalar :story.a/x :tags  ["t"])
+                 (state/ensure-repeater-row-ids :story.a/x [:tags] 1))
+          s2 (state/clear-cell-override s1 :story.a/x :items)]
+      ;; :items row-ids gone, :tags row-ids intact.
+      (is (= [] (state/repeater-row-ids s2 :story.a/x [:items])))
+      (is (= 1 (count (state/repeater-row-ids s2 :story.a/x [:tags])))))))
+
+(deftest clear-cell-override-unknown-key-is-noop
+  (testing "clearing an arg-key with no override leaves the state
+            effectively unchanged (the variant entry is pruned only
+            when it becomes empty)"
+    (let [s0 state/default-shell-state
+          s1 (state/set-cell-override-scalar s0 :story.a/x :label "hi")
+          s2 (state/clear-cell-override s1 :story.a/x :missing)]
+      (is (= "hi" (get-in s2 [:cell-overrides :story.a/x :label]))))))

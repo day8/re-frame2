@@ -171,6 +171,37 @@
                         m)
                   m)))))
 
+(defn clear-cell-override
+  "Drop the override for a single top-level `arg-key` under `variant-id`,
+  reverting that one arg to its saved (declared) value while leaving
+  every other override intact. Backs the controls panel's per-arg
+  'reset' affordance (rf2-ba86n.5).
+
+  Also drops any repeater row-id bookkeeping anchored on a path whose
+  head is `arg-key` (rf2-c8kfy) so a reset collection re-syncs its row
+  ids from scratch against the reverted entry count. Other args' row
+  ids are untouched. When the last override for the variant is cleared
+  the empty `:cell-overrides` entry is pruned so callers reading
+  `(seq (get-in state [:cell-overrides variant-id]))` observe the same
+  'no overrides' shape `clear-cell-overrides` leaves."
+  [state variant-id arg-key]
+  (-> state
+      (update-in [:cell-overrides variant-id] dissoc arg-key)
+      (update :cell-overrides
+              (fn [m]
+                (if (empty? (get m variant-id))
+                  (dissoc m variant-id)
+                  m)))
+      (update :rf.story/repeater-row-ids
+              (fn [m]
+                (if (seq m)
+                  (into {}
+                        (remove (fn [[[v path] _ids]]
+                                  (and (= v variant-id)
+                                       (= arg-key (first path)))))
+                        m)
+                  m)))))
+
 ;; ---- repeater stable row-ids (rf2-c8kfy) ---------------------------------
 ;;
 ;; The controls-panel `repeater-widget` (vector / set) renders one DOM row
