@@ -759,6 +759,62 @@
                      [:expect :assertions]))
           (str "expected " (pr-str atom-v) " to compile as a known assertion")))))
 
+;; ---- malformed-step rejection before the fold (rf2-zha5z) -----------------
+;;
+;; The plan compiler folds shipping `:assert-db` / `:assert-dom` steps into
+;; the canonical `[:assert …]` checkpoint. The fold helpers assume a
+;; well-formed step, so a malformed one MUST be rejected with a structured
+;; `:rf.error/story-bad-step` BEFORE the fold — never a raw host exception
+;; (IndexOutOfBounds / `No matching clause`). The gate reuses the runner's
+;; `validate-script` so the compiler and runtime agree on step shape.
+
+(deftest malformed-assert-dom-mode-rejected-before-fold
+  (testing "an :assert-dom step with an unrecognised mode FAILS plan
+           construction with a structured story-bad-step (NOT a raw
+           `No matching clause` IllegalArgumentException from the fold)"
+    (let [m {:story.x/bad-dom {:script [[:assert-dom "#x" :weird]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-bad-step"
+            (plan-of :story.x/bad-dom m))))))
+
+(deftest malformed-assert-db-arity-rejected-before-fold
+  (testing "an :assert-db step with too few elements FAILS plan construction
+           with a structured story-bad-step (NOT a raw IndexOutOfBounds from
+           the fold's nth)"
+    (let [m {:story.x/bad-db {:script [[:assert-db [:n]]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-bad-step"
+            (plan-of :story.x/bad-db m))))))
+
+(deftest malformed-step-error-carries-structured-data
+  (testing "the :rf.error/story-bad-step ex-data names the offending step"
+    (let [m  {:story.x/bad4 {:script [[:assert-db [:n] :pred even? :extra]]}}
+          ex (try (plan-of :story.x/bad4 m) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? ex))
+      (is (= :rf.error/story-bad-step (:rf.error/id (ex-data ex))))
+      (is (contains? (set (map :step (:offending-steps (ex-data ex))))
+                     [:assert-db [:n] :pred even? :extra])))))
+
+(deftest well-formed-assert-steps-still-compile
+  (testing "well-formed :assert-db / :assert-dom steps fold cleanly past the
+           new shape gate (the gate rejects only malformed steps)"
+    (let [folded (plan-of :story.x/ok-mix
+                          {:story.x/ok-mix
+                           {:script [[:assert-db [:count] 6]
+                                     [:assert-db [:n] :pred even?]
+                                     [:assert-dom "#a" :visible]
+                                     [:assert-dom "#b" :hidden]
+                                     [:assert-dom "#c" :text "hi"]]}})]
+      (is (= [[:assert [:rf.assert/path-equals [:count] 6]]
+              [:assert [:rf.assert/path-matches [:n] [:fn even?]]]
+              [:assert [:rf.assert/dom-visible "#a"]]
+              [:assert [:rf.assert/dom-hidden "#b"]]
+              [:assert [:rf.assert/dom-text "#c" "hi"]]]
+             (:script folded))))))
+
 ;; ---- pure fold helpers (assertion-ns surface) ----------------------------
 
 (deftest fold-helpers-are-pure-and-position-agnostic

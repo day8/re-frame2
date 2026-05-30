@@ -323,9 +323,45 @@
         (has-text-child? node))))
 
 (def ^:private interactive-tags
-  "Tags that REQUIRE an accessible name for a screen reader. `:input`
-  excludes hidden inputs (checked at the call site)."
+  "Tags that ALWAYS require an accessible name for a screen reader,
+  regardless of attributes. `:input` is NOT here — it is conditional on
+  its `:type` (see `input-needs-name?` / `interactive-needs-name?`): a
+  text/checkbox/radio/etc. input needs a name, but a hidden / submit /
+  reset / button / image input does not (those get their name from
+  `:value` / `:alt`, or aren't rendered at all)."
   #{:button :a :select :textarea})
+
+(def ^:private input-types-needing-no-name
+  "`:input` `:type` values that do NOT require an explicit accessible name
+  in the structural floor: `:hidden` is not rendered; `:submit` / `:reset`
+  / `:button` carry a name via their `:value` (or a UA default); `:image`
+  carries its name via `:alt` (already covered by `accessible-name?`).
+  Every other input type (text, email, password, checkbox, radio, …) is a
+  named control. Strings and keywords are both accepted (`:type \"text\"`
+  and `:type :text`)."
+  #{"hidden" "submit" "reset" "button" "image"})
+
+(defn- input-needs-name?
+  "True iff an `:input` element with `attrs` is a control that requires an
+  accessible name — i.e. its `:type` is not one of the name-exempt types
+  (`input-types-needing-no-name`). A `:type`-less input defaults to
+  `\"text\"`, which DOES need a name. Pure data → data."
+  [attrs]
+  (let [t (:type attrs)
+        t (cond (keyword? t) (name t)
+                (string? t)  t
+                (nil? t)     "text"        ; UA default type
+                :else        (str t))]
+    (not (contains? input-types-needing-no-name t))))
+
+(defn- interactive-needs-name?
+  "True iff a hiccup element with `tag` / `attrs` is an interactive control
+  that requires an accessible name in the structural floor: an
+  always-interactive tag (`interactive-tags`), OR an `:input` whose `:type`
+  is not name-exempt (`input-needs-name?`). Pure data → data."
+  [tag attrs]
+  (or (contains? interactive-tags tag)
+      (and (= :input tag) (input-needs-name? attrs))))
 
 (defn- node-issues
   "Structural a11y issues for ONE hiccup element (not its descendants).
@@ -349,7 +385,7 @@
                         :detail "img element has no :alt attribute"})
 
                  ;; interactive control needs an accessible name
-                 (and (contains? interactive-tags tag)
+                 (and (interactive-needs-name? tag attrs)
                       (not (accessible-name? attrs node)))
                  (conj {:rule :control-missing-name :tag tag
                         :detail (str (name tag) " control has no accessible name "

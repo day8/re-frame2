@@ -94,6 +94,34 @@
                 [] {:hiccup [:div [:button {:aria-label "close"}]]})]
       (is (= :pass (:status rec))))))
 
+(deftest structural-a11y-detects-unlabeled-input
+  ;; rf2-81ud8 — an interactive <input> with no accessible name is a genuine
+  ;; structural a11y issue; the structural floor now flags it (the docstring
+  ;; no longer claims a call-site check that did not exist).
+  (testing "an :input with no accessible name and a named type is flagged"
+    (let [rec (browser/eval-structural-a11y [] {:hiccup [:div [:input {:type "text"}]]})]
+      (is (= :fail (:status rec)))
+      (is (= :control-missing-name (-> rec :actual first :rule)))
+      (is (= :input (-> rec :actual first :tag)))))
+  (testing "a :type-less :input defaults to text and is flagged when unnamed"
+    (let [rec (browser/eval-structural-a11y [] {:hiccup [:div [:input {}]]})]
+      (is (= :fail (:status rec)))
+      (is (= :control-missing-name (-> rec :actual first :rule)))))
+  (testing "a labeled :input is clean (aria-label / title supply the name)"
+    (is (= :pass (:status (browser/eval-structural-a11y
+                            [] {:hiccup [:div [:input {:type "text" :aria-label "name"}]]}))))
+    (is (= :pass (:status (browser/eval-structural-a11y
+                            [] {:hiccup [:div [:input {:type :email :title "email"}]]}))))))
+
+(deftest structural-a11y-name-exempt-input-types-pass
+  ;; rf2-81ud8 — hidden / submit / reset / button / image inputs do NOT need
+  ;; an explicit accessible name (not rendered, or named via :value / :alt).
+  (testing "name-exempt input types are clean even without an accessible name"
+    (doseq [t ["hidden" "submit" "reset" "button" "image" :hidden :submit]]
+      (let [rec (browser/eval-structural-a11y [] {:hiccup [:div [:input {:type t}]]})]
+        (is (= :pass (:status rec))
+            (str "input :type " (pr-str t) " should not require a name"))))))
+
 (deftest structural-a11y-detects-positive-tabindex
   (testing "a positive :tabIndex is a structural issue (both spellings)"
     (let [rec  (browser/eval-structural-a11y [] {:hiccup [:div {:tabIndex 3} "x"]})
