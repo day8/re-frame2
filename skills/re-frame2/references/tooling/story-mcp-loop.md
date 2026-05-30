@@ -90,7 +90,7 @@ Loop terminates. The agent reports the final variant body back to the user.
 
 - **Write surface is gated.** `register-variant` / `unregister-variant` require `re-frame.story-mcp.config/allow-writes?` truthy — set via `--allow-writes` flag, `RF_STORY_MCP_ALLOW_WRITES=true` env, or `-Drf.story-mcp.allow-writes=true` JVM property. Without it the loop is read-only (`run-variant` + `read-failures` still work against existing variants).
 - **`register-variant`'s parent story must already exist.** v1.1 omits `register-story` deliberately. The agent fails into a documented error when the `:story.<path>` parent isn't registered; the user lands the parent inline.
-- **`read-failures` does not re-run.** It reads the last-run accumulator. Pair with `run-variant` per iteration; do not assume an old `:passing? false` reflects the current body.
+- **`read-failures` does not re-run.** It reads the last-run accumulator. Pair with `run-variant` per iteration; do not assume an old `:status :fail` reflects the current body.
 
 ## Common gotchas — loop-specific
 

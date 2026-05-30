@@ -460,15 +460,17 @@ contract per
 §Test Codegen.
 
 Optional `:write-back` re-registers the source variant with the
-captured recording translated to a live `:play-script` body via
+captured recording translated to a live play body via
 `reg-variant*` (preserving the existing `:component`, `:args`,
 `:decorators`, etc.). The translation routes through
 `re-frame.story/recording->play-script` — each captured event becomes
-a `[:dispatch ...]` step under `:play-script {:script [...]}`, the
-canonical AND ONLY phase-4 replay slot (per rf2-0wrud; the legacy
-`:play` slot was removed and no runner executes it). This branch is
-gated behind the same `allow-writes?` flag as `register-variant`; the
-read-only path (snippet only) needs no gate.
+a `[:dispatch ...]` step under `:play-script {:script [...]}`. The
+emitted `:play-script` is the transitional spelling the registrar
+lowers; `:script` is the public phase-4 name (spec/017 §Public
+vocabulary). The legacy `:play` slot was removed (rf2-0wrud) and no
+runner executes it. This branch is gated behind the same
+`allow-writes?` flag as `register-variant`; the read-only path
+(snippet only) needs no gate.
 
 Wire-key shape (rf2-pmwgn): the input-schema property key is
 `:write-back` (no `?`) — the same Anthropic `^[a-zA-Z0-9_.-]{1,64}$`
