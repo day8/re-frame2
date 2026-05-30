@@ -7,7 +7,11 @@
     fingerprint detector ticks.
   - Calls `run-variant` with the active modes / cell-overrides / substrate.
   - Renders the variant's `:component` (registered re-frame view) under
-    the `:hiccup` decorator stack from `resolve-decorators`.
+    the `:hiccup` decorator stack from `resolve-decorators` — which reads
+    the FULL stack (globals + story + variant chain) off the compiled
+    plan's `[:world :decorators]` (rf2-5fibj / rf2-din8u), the SAME refs
+    `render-variant`'s host applies, so canvas + render-variant paint the
+    identical decorated tree.
   - Surfaces variant-level errors inline (per IMPL-SPEC §2.2 +
     `:assertions`).
 

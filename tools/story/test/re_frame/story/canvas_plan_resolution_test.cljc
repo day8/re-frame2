@@ -34,6 +34,7 @@
   registrar are all JVM-runnable, so the DEFAULT lookup works under both
   `clojure -M:test` and `npm run test:cljs`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.plan       :as plan]
@@ -58,10 +59,19 @@
 (defn reset-fixture [test-fn]
   (registrar/clear-all!)
   (framework-registrar/clear-kind! :sub)
+  ;; The global-decorators vector is a process-global config atom (NOT part
+  ;; of the side-table `clear-all!` wipes), so a test that sets globals
+  ;; would leak into siblings. Clear it before each test and restore the
+  ;; pre-test value after (rf2-5fibj).
+  (config/set-global-decorators! [])
   ;; `:sub-overrides` validation soft-passes when a sub carries no output
   ;; schema (the host-free floor), so an unregistered :sub is fine here.
-  (let [snapshot @late-bind/hooks]
-    (try (test-fn) (finally (reset! late-bind/hooks snapshot)))))
+  (let [snapshot       @late-bind/hooks
+        globals-before (config/get-global-decorators)]
+    (try (test-fn)
+         (finally
+           (reset! late-bind/hooks snapshot)
+           (config/set-global-decorators! globals-before)))))
 
 (use-fixtures :each reset-fixture)
 
@@ -186,6 +196,57 @@
                 pack's :hiccup ids"
         (is (= canvas-ids
                (mapv :id (:hiccup (decorators/resolve-decorator-refs rv-refs)))))))))
+
+(deftest canvas-and-render-variant-agree-on-full-decorator-stack
+  (testing "the canvas + render-variant resolve the SAME FULL decorator
+            stack — GLOBAL + parent-STORY + variant — off the ONE compiled
+            [:world :decorators] (rf2-5fibj). The prior
+            `canvas-and-render-variant-agree-on-decorators` test exercised
+            only variant + :extends decorators, so the host-path drop of
+            globals + story slipped CI green (the din8u CI-blind-spot, one
+            layer up): the plan folded only the variant chain, the canvas
+            re-assembled globals+story+variant, so they DIVERGED."
+    (registrar/reg-decorator* :deco/global-theme
+                              {:kind :hiccup :wrap (fn [body _] [:div.global body])})
+    (registrar/reg-decorator* :deco/story-frame
+                              {:kind :hiccup :wrap (fn [body _] [:div.story body])})
+    (registrar/reg-decorator* :deco/variant-pad
+                              {:kind :hiccup :wrap (fn [body _] [:div.variant body])})
+    ;; GLOBAL decorator (the layer the host path dropped) — Storybook
+    ;; preview.ts parity, rf2-835ey.
+    (config/set-global-decorators! [[:deco/global-theme]])
+    ;; parent-STORY decorator (the OTHER layer the host path dropped) — the
+    ;; variant id's namespace resolves to this story.
+    (registrar/reg-story* :story.fullstack
+                          {:decorators [[:deco/story-frame]]})
+    ;; the variant adds its own decorator on top.
+    (registrar/reg-variant* :story.fullstack/v
+                            {:component  :views/widget
+                             :decorators [[:deco/variant-pad]]
+                             :events     []})
+    (let [;; render-variant's render-inputs carry the FULL stack off the plan.
+          prepared    (render/prepare-render :story.fullstack/v)
+          rv-refs     (get-in prepared [:render-inputs :decorators])
+          ;; the canvas resolves the same plan-sourced refs into its pack.
+          canvas-pack (decorators/resolve-decorators :story.fullstack/v)
+          canvas-ids  (mapv :id (:hiccup canvas-pack))]
+      (testing "the compiled plan carries the FULL stack in order: global
+                outermost, then story, then variant (NOT just the variant
+                chain — the pre-rf2-5fibj plan dropped globals + story)"
+        (is (= [[:deco/global-theme] [:deco/story-frame] [:deco/variant-pad]]
+               rv-refs)))
+      (testing "the canvas pack resolves the SAME full stack in the SAME order"
+        (is (= [:deco/global-theme :deco/story-frame :deco/variant-pad]
+               canvas-ids)))
+      (testing "both paths agree: render-variant's refs resolve to the canvas
+                pack's :hiccup ids — IDENTICAL decorated tree"
+        (is (= canvas-ids
+               (mapv :id (:hiccup (decorators/resolve-decorator-refs rv-refs))))))
+      (testing "and applying the stack wraps the leaf globals-outermost,
+                variant-innermost (the rendered tree both paths paint)"
+        (is (= [:div.global [:div.story [:div.variant [:span "leaf"]]]]
+               (decorators/apply-hiccup-decorators
+                 (:hiccup canvas-pack) [:span "leaf"] {})))))))
 
 (deftest render-variant-applies-decorators-through-shared-seam
   (testing "render-variant's host renders the SAME decorator refs the canvas

@@ -118,6 +118,7 @@
   tests."
   (:require [re-frame.story.args         :as args]
             [re-frame.story.assertions   :as assertions]
+            [re-frame.story.config       :as config]
             [re-frame.story.registrar    :as registrar]
             [re-frame.story.requirements :as requirements]
             [re-frame.story.malli-schema :as msu]
@@ -1070,6 +1071,25 @@
   [check-id]
   (registrar/handler-meta :check check-id))
 
+(defn- default-global-decorators
+  "Default global-decorators ref vector — reads the project-wide
+  `config/get-global-decorators` (rf2-835ey — Storybook `preview.ts`
+  `decorators: [...]` parity, the outermost wrap layer). Production
+  bundles with Story elided register no globals, so the vector is empty
+  there; pure tests thread an explicit `:global-decorators`."
+  []
+  (config/get-global-decorators))
+
+(defn- default-story-decorators-lookup
+  "Default story-level `:decorators` lookup — reads the parent story body's
+  `:decorators` slot off the Story side-table `:story` kind. The full
+  decorator stack folded into `[:world :decorators]` is `(concat globals
+  story variant-chain)`, with the parent story's decorators sitting between
+  the project-wide globals and the variant chain. Production bundles elide
+  the side-table; pure tests thread an explicit `:story-decorators`."
+  [story-id]
+  (:decorators (registrar/handler-meta :story story-id)))
+
 (defn expand-checks
   "Expand a plan's `:expect :checks` ids into the
   `{check-id [assertion-atom …]}` map the unified run-result groups its
@@ -1116,16 +1136,43 @@
   - `:sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` OR a `{sub-id →
     sub-meta}` map resolving a subscription's registration metadata (for
     its OUTPUT schema, against which `:sub-overrides` values are validated
-    — rf2-5x1wt.13). Defaults to the framework `:sub` registrar."
+    — rf2-5x1wt.13). Defaults to the framework `:sub` registrar.
+  - `:global-decorators` — the project-wide global-decorators ref vector
+    (or a 0-arg fn returning one) prepended to `[:world :decorators]` as
+    the outermost wrap layer (rf2-5fibj / rf2-835ey). Defaults to
+    `config/get-global-decorators`; pure tests pass an explicit vector.
+  - `:story-decorators` — a 1-arg fn `(story-id) → decorators-vec` OR a
+    `{story-id → decorators-vec}` map resolving the parent story's
+    `:decorators` slot (folded between globals and the variant chain —
+    rf2-5fibj). Defaults to the Story side-table `:story` kind."
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
-                           fragment-lookup check-lookup] :as _opts}]
+                           fragment-lookup check-lookup
+                           global-decorators story-decorators] :as _opts}]
   (let [view-lookup  (coerce-kind-lookup :view-lookup view-lookup default-view-lookup)
         sub-lookup   (coerce-kind-lookup :sub-lookup sub-lookup default-sub-lookup)
         frag-lookup  (coerce-kind-lookup :fragment-lookup fragment-lookup
                                          default-fragment-lookup)
         chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
                                          default-check-lookup)
+        ;; ---- ambient decorator layers (rf2-5fibj) ----
+        ;; The full decorator stack folded into `[:world :decorators]` is
+        ;; `(concat globals story variant-chain)` — the SAME set
+        ;; `decorators/collect-decorator-refs` used to assemble at resolve
+        ;; time. Folding it HERE makes the compiled plan the single source
+        ;; of truth (rf2-din8u): the canvas (via `resolve-decorators`) and
+        ;; `render-variant` (via `render-inputs`' `:decorators`) both read
+        ;; `[:world :decorators]`, so they paint the IDENTICAL decorator
+        ;; tree. Globals + story decorators are AMBIENT (not part of the
+        ;; variant body or its `:extends` chain), resolved through the
+        ;; project config + the parent-story body — both overridable for
+        ;; pure JVM tests, exactly like the view / sub / fragment lookups.
+        global-decos (cond
+                       (nil? global-decorators) (default-global-decorators)
+                       (fn?  global-decorators) (global-decorators)
+                       :else                    global-decorators)
+        story-deco-lk (coerce-kind-lookup :story-decorators story-decorators
+                                          default-story-decorators-lookup)
         chain        (resolve-source-chain id body lookup)
         bodies       (map :body chain)         ; root-first
         inherited    (vec (butlast bodies))    ; root → immediate parent
@@ -1356,6 +1403,21 @@
         ;; ---- source coords ----
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})
+        ;; ---- full decorator stack (rf2-5fibj) ----
+        ;; `(concat globals story variant-chain)` — globals outermost, then
+        ;; the parent story's `:decorators`, then the variant-chain slot
+        ;; (`(:decorators ctx)` — the `:extends`-merged, child-wins refs).
+        ;; The SAME ordered set `decorators/collect-decorator-refs` used to
+        ;; assemble at resolve time; folding it onto `[:world :decorators]`
+        ;; here makes the compiled plan the single source of truth, so the
+        ;; canvas + render-variant resolve the identical stack (rf2-din8u).
+        ;; Each layer falls through to `[]` when absent — the empty-collection
+        ;; concat is render-transparent.
+        story-decos  (vec (when-let [sid (args/parent-story-id id)]
+                            (story-deco-lk sid)))
+        full-decos   (vec (concat global-decos
+                                  story-decos
+                                  (or (:decorators ctx) [])))
         world        (cond-> {:setup          setup
                               :args           arg-map
                               :argtypes       argtypes
@@ -1386,7 +1448,11 @@
                        ;; completion predicate from the plan alone.
                        (contains? ctx :loaders-complete-when) (assoc :loaders-complete-when (:loaders-complete-when ctx))
                        (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
-                       (contains? ctx :decorators)  (assoc :decorators (:decorators ctx))
+                       ;; rf2-5fibj — the FULL stack (globals + story +
+                       ;; variant chain), not just `(:decorators ctx)`. Folded
+                       ;; when non-empty so a bare variant carries no slot
+                       ;; (render-transparent), exactly as before.
+                       (seq full-decos)             (assoc :decorators full-decos)
                        (contains? ctx :modes)       (assoc :modes (:modes ctx))
                        (contains? ctx :substrates)  (assoc :substrates (:substrates ctx))
                        (contains? ctx :viewport)    (assoc :viewport (:viewport ctx))
@@ -1507,6 +1573,12 @@
     sub-meta}` map resolving a subscription's registration metadata for
     its OUTPUT schema, against which `:sub-overrides` values are validated
     (rf2-5x1wt.13). Defaults to the framework `:sub` registrar.
+  - `:global-decorators` / `:story-decorators` — the ambient decorator
+    layers folded into the FULL `[:world :decorators]` stack (rf2-5fibj):
+    a global-decorators ref vector (or 0-arg fn) defaulting to
+    `config/get-global-decorators`, and a `(story-id) → decorators-vec`
+    lookup defaulting to the Story side-table `:story` kind. Pure tests
+    thread explicit values; the live runtime uses the defaults.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view
@@ -1525,7 +1597,8 @@
   ([target {:keys [lookup] :as opts}]
    (let [lookup-fn    (coerce-kind-lookup :lookup lookup default-lookup)
          compile-opts (select-keys opts [:view-lookup :validator-fns :sub-lookup
-                                         :fragment-lookup :check-lookup])]
+                                         :fragment-lookup :check-lookup
+                                         :global-decorators :story-decorators])]
      (cond
        (keyword? target)
        (if-let [body (lookup-fn target)]

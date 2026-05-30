@@ -36,65 +36,41 @@
   Unknown decorator-ids surface as an entry in the returned `:errors`
   vector; the runtime then projects those into the variant's
   `:assertions` (per IMPL-SPEC §5.5)."
-  (:require [re-frame.story.args      :as args]
-            [re-frame.story.config    :as config]
-            [re-frame.story.plan      :as plan]
+  (:require [re-frame.story.plan      :as plan]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---- collection -----------------------------------------------------------
 
-(defn- variant-decorator-refs
-  "Return the variant's RESOLVED `:decorators` ref vector, or `[]`.
+(defn- collect-decorator-refs
+  "Return the variant's FULL ordered `[decorator-ref ...]` list — globals
+  (outermost), then the parent story's `:decorators`, then the variant
+  chain — by reading the COMPILED plan's `[:world :decorators]`, NOT by
+  re-assembling the three sources here (rf2-5fibj / rf2-din8u).
 
-  Reads the COMPILED plan's `[:world :decorators]` — NOT the raw
-  side-table body (rf2-g74i9, spec/017 §305-306). The plan compiler
-  (`re-frame.story.plan`) is the single `:extends` merge authority: it
-  walks the `:extends` parent chain and folds each ancestor's
-  `:decorators` into `[:world :decorators]` (`context-keys` inheritance,
-  child-wins per `merge-context`). Reading the raw body's `:decorators`
-  straight off the side-table — as this fn used to — saw ONLY the
-  child's own slot, so an `:extends` child that declared no
-  `:decorators` resolved an EMPTY stack and the parent's decorators were
-  silently dropped (inheritance dead). Routing through the plan makes
-  the registered path share the same merged refs the inline-plan runtime
-  path already consumes from `[:world :decorators]`, so both paths agree.
+  The plan compiler (`re-frame.story.plan`) is now the SINGLE source of
+  the full stack: it folds `(concat globals story variant-chain)` into
+  `[:world :decorators]` (rf2-5fibj), the SAME set this fn used to
+  `concat` at resolve time. Reading it off the plan means the registered
+  front-door path (`resolve-decorators`, which the canvas calls), the
+  inline-plan runtime path (`resolve-decorator-refs` over the plan's
+  refs), and `render-variant` (which reads `render-inputs`' `:decorators`,
+  also off `[:world :decorators]`) ALL resolve the identical stack — no
+  second assembly engine to diverge. Before rf2-5fibj this fn prepended
+  globals + story while the plan carried only the variant chain, so
+  `render-variant` (reading the plan alone) dropped globals + story and
+  diverged from the live canvas.
+
+  Globals + story are AMBIENT (project config + parent-story body), not
+  part of the variant body — the plan resolves them through
+  `config/get-global-decorators` + the `:story` side-table; this fn just
+  consumes the result. Active modes contribute no decorators at v1 — per
+  IMPL-SPEC §3.1 modes carry `:args` only.
 
   `decorators → plan` is acyclic (plan does NOT require decorators). The
-  compile is the same pure data→data the runtime's plan compile is; the
-  per-variant cost is one extra compile per resolution, which the single-
-  merge-authority invariant pays for (no second merge engine to diverge)."
+  per-variant cost is one plan compile per resolution, which the single-
+  source invariant pays for (no second merge engine to diverge)."
   [variant-id]
   (or (get-in (plan/variant-plan variant-id) [:world :decorators]) []))
-
-(defn- story-decorator-refs
-  "Return the parent story's `:decorators` vector, or `[]`."
-  [variant-id]
-  (let [story-id (args/parent-story-id variant-id)
-        body     (when story-id (registrar/handler-meta :story story-id))]
-    (or (:decorators body) [])))
-
-(defn- global-decorator-refs
-  "Return the ordered global-decorators ref vector, or `[]`. Per
-  rf2-835ey — Storybook `preview.ts` `decorators: [...]` parity.
-  Earliest-registered first."
-  []
-  (config/get-global-decorators))
-
-(defn- collect-decorator-refs
-  "Build the ordered `[decorator-ref ...]` list for the variant.
-
-  Global decorators come first (outermost when applied as hiccup
-  wrappers), story decorators second, variant decorators last. Active
-  modes contribute no decorators at v1 — per IMPL-SPEC §3.1 modes carry
-  `:args` only.
-
-  Per rf2-835ey the global-decorators layer prepends — symmetric to
-  `global-args` being Layer 1 of args-resolution. The full stack is
-  `(concat globals story variant)`."
-  [variant-id]
-  (vec (concat (global-decorator-refs)
-               (story-decorator-refs variant-id)
-               (variant-decorator-refs variant-id))))
 
 ;; ---- resolution -----------------------------------------------------------
 
@@ -254,15 +230,16 @@
   :fingerprints}` shape `resolve-decorators` returns — but WITHOUT reading
   the variant/story side-table for the ref collection.
 
-  `resolve-decorators` is the registered-variant front door: it collects
-  the global + story + variant refs from the side-table, then delegates
-  here. The inline-plan runtime path (rf2-5x1wt.20) calls this directly
-  with the plan's already-resolved `[:world :decorators]` refs (which the
-  compiler merged from the variant chain + composed fragments), so an
-  inline plan that is absent from the side-table still gets its decorator
-  stack classified the same way. The decorator BODIES are still looked up
-  against the `:decorator` registry (a decorator is a registered artefact;
-  only the variant's ref LIST differs between the two paths)."
+  `resolve-decorators` is the registered-variant front door: it reads the
+  FULL `[:world :decorators]` stack (globals + story + variant chain) off
+  the compiled plan (rf2-5fibj), then delegates here. The inline-plan
+  runtime path (rf2-5x1wt.20) and `render-variant` (via `render-inputs`'
+  `:decorators`) call this directly with the SAME `[:world :decorators]`
+  refs, so an inline plan absent from the side-table — and the live canvas
+  + render-variant alike — all classify the identical stack. The decorator
+  BODIES are still looked up against the `:decorator` registry (a decorator
+  is a registered artefact; only the variant's ref LIST is sourced from the
+  plan)."
   [refs]
   (let [resolved   (mapv resolve-ref refs)
         {:keys [hiccup frame-setup fx-override errors]}
