@@ -22,18 +22,25 @@
   ## What the diff covers (spec §Semantic diff)
 
   Each facet is projected from the canonical run-result and compared
-  independently, so a diff localises WHERE two runs parted:
+  independently, so a diff localises WHERE two runs parted. `facet-fns` is
+  the authoritative ordered enumeration; it ships these ten:
 
+  - `:status`            — the top-level run status, when it differs;
   - `:app-db`            — a readable key-path delta of the final app-db
                            (`:added` / `:removed` / `:changed` paths, each a
                            `{:path … :baseline … :current …}`-style entry);
+  - `:assertions`        — terminal assertion verdicts that diverge, by id;
+  - `:checks`            — mid-script `[:assert …]` checkpoint verdicts that
+                           diverge;
   - `:effects`           — effects emitted by one run and not the other
                            (multiset delta — `:only-baseline` / `:only-current`);
   - `:schema-violations` — schema failures by surface selector
                            (`re-frame.story.play.evidence/violation-selector`);
+  - `:warnings`          — warning records present in one run and not the other;
   - `:trace-ops`         — the trace `:operation` sequence (the causal op
                            spine), as an ordered alignment of the two;
-  - `:status`            — the top-level run status, when it differs.
+  - `:sub-overrides`     — the `{query-vector data}` sub-override map delta;
+  - `:fidelity`          — the `#{fidelity-token …}` set delta.
 
   The facet set is EXACTLY the canonical run-slice
   (`fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
@@ -81,9 +88,12 @@
 
   ## Pure / JVM-testable
 
-  The facet diff fns (`diff-app-db`, `diff-effects`, `diff-schema-violations`,
-  `diff-trace-ops`, …) and the assembler (`diff-runs`) are pure data → data:
-  two run-results in, a readable diff out. `diff-sub-runs` is pure too but is
+  The ten facet diff fns wired into `facet-fns` — `diff-status`,
+  `diff-app-db`, `diff-assertions`, `diff-checks`, `diff-effects`,
+  `diff-schema-violations`, `diff-warnings`, `diff-trace-ops`,
+  `diff-sub-overrides`, `diff-fidelity` — plus the coarse `diverging-slice-keys`
+  fallback and the assembler (`diff-runs`) are pure data → data: two
+  run-results in, a readable diff out. `diff-sub-runs` is pure too but is
   diagnostic-only — not wired into `diff-runs` (it is outside the `:same?`
   slice). `diff-run-artifacts` is the thin replay-then-`diff-runs` wrapper for
   the artifact inputs."
