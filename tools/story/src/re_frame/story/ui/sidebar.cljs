@@ -61,6 +61,7 @@
             [re-frame.story.theme.colors      :as colors]
             [re-frame.story.theme.glyphs      :as glyphs]
             [re-frame.story.ui.sidebar-search :as search]
+            [re-frame.story.ui.sidebar-signals :as signals]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
             [re-frame.story.ui.state          :as state]))
 
@@ -134,6 +135,31 @@
   (->> (or tags #{})
        (sort-by name)
        vec))
+
+;; ---- pure: large-list bounding (rf2-ba86n.4) ----------------------------
+
+(def default-variant-cap
+  "Per-story variant cap before the sidebar bounds the list with a
+  '+N more' expander (spec/018 §10 — cap or page large lists; the UI
+  SHOULD fail by summarizing and offering expansion, not by flooding the
+  screen). Sized so a typical design-system story (a handful to a dozen
+  variants) is never bounded, but a matrix-scale story stays scannable
+  until the author opts to expand it."
+  40)
+
+(defn bound-variants
+  "Pure data → data: bound a story's variant seq to at most `cap` entries
+  unless `expanded?`. Returns `{:shown [...] :hidden <n>}` — `:shown` is the
+  capped (or full, when expanded) prefix and `:hidden` is the count elided
+  (0 when nothing was bounded). Keeps the sidebar bounded at realistic
+  project scale without dropping any variant from reach (the expander
+  reveals the rest). JVM-testable."
+  [variants cap expanded?]
+  (let [total (count variants)]
+    (if (or expanded? (<= total cap))
+      {:shown (vec variants) :hidden 0}
+      {:shown  (vec (take cap variants))
+       :hidden (- total cap)})))
 
 ;; ---- components ----------------------------------------------------------
 
@@ -247,6 +273,85 @@
                    :title     (str tag)}
             (name tag)]))])))
 
+;; ---- signal chips (rf2-ba86n.4) -----------------------------------------
+;;
+;; Five DISTINCT axes (spec/018 §7.1 + §12.6) — status / fidelity /
+;; world-inputs / runner-requirement / frame-binding. The pure derivation
+;; lives in `re-frame.story.ui.sidebar-signals` (JVM-testable); this layer
+;; renders each axis as its OWN chip group so args / network / fx-overrides
+;; / browser / MCP-bound are never collapsed into one 'fidelity' concept.
+;; The render-only style-key projections live here next to the styles.
+
+(def status-signal->style-key
+  "Pure data → data: map a status value to the styles map key that tints
+  its chip. Public so the test corpus can exercise the projection."
+  {:pass       :signal-status-pass
+   :fail       :signal-status-fail
+   :cannot-run :signal-status-cannot-run
+   :error      :signal-status-error
+   :running    :signal-status-running
+   :pending    :signal-status-pending
+   :blocked    :signal-status-blocked
+   :dirty      :signal-status-dirty
+   :redacted   :signal-status-redacted})
+
+(def axis->group-style-key
+  "Pure data → data: the per-axis tint applied to a non-status chip so each
+  axis reads as its own visual family (spec/018 §12.6 — fidelity, world
+  inputs, runner requirements, and frame binding are different label
+  families, never one 'fidelity' concept)."
+  {:fidelity           :signal-fidelity
+   :world-inputs       :signal-world
+   :runner-requirement :signal-runner
+   :frame-binding      :signal-frame})
+
+(defn- signal-chip
+  "Render one signal chip. `axis` selects the per-axis tint (status chips
+  additionally key on their value for the per-status colour/shape). The
+  chip carries `data-axis` + `data-value` so the test corpus + a11y users
+  can read which axis/value it represents without parsing the label."
+  [{:keys [axis value label]}]
+  (let [tint (if (= :status axis)
+               (get styles (status-signal->style-key value))
+               (let [base (get styles (axis->group-style-key axis))]
+                 (if (and (= :frame-binding axis) (= :attached value))
+                   (merge base (:signal-frame-attached styles))
+                   base)))]
+    ^{:key (str (name axis) "-" (name value))}
+    [:span {:style       (merge (:signal-chip styles) tint)
+            :data-test   "story-sidebar-signal-chip"
+            :data-axis   (name axis)
+            :data-value  (name value)
+            :title       (str (name axis) ": " label)}
+     label]))
+
+(defn signal-chips
+  "Render the five-axis signal-chip strip for a variant below its row.
+  `body` is the raw variant body; `status` is the run-status keyword.
+  Each axis is its OWN `<span>` group (status / fidelity / world-inputs /
+  runner-requirement / frame-binding) so they stay visually distinct and
+  the labels never collapse into one 'fidelity' concept (spec/018 §7.1).
+  Status / runner-requirement / frame-binding always render one chip;
+  fidelity / world-inputs render zero-or-more. Public so the JVM + CLJS
+  test corpus can render and inspect the hiccup directly."
+  [body status]
+  (let [{:keys [status fidelity world-inputs runner-requirement frame-binding]}
+        (signals/variant-signals body status)]
+    [:div {:style       (:signal-row styles)
+           :data-test   "story-sidebar-signal-row"}
+     [:span {:style (:signal-group styles) :data-axis "status"}
+      [signal-chip status]]
+     (when (seq fidelity)
+       [:span {:style (:signal-group styles) :data-axis "fidelity"}
+        (for [s fidelity] (signal-chip s))])
+     (when (seq world-inputs)
+       [:span {:style (:signal-group styles) :data-axis "world-inputs"}
+        (for [s world-inputs] (signal-chip s))])
+     [:span {:style (:signal-group styles) :data-axis "runner-requirement"}
+      [signal-chip runner-requirement]]
+     [:span {:style (:signal-group styles) :data-axis "frame-binding"}
+      [signal-chip frame-binding]]]))
+
 (defn- highlighted-label
   "rf2-yngai — render a variant / story label with the matched
   substring wrapped in an amber-tint span. Returns a hiccup fragment
@@ -284,8 +389,53 @@
         (= k "Enter") (do (.preventDefault evt) (f))
         (= k " ")     (do (.preventDefault evt) (f))))))
 
+;; rf2-ba86n.4 — keyboard movement across the sidebar nav (spec/018 §7.1 +
+;; §3.1 — 'keyboard movement … fast across large projects'). ArrowDown /
+;; ArrowUp move focus to the next / previous row WITHIN the sidebar; Home /
+;; End jump to the first / last. Rows are `role="button"` `tabindex="0"`
+;; `<div>`s (variant / story / workspace / expander), so the movement is a
+;; DOM walk over the nav's focusable rows — no per-row index bookkeeping to
+;; drift out of sync as the filtered tree re-renders. The roving model
+;; mirrors the WAI-ARIA listbox/tree movement practice; activation stays
+;; Enter/Space (`on-row-key-down`).
+(defn- focusable-rows
+  "The sidebar's focusable row elements, in document order. A row is a
+  `[data-test^=\"story-sidebar-\"]` element exposing `role=\"button\"` (the
+  variant / story / workspace rows + the '+N more' expander). Reads off the
+  `^js nav` DOM node so the walk reflects the CURRENT rendered tree."
+  [^js nav]
+  (when nav
+    (vec (.querySelectorAll nav "[role=\"button\"][tabindex]"))))
+
+(defn- nav-key-down
+  "Build the sidebar `<nav>`'s `:on-key-down` handler for keyboard
+  movement. ArrowDown / ArrowUp step focus to the next / previous row;
+  Home / End jump to the first / last. No-ops (and lets the event through)
+  for any other key, and when focus is in the search input or a control
+  (so typing in the search box still works). Pure DOM movement — selection
+  follows on Enter/Space via the row's own handler."
+  [^js evt]
+  (let [k      (.-key evt)
+        target (.-target evt)
+        tag    (some-> target .-tagName .toLowerCase)]
+    ;; Don't hijack arrows while typing in the search input / a control.
+    (when-not (#{"input" "textarea" "select"} tag)
+      (when (#{"ArrowDown" "ArrowUp" "Home" "End"} k)
+        (let [nav  (.-currentTarget evt)
+              rows (focusable-rows nav)
+              n    (count rows)]
+          (when (pos? n)
+            (.preventDefault evt)
+            (let [idx (.indexOf rows target)
+                  nxt (case k
+                        "ArrowDown" (if (neg? idx) 0 (min (dec n) (inc idx)))
+                        "ArrowUp"   (if (neg? idx) 0 (max 0 (dec idx)))
+                        "Home"      0
+                        "End"       (dec n))]
+              (some-> (nth rows nxt nil) (.focus)))))))))
+
 (defn- variant-row
-  [variant-id selected? testable? status tags query]
+  [variant-id selected? testable? status tags query body]
   (let [activate (fn []
                    ;; rf2-hscut — symmetric escape from workspace mode.
                    ;; Selecting a variant clears any previously-selected
@@ -297,6 +447,7 @@
                      (fn [s] (-> s
                                  (state/select-variant variant-id)
                                  (state/select-workspace nil)))))]
+  [:<>
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
@@ -324,7 +475,11 @@
    ;; rf2-yngai — wrap label so matched substrings render with the
    ;; amber-tint highlight when a search query is in flight.
    (into [:span] (highlighted-label (str "/" (name variant-id)) query))
-   [tag-badges tags]]))
+   [tag-badges tags]]
+   ;; rf2-ba86n.4 — the five-axis signal strip, on its own dense line
+   ;; below the variant id so a long signal set never overflows the row
+   ;; (spec/018 §7.1 + §10). Each axis is a distinct chip group.
+   [signal-chips body status]]))
 
 (defn- story-block
   "Render one story header + its variants. `entry` shape is
@@ -337,13 +492,23 @@
   a search query is in flight.
   rf2-8j7wg (audit C-4): the story header row is itself clickable —
   it opens the rollup docs page that aggregates every variant's docs
-  sections. Mirrors Storybook's `Component.docs` parent-level page."
-  [{:keys [story-id variants]} selected-variant selected-story testable-set test-runs query]
+  sections. Mirrors Storybook's `Component.docs` parent-level page.
+
+  rf2-ba86n.4: a story whose variant count exceeds `default-variant-cap`
+  is BOUNDED — only the first `cap` rows render, with a '+N more'
+  expander that flips the per-story `expanded-stories` slot. Keeps the
+  sidebar scannable at design-system / matrix scale (spec/018 §10) without
+  dropping any variant from reach. A live search query is the user's own
+  narrowing, so a searched list is never bounded."
+  [{:keys [story-id variants]} selected-variant selected-story testable-set test-runs query
+   expanded-stories searching?]
   (let [registered? (some? story-id)
         selected?   (and registered? (= story-id selected-story))
         activate    (fn []
                       (when registered?
-                        (state/swap-state! state/select-story story-id)))]
+                        (state/swap-state! state/select-story story-id)))
+        expanded?   (or searching? (contains? @expanded-stories story-id))
+        {:keys [shown hidden]} (bound-variants variants default-variant-cap expanded?)]
     [:div {:style (:story-block styles)}
      [:div (cond-> {:style       (merge (:story-row styles)
                                         (when selected?
@@ -360,21 +525,67 @@
       [:span {:style (:story-glyph styles)}
        [glyphs/story-glyph 13]]
       (into [:span] (highlighted-label (str (or story-id "(no story)")) query))]
-     (for [[vid body] variants]
+     (for [[vid body] shown]
        (let [testable? (contains? testable-set vid)
              status    (or (get-in test-runs [vid :status]) :pending)
              tags      (:tags body)]
          ^{:key vid}
-         [variant-row vid (= vid selected-variant) testable? status tags query]))]))
+         [variant-row vid (= vid selected-variant) testable? status tags query body]))
+     ;; rf2-ba86n.4 — the bounding expander. `role="button"` + Enter/Space
+     ;; so keyboard-only users can reveal the elided rows.
+     (when (pos? hidden)
+       (let [reveal (fn [] (swap! expanded-stories conj story-id))]
+         [:div {:style       (:variant-more styles)
+                :data-test   "story-sidebar-variant-more"
+                :data-hidden (str hidden)
+                :role         "button"
+                :tab-index    "0"
+                :aria-label   (str "Show " hidden " more variants under "
+                                   (or story-id "(no story)"))
+                :on-key-down  (on-row-key-down reveal)
+                :on-click     (fn [_] (reveal))}
+          (str "+" hidden " more…")]))]))
+
+(def grid-layouts
+  "Pure data → data: workspace `:layout` values that enumerate a GRID of
+  variant cells (spec/018 §7.1 — 'visible grouping for :variants-grid
+  generated variants'). A workspace with one of these layouts reads as a
+  scannable GROUP in the sidebar, surfacing its variant count."
+  #{:grid :variants-grid :tabs})
+
+(defn workspace-grid-grouping
+  "Pure data → data: the variants-grid grouping summary for a workspace
+  `body`, or nil when the workspace is not a grid layout. Returns
+  `{:layout <kw> :count <n>}` — `:count` is the number of cells the grid
+  enumerates (the body's `:variants` count; a `:variants-grid` that
+  enumerates from the registry reports its explicit `:variants` count when
+  present, else 0). Lets the sidebar render a compact 'GRID · N' header so
+  a generated / matrix grid reads as one group rather than loose siblings.
+  Public so the JVM + CLJS test corpus can exercise the projection."
+  [body]
+  (when (and (map? body) (contains? grid-layouts (:layout body)))
+    {:layout (:layout body)
+     :count  (count (:variants body))}))
 
 (defn- workspace-row
-  [workspace-id selected?]
+  [workspace-id selected? body]
   (let [activate (fn []
                    (state/swap-state!
                      (fn [s] (-> s
                                  (state/select-workspace workspace-id)
-                                 (state/select-variant nil)))))]
-  [:div {:style    (merge (:workspace-row styles)
+                                 (state/select-variant nil)))))
+        grouping (workspace-grid-grouping body)]
+  [:<>
+   ;; rf2-ba86n.4 — variants-grid grouping affordance (spec/018 §7.1). A
+   ;; grid workspace leads with a compact group header naming its layout +
+   ;; cell count so a matrix reads as one scannable group.
+   (when grouping
+     [:div {:style       (:grid-group styles)
+            :data-test   "story-sidebar-grid-group"
+            :data-layout (name (:layout grouping))}
+      [:span (str/upper-case (name (:layout grouping)))]
+      [:span {:style (:grid-group-count styles)} (str "· " (:count grouping))]])
+   [:div {:style    (merge (:workspace-row styles)
                           (when selected? (:workspace-row-active styles)))
          :data-test   "story-sidebar-workspace-row"
          :data-workspace (str workspace-id)
@@ -389,7 +600,7 @@
          :on-click     (fn [_] (activate))}
    [:span {:style (:workspace-glyph styles)}
     [glyphs/workspace-glyph 12]]
-   [:span (str workspace-id)]]))
+   [:span (str workspace-id)]]]))
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
 
@@ -589,10 +800,15 @@
   Per rf2-xc65 the sidebar renders as a `<nav>` landmark.
   Per rf2-q0irb carries per-variant status dots + chrome test widget.
   Per rf2-yngai carries a search-as-you-type input above the tree
-  (ephemeral local state; not persisted across reloads)."
+  (ephemeral local state; not persisted across reloads).
+  Per rf2-ba86n.4 carries the five-axis per-variant signal chips,
+  keyboard movement (Arrow/Home/End) across rows, large-list bounding
+  with a '+N more' expander, and variants-grid grouping on workspaces."
   ([] (sidebar nil))
   ([opts]
-   (let [query-ratom (r/atom "")]
+   (let [query-ratom      (r/atom "")
+         ;; rf2-ba86n.4 — ephemeral per-story 'show all' set (not persisted).
+         expanded-stories (r/atom #{})]
      (fn [opts]
        (let [shell           @state/shell-state-atom
              registry        (state/registry-snapshot)
@@ -613,10 +829,12 @@
              testable-vec    (state/testable-variant-ids (:variants registry))
              testable-set    (set testable-vec)
              searching?      (seq (str/trim query))]
-         [:nav {:style      (merge (:wrap styles) (:style opts))
-                :data-test  "story-sidebar"
-                :aria-label "Stories and workspaces"
-                :tab-index  "0"}
+         [:nav {:style       (merge (:wrap styles) (:style opts))
+                :data-test   "story-sidebar"
+                :aria-label  "Stories and workspaces"
+                :tab-index   "0"
+                ;; rf2-ba86n.4 — Arrow/Home/End movement across the rows.
+                :on-key-down nav-key-down}
           [:div {:style (:tree styles)}
            ;; rf2-vxpq1 — sidebar landmarks the two top-level sections
            ;; ("Stories" / "Workspaces") with `role="heading"` +
@@ -651,7 +869,8 @@
                 "no variants match the active tag filter")]
              (for [{:keys [story-id] :as entry} grouped]
                ^{:key (or story-id :nostory)}
-               [story-block entry sel-variant sel-story testable-set test-runs query]))
+               [story-block entry sel-variant sel-story testable-set test-runs query
+                expanded-stories (boolean searching?)]))
            (when (seq workspaces)
              [:div
               ;; rf2-vxpq1 — matching heading semantics on the
@@ -667,7 +886,7 @@
                                :vertical-align "-2px"}}
                 [glyphs/workspace-glyph 11]]
                "Workspaces"]
-              (for [[wid _body] (sort-by key workspaces)]
+              (for [[wid body] (sort-by key workspaces)]
                 ^{:key wid}
-                [workspace-row wid (= wid sel-ws)])])]
+                [workspace-row wid (= wid sel-ws) body])])]
           [test-widget shell registry testable-vec]])))))
