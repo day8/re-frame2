@@ -253,8 +253,9 @@
      the decorator's *registration site* (see `reg-decorator`), not here.
      Per IMPL-SPEC §2.6 and Phase-2 §5.1 #10.
 
-     `:extends` resolution happens at registration time — see
-     `re-frame.story.extends/resolve-extends`."
+     `:extends` is stored RAW (intact, parents UNmerged) and resolved by
+     the plan compiler — the single merge authority — when the variant is
+     compiled; see `re-frame.story.plan/compile-body` (rf2-f6z88)."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))

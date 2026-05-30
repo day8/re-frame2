@@ -17,8 +17,17 @@
     the round-trip through the registered :decorators slot AND
     resolve-decorators materialises the per-ref body.
   - **Decorator inheritance via `:extends`** — child variant
-    `:extends` parent; child's `:decorators` append to (NOT replace)
-    the parent's; story → variant inheritance order is preserved.
+    `:extends` parent; the PLAN COMPILER is the single merge authority
+    (rf2-f6z88 / rf2-g74i9): a child that declares no `:decorators`
+    INHERITS the parent's stack, a child that declares its own REPLACES
+    them (child-wins, no concat); story → variant inheritance order is
+    preserved. `resolve-decorators` reads the compiled plan's
+    `[:world :decorators]`, not the raw side-table body.
+  - **§8.4 compiler-authoritative merge via the default side-table** —
+    a registered parent + child with `:extends` + `:checks` + `:setup`
+    compiles through the DEFAULT side-table lookup (no explicit
+    `:lookup`) so the registered path and explicit-`:lookup` tests share
+    ONE merge engine: setup APPENDS, checks INHERIT, decorators INHERIT.
   - **Meta → story → variant chain** — story's `:tags` /
     `:argtypes` / `:substrates` cascade into the variant's effective
     body where the variant didn't declare its own; the variant's
@@ -39,6 +48,7 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames     :as frames]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.plan       :as plan]
             [re-frame.story.play       :as play]
             [re-frame.story.ui.docs    :as docs]))
 
@@ -237,12 +247,15 @@
 ;; ===========================================================================
 
 (deftest extends-inherits-decorators-when-child-declares-none
-  (testing "decorator inheritance via :extends happens through key
-            absence — the child INHERITS the parent's :decorators only
-            when the child does NOT declare its own. Per spec/007
-            §Composed variants the merge semantics are plain
-            `(merge parent child)`. The contract rf2-ctlm5 pins:
-            inheritance is via key-absence, NOT vector-append."
+  (testing "decorator inheritance via :extends is resolved by the PLAN
+            COMPILER — the single merge authority (rf2-f6z88 / rf2-g74i9,
+            spec/017 §305-306). The registrar stores the RAW body
+            (`:extends` intact, parent NOT merged); the compiler walks
+            the chain and folds the parent's :decorators into
+            `[:world :decorators]`. A child that declares no :decorators
+            INHERITS the parent's stack, surfaced through
+            `resolve-decorators` (which reads the plan, not the
+            side-table)."
     (story/reg-decorator :inherited-deco
       {:kind :hiccup :wrap (fn [body _] [:div.inherited body])})
     (story/reg-variant :story.inherit-bare/parent
@@ -252,21 +265,25 @@
       {:extends :story.inherit-bare/parent
        :events  []})
     (let [body (story/handler-meta :variant :story.inherit-bare/child)]
-      (is (= [[:inherited-deco]] (:decorators body))
-          "child with no :decorators inherits the parent's stack")
-      (is (nil? (:extends body))
-          ":extends slot is stripped from the resolved body (consumed
-           at registration time)"))
+      (is (= :story.inherit-bare/parent (:extends body))
+          ":extends is stored RAW on the side-table body — the plan
+           compiler (not the registrar) is the merge authority")
+      (is (nil? (:decorators body))
+          "the child declared no :decorators; the side-table body carries
+           none — inheritance is resolved downstream at plan-compile"))
     (let [pack (story/resolve-decorators :story.inherit-bare/child)]
       (is (= [:inherited-deco] (mapv :id (:hiccup pack)))
-          "resolved hiccup stack carries the inherited decorator"))))
+          "resolved hiccup stack INHERITS the parent's decorator via the
+           compiled plan's [:world :decorators]"))))
 
 (deftest extends-child-decorators-replace-parent
   (testing "when the child declares its OWN :decorators, the child's
-            slot REPLACES the parent's. This is the spec/007 merge
-            semantics — `(merge parent child)` — and applies to every
-            top-level body slot uniformly. The same rule covers :args,
-            :events, :tags, :modes, etc."
+            slot REPLACES the parent's. The PLAN COMPILER is the merge
+            authority (rf2-f6z88, spec/017 §305-306): `:decorators` is a
+            scalar context key, so `merge-context` is child-wins — the
+            child's vector replaces the parent's (no concat / no append).
+            The same child-wins rule covers :args, :events, :tags,
+            :modes, etc."
     (story/reg-decorator :parent-deco
       {:kind :hiccup :wrap (fn [body _] [:div.parent body])})
     (story/reg-decorator :child-deco
@@ -280,11 +297,62 @@
        :events     []})
     (let [body (story/handler-meta :variant :story.inherit-replace/child)]
       (is (= [[:child-deco]] (:decorators body))
-          "child's :decorators replaces parent's — NO concat / NO
-           append; the child's slot is the final value"))
+          "the raw side-table body carries the child's OWN :decorators
+           verbatim")
+      (is (= :story.inherit-replace/parent (:extends body))
+          ":extends is stored RAW — the compiler resolves the chain"))
     (let [pack (story/resolve-decorators :story.inherit-replace/child)]
       (is (= [:child-deco] (mapv :id (:hiccup pack)))
           "resolved hiccup stack reflects ONLY the child's decorators"))))
+
+;; ===========================================================================
+;; §8.4 — the plan compiler is the SINGLE merge authority, EVEN through the
+;; DEFAULT side-table lookup (rf2-f6z88 / rf2-g74i9, spec/017 §Merge rules).
+;;
+;; This is the load-bearing regression: the registrar now stores the RAW
+;; body (`:extends` intact, parent NOT merged at registration), so a
+;; registered variant compiled through the DEFAULT side-table lookup (no
+;; explicit `:lookup` arg) must walk the parent chain exactly like the
+;; explicit-`:lookup` plan_test cases. setup APPENDS, checks INHERIT, and
+;; (the rf2-g74i9 fix) decorators INHERIT — all from ONE merge engine
+;; (`re-frame.story.plan/compile-body`). A registration-time straight-merge
+;; would have left the compiler seeing a single-element chain and these
+;; per-field semantics dead.
+;; ===========================================================================
+
+(deftest extends-compiler-authority-through-default-side-table
+  (testing "a registered parent+child with :extends + :checks + :setup +
+            :decorators compiles via the DEFAULT side-table lookup (no
+            :lookup arg): setup APPENDS, checks INHERIT, decorators INHERIT"
+    (story/reg-decorator :s84-parent-deco
+      {:kind :hiccup :wrap (fn [body _] [:div.s84 body])})
+    (story/reg-variant :story.s84/parent
+      {:setup      [[:dispatch [:s84/p1]] [:dispatch [:s84/p2]]]
+       :checks     [:check/no-runtime-errors]
+       :decorators [[:s84-parent-deco]]})
+    (story/reg-variant :story.s84/child
+      {:extends :story.s84/parent
+       :setup   [[:dispatch [:s84/c1]]]
+       :checks  [:check/extra]})
+    ;; DEFAULT side-table lookup — NO :lookup arg. This is the path the
+    ;; runtime uses; it must agree with the explicit-:lookup plan tests.
+    (let [p (plan/variant-plan :story.s84/child)]
+      (testing "source chain is root-first (chain walked from the side-table)"
+        (is (= [:story.s84/parent :story.s84/child] (:source-chain p))))
+      (testing "setup APPENDS parent→child (the silent-regression site)"
+        (is (= [[:dispatch [:s84/p1]] [:dispatch [:s84/p2]] [:dispatch [:s84/c1]]]
+               (get-in p [:world :setup]))))
+      (testing "checks INHERIT root→child (inheritable expectation form)"
+        (is (= [:check/no-runtime-errors :check/extra]
+               (get-in p [:expect :checks]))))
+      (testing "decorators INHERIT (rf2-g74i9 — child declared none)"
+        (is (= [[:s84-parent-deco]] (get-in p [:world :decorators])))))
+    ;; And the registered front door (resolve-decorators) sees the same
+    ;; inherited pack — proving the registered path reads the compiled
+    ;; plan, not the raw side-table body.
+    (let [pack (story/resolve-decorators :story.s84/child)]
+      (is (= [:s84-parent-deco] (mapv :id (:hiccup pack)))
+          "resolve-decorators inherits the parent's decorator via the plan"))))
 
 ;; ===========================================================================
 ;; Meta → story → variant inheritance (rf2-ctlm5 §Decorator inheritance)

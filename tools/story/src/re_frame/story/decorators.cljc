@@ -38,14 +38,33 @@
   `:assertions` (per IMPL-SPEC §5.5)."
   (:require [re-frame.story.args      :as args]
             [re-frame.story.config    :as config]
+            [re-frame.story.plan      :as plan]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---- collection -----------------------------------------------------------
 
 (defn- variant-decorator-refs
-  "Return the variant body's `:decorators` vector, or `[]`."
+  "Return the variant's RESOLVED `:decorators` ref vector, or `[]`.
+
+  Reads the COMPILED plan's `[:world :decorators]` — NOT the raw
+  side-table body (rf2-g74i9, spec/017 §305-306). The plan compiler
+  (`re-frame.story.plan`) is the single `:extends` merge authority: it
+  walks the `:extends` parent chain and folds each ancestor's
+  `:decorators` into `[:world :decorators]` (`context-keys` inheritance,
+  child-wins per `merge-context`). Reading the raw body's `:decorators`
+  straight off the side-table — as this fn used to — saw ONLY the
+  child's own slot, so an `:extends` child that declared no
+  `:decorators` resolved an EMPTY stack and the parent's decorators were
+  silently dropped (inheritance dead). Routing through the plan makes
+  the registered path share the same merged refs the inline-plan runtime
+  path already consumes from `[:world :decorators]`, so both paths agree.
+
+  `decorators → plan` is acyclic (plan does NOT require decorators). The
+  compile is the same pure data→data the runtime's plan compile is; the
+  per-variant cost is one extra compile per resolution, which the single-
+  merge-authority invariant pays for (no second merge engine to diverge)."
   [variant-id]
-  (or (:decorators (registrar/handler-meta :variant variant-id)) []))
+  (or (get-in (plan/variant-plan variant-id) [:world :decorators]) []))
 
 (defn- story-decorator-refs
   "Return the parent story's `:decorators` vector, or `[]`."

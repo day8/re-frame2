@@ -935,7 +935,7 @@ behaviour/judgement.** New keys self-classify by that principle.
 Inherited through `:extends`:
 
 - `:world` context, including setup, args/argtypes, frame config, render
-  fixtures, network stubs, platforms, and workshop context;
+  fixtures, network stubs, decorators, platforms, and workshop context;
 - checks, because checks are the inheritable expectation form;
 - tags.
 
@@ -943,6 +943,17 @@ Not inherited through `:extends`:
 
 - ordinary terminal assertions;
 - script steps.
+
+Decorators are `:world` context: a child that declares no `:decorators`
+INHERITS the parent's stack; a child that declares its own REPLACES them
+(child-wins, the same scalar context-key rule as the other world slots —
+no per-key concat). Decorator resolution therefore reads from the
+compiled plan's merged `[:world :decorators]`, for BOTH the registered
+path and the inline path (the same single-merge-authority rule §305-306
+pins for inline plans). The variant/story side-table raw body is NOT the
+decorator source — the registrar stores it raw with `:extends` intact,
+and the plan compiler is the single merge authority that resolves the
+chain.
 
 Script is behaviour under test. A child variant MUST NOT silently run a
 parent script. A parent's ordinary assertions describe the parent's
