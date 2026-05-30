@@ -113,12 +113,50 @@
              full-slot-meta (cond-> slot-meta
                               docstring (assoc :doc docstring)
                               form-tag  (assoc :reagent2/form form-tag))
+             ;; Per rf2-cry25 §Production elision: the view's dev source-
+             ;; coord literal (WITH `:column`, via `coords-form`), reused
+             ;; for the `*pending-coords*` binding in the `do` form below.
+             ;; The injected dispatcher/subscriber args ride their OWN
+             ;; outer `interop/debug-enabled?` gate (see `dispatch-opts-
+             ;; form` / `sub-coord-form`) so the `:rf.trace/call-site`
+             ;; keyword + coord literal DCE wholesale under `:advanced` +
+             ;; `goog.DEBUG=false` — mirroring `core-call-site-macros`'
+             ;; `gate` (the elision probe's `rf.trace/call-site` sentinel
+             ;; must stay ABSENT in the prod bundle). `:source :ui` is NOT
+             ;; dev-only — it is the functional-origin classifier read
+             ;; unconditionally by `dispatch!` (router.cljc) — so the prod
+             ;; branch still carries `{:source :ui}`, just no call-site.
+             coord-form `(if re-frame.interop/debug-enabled?
+                           ~(source-coords/coords-form      form-meta current-file current-ns-sym)
+                           ~(source-coords/prod-coords-form form-meta current-file current-ns-sym))
+             dispatch-opts-form
+             `(if re-frame.interop/debug-enabled?
+                {:source :ui :rf.trace/call-site
+                 ~(source-coords/coords-form form-meta current-file current-ns-sym)}
+                {:source :ui})
+             sub-coord-form
+             `(if re-frame.interop/debug-enabled?
+                ~(source-coords/coords-form form-meta current-file current-ns-sym)
+                nil)
              ;; Wrapper fn carries form-tag on its own meta so renderers
              ;; reaching it via `(rf/view :id)` see the tag without a
              ;; registry-slot round-trip.
+             ;;
+             ;; Per rf2-cry25 (Option A, Mike-ruled): the reg-view-injected
+             ;; `dispatch` / `subscribe` NOUNS shadow the coord-capturing
+             ;; `dispatch` / `subscribe` MACROS for the whole view body, so
+             ;; a view's on-click `#(dispatch [...])` would otherwise
+             ;; classify as `:source :unknown` with no call-site. We pass
+             ;; the view's coord into the nouns so the dispatch carries
+             ;; `:source :ui` + the view's `:rf.trace/call-site`, and the
+             ;; subscribe carries the same call-site on its synchronous
+             ;; error path. The body stays spliced VERBATIM (`~@body`) — no
+             ;; code-walking, no rewriting of user view code; the blast
+             ;; radius is the noun arguments only. Render-time frame
+             ;; capture is preserved by the nouns unchanged.
              fn-body  `(fn ~sym ~args
-                         (let [~'dispatch  (re-frame.core/dispatcher)
-                               ~'subscribe (re-frame.core/subscriber)]
+                         (let [~'dispatch  (re-frame.core/dispatcher ~dispatch-opts-form)
+                               ~'subscribe (re-frame.core/subscriber ~sub-coord-form)]
                            ~@body))
              fn-form  (cond-> fn-body
                         form-tag (with-meta {:reagent2/form form-tag}))]
@@ -133,10 +171,7 @@
          ;; parallel `error-coords-by-id` registry (see
          ;; `re-frame.source-coords`).
          `(do
-            (binding [re-frame.source-coords/*pending-coords*
-                      (if re-frame.interop/debug-enabled?
-                        ~(source-coords/coords-form      form-meta current-file current-ns-sym)
-                        ~(source-coords/prod-coords-form form-meta current-file current-ns-sym))]
+            (binding [re-frame.source-coords/*pending-coords* ~coord-form]
               (re-frame.core/reg-view* ~id
                 ~full-slot-meta
                 ~fn-form))

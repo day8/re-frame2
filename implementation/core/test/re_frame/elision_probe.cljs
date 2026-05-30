@@ -398,6 +398,27 @@
   ;; inject-cofx macro (interceptor construction site)
   (let [_i (rf/inject-cofx :probe/cs-cofx)] nil))
 
+;; ---- rf2-cry25: reg-view-injected dispatch/subscribe call-site -----------
+;;
+;; The `reg-view` MACRO injects the view's source-coord into the
+;; lexically-bound `dispatch` / `subscribe` NOUNS so a view's on-click
+;; `#(dispatch [...])` stamps `:source :ui` + the view's
+;; `:rf.trace/call-site` (Option A). Each injected arg rides its OWN
+;; `(if interop/debug-enabled? <dev-coord> <prod>)` gate — the dispatcher
+;; prod branch is `{:source :ui}` (no call-site) and the subscriber prod
+;; branch is `nil` — so under `:advanced` + `goog.DEBUG=false` the dev
+;; coord literal AND the `:rf.trace/call-site` keyword DCE. The existing
+;; `rf.trace/call-site` sentinel (check-elision.cjs) covers it; this
+;; touch roots the reg-view-macro-injected coord in the reachability
+;; graph so the control build sees it and the methodology check has teeth.
+
+(defn ^:export touch-reg-view-injection! []
+  (rf/reg-view probe-injected-view [_n]
+    [:button {:on-click #(dispatch [:probe/cs-event])}
+     [:span @(subscribe [:probe/cs-sub])]])
+  (let [_v (rf/view :re-frame.elision-probe/probe-injected-view)]
+    nil))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -409,6 +430,7 @@
   (touch-views!)
   (touch-machines!)
   (touch-call-site-macros!)
+  (touch-reg-view-injection!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))

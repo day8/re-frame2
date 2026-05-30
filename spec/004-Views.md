@@ -169,7 +169,7 @@ Pattern-RemoteData's `:status` field is the canonical home for loading state. Pa
 
 - **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
 - **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/view :id)` results — both resolve to the same wrapped fn.
-- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically.
+- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the injected nouns so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
 
 ```clojure
 (rf/reg-view counter [label]
