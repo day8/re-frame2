@@ -285,8 +285,12 @@
       (let [res {:status :pass :app-db {:n 1}
                  :elapsed-ms 42 :runner :headless :variant/id :x :plan-hash "ab"}
             c   (fingerprint/canonicalize res)
-            ;; canonical-form renders maps as flattened [k v k v …] vectors
-            ks  (set (take-nth 2 c))]
+            ;; canonical-form renders a map as `[:rf/map [k v k v …]]` — the
+            ;; rf2-lvrqa structural type-tag — so the flattened entries live
+            ;; under the tag's payload vector `(second c)`.
+            [tag entries] c
+            ks  (set (take-nth 2 entries))]
+        (is (= fingerprint/map-tag tag) "a map canon is wrapped under :rf/map")
         (is (not (contains? ks :elapsed-ms)) ":elapsed-ms stripped")
         (is (not (contains? ks :runner))     ":runner stripped")
         (is (not (contains? ks :variant/id)) ":variant/id stripped")

@@ -307,6 +307,28 @@
              :epoch-tape (tape-with-ops [:rf.event/run-start])}]
       (is (= {:same? true} (diff/diff-runs r r))))))
 
+;; rf2-sn7nh — diff-runs' :same? gate is canonicalize equality, so it
+;; inherited the rf2-lvrqa map/vector collision (a map<->vector flip in
+;; app-db read as :same? true, and the :app-db facet never ran because the
+;; gate suppressed the whole diff first) and the rf2-4gwja fn-slot
+;; nondeterminism (a same-semantics fn in app-db read as a false :changed).
+;; The foundation fixes land both here for free.
+(deftest diff-runs-inherits-lvrqa-and-4gwja-fixes
+  (testing "a map<->vector flip in app-db is NO LONGER :same? true and
+            surfaces a readable :app-db facet (rf2-sn7nh / rf2-lvrqa)"
+    (let [d (diff/diff-runs {:status :pass :app-db {:k {:a 1}}}
+                            {:status :pass :app-db {:k [:a 1]}})]
+      (is (false? (:same? d)) "the collision is witnessed, not suppressed")
+      (is (contains? (:facets d) :app-db) "the :app-db facet localises it")))
+  (testing "an empty-map<->empty-vector flip is also witnessed (rf2-lvrqa)"
+    (is (false? (:same? (diff/diff-runs {:status :pass :app-db {:k {}}}
+                                        {:status :pass :app-db {:k []}})))))
+  (testing "a same-semantics fn in app-db is :same? true — no false :changed
+            from object-identity noise (rf2-sn7nh / rf2-4gwja)"
+    (is (= {:same? true}
+           (diff/diff-runs {:status :pass :app-db {:cb (fn [] 1)}}
+                           {:status :pass :app-db {:cb (fn [] 1)}})))))
+
 (deftest diff-runs-collects-only-differing-facets
   (testing "an app-db-only change surfaces ONLY the :app-db facet"
     (let [base {:status :pass :app-db {:n 1} :effects [] :sub-runs []

@@ -1992,9 +1992,20 @@ installs canonical vocabulary), and MUST fold the existing
 
 - strip `:rf.story/*` accumulator keys from app-db;
 - project away volatile record fields
-  `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id :plan-hash}`;
+  `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id :plan-hash :run-hash}`
+  (plus the per-run epoch / trace stamps `:epoch-id :trace-id :committed-at :schema-digest`);
 - impose a total per-slot ordering (effects = emission order; sub-runs =
   topo-then-id; epochs = dispatch order);
+- **type-tag the canonical form** so the four collection kinds are
+  mutually distinguishable — a map, set, vector, and seq each wrap under a
+  reserved structural tag (`:rf/map` / `:rf/set` / `:rf/vec` / `:rf/seq`), so
+  `{}` ≠ `[]` ≠ `#{}` and `{:k 1}` ≠ `[:k 1]` canonically (rf2-lvrqa);
+- **fold functions to the `:rf/opaque-fn` sentinel** so a hashed slice
+  carrying a fn (a `:fx-overrides` / `:interceptors` plan slot, an app-db
+  closure-as-value, an effect `:args` callback) hashes DETERMINISTICALLY
+  across processes rather than embedding the fn's object identity via
+  `pr-str` (rf2-4gwja) — the deliberate trade-off is that two values
+  differing ONLY in fn identity hash equal (determinism is the contract);
 - enumerate the `:plan-hash` input fields;
 - compute `:run-hash` over the canonical epoch slice.
 
@@ -2019,9 +2030,10 @@ The public surface, all routed through one projection + one hash:
 
 | Fn | Meaning |
 |---|---|
-| `canonicalize` | The single canonical projection of any Story value: strip the volatile-field set + `:rf.story/*` accumulator keys recursively, reconcile `:variant-id` → `:variant/id`, then impose total per-slot ordering. Re-exported as `story/canonicalize`. |
-| `content-hash` | 8-char-hex hash of the **ordered** value with NO volatile strip — the low primitive the snapshot tuple hashes, so snapshot identity is byte-stable across the fold. |
-| `canonical-hash` | 8-char-hex hash of the `canonicalize`d (stripped) projection — the determinism / semantic-diff / run-equivalence hash. |
+| `canonicalize` | The single canonical projection of any Story value: strip the volatile-field set + `:rf.story/*` accumulator keys recursively, reconcile `:variant-id` → `:variant/id`, then impose total per-slot ordering with structural type tags (`:rf/map` / `:rf/set` / `:rf/vec` / `:rf/seq`) and the `:rf/opaque-fn` fn-fold. Re-exported as `story/canonicalize`. |
+| `hash-canonical` | 8-char-hex hash of an **already-canonical** value — prepends `canonical-version` and renders `[version canonical-value]` via a SINGLE `pr-str`, with NO second `canonical-form` pass. The load-bearing primitive `content-hash` / `canonical-hash` share, and the one a caller holding a `canonicalize`d value (the determinism gate, golden) hashes through so its hash equals `run-hash` without re-canonicalizing (the type-tagged `canonical-form` is NOT idempotent). |
+| `content-hash` | `hash-canonical` of `(canonical-form x)` — NO volatile strip. The low primitive the snapshot tuple hashes. |
+| `canonical-hash` | `hash-canonical` of `(canonicalize x)` — the determinism / semantic-diff / run-equivalence hash. |
 | `plan-hash` | `canonical-hash` over `plan-hash-input-keys` (`[:story/id :world :script :expect :required-runner :tags]`). |
 | `run-hash` | `canonical-hash` over `run-hash-input-keys` (`[:status :app-db :epoch-tape :assertions :checks :effects :schema-violations :warnings :sub-overrides :fidelity]`). |
 
@@ -2041,7 +2053,17 @@ by the canonicalised key's `pr-str`; sets element-sorted; vectors/seqs
 (effects, epochs, trace events) keep producer order, which the producer
 emits deterministically (effects in emission order, epochs in dispatch
 order) — so reordering effects or epochs is a *semantic* change that
-perturbs the canonical value.
+perturbs the canonical value. Each collection is wrapped under a reserved
+structural type tag — a map → `[:rf/map [k v …]]`, a set → `[:rf/set [e
+…]]`, a vector → `[:rf/vec [e …]]`, a seq → `[:rf/seq [e …]]` — so the four
+kinds are mutually distinguishable after `pr-str` and a map<->vector or
+set<->vector type flip is a *semantic* difference, never a silent
+collision (rf2-lvrqa). A function value canonicalises to the stable
+`:rf/opaque-fn` sentinel, never an object-identity `pr-str`, so a hashed
+slice carrying a fn is deterministic across processes (rf2-4gwja). Because
+the tags make `canonical-form` NON-idempotent, the hash is taken over the
+canonical value ONCE via `hash-canonical` (no second `canonical-form`
+pass).
 
 `plan-hash` and `run-hash` are the same `canonical-hash` primitive applied
 to enumerated slices; there is no second hash implementation. The
@@ -2050,16 +2072,25 @@ registered variant describing the same behaviour produce the same
 `plan-hash` regardless of provenance slots (`:plan/id`, `:variant/id`,
 `:source-chain`, `:explain`, `:evidence`).
 
-**Snapshot-identity migration path.** The fold is a pure relocation of the
-hashing code, not a version bump. Snapshot identity hashes its tuple
-through the strip-free `content-hash`, so the snapshot content-hash is
-**byte-identical** to the pre-fold value and existing visual-regression
-baselines stay valid with no re-stamp. The volatile strip + `:variant-id`
-reconciliation apply only on the `canonicalize` / `canonical-hash` path
-(determinism, diff, `:plan-hash`, `:run-hash`); the snapshot tuple keeps
-its `:variant-id` slot exactly as before. A `content-hash` consumer keeps
-variant-id sensitivity; a `canonical-hash` consumer treats variant-id as
-volatile.
+**Snapshot-identity migration path.** The rf2-5x1wt.3 fold was a pure
+relocation of the hashing code; the rf2-lvrqa soundness fix (type tags +
+`:rf/opaque-fn` + the `hash-canonical` single-pass hash) is a deliberate
+canonical-form REVISION, so `canonical-version` bumps
+`:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`. Because the
+version is the first hashed slot of EVERY hash, the bump re-stamps every
+value `content-hash` / `canonical-hash` / `plan-hash` / `run-hash` emit,
+including the snapshot content-hash. There are NO in-repo stored hash
+fixtures — every consumer (the JVM + CLJS fingerprint corpus, the
+story-mcp + mcp-conformance snapshot checks) asserts hash STABILITY (same
+input → same hash) and SENSITIVITY (different input → different hash), never
+a pinned hex literal — so the only baselines the bump invalidates are
+EXTERNAL visual-regression baselines, which re-capture on their next run.
+Pre-alpha, that re-stamp is cheap, and the v1 → v2 bump is exactly the
+signal that drives it. The volatile strip + `:variant-id` reconciliation
+still apply only on the `canonicalize` / `canonical-hash` path (determinism,
+diff, `:plan-hash`, `:run-hash`); the snapshot tuple keeps its `:variant-id`
+slot. A `content-hash` consumer keeps variant-id sensitivity; a
+`canonical-hash` consumer treats variant-id as volatile.
 
 The adversarial corpus ships in
 `re-frame.story-fingerprint-test` (JVM, the full corpus) and
@@ -2765,11 +2796,13 @@ semantic difference there is still detected. The semantic trace tags
 (`:rf.trace/event-id`, the event payload `:rf.event/v`, a changed
 `:rf.event/db`) are left intact.
 
-This strip applies on the `canonicalize` / `canonical-hash`
-(= determinism / diff / `:run-hash`) path ONLY. The strip-free
-`content-hash` that snapshot identity hashes is untouched, so
-snapshot-identity baselines stay byte-stable across this bead
-(§Snapshot-identity migration path).
+This per-run-stamp strip applies on the `canonicalize` / `canonical-hash`
+(= determinism / diff / `:run-hash`) path ONLY — the strip-free
+`content-hash` that snapshot identity hashes does not see it. (Snapshot
+content-hash VALUES still change with the rf2-lvrqa canonical-form revision
++ `canonical-version` v2 bump, which re-stamps every hash; see
+§Snapshot-identity migration path. This strip is orthogonal to that — it
+adds no NEW strip to the snapshot path.)
 
 ### The bare-`[:wait ms]` opt-out → `:cannot-run`
 

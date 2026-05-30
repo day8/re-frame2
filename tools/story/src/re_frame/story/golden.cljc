@@ -273,17 +273,18 @@
   data.
 
   `run-hash` and `slice-canonical` both `canonicalize` the same behavioural
-  slice; computing the canonical slice once (and hashing the canonical
-  value via `fingerprint/content-hash`, which orders-but-does-not-strip an
-  ALREADY-stripped+ordered value — so it equals `run-hash`'s
-  `canonical-hash` of the raw slice) avoids running `canonicalize` twice per
-  match / compare. The equivalence `content-hash(canonicalize(slice)) =
+  slice; computing the canonical slice once and hashing it via
+  `fingerprint/hash-canonical` (which hashes an ALREADY-canonical value with
+  NO second canonicalization pass) avoids running `canonicalize` twice per
+  match / compare. The equivalence `hash-canonical(canonicalize(slice)) =
   run-hash(result)` is locked by the golden_test run-hash agreement
-  assertions."
+  assertions (rf2-lvrqa — `canonical-form` is no longer idempotent under the
+  type-tags, so the canon MUST be hashed with `hash-canonical`, not
+  re-canonicalized via `content-hash`)."
   [result]
   (let [canon (slice-canonical result)]
     {:canonical canon
-     :run-hash  (fingerprint/content-hash canon)}))
+     :run-hash  (fingerprint/hash-canonical canon)}))
 
 (defn- matches?
   "The ONE GREEN/RED authority over an ALREADY-coerced run-`result` (spec/017
