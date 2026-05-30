@@ -283,7 +283,9 @@
       (is (= :pass (:status r)))
       (is (= 1 (count (filter #(= :rf.assert/schema-error (:assertion %))
                               (:assertions r)))))
-      (is (= 1 (count (:schema-violations r))) "the violation is still projected")))
+      (is (= 1 (count (:schema-violations r))) "the violation is still projected")
+      (is (= #{[:event :checkout/submit]} (:consumed-selectors r))
+          "rf2-uyebc — the consumed selector set is SURFACED on the result")))
 
   (testing "an UNEXPECTED schema violation FAILS the run (no expectation)"
     (let [r (result/run-result
@@ -319,6 +321,25 @@
           r    (result/run-result {:epoch-tape tape :app-db {:clean true}})]
       (is (= :fail (:status r)) "rollback to a clean db does NOT hide the tape violation")
       (is (= 1 (count (:schema-violations r)))))))
+
+(deftest run-result-surfaces-consumed-selectors
+  ;; rf2-uyebc — `run-result` computes the agreement-floor consumed-selector
+  ;; set anyway; it now SURFACES that value as `:consumed-selectors` so Test
+  ;; mode reads the single source of truth rather than re-deriving it.
+  (testing "always present — an empty `#{}` when nothing was consumed"
+    (let [r (result/run-result {:epoch-tape [(epoch {})]})]
+      (is (contains? r :consumed-selectors) "the slot is always assoc'd")
+      (is (= #{} (:consumed-selectors r)) "empty when no violations consumed")))
+  (testing "an explicit `:consumed-selectors` input is unioned with the
+            schema-expectation consumption and surfaced verbatim"
+    (let [extra [:cofx :pre-computed]
+          r     (result/run-result
+                  {:epoch-tape [(schema-epoch :event :checkout/submit)]
+                   :schema-expectations
+                   [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
+                   :consumed-selectors #{extra}})]
+      (is (= #{[:event :checkout/submit] extra} (:consumed-selectors r))
+          "the surfaced set is the UNION of the input + the matched consumption"))))
 
 ;; ===========================================================================
 ;; CAUSAL / CASCADE EXPECTATIONS (rf2-5x1wt.31, §Causal and cascade assertions)

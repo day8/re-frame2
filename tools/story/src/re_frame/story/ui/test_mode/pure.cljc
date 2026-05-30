@@ -420,11 +420,14 @@
 
   A violation is `:consumed?` true iff its `:selector` appears among the
   selectors a declared `:rf.assert/schema-error` expectation exactly
-  consumed. The unified result does not carry the consumed-selector set
-  directly, so we recover it from the run's `:rf.assert/schema-error`
-  assertion records: a `:pass` schema-error record consumed the violation
-  whose selector matches its `:actual` (the consumed violation's selector,
-  per `re-frame.story.result/schema-error-record`).
+  consumed. That set is the run-result's `:consumed-selectors` slot (the
+  agreement-floor set `re-frame.story.result/run-result` surfaces) — the
+  single source of truth, READ here rather than re-derived. A legacy /
+  partial result that predates the slot is tolerated via a fallback that
+  recovers the set from the run's `:rf.assert/schema-error` assertion
+  records (a `:pass` schema-error record consumed the violation whose
+  selector matches its `:actual`, per
+  `re-frame.story.result/schema-error-record`).
 
       [{:selector   <selector>
         :where      <surface>
@@ -438,12 +441,18 @@
   the tape carried no schema violations. Pure data → data; JVM-testable."
   [result]
   (let [violations (or (:schema-violations result) [])
-        consumed   (into #{}
-                         (comp (filter #(= :rf.assert/schema-error (:assertion %)))
-                               (filter #(= :pass (or (:status %)
-                                                     (when (:passed? %) :pass))))
-                               (keep :actual))
-                         (or (:assertions result) []))]
+        ;; Read the canonical consumed-selector set the run-result surfaces
+        ;; (single source of truth). Only when the key is ABSENT — a legacy /
+        ;; partial result that predates the slot — fall back to re-deriving it
+        ;; from the `:rf.assert/schema-error :pass` records' `:actual`.
+        consumed   (if (contains? result :consumed-selectors)
+                     (or (:consumed-selectors result) #{})
+                     (into #{}
+                           (comp (filter #(= :rf.assert/schema-error (:assertion %)))
+                                 (filter #(= :pass (or (:status %)
+                                                       (when (:passed? %) :pass))))
+                                 (keep :actual))
+                           (or (:assertions result) [])))]
     (mapv (fn [{:keys [selector where failing-id reason epoch-id]}]
             {:selector   selector
              :where      where

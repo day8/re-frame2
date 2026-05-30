@@ -34,8 +34,11 @@
     slots (`:epoch-tape` / `:schema-violations` / `:warnings` / `:effects`
     / `:sub-runs` / `:renders` / `:narrative`) are `.4` projections; the
     judgement slots (`:assertions` / `:checks`) are folded from the
-    accumulator; `:app-db` / `:run-hash` / `:plan-hash` / `:runner` /
-    `:required-runner` / `:fidelity` / `:elapsed-ms` round out the shape.
+    accumulator; `:consumed-selectors` carries the agreement-floor's
+    exactly-consumed schema-violation selector set (the single source of
+    truth Test mode reads, never re-derives); `:app-db` / `:run-hash` /
+    `:plan-hash` / `:runner` / `:required-runner` / `:fidelity` /
+    `:elapsed-ms` round out the shape.
   - ASSERTION-RECORD — one evaluated assertion (`.18`'s atom shape, plus a
     `:status`). The `:status` is derived from `:passed?` / `:skipped?` /
     `:cannot-run?` so the run aggregation reads ONE field uniformly.
@@ -539,7 +542,12 @@
                           from the agreement floor (§Schema rule), unioned
                           with whatever `:schema-expectations` consumed. A
                           pure escape hatch for callers that pre-compute the
-                          match; defaults to `#{}` (the strict floor).
+                          match; defaults to `#{}` (the strict floor). The
+                          UNION (the input set plus the schema-expectation
+                          consumption) is surfaced verbatim on the result as
+                          `:consumed-selectors` — the single source of truth
+                          for \"which violations were exactly consumed\", so
+                          Test mode reads it rather than re-deriving the set.
   - `:unmet`            — the per-requirement `:cannot-run` refusals for
                           expectations the runner could not attempt
                           (`requirements/unmet-assertions` /
@@ -610,10 +618,20 @@
         identity-slots (select-keys parts [:variant/id :plan-hash :run-hash
                                             :runner :required-runner :fidelity
                                             :elapsed-ms])]
-    (cond-> (merge {:status      status
-                    :assertions  records
-                    :checks      checks
-                    :app-db      app-db}
+    (cond-> (merge {:status             status
+                    :assertions         records
+                    :checks             checks
+                    ;; The agreement-floor consumed-selector set is SURFACED on
+                    ;; the result (it is already computed above for the floor)
+                    ;; rather than discarded — `:consumed-selectors` is the
+                    ;; single source of truth for "which schema violations were
+                    ;; exactly consumed", so downstream consumers (Test mode's
+                    ;; `schema-rows`) READ it instead of re-deriving the set
+                    ;; from each `:rf.assert/schema-error :pass` record's
+                    ;; `:actual`. Always present (an empty `#{}` when nothing
+                    ;; was consumed) so the read needs no presence guard.
+                    :consumed-selectors consumed
+                    :app-db             app-db}
                    evidence-slots
                    identity-slots)
       (seq unmet) (assoc :cannot-run unmet))))
