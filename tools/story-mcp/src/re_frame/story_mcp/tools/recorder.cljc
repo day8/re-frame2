@@ -12,9 +12,10 @@
   suppression) — see `re-frame.story.recorder/recordable-event?`.
 
   Optional `:write-back` re-registers the source variant with the
-  captured recording translated to a live `:play-script` slot (the
-  canonical AND ONLY phase-4 replay surface per rf2-0wrud) — gated by
-  the same `allow-writes?` flag as `register-variant`
+  captured recording translated to a live play slot. The emitted EDN
+  uses the transitional `:play-script` spelling the registrar lowers;
+  `:script` is the public phase-4 name (spec/017 §Public vocabulary).
+  This is gated by the same `allow-writes?` flag as `register-variant`
   (`tools.write/assert-writes-allowed`). This is
   the self-healing-loop hook the spec mentions: agent drives canvas →
   tool returns snippet AND patches the variant in place.
@@ -71,10 +72,12 @@
   `:play-script` with the translated, replayable script.
 
   Per rf2-50jzf the legacy `:play` slot was REMOVED for `:play-script`
-  in rf2-0wrud — `:play-script` is the canonical AND ONLY phase-4
-  replay surface (tools/story schemas.cljc). Writing a `:play` key
-  would pass the open variant `:map` validation but no runner executes
-  it, so a written-back recording would silently never replay. We
+  in rf2-0wrud — `:play-script` is the only phase-4 replay slot the
+  schema accepts today (tools/story schemas.cljc), the transitional
+  spelling the registrar lowers to the public `:script` key (spec/017
+  §Public vocabulary). Writing a `:play` key would pass the open variant
+  `:map` validation but no runner executes it, so a written-back
+  recording would silently never replay. We
   translate the captured `events` via `story/recording->play-script`
   (the live runtime counterpart to `gen-play-snippet`'s text output)
   and write that under `:play-script`.

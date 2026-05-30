@@ -437,9 +437,9 @@ to what the legacy `:play` slot delivered.
 
 Two body shapes are accepted:
 
-- **Bare vector** — `:play-script [[:dispatch-sync [:foo]] ...]`
+- **Bare vector** — `:script [[:dispatch-sync [:foo]] ...]`
   shorthand for `{:script <vector> :auto-run? true}`.
-- **Map**       — `:play-script {:script [...] :auto-run? bool :name str}`
+- **Map**       — `:script {:script [...] :auto-run? bool :name str}`
   for explicit opt-out of auto-run on mount or naming the play.
 
 The runner's `coerce-script` also tolerates bare event vectors at the

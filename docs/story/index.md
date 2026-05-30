@@ -30,7 +30,7 @@ The Story loop:
 2. Click each state in the left sidebar. The canvas swaps in 30ms.
 3. Open a workspace that mounts all five side-by-side; design review against the grid.
 4. Switch to *Tests* mode; every variant's `:script` assertions run automatically; the sidebar dots flip green.
-5. Click *record* on the canvas toolbar, tap through the form once, click *stop*; out comes an EDN `:play-script` body that captures exactly what you just did. Paste it into the variant.
+5. Click *record* on the canvas toolbar, tap through the form once, click *stop*; out comes an EDN `:script` body that captures exactly what you just did (the recorder currently emits the transitional `:play-script` spelling, which the registrar lowers to `:script`). Paste it into the variant.
 6. Ship.
 
 If you've used Storybook 9 the rough shape is going to look familiar — record-and-replay is their flagship feature too. Where it diverges:

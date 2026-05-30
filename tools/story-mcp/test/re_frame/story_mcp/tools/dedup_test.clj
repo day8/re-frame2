@@ -139,10 +139,11 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Reduction-ratio sanity. The bead requires a non-trivial ratio on a
-;; realistic story-mcp fixture; we assert against the canonical run-
+;; realistic story-mcp fixture; we assert against the current run-
 ;; variant shape (`:app-db` + `:rendered-hiccup` + `:snapshot` carrying
 ;; the same large nested map) since that's the wire surface this work
-;; targets.
+;; targets. The deduper is shape-agnostic — it collapses repeated big-db
+;; refs regardless of the surrounding verdict keys.
 ;; ---------------------------------------------------------------------------
 
 (deftest reduction-ratio-run-variant-shape
@@ -163,8 +164,8 @@
                                     :expected  big-db
                                     :actual    big-db}]
                  :elapsed-ms      42
-                 :lifecycle       :ok
-                 :passing?        true}
+                 :lifecycle       :ready
+                 :status          :pass}
         raw-size (count (pr-str payload))
         wrapped (dedup/dedup-value payload true)
         wrapped-size (count (pr-str wrapped))]

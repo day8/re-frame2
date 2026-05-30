@@ -128,13 +128,14 @@ declarative bulk-set form for the same vector; `reg-global-decorator`
 is the register-and-opt-in-in-one-call form. `clear-all!` clears the
 global vector so stale ref-by-id entries don't bleed across tests.
 
-## Variant `:play-script` slot (rf2-0wrud)
+## Variant `:script` slot (rf2-0wrud)
 
-`:play-script` is the canonical AND ONLY phase-4 play surface
-(rf2-0wrud, 2026-05-20). The legacy `:play` event-vector slot has been
-removed — pre-alpha posture, no transitional dual-acceptance. See
-[`001-Authoring.md`](001-Authoring.md) §:play-script for the full
-authoring contract.
+`:script` is the public phase-4 play surface (spec/017
+§Public vocabulary). `:play-script` is the transitional spelling the
+registrar still lowers from — author against `:script`. The legacy
+`:play` event-vector slot has been removed — pre-alpha posture, no
+transitional dual-acceptance. See [`001-Authoring.md`](001-Authoring.md)
+§`:script` for the full authoring contract.
 
 | Step                                 | Semantics                                                  |
 |--------------------------------------|------------------------------------------------------------|
@@ -149,10 +150,11 @@ authoring contract.
 | `[:click selector]`                  | Synthetic click event at selector                          |
 | `[:type selector text]`              | Synthetic input event at selector with `text`              |
 
-Body forms:
+Body forms (shown against the public `:script` key; the registrar
+lowers the transitional `:play-script` spelling to the same shape):
 
-- Bare vector — `:play-script [[:dispatch-sync [:foo]] ...]`
-- Map         — `:play-script {:script [...] :auto-run? bool :name str}`
+- Bare vector — `:script [[:dispatch-sync [:foo]] ...]`
+- Map         — `:script {:script [...] :auto-run? bool :name str}`
 
 The canonical seven `:rf.assert/*` events (per
 [`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`
@@ -168,10 +170,12 @@ The pure runner lives at
 
 ## Recorder facade
 
-The recorder captures canvas-dispatched events into a `:play-script`
-body for codegen back into a `reg-variant` snippet. The facade
-exposes six entries on `re-frame.story` (per spec/005 §Recorder +
-[001-Authoring.md](001-Authoring.md) §Recorder); the richer
+The recorder captures canvas-dispatched events into a play body for
+codegen back into a `reg-variant` snippet. The emitted EDN uses the
+transitional `:play-script` spelling the registrar lowers; `:script` is
+the public phase-4 key authors target (spec/017 §Public vocabulary).
+The facade exposes six entries on `re-frame.story` (per spec/005
+§Recorder + [001-Authoring.md](001-Authoring.md) §Recorder); the richer
 recorder-driven `:play-script` translator (rf2-d5u89 — derives `:click`
 / `:type` / `:wait` steps from the recorder's `:entries` stream) lives
 under the recorder's sub-namespace.
