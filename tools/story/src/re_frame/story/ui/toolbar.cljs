@@ -53,6 +53,7 @@
             [re-frame.story.ui.element-inspector :as element-inspector]
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
+            [re-frame.story.ui.share :as ui-share]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.motion :as motion]
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
@@ -468,6 +469,21 @@
              :data-cluster "debug"}
       [cluster-label "Debug"]
       [element-inspector/inspect-chip]]
+     [divider]
+     ;; ── SHARE cluster (egress) ────────────────────────────────────
+     ;; rf2-ba86n.16 — human share / export / copy egress. Opens the
+     ;; Share & export dialog (share URL · copy EDN · screenshot · static
+     ;; build), each command labelled with its reproducibility status.
+     ;; The reframe: human egress ships freely (NOT privacy-gated — a
+     ;; local dev already has their own secrets); the contract the dialog
+     ;; carries is reproducibility honesty, not redaction. Chrome-wide
+     ;; (the workspace/chrome URL is always shareable), so shown
+     ;; unconditionally rather than gated on a focused variant.
+     [:span {:style       (:cluster styles)
+             :data-test   "story-toolbar-cluster"
+             :data-cluster "share"}
+      [cluster-label "Share"]
+      [ui-share/share-chip]]
      [divider]
      ;; ── REC cluster (actions) ─────────────────────────────────────
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset

@@ -1006,6 +1006,13 @@
           ;; button; stacks above via a higher z-index. Lives in its own
           ;; ratom so dismiss / reopen doesn't disturb the parent dialog.
           [recorder-export-ui/export-dialog]
+          ;; rf2-ba86n.16 — human share / export / copy egress dialog.
+          ;; Opens off the toolbar SHARE chip. Surfaces share URL · copy
+          ;; EDN · screenshot · static build, each labelled with its
+          ;; reproducibility status (full / partial / view-only). Human
+          ;; egress is NOT privacy-gated (the reframe — local dev has the
+          ;; secrets); the contract is reproducibility honesty.
+          [share/share-export-dialog]
           ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
           ;; alongside the recorder's save dialog — both float above the
           ;; three-pane layout via fixed positioning; both surface the
