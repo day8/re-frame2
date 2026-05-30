@@ -155,35 +155,35 @@ nav:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
-    # Full from-scratch rewrite (rf2-7fhok): 26 chapters in four pedagogical arcs,
-    # straight integer ordering per guide/OUTLINE.md. Voice-test (ch 01) approved;
-    # phase c wrote 02..26.
-    - "01 — Introduction": guide/01-introduction.md
-    - "02 — app-db": guide/02-app-db.md
-    - "03 — First app": guide/03-first-app.md
-    - "04 — Events and the cascade": guide/04-events-and-the-cascade.md
-    - "05 — Subscriptions": guide/05-subscriptions.md
-    - "06 — Views": guide/06-views.md
-    - "07 — Effects and coeffects": guide/07-effects-and-coeffects.md
-    - "08 — Schemas": guide/08-schemas.md
-    - "09 — Interceptors": guide/09-interceptors.md
-    - "10 — HTTP": guide/10-http.md
-    - "11 — Forms": guide/11-forms.md
-    - "12 — Machines": guide/12-machines.md
-    - "13 — Testing": guide/13-testing.md
-    - "14 — Errors": guide/14-errors.md
-    - "15 — Performance": guide/15-performance.md
-    - "16 — Observability": guide/16-observability.md
-    - "17 — Tooling": guide/17-tooling.md
-    - "18 — Frames": guide/18-frames.md
-    - "19 — Routing": guide/19-routing.md
-    - "20 — Server side": guide/20-server-side.md
-    - "21 — Dynamic model": guide/21-dynamic-model.md
-    - "22 — Adapters": guide/22-adapters.md
-    - "23 — Privacy and large things": guide/23-privacy-and-large-things.md
-    - "24 — Config and safety": guide/24-config-and-safety.md
-    - "25 — From re-frame v1": guide/25-from-re-frame-v1.md
-    - "26 — Where to go next": guide/26-where-to-go-next.md
+    # Human-first rewrite: 26 numbered chapters, straight integer ordering
+    # per guide/OUTLINE.md, with runnable cells where editing teaches more
+    # than static prose.
+    - "01 - Introduction": guide/01-introduction.md
+    - "02 - app-db": guide/02-app-db.md
+    - "03 - First app": guide/03-first-app.md
+    - "04 - Events and the cascade": guide/04-events-and-the-cascade.md
+    - "05 - Subscriptions": guide/05-subscriptions.md
+    - "06 - Views": guide/06-views.md
+    - "07 - Effects and coeffects": guide/07-effects-and-coeffects.md
+    - "08 - Schemas": guide/08-schemas.md
+    - "09 - Interceptors": guide/09-interceptors.md
+    - "10 - HTTP": guide/10-http.md
+    - "11 - Forms": guide/11-forms.md
+    - "12 - Machines": guide/12-machines.md
+    - "13 - Testing": guide/13-testing.md
+    - "14 - Errors": guide/14-errors.md
+    - "15 - Performance": guide/15-performance.md
+    - "16 - Observability": guide/16-observability.md
+    - "17 - Tooling": guide/17-tooling.md
+    - "18 - Frames": guide/18-frames.md
+    - "19 - Routing": guide/19-routing.md
+    - "20 - Server side": guide/20-server-side.md
+    - "21 - Runtime model": guide/21-dynamic-model.md
+    - "22 - Adapters": guide/22-adapters.md
+    - "23 - Privacy and large data": guide/23-privacy-and-large-things.md
+    - "24 - Configuration and safety": guide/24-config-and-safety.md
+    - "25 - From re-frame v1": guide/25-from-re-frame-v1.md
+    - "26 - Operating well": guide/26-where-to-go-next.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md

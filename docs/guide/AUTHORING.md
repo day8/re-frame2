@@ -1,77 +1,33 @@
 # Guide Authoring Notes
 
-These notes are for authors of `docs/guide/` chapters. Spec authors should read
-`spec/SPEC-AUTHORING.md` (if it exists) — these rules are about the human
-tutorial track, not the normative spec track.
+This file is for contributors editing `docs/guide`. It is not part of the reader path.
 
-## Linking from the guide to the spec
+## Reader contract
 
-The guide is for **human readers**; the spec is for **AI agents and
-implementors**. The spec is dry, normative, and exhaustive by design — not
-where a tutorial reader should land mid-chapter.
+Each chapter starts with two or three sentences framed around a reader problem or interest area. Avoid abstract topic announcements like "This chapter discusses subscriptions." Prefer "Your view needs state, but you do not want every component spelunking through app-db."
 
-When you want to send the reader to spec material, **paraphrase the load-bearing
-detail inline** rather than linking out, except for these explicitly permitted
-spec docs:
+Do not add a ritual "What next" section to every page. Cross-link where the reader genuinely needs a neighboring concept, but let each page land cleanly.
 
-| Doc | Why permitted |
-|---|---|
-| `spec/Principles.md` | Framework philosophy; load-bearing for a curious reader |
-| `spec/000-Vision.md` | Human-readable philosophy track; the 'why re-frame2 exists' doc. Permitted but most chapters won't need it; ch.22 (spec portal) is its natural home. |
-| `migration/from-re-frame-v1/README.md` | v1 → v2 migrants are a distinct audience; ch.18 is their on-ramp |
-| `spec/Pattern-AsyncEffect.md` | Runnable convention; cross-cutting across ch.04 / ch.09 / ch.16 |
-| `spec/Pattern-RemoteData.md` | Runnable convention; cross-cutting across ch.02 / ch.08 / ch.10 |
-| `spec/Pattern-Forms.md` | Runnable convention; the 7-event lifecycle is reused |
+## Voice
 
-**Chapter 22 (Where to go next) is exempt** from this restriction. It IS the
-spec portal — curated lists of every spec doc the curious reader can dive into
-are appropriate there.
+Write for humans. The guide should sound like an experienced engineer explaining a system over coffee: opinionated, concrete, occasionally funny, and technically accountable. Do not imitate a named writer. Do not turn the guide into stand-up comedy. The joke is allowed only when it helps the reader stay awake long enough to learn the hard bit.
 
-## What "paraphrase inline" means
+## Shape
 
-When the chapter prose hits the boundary of "user needs to know X about the
-spec", state X in chapter-flavoured prose. Don't write "See Spec NNN for the
-full table" — give the reader the table or the relevant rows directly.
+Use the same basic rhythm:
 
-The spec link is correct when:
-- The link target is in the permitted set above, AND
-- The user genuinely benefits from following it (not a defensive citation).
+1. reader problem summary;
+2. smallest useful mental model;
+3. canonical code shape;
+4. common trap;
+5. rule of thumb.
 
-The spec link is wrong when:
-- It's a "see spec for the full story" sentence used to dodge writing the
-  chapter explanation.
-- It's a parenthetical citation (e.g. "(per Spec 010)") — citations belong in
-  the spec, not the guide.
-- It's a chapter-end "Further reading" pointing at a numbered Spec doc the
-  tutorial reader has no business reading.
+Keep the API reference in `docs/api`. The guide may point to it, but should not become a giant function table.
 
-## Cross-chapter linking
+## Live examples
 
-Linking guide chapter → guide chapter is fine and encouraged (e.g. "covered in
-ch.13"). The reader stays in the tutorial track.
+Use `cljs-rf2` cells only when interaction teaches something static prose cannot. A live cell must run as written, be self-contained, and end with renderable hiccup.
 
-## When you discover a gap
+## Naming
 
-If you find yourself wanting to link to a spec doc that's NOT in the permitted
-set, that's a signal the chapter prose is incomplete. Add the missing prose;
-don't reach for the link.
-
-## Drift watch
-
-The guide's spec-link policy was tightened retrospectively after chapter
-authors had started reaching for spec URLs as a substitute for writing
-the explanation in chapter prose. Future chapter authors who skip this
-policy will reintroduce the same drift — keep the tutorial track
-self-sufficient.
-
-## No bead references in chapter prose
-
-User-facing docs state the **current truth** of the framework, not the
-historical trace of which decisions produced it. Do not introduce
-`(rf2-xxx)` citations, `Per rf2-xxx ...` constructions, or
-`as decided in rf2-xxx` style references into chapter text. Substantive
-content goes inline; the bead history lives in the bead tracker.
-
-Migration-rule ids (`M-NN`), spec section anchors (`#section-name`), and
-cross-doc filename links are all fine — those are normative anchors, not
-historical decision-trace references.
+Reader-facing guide chapters use straight numbered titles: `NN - Title`. Do not create `23a`, `23b`, or other suffix chapters. If a topic grows too large, split it into the next real number or tighten the chapter.
