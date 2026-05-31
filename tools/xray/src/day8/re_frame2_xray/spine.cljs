@@ -621,13 +621,33 @@
 (defn preview-cascade-reducer
   "Pure reducer for `:rf.xray/preview-cascade <id>`. Sets `:previewing?
   true` and writes `:dispatch-id` transiently. nil `id` clears the
-  preview without changing the committed selection."
-  [db dispatch-id]
-  (if (nil? dispatch-id)
-    (assoc-in db [:focus :previewing?] false)
-    (-> db
-        (assoc-in [:focus :previewing?] true)
-        (assoc-in [:focus :dispatch-id] dispatch-id))))
+  preview without changing the committed selection.
+
+  ## rf2-yng0y — write `:epoch-id` alongside `:dispatch-id`
+
+  Pre-fix this reducer wrote ONLY `:dispatch-id`, leaving `:epoch-id`
+  pointing at the prior (committed) epoch. Harmless in RETRO (the
+  App-DB before-image now derives directly from `:epoch-id`, so a
+  stale-`:epoch-id` preview just shows the committed epoch's diff), but
+  in LIVE mode `compose-focus` re-derives `:epoch-id` from the
+  perturbed `:dispatch-id` via `epoch-id-for-cascade` — so previewing
+  one cascade while focused on another desynced the two axes mid-
+  interaction. Writing the resolved `:epoch-id` in lockstep with
+  `:dispatch-id` keeps the two axes consistent through the whole
+  preview gesture, matching `focus-cascade-reducer`'s write contract.
+
+  The 1-arity arity (caller has no epoch buffer handy) leaves
+  `:epoch-id` untouched — back-compat for the pure-shape callers; the
+  2-arity (resolved `epoch-id`) is the production path the event
+  handler drives."
+  ([db dispatch-id] (preview-cascade-reducer db dispatch-id nil))
+  ([db dispatch-id epoch-id]
+   (if (nil? dispatch-id)
+     (assoc-in db [:focus :previewing?] false)
+     (cond-> db
+       true     (assoc-in [:focus :previewing?] true)
+       true     (assoc-in [:focus :dispatch-id] dispatch-id)
+       epoch-id (assoc-in [:focus :epoch-id] epoch-id)))))
 
 ;; ---- registration --------------------------------------------------------
 
@@ -782,6 +802,13 @@
 
   (rf/reg-event-db :rf.xray/preview-cascade
     (fn [db [_ dispatch-id]]
-      (preview-cascade-reducer db dispatch-id)))
+      ;; rf2-yng0y — resolve the previewed cascade's settling epoch-id
+      ;; from the per-frame ring and write it in lockstep with
+      ;; `:dispatch-id` so the spine's two axes never desync mid-
+      ;; preview (the App-DB before-image follows `:epoch-id`). nil
+      ;; dispatch-id (preview-clear) resolves to nil and the reducer
+      ;; leaves the committed epoch untouched.
+      (let [epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+        (preview-cascade-reducer db dispatch-id epoch-id))))
 
   nil)

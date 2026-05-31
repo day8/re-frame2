@@ -286,35 +286,92 @@
         (h/epochs-touching-path history focused-path)
         [])))
 
-  ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state + inline-diff sections -
+  ;; ---- rf2-yng0y — ATOMIC current-state + focused-epoch before-image --
   ;;
   ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style)
   ;; that ALSO carries the focused epoch's diff inline (spec/021 §4.1 —
-  ;; "what does state LOOK LIKE — and what just changed?"). This sub
-  ;; decomposes the observed frame's LIVE app-db
-  ;; (`:rf.xray/target-frame-db`, which follows the picker / focused
-  ;; frame) into the section model `current-state-sections` produces:
-  ;; the TOP user-domain section (app-db minus reserved keys) + one
-  ;; section per reserved `:rf/*` area (machines/spawned fan out per
-  ;; instance; route + the other slices are singletons).
+  ;; "what does state LOOK LIKE — and what just changed?"):
   ;;
-  ;; The focused epoch record's `:db-before` is threaded as the diff
-  ;; PRE-IMAGE (spec/021 §4.3) so each section's changed nodes carry the
-  ;; inline `← was X` annotation in place. When no epoch is
-  ;; focusable (cold boot, no cascades) the record is nil and the
-  ;; sections render plain current-state — `current-state-sections`
-  ;; falls back to its `no-diff` sentinel automatically.
+  ;;   :value  = the observed frame's LIVE app-db (constant as you scrub)
+  ;;   :before = the focused epoch's `:db-before` (the inline-diff
+  ;;             pre-image — the ONLY thing that changes per epoch)
+  ;;
+  ;; ## Why one sub, not a 5-deep chain (rf2-yng0y root-cause fix)
+  ;;
+  ;; Previously the section model resolved through a deep composed
+  ;; chain — `:rf.xray/focus → :rf.xray/focus-epoch-id →
+  ;; :rf.xray/selected-epoch-record → :rf.xray/app-db-state`. Under
+  ;; real mouse timing (dispatches landing mid-frame relative to
+  ;; Reagent's rAF-batched flush) the panel could paint ONE frame
+  ;; (~17–22 ms) reading `app-db-state` while the focus→record chain was
+  ;; still propagating, so the rendered `:before`/diff lagged the focus
+  ;; by a frame — the previous epoch's diff flashing as "stuck", most
+  ;; visible when zoomed into a subtree (the stale frame IS the entire
+  ;; visible content).
+  ;;
+  ;; This sub collapses the chain: it joins the live db, the epoch
+  ;; history, and the spine `:rf.xray/focus` map DIRECTLY, then resolves
+  ;; the focused record's `:db-before` and `:epoch-id` together in ONE
+  ;; computation. `:before` and `:epoch-id` are pulled from the SAME
+  ;; `record`, so they can NEVER disagree — there is no intermediate
+  ;; reaction layer carrying a stale `:before` for a frame, and so no
+  ;; stale projection can paint. (Note: `(peek history)` is NOT a
+  ;; fallback here — the App-DB before-image follows the FOCUSED epoch;
+  ;; the `(peek history)` fallback that `:rf.xray/selected-epoch-diff`
+  ;; uses is a separate Epoch-panel/MCP concern.)
+  ;;
+  ;; ATOMICITY INVARIANT (asserted by the deterministic unit test):
+  ;;   for any returned map, `(= :before (:db-before <record of
+  ;;   :epoch-id>))` — `:before` is, by construction, the `:db-before`
+  ;;   of the epoch named by `:epoch-id`. When no epoch is focused
+  ;;   (cold boot, no cascades) both are nil and the panel renders plain
+  ;;   current-state.
+  (rf/reg-sub :rf.xray/app-db-current+diff
+    :<- [:rf.xray/target-frame-db]
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus]
+    (fn [[db history focus] _query]
+      (let [epoch-id (:epoch-id focus)
+            record   (when epoch-id (find-epoch-in-history history epoch-id))
+            before   (when record (:db-before record))]
+        {:value    db
+         ;; `:before` and `:epoch-id` come from the SAME record — they
+         ;; move together, never one-frame apart.
+         :before   before
+         :epoch-id (when record epoch-id)})))
+
+  ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state section model ---------
+  ;;
+  ;; Decomposes the atomic `{:value :before :epoch-id}` (above) into the
+  ;; section model `current-state-sections` produces: the TOP
+  ;; user-domain section (app-db minus reserved keys) + one section per
+  ;; reserved `:rf/*` area (machines/spawned fan out per instance; route
+  ;; + the other slices are singletons).
+  ;;
+  ;; The focused epoch's `:db-before` is threaded as the diff PRE-IMAGE
+  ;; (spec/021 §4.3) so each section's changed nodes carry the inline
+  ;; `← was X` annotation in place. Because this derives from the atomic
+  ;; sub, the section model's `:before-top` / per-area `:before` slices
+  ;; ALWAYS belong to the focused `:epoch-id` — no stale-`before`
+  ;; intermediate frame (rf2-yng0y).
   ;;
   ;; nil-safe — an absent / empty db yields an empty TOP + zero
   ;; reserved-area entries (rf2-jcdvo — empty areas are filtered at
   ;; projection time so the renderer never draws placeholder cards).
   (rf/reg-sub :rf.xray/app-db-state
-    :<- [:rf.xray/target-frame-db]
-    :<- [:rf.xray/selected-epoch-record]
-    (fn [[db record] _query]
-      (if-let [before (:db-before record)]
-        (h/current-state-sections db before)
-        (h/current-state-sections db))))
+    :<- [:rf.xray/app-db-current+diff]
+    (fn [{:keys [value before]} _query]
+      ;; Diff-mode is entered iff a real pre-image is present, mirroring
+      ;; the pre-rf2-yng0y `(if-let [before (:db-before record)] …)`
+      ;; contract: an absent / nil `:db-before` (cold boot, or a record
+      ;; with no pre-image slot) renders plain current-state. The atomic
+      ;; sub carries `before` = the focused record's `:db-before` (or nil
+      ;; when no epoch is focused), so this preserves the exact prior
+      ;; diff/no-diff behaviour while inheriting the atomic sub's
+      ;; stale-`before`-free contract.
+      (if (some? before)
+        (h/current-state-sections value before)
+        (h/current-state-sections value))))
 
   ;; rf2-fvplw — `:target-frame` in the composite output is the
   ;; *observed* frame (picker-selected / focused-cascade frame), not

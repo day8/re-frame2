@@ -425,6 +425,36 @@
     (is (= :c1 (get-in r [:focus :dispatch-id]))
         "committed selection survives preview-clear")))
 
+(deftest preview-cascade-reducer-writes-epoch-id-rf2-yng0y
+  (testing "rf2-yng0y — the 3-arity preview reducer writes :epoch-id in
+            lockstep with :dispatch-id so the spine's two focus axes
+            never desync mid-preview (the App-DB before-image follows
+            :epoch-id). Pre-fix the preview wrote :dispatch-id alone,
+            leaving :epoch-id pinned to the committed epoch — a latent
+            LIVE-mode correctness bug."
+    (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :live}}
+          r  (spine/preview-cascade-reducer db :c2 :e2)]
+      (is (true? (get-in r [:focus :previewing?])))
+      (is (= :c2 (get-in r [:focus :dispatch-id]))
+          ":dispatch-id moved to the previewed cascade")
+      (is (= :e2 (get-in r [:focus :epoch-id]))
+          ":epoch-id moved with it — the two axes stay in lockstep")))
+  (testing "rf2-yng0y — nil epoch-id (the 2-arity delegate, or an
+            unresolved preview) leaves :epoch-id untouched rather than
+            clobbering it to nil; the before-image stays on the last
+            resolved epoch until a real epoch resolves."
+    (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :live}}
+          r  (spine/preview-cascade-reducer db :c2 nil)]
+      (is (= :c2 (get-in r [:focus :dispatch-id])))
+      (is (= :e1 (get-in r [:focus :epoch-id]))
+          "unresolved preview epoch-id is non-destructive")))
+  (testing "rf2-yng0y — the 2-arity arity is preserved (back-compat) and
+            leaves :epoch-id untouched."
+    (let [db {:focus {:epoch-id :e1}}
+          r  (spine/preview-cascade-reducer db :c2)]
+      (is (= :c2 (get-in r [:focus :dispatch-id])))
+      (is (= :e1 (get-in r [:focus :epoch-id]))))))
+
 ;; -------------------------------------------------------------------------
 ;; (8) Registered :rf.xray/focus sub — reactive composition
 ;; -------------------------------------------------------------------------
