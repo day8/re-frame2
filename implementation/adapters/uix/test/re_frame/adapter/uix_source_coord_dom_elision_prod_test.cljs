@@ -26,21 +26,17 @@
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
+            ;; rf2-5g21s — the react-element-attr accessor is hoisted into
+            ;; the dependency-free shared test home (out of cross-suite
+            ;; duplication with the Helix twin); reference it rather than
+            ;; carry a copy. Kept separate from react-shared-suite so this
+            ;; prod-elision build does not pull the suite's heavy deps.
+            [re-frame.adapter.react-test-support :refer [react-element-attr]]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter}))
-
-(defn- react-element-attr
-  "Pull `attr` (a string prop name) off a React element's `.-props`, or
-  nil. Defensively returns nil on every branch so the test assertions
-  can use `nil?`. Both elision attributes (`data-rf2-source-coord` and
-  `data-rf-view`) ride the same `interop/debug-enabled?` gate, so the
-  one accessor covers both."
-  [el attr]
-  (when (and el (.-props el))
-    (aget (.-props el) attr)))
 
 ;; ---- annotation elides under :advanced + goog.DEBUG=false ----------------
 
