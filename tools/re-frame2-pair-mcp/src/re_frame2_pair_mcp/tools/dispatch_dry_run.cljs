@@ -34,7 +34,6 @@
   losing the dry-run's roll-back guarantee."
   (:require [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -93,17 +92,15 @@
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides))
             form (ef/emit (ef/rt-call 'dispatch-dry-run event-vec opts-form))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [v]
-                     ;; The runtime returns a structured envelope
-                     ;; carrying :ok? / :dry-run? / :rolled-back? /
-                     ;; :cascade-summary / :would-fire-effects /
-                     ;; :db-state-after-simulation on the happy path
-                     ;; (or a structured failure envelope on the
-                     ;; :no-epoch-recorded / :no-new-epoch paths).
-                     (wire/ok-text
-                       (if (map? v)
-                         v
-                         {:ok? false :reason :unexpected-shape :value v}))))
-            (.catch (fn [err] (probe/err->result :dispatch-dry-run-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :dispatch-dry-run-failed
+          (fn [v]
+            ;; The runtime returns a structured envelope carrying :ok? /
+            ;; :dry-run? / :rolled-back? / :cascade-summary /
+            ;; :would-fire-effects / :db-state-after-simulation on the
+            ;; happy path (or a structured failure envelope on the
+            ;; :no-epoch-recorded / :no-new-epoch paths).
+            (wire/ok-text
+              (if (map? v)
+                v
+                {:ok? false :reason :unexpected-shape :value v}))))))))

@@ -31,33 +31,17 @@
   spec/Tool-Pair.md §Pair-tool write failure modes). The runtime's
   `app-db-reset!` already returns a structured `{:ok? false :reason
   :reset-rejected ...}` on those soft failures; we pass it through."
-  (:require [cljs.reader]
-            [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
-(defn- parse-db-edn
-  "Parse the `db` MCP arg as EDN. Returns `[:ok parsed]` on success or
-  `[:err reason]` on an absent / unreadable value. Unlike `dispatch`'s
-  event arg there is NO shape constraint — a frame's app-db is
-  conventionally a map but the runtime accepts any value the frame's
-  app-schema admits, so we only require readability."
-  [db-str]
-  (let [trimmed (some-> db-str str/trim)]
-    (cond
-      (or (nil? trimmed) (str/blank? trimmed))
-      [:err :missing-db]
-
-      :else
-      (let [parsed (try (cljs.reader/read-string trimmed)
-                        (catch :default _ ::reader-fail))]
-        (if (= ::reader-fail parsed)
-          [:err :invalid-db-edn]
-          [:ok parsed])))))
+;; The `db` arg has NO shape constraint — a frame's app-db is
+;; conventionally a map but the runtime accepts any value the frame's
+;; app-schema admits, so we only require readability. That's exactly the
+;; shared `args/read-edn-arg` core (rf2-jkake.19); the richer
+;; vector-shape `dispatch` parser is deliberately not shared with it.
 
 (defn reset-frame-db-tool [conn raw-args]
   (if-not (writes/writes-allowed?)
@@ -65,7 +49,7 @@
     (let [db-str   (wire/arg raw-args :db)
           build-id (wire/arg-build conn raw-args)
           frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-          [tag payload] (parse-db-edn db-str)]
+          [tag payload] (args/read-edn-arg db-str :missing-db :invalid-db-edn)]
       (case tag
         :err
         (js/Promise.resolve
@@ -84,16 +68,15 @@
                      (ef/rt-call 'app-db-reset! new-db frame)
                      (ef/rt-call 'app-db-reset! new-db))
               form (ef/emit call)]
-          (-> (probe/ensure-runtime! conn build-id)
-              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then (fn [v]
-                       ;; app-db-reset! returns a structured envelope
-                       ;; ({:ok? true :frame ...} / {:ok? false :reason
-                       ;; :reset-rejected ...}). Pass it through; default
-                       ;; to a generic shape if the runtime returned a
-                       ;; non-map (degraded / pre-rf2-c2dtu runtime).
-                       (wire/ok-text
-                         (if (map? v)
-                           v
-                           {:ok? false :reason :unexpected-shape :value v :frame frame}))))
-              (.catch (fn [err] (probe/err->result :reset-frame-db-failed err)))))))))
+          (probe/eval-after-runtime!
+            conn build-id form :reset-frame-db-failed
+            (fn [v]
+              ;; app-db-reset! returns a structured envelope
+              ;; ({:ok? true :frame ...} / {:ok? false :reason
+              ;; :reset-rejected ...}). Pass it through; default to a
+              ;; generic shape if the runtime returned a non-map
+              ;; (degraded / pre-rf2-c2dtu runtime).
+              (wire/ok-text
+                (if (map? v)
+                  v
+                  {:ok? false :reason :unexpected-shape :value v :frame frame})))))))))

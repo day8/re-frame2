@@ -264,7 +264,6 @@
                            (await-render-callbacks mode))))
                 (.catch (fn [err] (probe/err->result :dispatch-failed err)))))
           (let [form (ef/emit (ef/rt-call fn-sym event-vec opts-form))]
-            (-> (probe/ensure-runtime! conn build-id)
-                (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-                (.then (fn [v] (runtime-envelope->result mode v)))
-                (.catch (fn [err] (probe/err->result :dispatch-failed err))))))))))
+            (probe/eval-after-runtime!
+              conn build-id form :dispatch-failed
+              (fn [v] (runtime-envelope->result mode v)))))))))

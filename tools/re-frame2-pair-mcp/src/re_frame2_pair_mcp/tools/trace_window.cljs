@@ -22,8 +22,7 @@
   \"the MCP isn't capturing my events\". The advisory names the
   history count and points to `snapshot` as the historical-inspection
   surface."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
@@ -96,69 +95,67 @@
                             " :next-id next-id"
                             " :history-count (count hist)"
                             " :remaining (max 0 (- (count filtered) (count page)))}"))))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then
-              (fn [v]
-                (let [v          (if (map? v) v {})
-                      aged-out?  (:id-aged-out? v)
-                      raw-epochs (vec (:epochs v))]
-                  (if aged-out?
-                    (cursor/cursor-stale-result "trace-window"
-                                                {:requested-id (:requested-id v)
-                                                 :head-id      (:head-id v)})
-                    (let [{:keys [value indicators]}
-                          (wp/run-wire-pipeline raw-epochs
-                                                {:kind   :epoch-vector
-                                                 :incl?  incl?
-                                                 :mode   mode
-                                                 :dedup? dedup?})
-                          {:keys [dropped elided count]} indicators
-                          next-id     (:next-id v)
-                          next-cursor (cursor/encode-cursor
-                                        (when next-id
-                                          {:v        1
-                                           :after-id next-id
-                                           :ms       window-ms
-                                           :until-ms until-ms
-                                           :frame    sticky-frame}))
-                          has-more?     (some? next-cursor)
-                          remaining     (or (:remaining v) 0)
-                          history-count (or (:history-count v) 0)
-                          ;; Advisory fires only when the window
-                          ;; surfaced ZERO epochs but the per-frame
-                          ;; history holds events that just fell
-                          ;; outside the time slice. Two ratchets:
-                          ;;   - count = 0 (the slot operators read
-                          ;;     to decide \"nothing happened\")
-                          ;;   - history-count > 0 (the underlying
-                          ;;     ring isn't empty — events exist).
-                          advisory      (when (and (zero? count)
-                                                   (pos? history-count))
-                                          {:reason            :window-excludes-history
-                                           :frame             sticky-frame
-                                           :epochs-in-history history-count
-                                           :window-ms         window-ms
-                                           :hint              (str history-count
-                                                                   " epochs exist in the per-frame "
-                                                                   "history but none fell inside the "
-                                                                   "last " window-ms "ms window. "
-                                                                   "Widen :ms (e.g. 60000), or use "
-                                                                   "`snapshot :include [:epochs]` to "
-                                                                   "inspect the full history.")})
-                          envelope      (cond-> {:ok?                 true
-                                                 :window-ms           window-ms
-                                                 :until-ms            until-ms
-                                                 :count               count
-                                                 :limit               limit
-                                                 :epochs-mode         mode
-                                                 :dedup               dedup?
-                                                 :epochs              value
-                                                 :has-more?           has-more?
-                                                 :estimated-remaining remaining
-                                                 :next-cursor         next-cursor}
-                                          advisory (assoc :advisory advisory))]
-                      (wire/ok-text (wire/with-indicators
-                                      envelope
-                                      {:dropped dropped :elided elided})))))))
-            (.catch (fn [err] (probe/err->result :trace-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :trace-failed
+          (fn [v]
+            (let [v          (if (map? v) v {})
+                  aged-out?  (:id-aged-out? v)
+                  raw-epochs (vec (:epochs v))]
+              (if aged-out?
+                (cursor/cursor-stale-result "trace-window"
+                                            {:requested-id (:requested-id v)
+                                             :head-id      (:head-id v)})
+                (let [{:keys [value indicators]}
+                      (wp/run-wire-pipeline raw-epochs
+                                            {:kind   :epoch-vector
+                                             :incl?  incl?
+                                             :mode   mode
+                                             :dedup? dedup?})
+                      {:keys [dropped elided count]} indicators
+                      next-id     (:next-id v)
+                      next-cursor (cursor/encode-cursor
+                                    (when next-id
+                                      {:v        1
+                                       :after-id next-id
+                                       :ms       window-ms
+                                       :until-ms until-ms
+                                       :frame    sticky-frame}))
+                      has-more?     (some? next-cursor)
+                      remaining     (or (:remaining v) 0)
+                      history-count (or (:history-count v) 0)
+                      ;; Advisory fires only when the window
+                      ;; surfaced ZERO epochs but the per-frame
+                      ;; history holds events that just fell
+                      ;; outside the time slice. Two ratchets:
+                      ;;   - count = 0 (the slot operators read
+                      ;;     to decide \"nothing happened\")
+                      ;;   - history-count > 0 (the underlying
+                      ;;     ring isn't empty — events exist).
+                      advisory      (when (and (zero? count)
+                                               (pos? history-count))
+                                      {:reason            :window-excludes-history
+                                       :frame             sticky-frame
+                                       :epochs-in-history history-count
+                                       :window-ms         window-ms
+                                       :hint              (str history-count
+                                                               " epochs exist in the per-frame "
+                                                               "history but none fell inside the "
+                                                               "last " window-ms "ms window. "
+                                                               "Widen :ms (e.g. 60000), or use "
+                                                               "`snapshot :include [:epochs]` to "
+                                                               "inspect the full history.")})
+                      envelope      (cond-> {:ok?                 true
+                                             :window-ms           window-ms
+                                             :until-ms            until-ms
+                                             :count               count
+                                             :limit               limit
+                                             :epochs-mode         mode
+                                             :dedup               dedup?
+                                             :epochs              value
+                                             :has-more?           has-more?
+                                             :estimated-remaining remaining
+                                             :next-cursor         next-cursor}
+                                      advisory (assoc :advisory advisory))]
+                  (wire/ok-text (wire/with-indicators
+                                  envelope
+                                  {:dropped dropped :elided elided})))))))))))

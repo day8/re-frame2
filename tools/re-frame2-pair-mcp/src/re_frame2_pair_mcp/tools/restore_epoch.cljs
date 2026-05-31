@@ -28,31 +28,15 @@
   failure modes). The runtime primitive returns `false` on any failure
   (the frame's app-db is unchanged); we surface that as
   `{:ok? false :reason :restore-rejected}`."
-  (:require [cljs.reader]
-            [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
-(defn- parse-epoch-id
-  "Parse the `epoch-id` MCP arg as EDN. Returns `[:ok parsed]` for any
-  present, readable value (integer / keyword / string — `:epoch-id` is
-  `:any`); `[:err reason]` for an absent or unreadable value."
-  [epoch-id-str]
-  (let [trimmed (some-> epoch-id-str str/trim)]
-    (cond
-      (or (nil? trimmed) (str/blank? trimmed))
-      [:err :missing-epoch-id]
-
-      :else
-      (let [parsed (try (cljs.reader/read-string trimmed)
-                        (catch :default _ ::reader-fail))]
-        (if (= ::reader-fail parsed)
-          [:err :invalid-epoch-id]
-          [:ok parsed])))))
+;; The `epoch-id` arg is parsed as EDN with NO shape constraint — any
+;; readable value (integer / keyword / string; `:epoch-id` is `:any`) is
+;; accepted, exactly the shared `args/read-edn-arg` core (rf2-jkake.19).
 
 (defn restore-epoch-tool [conn raw-args]
   (if-not (writes/writes-allowed?)
@@ -60,7 +44,7 @@
     (let [epoch-id-str (wire/arg raw-args :epoch-id)
           build-id     (wire/arg-build conn raw-args)
           frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-          [tag payload] (parse-epoch-id epoch-id-str)]
+          [tag payload] (args/read-edn-arg epoch-id-str :missing-epoch-id :invalid-epoch-id)]
       (case tag
         :err
         (js/Promise.resolve
@@ -78,35 +62,32 @@
                      (ef/rt-call 'restore-epoch epoch-id frame)
                      (ef/rt-call 'restore-epoch epoch-id))
               form (ef/emit call)]
-          (-> (probe/ensure-runtime! conn build-id)
-              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then (fn [v]
-                       ;; Per rf2-6yqdl: the runtime now returns a
-                       ;; structured envelope on success carrying
-                       ;; `:ok? :restored? :epoch-id :frame
-                       ;; :cascade-summary :unreplayable-effects`.
-                       ;; Failure remains the legacy `false` so older
-                       ;; runtimes still surface as a clean reject
-                       ;; envelope here.
-                       (wire/ok-text
-                         (cond
-                           (map? v)
-                           v
+          (probe/eval-after-runtime!
+            conn build-id form :restore-epoch-failed
+            (fn [v]
+              ;; Per rf2-6yqdl: the runtime now returns a structured
+              ;; envelope on success carrying `:ok? :restored? :epoch-id
+              ;; :frame :cascade-summary :unreplayable-effects`. Failure
+              ;; remains the legacy `false` so older runtimes still
+              ;; surface as a clean reject envelope here.
+              (wire/ok-text
+                (cond
+                  (map? v)
+                  v
 
-                           v
-                           {:ok?       true
-                            :restored? true
-                            :epoch-id  epoch-id
-                            :frame     frame}
+                  v
+                  {:ok?       true
+                   :restored? true
+                   :epoch-id  epoch-id
+                   :frame     frame}
 
-                           :else
-                           {:ok?       false
-                            :restored? false
-                            :reason    :restore-rejected
-                            :epoch-id  epoch-id
-                            :frame     frame
-                            :hint      (str "restore-epoch returned false — the epoch-id is not in the "
-                                            "ring, or a drain is in flight. Read the structured reason "
-                                            "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
-                                            "filtered to :rf.epoch/*.")}))))
-              (.catch (fn [err] (probe/err->result :restore-epoch-failed err)))))))))
+                  :else
+                  {:ok?       false
+                   :restored? false
+                   :reason    :restore-rejected
+                   :epoch-id  epoch-id
+                   :frame     frame
+                   :hint      (str "restore-epoch returned false — the epoch-id is not in the "
+                                   "ring, or a drain is in flight. Read the structured reason "
+                                   "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
+                                   "filtered to :rf.epoch/*.")})))))))))
