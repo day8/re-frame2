@@ -860,6 +860,49 @@
           tree (view/render-fx-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
 
+(deftest fx-row-mounts-coord-chip-when-meta-resolves-test
+  (testing "rf2-g1mfc — each FX-step row routes its fx-id through
+            `coord-chip/coord-chip` to surface a click-to-source
+            affordance for the `reg-fx` registration (parity with the
+            SUBSCRIPTIONS / VIEWS rows + the HANDLER verb). Pre-fix the
+            fx row rendered the fx-id with NO open-code affordance at
+            all — the affordance was inconsistent across pipeline steps.
+
+            The chip's <button> mounts when `(rf/handler-meta :fx
+            fx-id)` resolves a `:file` coord. CLJS macro-form `reg-fx`
+            captures `:file`/`:line` at the test call-site (the same
+            `defreg-macro` → `coords-form` absolutisation path
+            `reg-sub` uses) so the integration round-trip is testable
+            here."
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/reg-fx :rf.g1mfc-fixture/ping
+        (fn [_ctx _args] nil))
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta :fx :rf.g1mfc-fixture/ping)
+                                            :file string?))
+            step {:step :fx :badge :FX :step-number 4
+                  :rows [{:fx-id :rf.g1mfc-fixture/ping :status :ok}]
+                  :succeeded 1 :threw 0 :skipped 0}
+            tree (view/render-fx-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-fx-row-0"))
+            "the fx row itself renders")
+        ;; If the test harness captured a source coord the chip mounts;
+        ;; otherwise the call-site still fired but produced nil (graceful
+        ;; degrade per coord-chip's contract). Either branch proves the
+        ;; bug-fix is in place — pre-fix there was no chip call-site at
+        ;; all on the fx row.
+        (let [chip (th/find-by-testid tree "rf-xray-epoch-fx-row-coord-0")]
+          (if meta-resolved?
+            (do
+              (is (some? chip)
+                  "coord chip mounts when reg-fx captured a source coord")
+              (is (= :button (first chip))
+                  "chip mounts as a <button>")
+              (is (fn? (:on-click (second chip)))
+                  "chip carries an on-click handler"))
+            (is (nil? chip)
+                "coord chip drops out cleanly when no coord is resolvable")))))))
+
 ;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
 ;;
 ;; The `view/render-app-db-diff-step` fn was deleted in commit

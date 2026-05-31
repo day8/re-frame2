@@ -287,6 +287,51 @@
 ;;      highlighter in-bundle avoids the cost of a JS-side highlight.js
 ;;      dep on the dev classpath.
 
+(defn unescape-source-newlines
+  "Turn the two-character escaped-newline sequence `\\n` (backslash + n)
+  inside a captured Clojure source string back into a REAL newline so a
+  multi-line `:doc` (or any multi-line string literal) renders across
+  lines, matching how it was written in source (rf2-iosnp). Pure fn;
+  testable.
+
+  ## Why this is needed
+
+  The substrate captures handler source via `(pr-str whole-form)`
+  (`re-frame.core-reg-macros/with-form-source-form`, rf2-xgfuy). Clojure's
+  printer escapes newlines inside string literals, so a source-level
+
+      {:doc \"line one
+             line two\"}
+
+  arrives here as the single physical line `:doc \"line one\\nline two\"`
+  with a literal backslash-n. Under the code-block's `white-space: pre`
+  that paints one over-wide line carrying a visible `\\n`, not the
+  multi-line docstring the author wrote.
+
+  ## Why a whole-string replace is safe
+
+  `pr-str` only ever emits the `\\n` escape INSIDE string literals — a
+  bare `\\n` two-char sequence never occurs elsewhere in printed Clojure
+  source. So unescaping `\\n` across the whole formatted string
+  reconstructs the original line breaks without misfiring on code. The
+  replace is escape-aware: `pr-str` emits every escape as a two-char
+  sequence (`\\\\` for a literal backslash, `\\n` for a newline, `\\\"`
+  for a quote, …). The regex consumes a literal backslash-pair (`\\\\`)
+  as its FIRST alternative so it is kept verbatim, leaving only a
+  genuine `\\n` (a single backslash + n) to be rewritten. A literal
+  backslash directly before a printed newline (`\\\\` then `\\n`)
+  therefore keeps the backslash AND still unescapes the newline; an
+  escaped backslash followed by a literal `n` (`\\\\` then `n`) keeps
+  both."
+  [s]
+  (if-not (and (string? s) (str/index-of s "\\n"))
+    s
+    ;; `\\\\` (a literal backslash-pair) is matched FIRST so it is
+    ;; consumed verbatim; only a remaining bare `\n` reaches the newline
+    ;; rewrite. The function replacement keeps the backslash-pair as-is.
+    (str/replace s #"\\\\|\\n"
+                 (fn [m] (if (= m "\\n") "\n" m)))))
+
 (defn format-source
   "Pre-format a Clojure source string via zprint so the rendered
   code-block reads canonically regardless of how the registration was
@@ -298,13 +343,21 @@
   the input string is treated as raw source — comments, blank lines,
   and multiple top-level forms survive the round-trip. The width is
   capped at 72 columns so the rendered block fits inside the Event
-  panel's narrow handler-source slot without horizontal scroll."
+  panel's narrow handler-source slot without horizontal scroll.
+
+  rf2-iosnp — after zprint (or the fall-through on a parse failure) the
+  result is run through [[unescape-source-newlines]] so an embedded
+  multi-line `:doc` renders its real line breaks instead of a literal
+  backslash-n on one over-wide line. zprint preserves string-literal
+  contents verbatim, so the `\\n` escape survives the round-trip and is
+  unescaped here as the final step."
   [src]
   (if-not (and (string? src) (seq src))
     src
-    (try
-      (zprint/zprint-file-str src "rf-xray-handler-source" {:width 72})
-      (catch :default _ src))))
+    (-> (try
+          (zprint/zprint-file-str src "rf-xray-handler-source" {:width 72})
+          (catch :default _ src))
+        unescape-source-newlines)))
 
 (defn highlight-clojure-token
   "Per-token colour resolution for the in-bundle Clojure syntax

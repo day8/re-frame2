@@ -226,6 +226,64 @@
   (let [bad "(reg-event-db :foo "]
     (is (= bad (w/format-source bad)))))
 
+;; ---- rf2-iosnp — multi-line :doc renders as real line breaks ------------
+
+;; Single-char building blocks so the escape-edge tests carry ZERO
+;; hand-escaping ambiguity. `BS` is one backslash; `NL` is one newline.
+(def ^:private BS (str \\))
+(def ^:private NL (str \newline))
+
+(deftest unescape-source-newlines-converts-escaped-newline
+  (testing "rf2-iosnp — a captured source string carrying the escaped
+            two-char `\\n` (as `pr-str` emits for a multi-line docstring)
+            is rewritten to a REAL newline so the code-block renders
+            multi-line."
+    ;; printed input  = `line one` `\` `n` `line two`
+    ;; expected output = `line one` + real newline + `line two`
+    (is (= (str "line one" NL "line two")
+           (w/unescape-source-newlines (str "line one" BS "n" "line two"))))))
+
+(deftest unescape-source-newlines-noop-without-escape
+  (testing "no escaped-newline present → string returned unchanged"
+    (is (= "(def x 1)" (w/unescape-source-newlines "(def x 1)")))
+    (is (= "" (w/unescape-source-newlines "")))
+    (is (nil? (w/unescape-source-newlines nil)))))
+
+(deftest unescape-source-newlines-keeps-escaped-backslash
+  (testing "rf2-iosnp — the result is still SOURCE TEXT (it is re-fed to
+            the tokenizer + painted under `white-space: pre`), so a
+            printed escaped backslash `\\\\` (the valid source-text form
+            of one literal backslash) is KEPT verbatim — only the `\\n`
+            newline escape relaxes to a real line break. The fn is NOT a
+            general string decoder. Building blocks: `BS` = one
+            backslash, `NL` = one newline."
+    ;; printed input  = `\` `\` `\` `n`  (escaped-backslash `\\` then `\n`)
+    ;; expected output = `\` `\`         (the `\\` source form) + newline
+    (is (= (str BS BS NL)
+           (w/unescape-source-newlines (str BS BS BS "n")))
+        "escaped-backslash kept as `\\\\`; the trailing \\n restored to a newline")
+    ;; printed input  = `\` `\` `n`  (escaped-backslash `\\` then letter n)
+    ;; expected output = unchanged   (no newline escape present)
+    (is (= (str BS BS "n")
+           (w/unescape-source-newlines (str BS BS "n")))
+        "no spurious newline when the backslash is escaped")))
+
+(deftest code-block-renders-multiline-doc-as-line-breaks
+  (testing "rf2-iosnp — a source string whose `:doc` literal carries the
+            escaped `\\n` (the `pr-str` capture shape) renders across
+            real lines: the `:pre` block's text contains an actual
+            newline and no literal backslash-n."
+    (let [src  "(reg-event-db :foo {:doc \"line one\\nline two\"} (fn [db _] db))"
+          out  (w/code-block {:source src})
+          pre  (some #(when (and (vector? %) (= :pre (first %))) %)
+                     (walk-hiccup out))
+          text (str/join "" (filter string? (flatten pre)))]
+      (is (some? pre) "a :pre block renders")
+      (is (str/includes? text "\n")
+          "the rendered text carries a REAL newline")
+      (is (not (str/includes? text "\\n"))
+          "no literal backslash-n survives in the rendered text"))))
+
 (deftest code-block-pre-formats-via-zprint
   (let [out  (w/code-block {:source "(reg-event-db :counter/inc (fn [db _] (update db :n inc)))"})
         pre  (some #(when (and (vector? %) (= :pre (first %))) %)
