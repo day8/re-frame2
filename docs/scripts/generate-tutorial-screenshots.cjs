@@ -2,9 +2,10 @@
 /*
  * Tutorial screenshot generator.
  *
- * Drives a headless Chromium through the Xray + Story testbeds and
- * captures annotated screenshots for the Xray and Story tutorials at
- * `docs/xray/` and `docs/story/`.
+ * Drives a headless Chromium through the Xray testbed and captures
+ * annotated screenshots for the Xray tutorial at `docs/xray/`.
+ * (Story tutorial captures live in
+ * examples/scripts/capture-story-screenshots.cjs.)
  *
  * Pipeline:
  *   1. The orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
@@ -26,11 +27,8 @@
  *
  * Determinism:
  *   - Viewport pinned to 1280x800.
- *   - The Story shell's first-visit help overlay is dismissed via
- *     localStorage seeding (`re-frame.story/seen-help-v1`).
  *   - Xray's first-paint <80ms gate is satisfied by waiting for the
  *     shell's data-testid="rf-xray-shell" before shooting.
- *   - The counter-with-stories testbed seeds :count=5 deterministically.
  *
  * How to run (from repo root):
  *
@@ -42,7 +40,8 @@
  *
  * Outputs:
  *   docs/images/xray/*.png
- *   docs/images/story/*.png
+ *   (Story tutorial captures live in
+ *    examples/scripts/capture-story-screenshots.cjs — the s00–s13 set.)
  *
  * Reproducibility: each shot's filename is locked; re-running overwrites.
  * The output PNGs are tracked in git so the docs site stays self-contained
@@ -59,7 +58,6 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_XRAY = path.join(REPO_ROOT, 'docs', 'images', 'xray');
-const OUT_STORY = path.join(REPO_ROOT, 'docs', 'images', 'story');
 const ANNOTATION_SPEC = path.join(__dirname, 'tutorial-annotation-spec.json');
 
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
@@ -302,12 +300,6 @@ const SCENES = [];
 
 // ------------------------------ Xray scenes ------------------------------
 
-async function dismissStoryHelp(page) {
-  await page.evaluate(() => {
-    try { localStorage.setItem('re-frame.story/seen-help-v1', '1'); } catch (_) {}
-  });
-}
-
 async function openXray(page) {
   // The preload only attaches keybindings; the shell mounts lazily on
   // the first Ctrl+Shift+C.
@@ -524,183 +516,14 @@ SCENES.push({
 });
 
 // ------------------------------ Story scenes ------------------------------
-
-SCENES.push({
-  id: 'story-shell-overview',
-  out: path.join(OUT_STORY, '01-shell-overview.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible', timeout: 10000 });
-    // Click into the loaded variant so the canvas paints something.
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    await page.locator('[data-test="count"]').first().waitFor({ state: 'visible', timeout: 10000 });
-  },
-});
-
-SCENES.push({
-  id: 'story-variant-loaded',
-  out: path.join(OUT_STORY, '01-variant-loaded.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    await page.locator('[data-test="count"]').first().waitFor({ state: 'visible' });
-  },
-});
-
-SCENES.push({
-  id: 'story-mode-tabs',
-  out: path.join(OUT_STORY, '02-mode-tabs.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    await page.locator('[data-test="story-mode-tabs"]').waitFor({ state: 'visible' });
-  },
-});
-
-SCENES.push({
-  id: 'story-docs-mode',
-  out: path.join(OUT_STORY, '02-docs-mode.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    await page.locator('[data-mode-tab="docs"]').click();
-    await page.locator('[data-test="story-docs-view"]').waitFor({ state: 'visible' });
-  },
-});
-
-// File is 02-test-mode.png to match its referring chapter (02-mode-tabs.md).
-SCENES.push({
-  id: 'story-test-mode',
-  out: path.join(OUT_STORY, '02-test-mode.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    await page.locator('[data-mode-tab="test"]').click();
-    await page.locator('[data-test="story-test-view"]').waitFor({ state: 'visible' });
-  },
-});
-
-SCENES.push({
-  id: 'story-workspace-grid',
-  out: path.join(OUT_STORY, '04-workspace-grid.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    // Workspaces are sidebar entries beginning with ":Workspace."
-    const ws = page.getByRole('navigation').getByText(':Workspace.counter/all-states', { exact: false }).first();
-    if (await ws.count()) {
-      await ws.click();
-      // Wait for at least two counter cells to confirm the workspace mounted.
-      await page.waitForTimeout(500);
-    }
-  },
-});
-
-// --- Additional Story scenes --------------------------------------------
-
-SCENES.push({
-  id: 'story-recorder-modal',
-  out: path.join(OUT_STORY, '03-recorder-modal.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    // The recorder UX: click record, interact, click stop, modal opens
-    // with the captured :play body. Each affordance has a stable
-    // data-test; if the recorder UI hasn't shipped on the testbed yet
-    // the scene falls back to capturing the canvas with a callout —
-    // resolveRegion returns null for missing selectors, so the shot
-    // still happens un-annotated. Re-run after wiring lands.
-    const recordBtn = page.locator('[data-test="story-recorder-record"]');
-    if (await recordBtn.count()) {
-      await recordBtn.click();
-      // Drive the counter a few times so the recorder captures events.
-      const inc = page.getByRole('button', { name: '+' }).first();
-      if (await inc.count()) {
-        await inc.click();
-        await inc.click();
-      }
-      const stopBtn = page.locator('[data-test="story-recorder-stop"]');
-      if (await stopBtn.count()) {
-        await stopBtn.click();
-        await page.locator('[data-test="story-recorder-modal"]')
-          .waitFor({ state: 'visible', timeout: 5000 });
-      }
-    }
-  },
-});
-
-// Per rf2-ymnfx Issue B the Share button + QR popover were retired —
-// the variant URL is the browser's live address bar URL. The
-// `05-qr-share.png` capture scene that used to drive the popover is
-// gone; the snapshot-identity tutorial chapter no longer references
-// a popover screenshot.
-
-SCENES.push({
-  id: 'story-time-travel-mini',
-  out: path.join(OUT_STORY, '06-time-travel-mini.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const ws = page.getByRole('navigation').getByText(':Workspace.counter/all-states', { exact: false }).first();
-    if (await ws.count()) {
-      await ws.click();
-      await page.waitForTimeout(500);
-      // Toggle the per-cell mini-scrubbers on (default off) — the
-      // workspace exposes a `show scrubbers` chip on its top rail.
-      const toggle = page.locator('[data-test="story-show-mini-scrubbers"]');
-      if (await toggle.count()) await toggle.click();
-    }
-  },
-});
-
-SCENES.push({
-  id: 'story-multi-substrate',
-  out: path.join(OUT_STORY, '07-multi-substrate.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    // Multi-substrate workspaces declare :substrates on the parent
-    // story; the canvas mounts three columns. The counter testbed may
-    // not yet declare :substrates — the scene captures whatever the
-    // sidebar exposes as a `:substrate-grid/*` entry.
-    const grid = page.getByRole('navigation')
-      .getByText(':substrate-grid', { exact: false })
-      .first();
-    if (await grid.count()) {
-      await grid.click();
-      await page.waitForTimeout(500);
-    }
-  },
-});
+//
+// The legacy non-prefixed Story scenes (01-shell-overview,
+// 01-variant-loaded, 02-mode-tabs, 02-docs-mode, 02-test-mode,
+// 03-recorder-modal, 04-workspace-grid, 06-time-travel-mini,
+// 07-multi-substrate) were retired with their orphaned PNGs (rf2-azqaq):
+// the live Story tutorial ships the s00–s13 captures driven by
+// examples/scripts/capture-story-screenshots.cjs instead. This generator
+// now captures only the Xray tutorial scenes (docs/images/xray/*.png).
 
 // ---------------------------------------------------------------------------
 // Driver
@@ -725,7 +548,6 @@ async function probeBaseUrl() {
 
 (async () => {
   ensureDir(OUT_XRAY);
-  ensureDir(OUT_STORY);
 
   if (!(await probeBaseUrl())) {
     console.error(`Static server not reachable at ${BASE_URL}.`);
