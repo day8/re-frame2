@@ -58,6 +58,23 @@
 (defn- read-inputs [db flow]
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
 
+(defn- elide-inputs
+  "Walk a flow's just-read input values through `elision/elide-wire-value`,
+  each under its own declared input db-path so per-path `:sensitive` /
+  `:large` declarations apply (Spec 009 §Size elision in traces). The
+  single home for the input-value elision the `:rf.flow/computed` success
+  payload and the `:rf.flow/failed` failure payload both ride — the trace
+  bus is the wire boundary on both paths, so a flow reading a large or
+  sensitive input must not surface it raw on either.
+
+  Callers gate this behind their own outer `interop/debug-enabled?` so the
+  walk is DCE'd in CLJS production (rf2-drr4z); this fn does not re-gate."
+  [frame-id flow input-values]
+  (mapv (fn [input-path v]
+          (elision/elide-wire-value v {:frame frame-id :path input-path}))
+        (:inputs flow)
+        input-values))
+
 (defn- validate-output!
   "Dev-only validation of a flow's computed `:output` value against its
   optional `:schema` (Spec 013 §The registration shape — \"Malli schema
@@ -231,12 +248,7 @@
           (when interop/debug-enabled?
             (trace/emit! :flow :rf.flow/computed
                          {:flow-id      flow-id
-                          :input-values (mapv (fn [input-path v]
-                                                (elision/elide-wire-value
-                                                  v
-                                                  {:frame frame-id :path input-path}))
-                                              (:inputs flow)
-                                              new-inputs)
+                          :input-values (elide-inputs frame-id flow new-inputs)
                           :before       (elision/elide-wire-value
                                           old-output
                                           {:frame frame-id :path (:path flow)})
@@ -269,22 +281,16 @@
           ;; flow-attributed detail tools (10x flow panel) consume.
           ;;
           ;; The failure-path `:inputs` payload rides through the
-          ;; elision walker for the same reason as the success path —
-          ;; the value that triggered the throw may itself be a
-          ;; large or sensitive blob, and the trace bus is the wire
-          ;; boundary. Each entry is walked under its own declared
-          ;; input path so per-path declarations apply. Outer debug-
-          ;; enabled? gate elides the walk in CLJS prod (rf2-drr4z).
+          ;; elision walker (`elide-inputs`) for the same reason as the
+          ;; success path — the value that triggered the throw may itself
+          ;; be a large or sensitive blob, and the trace bus is the wire
+          ;; boundary. Outer debug-enabled? gate elides the walk in CLJS
+          ;; prod (rf2-drr4z).
           (when interop/debug-enabled?
             (trace/emit! :flow :rf.flow/failed
                          {:flow-id flow-id
                           :ex      e
-                          :inputs  (mapv (fn [input-path v]
-                                           (elision/elide-wire-value
-                                             v
-                                             {:frame frame-id :path input-path}))
-                                         (:inputs flow)
-                                         new-inputs)
+                          :inputs  (elide-inputs frame-id flow new-inputs)
                           :frame   frame-id}))
           ;; Per rf2-je5p8: wrap the throw in an ex-info carrying the
           ;; flow-attribution slot `:rf.flow/failed-id`.
