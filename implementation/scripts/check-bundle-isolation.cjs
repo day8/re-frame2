@@ -44,7 +44,11 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
+const {
+  readReleaseBlob,
+  countMatches,
+  countSubstring,
+} = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -517,30 +521,13 @@ const ARTEFACTS = [
 
 // ----- helpers ---------------------------------------------------------------
 
-// Bundle reading is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). The helper reads
-// only top-level *.js — the release artefact — so a stale dev-build
-// `cljs-runtime/` subdir from a prior `shadow-cljs compile` doesn't
-// get grep-ed alongside.
-
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function countSubstring(blob, needle) {
-  const re = new RegExp(escapeRe(needle), 'g');
-  const m  = blob.match(re);
-  return m ? m.length : 0;
-}
-
-function countPattern(blob, re) {
-  // Caller-supplied RegExp — reset lastIndex defensively in case the
-  // RegExp object has been used before (RegExp literals carry state
-  // when /g is set).
-  re.lastIndex = 0;
-  const m = blob.match(re);
-  return m ? m.length : 0;
-}
+// Bundle reading + grep primitives (escapeRe / countSubstring /
+// countMatches) are shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-qlk4w bundle reader;
+// rf2-jkake.15 folded the grep primitives in alongside it). The reader
+// returns only top-level *.js — the release artefact — so a stale
+// dev-build `cljs-runtime/` subdir from a prior `shadow-cljs compile`
+// doesn't get grep-ed alongside.
 
 function checkArtefact(blob, artefact) {
   report.detail(`  ${artefact.name}:`);
@@ -563,7 +550,7 @@ function checkArtefact(blob, artefact) {
   let allowListHits = 0;
   const allowListChecked = artefact.consumerAllowList ? 1 : 0;
   if (artefact.consumerAllowList) {
-    allowListHits = countPattern(blob, artefact.consumerAllowList);
+    allowListHits = countMatches(blob, artefact.consumerAllowList);
     allowListOk   = allowListHits <= artefact.expectedAllowListHits;
     const tag     = allowListOk ? 'OK' : 'FAIL';
     report.detail(`    [${tag}] consumer allow-list ${artefact.consumerAllowList}: ` +
