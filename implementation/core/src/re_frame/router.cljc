@@ -351,13 +351,82 @@
      :effects {}
      :rf/fx-overrides fx-overrides}))
 
-(defn- emit-handler-exception!
-  "Surface an interceptor-chain exception as :rf.error/handler-exception
-  trace AND invoke the frame's `:on-error` policy fn through the
-  always-on error-emit substrate (per rf2-hqbeh). The chain captures the
-  exception into `:rf/interceptor-error` rather than re-throwing (the
+(def ^:private handler-wrapping-interceptor-ids
+  "The `:id`s the three `reg-event-*` forms stamp on the handler-wrapping
+  interceptor (the terminal `:before` that invokes the user handler). Per
+  `re-frame.events/kind-spec` — `:rf/db-handler` / `:rf/fx-handler` /
+  `:rf/ctx-handler`. A captured `:rf/interceptor-error` whose `:id` is in
+  this set is the EVENT HANDLER itself throwing (vs. a coeffect injector
+  or a user interceptor); it keeps the `:rf.error/handler-exception`
+  category attributed to the event. Held here (not imported from
+  `events`) to keep the router's classification cycle-free; the ids are
+  a stable framework-owned contract."
+  #{:rf/db-handler :rf/fx-handler :rf/ctx-handler})
+
+(defn- classify-pipeline-exception
+  "Classify a captured `:rf/interceptor-error` into the true failing
+  component (per rf2-mszrz). Returns
+  `{:operation <:rf.error/*> :failing-id <kw> :reason <string>}` — the
+  category and attribution the exception emit fans out under. The chain
+  runner records `{:phase :id :exception (:rf/cofx-id)}`; this fn reads
+  that captured identity rather than blanket-attributing every
+  `:before`-chain throw to the event handler:
+
+    - a coeffect-injection throw (the throwing interceptor carries
+      `:rf/cofx-id`, stamped by `inject-cofx`) → `:rf.error/coeffect-exception`,
+      `:failing-id` = the fully-qualified cofx id;
+    - a user interceptor `:before` / `:after` throw (any `:id` that is
+      neither a handler-wrapper nor a cofx injector) →
+      `:rf.error/interceptor-exception`, `:failing-id` = the interceptor
+      `:id` (the `:phase` slot, carried on the trace tags, distinguishes
+      `:before` from `:after`);
+    - the event HANDLER itself throwing (the terminal `:before`, `:id` in
+      `handler-wrapping-interceptor-ids`) → `:rf.error/handler-exception`,
+      `:failing-id` = the event id.
+
+  Mirrors the existing distinct-by-component precedent the runtime
+  already follows for `:rf.error/flow-eval-exception` (flow transform)
+  and `:rf.error/fx-handler-exception` (post-commit fx walk) — the
+  `:before` chain was the one site that conflated three components into
+  `handler-exception`."
+  [error event-id]
+  (let [cofx-id (:rf/cofx-id error)
+        id      (:id error)]
+    (cond
+      cofx-id
+      {:operation  :rf.error/coeffect-exception
+       :failing-id cofx-id
+       :reason     (str "Coeffect injection for `" cofx-id "` threw.")}
+
+      (contains? handler-wrapping-interceptor-ids id)
+      {:operation  :rf.error/handler-exception
+       :failing-id event-id
+       :reason     "Event handler threw."}
+
+      :else
+      {:operation  :rf.error/interceptor-exception
+       :failing-id id
+       :reason     (str "Interceptor `" id "` threw in its `"
+                        (name (:phase error)) "` phase.")})))
+
+(defn- emit-pipeline-exception!
+  "Surface an interceptor-chain exception as the trace event for its TRUE
+  failing component AND invoke the frame's `:on-error` policy fn through
+  the always-on error-emit substrate (per rf2-hqbeh). The chain captures
+  the exception into `:rf/interceptor-error` rather than re-throwing (the
   drain must not abort); this helper translates that into both delivery
   channels.
+
+  Per rf2-mszrz the category + `:failing-id` are derived from the
+  captured component identity via `classify-pipeline-exception` — a
+  coeffect-injection throw emits `:rf.error/coeffect-exception` attributed
+  to the cofx id, a user-interceptor throw emits
+  `:rf.error/interceptor-exception` attributed to the interceptor id (with
+  `:phase` discriminating `:before`/`:after`), and only the event handler
+  itself keeps `:rf.error/handler-exception` attributed to the event id.
+  The `:handler-id` tag is retained ONLY for the genuine handler case so
+  consumers that read it (production-observability shippers) are not
+  mis-fed the event id for a coeffect / interceptor failure.
 
   Schema-derived redaction is reflected in the `:tags :event` slot:
   when the handler's path-scoped db slice overlaps a sensitive schema
@@ -390,16 +459,24 @@
         ;; record's contract holds on both platforms (mirrors
         ;; rf2-ph8pa / rf2-rirbq).
         elapsed-ms (long (max 0 (- end-ms start-ms)))
-        tags       {:event-id          event-id
-                    :event             emit-event
-                    :frame             frame
-                    :failing-id        event-id
-                    :handler-id        event-id
-                    :phase             (:phase error)
-                    :exception         exception
-                    :exception-message msg
-                    :reason            "Event handler threw."
-                    :recovery          :no-recovery}]
+        {:keys [operation failing-id reason]}
+        (classify-pipeline-exception error event-id)
+        handler-throw? (= operation :rf.error/handler-exception)
+        tags       (cond-> {:event-id          event-id
+                            :event             emit-event
+                            :frame             frame
+                            :failing-id        failing-id
+                            :phase             (:phase error)
+                            :exception         exception
+                            :exception-message msg
+                            :reason            reason
+                            :recovery          :no-recovery}
+                     ;; `:handler-id` is only meaningful when the EVENT
+                     ;; handler itself threw — a coeffect / interceptor
+                     ;; failure has no handler-id to carry (the handler
+                     ;; never ran). Stamping the event-id regardless
+                     ;; (the pre-rf2-mszrz behaviour) mis-fed consumers.
+                     handler-throw? (assoc :handler-id event-id))]
     ;; Always-on per rf2-hqbeh / rf2-bacs4: the `:on-error` policy fn
     ;; fires through the always-on substrate so production builds with
     ;; the trace surface elided still observe the error; in parallel,
@@ -410,20 +487,20 @@
     ;; handler / dispatch-id enrichment is dev-only and not present
     ;; here — those ride the trace path below.
     (error-emit/dispatch-on-error!
-      :rf.error/handler-exception
+      operation
       emit-event
       event-id
       frame
       exception
       elapsed-ms
       end-ms
-      {:operation :rf.error/handler-exception
+      {:operation operation
        :op-type   :error
        :tags      tags
        :recovery  :no-recovery})
     ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
     ;; `trace/emit-error!`; DCEs to a no-op in CLJS prod builds.
-    (trace/emit-error! :rf.error/handler-exception tags)))
+    (trace/emit-error! operation tags)))
 
 (defn- run-post-commit-validation!
   "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): validate
@@ -726,7 +803,7 @@
   Per rf2-hrt5c: `trace/emit-error!` is gated by `interop/debug-enabled?`
   and DCEs under `:advanced` + `goog.DEBUG=false` — so the substrate path
   is what survives prod elision and reaches off-box monitors. Mirrors
-  the handler-exception path (`emit-handler-exception!`). There is no
+  the pipeline-exception path (`emit-pipeline-exception!`). There is no
   `:handler-id` (the throw came from the flow transform, not a handler);
   `:where :flow-eval` discriminates this path for policy fns.
 
@@ -1012,9 +1089,13 @@
   record (Spec 009 §Event-emit listener §Record shape):
 
     :ok          — clean settle (db committed, flows ran, :fx walked).
-    :error       — the interceptor chain (handler or interceptor)
-                   threw; `emit-handler-exception!` has already fired.
-                   No install, app-db unchanged, :fx skipped.
+    :error       — the interceptor chain threw (event handler, a user
+                   interceptor `:before`/`:after`, or a coeffect
+                   injection); `emit-pipeline-exception!` has already
+                   fired the component-attributed error trace
+                   (`:rf.error/handler-exception` / `interceptor-exception`
+                   / `coeffect-exception` per rf2-mszrz). No install,
+                   app-db unchanged, :fx skipped.
     :rolled-back — post-commit `:db` schema validation rejected the
                    new state and the container was restored to its
                    pre-handler value (Spec 010 row 4); :fx was skipped.
@@ -1034,7 +1115,7 @@
         flow-error (:rf/flow-error final-ctx)
         db-before  (get-in final-ctx [:coeffects :db])]
     (when error
-      (emit-handler-exception! error event-id event frame final-ctx start-ms))
+      (emit-pipeline-exception! error event-id event frame final-ctx start-ms))
     (cond
       error :error
       ;; Per Spec 013 §Failure semantics (atomicity contract, Mike

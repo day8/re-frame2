@@ -352,11 +352,14 @@
       (is (= "hello" @seen)
           "the value-arity inject-cofx threads the value into the cofx fn")))
 
-  (testing "a cofx that throws surfaces as :rf.error/handler-exception via trace"
+  (testing "a registered cofx that throws surfaces as
+            :rf.error/coeffect-exception attributed to the cofx (rf2-mszrz)"
     ;; Per re-frame.interceptor/invoke-before, an exception from a :before
     ;; stage is captured into :rf/interceptor-error and the chain keeps
-    ;; running so :after stages can clean up. The router then converts
-    ;; that to a :rf.error/handler-exception trace event with :phase :before.
+    ;; running so :after stages can clean up. The router's
+    ;; emit-pipeline-exception! reads the captured component identity (the
+    ;; inject-cofx interceptor stamps :rf/cofx-id) and emits the
+    ;; component-attributed category — NOT a blanket handler-exception.
     (rf/reg-cofx :boom
                  (fn [_ctx]
                    (throw (ex-info "cofx blew up" {:why :testing}))))
@@ -367,11 +370,18 @@
       (rf/register-listener! ::cofx-throw (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:cofx-test/explode])
       (rf/unregister-listener! ::cofx-throw)
-      (is (some (fn [ev]
-                  (and (= :rf.error/handler-exception (:operation ev))
-                       (= :before (get-in ev [:tags :phase]))))
-                @traces)
-          "expected :rf.error/handler-exception trace with :phase :before"))))
+      (let [errs (filterv #(= :rf.error/coeffect-exception (:operation %)) @traces)]
+        (is (= 1 (count errs))
+            "exactly one :rf.error/coeffect-exception trace")
+        (let [ev (first errs)]
+          (is (= :before (get-in ev [:tags :phase]))
+              "the cofx injection threw in its :before phase")
+          (is (= :boom (get-in ev [:tags :failing-id]))
+              ":failing-id is the fully-qualified cofx id, not the event id")
+          (is (nil? (get-in ev [:tags :handler-id]))
+              "no :handler-id — the handler never ran")))
+      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) @traces))
+          "the cofx throw does NOT collapse into :rf.error/handler-exception"))))
 
 ;; ---- ->interceptor primitive ----------------------------------------------
 
@@ -584,3 +594,99 @@
       (is (= 1 (count (:rf/interceptor-errors final)))
           "only the one (uncaught) :before error is in the vector —
            skipped :before stages don't synthesize errors"))))
+
+;; ---- pipeline-exception attribution (rf2-mszrz) ---------------------------
+;;
+;; The :before/:after chain runs three distinct kinds of component — the
+;; coeffect injectors, the user interceptors, and the handler-wrapping
+;; interceptor (the terminal :before). Before rf2-mszrz a throw from ANY of
+;; them collapsed into a single :rf.error/handler-exception attributed to the
+;; event. These tests pin the post-fix contract: each kind emits its own
+;; category with :failing-id = the true failing component, mirroring the
+;; already-distinct flow (:rf.error/flow-eval-exception) and fx
+;; (:rf.error/fx-handler-exception) categories.
+
+(defn- capture-error-traces
+  "Dispatch `event` and return the vector of emitted :op-type :error trace
+  events. The handler is wired to settle :ok (failure rides :trace-events
+  per the runtime's no-abort contract) — we only read the trace stream."
+  [event]
+  (let [traces (atom [])]
+    (rf/register-listener! ::mszrz (fn [ev] (when (= :error (:op-type ev))
+                                              (swap! traces conj ev))))
+    (rf/dispatch-sync event)
+    (rf/unregister-listener! ::mszrz)
+    @traces))
+
+(deftest pipeline-exception-attributed-to-true-component
+  (testing "event HANDLER throw → :rf.error/handler-exception (failing-id = event)"
+    (rf/reg-event-db :mszrz/handler-boom
+                     (fn [_ _] (throw (ex-info "handler blew up" {}))))
+    (let [errs (capture-error-traces [:mszrz/handler-boom])
+          hx   (filterv #(= :rf.error/handler-exception (:operation %)) errs)]
+      (is (= 1 (count hx)) "exactly one handler-exception")
+      (let [ev (first hx)]
+        (is (= :mszrz/handler-boom (get-in ev [:tags :failing-id]))
+            ":failing-id is the event id")
+        (is (= :mszrz/handler-boom (get-in ev [:tags :handler-id]))
+            ":handler-id is retained for the genuine handler case")
+        (is (= "Event handler threw." (get-in ev [:tags :reason]))))
+      (is (empty? (filterv #(#{:rf.error/coeffect-exception
+                               :rf.error/interceptor-exception}
+                             (:operation %)) errs))
+          "no coeffect / interceptor category for a pure handler throw")))
+
+  (testing "coeffect INJECTION throw → :rf.error/coeffect-exception (failing-id = cofx id)"
+    (rf/reg-cofx :mszrz/boom-cofx
+                 (fn [_ctx] (throw (ex-info "cofx blew up" {}))))
+    (rf/reg-event-fx :mszrz/cofx-boom
+                     [(rf/inject-cofx :mszrz/boom-cofx)]
+                     (fn [_ _] {}))
+    (let [errs (capture-error-traces [:mszrz/cofx-boom])
+          cx   (filterv #(= :rf.error/coeffect-exception (:operation %)) errs)]
+      (is (= 1 (count cx)) "exactly one coeffect-exception")
+      (let [ev (first cx)]
+        (is (= :mszrz/boom-cofx (get-in ev [:tags :failing-id]))
+            ":failing-id is the fully-qualified cofx id (NOT collapsed to (name id))")
+        (is (= :before (get-in ev [:tags :phase])))
+        (is (nil? (get-in ev [:tags :handler-id]))
+            "no :handler-id — the handler never ran"))
+      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
+          "a cofx throw does NOT report as handler-exception")))
+
+  (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
+    (rf/reg-event-db :mszrz/before-boom
+                     [(rf/->interceptor
+                        :id     :mszrz/before-icpt
+                        :before (fn [_] (throw (ex-info "before blew up" {}))))]
+                     (fn [db _] db))
+    (let [errs (capture-error-traces [:mszrz/before-boom])
+          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+      (is (= 1 (count ix)) "exactly one interceptor-exception")
+      (let [ev (first ix)]
+        (is (= :mszrz/before-icpt (get-in ev [:tags :failing-id]))
+            ":failing-id is the interceptor id")
+        (is (= :before (get-in ev [:tags :phase]))
+            ":phase is :before"))
+      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
+          "an interceptor :before throw does NOT report as handler-exception")))
+
+  (testing "user interceptor :AFTER throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :after)"
+    ;; The :after chain runs after the handler; an :after throw must
+    ;; attribute to the interceptor (phase :after), not the handler — the
+    ;; collapse rf2-mszrz explicitly fixes for the :after side too.
+    (rf/reg-event-db :mszrz/after-boom
+                     [(rf/->interceptor
+                        :id    :mszrz/after-icpt
+                        :after (fn [_] (throw (ex-info "after blew up" {}))))]
+                     (fn [db _] db))
+    (let [errs (capture-error-traces [:mszrz/after-boom])
+          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+      (is (= 1 (count ix)) "exactly one interceptor-exception")
+      (let [ev (first ix)]
+        (is (= :mszrz/after-icpt (get-in ev [:tags :failing-id]))
+            ":failing-id is the interceptor id")
+        (is (= :after (get-in ev [:tags :phase]))
+            ":phase is :after — NOT collapsed into the handler"))
+      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
+          "an interceptor :after throw does NOT report as handler-exception"))))

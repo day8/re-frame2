@@ -1030,7 +1030,7 @@
           ;; rf2-wxe9t — capture the always-on error-emit substrate's
           ;; tight error-records in parallel with the trace listener.
           ;; The two paths emit from ONE normative site in the router's
-          ;; handler-exception path (`re-frame.router/emit-handler-
+          ;; pipeline-exception path (`re-frame.router/emit-pipeline-
           ;; exception!`) but carry DIFFERENT shapes: trace gets the
           ;; `:operation`/`:tags` envelope; the substrate listener gets
           ;; the tight `{:error :event :event-id :frame :time :exception
