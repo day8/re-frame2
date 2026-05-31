@@ -259,11 +259,11 @@
         ;; already resolve one (the halting event never ran, so no
         ;; `:event/run-start` was buffered). Per Spec-Schemas
         ;; §:rf/epoch-record the slots are :keyword / vector — never nil.
-        base   (cond-> base
+        base+  (cond-> base
                  (and trigger-event (not (:event-id base)))
                  (assoc :event-id      (first trigger-event)
                         :trigger-event trigger-event))
-        record (assembly/maybe-redact base)]
+        record (assembly/maybe-redact base+)]
     (state/record! record)
     ;; Per rf2-qs6dl: mark this as the frame's most-recently-settled
     ;; epoch so post-settle async render emits (which fire at React

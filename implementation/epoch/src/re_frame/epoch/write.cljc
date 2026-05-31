@@ -190,7 +190,7 @@
   for both the lookup and the `:history-size` count on the
   unknown-epoch failure path (rf2-3g7x3 — was two derefs)."
   [history epoch-id]
-  (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
+  (some (fn [record] (when (= epoch-id (:epoch-id record)) record))
         history))
 
 (defn emit-precondition-failure!
