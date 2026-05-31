@@ -228,7 +228,7 @@
   schema / no validator; false on a logged failure.
 
   Parameters:
-    - `meta`         the registration metadata (handler / cofx / sub /
+    - `reg-meta`     the registration metadata (handler / cofx / sub /
                      fx) — its `:schema` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return value, fx args).
@@ -266,9 +266,9 @@
   central `redact-tags` cond->. The `:rf.fx/args` clause is a no-op on
   the other three surfaces (their base-tags don't contain the
   slot), so a single redactor covers every meta-bearing emit site."
-  [meta value meta-sensitive? walk-schema? build-base-tags]
+  [reg-meta value meta-sensitive? walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
-    (if-let [schema (:schema meta)]
+    (if-let [schema (:schema reg-meta)]
       (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
