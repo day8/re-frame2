@@ -1,38 +1,49 @@
 (ns panel-gallery.core
-  "Boot for the Xray panel gallery testbed (rf2-sszlr — rebuilt for
-  the new 7-tab Xray shape).
+  "Boot for the Xray panel gallery testbed (rf2-durls — redone against
+  the de-singletoned shell + the four-bucket Story authoring model;
+  supersedes the rf2-sszlr boot).
 
   ## What this testbed is
 
-  A visual gallery of the seven L4 tab panels (Event / App-db / Views
-  / Trace / Machines / Issues) plus the full 4-layer Xray chrome,
-  framed exactly like Storybook frames UI components. Scroll the
-  workspace; see what each panel looks like under varying state
+  A visual gallery of the seven L4 tab panels (Epoch / App-db / Views
+  / Trace / Machines / Routing / Issues) plus the full 4-layer Xray
+  chrome, framed exactly like Storybook frames UI components. Scroll
+  the workspace; see what each panel looks like under varying state
   magnitude / payload shape / privacy posture. The gallery IS the
   surface a developer (Mike first) reaches for when asking 'what
   does this look like under load X?'.
 
-  Per `tools/xray/spec/018-Event-Spine.md` the new chrome is four
-  stacked layers — top ribbon + event list + tab bar + detail panel
-  — with seven L4 tabs replacing the legacy sidebar's 16+ panels.
-  Time Travel is folded into the spine.
+  Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
+  layers — top ribbon + event list + tab bar + detail panel — with
+  seven L4 tabs replacing the legacy sidebar's 16+ panels. Time Travel
+  is folded into the spine.
+
+  ## Per-variant frame isolation (de-singletoned shell — rf2-1w07r)
+
+  Every gallery variant renders inside the Story canvas's per-variant
+  `frame-provider`, so each cell is its own isolated re-frame frame
+  (its own app-db, sub-cache, router). The per-tab galleries seed that
+  frame directly with canonical Xray events (e.g. `:rf.xray/sync-epoch-
+  history`). The chrome / settings / filters galleries mount the FULL
+  shell — `shell/shell-view` now takes a `:frame-id` opt, and the
+  `chrome-shell` wrapper threads `(rf/current-frame)` (the variant
+  frame) into it, so the shell's own app-db also lives in the variant
+  frame. N chrome cells therefore stay fully isolated in one grid; the
+  variant's `:setup` events seed THAT frame, with no `:rf/xray` literal
+  and no testbed-local re-dispatch shim.
 
   ## What this boot does
 
   1. Initialises re-frame with the Reagent adapter.
   2. Registers Xray's `:rf.xray/*` events / subs / fxs (without
      mounting Xray's own shell — we want the bare panels embedded
-     in variants where relevant, plus the shell mounted via the
-     chrome gallery's per-variant frame-provider, NOT auto-mounted).
+     in variants where relevant, plus the full shell mounted via the
+     chrome gallery's per-variant frame, NOT auto-mounted).
   3. Installs Story's canonical vocabulary (the seven reg-* macros
      and the canonical tags / modes).
-  4. Registers testbed-local seed events (notably
-     `:panel-gallery.chrome/seed!` — cross-frame writer for the
-     chrome gallery; see gallery_chrome.cljs §A note on shared
-     :rf/xray state).
-  5. Loads the per-tab gallery namespaces (their `register-all!`
+  4. Loads the per-tab gallery namespaces (their `register-all!`
      fires at namespace load).
-  6. Mounts the Story shell into `#app` on `#/stories`; otherwise
+  5. Mounts the Story shell into `#app` on `#/stories`; otherwise
      renders a tiny landing page with a link in.
 
   ## Why no Xray preload
@@ -136,14 +147,16 @@
     [:a {:href "#/stories"} [:code "#/stories"]]
     " to scroll the workspaces."]
    [:p {:style {:margin-top "2em" :font-size "13px" :color "#7c8088"}}
-    "Each per-tab variant seeds its frame's slots (trace-buffer,
-    epoch-history, machine overrides) via real Xray init events.
-    The chrome gallery additionally re-seeds the global "
-    [:code ":rf/xray"]
-    " frame (the chrome's hardcoded frame-provider) via a testbed
-    seed event; the chrome workspace uses "
-    [:code ":layout :tabs"]
-    " so state never bleeds between variants."]])
+    "Each variant seeds its OWN isolated frame's slots (trace-buffer,
+    epoch-history, filters, machine overrides) via real Xray init
+    events. The chrome / settings / filters galleries mount the full
+    shell, which threads the per-variant frame into "
+    [:code "shell-view"]
+    "'s "
+    [:code ":frame-id"]
+    " opt — so N chrome cells render in one "
+    [:code ":variants-grid"]
+    " and stay fully isolated (driving one does not move the others)."]])
 
 ;; ============================================================================
 ;; MOUNT
@@ -211,100 +224,6 @@
       (mount-stories!)
       (mount-landing!))))
 
-(defn- register-testbed-seed-events!
-  "Register testbed-local seed events that don't exist on Xray's
-  public surface. Lives here, not in any panel — ZERO source-side
-  changes to Xray panels per the rf2-5nvk2 contract (carried into
-  rf2-sszlr).
-
-  - `:panel-gallery.chrome/seed!` — chrome gallery cross-frame
-    seeder. Story's variant runtime dispatches every `:events`
-    entry into the variant frame, but the chrome (`shell/shell-view`)
-    hardcodes its own `[rf/frame-provider {:frame :rf/xray}]` —
-    so writes to the variant frame are invisible to the chrome.
-    This event re-dispatches its payload into `:rf/xray` so the
-    chrome variants render their declared state.
-
-    Payload is a map: `{:trace-buffer ... :epoch-history ...
-    :selected-tab ... :paused? ... :filters {:in [] :out []}
-    :after-seeds [<event-vec> ...]}`. Each key writes the
-    corresponding `:rf/xray` slot through the canonical Xray
-    event. `:after-seeds` runs additional event vectors against
-    `:rf/xray` after the canonical seeds — used by chrome-follow-
-    on galleries (Settings / Filters edit-popup) that need to
-    dispatch modal-open + section-select events into the same frame."
-  []
-  (rf/reg-event-fx :panel-gallery.chrome/seed!
-    (fn [_cofx [_ {:keys [trace-buffer epoch-history selected-tab
-                          paused? filters after-seeds]}]]
-      ;; rf2-1w07r — re-dispatch into the SURROUNDING frame (the Story
-      ;; per-variant frame this seed event was dispatched under), which
-      ;; is the SAME frame the chrome cell now threads into
-      ;; `[shell/shell-view {:frame-id …}]` (panel_views.cljs). The
-      ;; seeds therefore land where the shell reads, per-variant — no
-      ;; longer pinned to a global `:rf/xray` literal. (`current-frame`
-      ;; in an event handler resolves to the dispatching frame.)
-      (let [seed-frame (rf/current-frame)
-            seeds
-            (cond-> []
-              ;; Trace buffer — drives event-list + every tab body
-              ;; that derives from cascades.
-              (some? trace-buffer)
-              (conj [:rf.xray/sync-trace-buffer trace-buffer])
-
-              ;; Epoch history — drives the App-db + Views tabs.
-              (some? epoch-history)
-              (conj [:rf.xray/sync-epoch-history epoch-history])
-
-              ;; Tab selection.
-              selected-tab
-              (conj [:rf.xray/select-tab selected-tab])
-
-              ;; Ribbon filters — wholesale overwrite via
-              ;; remove-all + add-each. Done in a single dispatch
-              ;; per IN / OUT mode by issuing add-filter events.
-              true
-              (into (when filters
-                      (concat
-                        (for [pill (:in filters)]
-                          [:rf.xray/add-filter :in pill])
-                        (for [pill (:out filters)]
-                          [:rf.xray/add-filter :out pill]))))
-
-              ;; Paused — toggle from the default :live to
-              ;; :live (paused).
-              paused?
-              (conj [:rf.xray/toggle-live-pause])
-
-              ;; Arbitrary follow-on dispatches into the surrounding
-              ;; frame. The chrome-follow-on galleries (rf2-mpn8m
-              ;; settings, rf2-kbrkx auto-filter) use this lane to drive
-              ;; modal-open + section-select events against the cell's
-              ;; own frame.
-              (seq after-seeds)
-              (into (vec after-seeds)))]
-        (doseq [ev seeds]
-          (rf/dispatch-sync ev {:frame seed-frame}))
-        {}))))
-
-(defn- ensure-xray-frame!
-  "Register the `:rf/xray` frame so the chrome gallery's
-  `shell-view` (whose body hardcodes `[rf/frame-provider {:frame
-  :rf/xray}]`) can resolve its subscribes without dereferencing
-  nil.
-
-  In production Xray lazily registers the frame in
-  `mount.cljs/open!` on the first Ctrl+Shift+C — but the gallery
-  testbed never opens the production shell, it embeds it through
-  the chrome variant directly. Without this defensive reg-frame
-  the first chrome variant render throws
-  `No protocol method IDeref.-deref defined for type null` because
-  the subscribe returns nil against the unregistered frame.
-  Idempotent — `reg-frame`'s surgical-update-on-re-register
-  semantics mean a second call is a no-op."
-  []
-  (rf/reg-frame :rf/xray {}))
-
 (defn ^:export run []
   ;; rf2-2c5xb — seed `:rf.xray/project-root` BEFORE the Xray handlers
   ;; register so the first chip render reads the configured root. The
@@ -328,15 +247,14 @@
   (rf/init! reagent-adapter/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each
-  ;; variant frame the Story canvas allocates becomes its own
-  ;; isolated "Xray frame" for the duration of the variant render.
-  ;; The chrome gallery additionally seeds `:rf/xray` via the
-  ;; per-variant `:panel-gallery.chrome/seed!` event below — see
-  ;; `gallery_chrome.cljs` §A note on shared :rf/xray state.
+  ;; variant frame the Story canvas allocates becomes its own isolated
+  ;; Xray instance for the duration of the variant render — the per-tab
+  ;; galleries seed it directly, and the chrome / settings / filters
+  ;; galleries thread that same variant frame into `shell-view`'s
+  ;; `:frame-id` opt (de-singletoned shell, rf2-1w07r). No `:rf/xray`
+  ;; literal, no testbed-local seed event — the variant's `:setup`
+  ;; dispatches the canonical Xray events into its own frame.
   (xray-registry/register-xray-handlers!)
-  ;; Register `:rf/xray` so the chrome's hardcoded frame-provider
-  ;; resolves to a real frame (not nil → throw on subscribe).
-  (ensure-xray-frame!)
   ;; rf2-pqulr — install Xray theme CSS variables on :root so
   ;; embedded widgets paint with the themed palette rather than
   ;; browser defaults. Shell normally calls this from shell-view;
@@ -345,7 +263,6 @@
   ;; DOM-probed via fixed id attributes per its docstring) so this
   ;; call is safe to make regardless of boot order or hot-reload.
   (global-styles/install!)
-  (register-testbed-seed-events!)
   ;; Story's canonical vocabulary (seven reg-* macros / tags / modes
   ;; / canvas decorators) installed once at boot. Each
   ;; `gallery_<tab>.cljs` namespace also calls

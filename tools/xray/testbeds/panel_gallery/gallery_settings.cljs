@@ -1,38 +1,52 @@
 (ns panel-gallery.gallery-settings
-  "Story coverage for the **Settings popup modal** (rf2-mpn8m
-  follow-on to rf2-9poxq + rf2-sszlr chrome gallery).
+  "Story coverage for the **Settings popup modal** (rf2-durls redo of
+  the rf2-mpn8m gallery against the de-singletoned shell + four-bucket
+  Story model).
 
-  The Settings popup mounts at `shell-view` root — same frame-
-  provider discipline as `palette/Modal` and `filters/Modal`. Each
-  variant here renders the full Xray 4-layer chrome via
-  `:panel-gallery.chrome/Shell` AND seeds the chrome's `:rf/xray`
-  slots so the popup opens against the declared tab + pre-populated
-  settings state.
+  Each variant renders the full Xray 4-layer chrome via
+  `:panel-gallery.chrome/Shell` and opens the Settings popup
+  pre-positioned on a tab with pre-populated settings state.
 
-  ## Frame discipline
+  ## Frame discipline (de-singletoned shell — rf2-1w07r)
 
-  The chrome's `shell-view` body hardcodes `[rf/frame-provider
-  {:frame :rf/xray}]` so every subscribe inside the chrome — and
-  every subscribe inside the modal it mounts — reads from the
-  global `:rf/xray` frame regardless of the variant frame Story
-  pre-allocated. Variants therefore route their seed events
-  through `:panel-gallery.chrome/seed!`'s `:after-seeds` lane,
-  which dispatches each event with `{:frame :rf/xray}` so the
-  writes land on the frame the modal reads.
+  The chrome's `shell-view` takes a `:frame-id` opt; the `chrome-shell`
+  wrapper threads the Story per-variant frame (`(rf/current-frame)`)
+  into it, so the shell — and the modal it mounts — read from THIS
+  variant's frame. Story's runtime dispatches every `:setup` step into
+  that same variant frame, so a variant seeds its chrome + opens the
+  popup with the CANONICAL Xray events directly — no `:rf/xray` literal,
+  no re-dispatch indirection. Cells in the grid are fully isolated.
 
-  ## Shared-state caveat (same as gallery-chrome)
-
-  Because every variant writes to the same `:rf/xray` frame, a
-  `:variants-grid` layout renders every cell simultaneously and
-  the last-seeded variant wins in the shared interior. Use canvas
-  mode (sidebar pick) for per-variant fidelity — the grid still
-  proves the modal mounts + paints across each declared shape."
+  (Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
+  so the gallery routed its seeds through a testbed-local
+  `:panel-gallery.chrome/seed!` event's `:after-seeds` lane to land
+  writes on the shared `:rf/xray` frame. The parameterized shell retires
+  that workaround.)"
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
 (defn register-gallery-view! []
   (panel-views/register!))
+
+(defn- settings-setup
+  "Build the `:setup` event vector for a Settings-popup variant. Seeds
+  the trace buffer + active tab, applies any pre-populated settings
+  writes, then opens the popup on the requested tab — all dispatched
+  into the variant frame the chrome cell reads.
+
+    :trace-buffer  — vector → `:rf.xray/sync-trace-buffer`
+    :selected-tab  — kw     → `:rf.xray/select-tab`
+    :settings      — extra event vectors run BEFORE the popup opens
+                     (e.g. `:rf.xray/settings-update` pre-population)
+    :settings-tab  — kw     → opens the popup on this tab"
+  [{:keys [trace-buffer selected-tab settings settings-tab]}]
+  (cond-> []
+    (some? trace-buffer) (conj [:rf.xray/sync-trace-buffer trace-buffer])
+    selected-tab         (conj [:rf.xray/select-tab selected-tab])
+    (seq settings)       (into (vec settings))
+    true                 (conj [:rf.xray/settings-open])
+    settings-tab         (conj [:rf.xray/settings-select-tab settings-tab])))
 
 (defn register-all!
   "Register the Settings popup Story surface. Idempotent under
@@ -51,16 +65,14 @@
             was removed earlier per rf2-jh9ws (no endpoint exists);
             Theme tab retired per rf2-ou3pn — the ribbon's sun/moon
             icon is now the canonical light/dark affordance; Filters
-            tab retired per rf2-wknb3 — full pill management lives
-            in the ribbon + per-pill edit popup + mute manager."})
+            tab retired per rf2-wknb3 — full pill management lives in
+            the ribbon + per-pill edit popup + mute manager."})
 
   (story/reg-story :story.xray.settings-popup
     {:doc        "Visual gallery of the Xray Settings popup modal.
                  Each variant opens the popup pre-positioned on a
-                 different tab with different pre-populated values.
-                 All writes route through the chrome seed event's
-                 `:after-seeds` lane so they land on `:rf/xray`
-                 (where the chrome + modal read)."
+                 different tab with different pre-populated values, in
+                 its own isolated frame (the de-singletoned shell)."
      :component  :panel-gallery.chrome/Shell
      :tags       #{:dev :feature/xray-settings-popup}
      :substrates #{:reagent}})
@@ -74,15 +86,14 @@
                  slider seeded mid-range (14 px), panel-position
                  :right-rail (default), auto-open-on-error OFF
                  (default)."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (settings-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
+                    :selected-tab :epoch
+                    :settings
                     [[:rf.xray/settings-update :general :text-size 14]
                      [:rf.xray/settings-update :general :panel-position :right-rail]
-                     [:rf.xray/settings-update :general :auto-open-on-error? false]
-                     [:rf.xray/settings-open]
-                     [:rf.xray/settings-select-tab :general]]}]]
+                     [:rf.xray/settings-update :general :auto-open-on-error? false]]
+                    :settings-tab :general})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -103,12 +114,10 @@
                  READ-ONLY — a chord catalogue mirroring spec/007-
                  UX-IA.md §Keyboard plus a master 'Handle keys?'
                  toggle. Rebind UI lands in v1.1."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (settings-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
-                    [[:rf.xray/settings-open]
-                     [:rf.xray/settings-select-tab :keybindings]]}]]
+                    :selected-tab :epoch
+                    :settings-tab :keybindings})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -122,12 +131,10 @@
                  inspector-collapse-threshold) plus a destructive
                  'Clear buffer now' button. Clicking Clear opens a
                  confirmation modal (Cancel / Clear)."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (settings-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
-                    [[:rf.xray/settings-open]
-                     [:rf.xray/settings-select-tab :buffer]]}]]
+                    :selected-tab :epoch
+                    :settings-tab :buffer})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -136,12 +143,10 @@
     {:doc        "Settings popup open on Diff tab. The opt-in
                  :highlight-fn-ref-changes? toggle for the hiccup-diff
                  micro-engine (rf2-i39w2 Phase 3)."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (settings-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
-                    [[:rf.xray/settings-open]
-                     [:rf.xray/settings-select-tab :diff]]}]]
+                    :selected-tab :epoch
+                    :settings-tab :diff})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -150,20 +155,16 @@
 
   ;; ----- workspace ---------------------------------------------------
   ;;
-  ;; Same shared-state caveat as `Workspace.xray.chrome/all` — every
-  ;; cell shares `:rf/xray` (the chrome's hardcoded frame-provider).
-  ;; The last variant to seed wins the shared interior; canvas-mode
-  ;; (sidebar pick) is where per-variant fidelity is fully observable.
+  ;; `:variants-grid` — each cell mounts the shell in its own variant
+  ;; frame (the de-singletoned shell threads the per-cell frame), so the
+  ;; four popups render side-by-side with no shared-state bleed.
   (story/reg-workspace :Workspace.xray.settings-popup/all
-    {:doc      "All Settings popup variants (General / Keybindings
-                / Buffer / Diff). The chrome internally wraps
-                :rf/xray via a hardcoded frame-provider, so
-                workspace cells share interior state — see canvas-
-                mode (sidebar pick) for per-variant fidelity. The
-                Theme tab retired per rf2-ou3pn — the ribbon's
-                sun/moon icon is the canonical light/dark
-                affordance. The Filters tab retired per rf2-wknb3
-                — full pill management lives in the ribbon strip +
+    {:doc      "All Settings popup variants (General / Keybindings /
+                Buffer / Diff) in one grid, each in its own isolated
+                frame. The Theme tab retired per rf2-ou3pn — the
+                ribbon's sun/moon icon is the canonical light/dark
+                affordance. The Filters tab retired per rf2-wknb3 —
+                full pill management lives in the ribbon strip +
                 per-pill edit popup + mute manager modal."
      :layout   :variants-grid
      :story    :story.xray.settings-popup
