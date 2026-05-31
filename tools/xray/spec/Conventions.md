@@ -4,6 +4,27 @@ Conventions for Xray source organisation that aren't normative re-frame2
 spec but are worth pinning so panel-level work stays uniform across the
 artefact.
 
+## Reserved namespace — `:rf.xray/*` (Xray-owned)
+
+Xray is a [**canonical devtool**](../../../spec/Tool-Pair.md) under the
+framework's single-root convention, registered framework-distance-zero
+alongside `:rf.epoch/*`. Its events, subs, fxs, app-db keys, trace
+operations, and boot-time `configure!` keys live under the `:rf.xray/*`
+sub-namespace.
+
+**Xray owns the `:rf.xray/*` member set; the framework
+[`spec/Conventions.md`](../../../spec/Conventions.md) reserves the
+sub-namespace.** The canonical config-key roster + per-key semantics live in
+[`015-Configuration.md`](./015-Configuration.md#configuration-keys) — this
+document does not re-enumerate them. This mirrors Story's
+[`:rf.story.*` carve-out](../../story/spec/Conventions.md): the framework
+reserves the segment under its `:rf.*` root; the tool owns the closed member
+set.
+
+Third-party libraries MUST NOT register under `:rf.*` (they own their own
+top-level prefix per
+[framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes)).
+
 ## Panel facade + leaf split
 
 When a panel is split into focused leaves under
