@@ -148,7 +148,7 @@
 ;; children) can call the mount seam defined below it.
 (declare mount-tree!)
 
-(defn- component-render-fn
+(defn- render-body
   "If `tree` declares an imperative render body, return it; else nil. The body
   is `(fn [mount] ...)` run while a render is in flight (so any `unmount!`
   issued from within fires the guard organically, and any `mount-child!`
@@ -173,7 +173,7 @@
   (try
     (reset! (:render-tree mount) tree)
     (log-phase! mount :render)
-    (when-let [body (component-render-fn tree)]
+    (when-let [body (render-body tree)]
       (binding [*rendering-mount* mount]
         (body mount)))
     (finally
