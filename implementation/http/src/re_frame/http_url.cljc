@@ -33,23 +33,30 @@
   (app-readable state — `declare-sensitive-query-param!` writes
   through), but no walker runs without the trace surface."
   (:require [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.privacy :as privacy]))
 
-;; ---- canonical redaction sentinel -----------------------------------------
+;; ---- redaction sentinel ---------------------------------------------------
 ;;
-;; rf2-ee38b.7 — single source of truth for the framework-reserved
-;; redaction sentinel per Spec 009 §Privacy. Sits in the `:rf/` reserved-
-;; keyword namespace so apps cannot legitimately produce it as a payload
-;; value. `http-url` is the natural owner: it is the privacy leaf with no
-;; intra-privacy dependencies, so `http-privacy` and `http-privacy-headers`
-;; can both refer to it without creating a leaf→parent cycle. Consumers
-;; wanting "was this redacted?" check `(= :rf/redacted v)`.
+;; The framework-reserved redaction sentinel per Spec 009 §Privacy sits in
+;; the `:rf/` reserved-keyword namespace so apps cannot legitimately produce
+;; it as a payload value. Consumers wanting "was this redacted?" check
+;; `(= :rf/redacted v)`.
+;;
+;; rf2-qe237 — the single source of truth is now `re-frame.privacy/
+;; redacted-sentinel` in core (already consumed by elision / marks). Core is
+;; on the http classpath, so this artefact refers to the canonical def
+;; rather than re-declaring the keyword literal. `http-url` remains the
+;; http-side re-export anchor — it is the privacy leaf with no intra-privacy
+;; dependencies, so `http-privacy` and `http-privacy-headers` can both refer
+;; to it without creating a leaf→parent cycle (rf2-ee38b.7 intra-http shape).
 
 (def redacted-sentinel
   "The framework-reserved redaction sentinel keyword per Spec 009 §Privacy.
-  Canonical home (rf2-ee38b.7) — `http-privacy` re-exports it and
-  `http-privacy-headers` refers to it."
-  :rf/redacted)
+  Re-exported from the canonical `re-frame.privacy/redacted-sentinel` in
+  core (rf2-qe237) — `http-privacy` re-exports it and `http-privacy-headers`
+  refers to it."
+  privacy/redacted-sentinel)
 
 ;; ---- query-param denylist (rf2-2p8wr) -------------------------------------
 
