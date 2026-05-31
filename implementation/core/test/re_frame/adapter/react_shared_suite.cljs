@@ -2174,20 +2174,24 @@
   frame-provider.
 
   cfg keys:
-    :frame-provider     the adapter's frame-provider fn
-    :probe-fp-element    thunk → the 1-arg-form ProbeFp element
-    :probe-fp-observed   atom the ProbeFp pushes observed values into
-    :fp-frame            frame-id keyword for the wrapped frame
-    :fp-query            query-v keyword ProbeFp subscribes to"
-  [{:keys [name frame-provider probe-fp-element probe-fp-observed fp-frame fp-query]}]
+    :frame-provider                 the adapter's frame-provider fn
+    :probe-frame-provider-element   thunk → the 1-arg-form
+                                    ProbeFrameProvider element
+    :probe-frame-provider-observed  atom the ProbeFrameProvider pushes
+                                    observed values into
+    :frame-provider-frame           frame-id keyword for the wrapped frame
+    :frame-provider-query           query-v keyword ProbeFrameProvider
+                                    subscribes to"
+  [{:keys [name frame-provider probe-frame-provider-element probe-frame-provider-observed
+           frame-provider-frame frame-provider-query]}]
   (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp)")
     (with-browser-act
      (fn [act-fn]
-      (reset! probe-fp-observed [])
-      (rf/reg-frame fp-frame {:doc "use-subscribe fp probe frame"})
-      (rf/reg-event-db ::us-fp-seed (fn [_ _] {:k :wrapped}))
-      (rf/dispatch-sync [::us-fp-seed] {:frame fp-frame})
-      (rf/reg-sub fp-query (fn [db _] (:k db)))
+      (reset! probe-frame-provider-observed [])
+      (rf/reg-frame frame-provider-frame {:doc "use-subscribe frame-provider probe frame"})
+      (rf/reg-event-db ::frame-provider-seed (fn [_ _] {:k :wrapped}))
+      (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
+      (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
       (let [mount-node (make-mount-node!)
             root       (react-dom-client/createRoot mount-node)]
         (try
@@ -2198,8 +2202,8 @@
               ;; directly rather than via the substrate's `$`.
               (.render root
                 (frame-provider
-                  {:frame fp-frame :children [(probe-fp-element)]}))))
-          (is (some #{:wrapped} @probe-fp-observed)
+                  {:frame frame-provider-frame :children [(probe-frame-provider-element)]}))))
+          (is (some #{:wrapped} @probe-frame-provider-observed)
               "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
@@ -2215,9 +2219,9 @@
     :probe-2arg-element  thunk → an element wrapping Probe2ArgA + Probe2ArgB
     :probe-2arg-a-observed / :probe-2arg-b-observed   the probes' atoms
     :tenant-a-frame / :tenant-b-frame   the two pinned frame-ids
-    :rcgsc-query         query-v keyword both probes subscribe to"
+    :explicit-pin-query  query-v keyword both probes subscribe to"
   [{:keys [name probe-2arg-element probe-2arg-a-observed probe-2arg-b-observed
-           tenant-a-frame tenant-b-frame rcgsc-query]}]
+           tenant-a-frame tenant-b-frame explicit-pin-query]}]
   (testing (str name " — use-subscribe 2-arg pins explicit frame (rf2-rcgsc)")
     (with-browser-act
      (fn [act-fn]
@@ -2225,10 +2229,10 @@
       (reset! probe-2arg-b-observed [])
       (rf/reg-frame tenant-a-frame {:doc "tenant-a"})
       (rf/reg-frame tenant-b-frame {:doc "tenant-b"})
-      (rf/reg-event-db ::rcgsc-seed (fn [_ [_ n]] {:n n}))
-      (rf/dispatch-sync [::rcgsc-seed 10]  {:frame tenant-a-frame})
-      (rf/dispatch-sync [::rcgsc-seed 100] {:frame tenant-b-frame})
-      (rf/reg-sub rcgsc-query (fn [db _] (:n db)))
+      (rf/reg-event-db ::explicit-pin-seed (fn [_ [_ n]] {:n n}))
+      (rf/dispatch-sync [::explicit-pin-seed 10]  {:frame tenant-a-frame})
+      (rf/dispatch-sync [::explicit-pin-seed 100] {:frame tenant-b-frame})
+      (rf/reg-sub explicit-pin-query (fn [db _] (:n db)))
       (let [mount-node (make-mount-node!)
             root       (react-dom-client/createRoot mount-node)]
         (try
@@ -2250,11 +2254,13 @@
   to 0 (or the entry is dropped) after unmount.
 
   cfg keys:
-    :probe-rc-element  thunk → the ProbeRc element (2-arg form, no observe)
-    :refcount-target   atom the ProbeRc reads its target frame-id from
-    :rc-frame          frame-id keyword for the refcount probe
-    :rc-query          query-v keyword ProbeRc subscribes to"
-  [{:keys [name probe-rc-element refcount-target rc-frame rc-query]}]
+    :probe-refcount-element  thunk → the ProbeRefcount element (2-arg
+                             form, no observe)
+    :refcount-target         atom the ProbeRefcount reads its target
+                             frame-id from
+    :rc-frame                frame-id keyword for the refcount probe
+    :rc-query                query-v keyword ProbeRefcount subscribes to"
+  [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
   (testing (str name " — use-subscribe cleanup decrements sub-cache refcount (rf2-7g959)")
     (with-browser-act
      (fn [act-fn]
@@ -2268,7 +2274,7 @@
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)]
         (try
-          (act-fn (fn [] (.render root (probe-rc-element))))
+          (act-fn (fn [] (.render root (probe-refcount-element))))
           (is (pos? (or (get-in @cache [cache-key-v :ref-count]) 0))
               "mounted probe pinned a cache entry with ref-count > 0")
           (act-fn (fn [] (.unmount root)))
@@ -2288,28 +2294,28 @@
   and the useEffect cleanup (rf2-7g959) fires only on unmount.
 
   cfg keys:
-    :probe-mwft2-element  thunk → the ProbeMwft2Parent element. The parent
-                          owns a tick state + stashes its set-tick fn into
-                          :mwft2-set-tick on mount; the child reads a
-                          fixed query-v via use-subscribe.
-    :mwft2-set-tick       atom the parent stashes its setter into
-    :mwft2-frame          frame-id keyword the child resolves under
-    :mwft2-query          query-v keyword the child subscribes to"
-  [{:keys [name probe-mwft2-element mwft2-set-tick mwft2-frame mwft2-query]}]
+    :probe-stable-deps-element  thunk → the ProbeStableDepsParent element.
+                          The parent owns a tick state + stashes its
+                          set-tick fn into :stable-deps-set-tick on mount;
+                          the child reads a fixed query-v via use-subscribe.
+    :stable-deps-set-tick atom the parent stashes its setter into
+    :stable-deps-frame    frame-id keyword the child resolves under
+    :stable-deps-query    query-v keyword the child subscribes to"
+  [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
   (testing (str name " — use-subscribe stable deps key: one subscribe across N renders (rf2-mwft2)")
     (with-browser-act
      (fn [act-fn]
-      (reset! mwft2-set-tick nil)
-      (rf/reg-frame mwft2-frame {:doc "rf2-mwft2 probe frame"})
-      (rf/reg-event-db ::mwft2-seed (fn [_ _] {:p 0}))
-      (rf/dispatch-sync [::mwft2-seed] {:frame mwft2-frame})
-      (rf/reg-sub mwft2-query (fn [db _] (:p db)))
+      (reset! stable-deps-set-tick nil)
+      (rf/reg-frame stable-deps-frame {:doc "rf2-mwft2 stable-deps probe frame"})
+      (rf/reg-event-db ::stable-deps-seed (fn [_ _] {:p 0}))
+      (rf/dispatch-sync [::stable-deps-seed] {:frame stable-deps-frame})
+      (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
             real-subscribe    subs/subscribe
             real-unsubscribe  subs/unsubscribe
-            cache-key-v       [mwft2-query]
-            cache             (:sub-cache (frame/frame mwft2-frame))
+            cache-key-v       [stable-deps-query]
+            cache             (:sub-cache (frame/frame stable-deps-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
         ;; Spies preserve the multi-arity shape of subs/subscribe and
@@ -2345,7 +2351,7 @@
                          (real-unsubscribe frame-id query-v)))]
           (try
             ;; Mount — one subs/subscribe for the useMemo factory.
-            (act-fn (fn [] (.render root (probe-mwft2-element))))
+            (act-fn (fn [] (.render root (probe-stable-deps-element))))
             (let [mounted-subs @subscribe-calls]
               (is (= 1 mounted-subs)
                   "mount triggered exactly one subs/subscribe call")
@@ -2357,7 +2363,7 @@
               ;; the fix the deps mismatch would re-run useMemo (extra
               ;; subscribe) and useEffect (extra unsubscribe) each render.
               (dotimes [_ 5]
-                (act-fn (fn [] (when-let [set-tick @mwft2-set-tick]
+                (act-fn (fn [] (when-let [set-tick @stable-deps-set-tick]
                                  (set-tick inc)))))
               (is (= 1 @subscribe-calls)
                   "subs/subscribe still called only once after 5 re-renders (no per-render churn)")
@@ -2402,15 +2408,15 @@
 
   cfg keys: re-uses the same stable-deps-key probe surface — the
   cleanup fires on either parent here."
-  [{:keys [name probe-mwft2-element mwft2-set-tick mwft2-frame mwft2-query]}]
+  [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
   (testing (str name " — use-subscribe cleanup calls subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
     (with-browser-act
      (fn [act-fn]
-      (reset! mwft2-set-tick nil)
-      (rf/reg-frame mwft2-frame {:doc "rf2-gizlj arity probe frame"})
+      (reset! stable-deps-set-tick nil)
+      (rf/reg-frame stable-deps-frame {:doc "rf2-gizlj arity probe frame"})
       (rf/reg-event-db ::gizlj-seed (fn [_ _] {:p 0}))
-      (rf/dispatch-sync [::gizlj-seed] {:frame mwft2-frame})
-      (rf/reg-sub mwft2-query (fn [db _] (:p db)))
+      (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
+      (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [unsubscribe-arg-counts (atom [])
             real-unsubscribe       subs/unsubscribe
             mount-node             (make-mount-node!)
@@ -2427,7 +2433,7 @@
                          (swap! unsubscribe-arg-counts conj 2)
                          (real-unsubscribe frame-id query-v)))]
           (try
-            (act-fn (fn [] (.render root (probe-mwft2-element))))
+            (act-fn (fn [] (.render root (probe-stable-deps-element))))
             (act-fn (fn [] (.unmount root)))
             ;; The spine's useEffect cleanup is the call site under
             ;; test. There may be additional unsubscribes from layer-2+

@@ -44,10 +44,10 @@
 ;; and close over these atoms; the suite `reset!`s the atom each assertion
 ;; cares about at the top of its body.
 
-(def ^:private probe-observed    (atom []))
-(def ^:private probe-fp-observed (atom []))
-(def ^:private refcount-target   (atom nil))
-(def ^:private mwft2-set-tick    (atom nil))
+(def ^:private probe-observed                (atom []))
+(def ^:private probe-frame-provider-observed (atom []))
+(def ^:private refcount-target               (atom nil))
+(def ^:private stable-deps-set-tick          (atom nil))
 
 (defnc Probe []
   (let [target @refcount-target
@@ -55,44 +55,44 @@
     (swap! probe-observed conj v)
     (d/div (str "n=" v))))
 
-(defnc ProbeFp []
+(defnc ProbeFrameProvider []
   (let [v (helix-adapter/use-subscribe [:rf.helix-use-subscribe-test/k])]
-    (swap! probe-fp-observed conj v)
+    (swap! probe-frame-provider-observed conj v)
     (d/div (str "k=" v))))
 
-(defnc ProbeRc []
+(defnc ProbeRefcount []
   (let [target @refcount-target
         v (helix-adapter/use-subscribe target [:rf.helix-use-subscribe-test/m])]
     (d/div (str "m=" v))))
 
-;; ---- rf2-y0db2 2-arg explicit-pin probes ----------------------------------
+;; ---- 2-arg explicit-pin probes (rf2-y0db2 — parity with UIx's rf2-rcgsc) --
 
 (def ^:private probe-2arg-a-observed (atom []))
 (def ^:private probe-2arg-b-observed (atom []))
 
 (defnc Probe2ArgA []
-  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-a [:rf.helix-rcgsc/n])]
+  (let [v (helix-adapter/use-subscribe :rf.helix-explicit-pin/tenant-a [:rf.helix-explicit-pin/n])]
     (swap! probe-2arg-a-observed conj v)
     (d/div (str "a=" v))))
 
 (defnc Probe2ArgB []
-  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-b [:rf.helix-rcgsc/n])]
+  (let [v (helix-adapter/use-subscribe :rf.helix-explicit-pin/tenant-b [:rf.helix-explicit-pin/n])]
     (swap! probe-2arg-b-observed conj v)
     (d/div (str "b=" v))))
 
-;; ---- rf2-mwft2 stable-deps-key probes -------------------------------------
+;; ---- stable-deps-key probes (rf2-mwft2) -----------------------------------
 ;; A parent that owns a tick state (used to force re-renders) plus a child
 ;; that reads a fixed query-v via use-subscribe. The literal
-;; `[:rf.helix-mwft2/p]` vector evaluates to a fresh JS object each render —
-;; exactly the shape the bug-without-fix walks into. The parent stashes its
-;; set-tick fn into a side-channel atom so the suite can drive forced
-;; re-renders from outside.
+;; `[:rf.helix-stable-deps/p]` vector evaluates to a fresh JS object each
+;; render — exactly the shape the bug-without-fix walks into. The parent
+;; stashes its set-tick fn into a side-channel atom so the suite can drive
+;; forced re-renders from outside.
 
-(defnc ProbeMwft2Child []
-  (let [v (helix-adapter/use-subscribe :rf.helix-mwft2/probe-frame [:rf.helix-mwft2/p])]
+(defnc ProbeStableDepsChild []
+  (let [v (helix-adapter/use-subscribe :rf.helix-stable-deps/probe-frame [:rf.helix-stable-deps/p])]
     (d/div (str "p=" v))))
 
-(defnc ProbeMwft2Parent []
+(defnc ProbeStableDepsParent []
   (let [[tick set-tick] (helix-hooks/use-state 0)]
     (helix-hooks/use-effect
       ;; React state-setters have stable identity across renders so an
@@ -100,10 +100,10 @@
       ;; stable" guarantee. The effect runs once on mount to stash the
       ;; setter for the test driver.
       []
-      (reset! mwft2-set-tick set-tick)
+      (reset! stable-deps-set-tick set-tick)
       (fn cleanup [] nil))
     (d/div {:data-tick tick}
-           ($ ProbeMwft2Child))))
+           ($ ProbeStableDepsChild))))
 
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
@@ -118,26 +118,26 @@
    :us-frame              :rf.helix-use-subscribe-test/probe-frame
    :us-query              :rf.helix-use-subscribe-test/n
    ;; frame-provider 1-arg
-   :probe-fp-element      (fn [] ($ ProbeFp))
-   :probe-fp-observed     probe-fp-observed
-   :fp-frame              :rf.helix-use-subscribe-test/fp-frame
-   :fp-query              :rf.helix-use-subscribe-test/k
+   :probe-frame-provider-element  (fn [] ($ ProbeFrameProvider))
+   :probe-frame-provider-observed probe-frame-provider-observed
+   :frame-provider-frame          :rf.helix-use-subscribe-test/frame-provider-frame
+   :frame-provider-query          :rf.helix-use-subscribe-test/k
    ;; 2-arg explicit pin
    :probe-2arg-element    (fn [] ($ :div ($ Probe2ArgA) ($ Probe2ArgB)))
    :probe-2arg-a-observed probe-2arg-a-observed
    :probe-2arg-b-observed probe-2arg-b-observed
-   :tenant-a-frame        :rf.helix-rcgsc/tenant-a
-   :tenant-b-frame        :rf.helix-rcgsc/tenant-b
-   :rcgsc-query           :rf.helix-rcgsc/n
+   :tenant-a-frame        :rf.helix-explicit-pin/tenant-a
+   :tenant-b-frame        :rf.helix-explicit-pin/tenant-b
+   :explicit-pin-query    :rf.helix-explicit-pin/n
    ;; refcount cleanup
-   :probe-rc-element      (fn [] ($ ProbeRc))
+   :probe-refcount-element (fn [] ($ ProbeRefcount))
    :rc-frame              :rf.helix-use-subscribe-test/refcount-frame
    :rc-query              :rf.helix-use-subscribe-test/m
    ;; stable deps key
-   :probe-mwft2-element   (fn [] ($ ProbeMwft2Parent))
-   :mwft2-set-tick        mwft2-set-tick
-   :mwft2-frame           :rf.helix-mwft2/probe-frame
-   :mwft2-query           :rf.helix-mwft2/p})
+   :probe-stable-deps-element (fn [] ($ ProbeStableDepsParent))
+   :stable-deps-set-tick  stable-deps-set-tick
+   :stable-deps-frame     :rf.helix-stable-deps/probe-frame
+   :stable-deps-query     :rf.helix-stable-deps/p})
 
 (deftest use-subscribe-tracks-app-db-changes
   (suite/assert-use-subscribe-tracks-app-db-changes cfg))

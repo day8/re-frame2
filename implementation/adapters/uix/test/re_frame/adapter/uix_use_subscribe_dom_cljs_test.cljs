@@ -41,10 +41,10 @@
 ;; over these atoms; the suite `reset!`s the atom each assertion cares
 ;; about at the top of its body.
 
-(def ^:private probe-observed    (atom []))
-(def ^:private probe-fp-observed (atom []))
-(def ^:private refcount-target   (atom nil))
-(def ^:private mwft2-set-tick    (atom nil))
+(def ^:private probe-observed                (atom []))
+(def ^:private probe-frame-provider-observed (atom []))
+(def ^:private refcount-target               (atom nil))
+(def ^:private stable-deps-set-tick          (atom nil))
 
 (defui Probe []
   (let [target @refcount-target
@@ -52,54 +52,54 @@
     (swap! probe-observed conj v)
     ($ :div (str "n=" v))))
 
-(defui ProbeFp []
+(defui ProbeFrameProvider []
   (let [v (uix-adapter/use-subscribe [:rf.uix-use-subscribe-test/k])]
-    (swap! probe-fp-observed conj v)
+    (swap! probe-frame-provider-observed conj v)
     ($ :div (str "k=" v))))
 
-(defui ProbeRc []
+(defui ProbeRefcount []
   (let [target @refcount-target
         v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
     ($ :div (str "m=" v))))
 
-;; ---- rf2-rcgsc 2-arg explicit-pin probes ----------------------------------
+;; ---- 2-arg explicit-pin probes (rf2-rcgsc) --------------------------------
 
 (def ^:private probe-2arg-a-observed (atom []))
 (def ^:private probe-2arg-b-observed (atom []))
 
 (defui Probe2ArgA []
-  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-a [:rf.uix-rcgsc/n])]
+  (let [v (uix-adapter/use-subscribe :rf.uix-explicit-pin/tenant-a [:rf.uix-explicit-pin/n])]
     (swap! probe-2arg-a-observed conj v)
     ($ :div (str "a=" v))))
 
 (defui Probe2ArgB []
-  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-b [:rf.uix-rcgsc/n])]
+  (let [v (uix-adapter/use-subscribe :rf.uix-explicit-pin/tenant-b [:rf.uix-explicit-pin/n])]
     (swap! probe-2arg-b-observed conj v)
     ($ :div (str "b=" v))))
 
-;; ---- rf2-mwft2 stable-deps-key probes -------------------------------------
+;; ---- stable-deps-key probes (rf2-mwft2) -----------------------------------
 ;; A parent that owns a tick state (used to force re-renders) plus a child
 ;; that reads a fixed query-v via use-subscribe. The literal
-;; `[:rf.uix-mwft2/p]` vector evaluates to a fresh JS object each render —
-;; exactly the shape the bug-without-fix walks into. The parent stashes its
-;; set-tick fn into a side-channel atom so the suite can drive forced
-;; re-renders from outside.
+;; `[:rf.uix-stable-deps/p]` vector evaluates to a fresh JS object each
+;; render — exactly the shape the bug-without-fix walks into. The parent
+;; stashes its set-tick fn into a side-channel atom so the suite can drive
+;; forced re-renders from outside.
 
-(defui ProbeMwft2Child []
-  (let [v (uix-adapter/use-subscribe :rf.uix-mwft2/probe-frame [:rf.uix-mwft2/p])]
+(defui ProbeStableDepsChild []
+  (let [v (uix-adapter/use-subscribe :rf.uix-stable-deps/probe-frame [:rf.uix-stable-deps/p])]
     ($ :div (str "p=" v))))
 
-(defui ProbeMwft2Parent []
+(defui ProbeStableDepsParent []
   (let [[tick set-tick] (uix/use-state 0)]
     (uix/use-effect
       ;; React state-setters have stable identity across renders so an
       ;; empty deps vec is correct — silences UIx's lint and matches
       ;; React's "set-state setter is stable" guarantee. The effect runs
       ;; once on mount to stash the setter for the test driver.
-      (fn [] (reset! mwft2-set-tick set-tick) js/undefined)
+      (fn [] (reset! stable-deps-set-tick set-tick) js/undefined)
       [])
     ($ :div {:data-tick tick}
-       ($ ProbeMwft2Child))))
+       ($ ProbeStableDepsChild))))
 
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
@@ -114,26 +114,26 @@
    :us-frame              :rf.uix-use-subscribe-test/probe-frame
    :us-query              :rf.uix-use-subscribe-test/n
    ;; frame-provider 1-arg
-   :probe-fp-element      (fn [] (uix/$ ProbeFp))
-   :probe-fp-observed     probe-fp-observed
-   :fp-frame              :rf.uix-use-subscribe-test/fp-frame
-   :fp-query              :rf.uix-use-subscribe-test/k
+   :probe-frame-provider-element  (fn [] (uix/$ ProbeFrameProvider))
+   :probe-frame-provider-observed probe-frame-provider-observed
+   :frame-provider-frame          :rf.uix-use-subscribe-test/frame-provider-frame
+   :frame-provider-query          :rf.uix-use-subscribe-test/k
    ;; 2-arg explicit pin
    :probe-2arg-element    (fn [] (uix/$ :div (uix/$ Probe2ArgA) (uix/$ Probe2ArgB)))
    :probe-2arg-a-observed probe-2arg-a-observed
    :probe-2arg-b-observed probe-2arg-b-observed
-   :tenant-a-frame        :rf.uix-rcgsc/tenant-a
-   :tenant-b-frame        :rf.uix-rcgsc/tenant-b
-   :rcgsc-query           :rf.uix-rcgsc/n
+   :tenant-a-frame        :rf.uix-explicit-pin/tenant-a
+   :tenant-b-frame        :rf.uix-explicit-pin/tenant-b
+   :explicit-pin-query    :rf.uix-explicit-pin/n
    ;; refcount cleanup
-   :probe-rc-element      (fn [] (uix/$ ProbeRc))
+   :probe-refcount-element (fn [] (uix/$ ProbeRefcount))
    :rc-frame              :rf.uix-use-subscribe-test/refcount-frame
    :rc-query              :rf.uix-use-subscribe-test/m
    ;; stable deps key
-   :probe-mwft2-element   (fn [] (uix/$ ProbeMwft2Parent))
-   :mwft2-set-tick        mwft2-set-tick
-   :mwft2-frame           :rf.uix-mwft2/probe-frame
-   :mwft2-query           :rf.uix-mwft2/p})
+   :probe-stable-deps-element (fn [] (uix/$ ProbeStableDepsParent))
+   :stable-deps-set-tick  stable-deps-set-tick
+   :stable-deps-frame     :rf.uix-stable-deps/probe-frame
+   :stable-deps-query     :rf.uix-stable-deps/p})
 
 (deftest use-subscribe-tracks-app-db-changes
   (suite/assert-use-subscribe-tracks-app-db-changes cfg))
