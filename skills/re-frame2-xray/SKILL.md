@@ -34,7 +34,7 @@ tells*. Every dispatch is a node in a graph of causes; every state delta
 is a slice you can scrub; every machine transition lands on a chart; every
 schema violation surfaces as an issue you cannot miss.
 
-This skill answers two questions, and only two:
+This skill answers three questions, and only three:
 
 1. **How do I launch Xray?** — the inline panel, the pop-out, the
  programmatic entry points, the wired hotkeys, the Dynamic ↔ Static

@@ -487,7 +487,7 @@ than a single dispatch.
 
 ## Shared components + iconography
 
-The three components every L4 panel reuses (`edn_inspector/render`,
+The three components every L4 panel reuses (`edn-inspector/render-node`,
 `film_strip/header`, `focus_resolver`) and the full tab-icon / L2-badge /
 cross-panel-arrow glyph reference live in
 [`shared-components.md`](shared-components.md).

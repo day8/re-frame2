@@ -8,11 +8,13 @@ each panel's perspective.
 
 Three components are consumed by every (or nearly every) L4 panel.
 
-### `edn_inspector/render`
+### `edn-inspector/render-node`
 
 The single canonical data renderer — lazy collapsible tree + inline
-diff highlighting + keyword accent + clickable paths. Lives at
-[`tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs`](../../../tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs)
+diff highlighting + keyword accent + clickable paths. The public entry
+point is the `render-node` fn in the
+`day8.re-frame2-xray.views.edn-inspector` namespace, which lives at
+[`tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs`](../../../tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs)
 per §021 §10. Every panel that shows data — app-db, Epoch coeffects /
 side-effect args / inline exception ex-data, Views sub values, Trace raw
 trace-event maps — goes through this renderer (§021 §10.6 — binding).
