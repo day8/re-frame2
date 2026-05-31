@@ -29,6 +29,7 @@
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.cursor :as cursor]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn trace-window-tool [conn raw-args]
@@ -41,10 +42,22 @@
         ;; the malformed `::rf/default`, matching no frame. Same fix
         ;; rf2-ldfnx applied to dispatch.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
-        ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:
-        ;; single intention-naming predicate `raw-state-allowed?`
+        ;; rf2-c2dtu / rf2-p1qli — the `--allow-sensitive-reads` boot gate
+        ;; forces `:include-sensitive false` when OFF (the default), via
+        ;; the single intention-naming predicate `raw-state-allowed?`
         ;; (positive sense — true when operator opted in at launch).
+        ;; rf2-6wvh5 — the
+        ;; pull-mode epoch ring egresses full epoch records carrying
+        ;; `:db-before` / `:db-after` (and `:trigger-event` /
+        ;; `:trace-events`) app-db snapshots; before rf2-6wvh5 they rode
+        ;; the wire verbatim, leaking a declared-sensitive / declared-
+        ;; large slot. The fix routes each egressed record through
+        ;; `re-frame.core/projected-record` — the framework's SINGLE
+        ;; normative off-box-egress emission site (Security.md §Epoch
+        ;; privacy posture; core.cljc names the hand-walk an anti-pattern
+        ;; "one missed `mapv projected-record` away from a leak"). When
+        ;; `incl?` is true (only reachable gate-ON + explicit opt-in) the
+        ;; records ship raw, mirroring subscribe's bare-drain opt-in.
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
@@ -69,6 +82,15 @@
             history-call (if sticky-frame
                            (ef/rt-call 'epoch-history sticky-frame)
                            (ef/rt-call 'epoch-history))
+            ;; rf2-6wvh5 — the egress slice (`page`) is the ONLY vector
+            ;; that crosses the wire, so projection happens HERE, after
+            ;; the cursor `:limit` cap, before the records ship. Each
+            ;; record routes through `re-frame.core/projected-record`
+            ;; (which reads `:frame` off the record itself and elides all
+            ;; four payload slots) unless the operator opted in to raw
+            ;; egress (`incl?` — gate-ON + `:include-sensitive true`).
+            project?       (not incl?)
+            page-src       (str "(vec (take " limit " filtered))")
             form (ef/emit
                    (ef/rt-let
                      ['hist      (ef/rt-raw (str "(vec " (ef/emit history-call) ")"))
@@ -84,7 +106,14 @@
                                    (str "(filterv #(and (>= (or (:committed-at %) 0) " cutoff-ms ")"
                                         "                (<= (or (:committed-at %) 0) " until-ms "))"
                                         " sliced)"))
-                      'page      (ef/rt-raw (str "(vec (take " limit " filtered))"))
+                      ;; rf2-6wvh5 — `:page` is the egress slice, projected
+                      ;; for off-box egress via `projected-record` (each
+                      ;; record's `:db-before` / `:db-after` /
+                      ;; `:trigger-event` / `:trace-events` slots elide
+                      ;; server-side). `:epoch-id` is a bookkeeping slot
+                      ;; the projection preserves, so `next-id`'s
+                      ;; `(:epoch-id (last page))` still resolves.
+                      'page      (ef/rt-raw (egress/project-page-src page-src project?))
                       'next-id   (ef/rt-raw
                                    "(when (< (count page) (count filtered)) (:epoch-id (last page)))")]
                      (ef/rt-raw
