@@ -60,7 +60,17 @@ function Get-MarkerBlock {
         [string]$BeginMark,
         [string]$EndMark
     )
-    $lines = Get-Content -LiteralPath $Path
+    # Read as explicit UTF-8 and split line endings ourselves. Get-Content
+    # decodes with the system ANSI codepage on Windows PowerShell 5.x, which
+    # mangles any non-ASCII byte in the source hook (the comments carry
+    # em-dashes). The installer then writes the block back as UTF-8, so the
+    # ANSI-misread source no longer round-trips equal to the UTF-8 install and
+    # -Check falsely reports the block out of date even on a fresh, correct
+    # install (rf2-ujhpf). Reading both sides as UTF-8 and normalising line
+    # endings makes the comparison encoding- and eol-agnostic without
+    # weakening drift detection.
+    $text  = [System.IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding $false))
+    $lines = $text -split "`r`n|`n|`r"
     $out = New-Object System.Collections.Generic.List[string]
     $inBlock = $false
     foreach ($line in $lines) {
