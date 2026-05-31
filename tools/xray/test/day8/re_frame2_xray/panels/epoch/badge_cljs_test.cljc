@@ -154,3 +154,34 @@
     (is (= "▲" (badge/cascade-outcome-glyph :fail)))
     (is (= "✗" (badge/cascade-outcome-glyph :threw)))
     (is (= "·" (badge/cascade-outcome-glyph :cancelled)))))
+
+;; ---- rf2-ahhgn — per-step pass/fail status primitive --------------------
+
+(deftest step-status-set-test
+  (testing "rf2-ahhgn — the per-step status closed set is {:ok :error}"
+    (is (= #{:ok :error} badge/step-status-set))
+    (is (badge/step-status? :ok))
+    (is (badge/step-status? :error))
+    (is (not (badge/step-status? :NOT-A-STATUS)))))
+
+(deftest step-status-glyph-test
+  (testing "rf2-ahhgn — :ok → ✓, :error → ✗, unknown → ✓ (quiet default)"
+    (is (= "✓" (badge/step-status-glyph :ok)))
+    (is (= "✗" (badge/step-status-glyph :error)))
+    (is (= "✓" (badge/step-status-glyph :whatever)))))
+
+(deftest step-status-token-key-test
+  (testing "rf2-ahhgn — :error → :error token (red); everything else →
+            :success token (green) so a clean step paints the quiet ✓"
+    (is (= :error   (badge/step-status-token-key :error)))
+    (is (= :success (badge/step-status-token-key :ok)))
+    (is (= :success (badge/step-status-token-key nil)))))
+
+(deftest step-status-colour-resolves-css-var-test
+  (testing "rf2-ahhgn — the colour resolver returns a CSS-variable string
+            for both statuses (theme-driven, like every other chrome)"
+    (doseq [s [:ok :error]]
+      (let [c (badge/step-status-colour s)]
+        (is (string? c))
+        (is (re-find #"var\(--rf-xray-" c)
+            (str "expected CSS variable for " s ", got " c))))))

@@ -69,6 +69,8 @@
 (def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
 (def ^:private schema-violation-ev     teb/schema-violation-ev)
 (def ^:private schema-hot-reload-ev    teb/schema-hot-reload-ev)
+(def ^:private handler-exception-ev    teb/handler-exception-ev)
+(def ^:private fx-handler-exception-ev teb/fx-handler-exception-ev)
 
 (defn- record
   "Build a synthetic `:rf/epoch-record` for projection."
@@ -2078,3 +2080,161 @@
           steps (proj/project rec)]
       (is (not-any? #(= :schema-hot-reload (:step %)) steps)
           "no SCHEMA-HOT-RELOAD tail step appended"))))
+
+;; ---- rf2-ahhgn — inline exception attachment + per-step status ----------
+;;
+;; The live button-15 (`:button-deck/throw-handler`) scenario: the handler
+;; threw, the router caught it (db rolled back), the epoch settled with the
+;; framework `:outcome :ok` (by spec — the reference runtime recovers + does
+;; NOT emit `:halted-handler-exception`) and a `:rf.error/handler-exception`
+;; trace landed under `:trace-events`. Pre-rf2-ahhgn the Epoch panel surfaced
+;; NONE of it. These tests pin (a) the message + coord projection, (b) the
+;; per-step `:status` primitive, (c) the tool-side `epoch-outcome :error`,
+;; and (d) the top-level `project` attachment end-to-end.
+
+(deftest exception-row-reads-message-and-coord-test
+  (testing "rf2-ahhgn — `exception-row` lifts the message off
+            `:exception-message` (NOT `:message` — the bead's probe checked
+            the wrong key) and the source-coord off the hoisted
+            `:rf.trace/trigger-handler :source-coord`"
+    (let [ev  (handler-exception-ev
+                :button-deck/throw-handler
+                "button-deck / handler (intentional — exercises the handler error surface)"
+                {:file "button_deck/core.cljs" :line 322})
+          row (proj/exception-row ev)]
+      (is (= :rf.error/handler-exception (:operation row)))
+      (is (= "button-deck / handler (intentional — exercises the handler error surface)"
+             (:message row))
+          "message resolves through :exception-message")
+      (is (= {:file "button_deck/core.cljs" :line 322} (:coord row))
+          "coord resolves through :rf.trace/trigger-handler :source-coord")
+      (is (= :button-deck/throw-handler (:failing-id row)))
+      (is (= :no-recovery (:recovery row)))))
+
+  (testing "rf2-ahhgn — falls back to `:reason` for the message + nil-safe
+            coord when neither trigger-handler nor call-site carries a file"
+    (let [ev  (handler-exception-ev :foo/bar nil)
+          row (proj/exception-row ev)]
+      ;; handler-exception-ev stamps `:reason "Event handler threw."`
+      (is (= "Event handler threw." (:message row)))
+      (is (nil? (:coord row))))))
+
+(deftest exception-rows-harvests-cascade-exceptions-test
+  (testing "rf2-ahhgn — `exception-rows` harvests the `cascade-exception-ops`
+            subset (handler / fx exceptions) and ignores non-exception traces"
+    (let [events [(dispatched-ev [:e] :ui nil)
+                  (handler-exception-ev :e "boom" nil)
+                  (run-end-ev 1)
+                  (fx-handler-exception-ev :http/post "fx boom" nil)]
+          rows   (proj/exception-rows events)]
+      (is (= 2 (count rows)))
+      (is (= #{:rf.error/handler-exception :rf.error/fx-handler-exception}
+             (set (map :operation rows))))))
+
+  (testing "rf2-ahhgn — empty vec when no exception traces fired"
+    (is (= [] (proj/exception-rows
+                [(dispatched-ev [:e] :ui nil) (run-end-ev 1)])))))
+
+(deftest attach-exceptions-handler-test
+  (testing "rf2-ahhgn — a `:rf.error/handler-exception` attaches to the
+            HANDLER step's `:errors` + stamps `:status :error`"
+    (let [steps [{:step :dispatch :badge :DISPATCH}
+                 {:step :handler  :badge :HANDLER}
+                 {:step :fx       :badge :FX :rows []}]
+          rows  [(proj/exception-row
+                   (handler-exception-ev :e "boom" {:file "a.cljs" :line 1}))]
+          out   (proj/attach-exceptions steps rows)
+          h     (nth out 1)]
+      (is (= 1 (count (:errors h))) "HANDLER carries the exception")
+      (is (= :error (:status h)) "HANDLER stamped :status :error")
+      (is (nil? (:errors (nth out 0))) "DISPATCH untouched")
+      (is (nil? (:status (nth out 0))) "DISPATCH not flagged"))))
+
+(deftest attach-exceptions-fx-row-test
+  (testing "rf2-ahhgn — a `:rf.error/fx-handler-exception` attaches to the
+            FX step's matching `:fx-id` row + stamps the step `:status :error`"
+    (let [steps [{:step :fx :badge :FX
+                  :rows [{:fx-id :db :status :ok}
+                         {:fx-id :http/post :status :error}]}]
+          rows  [(proj/exception-row
+                   (fx-handler-exception-ev :http/post "fx boom" nil))]
+          out   (proj/attach-exceptions steps rows)
+          fx    (first out)]
+      (is (= :error (:status fx)))
+      (is (nil? (:errors (first (:rows fx)))) ":db row untouched")
+      (is (= 1 (count (:errors (second (:rows fx)))))
+          "http/post row carries the exception")))
+
+  (testing "rf2-ahhgn — an fx exception with no matching row falls back to
+            the FX step-level `:errors`"
+    (let [steps [{:step :fx :badge :FX :rows [{:fx-id :db}]}]
+          rows  [(proj/exception-row
+                   (fx-handler-exception-ev :unknown/fx "boom" nil))]
+          out   (proj/attach-exceptions steps rows)]
+      (is (= 1 (count (:errors (first out)))))))
+
+  (testing "rf2-ahhgn — empty rows leaves steps unchanged"
+    (let [steps [{:step :handler}]]
+      (is (= steps (proj/attach-exceptions steps []))))))
+
+(deftest step-status-test
+  (testing "rf2-ahhgn — `:ok` for a clean step, `:error` when the step (or
+            a row) carries an exception or violation"
+    (is (= :ok    (proj/step-status {:step :handler})))
+    (is (= :error (proj/step-status {:step :handler :status :error})))
+    (is (= :error (proj/step-status {:step :handler :errors [{:message "x"}]})))
+    (is (= :error (proj/step-status {:step :handler :violations [{:where :app-db}]})))
+    (is (= :error (proj/step-status {:step :fx :rows [{:fx-id :db :errors [{}]}]}))
+        "row-level :errors lift the step to :error")
+    (is (= :error (proj/step-status {:step :fx :rows [{:fx-id :db :violations [{}]}]}))
+        "row-level :violations lift the step to :error")
+    (is (= :ok (proj/step-status {:step :fx :rows [{:fx-id :db}]}))
+        "clean rows keep :ok")))
+
+(deftest epoch-outcome-test
+  (testing "rf2-ahhgn — `:error` when ANY step errored, else `:ok`"
+    (is (= :ok    (proj/epoch-outcome [{:step :dispatch} {:step :handler}])))
+    (is (= :error (proj/epoch-outcome [{:step :dispatch}
+                                       {:step :handler :status :error}])))
+    (is (= :error (proj/epoch-outcome [{:step :handler
+                                        :violations [{:where :app-db}]}]))
+        "schema violations (no :status stamp) still read :error")
+    (is (= :ok (proj/epoch-outcome [])) "empty step vec → :ok")))
+
+(deftest project-attaches-handler-exception-end-to-end-test
+  (testing "rf2-ahhgn — the live button-15 scenario: a handler-exception
+            trace under `:trace-events` surfaces on the HANDLER step inline
+            (message + coord) AND the projected cascade reads `:error`. The
+            handler step also carries `:status :error` so the view paints ✗."
+    (let [rec   (record [(dispatched-ev [:button-deck/throw-handler] :ui
+                                        {:file "core.cljs" :line 481})
+                         (handler-exception-ev
+                           :button-deck/throw-handler
+                           "button-deck / handler (intentional — exercises the handler error surface)"
+                           {:file "button_deck/core.cljs" :line 322})]
+                        :button-deck/throw-handler)
+          steps   (proj/project rec)
+          handler (some #(when (= :handler (:step %)) %) steps)]
+      (is (some? handler))
+      (is (= :error (proj/step-status handler))
+          "HANDLER step reads :error")
+      (is (= :error (:status handler))
+          "HANDLER step carries the stamped :status :error")
+      (is (= 1 (count (:errors handler)))
+          "the handler-exception attached as an inline error")
+      (let [err (first (:errors handler))]
+        (is (= "button-deck / handler (intentional — exercises the handler error surface)"
+               (:message err)))
+        (is (= {:file "button_deck/core.cljs" :line 322} (:coord err))))
+      (is (= :error (proj/epoch-outcome steps))
+          "the epoch outcome reflects the exception (NOT :ok)")))
+
+  (testing "rf2-ahhgn — a clean cascade reads :ok with no attached errors"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :counter/inc)
+          steps (proj/project rec)]
+      (is (= :ok (proj/epoch-outcome steps)))
+      (is (every? #(nil? (:errors %)) steps))
+      (is (every? #(= :ok (proj/step-status %)) steps)))))

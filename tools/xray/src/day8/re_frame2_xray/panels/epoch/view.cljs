@@ -203,6 +203,19 @@
    :font-size   "10px"
    :margin-left "4px"})
 
+;; rf2-ahhgn — per-step pass/fail status glyph. Rides immediately after
+;; the badge pill so the ✓/✗ reads as a property OF the step. Quiet ✓
+;; on success (green, low weight — not alarmist); bold ✗ on failure
+;; (red) so a failing step jumps out of an otherwise-clean cascade. The
+;; colour resolves off `badge/step-status-colour` at render time
+;; (per-step), so it is NOT folded into this hoisted base.
+(def ^:private step-header-status-glyph-base-style
+  {:font-family mono-stack
+   :font-size   "12px"
+   :font-weight 700
+   :line-height 1
+   :flex        "0 0 auto"})
+
 ;; -- sub-header -----------------------------------------------------------
 
 (def ^:private sub-header-style
@@ -1191,6 +1204,39 @@
    :border-radius "3px"
    :padding "6px 8px"})
 
+;; -- inline EXCEPTION card (rf2-ahhgn) ------------------------------------
+;;
+;; A handler / interceptor / coeffect / fx / flow EXCEPTION renders as a
+;; red-edged card under its owning step (sibling to the amber schema-
+;; violation card). Distinct chrome from violations: a violation is an
+;; expected-ish boundary rejection (amber, "Aborted"/"Skipped"); an
+;; exception is a genuine bug (red `✗`, the exception MESSAGE verbatim).
+;; The card reuses the violation block's flex/padding skeleton so the two
+;; failure surfaces read as a family, with the error tone swapped in.
+
+(def ^:private error-block-style
+  (assoc schema-violation-block-style
+         :border (str "1px solid " error-colour)))
+
+(def ^:private error-block-title-style
+  (assoc schema-violation-title-style
+         :color error-colour))
+
+(def ^:private error-block-message-style
+  ;; The exception message is verbatim text the developer wrote in their
+  ;; `ex-info` — render it monospace (it often quotes code / ids) and in
+  ;; the primary text colour so it reads as the punchline of the card.
+  {:color       text-primary-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :line-height 1.5
+   :word-break  "break-word"
+   :margin      "2px 0"})
+
+(def ^:private error-block-recovery-chip-style
+  (assoc schema-violation-rollback-chip-style
+         :text-transform "none"))
+
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
 
@@ -1292,6 +1338,27 @@
 (def ^:private panel-scroll-style
   {:flex 1 :overflow "auto" :padding "21px"})
 
+;; rf2-ahhgn — epoch outcome banner. A failed cascade (an exception or
+;; schema violation fired) paints a thin red banner at the top of the
+;; pipeline so the operator reads "this event failed" the moment they
+;; land on the panel — without scanning for the ✗ step. The per-step
+;; ✗ glyphs + inline error cards then pinpoint WHERE. A clean cascade
+;; renders NO banner (silence is the success signal — no green
+;; reassurance chrome cluttering the common case).
+(def ^:private outcome-banner-error-style
+  {:display       "flex"
+   :align-items   "center"
+   :gap           "8px"
+   :padding       "6px 10px"
+   :margin-bottom "13px"
+   :background    bg-violation-colour
+   :border        (str "1px solid " error-colour)
+   :border-radius "3px"
+   :color         error-colour
+   :font-family   sans-stack
+   :font-size     "12px"
+   :font-weight   600})
+
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
 ;; The Epoch panel's row-expansion surface (`:rf.xray.epoch/toggle-
@@ -1377,6 +1444,8 @@
 ;; alongside its defn — rf2-w8evg.)
 (declare violation-blocks)
 (declare violation-block)
+(declare error-blocks)
+(declare error-block)
 
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
@@ -1426,13 +1495,34 @@
 ;; with the default `:color "inherit"` + `:margin-left "4px"` knobs,
 ;; which match this panel's prior shape exactly.
 
+(defn- step-status-glyph
+  "Render the per-step ✓/✗ pass-fail glyph (rf2-ahhgn). `status` is the
+  `:ok` / `:error` keyword from `projection/step-status`; the colour +
+  glyph resolve off the shared `badge/step-status-*` primitive (the
+  same one rf2-kt6js's SIDE-EFFECTS sub-steps reuse). `testid` keys the
+  `-status` suffix + the `data-rf-xray-step-status` attribute tests +
+  the issues-ribbon eye-scan read."
+  [status testid]
+  [:span {:data-testid (str testid "-status")
+          :data-rf-xray-step-status (name (or status :ok))
+          :aria-label (if (= :error status) "step failed" "step ok")
+          :title (if (= :error status) "this step failed" "this step ran cleanly")
+          :style (assoc step-header-status-glyph-base-style
+                        :color (badge/step-status-colour status))}
+   (badge/step-status-glyph status)])
+
 (defn- step-header
-  "Render a step's header row — badge pill + verb/label + optional
-  duration. The flex layout keeps the duration right-aligned via
-  `margin-left: auto`. The whole header is wrapped in an interactive
-  `<div>` so clicking anywhere on the row toggles `expanded?` when
-  the step carries expandable content (`expandable?` true)."
-  [{:keys [badge verb expandable? expanded? testid duration-ms]} on-toggle]
+  "Render a step's header row — badge pill + per-step ✓/✗ status glyph
+  (rf2-ahhgn) + verb/label + optional duration. The flex layout keeps
+  the duration right-aligned via `margin-left: auto`. The whole header
+  is wrapped in an interactive `<div>` so clicking anywhere on the row
+  toggles `expanded?` when the step carries expandable content
+  (`expandable?` true).
+
+  `:status` is the step's `:ok` / `:error` pass-fail (rf2-ahhgn) — the
+  glyph is omitted when no status is supplied so test callers + non-step
+  headers (none today) stay unchanged."
+  [{:keys [badge verb expandable? expanded? testid duration-ms status]} on-toggle]
   [:div {:data-testid (str testid "-header")
          :on-click    (when (and expandable? on-toggle)
                         (fn [e]
@@ -1442,6 +1532,8 @@
                   step-header-pointer-style
                   step-header-default-cursor-style)}
    (badge-pill badge)
+   (when status
+     (step-status-glyph status testid))
    [:span {:data-testid (str testid "-verb")
            :style step-header-verb-style}
     verb]
@@ -1785,6 +1877,7 @@
                   (dispatch-source-label source coord)]))
        :expandable? false
        :testid "rf-xray-epoch-dispatch"
+       :status (proj/step-status step)
        :duration-ms duration-ms}
       nil)
     (dispatch-body step)
@@ -1845,7 +1938,7 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value step-number violations]}]
+  [{:keys [id value step-number violations] :as step}]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta :cofx id)
                           (catch :default _ nil)))
@@ -1868,7 +1961,8 @@
                                      {:style       coeffect-verb-link-button-style
                                       :plain-style coeffect-verb-plain-style})
         :expandable? false
-        :testid (str "rf-xray-epoch-coeffect-" (name id))}
+        :testid (str "rf-xray-epoch-coeffect-" (name id))
+        :status (proj/step-status step)}
        nil)
      ;; Body — `+ [:cofx-id] <value>` diff-style line. Per pair-debug
      ;; 2026-05-26 the body sits left-aligned with the badge (no
@@ -2615,7 +2709,7 @@
   `:violations` slot still renders generically — currently empty
   for HANDLER in practice — but the call site stays in case future
   violation kinds attach here."
-  [{:keys [flavour event-id duration-ms step-number violations]
+  [{:keys [flavour event-id duration-ms step-number violations errors]
     :as step}]
   [:div {:data-testid "rf-xray-epoch-step-handler"
          :data-step-kw "handler"
@@ -2627,9 +2721,15 @@
       :verb (handler-verb-link flavour event-id)
       :expandable? false
       :testid "rf-xray-epoch-handler"
+      :status (proj/step-status step)
       :duration-ms duration-ms}
      nil)
    (handler-body step)
+   ;; rf2-ahhgn — a handler / interceptor / coeffect EXCEPTION attaches
+   ;; here as an inline error card (button-15/16/17). Rendered BELOW the
+   ;; handler body so the operator reads what the handler tried to do,
+   ;; then the failure that aborted it.
+   (error-blocks :handler errors)
    (violation-blocks :handler violations)])
 
 ;; ---- FLOW step -----------------------------------------------------------
@@ -2669,7 +2769,8 @@
   (a pre-rf2-ta0y7 runtime, or neither t1 nor t2 on the stream) the
   body falls back to the per-path `[path] before → after` scalar line."
   [{:keys [flow-id path before after duration-ms step-number
-           db-pre-flow db-post-flow]}]
+           db-pre-flow db-post-flow errors]
+    :as step}]
   (let [flow-meta  (when (keyword? flow-id)
                      (try (rf/handler-meta :flow flow-id)
                           (catch :default _ nil)))
@@ -2704,6 +2805,7 @@
                                       :plain-style coeffect-verb-plain-style})
         :expandable? false
         :testid (str "rf-xray-epoch-flow-" (name flow-id))
+        :status (proj/step-status step)
         :duration-ms duration-ms}
        nil)
      (if db-diff?
@@ -2733,7 +2835,10 @@
           (when (and (some? before) (some? after))
             [:span {:style coeffect-body-path-style} "→"])
           (when (some? after)
-            [:span {:style coeffect-body-value-style} [ei/mini after 30]])]))]))
+            [:span {:style coeffect-body-value-style} [ei/mini after 30]])]))
+     ;; rf2-ahhgn — a flow-eval exception (the flow's compute fn threw,
+     ;; aborting the cascade pre-commit) attaches here as an inline card.
+     (error-blocks :flow errors)]))
 
 ;; ---- FX step -------------------------------------------------------------
 
@@ -2843,14 +2948,17 @@
            (str "(" (name phase) ")")])])]))
 
 (defn- fx-row-with-violations
-  "Render one fx row + any violations attached to that row (rf2-xgeag).
-  Per-row attachment matches when the projection's `attach-to-fx-row`
-  resolved the violation's `:failing-id` against an `fx-id` in the
-  FX step's `:rows`."
+  "Render one fx row + any violations / exceptions attached to that row
+  (rf2-xgeag / rf2-ahhgn). Per-row attachment matches when the
+  projection's `attach-to-fx-row` (schema) / `attach-to-fx-error-row`
+  (exception) resolved the `:failing-id` against an `fx-id` in the FX
+  step's `:rows`. A throwing fx (button-18) surfaces its message + coord
+  inline on its own row."
   [idx row]
   [:div {:key (str "fx-row-" idx)
          :data-testid (str "rf-xray-epoch-fx-row-wrapper-" idx)}
    (fx-row-view idx row)
+   (error-blocks (keyword (str "fx-row-" idx)) (:errors row))
    (violation-blocks (keyword (str "fx-row-" idx)) (:violations row))])
 
 (defn render-fx-step
@@ -2866,7 +2974,7 @@
   `:failing-id` matches an fx-id; otherwise they attach to the
   step-level `:violations` slot (rendered at the foot of the
   step)."
-  [{:keys [rows step-number threw violations]}]
+  [{:keys [rows step-number threw violations errors] :as step}]
   (let [k (or threw 0)]
     [:div {:data-testid "rf-xray-epoch-step-fx"
            :data-step-kw "fx"
@@ -2883,10 +2991,14 @@
                  [:span {:style fx-threw-style}
                   (str k " threw")])]
         :expandable? false
-        :testid "rf-xray-epoch-fx"}
+        :testid "rf-xray-epoch-fx"
+        :status (proj/step-status step)}
        nil)
      [:div {:style margin-top-5-style}
       (map-indexed fx-row-with-violations rows)]
+     ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
+     ;; or an fx-id absent from `:rows`) attach to the step level.
+     (error-blocks :fx errors)
      (violation-blocks :fx violations)]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
@@ -3241,7 +3353,7 @@
   bar's click dispatches into that same captured frame — so toggle
   writes + reads hit THIS instance's Xray app-db (N isolated shells
   stay independent), not the `:rf/xray` singleton."
-  [{:keys [rows disposed-rows step-number violations]}]
+  [{:keys [rows disposed-rows step-number violations] :as step}]
   (let [frame         (rf/current-frame)
         mode          @(rf/subscribe frame
                                      [:rf.xray.epoch/subs-filter-mode])
@@ -3277,7 +3389,8 @@
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
         :expandable? false
-        :testid "rf-xray-epoch-subscriptions"}
+        :testid "rf-xray-epoch-subscriptions"
+        :status (proj/step-status step)}
        nil)
      (when (pos? n)
        (subscriptions-table visible-rows))
@@ -3473,7 +3586,7 @@
   surfaces are non-empty; collapses to `N re-rendered` or `M
   unmounted` when one half is absent. The unmounted sub-section
   is omitted entirely when no unmount-trace events fired."
-  [{:keys [rows unmounted-rows step-number]}]
+  [{:keys [rows unmounted-rows step-number] :as step}]
   (let [n (count rows)
         m (count unmounted-rows)
         verb (cond
@@ -3491,7 +3604,8 @@
         :badge :VIEWS
         :verb verb
         :expandable? false
-        :testid "rf-xray-epoch-views"}
+        :testid "rf-xray-epoch-views"
+        :status (proj/step-status step)}
        nil)
      (when (pos? n)
        (views-table rows))
@@ -3788,6 +3902,101 @@
      (map-indexed (fn [i v] (violation-block step-key i v))
                   violations)]))
 
+;; ---- inline EXCEPTION card (rf2-ahhgn) ----------------------------------
+
+(defn- error-recovery-label
+  "Short recovery chip text for an exception card (rf2-ahhgn). A handler
+  exception rolls back the cascade (`:no-recovery`) — render that as the
+  red `Rolled back` chip so the operator reads the blast radius. Other
+  recovery keywords render name-d; nil recovery omits the chip."
+  [recovery]
+  (case recovery
+    :no-recovery "Rolled back"
+    (when (keyword? recovery) (name recovery))))
+
+(defn- error-block-label
+  "Render the card's one-line failure headline (rf2-ahhgn) — the failing
+  unit + a human verb keyed off the exception op + phase. E.g.
+  'The event handler threw.' / 'An interceptor threw (:before).' /
+  'The :http/post effect threw.'"
+  [{:keys [operation phase failing-id]}]
+  (case operation
+    :rf.error/handler-exception
+    (cond
+      (= :before phase) "An interceptor / coeffect threw (:before)."
+      (= :after phase)  "An interceptor threw (:after)."
+      :else             "The event handler threw.")
+    :rf.error/fx-handler-exception
+    (str "The " (proj/ns-keyword failing-id) " effect threw.")
+    :rf.error/no-such-fx
+    (str "No fx handler registered for " (proj/ns-keyword failing-id) ".")
+    :rf.error/flow-eval-exception
+    "A flow's computation threw."
+    "An exception was thrown."))
+
+(defn error-block
+  "Render one inline EXCEPTION card (rf2-ahhgn) for a projected
+  `exception-row`. Four pieces, top to bottom:
+
+    1. Title bar: `✗` + 'Exception' + right-aligned recovery chip
+       (`Rolled back` for a handler exception).
+    2. Failure headline: a one-line human verb (`error-block-label`).
+    3. Exception message: the verbatim `ex-info` message (monospace).
+    4. Source-coord jump-to-source link: `↗ file:line` opening the
+       failing handler's registration site via `:rf.xray/open-in-editor`
+       (the same coord-link the schema-violation card uses); omitted
+       when no coord was captured (fn-form / production build).
+
+  `step-key` + `idx` give stable test ids. The card paints the failing
+  step's blast radius right where the work happened — the inline half of
+  rf2-ahhgn."
+  [step-key idx {:keys [message coord recovery] :as row}]
+  (let [recovery-label (error-recovery-label recovery)
+        testid-base    (str "rf-xray-epoch-error-"
+                            (name (or step-key :unknown)) "-" idx)]
+    [:div {:key (str "error-" step-key "-" idx)
+           :data-testid testid-base
+           :data-error-op (when (:operation row) (name (:operation row)))
+           :style error-block-style}
+     ;; 1. Title bar — ✗ + 'Exception' + recovery chip
+     [:div {:style error-block-title-style}
+      [:span {:aria-hidden true} "✗"]
+      [:span {:data-testid (str testid-base "-title")} "Exception"]
+      [:span {:style schema-violation-title-spacer-style}]
+      (when recovery-label
+        [:span {:data-testid (str testid-base "-recovery")
+                :style error-block-recovery-chip-style}
+         recovery-label])]
+     ;; 2. Failure headline (human verb)
+     [:p {:data-testid (str testid-base "-headline")
+          :style violation-prose-style}
+      (error-block-label row)]
+     ;; 3. Exception message (verbatim, monospace) — the punchline
+     (when (and (string? message) (not (str/blank? message)))
+       [:div {:data-testid (str testid-base "-message")
+              :style error-block-message-style}
+        message])
+     ;; 4. Jump-to-source — failing handler's reg-site coord
+     [:div {:style schema-violation-actions-style}
+      (violation-open-source-action
+        {:label  (let [{:keys [file line]} coord]
+                   (if file
+                     (cond-> file line (str ":" line))
+                     "source unavailable"))
+         :coord  coord
+         :testid (str testid-base "-source")})]]))
+
+(defn error-blocks
+  "Render every exception in `errors` as an inline card inside the
+  current step's body (rf2-ahhgn). `step-key` is the owning step keyword
+  (stable test ids). nil-safe — a clean step passes nil/empty and renders
+  nothing."
+  [step-key errors]
+  (when (seq errors)
+    [:div {:data-testid (str "rf-xray-epoch-errors-" (name step-key))}
+     (map-indexed (fn [i e] (error-block step-key i e))
+                  errors)]))
+
 ;; `rolled-back-banner` retired per rf2-w8evg — the rf2-8resu
 ;; redesign moved the `:where :app-db` violation from HANDLER to the
 ;; FX step's `:db` row, so the standalone HANDLER-level "cascade
@@ -4015,6 +4224,19 @@
            :style empty-state-style}
      msg]))
 
+(defn outcome-banner
+  "Render the top-of-cascade outcome banner (rf2-ahhgn). Painted only
+  when `outcome` is `:error` — a failed cascade. A clean cascade renders
+  nothing (silence is the success signal). The banner names the failure
+  at a glance; the per-step ✗ glyphs + inline error cards locate it."
+  [outcome]
+  (when (= :error outcome)
+    [:div {:data-testid "rf-xray-epoch-outcome-banner"
+           :data-rf-xray-outcome "error"
+           :style outcome-banner-error-style}
+     [:span {:aria-hidden true} "✗"]
+     [:span "This event failed — see the ✗ step below."]]))
+
 ;; ---- public Panel --------------------------------------------------------
 
 (rf/reg-view Panel
@@ -4022,26 +4244,33 @@
   a composite that resolves the focused epoch off the spine and
   projects its `:trace-events` into the pipeline-step rows. Renders
   the numbered cascade when steps are present; an empty-state when
-  the focus carries no record or the record carries no trace events."
+  the focus carries no record or the record carries no trace events.
+
+  rf2-ahhgn — when the cascade failed (`:outcome :error`) a red banner
+  rides above the pipeline so the failure is visible the moment the
+  operator lands on the panel."
   []
-  (let [{:keys [status steps dispatch-id epoch-history]}
+  (let [{:keys [status steps dispatch-id epoch-history outcome]}
         @(rf/subscribe [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
+               :data-rf-xray-outcome (when outcome (name outcome))
                :style panel-root-style}
      [:div {:style panel-scroll-style}
       (cond
         (= :focused status)
         (if (seq steps)
-          ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
-          ;; once per panel render. Threaded through `ctx` to the
-          ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
-          ;; parent-epoch resolver (O(1) lookup instead of an O(N)
-          ;; epoch-history scan per render).
-          (pipeline-view steps
-                         {:dispatch-id           dispatch-id
-                          :epoch-history         epoch-history
-                          :dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
-                                                   epoch-history)})
+          [:<>
+           (outcome-banner outcome)
+           ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
+           ;; once per panel render. Threaded through `ctx` to the
+           ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
+           ;; parent-epoch resolver (O(1) lookup instead of an O(N)
+           ;; epoch-history scan per render).
+           (pipeline-view steps
+                          {:dispatch-id           dispatch-id
+                           :epoch-history         epoch-history
+                           :dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
+                                                    epoch-history)})]
           (empty-state-view :no-events))
 
         :else

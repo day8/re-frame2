@@ -344,3 +344,57 @@
     :threw     "✗"
     :cancelled "·"
     "·"))
+
+;; ---- Per-step pass/fail status primitive (rf2-ahhgn) --------------------
+;;
+;; Every pipeline step (DISPATCH / COEFFECT / HANDLER / FLOW / FX /
+;; SUBSCRIPTIONS / VIEWS) carries a `:status` of `:ok` or `:error`
+;; (projection/`step-status`). The view paints a ✓ (ok) / ✗ (error)
+;; glyph on each step header off this primitive so the operator
+;; eye-scans the cascade for the FAILING step without reading every
+;; label — the failure that pre-rf2-ahhgn was invisible (handler /
+;; interceptor / coeffect / fx exceptions surfaced NOWHERE in the
+;; cascade).
+;;
+;; This is the GENERAL per-step status shape rf2-kt6js's SIDE-EFFECTS
+;; sub-steps reuse for their per-effect ticks (:db / :fx / other) — one
+;; glyph + token resolver, not a one-off. The closed `:ok` / `:error`
+;; set mirrors the machine-cascade row outcome chrome above (✓ green /
+;; ✗ red); a step with no failure reads `:ok` and paints the quiet ✓.
+
+(def step-status-set
+  "Closed set of per-step statuses (rf2-ahhgn). Tests + the view's
+  glyph-resolver bail-out read this set."
+  #{:ok :error})
+
+(defn step-status?
+  "Predicate — `status` keyword is a member of `step-status-set`."
+  [status]
+  (contains? step-status-set status))
+
+(defn step-status-token-key
+  "Theme-token keyword for a per-step status glyph colour (rf2-ahhgn):
+    :ok    → :success  (✓ green)
+    :error → :error    (✗ red)
+  Falls back to `:success` for unknown statuses so a never-failed step
+  paints the quiet success tick."
+  [status]
+  (case status
+    :error :error
+    :success))
+
+(defn step-status-colour
+  "CSS-variable string for a per-step status glyph (rf2-ahhgn)."
+  [status]
+  (get tokens/tokens (step-status-token-key status)
+       (get tokens/tokens :success)))
+
+(defn step-status-glyph
+  "Single-char glyph for a per-step status (rf2-ahhgn):
+    :ok    → \"✓\"
+    :error → \"✗\"
+  Defaults to the success tick for unknown statuses."
+  [status]
+  (case status
+    :error "✗"
+    "✓"))

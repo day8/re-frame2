@@ -1669,6 +1669,230 @@
 ;; consumes them. The Epoch panel's pipeline now stays
 ;; exclusively for runtime-cascade events.
 
+;; ---- INLINE EXCEPTION attachment (rf2-ahhgn) ----------------------------
+;;
+;; A handler / interceptor / coeffect / fx EXCEPTION (distinct from a
+;; schema VIOLATION) leaves a `:rf.error/*` cascade trace but, pre-rf2-ahhgn,
+;; surfaced NOWHERE in the Epoch panel — the cascade rendered as if it ran
+;; clean and the epoch read `:outcome :ok` (the framework recovers handler
+;; exceptions through the interceptor error-capture seam and settles `:ok`
+;; deliberately — per spec/009 §`:rf.epoch/*` + Spec-Schemas §`:rf/epoch-record`
+;; §Outcomes; we do NOT touch that framework slot — see rf2-ahhgn settle-first).
+;;
+;; This block harvests the cascade-level exception traces and attaches each
+;; to its OWNING pipeline step, mirroring the schema-`attach-violations`
+;; mechanism. The error MESSAGE rides `[:tags :exception-message]` (or
+;; `[:tags :reason]`); the failing handler's SOURCE-COORD rides the hoisted
+;; top-level `:rf.trace/trigger-handler :source-coord` slot (or
+;; `:rf.trace/call-site`) — confirmed against `re-frame.router/
+;; emit-handler-exception!` + `re-frame.trace/build-event` (rf2-ahhgn
+;; settle-first prong 2; the bead's probe checked `:message` / `:source`,
+;; which the substrate does not stamp).
+;;
+;; The error-record + per-step `:status` (`:ok` / `:error`) primitive this
+;; introduces is GENERAL — rf2-kt6js's future SIDE-EFFECTS sub-steps reuse
+;; the same `step-status` + `error-record` shape rather than rolling a
+;; one-off.
+
+(def cascade-exception-ops
+  "Closed set of cascade-level `:rf.error/*` trace ops the Epoch panel
+  surfaces as INLINE per-step exceptions (rf2-ahhgn). Schema-validation
+  failures are NOT here — they ride the distinct `schema-violation-rows`
+  + `attach-violations` path (they carry `:explain` + `:where` + recovery
+  chrome, not an exception message). New exception ops extend this set
+  AND the `exception-op->step` table in lockstep.
+
+  - `:rf.error/handler-exception` — a handler / interceptor `:before` or
+    `:after` / injected-coeffect threw; the chain captured it into
+    `:rf/interceptor-error` and the router emitted this op (the `:db`/`:fx`
+    did NOT apply — db rolled back). Owns the HANDLER step.
+  - `:rf.error/fx-handler-exception` — a registered fx-handler threw during
+    the post-commit fx walk. Owns the FX step (best-effort per-row match on
+    `:rf.fx/id`; falls back to step-level).
+  - `:rf.error/no-such-fx` — the handler returned an fx-id with no
+    registered handler. Owns the FX step.
+  - `:rf.error/flow-eval-exception` — a flow's compute fn threw (pre-commit
+    abort). Owns the FLOW step (step-level; the throwing flow aborted the
+    cascade)."
+  #{:rf.error/handler-exception
+    :rf.error/fx-handler-exception
+    :rf.error/no-such-fx
+    :rf.error/flow-eval-exception})
+
+(def ^:private exception-op->step
+  "Map a cascade-exception trace op → the `:step` keyword of the pipeline
+  step it attaches to (rf2-ahhgn). The router emits a handler / interceptor
+  / coeffect throw all as `:rf.error/handler-exception` (the interceptor
+  chain is the unit that threw), so all three attach to HANDLER — correct
+  for the headline button-15 (handler) + button-16 (interceptor) cases and
+  acceptable for button-17 (the coeffect throw aborts the handler chain)."
+  {:rf.error/handler-exception    :handler
+   :rf.error/fx-handler-exception :fx
+   :rf.error/no-such-fx           :fx
+   :rf.error/flow-eval-exception  :flow})
+
+(defn- exception-message
+  "Lift the human-readable failure message off an exception trace event
+  (rf2-ahhgn). Reads `[:tags :exception-message]` (handler / fx throws —
+  `re-frame.router/emit-handler-exception!` stamps the exception's
+  `.getMessage`) then `[:tags :reason]` (the canonical terse summary).
+  nil when neither is present."
+  [ev]
+  (let [msg (or (common/tag-of ev :exception-message)
+                (common/tag-of ev :reason))]
+    (when (and (string? msg) (not= "" msg)) msg)))
+
+(defn- exception-source-coord
+  "Resolve the `{:file :line}` source-coord of the failing handler off an
+  exception trace event (rf2-ahhgn). The handler's reg-site coord rides
+  the hoisted top-level `:rf.trace/trigger-handler :source-coord` slot
+  (per `re-frame.trace/build-event`); the dispatch call-site
+  (`:rf.trace/call-site`) is the fallback. nil when neither carries a
+  `:file`."
+  [ev]
+  (let [coord (or (some-> (:rf.trace/trigger-handler ev) :source-coord)
+                  (:rf.trace/call-site ev)
+                  (common/tag-of ev :rf.trace/call-site))]
+    (when (and (map? coord) (:file coord)) coord)))
+
+(defn exception-row
+  "Project one cascade-exception trace event into the per-step error
+  record (rf2-ahhgn). Mirrors the issues-ribbon projection shape so the
+  inline display reads the same message + coord the Issues panel does:
+
+      {:operation  <error-op kw>           ;; e.g. :rf.error/handler-exception
+       :message    <string-or-nil>         ;; the exception message / reason
+       :coord      <{:file :line}-or-nil>  ;; failing handler's source-coord
+       :failing-id <kw-or-nil>             ;; the failing handler / fx id
+       :phase      <kw-or-nil>             ;; :before / :after (interceptor)
+       :recovery   <kw-or-nil>             ;; e.g. :no-recovery
+       :raw        <trace-event>}          ;; the underlying trace event
+
+  Pure-data; the view's `error-block` renders message + coord + jump-to-
+  source. Empty slots are tolerated absent by the view."
+  [ev]
+  {:operation  (op ev)
+   :message    (exception-message ev)
+   :coord      (exception-source-coord ev)
+   :failing-id (or (common/tag-of ev :rf.fx/id)
+                   (common/tag-of ev :failing-id)
+                   (common/tag-of ev :handler-id))
+   :phase      (common/tag-of ev :phase)
+   :recovery   (or (:recovery ev) (common/tag-of ev :recovery))
+   :raw        ev})
+
+(defn exception-rows
+  "Walk every cascade-exception trace event in `events` (the
+  `cascade-exception-ops` subset) into a vec of `exception-row` records
+  in trace order (rf2-ahhgn). Empty vec when none fired."
+  [events]
+  (vec
+    (for [ev events
+          :when (contains? cascade-exception-ops (op ev))]
+      (exception-row ev))))
+
+(defn- attach-to-fx-error-row
+  "Attach an fx exception row to the FX step's matching `:fx-id` row
+  (rf2-ahhgn). When `:failing-id` matches a row's `:fx-id`, attach there;
+  otherwise attach to the step-level `:errors`. Mirrors
+  `attach-to-fx-row` for schema violations."
+  [step row]
+  (let [fx-id (:failing-id row)]
+    (if (some #(= fx-id (:fx-id %)) (:rows step))
+      (update step :rows
+              (fn [rows]
+                (mapv (fn [r]
+                        (if (= fx-id (:fx-id r))
+                          (update r :errors (fnil conj []) row)
+                          r))
+                      rows)))
+      (update step :errors (fnil conj []) row))))
+
+(defn attach-exceptions
+  "Take a projected step vector + a vec of `exception-row` records and
+  return the step vector with each exception attached to its owning step
+  (rf2-ahhgn — per `exception-op->step`). Returns `steps` unchanged when
+  `rows` is empty.
+
+  Attachment is step-level for HANDLER / FLOW (the exception aborted that
+  step's work) and row-level (matching `:fx-id`) for FX, falling back to
+  step-level when no row matches. Each touched step additionally gains
+  `:status :error` so the per-step ✓/✗ primitive paints the failure
+  glyph; the same `:status` slot is what rf2-kt6js's SIDE-EFFECTS sub-
+  steps will reuse."
+  [steps rows]
+  (if (empty? rows)
+    steps
+    (reduce
+      (fn [s row]
+        (let [target-step (get exception-op->step (:operation row))
+              i           (index-of #(= target-step (:step %)) s)]
+          (if i
+            (update s i
+                    (fn [step]
+                      (-> (if (= :fx target-step)
+                            (attach-to-fx-error-row step row)
+                            (update step :errors (fnil conj []) row))
+                          (assoc :status :error))))
+            ;; No owning step in the cascade (e.g. a flow-eval throw with
+            ;; no FLOW step projected) — attach to the HANDLER step as the
+            ;; catch-all so the failure never disappears entirely.
+            (if-let [h (index-of #(= :handler (:step %)) s)]
+              (update s h
+                      (fn [step]
+                        (-> step
+                            (update :errors (fnil conj []) row)
+                            (assoc :status :error))))
+              s))))
+      steps
+      rows)))
+
+;; ---- per-step status + epoch outcome (rf2-ahhgn) ------------------------
+
+(defn step-status
+  "The pass/fail status of a projected step (rf2-ahhgn) — `:error` when
+  the step (or any of its rows) carries an attached exception or schema
+  violation, else `:ok`. The view paints a ✓ (`:ok`) / ✗ (`:error`)
+  glyph on every step header off this primitive; rf2-kt6js's SIDE-EFFECTS
+  sub-steps reuse the same shape for their per-effect ticks.
+
+  Reads the step's own `:status` slot first (stamped by `attach-
+  exceptions`), then falls back to scanning the step-level + row-level
+  `:errors` / `:violations` vecs so a step that gained a violation via
+  `attach-violations` (which does not stamp `:status`) still reads
+  `:error`. Pure-data over an already-attached step."
+  [step]
+  (let [row-has? (fn [k] (some #(seq (get % k)) (:rows step)))]
+    (if (or (= :error (:status step))
+            (seq (:errors step))
+            (seq (:violations step))
+            (row-has? :errors)
+            (row-has? :violations))
+      :error
+      :ok)))
+
+(defn epoch-outcome
+  "Derive the Epoch panel's consumer-facing outcome for a projected step
+  vector (rf2-ahhgn) — `:error` when ANY step settled `:error` (an
+  exception or a schema violation fired this cascade), else `:ok`.
+
+  This is the TOOL-SIDE outcome the Epoch panel surfaces — the SAME
+  trace-derived `:error`/`:ok` signal `event-status-colour/cascade-outcome`
+  computes for the L2 list / Event header / Trace bar (a cascade carrying
+  an `:rf.error/*` trace reads `:error`). It is DELIBERATELY NOT the
+  framework epoch-record `:outcome` slot, which stays `:ok` for a
+  recovered handler exception by spec (Spec-Schemas §`:rf/epoch-record`
+  §Outcomes line 245 — the reference runtime recovers + settles `:ok`;
+  `:halted-handler-exception` is reserved for a future drain-aborting
+  runtime). Surfacing the framework slot's `:ok` as the panel's outcome
+  is the rf2-ahhgn bug; deriving from the trace stream fixes it without a
+  framework-contract change (which would ripple into `restore-epoch`'s
+  non-`:ok` refusal + Story / MCP consumers — see rf2-ahhgn settle-first)."
+  [steps]
+  (if (some #(= :error (step-status %)) steps)
+    :error
+    :ok))
+
 (defn cascade-rolled-back?
   "True iff any `:app-db` schema violation in `rows` carries
   `:rollback? true`. The view layer reads this off the cascade
@@ -1989,6 +2213,7 @@
                                  (assoc :db-post-flow flow-db-post)))
                              (flow-rows events))
             violations (schema-violation-rows events)
+            exceptions (exception-rows events)
             base-steps (vec
                         (concat
                           [(dispatch-row events fallback)]
@@ -2013,7 +2238,13 @@
                            ]))
             present    (filterv some? base-steps)
             attached   (attach-violations present violations)
-            steps      (mark-rolled-back-downstream attached violations)]
+            ;; rf2-ahhgn — attach cascade-level exceptions (handler /
+            ;; interceptor / coeffect / fx / flow throws) to their owning
+            ;; step AFTER schema violations so both inline-failure surfaces
+            ;; coexist; `attach-exceptions` additionally stamps `:status
+            ;; :error` on each touched step for the per-step ✓/✗ primitive.
+            with-errs  (attach-exceptions attached exceptions)
+            steps      (mark-rolled-back-downstream with-errs violations)]
         steps))))
 
 (defn number-steps

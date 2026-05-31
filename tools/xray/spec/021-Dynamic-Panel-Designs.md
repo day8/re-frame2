@@ -2017,7 +2017,7 @@ verbatim; no DOM concern bleeds into the data layer.
 
 | Sub | Reads | Yields |
 |-----|-------|--------|
-| `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps}` |
+| `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps, :outcome :ok｜:error}` — `:outcome` is the rf2-ahhgn tool-side outcome (`projection/epoch-outcome`; `:error` when any step carries an exception or violation), NOT the framework epoch-record slot (§9.1.10.5) |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
 | `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
@@ -2300,6 +2300,102 @@ Sections / step are conditional — `:violations` slot is absent
 when no violation attached to that step. Hot-reload drift no
 longer rides any pipeline step (rf2-7gf7v); it surfaces in the
 Issues panel only.
+
+### §9.1.10.4 Inline EXCEPTION attachment + per-step ✓/✗ status (rf2-ahhgn)
+
+> **Motivation.** A handler / interceptor / coeffect / fx / flow
+> EXCEPTION (distinct from a schema VIOLATION) leaves a
+> `:rf.error/*` cascade trace but, pre-rf2-ahhgn, surfaced
+> NOWHERE in the Epoch panel — the cascade rendered as if it ran
+> clean. Clicking button-15 (`:button-deck/throw-handler`) showed
+> nothing explaining the failure, and the framework epoch
+> `:outcome` read `:ok`. This section adds inline per-step error
+> cards + a per-step pass/fail glyph + a tool-side outcome so a
+> failed event is visible where the operator is already looking.
+
+**Per-step ✓/✗ status primitive.** Every pipeline step carries a
+`:status` of `:ok` / `:error` (`projection/step-status`). The view
+paints a glyph immediately after the step's badge pill —
+`badge/step-status-glyph` (✓ / ✗) coloured by
+`badge/step-status-colour` (`:success` green / `:error` red). A
+clean step paints the quiet green ✓; a failed step paints the bold
+red ✗ so the operator eye-scans the cascade for the failing step
+without reading every label. `step-status` reads the step's
+stamped `:status` slot first, then falls back to scanning the
+step-level + row-level `:errors` / `:violations` vecs (so a step
+that gained a schema violation via `attach-violations` — which does
+not stamp `:status` — still reads `:error`). **rf2-kt6js reuses
+this exact `:status` shape + the `badge/step-status-*` resolver for
+its SIDE-EFFECTS sub-steps' per-effect ticks — it is a shared
+primitive, not a one-off.**
+
+**Exception harvesting + attachment.** The projection harvests the
+`cascade-exception-ops` subset into per-step error records
+(`projection/exception-row` → `exception-rows`) and attaches each
+to its owning step via `attach-exceptions` (a sibling of
+`attach-violations`, run immediately after it). Each touched step
+gains the attached record under `:errors` (step-level) or its
+matching row's `:errors` (FX row-level) AND `:status :error`.
+
+| Trace op | Owning step | Granularity |
+|----------|-------------|-------------|
+| `:rf.error/handler-exception` | HANDLER | step-level (handler / interceptor / coeffect throw — the chain is the unit that threw) |
+| `:rf.error/fx-handler-exception` | FX, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
+| `:rf.error/no-such-fx` | FX | step-level (fallback) |
+| `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
+
+The error MESSAGE rides `[:tags :exception-message]` (handler / fx
+throws — `re-frame.router/emit-handler-exception!` stamps the
+exception's `.getMessage`) with `[:tags :reason]` as fallback; the
+failing handler's SOURCE-COORD rides the hoisted top-level
+`:rf.trace/trigger-handler :source-coord` slot (with
+`:rf.trace/call-site` as fallback). These are the SAME slots the
+Issues panel's `short-description` / `source-coord` read — the bead's
+original probe checked `:message` / `:source` / `:error-id`, which
+the substrate does not stamp (the empty-tags symptom).
+
+**Inline error card.** `view/error-block` renders a red-edged card
+(sibling to the amber schema-violation card; `:bg-violation`
+background, `:error` border) carrying: a `✗ Exception` title bar +
+`Rolled back` recovery chip; a one-line human headline keyed off the
+op + interceptor `:phase` ("The event handler threw." / "An
+interceptor / coeffect threw (:before)." / "The :http/post effect
+threw."); the verbatim `ex-info` message (monospace); and a
+jump-to-source link reading `file:line` (the shared `coord-link`,
+degrading to muted "source unavailable" when no coord was captured).
+HANDLER / FLOW inject `(error-blocks step-key errors)` under their
+body; FX injects per-row cards via `fx-row-with-violations` plus a
+step-level `(error-blocks :fx errors)` for unmatched fx ids.
+
+### §9.1.10.5 Epoch outcome — tool-side, NOT the framework slot (rf2-ahhgn)
+
+The `:rf.xray/epoch-pipeline` composite sub carries an `:outcome`
+(`:ok` / `:error`) from `projection/epoch-outcome` — `:error` when
+ANY projected step reads `step-status :error`. The Panel paints a
+red **outcome banner** above the pipeline on `:error` ("This event
+failed — see the ✗ step below.") and stamps `data-rf-xray-outcome`
+on the panel root; a clean cascade paints no banner (silence is the
+success signal — no green reassurance chrome on the common case).
+
+**This is the TOOL-SIDE outcome** — the same trace-derived
+`:error`/`:ok` signal `event-status-colour/cascade-outcome` already
+computes for the L2 list / Event header / Trace bar (a cascade
+carrying an `:rf.error/*` trace reads `:error`). It is
+**DELIBERATELY NOT** the framework `:rf/epoch-record` `:outcome`
+slot, which stays `:ok` for a recovered handler exception **by
+spec**: the reference runtime recovers handler exceptions through
+the interceptor error-capture seam and settles `:ok` with the error
+trace under `:trace-events` (per
+[spec/Spec-Schemas §`:rf/epoch-record` §Outcomes](../../../spec/Spec-Schemas.md#rfepoch-record)
++ [spec/009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary)
+— `:halted-handler-exception` is RESERVED for a future
+drain-aborting runtime). Surfacing the framework slot's `:ok` as the
+panel's outcome was the rf2-ahhgn bug; deriving from the trace
+stream fixes it **without a framework-contract change** — which
+would have rippled into `restore-epoch`'s non-`:ok` refusal + Story
+outcome chips + MCP wire consumers + the pinned
+`outcome-enum-projection-pins-mapping` test. No spec/009 /
+Spec-Schemas edit was needed (rf2-ahhgn settle-first finding).
 
 ### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
 
