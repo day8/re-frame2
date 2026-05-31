@@ -76,9 +76,9 @@ function cleanup(dir) {
         're-frame-pair2': {
           command: 'node',
           args: [
-            'C:/Users/miket/code/re-frame2/tools/pair2-mcp/out/server.js',
+            'C:/Users/me/code/my-app/tools/pair2-mcp/out/server.js',
           ],
-          cwd: 'C:/Users/miket/code/re-frame2/implementation',
+          cwd: 'C:/Users/me/code/my-app/implementation',
           env: { SHADOW_CLJS_NREPL_PORT: '58376' },
         },
       },
@@ -126,9 +126,9 @@ function cleanup(dir) {
         're-frame2-pair': {
           command: 'node',
           args: [
-            'C:/Users/miket/code/re-frame2/tools/re-frame2-pair-mcp/out/server.js',
+            'C:/Users/me/code/my-app/tools/re-frame2-pair-mcp/out/server.js',
           ],
-          cwd: 'C:/Users/miket/code/re-frame2/implementation',
+          cwd: 'C:/Users/me/code/my-app/implementation',
         },
       },
     });
@@ -184,16 +184,16 @@ function cleanup(dir) {
   try {
     const fp = writeFixture(dir, '.claude.json', {
       projects: {
-        'C:/Users/miket/code/re-frame2': {
+        'C:/Users/me/code/my-app': {
           mcpServers: {
             'pair-old': {
               command:
-                'C:/Users/miket/code/re-frame2/tools/pair2-mcp/out/server.js',
+                'C:/Users/me/code/my-app/tools/pair2-mcp/out/server.js',
               args: [],
             },
           },
         },
-        'C:/Users/miket/code/some-other-project': {
+        'C:/Users/me/code/some-other-project': {
           mcpServers: {
             playwright: {
               command: 'npx',
@@ -213,7 +213,7 @@ function cleanup(dir) {
       'stale-project: only the one stale entry surfaces (playwright is clean)',
     );
     assert(
-      result.stale[0].scope === 'project:C:/Users/miket/code/re-frame2',
+      result.stale[0].scope === 'project:C:/Users/me/code/my-app',
       'stale-project: scope identifies the project path',
     );
     assert(
@@ -236,7 +236,7 @@ function cleanup(dir) {
         'pair-win': {
           command: 'node',
           args: [
-            'C:\\Users\\miket\\code\\re-frame2\\tools\\pair2-mcp\\out\\server.js',
+            'C:\\Users\\me\\code\\my-app\\tools\\pair2-mcp\\out\\server.js',
           ],
         },
       },
@@ -344,17 +344,17 @@ function cleanup(dir) {
 // ------------------------------------------------------------------
 (function testSuggestedReplacement() {
   const input =
-    'C:/Users/miket/code/re-frame2/tools/pair2-mcp/out/server.js';
+    'C:/Users/me/code/my-app/tools/pair2-mcp/out/server.js';
   const out = suggestedReplacement(input);
   assert(
     out ===
-      'C:/Users/miket/code/re-frame2/tools/re-frame2-pair-mcp/out/server.js',
+      'C:/Users/me/code/my-app/tools/re-frame2-pair-mcp/out/server.js',
     'suggested-replacement: legacy fragment swapped to current',
   );
   // Backslash input should also produce a normalised forward-slash
   // suggestion (best practice — Node accepts either on Windows).
   const win = suggestedReplacement(
-    'C:\\Users\\miket\\code\\re-frame2\\tools\\pair2-mcp\\out\\server.js',
+    'C:\\Users\\me\\code\\my-app\\tools\\pair2-mcp\\out\\server.js',
   );
   assert(
     win.includes('tools/re-frame2-pair-mcp/out/server.js'),

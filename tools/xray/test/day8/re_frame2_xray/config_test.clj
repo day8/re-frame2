@@ -430,9 +430,9 @@
             resolves to an absolute on-disk URI when :project-root is
             plumbed (mirror of Story's rf2-zfy1e regression)"
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+      "C:/Users/me/code/my-app/tools/xray/testbeds")
     (is (= (str "vscode://file/"
-                "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                "C:/Users/me/code/my-app/tools/xray/testbeds/"
                 "panel_gallery/event_detail_stories.cljs:115:3")
            (config/editor-uri
              {:file "panel_gallery/event_detail_stories.cljs"

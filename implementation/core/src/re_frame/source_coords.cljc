@@ -217,7 +217,7 @@
 ;; resolved the file.
 ;;
 ;; Live failure shape (rf2-wvsxg):
-;;   project-root  C:/Users/miket/code/re-frame2/tools/xray/testbeds
+;;   project-root  C:/Users/me/code/my-app/tools/xray/testbeds
 ;;   :file         day8/re_frame2_xray/views/edn_inspector.cljs
 ;;   composed      C:/.../tools/xray/testbeds/day8/.../edn_inspector.cljs
 ;;   actual        C:/.../tools/xray/src/day8/.../edn_inspector.cljs
