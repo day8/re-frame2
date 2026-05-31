@@ -1281,7 +1281,9 @@ fits in a single event, `:loaders-teardown` is the lightweight option.
 ```
 
 Resolution at registration time. Cycles raise
-`:rf.error/extends-cycle`.
+`:rf.error/story-extends-cycle`; an unknown parent id raises
+`:rf.error/story-extends-unknown`; an over-long chain raises
+`:rf.error/story-extends-chain-too-long`.
 
 ### Modes (saved tuples)
 

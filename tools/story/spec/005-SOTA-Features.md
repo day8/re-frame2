@@ -778,7 +778,7 @@ All registrations are dev-only. In a production build:
 There is therefore no production-build failure mode for cross-library
 `:extends`. Dev builds (with `*enabled?*` true) resolve `:extends` at
 registration time; an unresolved parent raises
-`:rf.error/extends-unknown` synchronously.
+`:rf.error/story-extends-unknown` synchronously.
 
 ### Verification
 
