@@ -362,6 +362,41 @@
     (let [^js el (template/as-element [:div#a {:id "b"}])]
       (is (= "b" (-> el .-props .-id))))))
 
+;; rf2-5t8mr.3 (correctness review): :class and :className both map to
+;; React's `className` prop. Before the fix, leaving both keys in the
+;; prop map sent two writes to the same JS slot and the survivor was
+;; iteration-order dependent (array-map vs hash-map differ) — silently
+;; dropping one class string (and, with shorthand, the shorthand class
+;; too). collapse-class-keys folds :className into :class deterministically,
+;; matching the server path's merge-shorthand :className handling.
+(deftest as-element-classname-prop-only
+  (testing "[:div {:className \"bar\"}] → React-style :className passes through"
+    (let [^js el (template/as-element [:div {:className "bar"}])]
+      (is (= "bar" (-> el .-props .-className))))))
+
+(deftest as-element-class-and-classname-both
+  (testing "[:div {:class \"a\" :className \"b\"}] → merged \"a b\", neither dropped"
+    (let [^js el (template/as-element [:div {:class "a" :className "b"}])]
+      (is (= "a b" (-> el .-props .-className))))))
+
+(deftest as-element-shorthand-with-class-and-classname
+  (testing "[:div.sh {:class \"a\" :className \"b\"}] → \"sh a b\" (all three kept)"
+    (let [^js el (template/as-element [:div.sh {:class "a" :className "b"}])]
+      (is (= "sh a b" (-> el .-props .-className))))))
+
+(deftest as-element-shorthand-with-classname-prop
+  (testing "[:div.foo {:className \"bar\"}] → \"foo bar\" (no double-merge)"
+    (let [^js el (template/as-element [:div.foo {:className "bar"}])]
+      (is (= "foo bar" (-> el .-props .-className))))))
+
+(deftest as-element-class-classname-collision-deterministic-large-map
+  (testing "large (hash-map) props with :class + :className stays deterministic"
+    (let [props  (merge {:class "a" :className "b"}
+                        (zipmap (map #(keyword (str "data-x" %)) (range 20))
+                                (range 20)))
+          ^js el (template/as-element [:div props])]
+      (is (= "a b" (-> el .-props .-className))))))
+
 (deftest as-element-multiple-children
   (testing "[:div [:span] [:span]] → div with two child elements"
     (let [^js el (template/as-element [:div [:span "a"] [:span "b"]])]
