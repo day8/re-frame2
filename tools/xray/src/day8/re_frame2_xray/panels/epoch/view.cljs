@@ -2457,22 +2457,39 @@
 
   rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
   toggle (rf2-n2jig / rf2-yqjrd) is retired. FULL+DIFF is the single
-  rendering: the full `:db-after` tree with inline diff annotations
-  driven off `:db-before`. The R1-R8 grammar paints gutter glyphs +
-  row washes + leaf-scalar `← was X` suffixes; auto-collapse keeps
-  unchanged subtrees folded so the density matches what the prior
-  `:diff` lens used to provide. The `:db-diff` arg is unused under
-  the single rendering but stays in the parent's `handler-body`
-  signature for projection compatibility.
+  rendering: the full post-handler `:db` tree with inline diff
+  annotations driven off `:db-before`. The R1-R8 grammar paints
+  gutter glyphs + row washes + leaf-scalar `← was X` suffixes;
+  auto-collapse keeps unchanged subtrees folded so the density matches
+  what the prior `:diff` lens used to provide.
+
+  rf2-4wywy — the rendered `:db` is the POST-HANDLER, PRE-FLOW value
+  (the projection's `:db-post-handler`, t1 · `:rf.event/db-pending`),
+  NOT the epoch record's `:db-after`. `:db-after` is the FINAL
+  post-flow / post-commit state — reading it conflated the handler's
+  change with any flow recompute that followed (flows write app-db
+  AFTER the handler). With t1 the HANDLER step shows ONLY what the
+  handler returned; the FLOW step shows the flow's OWN `:db` diff
+  (the t1→t2 reshape). Graceful fallback: when no t1 fired (handler
+  returned no `:db`, or a pre-rf2-ta0y7 runtime) the block falls back
+  to the record's `:db-after` so older epochs still render.
+
+  The `:db-diff` arg is unused under the single rendering but stays in
+  the parent's `handler-body` signature for projection compatibility.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
-  [_db-diff]
+  [_db-diff db-post-handler]
   (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
         db-before (:db-before record)
-        db-after  (:db-after record)]
+        ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
+        ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
+        ;; only when the runtime stamped no t1.
+        db-after  (if (some? db-post-handler)
+                    db-post-handler
+                    (:db-after record))]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
            ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis. Now
            ;; a constant post-rf2-vv3m6; kept for selector compatibility
@@ -2521,7 +2538,7 @@
   Either, both, or neither may render — sections are
   `seq`-conditioned. The `:db` part stays in its own dedicated
   block (the [diff][full][full+diff] toggle) above."
-  [{:keys [flavour event-id db-diff fx-vec other-effects machine] :as _row}]
+  [{:keys [flavour event-id db-diff db-post-handler fx-vec other-effects machine] :as _row}]
   (let [machine? (= :reg-machine flavour)]
     [:div {:data-testid "rf-xray-epoch-handler-body"}
      ;; Source / machine spec block — rf2-66wis
@@ -2531,9 +2548,11 @@
      (when machine
        (machine-block machine event-id))
      ;; :db diff — always present for non-machine handlers (rf2-93436);
-     ;; folded into SNAPSHOT DIFF for machines
+     ;; folded into SNAPSHOT DIFF for machines. rf2-4wywy — the
+     ;; post-handler (t1) db is threaded so the diff shows ONLY the
+     ;; handler's contribution, not the post-flow state.
      (when-not machine?
-       (handler-db-diff-block db-diff))
+       (handler-db-diff-block db-diff db-post-handler))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -2600,19 +2619,46 @@
   registered flow carries `:file`/`:line` meta from `reg-flow`).
 
   The projection emits N flow step maps for a cascade with N flow
-  recomputes; the body row renders the diff (path · before → after)
-  beneath the badge, left-aligned with no extra indent — same body
-  layout as the COEFFECT step."
-  [{:keys [flow-id path before after duration-ms step-number]}]
+  recomputes.
+
+  rf2-4wywy — the body renders the flow's OWN contribution as a `:db`
+  DIFF rather than the prior `[path] before → after` scalar line. A
+  flow's contribution IS an app-db mutation (it writes `:output` into
+  `:path` AFTER the handler returned); rendering it as a `:db` diff
+  via the shared edn-inspector diff renderer (parity with the HANDLER
+  step's `:db` sub-section + the App-DB Diff panel) reads as 'what the
+  flow changed in app-db', and — crucially — keeps it SEPARATE from
+  the HANDLER step's `:db` (which now shows only the t1 / post-handler
+  state). The diff is scoped to the flow's `:path` so each FLOW step
+  shows only its own slot's reshape (the projection threads the shared
+  t1/t2 db snapshots onto every flow step; `assoc-in` at the flow's
+  path against t1 / t2 isolates this flow's contribution).
+
+  Graceful fallback: when the projection carried no t1/t2 snapshots
+  (handler returned no `:db`, or a pre-rf2-ta0y7 runtime) the body
+  falls back to the per-path `[path] before → after` scalar line."
+  [{:keys [flow-id path before after duration-ms step-number
+           db-pre-flow db-post-flow]}]
   (let [flow-meta  (when (keyword? flow-id)
                      (try (rf/handler-meta :flow flow-id)
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
-        label      (proj/ns-keyword flow-id)]
+        label      (proj/ns-keyword flow-id)
+        ;; rf2-4wywy — render a `:db` diff scoped to this flow's path.
+        ;; t1 (db-pre-flow) lacks this flow's write; t2 (db-post-flow)
+        ;; carries it. Scoping to the path isolates THIS flow's slot
+        ;; even when several flows rode the same t1→t2 transition. When
+        ;; either snapshot is absent we render the scalar fallback.
+        db-diff?   (boolean
+                     (and (some? db-pre-flow) (some? db-post-flow)
+                          (sequential? path) (seq path)))
+        diff-before (when db-diff? (assoc-in db-pre-flow path before))
+        diff-after  (when db-diff? (assoc-in db-post-flow path after))]
     [:div {:data-testid (str "rf-xray-epoch-step-flow-" (name flow-id))
            :data-step-kw "flow"
-           :data-flow-id (name flow-id)}
+           :data-flow-id (name flow-id)
+           :data-rf-xray-flow-db-diff (str db-diff?)}
      (numbered-circle step-number :FLOW)
      (step-header
        {:step :flow
@@ -2628,22 +2674,34 @@
         :testid (str "rf-xray-epoch-flow-" (name flow-id))
         :duration-ms duration-ms}
        nil)
-     ;; Body — `[path] before → after` diff line, left-aligned with
-     ;; the badge (no extra indent). Mirrors the COEFFECT step's
-     ;; body layout (pair-debug 2026-05-26).
-     (when (sequential? path)
-       [:div {:data-testid (str "rf-xray-epoch-flow-value-" (name flow-id))
-              :style coeffect-body-style}
-        [:span {:style coeffect-body-plus-style}
-         (if (some? before) "~" "+")]
-        [:span {:style coeffect-body-path-style}
-         (proj/path-display path)]
-        (when (some? before)
-          [:span {:style diff-before-style} [ei/mini before 30]])
-        (when (and (some? before) (some? after))
-          [:span {:style coeffect-body-path-style} "→"])
-        (when (some? after)
-          [:span {:style coeffect-body-value-style} [ei/mini after 30]])])]))
+     (if db-diff?
+       ;; rf2-4wywy — the flow's own `:db` diff via the shared
+       ;; edn-inspector diff renderer (FULL+DIFF, parity with HANDLER
+       ;; `:db`). `:before` = t1-scoped, value = t2-scoped at this
+       ;; flow's path → the inspector paints the flow's slot reshape.
+       [:div {:data-testid (str "rf-xray-epoch-flow-db-diff-" (name flow-id))
+              :style handler-db-all-style}
+        (sub-header ":db" (proj/path-display path))
+        [ei/edn-inspector diff-after
+         {:site-id [:rf.xray.epoch/flow-db-diff flow-id]
+          :before  diff-before
+          :default-expanded-depth 3}]]
+       ;; Fallback — `[path] before → after` scalar line, left-aligned
+       ;; with the badge (no extra indent). Mirrors the COEFFECT step's
+       ;; body layout (pair-debug 2026-05-26).
+       (when (sequential? path)
+         [:div {:data-testid (str "rf-xray-epoch-flow-value-" (name flow-id))
+                :style coeffect-body-style}
+          [:span {:style coeffect-body-plus-style}
+           (if (some? before) "~" "+")]
+          [:span {:style coeffect-body-path-style}
+           (proj/path-display path)]
+          (when (some? before)
+            [:span {:style diff-before-style} [ei/mini before 30]])
+          (when (and (some? before) (some? after))
+            [:span {:style coeffect-body-path-style} "→"])
+          (when (some? after)
+            [:span {:style coeffect-body-value-style} [ei/mini after 30]])]))]))
 
 ;; ---- FX step -------------------------------------------------------------
 

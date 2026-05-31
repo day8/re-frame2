@@ -39,6 +39,10 @@
   projection tests."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-4wywy — load-time hook so `reg-flow` resolves + the
+            ;; flows `:after` interceptor (which stamps the t1/t2
+            ;; pending-`:db` trace pair) is wired into the router.
+            [re-frame.flows]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -135,3 +139,71 @@
                substrate's `:rf.event/db-changed-paths` tag. If this
                fails after a substrate-side rename, the synth fixtures
                will still be green — pin the canonical names here."))))))
+
+;; ---- rf2-4wywy — live t1/t2 db attribution ------------------------------
+;;
+;; button-deck button 5 shape: a reg-event-db handler bumps `:base`; a
+;; reg-flow recomputes `:derived = 2 × :base` into app-db AFTER the
+;; handler. The fix relies on the router stamping `:rf.event/db-pending`
+;; (t1, post-handler/pre-flow) + `:rf.event/db-pending-post-flow` (t2,
+;; post-flow). This test forecloses drift: it drives the LIVE substrate +
+;; the LIVE flows `:after` interceptor, then asserts the projection lit up
+;; the handler-only db (t1) on the HANDLER step + the t1→t2 pair on the
+;; FLOW step. If a substrate-side rename drops the t1/t2 emit, the
+;; attribution collapses here against reality, not against a synth fixture.
+
+(defn- register-flow-bearing-handler! []
+  ;; :base ++ in the handler; the flow derives :derived = 2 × :base AFTER.
+  (rf/reg-event-db
+    :rf.tyivx/increment-flow
+    (fn [db _] (update db :base (fnil inc 0))))
+  (rf/reg-flow
+    {:id     :rf.tyivx/derived
+     :inputs [[:base]]
+     :output (fn [base] (* 2 (or base 0)))
+     :path   [:derived]}))
+
+(deftest real-substrate-emits-t1-t2-for-handler-vs-flow-attribution
+  (testing "rf2-4wywy — a LIVE flow-bearing cascade emits t1
+            (`:rf.event/db-pending`, post-handler) + t2
+            (`:rf.event/db-pending-post-flow`, post-flow). The
+            projection reads t1 onto the HANDLER step's
+            `:db-post-handler` (NO `:derived`) and the t1→t2 pair onto
+            the FLOW step's `:db-pre-flow` / `:db-post-flow` (`:derived`
+            recomputed). The two must not be conflated."
+    (setup!)
+    (register-flow-bearing-handler!)
+    ;; Seed :base so the flow has a defined input, then bump it.
+    (rf/dispatch-sync [:rf.tyivx/increment-flow]) ; primes :base = 1, :derived = 2
+    (trace-collector/reset-for-test!)
+    (rf/dispatch-sync [:rf.tyivx/increment-flow]) ; :base 1 → 2 ; flow :derived 2 → 4
+    (let [buf (vec (trace-collector/buffer-for-test))
+          op? (fn [op] (some #(= op (:operation %)) buf))]
+      (is (op? :rf.event/db-pending)
+          "substrate emitted t1 `:rf.event/db-pending` (post-handler)")
+      (is (op? :rf.event/db-pending-post-flow)
+          "substrate emitted t2 `:rf.event/db-pending-post-flow` (post-flow)")
+      (is (op? :rf.flow/computed)
+          "the flow recomputed → `:rf.flow/computed` emitted")
+      (let [record    {:epoch-id      2
+                       :event-id      :rf.tyivx/increment-flow
+                       :trigger-event [:rf.tyivx/increment-flow]
+                       :dispatch-id   2
+                       ;; the record's :db-after is the FINAL post-flow db
+                       :db-before     {:base 1 :derived 2}
+                       :db-after      {:base 2 :derived 4}
+                       :trace-events  buf}
+            projected (proj/project record)
+            h         (first (filter #(= :handler (:step %)) projected))
+            f         (first (filter #(= :flow (:step %)) projected))]
+        (is (some? h) "HANDLER step present")
+        (is (= {:base 2 :derived 2} (:db-post-handler h))
+            "HANDLER `:db-post-handler` (t1) = :base bumped, :derived STILL
+             the PRE-flow value (2) — the handler did not touch :derived")
+        (is (some? f) "FLOW step present")
+        (is (= :rf.tyivx/derived (:flow-id f)))
+        (is (= {:base 2 :derived 2} (:db-pre-flow f))
+            "FLOW `:db-pre-flow` (t1) lacks the flow's recompute")
+        (is (= {:base 2 :derived 4} (:db-post-flow f))
+            "FLOW `:db-post-flow` (t2) carries :derived = 2 × :base = 4 —
+             the flow's OWN contribution, separate from the handler")))))

@@ -600,6 +600,53 @@
           "no standalone :db diff under machine handlers — folded into
            SNAPSHOT DIFF per design"))))
 
+;; ---- FLOW step `:db` diff (rf2-4wywy) -----------------------------------
+
+(deftest flow-step-renders-db-diff-when-snapshots-present-test
+  (testing "rf2-4wywy — when the FLOW step carries the t1 (pre-flow) +
+            t2 (post-flow) db snapshots, its body renders the flow's OWN
+            `:db` diff via the shared edn-inspector diff renderer
+            (`rf-xray-epoch-flow-db-diff-<id>`), NOT the legacy scalar
+            before→after line. This is what keeps the flow's `:derived`
+            recompute SEPARATE from the HANDLER step's `:db`."
+    (frame/reg-frame :rf/xray {})
+    ;; testids embed `(name flow-id)` — `:button-deck/derived` → `derived`.
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-flow-step
+                   {:step :flow :badge :FLOW :step-number 4
+                    :flow-id :button-deck/derived
+                    :path [:derived] :before 2 :after 4
+                    :db-pre-flow  {:base 2 :baseline 1 :derived 2}
+                    :db-post-flow {:base 2 :baseline 1 :derived 4}}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-flow-db-diff-derived"))
+          "FLOW step renders a `:db` diff sub-block when snapshots present")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-flow-value-derived"))
+          "the legacy scalar before→after line is NOT rendered when the
+           `:db` diff is shown")
+      (is (= "true"
+             (-> tree (th/find-by-testid "rf-xray-epoch-step-flow-derived")
+                 second :data-rf-xray-flow-db-diff))
+          "the step root flags `:db`-diff mode for tooling / e2e"))))
+
+(deftest flow-step-falls-back-to-scalar-when-no-snapshots-test
+  (testing "rf2-4wywy — without t1/t2 snapshots (pre-rf2-ta0y7 runtime /
+            fixture) the FLOW step falls back to the legacy
+            `[path] before → after` scalar line so older epochs still
+            render."
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-flow-step
+                   {:step :flow :badge :FLOW :step-number 4
+                    :flow-id :total-parity
+                    :path [:total] :before 5 :after 6}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-flow-value-total-parity"))
+          "the scalar before→after line renders on fallback")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-flow-db-diff-total-parity"))
+          "no `:db` diff sub-block when snapshots are absent")
+      (is (= "false"
+             (-> tree (th/find-by-testid "rf-xray-epoch-step-flow-total-parity")
+                 second :data-rf-xray-flow-db-diff))))))
+
 (deftest handler-body-renders-source-placeholder-test
   (testing "rf2-66wis — HANDLER body carries a source-code slot.
             When no handler-meta has been stamped the slot renders
