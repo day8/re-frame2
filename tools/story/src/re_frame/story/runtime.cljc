@@ -1138,8 +1138,10 @@
 
 (defn- mint-inline-frame-id
   "Mint a fresh anonymous frame id for an inline-plan run, in the reserved
-  `:rf.story.inline/*` namespace (spec/Conventions.md §Reserved
-  namespaces). A monotonic counter keeps concurrent inline runs on
+  `:rf.story.inline/*` namespace (Story's spec/Conventions.md
+  §`:rf.story.*` framework carve-out, which owns the closed member set;
+  the framework's spec/Conventions.md reserves the `:rf.story.*`
+  sub-namespace). A monotonic counter keeps concurrent inline runs on
   distinct frames; the id is never a registered variant id, so an inline
   run can never collide with — or appear alongside — a navigable variant."
   []
