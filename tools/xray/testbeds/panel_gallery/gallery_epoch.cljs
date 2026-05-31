@@ -14,13 +14,17 @@
 
   | Variant                  | Sections exercised                                 |
   |--------------------------|----------------------------------------------------|
-  | `vanilla-db`             | DISPATCH · COEFFECT · HANDLER (db) · APP-DB DIFF · SUBSCRIPTIONS · VIEWS |
-  | `reg-event-fx`           | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX (✓ + ✗ + header counters) |
-  | `machine-driven`         | DISPATCH · HANDLER (machine: TRANSITION · GUARDS · LIFECYCLE · AFTER-TIMERS · DATA-REDUCTION · SNAPSHOT-DIFF) · APP-DB DIFF · FX |
-  | `schema-violations`      | DISPATCH · HANDLER (db) · FX (`:db` row carries the rolled-back app-db violation sub-block — rf2-8resu — and mutes SUBSCRIPTIONS / VIEWS downstream) |
-  | `child-dispatches`       | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX · CHILD DISPATCHES (resolved + not-in-buffer) |
-  | `long-step`              | DISPATCH · HANDLER (fx, 42ms · long-step chrome) · APP-DB DIFF · FX (28ms long-step) · SUBSCRIPTIONS · VIEWS |
-  | `flow-firing`            | DISPATCH · HANDLER (db) · APP-DB DIFF · FLOW · FX · SUBSCRIPTIONS · VIEWS |
+  | `vanilla-db`             | DISPATCH · COEFFECT · HANDLER (db FULL+DIFF) · SIDE EFFECTS (`:db` ✓) · SUBSCRIPTIONS · VIEWS |
+  | `side-effects`           | DISPATCH · HANDLER (fx) · SIDE EFFECTS — `:db` ✓ + `:fx` (✓ ran · ↺ overridden · · skipped) + other (· dropped) sub-steps, each with its per-effect tick + sub-step ✓/✗ rollup (rf2-kt6js) |
+  | `machine-driven`         | DISPATCH · HANDLER (machine cascade: GUARDS · LIFECYCLE · TRANSITION · AFTER-TIMERS) · SIDE EFFECTS |
+  | `db-schema-fail`         | DISPATCH · HANDLER (db) · SIDE EFFECTS (`:db` ✗ schema-fail rollback — the `:where :app-db` violation reason box rides the `:db` row, step + sub-step + tick paint ✗, `:outcome :error`, SUBSCRIPTIONS / VIEWS mute downstream — rf2-kt6js / rf2-8resu) |
+  | `exception`              | DISPATCH · HANDLER (✗ — inline 'Exception Thrown' block: message + collapsible stack/ex-data, `— no :db (handler threw)` placeholder, NO 'Rolled back' chip, `:outcome :error` — rf2-ahhgn / rf2-wnvid) |
+  | `fx-exception`           | DISPATCH · HANDLER (db) · SIDE EFFECTS (`:fx` row ✗ — inline 'Exception Thrown' card on the throwing `:email/send` row, `1 threw` header chip, committed `:db` NOT rolled back — rf2-ahhgn) |
+  | `caused-by-subs`         | DISPATCH · HANDLER (db) · SUBSCRIPTIONS — `caused by <event-id>` cell (rf2-1cc03) + static `:input-signals` inputs column (layer-1 → `app-db`, derived → upstream sub-ids — rf2-87c8a) |
+  | `handler-flow-db`        | DISPATCH · HANDLER (`:db` diff = handler-only, t1) · FLOW (`:db` diff = flow's t1→t2 reshape) — the two `:db` contributions as SEPARATE steps (rf2-4wywy / rf2-48oc4) |
+  | `child-dispatches`       | DISPATCH · HANDLER (fx) · SIDE EFFECTS · CHILD DISPATCHES (resolved + not-in-buffer) |
+  | `long-step`              | DISPATCH · HANDLER (fx, 42ms · long-step chrome) · SIDE EFFECTS (28ms long-step) · SUBSCRIPTIONS · VIEWS |
+  | `flow-firing`            | DISPATCH · HANDLER (db) · FLOW · SIDE EFFECTS · SUBSCRIPTIONS · VIEWS |
   | `empty`                  | empty-state — no epochs (`:no-focus`)              |
   | `no-events`              | cold pipeline — one epoch with empty `:trace-events` |
   | `unmounted-views`        | DISPATCH · HANDLER (db) · SUBSCRIPTIONS · VIEWS (re-renders + UNMOUNTED sub-section — rf2-gmw1i) |
@@ -84,18 +88,27 @@
   ;; ----- 1. vanilla reg-event-db cascade -----------------------------
   (story/reg-variant :story.xray.epoch/vanilla-db
     {:doc        "Vanilla `reg-event-db` cascade — counter-inc shape.
-                 Exercises DISPATCH + COEFFECT + HANDLER (db-flavour
-                 source) + APP-DB DIFF + SUBSCRIPTIONS + VIEWS."
+                 Exercises DISPATCH + COEFFECT + HANDLER (db FULL+DIFF
+                 sub-section) + SIDE EFFECTS (`:db` ✓ — a bare
+                 reg-event-db that returns only `:db` now lights the
+                 step's `:db` sub-step, rf2-kt6js) + SUBSCRIPTIONS +
+                 VIEWS."
      :events     [[:rf.xray/sync-epoch-history (fixtures/vanilla-db-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 2. reg-event-fx cascade -------------------------------------
-  (story/reg-variant :story.xray.epoch/reg-event-fx
-    {:doc        "`reg-event-fx` cascade — returns :db + :http/post +
-                 a failing :metrics fx. Exercises the FX section's
-                 per-fx outcome chrome (✓ / ✗) plus the rf2-uffov
-                 header counters."
+  ;; ----- 2. SIDE EFFECTS step (rf2-kt6js) ----------------------------
+  (story/reg-variant :story.xray.epoch/side-effects
+    {:doc        "SIDE EFFECTS step showcase (rf2-kt6js) — handler
+                 returns `:db` + a three-entry `:fx` vector + a stray
+                 top-level `:analytics` effect. Exercises all three
+                 sub-steps in fixed order `:db → :fx → other`, each
+                 with its per-effect tick: `:db` ✓ committed; `:fx`
+                 ✓ ran (`:http/post`) · ↺ overridden (`:analytics/track`)
+                 · · skipped-on-platform (`:clipboard/write`); other
+                 `:analytics` · dropped (the runtime executes only
+                 `{:db :fx}`). Each sub-step carries a ✓/✗ rollup in its
+                 header off the shared rf2-ahhgn `:status` primitive."
      :events     [[:rf.xray/sync-epoch-history (fixtures/reg-event-fx-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
@@ -112,17 +125,80 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4. schema-violation cascade ---------------------------------
-  (story/reg-variant :story.xray.epoch/schema-violations
-    {:doc        "Cascade where the app-db boundary check fired
-                 (validation failure with rollback). Exercises the
-                 rf2-xgeag inline violation sub-block: per rf2-8resu
-                 the :app-db violation attaches to the FX step's :db
-                 row (the implicit commit fx) with a pink sub-block,
-                 and downstream steps mute. Hot-reload drift is now
-                 an Issues-panel concern (rf2-7gf7v) — no cascade
-                 step surfaces it."
+  ;; ----- 4. SIDE EFFECTS `:db` schema-fail rollback (rf2-kt6js) ------
+  (story/reg-variant :story.xray.epoch/db-schema-fail
+    {:doc        "Cascade where the app-db boundary schema rejected the
+                 handler's `:db` write and rolled the cascade back.
+                 Exercises the SIDE EFFECTS step's `:db` ✗ schema-fail
+                 state (rf2-kt6js / rf2-8resu): the `:where :app-db`
+                 violation attaches to the `:db` row with its reason
+                 box; the step header + the `:db` sub-step + the
+                 per-effect tick all paint ✗; the epoch `:outcome`
+                 flips `:error`; SUBSCRIPTIONS / VIEWS mute downstream.
+                 Hot-reload drift is an Issues-panel concern (rf2-7gf7v)
+                 — no cascade step surfaces it."
      :events     [[:rf.xray/sync-epoch-history (fixtures/schema-violations-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4a. handler-threw EXCEPTION (rf2-ahhgn · rf2-wnvid) ---------
+  (story/reg-variant :story.xray.epoch/exception
+    {:doc        "Cascade where the event handler threw before returning
+                 (`:rf.error/handler-exception`). Exercises the inline
+                 'Exception Thrown' block (rf2-ahhgn / rf2-wnvid): the
+                 HANDLER step paints ✗ + carries the red error card
+                 (message + a collapsible `<details>` disclosing the
+                 raw exception's stack + ex-data); the HANDLER `:db`
+                 reads `— no :db (handler threw)` (NO phantom app-db);
+                 the `Rolled back` chip stays OFF (the handler threw
+                 before any commit — NO spurious rollback); the epoch
+                 `:outcome` flips `:error`."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/exception-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4b. fx-handler-threw EXCEPTION (rf2-ahhgn) -----------------
+  (story/reg-variant :story.xray.epoch/fx-exception
+    {:doc        "`reg-event-fx` cascade whose `:db` committed cleanly
+                 but a post-commit `:fx` handler (`:email/send`) threw
+                 (`:rf.error/fx-handler-exception`). Exercises the SIDE
+                 EFFECTS step's per-`:fx`-row 'Exception Thrown' card
+                 (`attach-to-fx-error-row` matches the throwing row by
+                 `:fx-id`), the row's ✗ tick, the `1 threw` header chip,
+                 and the contract that the committed `:db` is NOT rolled
+                 back on a post-commit fx throw (rf2-wnvid)."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-exception-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4c. subscriptions caused-by + input-signals ----------------
+  ;;          (rf2-1cc03 · rf2-87c8a)
+  (story/reg-variant :story.xray.epoch/caused-by-subs
+    {:doc        "Cascade where `:cart/add` invalidates the layer-1
+                 `:cart/items` sub which cascades to two derived subs.
+                 Exercises the SUBSCRIPTIONS table's `caused by
+                 <event-id>` cell (rf2-1cc03 — `caused by :cart/add`
+                 below each sub-id) + the static `:input-signals`
+                 inputs column (rf2-87c8a — the layer-1 root reads
+                 `app-db`, the derived subs name their upstream input
+                 sub-id)."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/caused-by-subs-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4d. handler-`:db` vs flow-`:db`-diff (rf2-4wywy · rf2-48oc4)
+  (story/reg-variant :story.xray.epoch/handler-flow-db
+    {:doc        "Cascade where the handler writes `[:cart :items]` and a
+                 downstream `:cart/total` flow then writes
+                 `[:cart :total]`. Exercises the rf2-4wywy / rf2-48oc4
+                 separation: the HANDLER step's `:db` diff shows ONLY
+                 the handler's own change (post-handler / pre-flow ==
+                 t1 — `[:cart :items]`), while the FLOW step shows the
+                 flow's OWN `:db` diff (the t1→t2 reshape —
+                 `[:cart :total] 120 → 195`) as a SEPARATE numbered
+                 step. The two `:db` contributions are no longer
+                 conflated."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/handler-flow-db-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -261,14 +337,22 @@
 
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.epoch/all
-    {:doc      "All sixteen Epoch panel variants in one auto-grid.
-                Scroll to see the cascade across vanilla-db /
-                reg-event-fx / machine-driven / schema-violations /
+    {:doc      "All twenty Epoch panel variants in one auto-grid. Scroll
+                to see the cascade across vanilla-db / side-effects /
+                machine-driven / db-schema-fail / exception /
+                fx-exception / caused-by-subs / handler-flow-db /
                 child-dispatches / long-step / flow-firing / empty /
                 no-events / unmounted-views / disposed-subs and the
                 rf2-5qp4g per-source-kind enrichment variants
                 (after-timer / machine-spawn / fx-dispatch /
-                fx-dispatch-later / fx-dispatch-orphan)."
+                fx-dispatch-later / fx-dispatch-orphan). The
+                rf2-rmg2k refresh surfaces the SIDE EFFECTS step
+                (`:db`/`:fx`/other sub-steps + per-effect ticks +
+                `:db` schema-fail), the inline 'Exception Thrown'
+                block (handler + fx throws), the subscriptions
+                `caused by <event-id>` cell + static `:input-signals`
+                inputs column, and the handler-`:db` vs flow-`:db`-diff
+                split."
      :layout   :variants-grid
      :story    :story.xray.epoch
      :columns  2
