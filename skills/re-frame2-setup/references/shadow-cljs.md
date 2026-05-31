@@ -1,4 +1,4 @@
-# shadow-cljs
+# shadow-cljs build & index.html
 
 The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-page app, and the matching `index.html`.
 

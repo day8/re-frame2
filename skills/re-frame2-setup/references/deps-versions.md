@@ -1,4 +1,4 @@
-# deps-versions
+# Dependencies & versions
 
 How to choose **which** re-frame2 artefacts to depend on, and **what version** to pin them at.
 

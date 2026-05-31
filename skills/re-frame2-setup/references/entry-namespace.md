@@ -1,4 +1,4 @@
-# entry-namespace
+# Entry namespace
 
 The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at. This file is where re-frame2 wires up to the substrate (Reagent) and to the DOM.
 
