@@ -311,3 +311,131 @@
             the fragment head working: children splice with no wrapper."
     (is (= "<p>a</p><p>b</p>"
            (emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
+
+;; ===========================================================================
+;; rf2-ynjts.13 — emit-element scalar-child branches (emit.cljc:319-323).
+;; The strip-prop / raw-text / tag-name security gates are well covered, but
+;; the load-bearing scalar emission rules — number stringifies, boolean is
+;; DROPPED, nil is dropped, string is escaped — had no direct behaviour
+;; assertion. These are the leaf rules every render bottoms out at; a
+;; regression (e.g. booleans accidentally stringifying to "true") would
+;; corrupt every server-rendered page and slip past the existing tests.
+;; ===========================================================================
+
+(deftest render-to-string-number-child-stringifies
+  (testing "rf2-ynjts.13 — a number child renders as its `str` form, not
+            dropped, not escaped (emit-element number? branch)."
+    (is (= "<span>42</span>"
+           (emit/render-to-string [:span 42] {}))
+        "integer child stringifies")
+    (is (= "<span>3.14</span>"
+           (emit/render-to-string [:span 3.14] {}))
+        "double child stringifies")
+    (is (= "<p>count=7</p>"
+           (emit/render-to-string [:p "count=" 7] {}))
+        "a number sits inline alongside a string child")))
+
+(deftest render-to-string-boolean-child-is-dropped
+  (testing "rf2-ynjts.13 — a boolean CHILD emits nothing (emit-element
+            boolean? branch → \"\"). The ubiquitous
+            `[:div (when cond? [:p ...])]` shape yields `false`/`nil` for
+            the false arm; both must vanish, not render the word `true`/
+            `false`. Distinct from a boolean ATTR VALUE (which `attr-string`
+            renders as a bare attr name) — this is the child position."
+    (is (= "<div></div>"
+           (emit/render-to-string [:div true] {}))
+        "a lone `true` child is dropped")
+    (is (= "<div></div>"
+           (emit/render-to-string [:div false] {}))
+        "a lone `false` child is dropped")
+    (is (= "<div><p>shown</p></div>"
+           (emit/render-to-string [:div (when true [:p "shown"]) (when false [:p "hidden"])] {}))
+        "the false arm of a (when …) yields nil → dropped; the true arm renders")
+    (is (= "<p>ab</p>"
+           (emit/render-to-string [:p "a" true "b" false nil] {}))
+        "booleans + nil interleaved with strings drop, strings survive")))
+
+(deftest render-to-string-fn-headed-component
+  (testing "rf2-ynjts.13 — a fn-headed component `[component-fn & args]`
+            (emit-element fn? branch) is invoked with its args and its
+            returned hiccup is emitted. The streaming walker's fn-head path
+            is exercised indirectly elsewhere, but the non-streaming
+            emitter's fn-head branch had no direct assertion."
+    (let [greeting (fn [name] [:h1 "Hello, " name])]
+      (is (= "<h1>Hello, world</h1>"
+             (emit/render-to-string [greeting "world"] {}))
+          "the component fn is called with the trailing args; its hiccup emits"))
+    (testing "a fn-headed component nested as a child is resolved too"
+      (let [item (fn [label] [:li label])]
+        (is (= "<ul><li>a</li><li>b</li></ul>"
+               (emit/render-to-string [:ul [item "a"] [item "b"]] {}))
+            "fn-heads in child position resolve via emit-children → emit-element")))
+    (testing "a fn-headed component returning a string renders the string escaped"
+      (let [raw (fn [] "a < b")]
+        (is (= "<p>a &lt; b</p>"
+               (emit/render-to-string [:p [raw]] {}))
+            "the fn's string output flows back through escape-html")))))
+
+;; ===========================================================================
+;; rf2-ynjts.13 — escape-attr / escape-html asymmetry (html_helpers.cljc).
+;; A deliberate, security-relevant correctness invariant: text-node content
+;; escapes `< > & " '` (no raw-tag injection), but attribute VALUES escape
+;; ONLY `& "` because `<`/`>` are legal inside a double-quoted attribute
+;; value per the HTML5 parser. A regression that over-escaped attrs would
+;; corrupt legit values (e.g. a `content` meta carrying `a<b`); one that
+;; under-escaped text nodes would open an XSS. Pinned through the full
+;; `render-to-string` composition, not the helper in isolation.
+;; ===========================================================================
+
+(deftest render-to-string-text-node-escapes-all-five-entities
+  (testing "rf2-ynjts.13 — a text-node child escapes `& < > \" '` so no
+            raw markup or quote can break out of text position."
+    (is (= "<p>&amp;&lt;&gt;&quot;&#39;</p>"
+           (emit/render-to-string [:p "&<>\"'"] {}))
+        "all five escapable entities are rewritten in text position")
+    (is (= "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"
+           (emit/render-to-string [:p "<script>alert(1)</script>"] {}))
+        "a literal <script> in text cannot inject a real tag")))
+
+(deftest render-to-string-attr-value-escapes-only-amp-and-quote
+  (testing "rf2-ynjts.13 — an attribute VALUE escapes only `&` and `\"`;
+            `<` / `>` / `'` are LEGAL inside a double-quoted attr value and
+            are emitted verbatim (HTML5 parser rule). This asymmetry with
+            text-node escaping is deliberate — over-escaping attrs corrupts
+            legit values."
+    (is (= "<div data-x=\"a&amp;b\"></div>"
+           (emit/render-to-string [:div {:data-x "a&b"}] {}))
+        "`&` in an attr value is escaped to &amp;")
+    (is (= "<div data-x=\"&quot;q&quot;\"></div>"
+           (emit/render-to-string [:div {:data-x "\"q\""}] {}))
+        "a double-quote in an attr value is escaped to &quot; (else it would
+         close the value)")
+    (is (= "<div data-x=\"a<b>c\"></div>"
+           (emit/render-to-string [:div {:data-x "a<b>c"}] {}))
+        "`<` and `>` are NOT escaped in an attr value — legal per HTML5")
+    (is (= "<div data-x=\"it's\"></div>"
+           (emit/render-to-string [:div {:data-x "it's"}] {}))
+        "a single-quote is NOT escaped — the value is double-quoted")))
+
+;; ===========================================================================
+;; rf2-ynjts.13 — boolean ATTR-VALUE branch through the full emitter
+;; (attr-string true → bare name; false/nil → omitted). The head emitter
+;; test pins async/defer, and ssr_attr_filter_test pins the helper in
+;; isolation, but the non-streaming body emitter's boolean-attr composition
+;; (the common `[:input {:disabled true :required false}]` shape) had no
+;; direct render-to-string assertion.
+;; ===========================================================================
+
+(deftest render-to-string-boolean-attr-values
+  (testing "rf2-ynjts.13 — `true` attr value → bare attribute name; `false`
+            and `nil` attr values → omitted entirely, through the full
+            render-to-string composition."
+    (is (= "<input disabled required>"
+           (emit/render-to-string [:input {:disabled true :required true}] {}))
+        "`true` boolean attrs emit as bare names on a void element")
+    (is (= "<input>"
+           (emit/render-to-string [:input {:disabled false :hidden nil}] {}))
+        "`false` and `nil` attrs are omitted — no bare name, no empty value")
+    (is (= "<button disabled>Go</button>"
+           (emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
+        "boolean + nil attrs compose on a non-void element alongside text")))
