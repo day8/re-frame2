@@ -301,6 +301,80 @@ Worker worktrees live under `<WORKTREE_ROOT>`. Not inside the mayor checkout
 (mixes worker edits into the mayor's working tree). Not `.claude/worktrees/`
 (forbidden — tool-path-resolution quirks leak edits to the mayor checkout).
 
+## Fresh-worktree setup — share the npm + Playwright caches (rf2-0kkxm)
+
+A fresh worker worktree runs its own `npm ci`, which re-resolves the
+`node_modules` tree and, on first use, makes Playwright download Chromium
+(~120 MB) and shadow-cljs pull its Maven/git deps. CI already shares these
+across runs with keyed caches (`.github/workflows/test.yml`: `~/.cache/ms-playwright`
+for the Playwright binary, `~/.m2` + `~/.gitlibs` for shadow-cljs deps). Locally,
+make every worktree reuse one shared cache instead of re-fetching per worktree.
+
+**Good news — most of this is already shared by default.** npm's package cache
+and Playwright's browser directory both default to **per-user** locations, not
+per-worktree, so a second worktree reuses the first download automatically:
+
+| Cache | Per-user default (Windows) | Per-user default (macOS) | Per-user default (Linux) |
+|---|---|---|---|
+| npm package cache | `%LocalAppData%\npm-cache` | `~/.npm` | `~/.npm` |
+| Playwright browsers | `%LocalAppData%\ms-playwright` | `~/Library/Caches/ms-playwright` | `~/.cache/ms-playwright` |
+| Maven / gitlibs (shadow-cljs deps) | `~/.m2`, `~/.gitlibs` | `~/.m2`, `~/.gitlibs` | `~/.m2`, `~/.gitlibs` |
+
+So per fresh worktree you pay the `npm ci` link/extract step and one
+`playwright install chromium` no-op check — **not** the multi-minute network
+re-download — provided you have NOT pinned any of these to a worktree-local
+path. The remaining wins are (a) pointing them at one explicit shared dir if
+your `node_modules` lives on a fast scratch disk, and (b) guaranteeing the
+Playwright binary is shared even if a tool sets `PLAYWRIGHT_BROWSERS_PATH=0`
+(which forces a worktree-local browser download).
+
+**Platform-neutral, do-it-once (preferred).** A user-level `npm config` setting
+persists across every worktree and every shell — no per-session env-var dance,
+identical on all three OSes:
+
+```bash
+# Run once, anywhere. Writes to your user-level ~/.npmrc.
+npm config set cache "<shared-npm-cache-dir>"   # e.g. a path on a fast disk
+```
+
+For the Playwright browsers, set a stable per-user `PLAYWRIGHT_BROWSERS_PATH`
+so it is identical regardless of which worktree triggered the first download.
+Point it at one shared dir and export it in your shell profile so every worker
+shell inherits it:
+
+```powershell
+# PowerShell (Windows) — persist for the current user across sessions:
+[Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', "$env:LOCALAPPDATA\ms-playwright", 'User')
+# (open a new shell to pick it up)
+```
+
+```sh
+# POSIX sh / bash / zsh (macOS, Linux) — add to ~/.profile or ~/.zshrc:
+export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+```
+
+**Per-session override (no profile edits).** If you'd rather not touch user
+config, set both as env vars in the worker shell before `npm ci`. npm reads
+`npm_config_cache`; Playwright reads `PLAYWRIGHT_BROWSERS_PATH`:
+
+```powershell
+# PowerShell (Windows)
+$env:npm_config_cache          = "$env:LOCALAPPDATA\npm-cache"
+$env:PLAYWRIGHT_BROWSERS_PATH  = "$env:LOCALAPPDATA\ms-playwright"
+```
+
+```sh
+# POSIX sh (macOS, Linux)
+export npm_config_cache="$HOME/.npm"
+export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+```
+
+Then the usual `cd <worktree>/implementation && npm ci` re-uses both shared
+caches. Use the per-user default paths above unless you have a reason to
+relocate; do not invent a path that only exists on one OS. The values shown
+are the per-OS defaults, so setting them is idempotent — it just makes the
+shared location explicit and stable across worktrees.
+
 ---
 
 ## Shape 1 — Solo bead implementation
