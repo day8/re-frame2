@@ -325,6 +325,97 @@
              (= (nth prefix i) (nth path i)) (recur (inc i))
              :else                         false)))))
 
+;; Schema ops whose `:in` segment is a COLLECTION INDEX / KEY, not an
+;; app-db path segment. Malli's explainer reports a value-relative `:in`
+;; path that descends INTO collection elements (`[1 :token]` for a
+;; vector-of-maps, `["a" :secret]` for a map-of), but the walker builds
+;; its `{path declaration}` map at INDEX-FREE base-paths — positional /
+;; keyed containers descend at the same base-path (walker comment lines
+;; ~144-147) because the element index is not a declarable app-db slot.
+;; Aligning the two coordinate systems means dropping the collection-
+;; navigation segment that these ops contribute. `:map-of` descends into
+;; its VALUE schema (child index 1); the positional ops descend into
+;; their element/Nth-element schema. Per rf2-g5auo — without this
+;; alignment a `:sensitive?` slot nested in a collection leaks verbatim.
+(def ^:private index-bearing-ops
+  #{:vector :sequential :set :tuple :map-of})
+
+(defn- align-in-path
+  "Translate Malli's value-relative `:in` path (carrying collection
+  indices / map-of keys) into the walker's index-free declaration-path
+  coordinate system, walking `schema` in lockstep with `in-path`.
+
+  Per rf2-g5auo: the `:sensitive?` redaction lookup
+  (`schema-sensitive-at?`) compares `:in` against the walker's decl
+  paths via `prefix?`, but a collection index segment (`1` in
+  `[1 :token]`, `\"a\"` in `[\"a\" :secret]`) blocks the element-wise
+  match because the walker never emits index segments. Dropping each
+  index-bearing op's segment while descending re-aligns the two.
+
+  Returns `[:ok aligned-path]` when the whole path resolves against
+  recognised ops, or `[:fallback subschema]` when an unrecognised /
+  opaque op is hit with path remaining — the caller then redacts
+  fail-SAFE iff that subschema carries any sensitive declaration.
+  `:map` segments are kept (real app-db keys); index-bearing-op
+  segments are dropped."
+  [schema in-path]
+  (loop [schema  schema
+         in      (vec in-path)
+         aligned []]
+    (if (empty? in)
+      [:ok aligned]
+      (if-not (and (vector? schema) (pos? (count schema)))
+        ;; Path remains but the schema is a bare keyword / opaque leaf —
+        ;; cannot descend further; hand the leaf to the conservative
+        ;; fallback.
+        [:fallback schema]
+        (let [op       (nth schema 0)
+              children (children-of schema)
+              seg      (nth in 0)]
+          (cond
+            ;; `:map` — the `:in` segment is a real app-db key. Keep it
+            ;; and descend into the named child's tail schema.
+            (contains? name-bearing-ops op)
+            (if-let [child (some (fn [c]
+                                   (when (and (vector? c) (>= (count c) 2)
+                                              (= (nth c 0) seg))
+                                     c))
+                                 children)]
+              (let [has-prop? (and (>= (count child) 2) (map? (nth child 1)))
+                    tail      (if has-prop?
+                                (when (>= (count child) 3) (nth child 2))
+                                (nth child 1))]
+                (recur tail (subvec in 1) (conj aligned seg)))
+              ;; Key not found in the schema (shape drift) — fail-SAFE.
+              [:fallback schema])
+
+            ;; Index-bearing container — drop the index/key segment and
+            ;; descend into the element (or `:map-of` value) schema.
+            (contains? index-bearing-ops op)
+            (let [child (if (= op :tuple)
+                          (when (and (int? seg) (< seg (count children)))
+                            (nth children seg))
+                          ;; :vector/:sequential/:set have one element
+                          ;; schema; :map-of's value schema is child 1.
+                          (nth children (if (= op :map-of) 1 0) nil))]
+              (if (some? child)
+                (recur child (subvec in 1) aligned)
+                [:fallback schema]))
+
+            ;; Transparent wrappers contribute NO `:in` segment — descend
+            ;; into the (single) inner schema without consuming a segment.
+            (#{:maybe} op)
+            (if-let [child (first children)]
+              (recur child in aligned)
+              [:fallback schema])
+
+            ;; Any other op (`:and`/`:or`/`:multi`/`:orn`/registry refs/
+            ;; opaque values) — we can't reliably resolve the segment;
+            ;; redact fail-SAFE iff this subschema declares anything
+            ;; sensitive.
+            :else
+            [:fallback schema]))))))
+
 (defn schema-sensitive-at?
   "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
   slot at `in-path` inside `schema` is sensitive under Spec 010
@@ -354,15 +445,32 @@
   `schema-has-sensitive?` (the failing slot IS the whole registered
   schema, so any sensitive declaration anywhere counts).
 
+  Malli's `:in` carries collection indices / `:map-of` keys
+  (`[1 :token]`, `[\"a\" :secret]`) whereas the walker's decl paths are
+  index-free (`[:token]`, `[:secret]`) — positional/keyed containers
+  descend at the same base-path. Per rf2-g5auo the raw `:in` is first
+  aligned to the walker's coordinate system (`align-in-path`) before the
+  prefix match, so a `:sensitive?` slot nested inside a `:vector` /
+  `:sequential` / `:set` / `:tuple` / `:map-of` is matched (and
+  redacted) just like a top-level one. When the path cannot be fully
+  aligned (opaque / unrecognised op with path remaining) the check is
+  fail-SAFE: it redacts iff the unresolved subschema declares anything
+  sensitive.
+
   Returns boolean. Pure; same `(schema, in-path)` always produces the
   same output."
   [schema in-path]
   (if (or (nil? in-path) (empty? in-path))
     (schema-has-sensitive? schema)
-    (let [decls (extract-sensitive-paths-from-schema schema [])
-          in-v  (vec in-path)]
-      (boolean
-        (some (fn [decl-path]
-                (or (prefix? decl-path in-v)   ;; ancestor sensitive
-                    (prefix? in-v decl-path))) ;; descendant sensitive
-              (keys decls))))))
+    (let [[outcome aligned-or-sub] (align-in-path schema in-path)]
+      (if (= outcome :fallback)
+        ;; Couldn't prove non-sensitivity for the unresolved subtree —
+        ;; redact iff it carries any sensitive declaration.
+        (schema-has-sensitive? aligned-or-sub)
+        (let [decls   (extract-sensitive-paths-from-schema schema [])
+              in-v    aligned-or-sub]
+          (boolean
+            (some (fn [decl-path]
+                    (or (prefix? decl-path in-v)   ;; ancestor sensitive
+                        (prefix? in-v decl-path))) ;; descendant sensitive
+                  (keys decls))))))))

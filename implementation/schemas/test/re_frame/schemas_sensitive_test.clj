@@ -227,6 +227,167 @@
         (is (some? (-> v :tags :explain))
             ":explain is present (Malli's structural explanation)")))))
 
+;; ---- redaction when the sensitive slot is nested in a collection ---------
+;; Per rf2-g5auo — Malli's explainer reports a value-relative `:in` path
+;; carrying COLLECTION INDICES (`[1 :token]`) / `:map-of` keys
+;; (`["a" :secret]`), while the walker's decl paths are INDEX-FREE
+;; (`[:token]`, `[:secret]`) because positional/keyed containers descend
+;; at the same base-path. Before the fix the `schema-sensitive-at?`
+;; prefix match failed in BOTH directions for collection-nested slots, so
+;; the failing value shipped VERBATIM in the trace's :value / :explain and
+;; the top-level :sensitive? stamp was absent — exactly the leak the
+;; feature exists to prevent. These tests fail before the alignment fix
+;; and pass after.
+
+(defn- app-db-failure-trace
+  "Helper: register `schema` at `path`, validate `db` (which must fail
+  the schema), and return the single schema-validation-failure trace."
+  [path schema db failing-id]
+  (rf/reg-app-schema path schema)
+  (let [traces (atom [])
+        kw     (keyword "rf2-g5auo" (name (gensym "listen")))]
+    (rf/register-listener! kw (fn [ev] (swap! traces conj ev)))
+    (schemas/validate-app-schema! db failing-id)
+    (rf/unregister-listener! kw)
+    (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                   @traces))))
+
+(deftest app-db-validation-redacts-sensitive-slot-nested-in-vector
+  (testing "rf2-g5auo — a :sensitive? slot inside a :vector element redacts
+            even though Malli's :in carries the element index"
+    ;; [:items] => vector of maps; the per-element :token is sensitive.
+    ;; The second element's :token is an int (99) — fails :string.
+    (let [v (app-db-failure-trace
+              [:items]
+              [:vector [:map [:token {:sensitive? true} :string]]]
+              {:items [{:token "ok"} {:token 99}]}
+              :items/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the index segment no longer blocks the match")
+      (is (= :rf/redacted (-> v :tags :value))
+          ":value redacted — the raw 99 (and the rest of the vector) no longer leaks")
+      (is (= :rf/redacted (-> v :tags :explain))
+          ":explain redacted — Malli's explanation re-carries the value verbatim"))))
+
+(deftest app-db-validation-redacts-sensitive-slot-nested-in-map-of
+  (testing "rf2-g5auo — a :sensitive? slot inside a :map-of value redacts
+            even though Malli's :in carries the map key"
+    (let [v (app-db-failure-trace
+              [:by-id]
+              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
+              {:by-id {"a" {:secret 99}}}
+              :by-id/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the map-of key segment no longer blocks the match")
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (= :rf/redacted (-> v :tags :explain))))))
+
+(deftest app-db-validation-redacts-sensitive-slot-nested-in-sequential
+  (testing "rf2-g5auo — :sequential behaves identically to :vector"
+    (let [v (app-db-failure-trace
+              [:log]
+              [:sequential [:map [:pw {:sensitive? true} :string]]]
+              {:log [{:pw 1}]}
+              :log/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (= :rf/redacted (-> v :tags :explain))))))
+
+(deftest app-db-validation-redacts-sensitive-slot-nested-deeply
+  (testing "rf2-g5auo — a sensitive slot under a map → vector → map chain
+            redacts (mixed map-key + collection-index :in segments)"
+    (let [v (app-db-failure-trace
+              [:accounts]
+              [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
+              {:accounts {:items [{:tok 99}]}}
+              :accounts/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (= :rf/redacted (-> v :tags :explain))))))
+
+(deftest app-db-validation-redacts-scalar-sensitive-collection-element
+  (testing "rf2-g5auo — a :vector whose ELEMENT type is itself sensitive
+            (container-level :sensitive? on the element schema) redacts"
+    (let [v (app-db-failure-trace
+              [:tokens]
+              [:vector [:string {:sensitive? true}]]
+              {:tokens ["ok" 99]}
+              :tokens/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (= :rf/redacted (-> v :tags :explain))))))
+
+(deftest app-db-validation-collection-non-sensitive-not-over-redacted
+  (testing "rf2-g5auo — no regression: a collection failure where NO slot is
+            sensitive still rides verbatim (the alignment must not
+            over-redact)"
+    (let [v (app-db-failure-trace
+              [:rows]
+              [:vector [:map [:name :string]]]
+              {:rows [{:name 99}]}
+              :rows/bad)]
+      (is (some? v))
+      (is (not (contains? v :sensitive?))
+          "no :sensitive? stamp — nothing in the schema is sensitive")
+      (is (not= :rf/redacted (-> v :tags :value))
+          ":value rides verbatim — alignment didn't spuriously redact"))))
+
+(deftest app-db-validation-collection-sibling-sensitive-not-over-redacted
+  (testing "rf2-g5auo + rf2-oh4se — a failure at a NON-sensitive slot inside
+            a collection element must NOT inherit a sibling slot's
+            sensitivity (the precise-narrowing win still holds through
+            collections)"
+    ;; :secret is sensitive, :age is not; only :age fails (string, not int).
+    (let [v (app-db-failure-trace
+              [:people]
+              [:vector [:map
+                        [:secret {:sensitive? true} :string]
+                        [:age :int]]]
+              {:people [{:secret "ok" :age "no"}]}
+              :people/bad)]
+      (is (some? v))
+      (is (not (contains? v :sensitive?))
+          "the failing :age slot is not sensitive; its sibling :secret doesn't taint it")
+      (is (not= :rf/redacted (-> v :tags :value))
+          ":value rides verbatim — only the failing :age leaf is in the path"))))
+
+;; ---- walker unit tests for the :in-path alignment (rf2-g5auo) -------------
+
+(deftest schema-sensitive-at-aligns-collection-index-segments
+  (testing "rf2-g5auo — schema-sensitive-at? matches an index-bearing :in
+            path against the walker's index-free decl path"
+    ;; :vector-of-map, :in = [1 :token]
+    (is (true? (schemas/schema-sensitive-at?
+                 [:vector [:map [:token {:sensitive? true} :string]]]
+                 [1 :token])))
+    ;; :map-of value, :in = ["a" :secret]
+    (is (true? (schemas/schema-sensitive-at?
+                 [:map-of :string [:map [:secret {:sensitive? true} :string]]]
+                 ["a" :secret])))
+    ;; :tuple, :in = [1]
+    (is (true? (schemas/schema-sensitive-at?
+                 [:tuple :int [:string {:sensitive? true}]]
+                 [1])))
+    ;; deep mixed path, :in = [:items 0 :tok]
+    (is (true? (schemas/schema-sensitive-at?
+                 [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
+                 [:items 0 :tok])))
+    ;; non-sensitive collection failure stays false
+    (is (false? (schemas/schema-sensitive-at?
+                  [:vector [:map [:name :string]]]
+                  [0 :name])))
+    ;; sibling-sensitive does not taint the failing non-sensitive leaf
+    (is (false? (schemas/schema-sensitive-at?
+                  [:vector [:map
+                            [:secret {:sensitive? true} :string]
+                            [:age :int]]]
+                  [0 :age])))))
+
 ;; ---- redaction at event validation site ----------------------------------
 
 (deftest event-validation-ignores-handler-meta-sensitive
