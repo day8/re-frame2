@@ -107,9 +107,9 @@
   {:DISPATCH          "DISPATCH"
    :COEFFECT          "COEFFECT"
    :INTERCEPTOR       "INTERCEPTOR"
-   :HANDLER           "HANDLER"
+   :HANDLER           "EVENT HANDLER"
    :FLOW              "FLOW"
-   :SIDE-EFFECTS      "SIDE EFFECTS"
+   :SIDE-EFFECTS      "EFFECT HANDLERS"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
    :VIEWS             "VIEWS"
    :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"
@@ -134,7 +134,7 @@
 
 (defn label
   "Return the uppercase label string the badge pill renders (e.g.
-  `\"HANDLER\"` for `:HANDLER`). Falls back to `(name badge)` for
+  `\"EVENT HANDLER\"` for `:HANDLER`). Falls back to `(name badge)` for
   unknown badges so a future taxonomy extension still paints text."
   [badge]
   (or (get badge->label badge)

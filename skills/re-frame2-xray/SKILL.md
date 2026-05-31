@@ -234,7 +234,7 @@ surface through **three** always-on inline channels (per
 - **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, and the
  shared **"Exception Thrown"** card rendered under the step where the
  exception occurred (handler / interceptor / coeffect / fx / flow
- throws; `:db` schema-fail rollback on the SIDE EFFECTS `:db` row).
+ throws; `:db` schema-fail rollback on the EFFECT HANDLERS `:db` row).
 - **L2 event-row pink-wash** — a cascade carrying an issue washes its L2
  timeline row pink (rf2-b8guz), so the spine itself flags trouble.
 - **The always-on issues-ribbon signal** — the `:rf.xray/issues-ribbon`
@@ -281,7 +281,7 @@ the Dynamic 6 (per
 | Retired panel | Where its content lives now |
 |---|---|
 | **Subscriptions** | **Views** (cascade tree, SUBSCRIPTIONS step) + **app-db** (downstream-subs hover popover on changed paths) |
-| **Effects** (`fx`) | **Epoch** SIDE EFFECTS step (flat per-effect ledger) + **Trace** (raw `:rf.fx/*` ops) |
+| **Effects** (`fx`) | **Epoch** EFFECT HANDLERS step (flat per-effect ledger) + **Trace** (raw `:rf.fx/*` ops) |
 | **Flows** | **Epoch** FLOW step (one numbered step per flow that fired) · **Static → Flows** for the registry catalogue |
 | **Performance** | L2 row stripe colours (cross-epoch budget signal) + per-step duration chips in **Epoch** + per-row `:time` inside **Trace** |
 | **Schemas** | **Epoch** (schema violations attach inline to the owning step) + the L2 pink-wash · **Static → Schemas** for the registry catalogue |

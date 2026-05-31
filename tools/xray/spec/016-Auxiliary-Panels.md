@@ -203,7 +203,7 @@ Issues now surface through three kept surfaces:
 
 - **Inline in the Epoch panel** — the "Exception Thrown" block +
   per-step pass/fail (rf2-ahhgn / rf2-wnvid); `:db` schema-fail in the
-  SIDE EFFECTS step (rf2-kt6js); slow-fx duration + amber.
+  EFFECT HANDLERS step (rf2-kt6js); slow-fx duration + amber.
 - **The L2 event-row pink-wash** (rf2-b8guz) — rows whose epoch
   contains an issue.
 - **The always-on issues ribbon signal** — the auto-open-on-error

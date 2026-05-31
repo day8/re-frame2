@@ -10,14 +10,14 @@
 
   The list reads top-down, oldest-first:
 
-      +0.0  DISPATCH       EVENT     dispatched   [:counter-inc]      —
-      +0.1  COEFFECT       COEFFECT  run          :now -> #inst      0.1 ms
-      +0.2  HANDLER        EVENT     handler ran  reg-event-db       0.2 ms
-      +0.3  FLOW           FLOW      computed     :totals            1.5 ms
-      +1.8  SIDE EFFECTS   DB        changed      [:counter] 1 -> 2   —
-      +1.9  SIDE EFFECTS   FX        :http-xhrio  GET /api/data       —
-      +2.6  SUBSCRIPTIONS  SUB       recalculated :counter/value     0.3 ms
-      +3.1  VIEWS          VIEW      re-rendered  counter-display    1.8 ms
+      +0.0  DISPATCH         EVENT     dispatched   [:counter-inc]      —
+      +0.1  COEFFECT         COEFFECT  run          :now -> #inst      0.1 ms
+      +0.2  EVENT HANDLER    EVENT     handler ran  reg-event-db       0.2 ms
+      +0.3  FLOW             FLOW      computed     :totals            1.5 ms
+      +1.8  EFFECT HANDLERS  DB        changed      [:counter] 1 -> 2   —
+      +1.9  EFFECT HANDLERS  FX        :http-xhrio  GET /api/data       —
+      +2.6  SUBSCRIPTIONS    SUB       recalculated :counter/value     0.3 ms
+      +3.1  VIEWS            VIEW      re-rendered  counter-display    1.8 ms
 
   Each op is a row of six columns (rf2-aqusw):
 
@@ -26,7 +26,7 @@
   ## Stage column + colour-coded left edge (rf2-aqusw)
 
   The STAGE column names the Epoch-panel pipeline step each op belongs
-  to — DISPATCH · COEFFECT · HANDLER · FLOW · SIDE EFFECTS ·
+  to — DISPATCH · COEFFECT · EVENT HANDLER · FLOW · EFFECT HANDLERS ·
   SUBSCRIPTIONS · VIEWS — and the row's left EDGE is colour-coded with
   that step's colour. Both the label and the colour resolve through the
   Epoch panel's own `panels.epoch.badge` taxonomy (NOT a parallel
@@ -107,8 +107,8 @@
 ;; target/detail column is the flexible one and truncates first (spec/023
 ;; §14 — usable at the ≈420px docked width, no horizontal scroll);
 ;; duration right-aligns. The STAGE column (rf2-aqusw) names the Epoch
-;; pipeline step each op belongs to — DISPATCH / COEFFECT / HANDLER /
-;; FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS — recovering flatly the
+;; pipeline step each op belongs to — DISPATCH / COEFFECT / EVENT HANDLER /
+;; FLOW / EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS — recovering flatly the
 ;; phase information the (now-removed) hierarchy conveyed.
 ;;
 ;; One `:table-id :rf.xray.trace/ops` is shared between the single header

@@ -250,7 +250,7 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel via the ribbon's `[◀ ▶ ⏭]` nav + the event list (L2). |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
 | **`register-epoch-listener!`** | The per-cascade listener routes the Epoch panel + the inline issue surfacing (rf2-gbz39 removed the dedicated Issues tab per Option (c)). |
-| **Schemas (Malli)** (Spec 010) | Schema-violation rows surface inline in the Epoch panel's SIDE EFFECTS step (rf2-kt6js; rf2-gbz39 removed the Issues tab per Option (c)); **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
+| **Schemas (Malli)** (Spec 010) | Schema-violation rows surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js; rf2-gbz39 removed the Issues tab per Option (c)); **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
 | **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Streaming SSR boundary timeline.** **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
 | **Routing** (Spec 012) | Dedicated **Routing tab** carrying a **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the **rank explainer** inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO` (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in the Epoch panel's "EFFECTS HANDLERS RAN" section**; **pending-navigation card**; **route-chain visualiser**. |
 | **`:origin` opt on dispatch** | Filter by actor via ribbon IN/OUT pills. |
@@ -269,7 +269,7 @@ concerns extend each tab; they do NOT add new tabs.
 2026-05-31).** Issues used to get a dedicated 7th tab carrying a session-wide
 aggregate / triage list; that aggregate was consciously dropped. Issues now
 surface inline in the Epoch panel (per-step pass/fail + the "Exception
-Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the SIDE EFFECTS
+Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the EFFECT HANDLERS
 step — rf2-kt6js; slow-fx amber), via the L2 event-row pink-wash (rows whose
 epoch has an issue — rf2-b8guz), and via the always-on issues ribbon signal
 (the auto-open-on-error watcher — the cross-epoch "something is wrong" cue

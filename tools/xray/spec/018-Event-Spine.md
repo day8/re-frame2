@@ -4,7 +4,7 @@ The architectural core of Xray: the **4-layer chrome** + the **6-tab detail pane
 
 This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 6-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
 
-> **The Issues tab was removed per rf2-gbz39 (Mike RULED Option (c), 2026-05-31).** The 7th tab carried a session-wide aggregate / triage list of every issue (errors · warnings · schema · hydration · advisories). That aggregate was consciously dropped. Issues now surface **inline in the Epoch panel** (per-step pass/fail + the "Exception Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the SIDE EFFECTS step — rf2-kt6js; slow-fx amber), via the **L2 event-row pink-wash** (rows whose epoch has an issue — rf2-b8guz), and via the **always-on issues ribbon signal** (the auto-open-on-error watcher reading the surviving `:rf.xray/issues-ribbon` projection — the cross-epoch "something is wrong" cue Mike kept). The §5.4 content contract below is retained as a record of WHAT now surfaces inline + where.
+> **The Issues tab was removed per rf2-gbz39 (Mike RULED Option (c), 2026-05-31).** The 7th tab carried a session-wide aggregate / triage list of every issue (errors · warnings · schema · hydration · advisories). That aggregate was consciously dropped. Issues now surface **inline in the Epoch panel** (per-step pass/fail + the "Exception Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the EFFECT HANDLERS step — rf2-kt6js; slow-fx amber), via the **L2 event-row pink-wash** (rows whose epoch has an issue — rf2-b8guz), and via the **always-on issues ribbon signal** (the auto-open-on-error watcher reading the surviving `:rf.xray/issues-ribbon` projection — the cross-epoch "something is wrong" cue Mike kept). The §5.4 content contract below is retained as a record of WHAT now surfaces inline + where.
 
 ---
 
@@ -846,7 +846,7 @@ Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer
 
 Issues now surface through three kept surfaces:
 
-- **Inline in the Epoch panel** — per-step pass/fail + the "Exception Thrown" block (rf2-ahhgn / rf2-wnvid); `:db` schema-fail in the SIDE EFFECTS step (rf2-kt6js); slow-fx duration + amber (pre-existing). The cascade that produced the issue shows it inline at the right step.
+- **Inline in the Epoch panel** — per-step pass/fail + the "Exception Thrown" block (rf2-ahhgn / rf2-wnvid); `:db` schema-fail in the EFFECT HANDLERS step (rf2-kt6js); slow-fx duration + amber (pre-existing). The cascade that produced the issue shows it inline at the right step.
 - **The L2 event-row pink-wash** (rf2-b8guz) — rows whose epoch contains an issue paint a light-pink wash, the spine-level "this event had a problem" cue.
 - **The always-on issues ribbon signal** — the auto-open-on-error watcher reads the surviving `:rf.xray/issues-ribbon` projection (now registered in `registry.cljs`) and pops Xray open on the first empty→non-empty transition. This is the cross-epoch "something is wrong" cue Mike kept.
 
@@ -855,7 +855,7 @@ The category table below is retained as the canonical **"what counts as an issue
 | Category | Source | Row treatment (inline / ribbon) |
 |---|---|---|
 | **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | red; full stack-trace in the Epoch panel's "Exception Thrown" block |
-| **Schema violations** | Malli registration on app-db / event-args / sub-output | yellow; offending path + expected vs actual in the Epoch SIDE EFFECTS step |
+| **Schema violations** | Malli registration on app-db / event-args / sub-output | yellow; offending path + expected vs actual in the Epoch EFFECT HANDLERS step |
 | **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (an `add-marks` / `set-marks` path pointing to nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
 | **Hydration mismatches** | SSR-only; mismatched server/client tree | yellow; node path + server vs client text |
 | **Perf-budget overruns** | cascades exceeding configured perf budget | orange; actual vs budget + cascade-id |
@@ -1416,7 +1416,7 @@ Complete map for the spine + chrome:
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
 - `w` (Flows) — Flows folded into Views; `w` unused.
 - ~~`r` (Routes panel) — Routes folded into App-db~~. **Restored** (rf2-nrbs9): Routing got promoted back to its own L3 tab (cohesive sub-domains earn their own lens tab). `r` is now the **Routing tab** mnemonic; the event-list `r` rewind binding stays on the L2 event list scope (the L2 list's key handler wins when focus is in the list; the tab-bar's letter mnemonic wins when focus is elsewhere).
-- `S` (Schemas) — schema violations surface inline in the Epoch panel's SIDE EFFECTS step (rf2-kt6js); `S` unused.
+- `S` (Schemas) — schema violations surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js); `S` unused.
 - `h` (Hydration) — hydration mismatches surface via the L2 event-row signal + the issues ribbon; `h` unused.
 - `i` (Issues) — the Issues tab was removed per rf2-gbz39 (Option (c)); issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; `i` unused.
 

@@ -45,7 +45,7 @@ The Trace panel's contract is **completeness**: it must surface *every* op-famil
 Columns: **Δt · stage · area badge · what-happened · target/detail · duration**.
 
 - **Δt** — ms offset from the epoch's first op.
-- **stage** — the Epoch-panel pipeline step this op belongs to (§3a): `DISPATCH` · `COEFFECT` · `HANDLER` · `FLOW` · `SIDE EFFECTS` · `SUBSCRIPTIONS` · `VIEWS`. The label rides the step's own colour.
+- **stage** — the Epoch-panel pipeline step this op belongs to (§3a): `DISPATCH` · `COEFFECT` · `EVENT HANDLER` · `FLOW` · `EFFECT HANDLERS` · `SUBSCRIPTIONS` · `VIEWS`. The label rides the step's own colour.
 - **area badge** — a neutral text badge (no per-family colour): `EVENT` · `COEFFECT` · `DB` · `FX` · `FLOW` · `SUB` · `VIEW` · `MACHINE` · `ROUTING` · `EPOCH` · `ERROR` · `WARNING`.
 - **what-happened** — the per-area verb (§5).
 - **target/detail** — the op's subject: event vector, `fx-id → arg`, `sub-id  old→new`, `view-id ← cause-sub`, route id, path, etc.
@@ -62,13 +62,13 @@ The op → stage mapping (the coarse projection of the §3 area badge onto the 7
 | Op (area / operation) | Epoch stage |
 |---|---|
 | `:rf.event/dispatched` | DISPATCH |
-| `:rf.event/run-start` · `run-end` (handler body) | HANDLER |
+| `:rf.event/run-start` · `run-end` (handler body) | EVENT HANDLER |
 | `:rf.cofx/*` (COEFFECT) | COEFFECT |
 | `:rf.flow/*` (FLOW) | FLOW |
-| `:rf.machine/*` (machine-as-handler) | HANDLER |
-| `:rf.event/db-changed` (DB) | SIDE EFFECTS |
-| `:rf.fx/*` (FX) | SIDE EFFECTS |
-| `:rf.route/*` (ROUTING) | SIDE EFFECTS |
+| `:rf.machine/*` (machine-as-handler) | EVENT HANDLER |
+| `:rf.event/db-changed` (DB) | EFFECT HANDLERS |
+| `:rf.fx/*` (FX) | EFFECT HANDLERS |
+| `:rf.route/*` (ROUTING) | EFFECT HANDLERS |
 | `:rf.sub/*` (SUB) | SUBSCRIPTIONS |
 | `:rf.view/*` (VIEW) | VIEWS |
 | `:rf.epoch/*` (EPOCH lifecycle) | DISPATCH (muted grey) |
@@ -114,24 +114,24 @@ Colour and visual styling are intentionally **not specified here** — to be des
 ## §9 Canonical layout (flat list — rf2-aqusw)
 
 ```
-+0.0  DISPATCH       EVENT     dispatched      [:counter-inc] from view↗       —
-+0.0  EPOCH          EPOCH     snapshotted     #42 · frame :rf/default          —
-+0.0  COEFFECT       COEFFECT  run             :now → #inst…                   0.1 ms
-+0.1  HANDLER        EVENT     handler ran     reg-event-db                    0.2 ms
-+0.3  FLOW           FLOW      computed        :totals → [:totals]             1.5 ms
-+1.8  SIDE EFFECTS   DB        changed         [:counter] 1 → 2 · [:totals] 42  —
-+1.9  SIDE EFFECTS   FX        :http-xhrio     GET /api/data (queued)           —
-!2.5  SIDE EFFECTS   ERROR     fx-handler-exc  :bad-fx "No such fx"             —
-+2.6  SUBSCRIPTIONS  SUB       recalculated    :counter/value 1→2              0.3 ms
-+2.9  SUBSCRIPTIONS  SUB       ran · unchanged :counter/parity                 0.1 ms
-+3.0  SUBSCRIPTIONS  SUB       disposed        :cart/preview (no readers)       —
-+3.1  VIEWS          VIEW      re-rendered     counter-display ← :counter/value 1.8 ms
-+4.9  VIEWS          VIEW      unmounted       old-tooltip                      —
-+4.9  VIEWS          VIEW      mounted         new-tooltip                     0.4 ms
-+5.0  DISPATCH       EPOCH     outcome :ok     #42                              —
++0.0  DISPATCH         EVENT     dispatched      [:counter-inc] from view↗       —
++0.0  EPOCH            EPOCH     snapshotted     #42 · frame :rf/default          —
++0.0  COEFFECT         COEFFECT  run             :now → #inst…                   0.1 ms
++0.1  EVENT HANDLER    EVENT     handler ran     reg-event-db                    0.2 ms
++0.3  FLOW             FLOW      computed        :totals → [:totals]             1.5 ms
++1.8  EFFECT HANDLERS  DB        changed         [:counter] 1 → 2 · [:totals] 42  —
++1.9  EFFECT HANDLERS  FX        :http-xhrio     GET /api/data (queued)           —
+!2.5  EFFECT HANDLERS  ERROR     fx-handler-exc  :bad-fx "No such fx"             —
++2.6  SUBSCRIPTIONS    SUB       recalculated    :counter/value 1→2              0.3 ms
++2.9  SUBSCRIPTIONS    SUB       ran · unchanged :counter/parity                 0.1 ms
++3.0  SUBSCRIPTIONS    SUB       disposed        :cart/preview (no readers)       —
++3.1  VIEWS            VIEW      re-rendered     counter-display ← :counter/value 1.8 ms
++4.9  VIEWS            VIEW      unmounted       old-tooltip                      —
++4.9  VIEWS            VIEW      mounted         new-tooltip                     0.4 ms
++5.0  DISPATCH         EPOCH     outcome :ok     #42                              —
 ```
 
-The stage column (DISPATCH / COEFFECT / HANDLER / FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS) + the colour-coded left edge recover, flatly, the phase shape the removed bands carried.
+The stage column (DISPATCH / COEFFECT / EVENT HANDLER / FLOW / EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS) + the colour-coded left edge recover, flatly, the phase shape the removed bands carried.
 
 ## §10 Data sources (grounding)
 
@@ -160,7 +160,7 @@ The panel renders **one** epoch's trace; work that produces *other* epochs is sh
 
 ## §13 Outcomes & short-circuit
 
-- **No empty-band scaffolding (rf2-aqusw).** With the bands removed, there is no dimmed `(none)` placeholder — an op simply has a row or it does not. A no-op event renders only the ops it produced (its absence of SIDE EFFECTS / SUBSCRIPTIONS / VIEWS rows is itself information). The stage column makes "which steps ran" legible without empty scaffolding.
+- **No empty-band scaffolding (rf2-aqusw).** With the bands removed, there is no dimmed `(none)` placeholder — an op simply has a row or it does not. A no-op event renders only the ops it produced (its absence of EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS rows is itself information). The stage column makes "which steps ran" legible without empty scaffolding.
 - **Outcome** — the `:rf.epoch/outcome` op renders as an ordinary row carrying the `:outcome` tag (the consumer-facing summary the runtime emits paired with `:rf.epoch/snapshotted` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, frame destroyed mid-drain) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
 - **Short-circuit** — on a throw (`:rf.error/*`) the list stops at the failing op (inline error row); later steps simply have no rows; outcome `:error`. No fabricated rows.
 
@@ -193,7 +193,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 > only** — they show *which ops a given epoch produces*, not the layout.
 > Post-rf2-aqusw the panel renders these ops as one flat list; the stage
 > column on each row carries the step (EVENT HANDLING ops split across the
-> HANDLER / COEFFECT / FLOW stages, EFFECTS ops onto SIDE EFFECTS, etc.
+> EVENT HANDLER / COEFFECT / FLOW stages, EFFECTS ops onto EFFECT HANDLERS, etc.
 > per §3a).
 
 **Routing** `[:rf.route/navigate :app/settings]`:
@@ -222,7 +222,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 ▾ ④ REACTIVE  VIEW rendered-to-string (one-shot — no re-render cascade)
 ● EPOCH CLOSE outcome :ok   (platform :server)
 ```
-**Async** — `:http-xhrio` shows `queued`; the response lands as a separate epoch (`↗`). **Throw** — `ERROR handler-exception` inline at its fire-order point, list short-circuits, outcome `:error`. **No-op** — only DISPATCH + HANDLER rows; no SIDE EFFECTS / SUBSCRIPTIONS / VIEWS rows (their absence is the signal — no empty-band scaffolding post-rf2-aqusw).
+**Async** — `:http-xhrio` shows `queued`; the response lands as a separate epoch (`↗`). **Throw** — `ERROR handler-exception` inline at its fire-order point, list short-circuits, outcome `:error`. **No-op** — only DISPATCH + EVENT HANDLER rows; no EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS rows (their absence is the signal — no empty-band scaffolding post-rf2-aqusw).
 
 ## §17 Design-system conformance
 
@@ -240,31 +240,31 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.event/dispatched` | DISPATCH | EVENT | dispatched | event-vector + origin | — |
 | `:rf.cofx` (inject) | COEFFECT | COEFFECT | run | cofx-id → value | dur? |
 | `:rf.cofx/skipped-on-platform` | COEFFECT | COEFFECT | skipped-on-platform | cofx-id | — |
-| `:rf.event/run-start`+`run-end` | HANDLER | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
-| `:rf.event/db-changed` | SIDE EFFECTS | DB | changed | path old → new | — |
-| `:rf.machine/event-received` | HANDLER | MACHINE | event-received | event | — |
-| `:rf.machine/guard-evaluated` | HANDLER | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
-| `:rf.machine.microstep/transition` · `:rf.machine/transition` | HANDLER | MACHINE | transition (×microsteps) | from → to | — |
-| `:rf.machine/action-ran` | HANDLER | MACHINE | action-ran | action-id | dur? |
-| `:rf.machine.lifecycle/created` | HANDLER | MACHINE | created | machine-id | — |
-| `:rf.machine/system-id-bound` · `system-id-released` | HANDLER | MACHINE | system-id-bound/released | system-id | — |
-| `:rf.machine/snapshot-updated` | HANDLER | MACHINE | snapshot-updated | (or fold into DB) | — |
-| `:rf.fx/handled` (per fx-id) | SIDE EFFECTS | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
-| `:rf.fx/do-fx` | SIDE EFFECTS | FX | (fx batch; usually elided to per-fx rows) | — | — |
-| `:rf.fx/override-applied` | SIDE EFFECTS | FX | override-applied | fx-id | — |
-| `:rf.fx/skipped-on-platform` | SIDE EFFECTS | FX | skipped-on-platform | fx-id | — |
+| `:rf.event/run-start`+`run-end` | EVENT HANDLER | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
+| `:rf.event/db-changed` | EFFECT HANDLERS | DB | changed | path old → new | — |
+| `:rf.machine/event-received` | EVENT HANDLER | MACHINE | event-received | event | — |
+| `:rf.machine/guard-evaluated` | EVENT HANDLER | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
+| `:rf.machine.microstep/transition` · `:rf.machine/transition` | EVENT HANDLER | MACHINE | transition (×microsteps) | from → to | — |
+| `:rf.machine/action-ran` | EVENT HANDLER | MACHINE | action-ran | action-id | dur? |
+| `:rf.machine.lifecycle/created` | EVENT HANDLER | MACHINE | created | machine-id | — |
+| `:rf.machine/system-id-bound` · `system-id-released` | EVENT HANDLER | MACHINE | system-id-bound/released | system-id | — |
+| `:rf.machine/snapshot-updated` | EVENT HANDLER | MACHINE | snapshot-updated | (or fold into DB) | — |
+| `:rf.fx/handled` (per fx-id) | EFFECT HANDLERS | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
+| `:rf.fx/do-fx` | EFFECT HANDLERS | FX | (fx batch; usually elided to per-fx rows) | — | — |
+| `:rf.fx/override-applied` | EFFECT HANDLERS | FX | override-applied | fx-id | — |
+| `:rf.fx/skipped-on-platform` | EFFECT HANDLERS | FX | skipped-on-platform | fx-id | — |
 | `:rf.flow/computed` | FLOW | FLOW | computed | flow-id → path | dur? |
 | `:rf.flow/cleared` · `failed` · `skip` | FLOW | FLOW | cleared / failed / skipped | flow-id | — |
-| `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | SIDE EFFECTS | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
-| `:rf.route/navigation-blocked` | SIDE EFFECTS | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
+| `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | EFFECT HANDLERS | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
+| `:rf.route/navigation-blocked` | EFFECT HANDLERS | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
 | `:rf.warning/no-not-found-route` | inline (its stage) | WARNING | no-not-found-route | url (unmatched, no `:rf.route/not-found` route registered) | — |
 | `:rf.event/dispatched [:rf.route/handle-url-change …]` | DISPATCH | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
-| `:rf.machine.timer/scheduled` | SIDE EFFECTS | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
-| `:rf.machine.timer/fired` | SIDE EFFECTS | MACHINE | timer-fired | delay · state | — |
-| `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | SIDE EFFECTS | MACHINE | timer-stale / timer-cancelled | state | — |
-| `:rf.machine.timer/skipped-on-server` | SIDE EFFECTS | MACHINE | timer-skipped-on-server | state | — |
-| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | SIDE EFFECTS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
-| `:rf.machine/after` · `done` · `finished` | SIDE EFFECTS | MACHINE | after / done / finished | delay / output | — |
+| `:rf.machine.timer/scheduled` | EFFECT HANDLERS | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
+| `:rf.machine.timer/fired` | EFFECT HANDLERS | MACHINE | timer-fired | delay · state | — |
+| `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | EFFECT HANDLERS | MACHINE | timer-stale / timer-cancelled | state | — |
+| `:rf.machine.timer/skipped-on-server` | EFFECT HANDLERS | MACHINE | timer-skipped-on-server | state | — |
+| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | EFFECT HANDLERS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
+| `:rf.machine/after` · `done` · `finished` | EFFECT HANDLERS | MACHINE | after / done / finished | delay / output | — |
 | `:rf.sub/create` | SUBSCRIPTIONS | SUB | created | sub-id | — |
 | `:rf.sub/run`+`computed` (value-changed? ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
 | `:rf.sub/run`+`computed` (value-changed? ✗) | SUBSCRIPTIONS | SUB | ran-unchanged | sub-id | dur? |

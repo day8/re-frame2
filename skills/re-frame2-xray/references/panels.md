@@ -112,7 +112,7 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  per throwing interceptor — id + `:before` / `:after` phase chip + the
  shared Exception card. Sits between COEFFECTS and HANDLER (the chain's
  cascade position). NEW per rf2-yz57h.
-4. **HANDLER** — always present; body adapts to the handler flavour
+4. **EVENT HANDLER** — always present; body adapts to the handler flavour
  (`:reg-event-db` → `:db` diff · `:reg-event-fx` → `:db` + per-fx ·
  `:reg-machine` → the time-ordered machine cascade, rf2-u69j7). Rendered
  as **SKIPPED** (⊘) when an upstream `:before`-chain throw — a coeffect
@@ -120,7 +120,7 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  handler ran (rf2-yz57h; NOT "ran, returned no :db").
 5. **FLOW** — one numbered step per flow that fired (the t1→t2 reshape as
  the flow's own `:db` diff). Only when flows fired.
-6. **SIDE EFFECTS** — a flat per-effect ledger (see §SIDE EFFECTS below).
+6. **EFFECT HANDLERS** — a flat per-effect ledger (see §EFFECT HANDLERS below).
  Only when a side effect occurred; equally SKIPPED when an upstream
  throw aborted the cascade.
 7. **SUBSCRIPTIONS** — only when subs recomputed.
@@ -138,7 +138,7 @@ slot). Schema violations attach inline the same way.
 
 **Badge taxonomy** (the inventory `badge-set` enforces; `badge.cljc`):
 DISPATCH (`:text-tertiary`) · COEFFECT (`:magenta`) · INTERCEPTOR
-(`:accent`) · HANDLER (`:accent`) · FLOW (`:accent`) · SIDE-EFFECTS
+(`:accent`) · EVENT HANDLER (`:accent`) · FLOW (`:accent`) · EFFECT HANDLERS
 (`:orange`) · SUBSCRIPTIONS (`:magenta-pink`) · VIEWS (`:success`). (The
 view's colour resolver bails to `:text-tertiary` on an unknown badge.)
 
@@ -151,9 +151,9 @@ implementation at
 + [`panels/epoch/`](../../../tools/xray/src/day8/re_frame2_xray/panels/epoch)
 (`view.cljs` · `projection.cljc` · `badge.cljc`).
 
-### SIDE EFFECTS step — flat per-effect ledger (rf2-j630b)
+### EFFECT HANDLERS step — flat per-effect ledger (rf2-j630b)
 
-The Epoch cascade's SIDE EFFECTS step renders as **one flat ledger** —
+The Epoch cascade's EFFECT HANDLERS step renders as **one flat ledger** —
 one row per effect, down the page, in execution order, with **no group
 headers** (supersedes the old 3-tier / "EFFECTS RETURNED + EFFECTS
 APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
@@ -162,7 +162,7 @@ APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
  ok · `✗` threw / no-such-fx / `:db` schema-fail rollback · `↺` fx
  override applied · `–` (muted en-dash) skipped-on-platform or a dropped
  `other` effect (NEUTRAL — never trips the badge).
-- **Single AND-of-rows badge** after the "SIDE EFFECTS" label: TICK when
+- **Single AND-of-rows badge** after the "EFFECT HANDLERS" label: TICK when
  every present row succeeded, CROSS when one or more FAILED; SKIPPED rows
  are neutral (`side-effects-badge-status`).
 - **The `:db` row** leads the ledger when a `:db` commit was attempted
@@ -431,7 +431,7 @@ algebra
 1. **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, the
  shared **"Exception Thrown"** card under the throwing step
  (handler / interceptor / coeffect / fx / flow exceptions), and the
- `:db` schema-fail rollback ✗ on the SIDE EFFECTS `:db` row. The
+ `:db` schema-fail rollback ✗ on the EFFECT HANDLERS `:db` row. The
  errors + warnings + schema violations + hydration mismatches that the
  old tab unified now surface against the step where they occurred.
 2. **L2 event-row pink-wash** (rf2-b8guz) — a cascade carrying an issue
@@ -525,7 +525,7 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
  surfaced through the Dynamic 6 above — and the registry catalogues live
  in Static mode:
  - Subscriptions → Views (cascade tree) + app-db (hover popover)
- - Effects → Epoch SIDE EFFECTS step (flat ledger) + Trace (raw `:rf.fx/*` ops)
+ - Effects → Epoch EFFECT HANDLERS step (flat ledger) + Trace (raw `:rf.fx/*` ops)
  - Flows → Epoch FLOW step (one per flow) · Static → Flows (registry)
  - Performance → L2 row stripe colours + per-step duration in Epoch + per-row `:time` in Trace
  - Schemas → Epoch (violations attach inline to the owning step) + L2 pink-wash · Static → Schemas (registry)

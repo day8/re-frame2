@@ -28,12 +28,12 @@
   (testing "every badge label resolves to a non-blank string.
 
   Labels are uppercase keyword names by default (DISPATCH, COEFFECT,
-  HANDLER, SIDE EFFECTS, ...). Labels that lead with `:` are
+  EVENT HANDLER, EFFECT HANDLERS, ...). Labels that lead with `:` are
   EDN-key-style and render through `badge-pill`'s mono-font,
   no-uppercase path. Both styles are valid; this test just pins that
   every badge has a label. (rf2-kt6js: the pre-rf2-kt6js `:FX` badge —
-  which rendered as `\":fx\"` — became `:SIDE-EFFECTS` → `\"SIDE
-  EFFECTS\"`.)"
+  which rendered as `\":fx\"` — became `:SIDE-EFFECTS` → `\"EFFECT
+  HANDLERS\"` (rf2-iijnx renamed the display text).)"
     (doseq [b proj/badge-set]
       (let [l (badge/label b)]
         (is (string? l)
