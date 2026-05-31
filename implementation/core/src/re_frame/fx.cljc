@@ -124,6 +124,22 @@
   (let [platforms (:platforms meta #{:client :server})]
     (contains? platforms active-platform)))
 
+(defn platform-for-frame-record
+  "Resolve the active platform for a frame given its (already-resolved)
+  frame record. The frame's `:config :platform` override (set by the
+  `:ssr-server` preset, or any user-supplied frame config) takes
+  precedence over the host-wide platform marker
+  (`interop/active-platform`, toggled via `re-frame.core/init-platform`).
+
+  Single definition of the per-frame platform resolution shared by the
+  router's `:fx` walk (`router/run-fx-effects!`) and the cofx injector
+  (`cofx/active-platform-for-frame`, which resolves the record from a
+  frame-id first). Both sites previously inlined the identical
+  `(or (-> rec :config :platform) (interop/active-platform))` kernel."
+  [frame-record]
+  (or (-> frame-record :config :platform)
+      (interop/active-platform)))
+
 ;; ---- do-fx ----------------------------------------------------------------
 
 (declare dispatch-fx-handler)
