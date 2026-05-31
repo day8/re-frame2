@@ -1118,6 +1118,48 @@
                                @traces))]
           (is (= {:custom-said "broken"} (-> v :tags :explain))))))))
 
+(deftest nil-explainer-fires-trace-with-nil-explain
+  (testing "rf2-ynjts.12 — when set-schema-explainer! is nil, the
+            VALIDATOR still catches failures and the trace still fires;
+            run-explainer's nil arm returns nil so the trace's :explain
+            slot is nil (the explainer seam is independent of the
+            validator seam). This pins the documented 'nil = no
+            explanation attached' contract — the failure path must not
+            depend on a registered explainer to emit, and a custom
+            validator with no explainer is a supported substitute-Malli
+            configuration. Covers run-explainer's nil branch
+            (validator.cljc) at every meta-bearing emit site plus the
+            app-db walk."
+    ;; Custom validator that fails everything; explainer nilled. The
+    ;; default Malli explainer is replaced by nil so the failure branch
+    ;; threads `nil` through `:explain` rather than a Malli explanation.
+    (rf/set-schema-validator! (fn [_ _] false))
+    (rf/set-schema-explainer! nil)
+    (rf/reg-app-schema [:n] [:int])
+    (let [traces (atom [])]
+      (rf/register-listener! ::nilexp (fn [ev] (swap! traces conj ev)))
+      ;; app-db walk emit site.
+      (is (false? (schemas/validate-app-schema! {:n "bad"} :h/app-db)))
+      ;; the four meta-bearing emit sites (run-validation core).
+      (is (false? (schemas/validate-event! :ev/x [:ev/x "bad"]
+                                           {:schema [:cat [:= :ev/x] :int]})))
+      (is (false? (schemas/validate-cofx! :cf/x :ev/o 42 {:schema :string})))
+      (is (false? (schemas/validate-sub! :sub/x [:sub/x] [1]
+                                         {:schema [:vector :string]})))
+      (is (false? (schemas/validate-fx! :fx/x :ev/o {:x "bad"}
+                                        {:schema [:map [:x :int]]})))
+      (rf/unregister-listener! ::nilexp)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 5 (count violations))
+            "every emit site fired its trace even with no explainer registered")
+        (doseq [v violations]
+          (is (contains? (:tags v) :explain)
+              "the :explain key is present at every emit site")
+          (is (nil? (-> v :tags :explain))
+              ":explain is nil — run-explainer's nil-explainer arm returned nil"))))))
+
 (deftest reset-schema-validator-restores-defaults
   (testing "reset-schema-validator! brings the framework default back —
             test-support helper for cleaning up after a custom
