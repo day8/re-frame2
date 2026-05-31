@@ -91,6 +91,10 @@
    {:test 'wrap-view-injects-explicit-coords
     :fn   'assert-wrap-view-injects-explicit-coords}
 
+   {:section "React :key parity (rf2-pt0u2 — follow-up to rf2-1anbp)"}
+   {:test 'reg-view-react-key-preserved
+    :fn   'assert-reg-view-react-key-preserved}
+
    {:section "frame-context corrupted (Spec 009)"}
    {:test 'frame-context-corrupted
     :fn   'assert-frame-context-corrupted}
