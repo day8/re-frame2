@@ -21,7 +21,7 @@
   Every subscribe / dispatch resolves against `:rf/xray` via the
   enclosing frame-provider in `shell.cljs`."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -292,7 +292,13 @@
 ;; ---- main view ----------------------------------------------------------
 
 (defn share-dialog
-  "The Share dialog body. Pure hiccup.
+  "The Share modal — backdrop + dialog scaffold (rf2-7oxvd) around the
+  Share body. Pure hiccup.
+
+  Returns the full `[:div backdrop [:div dialog …]]` tree (the
+  `modals-aria-cljs-test` renders this fn directly and walks for the
+  dialog node). `share-modal/Modal` gates on `:rf.xray/share-modal-open?`
+  and calls this fn.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
   `Modal` `reg-view` body — threaded to every action button so the
@@ -303,21 +309,26 @@
         share-url      @(rf/subscribe [:rf.xray/share-url])
         copy-status    @(rf/subscribe [:rf.xray/share-copy-status])
         export-avail?  @(rf/subscribe [:rf.xray/cascade-export-available?])
-        export-status  @(rf/subscribe [:rf.xray/cascade-export-status])]
-    [:div (merge
-            ;; rf2-7389r — WAI-ARIA dialog contract. `:ref`
-            ;; (a11y/dialog-ref) lands focus inside on open, traps
-            ;; Tab/Shift+Tab within the dialog, and restores focus to
-            ;; the opener on close (audit finding #3 + #8).
-            (a11y/dialog-attrs {:labelled-by "rf-xray-share-modal-title"})
-            {:data-testid "rf-xray-share-modal-dialog"
-             :ref         (a11y/dialog-ref)
-             :tab-index   "-1"
-             :on-click    (fn [e] (.stopPropagation e))
-             :on-key-down (fn [^js e]
-                            (when (= "Escape" (.-key e))
-                              (dispatch [:rf.xray/share-modal-close])))
-             :style       (dialog-style)})
+        export-status  @(rf/subscribe [:rf.xray/cascade-export-status])
+        positioning    @(rf/subscribe [:rf.xray/modal-positioning])]
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+    ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
+    ;; root, and its dialog-level Esc handler. `modal-chrome` owns the
+    ;; positioning attribute, the click-outside dismiss, `a11y/dialog-
+    ;; attrs` (role/aria-modal/accessible name from the title id) and the
+    ;; `a11y/dialog-ref` focus trap.
+    (modal-chrome/modal-chrome
+      {:positioning        positioning
+       :backdrop-style     (backdrop-style positioning)
+       :dialog-style       (dialog-style)
+       :on-dismiss         #(dispatch [:rf.xray/share-modal-close])
+       :labelled-by        "rf-xray-share-modal-title"
+       :backdrop-testid    "rf-xray-share-modal-backdrop"
+       :dialog-testid      "rf-xray-share-modal-dialog"
+       :dialog-tab-index   "-1"
+       :on-dialog-key-down (fn [^js e]
+                             (when (= "Escape" (.-key e))
+                               (dispatch [:rf.xray/share-modal-close])))}
      (header dispatch)
      (description)
      (state-summary share-state)
@@ -346,7 +357,7 @@
                       :margin-right "4px"}}
        "Per-cascade export"]
       (cascade-export-copy-button dispatch export-avail? export-status)
-      (cascade-export-download-button dispatch export-avail?)]]))
+      (cascade-export-download-button dispatch export-avail?)])))
 
 (rf/reg-view Modal
   "The Share modal. Renders only when `:rf.xray/share-modal-open?`
@@ -356,9 +367,4 @@
   resolve through the React-context tier to `:rf/xray`."
   []
   (when @(rf/subscribe [:rf.xray/share-modal-open?])
-    (let [positioning @(rf/subscribe [:rf.xray/modal-positioning])]
-      [:div {:data-testid "rf-xray-share-modal-backdrop"
-             :data-rf-xray-modal-positioning (name (or positioning :fixed))
-             :on-click    #(dispatch [:rf.xray/share-modal-close])
-             :style       (backdrop-style positioning)}
-       (share-dialog dispatch)])))
+    (share-dialog dispatch)))

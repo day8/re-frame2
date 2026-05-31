@@ -47,7 +47,7 @@
   and the draft from `:rf.xray/edit-popup-draft` (a working copy the
   user mutates without affecting the live filter slot)."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -231,23 +231,24 @@
         ;; Apply is enabled when the pattern is non-blank.
         can-apply?  (let [p (:pattern draft)]
                       (and (string? p) (seq (clojure.string/trim p))))]
-    [:div {:data-testid "rf-xray-edit-popup-backdrop"
-           :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(dispatch [:rf.xray/close-edit-popup])
-           :style       (backdrop-style positioning)}
-     [:div (merge
-             ;; rf2-7389r — WAI-ARIA dialog contract. The edit-popup
-             ;; `:auto-focus`es the pattern input, so `a11y/dialog-ref`
-             ;; detects focus already inside the dialog on mount and
-             ;; leaves it there (no double focus). The ref still installs
-             ;; the Tab/Shift+Tab focus trap and restores focus to the
-             ;; opener (the clicked pill / add-pill button) on close.
-             (a11y/dialog-attrs {:labelled-by "rf-xray-edit-popup-title"})
-             {:data-testid "rf-xray-edit-popup-dialog"
-              :ref         (a11y/dialog-ref)
-              :tab-index   "-1"
-              :on-click    #(.stopPropagation %)
-              :style       (dialog-style)})
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this popup's
+    ;; own `backdrop-style` / `dialog-style` and its `tab-index "-1"`
+    ;; dialog root. It carries NO backdrop/dialog keydown handler — Esc
+    ;; is handled inside the pattern input's own `:on-key-down` (the
+    ;; `:auto-focus`ed field owns key handling), so `modal-chrome` only
+    ;; wires the positioning attribute, the click-outside dismiss,
+    ;; `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap (which
+    ;; respects the input's pre-existing focus on mount — no double
+    ;; focus).
+    (modal-chrome/modal-chrome
+      {:positioning      positioning
+       :backdrop-style   (backdrop-style positioning)
+       :dialog-style     (dialog-style)
+       :on-dismiss       #(dispatch [:rf.xray/close-edit-popup])
+       :labelled-by      "rf-xray-edit-popup-title"
+       :backdrop-testid  "rf-xray-edit-popup-backdrop"
+       :dialog-testid    "rf-xray-edit-popup-dialog"
+       :dialog-tab-index "-1"}
       [:div {:style (header-style)}
        [:span {:id "rf-xray-edit-popup-title"} title]
        [:button {:data-testid "rf-xray-edit-popup-close"
@@ -321,4 +322,4 @@
                   :style       (merge (btn-style {:primary? true})
                                       (when-not can-apply?
                                         {:opacity 0.4 :cursor "default"}))}
-         (if editing? "Apply" "Add filter")]]]]]))
+         (if editing? "Apply" "Add filter")]]])))

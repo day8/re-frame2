@@ -38,7 +38,7 @@
   to their own frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -1126,27 +1126,28 @@
   (let [active-tab  @(rf/subscribe [:rf.xray/settings-active-tab])
         positioning @(rf/subscribe [:rf.xray/modal-positioning])
         on-keydown  (handle-keydown dispatch)]
-    [:div {:data-testid "rf-xray-settings-backdrop"
-           :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(dispatch [:rf.xray/settings-close])
-           :on-key-down on-keydown
-           :style       (backdrop-style positioning)}
-     [:div (merge
-             ;; rf2-7389r — WAI-ARIA dialog contract: role/aria-modal/
-             ;; aria-labelledby pointing at the visible title span.
-             ;; `:ref` (a11y/dialog-ref) wires the full modal focus
-             ;; contract: focus lands inside on open, Tab/Shift+Tab
-             ;; cycle within the dialog (focus trap), and focus restores
-             ;; to the opener (the ⚙ ribbon button) on close — so
-             ;; keyboard users never get dropped on <body>.
-             (a11y/dialog-attrs {:labelled-by "rf-xray-settings-title"})
-             {:data-testid "rf-xray-settings-dialog"
-              :data-rf-xray-mode "settings"
-              :ref         (a11y/dialog-ref)
-              :on-click    #(.stopPropagation %)
-              :on-key-down on-keydown
-              :tab-index   "-1"
-              :style       (dialog-style)})
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+    ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
+    ;; root, and its `handle-keydown` (Esc-closes + bare-letter tab
+    ;; mnemonics) on BOTH the backdrop and the dialog. The
+    ;; `data-rf-xray-mode "settings"` marker rides in via `:dialog-extra`.
+    ;; `modal-chrome` owns the positioning attribute, the click-outside
+    ;; dismiss, `a11y/dialog-attrs` (role/aria-modal/accessible name from
+    ;; the title id) and the `a11y/dialog-ref` focus trap (focus lands
+    ;; inside on open, Tab/Shift+Tab cycle, focus restores to the ⚙
+    ;; opener on close).
+    (modal-chrome/modal-chrome
+      {:positioning          positioning
+       :backdrop-style       (backdrop-style positioning)
+       :dialog-style         (dialog-style)
+       :on-dismiss           #(dispatch [:rf.xray/settings-close])
+       :labelled-by          "rf-xray-settings-title"
+       :backdrop-testid      "rf-xray-settings-backdrop"
+       :dialog-testid        "rf-xray-settings-dialog"
+       :on-backdrop-key-down on-keydown
+       :on-dialog-key-down   on-keydown
+       :dialog-tab-index     "-1"
+       :dialog-extra         {:data-rf-xray-mode "settings"}}
       ;; Header
       [:div {:style (header-style)}
        [:span {:id "rf-xray-settings-title"
@@ -1188,4 +1189,4 @@
          :diff        (diff-section dispatch)
          :keybindings (keybindings-section)
          :buffer      (buffer-section dispatch)
-         (general-section dispatch))]]]))
+         (general-section dispatch))])))

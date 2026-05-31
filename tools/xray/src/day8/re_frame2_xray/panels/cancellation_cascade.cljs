@@ -44,7 +44,7 @@
             [day8.re-frame2-xray.panels.cancellation-cascade-events :as events]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as h]
             [day8.re-frame2-xray.panels.cancellation-cascade-subs :as subs]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack type-scale]]))
 
@@ -534,28 +534,33 @@
           positioning @(rf/subscribe [:rf.xray/modal-positioning])
           close       (fn [_]
                         (dispatch [:rf.xray/cancellation-cascade-close]))]
-      [:div {:data-testid "rf-xray-cancellation-cascade-popover-backdrop"
-             :data-rf-xray-modal-positioning (name (or positioning :fixed))
-             :on-click    close
-             :on-key-down (handle-popover-keydown dispatch)
-             :tab-index   -1
-             :style       (backdrop-style positioning)}
-       [:div (merge
-               ;; rf2-7389r — WAI-ARIA dialog contract on the popover
-               ;; wrapper. The cancellation-cascade popover already
-               ;; carried `tab-index 0` markers hinting at focus-trap
-               ;; intent; `a11y/dialog-ref` now delivers it for real —
-               ;; focus lands inside on open, Tab/Shift+Tab cycle within
-               ;; the dialog, and focus restores to the opener on close
-               ;; (audit finding #3 + #8 + #19).
-               (a11y/dialog-attrs {:label "Cancellation cascade"})
-               {:data-testid "rf-xray-cancellation-cascade-popover-dialog"
-                :ref         (a11y/dialog-ref)
-                :on-click    #(.stopPropagation %)
-                :on-key-down handle-popover-keydown
-                :tab-index   0
-                :style       (dialog-style)})
-        (render-cascade cascade close)]])))
+      ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popover keeps
+      ;; its own `backdrop-style` / `dialog-style`, the backdrop -1 /
+      ;; dialog 0 tab-index split, and its `:label` accessible name (no
+      ;; visible title id — unlike the labelled-by modals). `modal-chrome`
+      ;; owns the positioning attribute, the click-outside dismiss,
+      ;; `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
+      ;;
+      ;; NB the dialog `:on-key-down` is the bare `handle-popover-keydown`
+      ;; builder (NOT `(handle-popover-keydown dispatch)`) — preserved
+      ;; verbatim from the pre-rf2-7oxvd code. That makes the dialog-level
+      ;; keydown a no-op (React calls the 1-arity builder, which returns a
+      ;; fn that is never invoked); Esc closes via the backdrop's
+      ;; correctly-built handler. Filed as a follow-on bug, not touched
+      ;; here (this refactor is behaviour-preserving).
+      (modal-chrome/modal-chrome
+        {:positioning          positioning
+         :backdrop-style       (backdrop-style positioning)
+         :dialog-style         (dialog-style)
+         :on-dismiss           #(dispatch [:rf.xray/cancellation-cascade-close])
+         :label                "Cancellation cascade"
+         :backdrop-testid      "rf-xray-cancellation-cascade-popover-backdrop"
+         :dialog-testid        "rf-xray-cancellation-cascade-popover-dialog"
+         :on-backdrop-key-down (handle-popover-keydown dispatch)
+         :on-dialog-key-down   handle-popover-keydown
+         :backdrop-tab-index   -1
+         :dialog-tab-index     0}
+        (render-cascade cascade close)))))
 
 ;; ---- registration entry --------------------------------------------------
 

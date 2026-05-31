@@ -1481,6 +1481,29 @@ Three modal surfaces float over the chrome:
    shortcut.
 3. **Settings** (`,` or `s` or `⚙`) — 560×640px modal with 6 sections.
 
+### Shared modal-chrome scaffold (rf2-7oxvd)
+
+Seven of Xray's eight modal/popover surfaces (Settings, Filter
+edit-popup, Share, Mute manager, App-DB segment-inspector, EDN-inspector
+popup, Cancellation-cascade popover) render the **same backdrop + dialog
+scaffold** — a full-inset click-to-dismiss overlay wrapping a WAI-ARIA
+dialog box that carries `role="dialog"` + `aria-modal="true"` + an
+accessible name (via `aria-label` or `aria-labelledby`) + the
+focus-trap contract (focus-on-open, Tab/Shift+Tab trap, restore-on-close
+— see `theme/a11y`). That genuinely-identical scaffold is extracted to
+`day8.re-frame2-xray.theme.modal-chrome`; each modal supplies its own
+divergent bits (dim colour / blur / alignment / z-index, dialog size,
+header / body content, Esc / mnemonic key handling, accessible name) as
+**slots/props**, never flags. This is a pure internal-DRY refactor: the
+rendered DOM, `data-testid`s, ARIA attributes, z-stacking, dismiss and
+focus behaviour are unchanged.
+
+The **command palette** deliberately does NOT use this scaffold: it
+ships a distinct surface (always-`:fixed` positioning, hand-rolled
+combobox/listbox ARIA, no focus-trap, Esc handled inside its text input)
+with its own ARIA contract test, so folding it onto the shared scaffold
+would change its behaviour.
+
 ## Discoverability
 
 Three layers, no onboarding tour:
