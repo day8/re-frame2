@@ -10,7 +10,8 @@ description: >
  "which Xray panel shows…", "Xray Static mode", "browse registered
  machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey",
  "Xray mode toggle", "Xray popout", "Xray machine inspector",
- "Xray issues feed", and similar. **Do not use** for: driving Xray
+ "Xray epoch cascade", "where do Xray issues show up", and similar.
+ **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
  the host app (`re-frame2`), bootstrapping a new project
  (`re-frame2-setup`), or implementing Xray itself (no skill yet — the
@@ -39,9 +40,9 @@ This skill answers two questions, and only two:
  programmatic entry points, the wired hotkeys, the Dynamic ↔ Static
  mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab Xray ships,
- across both modes: the 7 Dynamic event-spine tabs (per spec/018 §5)
- and the 5 Static registry-browse tabs (per spec/007-UX-IA.md §Static
- mode).
+ across both modes: the 6 Dynamic event-spine tabs (per spec/018 §5 +
+ spec/021 §9.1) and the 5 Static registry-browse tabs (per
+ spec/007-UX-IA.md §Static mode).
 3. **What's the chrome around the tabs for?** — the first-screen
  navigation primitives the user meets immediately: the time-travel
  scrubber / rewind / pins, the filter-pill cluster, the command
@@ -76,7 +77,7 @@ the `Cmd/Ctrl+Shift+M` chord:
 - **Dynamic** — the event-coupled spine. A 4-layer chrome (L1 ribbon ·
  L2 event list · L3 tab bar · L4 detail). Every tab is a *lens on the
  one focused event* — pick an event in the L2 list and every tab
- rebinds. This is "what happened in **this** epoch?". 7 tabs.
+ rebinds. This is "what happened in **this** epoch?". 6 tabs.
 - **Static** — event-INDEPENDENT browse of what's *registered*. A
  3-layer chrome (no L2 spine — Static has no event focus). Every tab is
  a registry catalogue: every machine, every route, every schema, every
@@ -198,29 +199,53 @@ Static (about the whole registry) — then route to the tab. For per-tab
 layout, iconography, stripe tokens, and "open it when…" depth see
 [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — 7 lenses on the focused event
+### Dynamic mode — 6 lenses on the focused event
 
-The L3 tab bar holds **7 lenses on the focused event**, in the order set
-by spec/018 §5 (mnemonics `e a v t m r i`): **Event · app-db · Views ·
-Trace · Machines · Routes · Issues**. Cross-epoch
+The L3 tab bar holds **6 lenses on the focused event**, in the order set
+by spec/018 §5 + spec/021 §9.1 (mnemonics `e a v t m r`): **Epoch ·
+app-db · Views · Trace · Machine · Routes**. Cross-epoch
 signal lives on the L2 timeline above (badges + stripes); every tab
 answers "what happened in **this** epoch?" through its own lens. To
 browse a machine's full topology cold (spine-INDEPENDENT — picker +
 zoom / pan / fit, regardless of the focused event), flip to **Static
 mode** and open its Machines tab.
 
+There is **no Issues tab** — Mike ruled it out (rf2-gbz39 #2540, Option
+(c), 2026-05-31; `panels/issues_ribbon.cljs` deleted). Issues now surface
+inline (see *Where issues surface now* below).
+
 | Tab | Mnem · Icon · Stripe | One-line purpose | When you'd open it |
 |---|---|---|---|
-| **Event** *(hero)* | `e` · `⚡` · violet | The six-step handling pipeline for the focused dispatch: DISPATCH → COEFFECTS → HANDLER → EFFECTS RETURNED → EFFECTS APPLIED → FLOWS RECOMPUTED. | Default landing view. "What did this event do?" / "What fx fired?" / "Did the flow recompute?" |
+| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade**: DISPATCH → COEFFECT(s) → INTERCEPTOR (conditional) → HANDLER → FLOW(s) → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS. Only present steps render; each step carries a per-step ✓ / ✗ / ⊘ status glyph; exceptions render UNDER the step where they occurred. Supersedes the retired Event panel (rf2-5gl5r). | Default landing view. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
 | **app-db** | `a` · `◐` · cyan | Sectioned-by-reserved-area: APP STATE (db minus `:rf/*` reserved keys) + one section per machine + per spawned instance + ROUTE + SYSTEM-IDS + PENDING-NAVIGATION + ELISION; each section is a collapsible lazy-tree inspector widget with diff annotations **inline** (`← was X`). Hover any changed path for the downstream-subs popover. (Display label is lowercase **app-db** to match the library's app-db naming; internal tab id `:app-db`.) | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
-| **Views** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (step 7) + views re-rendered (step 8) with `caused-by ← sub ← path` causation on every leaf. (Display label is **Views** — the all-plural-domain-noun convention, Mike-direction 2026-05-21, after a `Reactive → View → Views` rename chain; the internal tab id stays `:views`.) | "Why didn't my view update?" / "Trace the recompute chain for `:cart/total`." / "Which views re-rendered this epoch?" |
-| **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — one mono row per op; the focused epoch IS the scope (no filter chips), click any row to expand its payload inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
-| **Machines** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
+| **Views** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (SUBSCRIPTIONS) + views re-rendered (VIEWS) with **render-cause chips** on every re-render leaf — `← :sub-id` when a deref'd sub changed value, `← props` when none of the view's own subs changed (the props channel); a first mount carries no cause. (Display label is **Views** — the all-plural-domain-noun convention, Mike-direction 2026-05-21, after a `Reactive → View → Views` rename chain; the internal tab id stays `:views`.) | "Why didn't my view update?" / "Why did this view re-render?" / "Was it a sub or props?" / "Which views re-rendered this epoch?" |
+| **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — a single **flat oldest-first row list** (no bands/envelope), each row carrying a **stage column** (DISPATCH·COEFFECT·HANDLER·FLOW·SIDE EFFECTS·SUBSCRIPTIONS·VIEWS) + a **colour-coded left edge** reusing the Epoch badge taxonomy; the focused epoch IS the scope (no filter chips), click any row to expand its payload inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
+| **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. (Display label is singular **Machine** — the focused-epoch lens is on one machine; internal tab id `:machines`.) To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
-| **Issues** | `i` · `⚠` · red | Per-epoch errors + warnings + schema violations + hydration mismatches + perf-budget overruns + app console errors, unified. Head-fallback to most-recent epoch when the spine is at head. | "Anything broken in this epoch?" / "Show me all schema failures here." / "What warnings fired?" |
 
-> **Note — there is no Chrome A11y tab.** Earlier drafts of this skill
-> listed a "Chrome A11y" Dynamic tab. It no longer exists — a11y
+#### Where issues surface now (no Issues tab)
+
+Mike ruled the dedicated Issues TAB out (rf2-gbz39, Option (c),
+2026-05-31): `panels/issues_ribbon.cljs` and its aggregate panel were
+deleted; the session-wide triage list was consciously dropped. Issues now
+surface through **three** always-on inline channels (per
+`panels/issues_ribbon_helpers.cljc`, the surviving `.cljc` algebra):
+
+- **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, and the
+ shared **"Exception Thrown"** card rendered under the step where the
+ exception occurred (handler / interceptor / coeffect / fx / flow
+ throws; `:db` schema-fail rollback on the SIDE EFFECTS `:db` row).
+- **L2 event-row pink-wash** — a cascade carrying an issue washes its L2
+ timeline row pink (rf2-b8guz), so the spine itself flags trouble.
+- **The always-on issues-ribbon signal** — the `:rf.xray/issues-ribbon`
+ composite drives the auto-open-on-error watcher (the cross-epoch
+ "something is wrong" signal).
+
+So "where are the errors?" routes to the **Epoch tab** (this epoch) + the
+**L2 wash** (which epochs) — not a tab.
+
+> **Note — there is no Chrome A11y tab either.** Earlier drafts of this
+> skill listed a "Chrome A11y" Dynamic tab. It no longer exists — a11y
 > dogfooding is Story's domain (`re-frame.story.ui.chrome-a11y`). Do not
 > route a11y questions to a Xray tab.
 
@@ -246,24 +271,27 @@ tabs only ever show the focused event.
 
 ### Retired pre-rebuild panels — where their content lives now
 
-Six panels from the pre-rebuild inventory (Subscriptions, Effects,
-Flows, Performance, Schemas, Hydration) are **not** separate Dynamic
-tabs. Their content is surfaced through the Dynamic 7 (per
+Several panels from the pre-rebuild inventory (Subscriptions, Effects,
+Flows, Performance, Schemas, Hydration, and the old standalone Issues
+tab) are **not** separate Dynamic tabs. Their content is surfaced through
+the Dynamic 6 (per
 [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here)
 + spec/021 §15) — and the registry catalogues live in Static mode:
 
 | Retired panel | Where its content lives now |
 |---|---|
-| **Subscriptions** | **Views** (cascade tree, step 7) + **app-db** (downstream-subs hover popover on changed paths) |
-| **Effects** (`fx`) | **Event** step 4 (returned) + step 5 (applied) + **Trace** (raw `:rf.fx/*` ops) |
-| **Flows** | **Event** step 6 (FLOWS RECOMPUTED), per event · **Static → Flows** for the registry catalogue |
-| **Performance** | L2 row stripe colours (cross-epoch budget signal) + per-step `:time` inside **Trace** |
-| **Schemas** | **Issues** (schema violations, per event) · **Static → Schemas** for the registry catalogue |
-| **Hydration** *(SSR)* | **Issues** (hydration mismatches land in the unified per-epoch feed) |
+| **Subscriptions** | **Views** (cascade tree, SUBSCRIPTIONS step) + **app-db** (downstream-subs hover popover on changed paths) |
+| **Effects** (`fx`) | **Epoch** SIDE EFFECTS step (flat per-effect ledger) + **Trace** (raw `:rf.fx/*` ops) |
+| **Flows** | **Epoch** FLOW step (one numbered step per flow that fired) · **Static → Flows** for the registry catalogue |
+| **Performance** | L2 row stripe colours (cross-epoch budget signal) + per-step duration chips in **Epoch** + per-row `:time` inside **Trace** |
+| **Schemas** | **Epoch** (schema violations attach inline to the owning step) + the L2 pink-wash · **Static → Schemas** for the registry catalogue |
+| **Hydration** *(SSR)* | **Epoch** inline + the issues-ribbon signal (hydration mismatches are `:rf.error/*` / `:rf.ssr/*` issues) |
+| **Issues** *(standalone tab)* | **Epoch** (per-step ✓/✗ + Exception card) + L2 pink-wash + the `:rf.xray/issues-ribbon` signal — no separate tab (rf2-gbz39) |
 
-The hero on first open is **Event** (Dynamic mode). AI integration lives
-in the separate `tools/re-frame2-pair-mcp/` jar — Xray itself is the
-human surface only.
+The hero on first open is **Epoch** (Dynamic mode, `:order -1` claims the
+leftmost / default-landing slot the retired Event tab held). AI
+integration lives in the separate `tools/re-frame2-pair-mcp/` jar — Xray
+itself is the human surface only.
 
 ---
 
@@ -300,11 +328,12 @@ short of improvising.
  detail (the mount contract, the epoch pump's ordering guarantees, the
  redaction marker's grammar), link to the relevant
  `tools/xray/spec/*.md` and quote sparingly.
-- **Pre-alpha hedge.** Some surfaces are partial (the Machines tab
+- **Pre-alpha hedge.** Some surfaces are partial (the Machine tab
  renders through the shared xyflow styling at
  `panels/machines/xyflow_style.cljs`, still
- stabilising; Issues only populates the schema / hydration rows when the
- host has those features wired; the Static Machines Sim engine is still
+ stabilising; the inline issue surfaces only populate the schema /
+ hydration rows when the host has those features wired; the Static
+ Machines Sim engine is still
  stabilising). The Static catalogues themselves (Machines / Routes /
  Schemas / Flows / Interceptors) are full registry browsers, not stubs.
  When a user asks about an in-progress surface, say so and point at the

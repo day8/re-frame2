@@ -5,6 +5,7 @@ Sources of truth: the live tab inventory is the set of
 `tools/xray/src/day8/re_frame2_xray/panels/` (Dynamic) and
 `.../static/` (Static); the normative tab list is
 [`018-Event-Spine.md` §5](../../../tools/xray/spec/018-Event-Spine.md)
++ [`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 (Dynamic) + [`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md)
 (Static). Per-panel content design lives in
 [`021-Dynamic-Panel-Designs.md`](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
@@ -12,18 +13,22 @@ Sources of truth: the live tab inventory is the set of
 [`007-UX-IA.md`](../../../tools/xray/spec/007-UX-IA.md) for chrome,
 palette tokens, density. Tab order is set declaratively via `reg-l4-tab!`
 `:order` and rendered by `shell.cljs` (Dynamic) / `static/shell.cljs`
-(Static).
+(Static). The live Dynamic `:order` values are Epoch `-1` · app-db `1` ·
+Views `2` · Trace `3` · Machine `4` · Routes `6`.
 
 ## Two modes
 
 The two-mode model (Dynamic event-spine 4-layer chrome · Static registry
 3-layer chrome, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`) is
 covered in [`SKILL.md` §Two modes](../SKILL.md#two-modes). This leaf is
-the per-panel tour: the 7 Dynamic tabs in §Panel-by-panel below, the 5
+the per-panel tour: the 6 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — every Dynamic L4 tab is a lens on
 the one focused epoch; aggregate signal lives on L2 badges only (§021
-§1.2 — binding).
+§1.2 — binding). There is **no Issues tab** — issues surface inline (the
+Epoch cascade's per-step ✓/✗ + the shared Exception card), via the L2
+pink-wash, and via the always-on `:rf.xray/issues-ribbon` signal
+(rf2-gbz39; see §What's deliberately NOT here).
 
 ### L2 timeline grammar
 
@@ -40,9 +45,17 @@ The L2 timeline above the panels carries:
  documents `💧` SSR-hydration + `🌊` flow-recomputed as normative-but-not-
  yet-in-the-cluster, and maps `🌐`/`⚡` to route/HTTP — a pre-alpha spec-vs-
  impl drift; the live tool above is authoritative.)*
+- **Issue pink-wash** per row (rf2-b8guz) — a cascade carrying an issue
+ washes its whole L2 row with the `:bg-issue-row` light-pink token. The
+ wash is driven by `cascade-has-issue?`, which reuses the same
+ `issue-event?` predicate as the issues-ribbon signal so the wash and the
+ ribbon stay in lockstep by construction. This is now (with the Epoch
+ cascade's per-step ✓/✗) the primary "which epochs are broken?" signal —
+ the dedicated Issues tab is gone (rf2-gbz39).
 
 Implementation lives at
-[`panels/l2_timeline.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/l2_timeline.cljc).
+[`panels/l2_timeline.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/l2_timeline.cljc)
++ [`panels/issues_ribbon_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon_helpers.cljc).
 
 ### Scope rule — every L4 panel is focused-epoch-scoped
 
@@ -57,11 +70,14 @@ affordance in the focused-epoch header (`002-Time-Travel.md`).
 
 ## Panel-by-panel (Dynamic mode)
 
-Seven Dynamic tabs, in their fixed L3-tab order (§018 §5; mnemonics
-`e a v t m r i`): **Event · app-db · Views · Trace · Machines ·
-Routes · Issues.** (Display labels are the all-plural-domain-noun set,
-Mike-direction 2026-05-21; internal tab ids stay `:event :app-db :views
-:trace :machines :routing :issues`.)
+Six Dynamic tabs, in their fixed L3-tab order (§018 §5 + §021 §9.1;
+mnemonics `e a v t m r`): **Epoch · app-db · Views · Trace · Machine ·
+Routes.** (Internal tab ids stay `:epoch :app-db :views :trace :machines
+:routing` — the display labels rebased over a rename history but the ids
+are stable.) The pre-rebuild **Event** panel was retired (rf2-5gl5r,
+2026-05-27 — `panels/event_detail.cljs` is deleted) and the **Issues**
+tab was retired (rf2-gbz39, 2026-05-31 — `panels/issues_ribbon.cljs` is
+deleted); see §What's deliberately NOT here.
 
 Most Dynamic tabs share the same chrome: panel icon (left of stripe) ·
 panel title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking
@@ -70,32 +86,94 @@ the L2 spine chronologically (per §021 §17.1.5; shared component at
 **Trace opts out of the film-strip header** (rf2-o6yqq) — the L2 events
 list already owns spine focus navigation.
 
-### Event — `⚡` · stripe `:accent-violet` · mnem `e`
+### Epoch — `⚡` · stripe `:accent-violet` · mnem `e` · `:order -1`
 
-Question: **What did this event DO?** — the handling pipeline.
+Question: **What happened in this epoch?** — the full computational
+timeline. Default landing view; supersedes the retired Event panel
+(rf2-5gl5r). Registered at `:order -1` so it claims the leftmost /
+default-landing slot.
 
-Six-step linear pipeline rendered top-to-bottom with explicit arrows
-(per §021 §2.2):
+A **numbered vertical cascade** rendered top-to-bottom — a faithful
+projection of the epoch's trace stream. Each step is **conditional**:
+it renders iff its driving trace events surfaced this epoch, and steps
+are numbered dynamically 1..N so an absent optional step consumes no
+number (absence is conveyed by OMISSION, not an empty-state row). The
+step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
 
-1. **DISPATCH** — event vector, origin tag, call-site (open-in-editor), timestamp
-2. **COEFFECTS ASSEMBLED** — `:db` slice, `:now`, registered coeffects
-3. **HANDLER INVOKED** — handler-id, file:line (open-in-editor), DEBUG-gated source string
-4. **EFFECTS RETURNED** — handler intent (`:db` + `:fx`), inline diff for `:db`
-5. **EFFECTS APPLIED** — what actually happened (db written, fx settlement/in-flight markers)
-6. **FLOWS RECOMPUTED** — per-flow recompute or `(input unchanged · skipped)` dim row
+1. **DISPATCH** — always present (every epoch starts here). Event vector,
+ origin tag, call-site (open-in-editor).
+2. **COEFFECT** — **one numbered step per user-injected coeffect**
+ (system defaults `:db / :event / :frame / :source / :trace-id` are
+ filtered at projection time). A cofx that threw on injection gets a
+ synthesised placeholder step so its exception card has a home.
+3. **INTERCEPTOR** — **conditional, exception-only**: rendered ONLY when a
+ user interceptor threw this cascade (the substrate emits no
+ per-interceptor "ran" trace, so a clean chain shows nothing). One row
+ per throwing interceptor — id + `:before` / `:after` phase chip + the
+ shared Exception card. Sits between COEFFECTS and HANDLER (the chain's
+ cascade position). NEW per rf2-yz57h.
+4. **HANDLER** — always present; body adapts to the handler flavour
+ (`:reg-event-db` → `:db` diff · `:reg-event-fx` → `:db` + per-fx ·
+ `:reg-machine` → the time-ordered machine cascade, rf2-u69j7). Rendered
+ as **SKIPPED** (⊘) when an upstream `:before`-chain throw — a coeffect
+ injector or a `:before` interceptor — aborted the cascade before the
+ handler ran (rf2-yz57h; NOT "ran, returned no :db").
+5. **FLOW** — one numbered step per flow that fired (the t1→t2 reshape as
+ the flow's own `:db` diff). Only when flows fired.
+6. **SIDE EFFECTS** — a flat per-effect ledger (see §SIDE EFFECTS below).
+ Only when a side effect occurred; equally SKIPPED when an upstream
+ throw aborted the cascade.
+7. **SUBSCRIPTIONS** — only when subs recomputed.
+8. **VIEWS** — only when views re-rendered.
 
-All six steps default-expanded (the pipeline IS the punch, §021 §2 +
-§17.3). Ends with the `db committed for epoch #N` marker — the pivot
-to the Views panel. Header film-strip walks the L2 spine
-chronologically.
+**Per-step status + inline exceptions.** Every step header carries a
+status glyph off the shared `step-status` primitive — `✓` (`:ok`) / `✗`
+(`:error`) / `⊘` (`:skipped`) (`panels/epoch/badge.cljc`). A
+handler / interceptor / coeffect / fx / flow **exception** renders UNDER
+the step where it occurred via the shared **"Exception Thrown"** card
+(rf2-wnvid) — each exception attached to its owning step per
+`exception-op->step`; the epoch's outcome reads `:error` whenever any step
+settled `:error` (trace-derived, NOT the framework epoch-record `:outcome`
+slot). Schema violations attach inline the same way.
 
-**Open when:** "what did this event do?", "what fx fired?", "what did
-the handler return?", "did the flow recompute?"
+**Badge taxonomy** (the inventory `badge-set` enforces; `badge.cljc`):
+DISPATCH (`:text-tertiary`) · COEFFECT (`:magenta`) · INTERCEPTOR
+(`:accent`) · HANDLER (`:accent`) · FLOW (`:accent`) · SIDE-EFFECTS
+(`:orange`) · SUBSCRIPTIONS (`:magenta-pink`) · VIEWS (`:success`). (The
+view's colour resolver bails to `:text-tertiary` on an unknown badge.)
 
-Spec: [`021-Dynamic-Panel-Designs.md` §2](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md);
+**Open when:** "what did this event do?", "where did the cascade fail?",
+"what fx fired?", "did the flow recompute?"
+
+Spec: [`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md);
 implementation at
-[`panels/event_detail.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/event_detail.cljs)
-+ `panels/event/`.
+[`panels/epoch_panel.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/epoch_panel.cljs)
++ [`panels/epoch/`](../../../tools/xray/src/day8/re_frame2_xray/panels/epoch)
+(`view.cljs` · `projection.cljc` · `badge.cljc`).
+
+### SIDE EFFECTS step — flat per-effect ledger (rf2-j630b)
+
+The Epoch cascade's SIDE EFFECTS step renders as **one flat ledger** —
+one row per effect, down the page, in execution order, with **no group
+headers** (supersedes the old 3-tier / "EFFECTS RETURNED + EFFECTS
+APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
+
+- **One row per effect**, leading with a per-effect status glyph: `✓` ran
+ ok · `✗` threw / no-such-fx / `:db` schema-fail rollback · `↺` fx
+ override applied · `–` (muted en-dash) skipped-on-platform or a dropped
+ `other` effect (NEUTRAL — never trips the badge).
+- **Single AND-of-rows badge** after the "SIDE EFFECTS" label: TICK when
+ every present row succeeded, CROSS when one or more FAILED; SKIPPED rows
+ are neutral (`side-effects-badge-status`).
+- **The `:db` row** leads the ledger when a `:db` commit was attempted
+ (incl. a plain reg-event-db returning only `:db`); its args slot is the
+ clickable **"→ app-db"** destination marker (the actual diff lives in
+ the app-db panel — no duplication). Absent when the handler returned
+ only `:fx` / nothing / threw (no phantom `:db`, rf2-wnvid).
+- **fx exceptions** attach to the owning `:fx-id` row via the shared
+ Exception card; `:db` schema-fail rollback paints the `:db` row ✗ with
+ the reason box, and a rollback means `:fx` never walked (Spec 002
+ atomicity) — so the ledger carries only the red `:db` row.
 
 ### app-db — `◐` · stripe `:cyan` · mnem `a`
 
@@ -174,23 +252,30 @@ final all-plural-domain-noun convention (Mike-direction 2026-05-21), set
 at `reactive_panel.cljs:75`. **The L3 tab key stays `:views`** — it's an
 internal id, not a user contract, so only the display label rebases.
 
-The reactive cascade (Spec 009 ops 7-8) rendered as a depth-first DAG
-with explicit indentation showing sub-of-sub layering:
+The reactive cascade (the SUBSCRIPTIONS + VIEWS trailing edge) rendered as
+a depth-first DAG with explicit indentation showing sub-of-sub layering:
 
-- **Step 7 — SUBS RECOMPUTED** — each sub with input-path → output-value
+- **SUBS RECOMPUTED** — each sub with input-path → output-value
  change inline (`:idle → :submitting`, `+1 entry`), with skipped subs
  collapsed under a footer `[Show N unchanged subs ▾]` (§021 §3.4).
-- **Step 8 — VIEWS RE-RENDERED** — each view with file:line
- (open-in-editor) + `caused-by ← sub ← path` causation chain on every
- leaf (no expand-to-see, §021 §3.2).
+- **VIEWS RE-RENDERED** — each view with file:line (open-in-editor) +
+ a **render-cause chip** on every re-render leaf (rf2-bhi3t,
+ `panels/reactive_panel_view.cljs` `view-node` + the pure
+ `panels/epoch/projection.cljc` `render-cause`): `← :sub-id` when a
+ subscription the view derefs changed value (`:triggered-by`), or
+ `← props` when none of the view's own subs changed (so the cause is the
+ orthogonal `:rf/props` channel — a prop changed / parent re-rendered;
+ the parent is never named, rf2-8ve8z). A first **mount** carries no
+ cause (the `(mounted)` label conveys it).
 
-Flows are NOT in the reactive cascade — they're handling-side (Event
-step 6) per §021 §3.2. The cascade nodes are exactly: db-paths (seed)
+Flows are NOT in the reactive cascade — they're handling-side (the Epoch
+FLOW step) per §021 §3.2. The cascade nodes are exactly: db-paths (seed)
 → subs (intermediate) → views (leaf).
 
 "Show unchanged subs" toggle defaults OFF (§021 §3.4 + §11.4).
-Per-cascade clicks propagate cross-panel: sub row → app-db at that
-input path; `caused-by ← sub ← path` chip → app-db at that path.
+Per-cascade clicks propagate cross-panel: a sub row → app-db at that
+input path. Hovering a view node toggles a pink DOM highlight on the live
+element (rf2-8l03l).
 
 **Open when:** "why didn't my view update?", "what re-rendered?",
 "trace the recompute chain for sub X", "which subs short-circuited?"
@@ -205,17 +290,32 @@ implementation at
 
 Question: **What raw trace events fired during this epoch?**
 
-The underlying stream that Event + Views summarise. **Focused-epoch
-scoped** (per §021 §1.2 — no aggregate-across-epochs view) — each row
-is a single mono line `#id +Xms op-kw inline-summary`. **No filtering
-UI** (rf2-gkczt): the focused epoch IS the scope, so the panel-local
-chip filters (and the clear-filters control) are gone — the only
-drill-down is per-row payload expand.
+The underlying stream the Epoch + Views tabs summarise. **Focused-epoch
+scoped** (per §021 §1.2 — no aggregate-across-epochs view), rendered as a
+**single flat oldest-first row list** — the 4-band phase hierarchy /
+envelope is GONE (rf2-aqusw #2545, because it was hard to scan). Each row
+is six columns: **Δt · stage · area badge · what-happened · target/detail
+· duration**.
 
-Per-row click expands the payload inline via the EDN widget's current-
-state `browse` (cljs-devtools look) — type-coloured, nested, expanded.
-**No film-strip header** (rf2-o6yqq) — the L2 events list owns spine
-focus navigation.
+The phase shape the bands conveyed is recovered flatly per-row by:
+
+- a **stage column** naming the Epoch-panel pipeline step the op belongs
+ to — `DISPATCH · COEFFECT · HANDLER · FLOW · SIDE EFFECTS ·
+ SUBSCRIPTIONS · VIEWS`; and
+- a **colour-coded left edge** in that stage's colour.
+
+Both the stage label and the edge colour resolve through the Epoch
+panel's OWN badge taxonomy (`panels.epoch.badge`) — **not** a parallel
+palette — so the Trace stage column + edge match the Epoch numbered
+cascade exactly (one step model, DRY). Errors / warnings are
+cross-cutting (§023 §7): the row renders inline at its chronological
+point, its left edge riding the severity colour over the stage colour.
+
+**No filtering UI** (rf2-gkczt): the focused epoch IS the scope, so the
+panel-local chip filters (and clear-filters) are gone — the only
+drill-down is per-row click, which opens the **edn-inspector** on the
+row's raw trace-event map inline. **No film-strip header** (rf2-o6yqq) —
+the L2 events list owns spine focus navigation.
 
 (Spec 009's `trace-buffer` filter vocabulary — `:op-type`,
 `:dispatch-id`, the tag axes — is real for the *programmatic* API but is
@@ -224,13 +324,15 @@ focus navigation.
 **Open when:** "show me every raw op in this epoch", "is `:rf.fx/*`
 firing as expected?", "what order did these emit in?"
 
-Spec: [`021-Dynamic-Panel-Designs.md` §5](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
+Spec: [`023-Trace-Panel.md` §3 + §3a](../../../tools/xray/spec/023-Trace-Panel.md)
++ [`021-Dynamic-Panel-Designs.md` §5](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 + [`013-Trace-Consumer.md`](../../../tools/xray/spec/013-Trace-Consumer.md)
 + [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md);
 implementation at
-[`panels/trace.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/trace.cljs).
+[`panels/trace.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/trace.cljs)
++ [`panels/trace_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/trace_helpers.cljc).
 
-### Machines — `◆` · stripe `:green` · mnem `m`
+### Machine — `◆` · stripe `:green` · mnem `m`
 
 Question: **What did this event do to my machines?**
 
@@ -316,35 +418,32 @@ Spec: [`021-Dynamic-Panel-Designs.md` §7](../../../tools/xray/spec/021-Dynamic-
 implementation at
 [`panels/routing.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/routing.cljs).
 
-### Issues — `⚠` · stripe `:red` · mnem `i`
+### Issues — no longer a Dynamic tab
 
-Question: **What's wrong in this epoch?**
+There is **no dedicated Issues tab**. Mike ruled it out (rf2-gbz39
+#2540, Option (c), 2026-05-31): the standalone tab + its aggregate panel
+(`panels/issues_ribbon.cljs`) were deleted and the session-wide triage
+list was consciously dropped. "What's wrong in this epoch?" is answered
+inline, through **three** always-on channels (per the surviving `.cljc`
+algebra
+[`panels/issues_ribbon_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon_helpers.cljc)):
 
-Per-epoch errors + warnings + schema violations + hydration mismatches +
-perf-budget overruns + app console errors/warns, unified.
-**Focused-epoch scoped** (§021 §8.1). Each issue renders as a 4-6 row
-block (severity · op-key · handler / schema · message · path / ex-data)
-with the ex-data laid out via the shared edn-inspector renderer at
-depth-2-expanded.
+1. **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, the
+ shared **"Exception Thrown"** card under the throwing step
+ (handler / interceptor / coeffect / fx / flow exceptions), and the
+ `:db` schema-fail rollback ✗ on the SIDE EFFECTS `:db` row. The
+ errors + warnings + schema violations + hydration mismatches that the
+ old tab unified now surface against the step where they occurred.
+2. **L2 event-row pink-wash** (rf2-b8guz) — a cascade carrying an issue
+ washes its L2 timeline row pink; the `cascade-has-issue?` predicate
+ reuses `issue-event?` so the wash stays in lockstep with the ribbon.
+3. **The always-on `:rf.xray/issues-ribbon` signal** — the composite
+ (registered in `registry.cljs`) drives the auto-open-on-error watcher
+ (`settings/effects.cljs/install-auto-open-watcher!`) — the cross-epoch
+ "something is wrong" signal Mike kept.
 
-**Head-fallback contract** — when the L2 spine is at head (no
-historical epoch focused), the panel scopes to the most-recent epoch's
-issues (matches the same head-fallback the other focused-epoch panels
-use; resolved via the shared
-[`panels/shared/focus_resolver.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/focus_resolver.cljc)).
-Empty state is a single line.
-
-Stretch film-strip: "next epoch with ⚠ badge" — operator stepping
-through a bug repro lands on issue-bearing epochs only.
-
-**Open when:** "anything broken in this epoch?", "show me all schema
-failures here", "what warnings fired?"
-
-Spec: [`021-Dynamic-Panel-Designs.md` §8](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md);
-implementation at
-[`panels/issues_ribbon.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon.cljs)
-+ [`panels/issues_ribbon_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon_helpers.cljc).
+So route "anything broken in this epoch?" to the **Epoch tab**; "which
+epochs are broken?" to the **L2 pink-wash**.
 
 > **Accessibility note.** A11y dogfooding is **not** a Xray tab — the
 > pre-rebuild "Chrome A11y" tab was removed. A11y scanning lives in Story
@@ -397,30 +496,45 @@ cross-panel-arrow glyph reference live in
 
 Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
-- **No extra Dynamic L4 lens.** The 7-tab Dynamic set is the contract;
+- **No Issues tab.** Removed (rf2-gbz39 #2540, Mike Option (c),
+ 2026-05-31 — `panels/issues_ribbon.cljs` deleted). Issues are NOT a
+ Dynamic tab; they surface inline in the **Epoch** cascade (per-step
+ ✓/✗ + the shared "Exception Thrown" card), via the **L2 pink-wash**
+ (rf2-b8guz), and via the always-on **`:rf.xray/issues-ribbon`** signal
+ (auto-open-on-error). The session-wide aggregate / triage list was
+ consciously dropped.
+- **No Event tab.** Retired (rf2-5gl5r, 2026-05-27 —
+ `panels/event_detail.cljs` deleted). The **Epoch** panel (numbered
+ cascade, `:order -1`) is the canonical "what happened" surface.
+- **No extra Dynamic L4 lens.** The 6-tab Dynamic set is the contract;
  sub-layer surfaces inline in Views + the app-db hover popover (no peer
  Subs panel).
 - **No Chrome A11y tab.** Removed; a11y dogfooding is Story's domain.
 - **No standalone Dynamic "Machines Canvas" tab.** Removed (rf2-ga16q);
  the spine-INDEPENDENT browse-all machine canvas lives under Static
- mode's Machines tab (Topology sub-mode). The Dynamic Machines tab is
+ mode's Machines tab (Topology sub-mode). The Dynamic Machine tab is
  purely the event-driven lens.
 - **No cross-epoch Dynamic L4 views.** Aggregate signals live on L2
  badges only.
 - **No pattern-view.** Deferred.
-- **No master-detail Event-vs-Views coupling.** Peers, bridged by app-db.
+- **No master-detail coupling.** Tabs are peers, bridged by app-db.
 - **No simultaneous multi-frame display.** Single-frame focus (§021
  §1.6); switch focus via the L1 frame picker.
 - **No legacy panels.** Subscriptions, Effects, Flows, Performance,
  Schemas, Hydration are NOT separate Dynamic tabs. Their content is
- surfaced through the Dynamic 7 above — and the registry catalogues live
+ surfaced through the Dynamic 6 above — and the registry catalogues live
  in Static mode:
  - Subscriptions → Views (cascade tree) + app-db (hover popover)
- - Effects → Event step 4 (returned) + step 5 (applied) + Trace (raw `:rf.fx/*` ops)
- - Flows → Event step 6 (per event) · Static → Flows (registry)
- - Performance → L2 row stripe colours + per-step `:time` in Trace
- - Schemas → Issues (per event) · Static → Schemas (registry)
- - Hydration → Issues (unified feed)
+ - Effects → Epoch SIDE EFFECTS step (flat ledger) + Trace (raw `:rf.fx/*` ops)
+ - Flows → Epoch FLOW step (one per flow) · Static → Flows (registry)
+ - Performance → L2 row stripe colours + per-step duration in Epoch + per-row `:time` in Trace
+ - Schemas → Epoch (violations attach inline to the owning step) + L2 pink-wash · Static → Schemas (registry)
+ - Hydration → Epoch inline + the issues-ribbon signal
+
+Stale file refs once cited here — `event_detail.cljs` and
+`issues_ribbon.cljs` — are **deleted**; only
+`issues_ribbon_helpers.cljc` survives (powering the ribbon signal +
+L2 wash).
 
 For the user-question → tab routing tables, see
 [`SKILL.md` §The tabs — what each surfaces](../SKILL.md#the-tabs--what-each-surfaces).
