@@ -291,7 +291,8 @@ rather than forking it:
    thread `:fragment-lookup` / `:check-lookup` / `:lookup` so the plan can
    compose REGISTERED fragments + checks, or run host-free);
 2. an ANONYMOUS frame id is minted in the reserved `:rf.story.inline/*`
-   namespace — never a registered variant id, so the Story side-table
+   namespace ([Conventions.md §`:rf.story.*` framework carve-out](Conventions.md#the-rfstory-framework-carve-out)
+   owns the closed member set) — never a registered variant id, so the Story side-table
    queries (variant ids, variants-by-story) can't surface it and a
    concurrent registered run can't collide; the frame is stamped
    `:rf/inline? true`. That stamp is the discriminator the live-frame
