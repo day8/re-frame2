@@ -247,7 +247,7 @@
    :bio      "Canned demo user."
    :image    ""})
 
-(defn- counter-comment
+(defn- canned-comment
   "Synthesise a saved Comment reply for POST /articles/:slug/comments.
    The Spec 014 reply value is `{:comment <Comment>}`; the comments
    handler patches the optimistic temp card out and inserts this saved
@@ -289,7 +289,7 @@
       ;; POST /articles/:slug/comments — synthesise the saved Comment
       ;; the optimistic submit path expects.
       (and (= method :post) (re-find #"/articles/[^/]+/comments$" u))
-      (counter-comment (some-> req :body :comment :body))
+      (canned-comment (some-> req :body :comment :body))
 
       (str/includes? u "/articles/feed")
       {:articles [] :articlesCount 0}
