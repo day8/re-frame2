@@ -75,6 +75,6 @@ Every chapter should answer three questions before it ships:
 
 - What problem did the previous chapters make visible?
 - What is the smallest example that teaches this chapter's new idea?
-- What question does this chapter leave the reader ready to ask next?
+- What curiosity or practical problem should now feel unlocked?
 
 Do not turn the third answer into a boilerplate "What's next" section. A good final paragraph is enough.

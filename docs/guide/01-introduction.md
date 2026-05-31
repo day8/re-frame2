@@ -138,7 +138,7 @@ So the counter is ceremony, and the ceremony is the point, and the point only be
 
 You came in cold and you've already got the spine of it: events are data describing what happened; handlers are pure functions computing the next state; `app-db` is the one place state lives; subscriptions derive what views need; views are boring derivative render functions; and the whole thing is a little virtual machine running every event through the same six-domino cascade. You ran it. You changed it. You added a feature to it. That's the 80%.
 
-The 20% is depth and breadth, and the order matters. First you learn where state lives ([chapter 02](02-app-db.md)) and build the counter for real ([chapter 03](03-first-app.md)). Then you slow one click down into the cascade ([chapter 04](04-events-and-the-cascade.md)), separate reading from rendering ([chapters 05](05-subscriptions.md) and [06](06-views.md)), and only then let the world back in through effects, coeffects, schemas, HTTP, forms, machines, tests, and tooling. The guide is not a pile of topics. It is the same little program acquiring the obligations of a real application.
+The 20% is depth and breadth: side effects, subscription graphs, schemas, tests, state machines, HTTP, routing, server rendering, tooling. The guide is not a pile of topics. It is the same little program acquiring the obligations of a real application.
 
 Next door, [chapter 02](02-app-db.md) zooms all the way in on the one noun everything else orbits — `app-db` — because ten minutes understanding *where the data actually lives* saves you an afternoon of confusion later. After that, [chapter 03](03-first-app.md) builds this same counter for real, in a project, on your own toolchain, so you can stop borrowing my browser.
 

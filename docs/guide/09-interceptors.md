@@ -256,5 +256,3 @@ Nearly everything reduces to three rules:
 3. **Per-frame interceptors prepend per-handler interceptors.** Frame-wide concerns wrap event-specific ones, which wrap the handler.
 
 If you find yourself reaching for a fourth rule, stop — you're probably overthinking it. Interceptors are deliberately small. The discipline isn't in the interceptor; it's in what you choose to make one *for*. The good candidates are exactly the boring, repeated, cross-cutting things — the log, the snapshot, the validate from the very first sentence of this chapter. Write each one once, wrap it around three hundred handlers, and never think about it again. That's the whole job, and it's smaller than it looked.
-
-With effects, schemas, and interceptors in place, the first genuinely messy real-world surface becomes teachable instead of sprawling. HTTP is just a named effect, a schema boundary, and a few lifecycle conventions.
