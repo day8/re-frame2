@@ -153,6 +153,18 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'],
     servedPath: 'testbeds/routes-epochs',
   },
+  // rf2-w06op — machine-epochs deck (the STATE-MACHINE step-up tester). A
+  // single-frame numbered-button ladder over the real `reg-machine` +
+  // machine-event-routing surface, driving the Xray Machine Inspector
+  // (`rf-xray-machine-inspector`). Served from the deck's own hand-written
+  // index.html (source dir first, like the 8033 :dev-http entry); the
+  // compiled main.js falls through to out/examples/machine-epochs.
+  {
+    build: 'examples/machine-epochs',
+    bundleDir: ['out', 'examples', 'machine-epochs'],
+    html: ['tools', 'xray', 'testbeds', 'machine_epochs', 'index.html'],
+    servedPath: 'testbeds/machine-epochs',
+  },
 ];
 
 function sleep(ms) {
@@ -2792,6 +2804,197 @@ async function runRoutesEpochs(page, state) {
   };
 }
 
+// rf2-w06op — machine-epochs state-machine step-up deck. Walks the deck's
+// numbered ladder top-to-bottom and asserts each rung's machine feature
+// landed, then opens the Xray Machine Inspector (`rf-xray-machine-
+// inspector`) and confirms the panel mounts on the focused machine event.
+//
+// What this scenario can / cannot assert:
+// —————————————————————————————————————————————————————————————
+// The deck OWNS its `:door/main` + `:traffic/light` machines and drives
+// them through the REAL `reg-machine` + machine-event-routing surface, so
+// every rung's machine FEATURE (plain transition · entry/exit data delta ·
+// guard pass vs fail · parallel-region broadcast · ignored event) is
+// genuinely exercised and is observable in the host app's own machine
+// snapshot mirror (the status strip reads `[:rf/machine <id>]` directly).
+// We assert those snapshot facts — they are the robust, non-flaky proof
+// each machine feature fired.
+//
+// We additionally open the Machines tab and confirm `rf-xray-machine-
+// inspector` mounts on a focused machine event, plus that machine activity
+// reaches the trace bus (`:rf.machine/transition`). We deliberately do NOT
+// assert the machines-viz chart-render path (the synthetic-epoch injection
+// that `runDeepMachine` performs): per the documented framework gap
+// (see `runDeepMachine` above, lines re: machine-transition + `:frame`),
+// a real host-app `:rf.machine/transition` carries no `:frame` tag and so
+// is not captured into an epoch's `:trace-events`, leaving the focused-
+// event transitions sub empty in production today. `deep_machine` owns the
+// chart-render shim-survival probe via test-only injection events; this
+// deck's job is the real-machine-feature step-up surface, asserted through
+// the snapshot mirror + the panel handoff.
+
+// Click a deck ladder rung by its per-rung data-testid
+// (`machine-epochs-rung-<n>`, outside Xray chrome).
+async function clickMachineRung(page, n) {
+  await clickTestId(page, `machine-epochs-rung-${n}`);
+}
+
+// Read both machines' state + the door's :data off the deck's status
+// strip (`machine-epochs-status-strip`). The strip renders pure snapshot
+// reads, so the text reflects `[:rf/machine <id>]` after each cascade.
+async function readMachineStrip(page) {
+  return page.evaluate(() => {
+    const strip = document.querySelector(
+      '[data-testid="machine-epochs-status-strip"]');
+    if (!strip) return { mounted: false };
+    function text(id) {
+      const el = strip.querySelector(`[data-testid="${id}"]`);
+      return el ? (el.textContent || '').trim() : null;
+    }
+    return {
+      mounted: true,
+      stripText: (strip.textContent || '').replace(/\s+/g, ' ').trim(),
+      doorState: text('machine-epochs-door-state'),
+      trafficState: text('machine-epochs-traffic-state'),
+    };
+  });
+}
+
+async function runMachineEpochs(page, state) {
+  // The deck's `run` bootstraps both machines, so the status strip is
+  // populated immediately. Assert the door booted to :locked before
+  // driving the ladder.
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => snap.mounted && /:door\/main state: :locked/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: 'machine-epochs door machine boots to :locked' },
+  );
+
+  // ---- #1 start machine — bootstrap re-fires; door stays :locked.
+  await clickMachineRung(page, 1);
+
+  // ---- #2 plain transition — :locked ──► :closed (insert-coin).
+  await clickMachineRung(page, 2);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#2 insert-coin → door :closed' },
+  );
+
+  // ---- #3 entry + exit actions — :closed ──► :open; :open's :entry
+  //      (:count-open) bumps :opened-count to 1.
+  await clickMachineRung(page, 3);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) =>
+      /:door\/main state: :open/.test(snap.stripText || '') &&
+      /:opened-count 1/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#3 push → door :open + :opened-count 1 (entry action ran)' },
+  );
+
+  // ---- #4 guard ALLOWED — :open ──► :closed (:may-close? passes; not held).
+  await clickMachineRung(page, 4);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#4 close → guard allowed, door :closed' },
+  );
+
+  // ---- #5 guard BLOCKED — re-open, arm :held-open?, attempt close. The
+  //      :may-close? guard FAILS, so the door STAYS :open and the hold
+  //      flag remains set (no :on branch matched, nothing advanced).
+  await clickMachineRung(page, 5);
+  const afterBlocked = await waitForValue(
+    () => readMachineStrip(page),
+    (snap) =>
+      /:door\/main state: :open/.test(snap.stripText || '') &&
+      /:held-open\? true/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#5 reopen-hold-close → guard blocked, door STAYS :open + :held-open? true' },
+  );
+
+  // ---- #6 transition-with-effect — :open ──► :alarming; :enter-alarm's
+  //      :fx dispatches :alarm-acknowledged (downstream cascade child).
+  await clickMachineRung(page, 6);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#6 trip → door :alarming (transition-with-effect)' },
+  );
+
+  // ---- #7 ignored transition — insert-coin into :alarming has no :on
+  //      entry, so the door STAYS :alarming (the event is a no-op for the
+  //      machine).
+  await clickMachineRung(page, 7);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#7 insert-coin into :alarming → ignored, door STAYS :alarming' },
+  );
+
+  // ---- #8 parallel regions — one :traffic/tick broadcasts to BOTH the
+  //      :vehicle (red ──► green) and :pedestrian (walk ──► dont-walk)
+  //      regions; the snapshot's :state is a region-map carrying both.
+  await clickMachineRung(page, 8);
+  const afterParallel = await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:vehicle :green/.test(t) && /:pedestrian :dont-walk/.test(t);
+    },
+    { timeoutMs: 10000, description: '#8 tick → BOTH regions advanced (vehicle :green + pedestrian :dont-walk)' },
+  );
+
+  // ---- #9 transition history — a second tick advances both regions again
+  //      (vehicle :green ──► :amber, pedestrian :dont-walk ──► :walk).
+  await clickMachineRung(page, 9);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:vehicle :amber/.test(t) && /:pedestrian :walk/.test(t);
+    },
+    { timeoutMs: 10000, description: '#9 second tick → vehicle :amber + pedestrian :walk' },
+  );
+
+  // ---- #10 multiple machines — one cascade sends to BOTH machines: the
+  //      door resets to :locked AND the traffic vehicle region advances
+  //      (:amber ──► :red).
+  await clickMachineRung(page, 10);
+  const afterMulti = await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:door\/main state: :locked/.test(t) && /:vehicle :red/.test(t);
+    },
+    { timeoutMs: 10000, description: '#10 reset door + tick traffic → door :locked + vehicle :red (two machines, one cascade)' },
+  );
+
+  // ---- Xray Machine Inspector handoff. Open Xray, fire one more machine
+  //      transition so the spine has a focused machine event, switch to
+  //      the Machines tab, and confirm the inspector mounts + machine
+  //      activity reached the trace bus. (Per the chart-render gap noted
+  //      above, we assert the panel handoff + trace activity, not the
+  //      synthetic-injection chart-render that deep_machine owns.)
+  await openXray(page);
+  await clearTrace(page);
+  await clickMachineRung(page, 2); // :locked ──► :closed — a fresh transition
+  await waitForTraceMatch(
+    page,
+    /:rf\.machine\/transition|:rf\.machine\/guard-evaluated|:door\/main/,
+    'machine transition reaches the trace bus',
+  );
+  await clickTab(page, 'machines', 'rf-xray-machine-inspector');
+  await expectVisible(
+    page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
+
+  state.machineEpochs = {
+    blocked: { doorState: afterBlocked.doorState },
+    parallel: { trafficState: afterParallel.trafficState },
+    multi: { doorState: afterMulti.doorState, trafficState: afterMulti.trafficState },
+    inspectorMounted: true,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -2965,6 +3168,24 @@ const SCENARIOS = [
     panels: ['routing'],
     coveredRows: ['Routes'],
     run: runRoutesEpochs,
+  },
+  {
+    // rf2-w06op — machine-epochs state-machine step-up deck. Drives the
+    // real `reg-machine` + machine-event-routing surface and asserts each
+    // rung's machine FEATURE landed via the host's snapshot mirror: plain
+    // transition · entry/exit data delta · guard ALLOWED vs BLOCKED ·
+    // transition-with-effect · IGNORED event · parallel-region broadcast ·
+    // transition history · multiple machines in one cascade. Then opens
+    // the Xray Machine Inspector (`rf-xray-machine-inspector`) and confirms
+    // the panel mounts on a focused machine event + machine activity
+    // reaches the trace bus. Real Machine-Inspector coverage for the deck
+    // the `Machines` matrix row names (the chart-render shim-survival probe
+    // stays owned by the `deep machine inspector substrate` scenario).
+    name: 'machine-epochs machine ladder (start, transitions, guards allowed/blocked, entry/exit, effect, ignored, parallel, multiple machines)',
+    url: '/testbeds/machine-epochs/',
+    panels: ['machines'],
+    coveredRows: ['Machines'],
+    run: runMachineEpochs,
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //

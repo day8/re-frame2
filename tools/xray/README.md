@@ -264,9 +264,9 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
-`two_frame_isolation`, `standard_epochs`, `routes_epochs`, `feature_matrix`,
-`panel_gallery`, `perf_counter` — covering the canonical multi-frame
-isolation surface
+`two_frame_isolation`, `standard_epochs`, `routes_epochs`, `machine_epochs`,
+`feature_matrix`, `panel_gallery`, `perf_counter` — covering the canonical
+multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
 per-frame trace / events / issues / cascades · Xray target-frame
@@ -281,7 +281,18 @@ machines/SSR; supersedes the old `step_deck`), the routing sibling
 baseline-bump per press · one more ROUTING feature per rung — aimed
 squarely at the Routing panel, so clicking top-to-bottom completely
 exercises its Current route · Navigation this epoch · Route table
-sections; served on port 8032), the deterministic
+sections; served on port 8032), the state-machine sibling
+(`machine_epochs`, rf2-w06op: the same numbered-button shape — one frame ·
+baseline-bump per press · one more MACHINE feature per rung (start ·
+transition · entry/exit actions · guard allowed/blocked · transition-
+with-effect · ignored event · parallel regions · transition history ·
+multiple machines) — aimed squarely at the Machine Inspector
+(`rf-xray-machine-inspector`), so clicking top-to-bottom completely
+exercises its topology highlight · focused-transition lens · guards /
+actions · snapshot drill-in · transition history · parallel-region
+surfaces; owns its own `:door/main` + `:traffic/light` machines and does
+NOT touch the `deep_machine` gate substrate; served on port 8033), the
+deterministic
 feature-matrix sweep across panels + shell + launch modes + redaction
 + 20-event load, the Panel-view gallery, and the performance probe.
 
