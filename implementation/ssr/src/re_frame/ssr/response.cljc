@@ -304,6 +304,23 @@
   [headers name value]
   (conj (vec headers) [(str name) value]))
 
+(defn- warn-on-multiple-writes!
+  "Emit `warning-id` (a `:rf.warning/multiple-*` trace) when more than one
+  write to the last-write-wins slot recorded under `writes-key` has landed
+  on `resp`. `final-key` (`:final-status` / `:final-redirect`) names the
+  tag the consumer reads the winning write off. Shared by `set-status-fx`,
+  `redirect-fx`, and `safe-redirect-fx` — all three record every write for
+  the multi-write policy and warn on the second-and-later one while
+  preserving last-write-wins for the public slot."
+  [resp writes-key warning-id final-key frame]
+  (let [writes (get resp writes-key)]
+    (when (and resp (> (count writes) 1))
+      (trace/emit! :warning warning-id
+                   {:writes   writes
+                    final-key (last writes)
+                    :frame    frame
+                    :recovery :warned-and-replaced}))))
+
 ;; ---- handler fns for the six :rf.server/* fxs ----------------------------
 
 (defn set-status-fx
@@ -316,13 +333,8 @@
                  (-> r
                      (update status-writes-key (fnil conj []) status)
                      (assoc :status status))))]
-    (when (and resp (> (count (get resp status-writes-key)) 1))
-      (let [writes (get resp status-writes-key)]
-        (trace/emit! :warning :rf.warning/multiple-status-set
-                     {:writes       writes
-                      :final-status (last writes)
-                      :frame        frame
-                      :recovery     :warned-and-replaced})))))
+    (warn-on-multiple-writes! resp status-writes-key
+                              :rf.warning/multiple-status-set :final-status frame)))
 
 (defn set-header-fx
   "Handler fn for `:rf.server/set-header`. Replaces any existing header
@@ -416,13 +428,8 @@
                      ;; the redirect status on the wire even if no
                      ;; explicit :rf.server/set-status fired.
                      (assoc :status status))))]
-    (when (and resp (> (count (get resp redirect-writes-key)) 1))
-      (let [writes (get resp redirect-writes-key)]
-        (trace/emit! :warning :rf.warning/multiple-redirects
-                     {:writes         writes
-                      :final-redirect (last writes)
-                      :frame          frame
-                      :recovery       :warned-and-replaced})))))
+    (warn-on-multiple-writes! resp redirect-writes-key
+                              :rf.warning/multiple-redirects :final-redirect frame)))
 
 ;; ---- :rf.server/safe-redirect (rf2-zfm8v) --------------------------------
 ;;
@@ -625,10 +632,6 @@
                                          ;; Spec 011 §Redirect precedence step 1:
                                          ;; status flows through.
                                          (assoc :status final-status))))]
-                (when (and resp (> (count (get resp redirect-writes-key)) 1))
-                  (let [writes (get resp redirect-writes-key)]
-                    (trace/emit! :warning :rf.warning/multiple-redirects
-                                 {:writes         writes
-                                  :final-redirect (last writes)
-                                  :frame          frame
-                                  :recovery       :warned-and-replaced})))))))))))
+                (warn-on-multiple-writes! resp redirect-writes-key
+                                          :rf.warning/multiple-redirects
+                                          :final-redirect frame)))))))))
