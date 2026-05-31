@@ -91,8 +91,8 @@
 (defn clear-in-flight!
   "Clear a request handle from both indexes. Two arities:
 
-   - 1-arg `[request-id]` — the legacy form. Resolves the handle from
-     the request-id index and walks both indexes (the handle stores
+   - 1-arg `[request-id]` — the resolve-by-id form. Resolves the handle
+     from the request-id index and walks both indexes (the handle stores
      `:actor-id` so the actor-index slot can be located by identity).
      No-op when `request-id` is nil — anonymous requests use the 2-arg
      form below.
