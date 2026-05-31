@@ -141,7 +141,7 @@ Every read crosses the wire elided; every write goes through the gate. Story cor
 
 - [Registration](registration.md) — the `*`-suffix runtime helpers the write surface consumes.
 - [Runtime](runtime.md) — `run-variant` / `snapshot-identity` / `read-assertions` and the four-phase lifecycle the MCP `run-variant` tool calls.
-- [Play scripts](play-script.md) — the `:play-script` body shape an agent emits via the `register-variant` write tool.
+- [Scripts](script.md) — the `:script` body shape an agent emits via the `register-variant` write tool.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Framework API — Schemas and data classification](../../api/08-schemas.md) — `elide-wire-value`, the framework primitive the MCP jar's egress boundary calls.
 - [Xray runtime seam](../../xray/api/runtime-seam.md) — the parallel Tool-Pair contract for Xray-the-panel; same emit-and-consume discipline.

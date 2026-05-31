@@ -27,9 +27,9 @@ For every variant mount, strict order, drain to completion between phases:
 | Phase | Trigger | Semantics |
 |---|---|---|
 | **1. Loaders** | Variant body's `:loaders` | For each event: `dispatch-sync` into the variant's frame, wait for drain to settle, evaluate `:loaders-complete-when` if provided. Long-lived fx (`:websocket`, `:interval`) are "complete" when the first message arrives; HTTP-flavoured fx is complete when the response event has been dispatch-synced. |
-| **2. Events** | `(concat story-events variant-events)` | `dispatch-sync` in order. Drain to completion between events. |
-| **3. Render** | View registered against post-events `app-db` | The view renders with the effective args (five-layer precedence chain) and decorator stack (`(concat globals story variant)`) applied. |
-| **4. Play** | Variant body's `:play-script` | For each step: dispatch-sync, drain. `:rf.assert/*` records into `:assertions`; failures don't throw — they accumulate. See [Play scripts](play-script.md). |
+| **2. Setup** | `(concat story-setup variant-setup)` | `dispatch-sync` the `:setup` events in order. Drain to completion between events. |
+| **3. Render** | View registered against post-setup `app-db` | The view renders with the effective args (five-layer precedence chain) and decorator stack (`(concat globals story variant)`) applied. |
+| **4. Script** | Variant body's `:script` | For each step: dispatch-sync, drain. `:rf.assert/*` records into `:assertions`; failures don't throw — they accumulate. See [Scripts](script.md). |
 
 Phase 1 and 4 are async-safe; phases 2 and 3 are sync. Loader failure modes are deterministic — handler-throw, typed `:loader-rejection`, and never-complete-predicate all surface as recorded assertions on `:rf.story/assertions` and park the lifecycle machine at `:error` / `:loading`. The play sequence never runs in a failed-loader case; `(run-variant)` resolves with `assertions-passing?` false.
 
@@ -85,7 +85,7 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (execute-play! variant-id) → assertions-vec
   ```
-- **Description**: Re-run only phase 4 (the `:play-script`) against the variant's current `app-db`. Use for the play-stepper UI's "re-run from here" affordance.
+- **Description**: Re-run only phase 4 (the `:script`) against the variant's current `app-db`. Use for the step-debugger UI's "re-run from here" affordance.
 
 ### `lifecycle-state`
 
@@ -474,9 +474,9 @@ Phase 4's `:dispatch` rail emits these fx; the chrome's control widgets and tool
 ## See also
 
 - [Registration](registration.md) — the registration macros that populate the registrar `run-variant` walks.
-- [Play scripts](play-script.md) — phase 4's full grammar; `read-assertions` / `assertions-passing?` consumers.
+- [Scripts](script.md) — phase 4's full grammar; `read-assertions` / `assertions-passing?` consumers.
 - [MCP surface](mcp-surface.md) — the same fns above, consumed by the `tools/story-mcp/` jar over JSON-RPC.
-- [Story tutorial — Your first story](../01-first-story.md) — `mount-shell!` in context.
-- [Story tutorial — Snapshot identity + QR sharing](../05-snapshot-identity.md) — `snapshot-identity` + `variant-share-url` in worked usage.
+- [Story tutorial — Your first variant](../01-first-variant.md) — `mount-shell!` in context.
+- [Story tutorial — Snapshot identity and sharing](../08-snapshot-identity-and-sharing.md) — `snapshot-identity` + `variant-share-url` in worked usage.
 - [Framework API — Lifecycle](../../api/13-lifecycle.md) — `rf/init!` runs before `mount-shell!`. The adapter must be installed before Story attaches.
 - [Xray API — Configuration keys](../../xray/api/config-keys.md) — `:rf.xray/project-root`, the slot Story's `:rf.story/project-root` bridges into.
