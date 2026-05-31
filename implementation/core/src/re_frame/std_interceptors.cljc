@@ -28,7 +28,7 @@
   full app-db at the same path."
   [& path-segs]
   (let [path-vec (vec path-segs)]
-    (interceptor/->interceptor
+    (interceptor/->interceptor*
       :id    :path
       :path  path-vec
       :before
@@ -87,7 +87,7 @@
   The `-interceptor` suffix telegraphs value-shape (per rf2-k367k +
   Conventions §Value-vs-fn naming): this Var is an interceptor map,
   not a fn; calling it raises ArityException."
-  (interceptor/->interceptor
+  (interceptor/->interceptor*
     :id    :unwrap
     :before
     (fn [ctx]

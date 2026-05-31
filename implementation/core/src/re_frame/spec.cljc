@@ -130,7 +130,7 @@
   `:rf.error/at-boundary-missing-schema`; the runtime can therefore
   assume `:schema` is present whenever this interceptor's `:before`
   slot fires."
-  (interceptor/->interceptor
+  (interceptor/->interceptor*
     :id :rf.schema/at-boundary
     :before
     (fn [ctx]

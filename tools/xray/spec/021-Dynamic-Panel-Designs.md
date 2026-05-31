@@ -2419,10 +2419,21 @@ the step matching its phase (`interceptor-exception-target`). Both are
 **CONDITIONAL** — the substrate emits no per-interceptor "ran" trace (the
 chain runs as one unit; only a throw surfaces a trace), so a phase's step
 renders ONLY when an interceptor threw in that phase this cascade. Each
-row is a throwing interceptor: the interceptor `:id` (click-to-source via
-`handler-meta`, degrading to plain text since interceptors are plain
-`->interceptor` records and carry no registered coord) + a `:before` /
-`:after` phase chip + the shared "Exception Thrown" card. rf2-oqi0c
+row is a throwing interceptor: the interceptor `:id` (click-to-source) +
+the shared open-in-editor coord-chip glyph + a `:before` / `:after`
+phase chip + the shared "Exception Thrown" card. **rf2-siheh** — the
+jump-to-source coord rides the projection row's `:coord` slot, resolved
+from the `:rf.error/interceptor-exception` trace's `:source-coord` tag
+(threaded by the router from the throwing interceptor's map). The
+**`->interceptor` macro** (framework, rf2-siheh) captures that coord from
+`(meta &form)` — before rf2-siheh `->interceptor` was a plain fn and the
+row had no coord to render (yz57h's `handler-meta :interceptor` lookup was
+unsatisfiable: interceptors are not a registry kind). The id label
+hyperlinks + the coord-chip mounts when a coord is present (parity with
+the EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows); both degrade to plain
+text + no chip when the interceptor was built via the `->interceptor*` fn,
+is a framework interceptor, or the bundle elided the coord in production.
+rf2-oqi0c
 **DROPPED** the badge's "N interceptor(s) threw" summary verb — redundant
 with the per-row id + the inline card below; the `:INTERCEPTOR` badge
 stands alone (it pulls the `:accent` token — the chain WRAPS the handler;

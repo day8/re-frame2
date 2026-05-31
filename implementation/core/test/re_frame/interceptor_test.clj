@@ -77,7 +77,7 @@
       (rf/reg-event-db :path-ns/init (fn [_ _] {:foo {:bar 10}}))
       (rf/reg-event-db :path-ns/inc
                        [(rf/path :foo :bar)
-                        (interceptor/->interceptor
+                        (interceptor/->interceptor*
                          :id     :path-ns/spy
                          :before (fn [ctx]
                                    (reset! seen-keys (set (keys ctx)))
@@ -143,7 +143,7 @@
                         ;; produced by the handler-side chain — i.e.
                         ;; AFTER the handler ran and BEFORE the path
                         ;; interceptor's :after re-runs.
-                        (interceptor/->interceptor
+                        (interceptor/->interceptor*
                           :id    :path-noop/spy
                           :after (fn [ctx]
                                    (reset! final-ctx ctx)
@@ -197,7 +197,7 @@
 (deftest path-interceptor-after-no-ops-when-before-short-circuited
   (testing "(path ...) :after does not throw and preserves the original
             error when an upstream interceptor's :before throws first"
-    (let [boom    (interceptor/->interceptor
+    (let [boom    (interceptor/->interceptor*
                     :id     :path-short/boom
                     :before (fn [_ctx]
                               (throw (ex-info "before blew up"
@@ -429,7 +429,7 @@
             reverse; the captured order matches the standard pattern."
     (let [trail (atom [])
           mk    (fn [tag]
-                  (interceptor/->interceptor
+                  (interceptor/->interceptor*
                     :id     tag
                     :before (fn [ctx]
                               (swap! trail conj [:before tag])
@@ -437,7 +437,7 @@
                     :after  (fn [ctx]
                               (swap! trail conj [:after tag])
                               ctx)))
-          handler (interceptor/->interceptor
+          handler (interceptor/->interceptor*
                     :id :handler
                     :before (fn [ctx]
                               (swap! trail conj :handler)
@@ -465,7 +465,7 @@
     (let [trail (atom [])
           ran-handler? (atom false)
           mk-good (fn [tag]
-                    (interceptor/->interceptor
+                    (interceptor/->interceptor*
                       :id     tag
                       :before (fn [ctx]
                                 (swap! trail conj [:before tag])
@@ -474,7 +474,7 @@
                                 (swap! trail conj [:after tag])
                                 ctx)))
           mk-bad-after (fn [tag]
-                         (interceptor/->interceptor
+                         (interceptor/->interceptor*
                            :id     tag
                            :before (fn [ctx]
                                      (swap! trail conj [:before tag])
@@ -483,7 +483,7 @@
                                      (swap! trail conj [:after tag])
                                      (throw (ex-info "after blew up"
                                                      {:tag tag})))))
-          handler (interceptor/->interceptor
+          handler (interceptor/->interceptor*
                     :id :handler
                     :before (fn [ctx]
                               (reset! ran-handler? true)
@@ -517,12 +517,12 @@
           ;; The short-circuit means :before-bad's :before fires, but
           ;; subsequent :before stages are skipped. All :after stages
           ;; run (teardown contract), so :after-bad's :after will fire.
-          before-bad (interceptor/->interceptor
+          before-bad (interceptor/->interceptor*
                        :id :before-bad
                        :before (fn [_ctx]
                                  (throw (ex-info "before blew up"
                                                  {:src :before-bad}))))
-          after-bad  (interceptor/->interceptor
+          after-bad  (interceptor/->interceptor*
                        :id :after-bad
                        :after  (fn [_ctx]
                                  (throw (ex-info "after blew up"
@@ -559,7 +559,7 @@
             :before claimed."
     (let [trail (atom [])
           mk-good (fn [tag]
-                    (interceptor/->interceptor
+                    (interceptor/->interceptor*
                       :id     tag
                       :before (fn [ctx]
                                 (swap! trail conj [:before tag])
@@ -567,7 +567,7 @@
                       :after  (fn [ctx]
                                 (swap! trail conj [:after tag])
                                 ctx)))
-          boom    (interceptor/->interceptor
+          boom    (interceptor/->interceptor*
                     :id     :boom
                     :before (fn [_ctx]
                               (swap! trail conj [:before :boom])
@@ -690,3 +690,76 @@
             ":phase is :after — NOT collapsed into the handler"))
       (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
           "an interceptor :after throw does NOT report as handler-exception"))))
+
+;; ---- macro-path source-coord capture (rf2-siheh) --------------------------
+;;
+;; The `->interceptor` MACRO captures the definition-site coord from
+;; `(meta &form)` (riding the rf2-wvsxg absolutise path, exactly like the
+;; reg-* macros) and bakes `:source-coord` into the interceptor map. When
+;; that interceptor throws, the coord rides the error-record (interceptor/
+;; error-record) → the router threads it onto the
+;; `:rf.error/interceptor-exception` trace's `:source-coord` tag, so the
+;; Xray Epoch INTERCEPTOR row can render a jump-to-source chip (parity with
+;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). The `->interceptor*` FN path
+;; captures no coord — there is no syntactic call site to attribute.
+
+(deftest macro-interceptor-carries-absolutised-source-coord
+  (testing "a macro-defined interceptor map carries an absolutised
+            :source-coord (:ns / :file / :line); :file is an absolute
+            on-disk path per the rf2-wvsxg absolutise path"
+    (let [icpt (rf/->interceptor
+                 :id     :siheh/probe
+                 :before identity)
+          {:keys [ns file line] :as coord} (:source-coord icpt)]
+      (is (map? coord)
+          "the macro bakes a :source-coord map into the interceptor")
+      (is (= 're-frame.interceptor-test ns)
+          ":ns is the metadata-free consumer namespace symbol")
+      (is (integer? line) ":line is the macro call-site line")
+      (is (string? file) ":file is a string")
+      ;; rf2-wvsxg — the macro feeds the picked :file through
+      ;; absolutise-file at expansion time, so the coord ships an
+      ;; absolute on-disk path (here the classpath resolved the test
+      ;; source under the core artefact's test root).
+      (is (re-find #"interceptor_test\.clj$" file)
+          ":file resolves to this test source file")
+      (is (re-find #"^(?:/|[A-Za-z]:)" file)
+          ":file is absolute (leading slash or drive letter) — absolutised")))
+
+  (testing "the ->interceptor* fn path captures NO :source-coord (HoF /
+            programmatic — no syntactic call site to attribute)"
+    (let [icpt (interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
+      (is (nil? (:source-coord icpt))
+          "fn-built interceptor carries no coord"))))
+
+(deftest macro-interceptor-source-coord-rides-the-exception-trace
+  (testing "a throwing macro-defined interceptor threads its :source-coord
+            onto the :rf.error/interceptor-exception trace (the slot the
+            Xray Epoch INTERCEPTOR row's jump-to-source chip reads)"
+    (rf/reg-event-db :siheh/before-boom
+                     [(rf/->interceptor
+                        :id     :siheh/before-icpt
+                        :before (fn [_] (throw (ex-info "before blew up" {}))))]
+                     (fn [db _] db))
+    (let [errs (capture-error-traces [:siheh/before-boom])
+          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+      (is (= 1 (count ix)) "exactly one interceptor-exception")
+      (let [coord (get-in (first ix) [:tags :source-coord])]
+        (is (map? coord)
+            "the trace carries the interceptor's :source-coord tag")
+        (is (re-find #"interceptor_test\.clj$" (:file coord))
+            ":file points at this test source")
+        (is (integer? (:line coord)) ":line is captured"))))
+
+  (testing "a throwing ->interceptor*-built interceptor threads NO
+            :source-coord tag (degrades to plain text in the panel)"
+    (rf/reg-event-db :siheh/fn-before-boom
+                     [(interceptor/->interceptor*
+                        :id     :siheh/fn-before-icpt
+                        :before (fn [_] (throw (ex-info "fn before blew up" {}))))]
+                     (fn [db _] db))
+    (let [errs (capture-error-traces [:siheh/fn-before-boom])
+          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+      (is (= 1 (count ix)) "exactly one interceptor-exception")
+      (is (nil? (get-in (first ix) [:tags :source-coord]))
+          "no :source-coord tag — the fn path captured none"))))

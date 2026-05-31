@@ -528,6 +528,7 @@ The current pairs:
 | `dispatch-sync` | `dispatch-sync*` | — call-site stamping |
 | `subscribe` | `subscribe*` | — call-site stamping |
 | `inject-cofx` | `inject-cofx*` | — call-site stamping |
+| `->interceptor` | `->interceptor*` | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) — definition-site coord stamping (rf2-siheh) |
 
 The `dispatch` / `subscribe` / `inject-cofx` macros are the canonical invocation surface in user code — they pay no extra runtime cost in production (the call-site stamp DCEs under `:advanced` + `goog.DEBUG=false`) and let tooling render two click-to-jump links per error: registration-site (`:rf.trace/trigger-handler`) and invocation-site (`:rf.trace/call-site`). The `*`-fn forms exist for higher-order use and programmatic / REPL paths where there is no syntactic call site to attribute to.
 

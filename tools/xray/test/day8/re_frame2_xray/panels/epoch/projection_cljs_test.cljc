@@ -2605,7 +2605,33 @@
       (is (nil? before) "no :before throw → no :before interceptor step")
       (is (= :after (:phase after)))
       (is (= 1 (count (:rows after))))
-      (is (= :app/audit (:interceptor-id (first (:rows after))))))))
+      (is (= :app/audit (:interceptor-id (first (:rows after)))))))
+
+  (testing "rf2-siheh — a macro-captured :source-coord on the trace lifts
+            onto the INTERCEPTOR row's :coord (the slot the view's
+            jump-to-source chip reads)"
+    (let [coord  {:ns 'app.icpt :file "/abs/app/icpt.cljs" :line 42}
+          events [(interceptor-exception-ev :app/auth :before "boom" nil coord)]
+          before (proj/interceptor-step events :before)
+          row    (first (:rows before))]
+      (is (= :app/auth (:interceptor-id row)))
+      (is (= coord (:coord row))
+          "the row carries the interceptor's definition-site coord")))
+
+  (testing "rf2-siheh — no :source-coord on the trace → the row's :coord is
+            nil (the ->interceptor* fn / framework-interceptor path; the
+            view's chip drops out cleanly)"
+    (let [events [(interceptor-exception-ev :app/auth :before "boom")]
+          before (proj/interceptor-step events :before)]
+      (is (nil? (:coord (first (:rows before)))))))
+
+  (testing "rf2-siheh — a coord lacking :file is treated as no-coord
+            (defensive — the chip needs :file to resolve a URI)"
+    (let [events [(interceptor-exception-ev :app/auth :before "boom" nil
+                                            {:ns 'app.icpt :line 7})]
+          before (proj/interceptor-step events :before)]
+      (is (nil? (:coord (first (:rows before))))
+          "no :file → :coord nil"))))
 
 (deftest attach-interceptor-exception-to-interceptor-step-test
   (testing "rf2-yz57h — a `:rf.error/interceptor-exception` attaches to the

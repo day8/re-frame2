@@ -253,7 +253,7 @@
   describing: the meta lives on the interceptor map itself."
   [kind handler-fn]
   (let [{:keys [interceptor-id invoke commit]} (get kind-spec kind)]
-    (interceptor/->interceptor
+    (interceptor/->interceptor*
       :id         interceptor-id
       :rf/default? true
       :before

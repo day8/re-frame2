@@ -7,6 +7,12 @@
      :before (fn [context] new-context)   ;; runs before handler
      :after  (fn [context] new-context)}  ;; runs after handler
 
+  Built via the `->interceptor` macro (`re-frame.core`, captures the
+  definition-site `:source-coord` for jump-to-source per Spec 001) or
+  the `->interceptor*` fn (this ns; HoF / programmatic, no coord
+  capture). A captured `:source-coord` rides the error-record (per
+  rf2-siheh) so tooling can jump to the throwing interceptor's source.
+
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
   reverse order."
@@ -14,17 +20,30 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn ->interceptor
-  "Build an interceptor map from kwargs. The primitive entry point for
-  custom interceptors.
+(defn ->interceptor*
+  "Build an interceptor map from kwargs — the plain, runtime-callable
+  fn form of the `->interceptor` macro (per Conventions §`*`-suffix
+  naming). HoF / programmatic / REPL callers reach this directly; the
+  `rf/->interceptor` macro is the ergonomic surface that ALSO captures
+  the definition-site `:source-coord` from `(meta &form)` (so the Xray
+  Epoch INTERCEPTOR row can jump to source). This fn captures no
+  call-site — pass `:source-coord` explicitly if you have one (the
+  macro does exactly that).
 
   Kwargs:
-    :id      keyword name (default `:unnamed`); appears in error traces.
-    :before  `(fn [context] new-context)` — runs before the handler.
-             Read inputs via `get-coeffect`; write outputs via
-             `assoc-coeffect` / `assoc-effect`.
-    :after   `(fn [context] new-context)` — runs after the handler,
-             in reverse declaration order.
+    :id            keyword name (default `:unnamed`); appears in error
+                   traces.
+    :before        `(fn [context] new-context)` — runs before the handler.
+                   Read inputs via `get-coeffect`; write outputs via
+                   `assoc-coeffect` / `assoc-effect`.
+    :after         `(fn [context] new-context)` — runs after the handler,
+                   in reverse declaration order.
+    :source-coord  optional `{:ns :file :line :column}` source-coord map
+                   (per Spec 001 §Source-coordinate capture). Stamped by
+                   the `->interceptor` macro from `(meta &form)`; rides
+                   the error-record so tooling renders a jump-to-source
+                   chip when the interceptor throws. Absent on the plain
+                   fn path unless the caller supplies one.
 
   The `context` map carries:
     `:coeffects` — input data: `:db` (current app-db value), `:event`
@@ -34,26 +53,15 @@
                    app-db value), `:fx` (the vector of `[fx-id args]`
                    pairs the runtime walks after the chain).
 
-  Example:
-
-      (def log-event
-        (rf/->interceptor
-          :id     :log-event
-          :before (fn [ctx]
-                    (println \"event:\" (rf/get-coeffect ctx :event))
-                    ctx)))
-
-      (rf/reg-event-db :foo
-        [log-event]
-        (fn [db _] db))
-
-  See also: `get-coeffect`, `assoc-coeffect`, `get-effect`,
-  `assoc-effect`, `inject-cofx`, `path` / `unwrap` (the std interceptors
-  v2 ships), `reg-event-ctx` (full-context handler)."
-  [& {:keys [id before after] :as opts}]
+  See also: `->interceptor` (the macro form, `re-frame.core`),
+  `get-coeffect`, `assoc-coeffect`, `get-effect`, `assoc-effect`,
+  `inject-cofx`, `path` / `unwrap` (the std interceptors v2 ships),
+  `reg-event-ctx` (full-context handler)."
+  [& {:keys [id before after source-coord] :as opts}]
   (cond-> (assoc opts :id (or id :unnamed))
-    before (assoc :before before)
-    after  (assoc :after after)))
+    before       (assoc :before before)
+    after        (assoc :after after)
+    source-coord (assoc :source-coord source-coord)))
 
 ;; ---- context plumbing -----------------------------------------------------
 
@@ -131,10 +139,21 @@
   the bare interceptor `:id`. The slot is absent for non-cofx
   interceptors so the singleton-vs-vector equality invariant
   (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) is
-  preserved for the common case."
+  preserved for the common case.
+
+  Per rf2-siheh the record carries the throwing interceptor's
+  `:source-coord` when one was captured (the `->interceptor` macro
+  stamps it from `(meta &form)`). The router threads it onto the
+  `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
+  row renders a jump-to-source chip (parity with EVENT HANDLER /
+  SUBSCRIPTIONS / VIEWS). Absent on the fn-path / framework interceptors
+  (`path`, `unwrap`, cofx injectors) — they have no user definition site
+  to jump to; the slot's absence preserves the equality invariant for
+  the common case."
   [phase interceptor exception]
   (cond-> {:phase phase :id (:id interceptor) :exception exception}
-    (:rf/cofx-id interceptor) (assoc :rf/cofx-id (:rf/cofx-id interceptor))))
+    (:rf/cofx-id interceptor)   (assoc :rf/cofx-id (:rf/cofx-id interceptor))
+    (:source-coord interceptor) (assoc :source-coord (:source-coord interceptor))))
 
 (defn- invoke-before [context interceptor]
   ;; Short-circuit: once any :before has failed, skip downstream :before

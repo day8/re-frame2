@@ -106,7 +106,7 @@
   coeffect; trace/error emit sites read `:rf/redacted-event`."
   [paths]
   (let [paths (vec paths)]
-    (interceptor/->interceptor
+    (interceptor/->interceptor*
       :id :rf/schema-redaction
       :before
       (fn [ctx]
@@ -170,7 +170,7 @@
   and [Security.md §Behavioural MUSTs across the privacy surface](Security.md#behavioural-musts-across-the-privacy-surface)."
   [paths]
   (let [paths (vec paths)]
-    (interceptor/->interceptor
+    (interceptor/->interceptor*
       :id     redact-interceptor-id
       ;; Paths are exposed on the interceptor map for chain-walking
       ;; consumers (router `prepare-handler-ctx` collects them so the

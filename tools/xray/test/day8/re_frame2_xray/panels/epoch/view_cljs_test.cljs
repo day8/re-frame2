@@ -2627,7 +2627,47 @@
                               :failing-id :app/auditor :phase :after}]}))]
       (is (string/includes?
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
-            "after")))))
+            "after"))))
+
+  (testing "rf2-siheh — the INTERCEPTOR row mounts the shared
+            `coord-chip/coord-chip` go-to-source glyph when the row carries
+            a `:coord` (parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS).
+            The `->interceptor` macro captures the coord; the projection
+            lifts it onto the row."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptor-step
+                   {:step :interceptor :badge :INTERCEPTOR :step-number 3
+                    :phase :before
+                    :status :error
+                    :rows [{:interceptor-id :app/auth :phase :before
+                            :coord {:ns 'app.icpt
+                                    :file "/abs/app/icpt.cljs"
+                                    :line 42}}]
+                    :errors [{:operation :rf.error/interceptor-exception
+                              :message "before boom"
+                              :failing-id :app/auth :phase :before}]}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
+          "the go-to-source coord-chip glyph renders for a coord-bearing row")))
+
+  (testing "rf2-siheh — NO coord on the row → NO glyph (the ->interceptor*
+            fn / framework-interceptor path; the chip drops out cleanly)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptor-step
+                   {:step :interceptor :badge :INTERCEPTOR :step-number 3
+                    :phase :before
+                    :status :error
+                    :rows [{:interceptor-id :app/auth :phase :before}]
+                    :errors [{:operation :rf.error/interceptor-exception
+                              :message "before boom"
+                              :failing-id :app/auth :phase :before}]}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-0"))
+          "the interceptor row still renders")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
+          "no coord → no go-to-source glyph"))))
 
 (deftest handler-skipped-renders-as-skipped-not-no-db-test
   (testing "rf2-yz57h — a HANDLER marked :skipped (upstream :before-chain

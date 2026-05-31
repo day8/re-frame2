@@ -2043,10 +2043,12 @@
 ;; this cascade, and its rows are the throwing interceptor(s) — each row
 ;; carries the interceptor `:id` + the `:phase` (`:before` / `:after`) it
 ;; threw in, so the operator reads WHICH interceptor failed on WHICH side
-;; of the chain. The view resolves a jump-to-source coord off
-;; `handler-meta` at render time (degrades to plain text when none is
-;; registered — interceptors are plain `->interceptor` records, not always
-;; coord-stamped). The shared "Exception Thrown" card (rf2-wnvid) attaches
+;; of the chain. rf2-siheh — the jump-to-source coord rides the row's
+;; `:coord` slot, resolved here off the `:rf.error/interceptor-exception`
+;; trace's `:source-coord` tag (captured by the `->interceptor` macro from
+;; `(meta &form)`); it degrades to plain text when no coord was captured
+;; (the `->interceptor*` fn path, framework interceptors, or a production
+;; CLJS bundle). The shared "Exception Thrown" card (rf2-wnvid) attaches
 ;; per the standard `attach-exceptions` path.
 
 (defn interceptor-exception-rows
@@ -2057,6 +2059,21 @@
   (filterv #(= :rf.error/interceptor-exception (op (:raw %)))
            (exception-rows events)))
 
+(defn- interceptor-row-coord
+  "Resolve the throwing interceptor's definition-site `{:ns :file :line}`
+  source-coord off the `:rf.error/interceptor-exception` trace event
+  (rf2-siheh). The router threads it onto the trace under the `:source-
+  coord` tag (the `->interceptor` macro captured it from `(meta &form)`,
+  riding the rf2-wvsxg absolutise path). Returns nil when no coord was
+  captured — the interceptor was built via the `->interceptor*` fn or is
+  a framework interceptor (`path` / `unwrap` / cofx injector), or the
+  build is a production CLJS bundle that elided the coord. The view's
+  shared `coord-chip` drops out cleanly when nil (parity with the
+  EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows)."
+  [ev]
+  (let [coord (common/tag-of ev :source-coord)]
+    (when (and (map? coord) (:file coord)) coord)))
+
 (defn interceptor-step
   "Build the INTERCEPTOR step for ONE chain `phase` (`:before` / `:after`),
   or nil when no interceptor threw in that phase this cascade (the step is
@@ -2064,8 +2081,11 @@
   throwing interceptors of that phase (one per
   `:rf.error/interceptor-exception` with the matching `:phase`), each
   carrying the interceptor `:interceptor-id` (== the exception row's
-  `:failing-id`) + the `:phase` it threw in. The shared exception card
-  attaches to this step via `attach-exceptions`.
+  `:failing-id`), the `:phase` it threw in, and (rf2-siheh) the
+  interceptor's definition-site `:coord` (when the `->interceptor` macro
+  captured one) so the view renders a jump-to-source chip — parity with
+  the EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows. The shared exception
+  card attaches to this step via `attach-exceptions`.
 
   rf2-vew2n — a `:before` interceptor throws on the way IN (the chain
   aborts before the handler runs), so the `:before` step renders BEFORE
@@ -2080,9 +2100,10 @@
       {:step  :interceptor
        :badge :INTERCEPTOR
        :phase phase
-       :rows  (mapv (fn [{:keys [failing-id phase]}]
+       :rows  (mapv (fn [{:keys [failing-id phase raw]}]
                       {:interceptor-id failing-id
-                       :phase          phase})
+                       :phase          phase
+                       :coord          (interceptor-row-coord raw)})
                     exc)})))
 
 ;; ---- SKIPPED-step marking (rf2-yz57h) -----------------------------------
