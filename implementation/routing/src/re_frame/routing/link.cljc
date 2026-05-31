@@ -13,6 +13,21 @@
   (:require [re-frame.router :as router]
             [re-frame.routing.registry :as registry]))
 
+(defn- href-attrs
+  "Synthesise the `<a>` href from the link control keys (`:to` /
+  `:params` / `:query` / `:fragment`), strip those control keys (plus
+  `:on-click`, which the CLJS path replaces and the SSR path drops) off
+  `props`, and return `[url base-attrs]`. The base attrs carry the
+  synthesised `:href` plus every passthrough HTML attr; both the CLJS
+  and SSR render fns build on it so the control-key list lives in ONE
+  place and cannot drift between the two halves of the Spec 011 render
+  contract."
+  [{:keys [to params query fragment] :as props}]
+  (let [url (registry/route-url to (or params {}) (or query {}) fragment)]
+    [url (-> props
+             (dissoc :to :params :query :fragment :on-click)
+             (assoc :href url))]))
+
 #?(:cljs
    (defn- plain-left-click?
      "Return true when the click event is a plain primary-button click with
@@ -60,31 +75,29 @@
      calls; see `route-url`'s perf note for the precompute follow-on
      should it become a bottleneck."
      [{:keys [to params query fragment on-click] :as props} & children]
-     (let [url   (registry/route-url to (or params {}) (or query {}) fragment)
-           attrs (-> props
-                     (dissoc :to :params :query :fragment :on-click)
-                     (assoc :href url
-                            :on-click
-                            (fn [e]
-                              (when on-click (on-click e))
-                              (when (and (not (.-defaultPrevented e))
-                                         (plain-left-click? e))
-                                (.preventDefault e)
-                                ;; Per rf2-t1lxr: route-link click → :router
-                                ;; origin so the L2 epoch timeline tags the
-                                ;; resulting :rf/url-requested cascade as a
-                                ;; routing-substrate dispatch (not :ui). Per
-                                ;; rf2-1ve9h the single closed-enum
-                                ;; functional-origin axis is `:source` —
-                                ;; routing-internal dispatches stamp
-                                ;; `:source :router`.
-                                (router/dispatch!
-                                  [:rf/url-requested
-                                   (cond-> {:url url :to to}
-                                     (seq params)   (assoc :params params)
-                                     (seq query)    (assoc :query  query)
-                                     fragment       (assoc :fragment fragment))]
-                                  {:source :router})))))]
+     (let [[url base-attrs] (href-attrs props)
+           attrs (assoc base-attrs
+                        :on-click
+                        (fn [e]
+                          (when on-click (on-click e))
+                          (when (and (not (.-defaultPrevented e))
+                                     (plain-left-click? e))
+                            (.preventDefault e)
+                            ;; Per rf2-t1lxr: route-link click → :router
+                            ;; origin so the L2 epoch timeline tags the
+                            ;; resulting :rf/url-requested cascade as a
+                            ;; routing-substrate dispatch (not :ui). Per
+                            ;; rf2-1ve9h the single closed-enum
+                            ;; functional-origin axis is `:source` —
+                            ;; routing-internal dispatches stamp
+                            ;; `:source :router`.
+                            (router/dispatch!
+                              [:rf/url-requested
+                               (cond-> {:url url :to to}
+                                 (seq params)   (assoc :params params)
+                                 (seq query)    (assoc :query  query)
+                                 fragment       (assoc :fragment fragment))]
+                              {:source :router}))))]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
@@ -94,11 +107,8 @@
   on the hydrated page run the CLJS render fn's on-click path. Per
   Spec 011 the render tree is the contract; this is the JVM half of
   that contract for the `:route/link` view."
-  [{:keys [to params query fragment] :as props} & children]
-  (let [url   (registry/route-url to (or params {}) (or query {}) fragment)
-        attrs (-> props
-                  (dissoc :to :params :query :fragment :on-click)
-                  (assoc :href url))]
+  [props & children]
+  (let [[_url attrs] (href-attrs props)]
     (into [:a attrs] children)))
 
 ;; The façade owns the `:route/link` registration:
