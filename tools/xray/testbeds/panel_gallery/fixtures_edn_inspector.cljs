@@ -4,8 +4,9 @@
 
   The edn-inspector widget (`day8.re-frame2-xray.views.edn-inspector`)
   is exercised indirectly by every L4 panel that mounts it — App-DB,
-  Reactive, Trace, Machines, Issues, Routing all route their CLJS
-  value rendering through it. The dedicated gallery here gives the
+  Reactive, Trace, Machines, Routing (plus the Epoch panel's inline
+  exception / value surfaces) all route their CLJS value rendering
+  through it. The dedicated gallery here gives the
   widget its own isolated surface: one variant per value shape /
   opts combination, side-by-side, so an operator can scan the
   renderer's response without the surrounding panel chrome.

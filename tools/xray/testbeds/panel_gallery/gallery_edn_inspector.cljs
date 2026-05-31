@@ -90,11 +90,16 @@
             shallow-depth)."})
 
   (story/reg-story :story.xray.edn-inspector
-    {:doc        "Visual gallery of the edn-inspector widget under
-                 varying input shapes + opts combinations. One
+    {:doc        "THE GEM of this testbed — the edn-inspector widget,
+                 the single CLJS-value renderer behind every Xray panel
+                 (App-db, Trace payloads, Reactive sub values, Machine
+                 snapshots, Routing diffs). Exercised here in isolation
+                 across every input shape + the full opts surface
+                 (`:zoomable?`, `:popup-affordance?`, `:card?`,
+                 `:header`, `:site-id`, `:default-expanded-depth`). One
                  variant per shape / opts pin; side-by-side in the
-                 workspace so the renderer's response is visible at
-                 a glance."
+                 workspace so the renderer's response is visible at a
+                 glance."
      :component  :panel-gallery.edn-inspector/Panel
      :tags       #{:dev :feature/xray-edn-inspector}
      :substrates #{:reagent}})
