@@ -1,59 +1,75 @@
 (ns re-frame2-pair-mcp.tools.list-subscriptions
-  "Tool: list-subscriptions — list active streaming subscriptions (rf2-zjz9q).
+  "Tool: list-subscriptions — list the LIVE reactive subscriptions
+  materialised in a frame's per-frame sub-cache (rf2-qicji).
 
-  Renamed from `subscription-info` per rf2-4y595 (NAMING.md
-  conformance — `list-<things>` is the canonical enumeration verb).
-  The runtime fn it wraps keeps the historical `subscription-info`
-  name (the runtime is a separate naming surface).
+  ## What this answers
 
-  Wraps the `re-frame2-pair.runtime/subscription-info` diagnostic so AI
-  clients don't need an `eval-cljs` round-trip just to ask \"what
-  streams are currently open?\". One cheap nREPL eval — the runtime fn
-  is a pure read over the in-memory `subscriptions` atom and does NOT
-  drain queues. Useful when a streaming probe seems to have gone quiet
-  (confirm the sub is still registered, check `:queue-depth` /
-  `:overflow-reason` for evidence of a dead consumer).
+  \"What subscriptions are currently active in this frame?\" — the
+  reactive sub-cache, the same source the `snapshot` tool's `:sub-cache`
+  slice reads. Routes through the runtime's `sub-cache-info` fn, which
+  reads `re-frame.subs.tooling/sub-cache-snapshot` (via the runtime's
+  `sub-cache` fn) — the SAME accessor `snapshot :sub-cache` uses, so the
+  two never disagree.
 
-  Args (all optional):
-    :topic   keyword or string — filter to a single topic
-             (`:trace` / `:epoch` / `:fx` / `:error`).
-    :sub-id  string uuid — return only the matching sub. Convenient
-             for \"is this specific stream still alive?\" checks.
+  ## rf2-qicji — wrong-source → right-source
 
-  Returns `{:ok? true :subs [{:id :topic :filter :queue-depth
-  :queue-bytes :dropped-events :dropped-bytes :overflow-reason
-  :created-at}]}`. Empty `:subs` vector when no streams are open (or
-  when the filter matches nothing)."
-  (:require [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
+  Before rf2-qicji this tool wrapped `re-frame2-pair.runtime/
+  subscription-info`, which reads the STREAMING-tap registry (the
+  trace / epoch / fx / error queues opened by `subscribe`). That
+  registry is empty unless a streaming `subscribe` is open, so
+  `list-subscriptions {frame :rf/default}` returned `{:subs []}` even
+  when the frame had live reactive subscriptions — a false-empty
+  correctness bug (the live evidence: `snapshot :sub-cache` showed
+  `[[\"mounted?\"]]` for the same frame while this tool said `[]`).
+
+  The fix routes `list-subscriptions` through `sub-cache-info` so it
+  reports the live reactive cache. The streaming-tap diagnostic was NOT
+  lost — it moved to the accurately-named `list-streams` tool (which
+  still wraps `subscription-info`). The two distinct concepts no longer
+  share one name.
+
+  ## Disposal
+
+  The reactive sub-cache is ref-counted and live: an entry appears the
+  moment a view subscribes and DISAPPEARS when the last consumer
+  disposes the reaction. So a sub that's been disposed (its view
+  unmounted, no other subscribers) no longer shows up here — the
+  acceptance contract per rf2-qicji.
+
+  ## Args (all optional)
+
+    :frame           keyword / string — the frame to read. Defaults to
+                     the operating frame (per the runtime's frame
+                     resolution); a multi-frame session with no
+                     selection returns `{:ok? false :reason
+                     :ambiguous-frame}` rather than silently reading
+                     `:rf/default`.
+    :include-values  boolean (default false) — when false, only the
+                     query-vectors ride the wire (the cheap \"what's
+                     subscribed\" read); when true each entry also
+                     carries `:value` (current deref) and `:ref-count`.
+
+  Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}`
+  (or, with `:include-values true`,
+  `:subs [{:query-v <v> :value v :ref-count n} ...]`). Empty `:subs`
+  vector when nothing is subscribed in the frame."
+  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
-(defn- filter-form
-  "Build the per-sub `filterv` body — `subs` when no filters apply, a
-  one-predicate `filterv` when exactly one, an `and`-combined chain
-  when both. The form is composed Clojure-side (rf2-ambfv) so the
-  runtime never sees `(if nil ...)` no-op branches for absent
-  filters."
-  [topic sub-id]
-  (let [preds (cond-> []
-                topic  (conj (str "(= (:topic %) " (pr-str topic) ")"))
-                sub-id (conj (str "(= (:id %) "    (pr-str sub-id) ")")))]
-    (case (count preds)
-      0 "subs"
-      1 (str "(filterv #" (first preds) " subs)")
-      (str "(filterv #(and " (str/join " " preds) ") subs)"))))
-
-(defn list-subscriptions-tool [conn args]
-  (let [build-id (wire/arg-build conn args)
-        topic    (wire/arg-keyword args :topic)
-        sub-id   (wire/arg args :sub-id)
-        form     (ef/emit
-                   (ef/rt-let ['r    (ef/rt-call 'subscription-info)
-                               'subs (ef/rt-raw "(:subs r)")]
-                              (ef/rt-raw
-                                (str "(assoc r :subs " (filter-form topic sub-id) ")"))))]
+(defn list-subscriptions-tool [conn raw-args]
+  (let [build-id (wire/arg-build conn raw-args)
+        frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
+        ;; `:include-values` rides the shared bool-args accept-shape
+        ;; contract (rf2-c4fmh) — `true` / `"true"` / `"yes"` / ... all
+        ;; resolve; default false.
+        incl?    (args/parse-bool-arg raw-args :include-values)
+        opts     (cond-> {}
+                   frame (assoc :frame frame)
+                   incl? (assoc :include-values? true))
+        form     (ef/emit (ef/rt-call 'sub-cache-info opts))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))

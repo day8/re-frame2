@@ -64,7 +64,11 @@
   {:dedup             {:default true}
    :elision           {:default true}
    :cache             {:default false}
-   :include-sensitive {:default false}})
+   :include-sensitive {:default false}
+   ;; rf2-qicji — list-subscriptions toggles its per-entry shape.
+   ;; Default false: only the query-vectors ride the wire (the cheap
+   ;; "what's subscribed" read); true also ships :value + :ref-count.
+   :include-values    {:default false}})
 
 (defn parse-bool-arg
   "Resolve a boolean MCP arg by name. Returns the per-arg default from

@@ -304,6 +304,7 @@
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
+    | list-streams           | yes   | n/a         | n/a               |
     | handler-meta           | yes   | yes         | (short-circuit)   |
     | list-handlers          | yes   | yes         | (short-circuit)   |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
@@ -777,10 +778,20 @@
     :fixture/expect
     {:isError? true}}
 
-   ;; ---------- list-subscriptions ----------------------------------------
+   ;; ---------- list-subscriptions (reactive sub-cache, rf2-qicji) --------
    {:fixture/id    :list-subscriptions/empty
-    :fixture/doc   "list-subscriptions with no active streams returns an empty list envelope."
+    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope."
     :fixture/tool  "list-subscriptions"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? false}}
+
+   ;; ---------- list-streams (streaming-tap diagnostic, rf2-qicji) --------
+   {:fixture/id    :list-streams/empty
+    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope."
+    :fixture/tool  "list-streams"
     :fixture/args  {}
     :fixture/eval-script
     [[:default nil]]

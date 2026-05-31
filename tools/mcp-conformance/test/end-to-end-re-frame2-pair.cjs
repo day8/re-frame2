@@ -193,17 +193,14 @@ runWithWatchdog(
     }
     console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
 
-    // 3c. list-subscriptions — added by rf2-zjz9q as a dedicated MCP
-    // wrapper around `re-frame2-pair.runtime/subscription-info` (runtime
-    // fn keeps the historical name) so AI clients can list active
-    // streaming subscriptions without an eval-cljs round-trip. Renamed
-    // from `subscription-info` per rf2-4y595 (NAMING.md `list-<things>`
-    // conformance). Pure-read
-    // tool, no required arguments — optional :topic / :sub-id filters
-    // narrow the result. In degraded mode it returns the same
-    // nrepl-port-not-found envelope as every other live-runtime tool;
-    // covering it here proves the dispatch table is wired and the
-    // descriptor reaches the SDK.
+    // 3c. list-subscriptions — lists the LIVE reactive sub-cache for a
+    // frame (rf2-qicji repointed it here from the streaming-tap registry;
+    // it now reads the same source as `snapshot :sub-cache` via the
+    // runtime's `sub-cache-info` fn). Pure-read tool, no required
+    // arguments — optional :frame / :include-values. In degraded mode it
+    // returns the same nrepl-port-not-found envelope as every other
+    // live-runtime tool; covering it here proves the dispatch table is
+    // wired and the descriptor reaches the SDK.
     const subInfoResp = await client.callTool({
       name: 'list-subscriptions',
       arguments: {},
@@ -223,6 +220,34 @@ runWithWatchdog(
     }
     console.log(
       'OK   tools/call list-subscriptions (degraded) -> isError + nrepl-port-not-found',
+    );
+
+    // 3c-bis. list-streams — the streaming-tap diagnostic that
+    // list-subscriptions formerly carried (rf2-qicji split). Wraps
+    // `re-frame2-pair.runtime/subscription-info` (runtime fn keeps the
+    // historical name) so AI clients can list active streaming
+    // subscriptions without an eval-cljs round-trip. Pure-read tool,
+    // optional :topic / :sub-id filters. Same degraded envelope; covering
+    // it proves the new dispatch entry is wired and reaches the SDK.
+    const streamsResp = await client.callTool({
+      name: 'list-streams',
+      arguments: {},
+    });
+    if (!streamsResp.isError) {
+      throw new Error(
+        'list-streams in degraded mode should isError; got: ' +
+          JSON.stringify(streamsResp),
+      );
+    }
+    const streamsText = streamsResp.content?.[0]?.text || '';
+    if (!streamsText.includes('nrepl-port-not-found')) {
+      throw new Error(
+        'list-streams degraded text should mention :nrepl-port-not-found; got: ' +
+          streamsText,
+      );
+    }
+    console.log(
+      'OK   tools/call list-streams (degraded) -> isError + nrepl-port-not-found',
     );
 
     // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every

@@ -2,10 +2,11 @@
   "Mini-DSL for composing the CLJS eval forms tools ship over nREPL
   (rf2-dpzpe).
 
-  Eight call-sites — `dispatch`, `trace-window`, `watch-epochs`,
+  Several call-sites — `dispatch`, `trace-window`, `watch-epochs`,
   `snapshot`, `get-path`, `subscribe`, `subscribe`'s drain/unsubscribe
-  loop forms, `list-subscriptions`, `unsubscribe`, plus `precheck-form`
-  — build CLJS source strings by raw `str` concatenation. Two costs:
+  loop forms, `list-subscriptions` (reactive sub-cache), `list-streams`
+  (streaming-tap registry), `unsubscribe`, plus `precheck-form` —
+  build CLJS source strings by raw `str` concatenation. Two costs:
 
   1. The runtime namespace prefix (`re-frame2-pair.runtime/`)
      appeared verbatim at 17+ sites — one rename, seventeen edits.

@@ -33,14 +33,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest bool-args-table-shape
-  ;; The four arg keys are catalogued; their default postures are the
-  ;; cross-MCP convention. Drift here = drift across consumers.
-  (is (= #{:dedup :elision :cache :include-sensitive}
+  ;; The catalogued arg keys; their default postures are the cross-MCP
+  ;; convention. Drift here = drift across consumers. `:include-values`
+  ;; was added by rf2-qicji for the reactive `list-subscriptions` tool.
+  (is (= #{:dedup :elision :cache :include-sensitive :include-values}
          (set (keys args/bool-args))))
   (is (true?  (get-in args/bool-args [:dedup             :default])))
   (is (true?  (get-in args/bool-args [:elision           :default])))
   (is (false? (get-in args/bool-args [:cache             :default])))
-  (is (false? (get-in args/bool-args [:include-sensitive :default]))))
+  (is (false? (get-in args/bool-args [:include-sensitive :default])))
+  (is (false? (get-in args/bool-args [:include-values    :default]))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-bool-arg — table lookup + JS-args extraction.

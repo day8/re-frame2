@@ -117,7 +117,9 @@
 (def ^:private idempotent-read-only-annotations
   "Read-only AND idempotent — `snapshot`, `get-path`, `discover-app`,
   `tail-build`, `list-subscriptions`, `handler-meta`, `list-handlers`
-  return the same answer for the same args + same runtime state."
+  return the same answer for the same args + same runtime state.
+  (`list-subscriptions` reads the live reactive sub-cache, rf2-qicji —
+  idempotent across same-state calls just like `snapshot :sub-cache`.)"
   {:readOnlyHint   true
    :idempotentHint true
    :openWorldHint  true})
@@ -163,7 +165,7 @@
   streaming-subscribe-annotations)
 
 (def ^:private streaming-info-annotations
-  "Annotations for `list-subscriptions` — pure read over the
+  "Annotations for `list-streams` — pure read over the streaming-tap
   subscription registry, idempotent across same-state calls."
   {:readOnlyHint   true
    :idempotentHint true
@@ -790,13 +792,46 @@
 
 (def list-subscriptions
   {:name "list-subscriptions"
-   :description (str "List active streaming subscriptions opened via `subscribe`, with per-sub queue depth, "
+   :description (str "List the LIVE reactive subscriptions materialised in a frame's per-frame sub-cache — the answer to "
+                     "'what subscriptions are currently active?'. Reads the SAME source `snapshot`'s :sub-cache slice reads "
+                     "(re-frame.subs.tooling/sub-cache-snapshot, via the runtime's `sub-cache` fn), so the two never disagree (rf2-qicji). "
+                     "The reactive cache is ref-counted and live: an entry appears the moment a view subscribes and DISAPPEARS "
+                     "when the last consumer disposes the reaction — so a disposed sub no longer shows up here. "
+                     "NOT the streaming-tap registry — for 'what trace/epoch/fx/error streams are open?' use `list-streams`. "
+                     "Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}` (query-vectors only, sorted, stable across calls); "
+                     "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n>}`. "
+                     "Empty `:subs` vector when nothing is subscribed in the frame. "
+                     "Frame resolution mirrors snapshot/get-path: omit `:frame` to use the operating frame; a multi-frame session "
+                     "with no selection returns {:ok? false :reason :ambiguous-frame}. "
+                     "Examples: "
+                     "1. Default frame: {} -> {:ok? true :frame :rf/default :count 1 :subs [[\"mounted?\"]]}. "
+                     "2. With values: {:frame \":rf/xray\" :include-values true} -> {:ok? true :frame :rf/xray :count 2 :subs [{:query-v [\"active-filters\"] :value #{} :ref-count 1} {:query-v [\"for-table\" \"views\"] :value [...] :ref-count 1}]}. "
+                     "3. Nothing subscribed: {:frame \":rf/default\"} -> {:ok? true :frame :rf/default :count 0 :subs []}.")
+   :typicalTokens 400
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:frame          {:type "string"
+                                               :description "Frame to read. Accepts bare names (\"rf/default\") or EDN-shaped strings (\":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection -> :reason :ambiguous-frame."}
+                              :include-values {:type "boolean"
+                                               :description "When true, each entry carries :value (current deref) and :ref-count alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read)."}
+                              :build          {:type "string"}}
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; list-streams
+;; ---------------------------------------------------------------------------
+
+(def list-streams
+  {:name "list-streams"
+   :description (str "List active streaming-tap subscriptions opened via `subscribe`, with per-sub queue depth, "
                      "drop counts, and overflow-reason — without draining any queues. Diagnostic for "
                      "'what streams are currently open?' and 'is my probe still alive?'. Wraps the "
                      "`re-frame2-pair.runtime/subscription-info` runtime fn directly (no eval-cljs round-trip). "
+                     "NOT the reactive sub-cache — for 'what reactive subscriptions are active?' use `list-subscriptions` (rf2-qicji). "
                      "Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes "
                      ":dropped-events :dropped-bytes :overflow-reason :created-at}]}` — one entry per "
-                     "currently-registered subscription. Empty `:subs` vector when no streams are open. "
+                     "currently-registered streaming subscription. Empty `:subs` vector when no streams are open. "
                      "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error` / `:frameless`) narrows to "
                      "a single topic; `sub-id` returns only the matching sub. A non-nil `:overflow-reason` "
                      "indicates the queue has been evicting older events to stay inside its budget — tune "

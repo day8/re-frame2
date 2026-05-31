@@ -6,7 +6,7 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The seventeen MCP tools. All seventeen are catalogued below; the
+The eighteen MCP tools. All eighteen are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance), the write pair
@@ -204,8 +204,11 @@ session per the [persistent-socket principle](Principles.md#single-persistent-nr
 no cross-process leak, no manual invalidation.
 
 Action tools (`dispatch`, `eval-cljs`, `tail-build`) and
-streaming tools (`subscribe`, `unsubscribe`) bypass the cache —
-their return value is the result of an action, not a read.
+streaming tools (`subscribe`, `unsubscribe`, `list-streams`) bypass
+the cache — their return value is the result of an action / a read of
+the volatile streaming-tap registry, not frame state.
+(`list-subscriptions` opts IN — it reads the live reactive sub-cache,
+a pure function of frame state, just like `snapshot`; rf2-qicji.)
 `:isError` results bypass too; a transient failure must not
 mask a future successful read.
 
@@ -1696,11 +1699,13 @@ resource controls](#universal-server-resource-controls-streaming-surfaces)).
 
 ### Diagnostics
 
-When a stream seems quiet or stalled, the `list-subscriptions` tool
-below lists every currently-registered subscription with its
+When a stream seems quiet or stalled, the `list-streams` tool
+below lists every currently-registered streaming subscription with its
 queue-depth, drop counts, and overflow-reason — without draining
 queues. Use it to confirm the sub is still alive and to check
 whether the byte / event budget is evicting under pressure.
+(For reactive subscriptions — the per-frame sub-cache — use
+`list-subscriptions` instead; it reads a different surface.)
 
 ## unsubscribe
 
@@ -1716,33 +1721,123 @@ agent host can't propagate cancellation cleanly).
 
 ## list-subscriptions
 
-Diagnostic listing of currently-registered streaming subscriptions —
-the "what streams are open right now?" surface. Pure read over the
-runtime's `subscriptions` atom; **does NOT drain any queues** and
-does NOT alter the stream contents that `subscribe` will see on its
-next tick. Wraps the `re-frame2-pair.runtime/subscription-info`
-runtime fn directly (one cheap nREPL eval — no `eval-cljs`
-round-trip needed; the runtime fn keeps its historical name).
+List the **live reactive subscriptions** materialised in a frame's
+per-frame sub-cache — the "what subscriptions are currently active?"
+surface. Reads the **same source** the `snapshot` tool's `:sub-cache`
+slice reads (`re-frame.subs.tooling/sub-cache-snapshot`, via the
+runtime's `sub-cache` fn → the runtime's `sub-cache-info` projection),
+so the two never disagree. Routes through the same Tool-Pair sub-cache
+read surface listed in the intro, not the streaming-tap registry.
+
+The reactive cache is **ref-counted and live**: an entry appears the
+moment a view subscribes and **disappears** when the last consumer
+disposes the reaction — so a sub that's been disposed (its view
+unmounted, no other subscribers) no longer shows up here.
+
+> **rf2-qicji — wrong-source → right-source.** Before rf2-qicji this
+> tool wrapped `re-frame2-pair.runtime/subscription-info`, which reads
+> the **streaming-tap registry** (the trace / epoch / fx / error queues
+> opened by `subscribe`), NOT the reactive sub-cache. That registry is
+> empty unless a streaming `subscribe` is open, so
+> `list-subscriptions {frame :rf/default}` returned `{:subs []}` even
+> when the frame had live reactive subscriptions — a false-empty
+> correctness bug (live evidence: `snapshot :sub-cache` showed
+> `[["mounted?"]]` for the same frame while this tool said `[]`). The
+> fix repoints `list-subscriptions` at the reactive sub-cache; the
+> streaming-tap diagnostic kept its behaviour and moved to the
+> accurately-named [`list-streams`](#list-streams) tool. No back-compat
+> shim (pre-alpha).
+
+**Args** (all optional):
+
+- `frame` (string, optional) — the frame to read. Accepts bare names
+  (`"rf/default"`) or EDN-shaped strings (`":rf/default"`). Defaults to
+  the operating frame (per the runtime's frame resolution, shared with
+  `snapshot` / `get-path`); a multi-frame session with no selection
+  returns `{:ok? false :reason :ambiguous-frame}` rather than silently
+  reading `:rf/default`.
+- `include-values` (boolean, optional, default `false`) — when `false`,
+  only the query-vectors ride the wire (the cheap "what's subscribed"
+  read); when `true`, each entry also carries `:value` (the current
+  deref) and `:ref-count`.
+- `build` (string, optional, default `"app"`) — shadow-cljs build id.
+
+**Returns** (`:include-values false`, the default):
+
+```clojure
+{:ok?   true
+ :frame :rf/default
+ :count <integer>
+ :subs  [<query-v> ...]}          ; sorted by pr-str; stable across calls
+```
+
+**Returns** (`:include-values true`):
+
+```clojure
+{:ok?   true
+ :frame :rf/default
+ :count <integer>
+ :subs  [{:query-v   <query-vector>
+          :value     <current-deref>
+          :ref-count <integer>}
+         ...]}
+```
+
+`:subs` is an empty vector when nothing is subscribed in the frame —
+never `:ok? false` for the empty case. The query-vectors are sorted
+(by `pr-str`) so the listing is stable across calls.
+
+`list-subscriptions` opts INTO the per-session response cache (it reads
+the live reactive sub-cache, a pure function of frame state, just like
+`snapshot`). The `:value` slot (under `include-values true`) is the
+verbatim current deref; per the [§Universal: size-elision][1] /
+[Tool-Pair §Direct-read privacy posture for sub-cache][2] contract a
+production read of a sensitive / large value follows the same posture
+the `snapshot :sub-cache` slice does (the default-off `--allow-sensitive-reads`
+gate applies to verbatim values surfaced off-box).
+
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :ambiguous-frame` in a multi-frame session with no selected
+frame; `:reason :list-subscriptions-failed` (with `:message`) on any
+other failure.
+
+[1]: #universal-size-elision-on-app-db-slots
+[2]: ../../../spec/Tool-Pair.md#how-ai-tools-attach
+
+## list-streams
+
+Diagnostic listing of currently-registered **streaming-tap**
+subscriptions — the "what streams are open right now?" surface (the
+streaming diagnostic [`list-subscriptions`](#list-subscriptions)
+formerly carried, before rf2-qicji repointed that tool at the reactive
+sub-cache). Pure read over the runtime's `subscriptions` atom — the
+trace / epoch / fx / error / frameless queues opened by `subscribe`
+and torn down by `unsubscribe`. **Does NOT drain any queues** and does
+NOT alter the stream contents that `subscribe` will see on its next
+tick. Wraps the `re-frame2-pair.runtime/subscription-info` runtime fn
+directly (one cheap nREPL eval — no `eval-cljs` round-trip needed; the
+runtime fn keeps its historical name).
 Useful when a streaming probe seems to have gone quiet: confirm the
 sub is still registered, inspect `:queue-depth` / `:queue-bytes` for
 evidence of a stuck consumer, or check `:overflow-reason` for budget
 pressure that needs tuning on the next `subscribe` call.
 
-Unlike the other read tools, `list-subscriptions` reads the runtime's
+Unlike the other read tools, `list-streams` reads the runtime's
 internal subscription registry rather than routing through one of the
 Tool-Pair primitives listed in the intro — its peer surface is the
 streaming registry that `subscribe` / `unsubscribe` mutate, not the
-frame-db / epoch-history / trace-buffer surfaces.
+frame-db / epoch-history / trace-buffer / sub-cache surfaces.
 
-**Naming note**: renamed from `subscription-info` per rf2-4y595 —
-NAMING.md catalogues `list-<things>` as the canonical enumeration
-verb. No back-compat shim; the old name hard-errors with
-`:unknown-tool`.
+> **NOT the reactive sub-cache.** For "what reactive subscriptions are
+> currently active in a frame?" use
+> [`list-subscriptions`](#list-subscriptions) (or `snapshot :sub-cache`)
+> — that reads the live per-frame reactive cache. `list-streams` reads
+> the MCP streaming-tap registry, a different concept entirely.
 
 **Args** (all optional):
 
 - `topic` (string, optional) — narrow to one topic. One of `"trace"`,
-  `"epoch"`, `"fx"`, `"error"`.
+  `"epoch"`, `"fx"`, `"error"`, `"frameless"`.
 - `sub-id` (string, optional) — return only the sub with this uuid
   (the uuid returned by `subscribe`). Convenient for "is this
   specific stream still alive?" checks.
@@ -1756,7 +1851,7 @@ returns the sub only if it matches on both axes.
 ```clojure
 {:ok? true
  :subs [{:id              <uuid-string>
-         :topic           :trace | :epoch | :fx | :error
+         :topic           :trace | :epoch | :fx | :error | :frameless
          :filter          <filter-map-as-supplied-to-subscribe>
          :queue-depth     <integer>       ; events buffered server-side
          :queue-bytes     <integer>       ; pr-str chars buffered server-side
@@ -1781,11 +1876,11 @@ The output is **not** routed through the universal dedup / elision /
 cache pipeline at the top of this catalogue — the payload is
 already a small flat vector of metadata records (no `:app-db`
 slices, no event vectors), so the wire-cap is the only universal
-that applies. `list-subscriptions` does NOT carry sensitive event
+that applies. `list-streams` does NOT carry sensitive event
 bodies; only registration metadata crosses the wire.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
-`:reason :list-subscriptions-failed` (with `:message`) on any other
+`:reason :list-streams-failed` (with `:message`) on any other
 failure.
 
 ## handler-meta

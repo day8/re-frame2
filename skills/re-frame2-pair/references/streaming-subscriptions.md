@@ -161,14 +161,16 @@ For an open-ended live narration, omit `max-events` and `max-ms`; close manually
 mcp__re-frame2-pair__unsubscribe {sub-id: "<the uuid from the subscribe response>"}
 ```
 
-## Diagnostics — what's currently registered?
+## Diagnostics — what streams are currently registered?
 
-The `list-subscriptions` MCP tool reports every open subscription without draining its queue:
+The `list-streams` MCP tool reports every open streaming-tap subscription without draining its queue:
 
 ```
-mcp__re-frame2-pair__list-subscriptions {}
+mcp__re-frame2-pair__list-streams {}
 ```
 
 Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}]}`. Useful when a probe seems to have gone quiet — confirm the sub is still registered (and that `queue-depth` / `queue-bytes` isn't piling up against a dead consumer) before assuming the bus is dry. A non-nil `:overflow-reason` indicates the queue has been evicting older events to stay inside its budget.
 
-Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__list-subscriptions {topic: "epoch"}` or `mcp__re-frame2-pair__list-subscriptions {sub-id: "<uuid>"}`.
+Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error` / `frameless`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__list-streams {topic: "epoch"}` or `mcp__re-frame2-pair__list-streams {sub-id: "<uuid>"}`.
+
+> **Note (rf2-qicji):** `list-streams` is the streaming-tap diagnostic. It is distinct from `list-subscriptions`, which reports the **live reactive sub-cache** for a frame (the answer to "what reactive subscriptions are active?", matching `snapshot :sub-cache`). The two answer different questions.

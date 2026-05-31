@@ -27,6 +27,7 @@ allowed-tools:
   - mcp__re-frame2-pair__subscribe
   - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions
+  - mcp__re-frame2-pair__list-streams
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
