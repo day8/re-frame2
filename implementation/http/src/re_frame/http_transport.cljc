@@ -529,6 +529,7 @@
 
 (declare run-attempt!)
 (declare finalise-failure!)
+(declare schedule-backoff-handle!)
 
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
@@ -588,6 +589,42 @@
                           :kind          :success
                           :reply-payload {:kind  :success
                                           :value value})))
+
+(defn- dispatch-aborted!
+  "Emit the `:rf.http/aborted` trace + dispatch the abort reply for a
+  cancelled request, honouring rf2-lxd3 supersede suppression.
+
+  Shared by BOTH cancellation states (rf2-wj8vv):
+   - the in-flight-fetch abort-fn in `run-attempt!` (a fetch / future is
+     live), and
+   - the backoff-sleeping abort-fn in `maybe-retry!` (no fetch is live;
+     a retry timer is pending).
+
+  Both flip their once-only `:finalised?` cell, perform the state-
+  specific teardown (CLJS `.abort` / JVM `.cancel` vs `clear-timeout!`),
+  clear the registry, then land here so an aborted request looks
+  identical to consumers regardless of which lifecycle phase it was in.
+  `reason` is `:user` / `:actor-destroyed` / `:request-id-superseded` /
+  `:timeout`. `ctx` must carry `:request-id`, `:actor-id`, `:url`,
+  `:sensitive?`."
+  [ctx reason]
+  (let [failure {:kind       :rf.http/aborted
+                 :request-id (:request-id ctx)
+                 :reason     reason
+                 :actor-id   (:actor-id ctx)}]
+    (when interop/debug-enabled?
+      (let [sensitive? (true? (:sensitive? ctx))
+            redacted   (privacy/prepare-emit-failure
+                         (assoc failure
+                                :url      (:url ctx)
+                                :recovery :no-recovery)
+                         sensitive?)]
+        (trace/emit-error! :rf.http/aborted redacted)))
+    ;; Per rf2-lxd3 — supersede semantics suppress the reply. Other
+    ;; abort reasons (`:user`, `:actor-destroyed`, `:timeout`) all
+    ;; dispatch the failure reply normally.
+    (when-not (= :request-id-superseded reason)
+      (dispatch-failure! ctx failure))))
 
 (defn- already-replied?
   "rf2-on7sj — the once-only reply guard. The handle carries a
@@ -735,6 +772,74 @@
         (when-not superseded?
           (dispatch-failure! ctx effective))))))
 
+(defn- schedule-backoff-handle!
+  "rf2-wj8vv — arm the retry backoff timer AND keep the request
+  registered (and therefore cancellable) for the whole backoff window.
+
+  Two cells coordinate the timer-fires-vs-cancel race:
+   - `fired?` is a once-only CAS owned jointly by the timer callback and
+     the abort-fn. Whoever wins it owns the transition out of the
+     backoff state; the loser is a no-op. This is the source of truth —
+     even if `clear-timeout!` races and misses (e.g. a JVM cancel that
+     arrives after the timer thread has begun but before our cell flips),
+     a timer callback that LOST the CAS bails before issuing the next
+     attempt, so no retry ever fires after a cancel.
+   - `timer-cell` forwards the scheduler handle to the abort-fn closure,
+     which is constructed before the handle exists. The abort-fn reads
+     it lazily and calls `interop/clear-timeout!` (a best-effort fast
+     cancel layered over the authoritative `fired?` CAS).
+
+  The backoff handle carries the same `:request-id` / `:actor-id` /
+  `:url` / `:sensitive?` shape every cancellation path expects, so
+  `:rf.http/managed-abort`, `abort-on-actor-destroy`, and `supersede!`
+  all cancel a sleeping request through their existing `:abort-fn`
+  dispatch with no path-specific code.
+
+  `interop/set-timeout!` / `interop/clear-timeout!` are defined on both
+  platforms (CLJS: `js/setTimeout` / `js/clearTimeout`; JVM:
+  `ScheduledExecutorService` + `ScheduledFuture.cancel`), so the backoff
+  scheduling and its cancellation are uniform across hosts."
+  [ctx delay-ms]
+  (let [{:keys [request-id actor-id]} ctx
+        fired?     (atom false)
+        timer-cell (atom nil)
+        abort-fn   (fn [reason]
+                     ;; Win the once-only transition; a concurrent timer
+                     ;; fire that loses here bails without retrying.
+                     (when (compare-and-set! fired? false true)
+                       (when-let [t @timer-cell]
+                         (interop/clear-timeout! t))
+                       ;; Drop the backoff handle from both indexes — the
+                       ;; same teardown a live-fetch abort performs.
+                       (registry/clear-in-flight! request-id)
+                       (dispatch-aborted! ctx reason)))
+        handle     (registry/record-in-flight!
+                     request-id actor-id
+                     {:abort-fn   abort-fn
+                      :url        (:url ctx)
+                      :sensitive? (true? (:sensitive? ctx))})
+        ;; Schedule AFTER registering so the request is cancellable the
+        ;; instant the timer is armed. The callback wins/loses the same
+        ;; `fired?` CAS: on a win it clears its own handle and proceeds;
+        ;; on a loss (a cancel beat it) it does nothing.
+        timer      (interop/set-timeout!
+                     (fn []
+                       (when (compare-and-set! fired? false true)
+                         (registry/clear-in-flight! request-id handle)
+                         (run-attempt! (-> ctx
+                                           (dissoc :handle)
+                                           (update :attempt inc)))))
+                     delay-ms)]
+    (reset! timer-cell timer)
+    ;; rf2-wj8vv — a cancel that arrived between `record-in-flight!` and
+    ;; this `reset!` already won `fired?` (so the timer callback will
+    ;; no-op) but may have read `timer-cell` as nil and skipped
+    ;; `clear-timeout!`. Re-check and cancel the now-known timer so the
+    ;; scheduler doesn't carry a doomed task for the full backoff.
+    (when @fired?
+      (interop/clear-timeout! timer))
+    nil))
+
 (defn- maybe-retry!
   "Decide between retry, immediate-final-failure, and successful-completion.
   `failure` is the failure map for the just-finished attempt.
@@ -749,7 +854,20 @@
   aborted request through `finalise-failure!` lets the in-flight
   reclassification (built into finalise-failure!'s abort-snapshot
   read) replace the would-be retry-eligible failure with the canonical
-  `:rf.http/aborted` shape."
+  `:rf.http/aborted` shape.
+
+  Per rf2-wj8vv (backoff window is cancellable): when a retry is
+  scheduled, the request stays REGISTERED for the whole backoff window
+  under a `schedule-backoff-handle!` handle whose `:abort-fn` cancels
+  the pending retry timer and clears the registry, rather than firing
+  a network abort (there is no live fetch between attempts). All three
+  cancellation paths — `:rf.http/managed-abort`, `abort-on-actor-
+  destroy`, `supersede!` — resolve a handle and fire its `:abort-fn`,
+  so registering the backoff handle is sufficient to make the sleeping
+  request cancellable through every path with no path-specific code.
+  Previously `maybe-retry!` cleared the handle from both indexes BEFORE
+  arming the timer, leaving the request invisible to every cancellation
+  path for the whole backoff — the timer fired regardless."
   [ctx failure]
   (let [{:keys [retry attempt request-id]} ctx
         {:keys [on max-attempts backoff]} retry
@@ -773,20 +891,13 @@
                           :failure         failure
                           :next-backoff-ms delay-ms}
                          (true? (:sensitive? ctx)))))
-        ;; Clear the prior attempt's handle from both indexes before
-        ;; scheduling the retry. The next run-attempt! invocation
-        ;; will record a fresh handle. Without this clear the
-        ;; actor-in-flight index would accumulate stale handles
-        ;; across retries (rf2-wvkn).
+        ;; Clear the prior attempt's live-fetch handle from both indexes;
+        ;; `schedule-backoff-handle!` immediately re-registers a fresh
+        ;; backoff handle so the request is never invisible to a
+        ;; cancellation path. Without the clear the actor-in-flight index
+        ;; would accumulate stale handles across retries (rf2-wvkn).
         (registry/clear-in-flight! request-id (:handle ctx))
-        ;; `interop/set-timeout!` is defined on both platforms (CLJS:
-        ;; `js/setTimeout`; JVM: `ScheduledExecutorService`) so retry
-        ;; scheduling is uniform across hosts.
-        (interop/set-timeout!
-          (fn [] (run-attempt! (-> ctx
-                                   (dissoc :handle)
-                                   (update :attempt inc))))
-          delay-ms))
+        (schedule-backoff-handle! ctx delay-ms))
       (do
         ;; Final attempt: emit retry-attempt with nil next-backoff if any retries occurred.
         (when (and interop/debug-enabled?
@@ -941,32 +1052,6 @@
         ;; one-cell atom that the JVM body fills after construction; the
         ;; abort-fn reads it lazily through `@cf-holder`.
         #?@(:clj  [cf-holder (atom nil)])
-        ;; rf2-on7sj — the abort-fn dispatches a synthesised reply
-        ;; directly (no finalise-failure! re-entry). Reuses the same
-        ;; trace-emit + reply-payload shape `finalise-failure!` uses
-        ;; for the natural path so abort + natural failures look
-        ;; identical to consumers. Bypassing finalise-failure! keeps
-        ;; the cancel + CAS + dispatch sequence atomic in the abort
-        ;; path and means the once-only guard has a single owner.
-        dispatch-aborted! (fn [reason]
-                            (let [failure {:kind       :rf.http/aborted
-                                           :request-id request-id
-                                           :reason     reason
-                                           :actor-id   actor-id}]
-                              (when interop/debug-enabled?
-                                (let [sensitive? (true? (:sensitive? ctx-no-handle))
-                                      redacted   (privacy/prepare-emit-failure
-                                                   (assoc failure
-                                                          :url      (:url ctx-no-handle)
-                                                          :recovery :no-recovery)
-                                                   sensitive?)]
-                                  (trace/emit-error! :rf.http/aborted redacted)))
-                              ;; Per rf2-lxd3 — supersede semantics
-                              ;; suppress the reply. Other abort reasons
-                              ;; (`:user`, `:actor-destroyed`, `:timeout`)
-                              ;; all dispatch the failure reply normally.
-                              (when-not (= :request-id-superseded reason)
-                                (dispatch-failure! ctx-no-handle failure))))
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id (handles anonymous-from-actor requests too —
@@ -1030,7 +1115,19 @@
                                   ;; this abort-fn was invoked, so the
                                   ;; no-op here is correct.
                                   (registry/clear-in-flight! request-id)
-                                  (dispatch-aborted! reason)))
+                                  ;; rf2-on7sj / rf2-wj8vv — the abort-fn
+                                  ;; dispatches a synthesised reply directly
+                                  ;; (no finalise-failure! re-entry). The
+                                  ;; shared `dispatch-aborted!` reuses the
+                                  ;; same trace-emit + reply shape the
+                                  ;; backoff-window abort uses, so abort +
+                                  ;; natural failures look identical to
+                                  ;; consumers regardless of lifecycle phase.
+                                  ;; Bypassing finalise-failure! keeps the
+                                  ;; cancel + CAS + dispatch sequence atomic
+                                  ;; and gives the once-only guard a single
+                                  ;; owner.
+                                  (dispatch-aborted! ctx-no-handle reason)))
                     :url url
                     ;; rf2-on7sj — once-only reply guard, see comment above.
                     :finalised? finalised?
