@@ -44,7 +44,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `(rf/h ...)` hiccup walker | **M-24** | A | Var-ref form (`[counter "..."]`) for the common case; `(rf/view :id)` for late-binding; drop the wrapper for HTML-only hiccup. |
 | `(:require [re-frame.test ...])` or `[day8.re-frame.test ...]` | **M-25** | A | Rename to `re-frame.test-support`. `dispatch-sequence` keeps its name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per **M-62** (so the fn-side shares a name root with the `:rf.assert/*` Story event-family). `run-test-sync` is dropped — hoist body to inline `dispatch-sync` under `make-reset-runtime-fixture` per **M-52**. Drop `day8/re-frame-test` Maven coord — ships in core. |
 | `with-trace`, `merge-trace!`, `finish-trace`, `trace-api-version`, `add-post-event-callback`, `remove-post-event-callback`, `purge-event-queue`, `dispatch-and-settle`, `spawn-machine`, `destroy-machine` | **M-26** | A/B | Drift-sweep drops. Each maps to a v2 surface; see the full table inline. `add-post-event-callback` is Type B; the rest mostly A. |
-| `reg-app-schema` / `reg-event-schema` / `:spec` metadata | **M-27** | A | Add `day8/re-frame2-schemas` artefact; user code's API surface in `re-frame.core` is unchanged. |
+| `reg-app-schema` / `:spec` metadata (incl. `:spec` on `reg-event-*`) | **M-27** | A | Add `day8/re-frame2-schemas` artefact; user code's API surface in `re-frame.core` is unchanged. |
 | `reg-machine` / `make-machine-handler` / `sub-machine` | **M-28** | A | Add `day8/re-frame2-machines` artefact; require `re-frame.machines` in any namespace using machine surfaces. |
 | `reg-route` / `:rf.route/*` events / `:rf/route` subs | **M-29** | A | Add `day8/re-frame2-routing` artefact; require `re-frame.routing` in any namespace using routing surfaces. |
 | `reg-flow` / `:rf.fx/reg-flow` (including post-M-21 `on-changes` rewrites) | **M-30** | A | Add `day8/re-frame2-flows` artefact; require `re-frame.flows` in any namespace using flow surfaces. |
@@ -140,10 +140,10 @@ Xray is a from-scratch reimplementation against re-frame2's trace bus and epoch-
 - `dispatch` / `dispatch-sync` (optional second `opts` arg is additive).
 - `subscribe`; `@(subscribe [...])` deref-to-read pattern.
 - `:<-` chained subs and `reg-sub` sugar variants.
-- `path`, `unwrap`, `inject-cofx` interceptors; `->interceptor` primitive.
+- `path`, `inject-cofx` interceptors; `->interceptor` primitive. (Note: v1's `unwrap` Var is renamed to `unwrap-interceptor` per M-59 — only the name moves; the `:unwrap` interceptor `:id` is unchanged.)
 - The `:fx` slot in effect maps (the inner shape `[[fx-id args] ...]`).
 - `reg-fx` / `reg-cofx` without `:platforms` (defaults to universal).
-- `reg-flow` / `flow<-` / `clear-flow` (in `re-frame.core`; underlying impl ships under `re-frame2-flows`).
+- `reg-flow` / `clear-flow` (in `re-frame.core`; underlying impl ships under `re-frame2-flows`). (v1's `flow<-` / `get-flow` are dropped — there is no `flow<-` surface in v2.)
 - `re-frame.std-interceptors` namespace.
 - JVM interop layer (`re-frame.interop`).
 - Hot-reload semantics on the default frame.

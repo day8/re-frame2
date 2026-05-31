@@ -40,7 +40,7 @@
 ;;;;     |-------------------------|-----------------------------|
 ;;;;     | `list-subscriptions`    | `sub-cache-info`            |
 ;;;;     | `list-streams`          | `subscription-info`         |
-;;;;     | `list-handlers`         | `rf/registry-list`          |
+;;;;     | `list-handlers`         | `rf/registrations`          |
 ;;;;
 ;;;;   (rf2-qicji: `list-subscriptions` reads the live reactive
 ;;;;   sub-cache via `sub-cache-info`; the streaming-tap diagnostic it
