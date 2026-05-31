@@ -474,3 +474,5 @@ Tests stop being a tax. You write more of them, because each is three lines and 
 The suite stays fast. A thousand JVM tests run in a couple of seconds, so you leave the watcher on and failures land while the change is still in your head. The CLJS-and-Playwright tier — the parts that genuinely need a real DOM — stays small and focused, because almost nothing actually needs it.
 
 And that inversion isn't luck or discipline. It's structural. re-frame2's primitives are functions, functions test cheaply, and the cost of arranging that was paid once, in the design, [back at the cascade](04-events-and-the-cascade.md). Every test you write afterwards just collects the interest. That's the seam, and it's why you get to sleep at night.
+
+Tests are the private proof. Runtime errors are the public signal. When the code is not under a test harness, the same data-first posture turns failures into structured events instead of console smoke.

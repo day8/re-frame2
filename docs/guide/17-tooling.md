@@ -68,3 +68,5 @@ For the human-facing skill docs, see [Skills](../skills/index.md), especially [r
 The door is open for custom tools: a domain monitor, a recorder, a migration assistant, a release-health dashboard. The rule is simple. Consume the public substrate; do not invent a private one.
 
 If a tool needs to know what happened, it should read the trace or epoch record. If it needs to know what exists, it should query the registrar. If it needs to show state, it should respect frame identity and privacy markings. The framework owns the data shape. Tools own the presentation. That division is what keeps the ecosystem coherent instead of turning into a pile of almost-right panels.
+
+One substrate detail sits underneath almost every serious tool and test story: a tool often needs to observe or run an app without becoming that app. That is why frames come next.
