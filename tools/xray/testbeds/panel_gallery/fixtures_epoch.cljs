@@ -1299,9 +1299,10 @@
 ;;   - the HANDLER step is NOT skipped (an `:after` throw runs the
 ;;     handler first), so its `:db` write still renders normally.
 ;;
-;; The INTERCEPTOR step rides BETWEEN COEFFECT and HANDLER in the
-;; numbered cascade (the chain's `:before` runs after coeffects, before
-;; the handler; the step position reflects that).
+;; The `:after` INTERCEPTOR step rides AFTER the HANDLER in the numbered
+;; cascade (rf2-vew2n — the chain's `:after` unwinds on the way OUT, past
+;; the handler; the step position reflects that). A `:before` throw's step
+;; would instead sit BEFORE the handler.
 
 (defn interceptor-after-throw-history
   "Cascade where a user interceptor (`:audit/trail`) threw in its

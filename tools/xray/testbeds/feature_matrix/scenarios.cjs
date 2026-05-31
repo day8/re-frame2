@@ -1096,6 +1096,67 @@ async function runExceptionSchemaHttp(page, state, ctx) {
       epochText: exceptionEpochText.slice(0, 800),
     });
   }
+
+  // rf2-s6oqd + rf2-oqi0c — focus the handler-throw epoch (Button A,
+  // `::throw-in-handler`: throws before returning a `:db`) and assert the
+  // exception-chrome fixes hold on the live cascade:
+  //   (s6oqd)  NO spurious "Rolled back" recovery chip — nothing committed
+  //            or rolled back here (and the post-commit/flow throws in this
+  //            deck likewise never roll back the committed `:db`).
+  //   (oqi0c-b) NO category-reason boilerplate headline element on any
+  //            exception card (the position + "Exception Thrown" heading
+  //            carry the attribution).
+  //   (oqi0c-a) the HANDLER step does NOT render the redundant
+  //            "— no :db (handler threw)" line — the inline card is the
+  //            signal, so the `:db` sub-section is omitted on a throw.
+  await focusCascadeByFrameEvent(page, {
+    frame: ':rf/default',
+    eventId: ':deliberate-throw.core/throw-in-handler',
+  });
+  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
+  // the handler-exception card is present (the inline failure surface)
+  await waitForValue(
+    () => page.locator('[data-testid="rf-xray-epoch-panel"] [data-error-op="handler-exception"]').count(),
+    (count) => count > 0,
+    { timeoutMs: 5000, description: 'oqi0c — handler exception card present' },
+  );
+  // (s6oqd) no rollback happened → NO "Rolled back" recovery chip anywhere
+  const handlerEpochRecoveryChips = await page
+    .locator('[data-testid="rf-xray-epoch-panel"] [data-testid$="-recovery"]')
+    .count();
+  if (handlerEpochRecoveryChips > 0) {
+    const chipText = (await page
+      .locator('[data-testid="rf-xray-epoch-panel"] [data-testid$="-recovery"]')
+      .first()
+      .textContent()) || '';
+    failWithDetails('rf2-s6oqd — spurious recovery chip on an exception that did not roll back', {
+      recoveryChipCount: handlerEpochRecoveryChips,
+      chipText,
+    });
+  }
+  // (oqi0c-b) the category-reason boilerplate headline is dropped
+  const handlerEpochHeadlines = await page
+    .locator('[data-testid="rf-xray-epoch-panel"] [data-testid$="-headline"]')
+    .count();
+  if (handlerEpochHeadlines > 0) {
+    failWithDetails('rf2-oqi0c — boilerplate exception headline not dropped', {
+      headlineCount: handlerEpochHeadlines,
+    });
+  }
+  // (oqi0c-a) the HANDLER step omits the "— no :db (handler threw)" line
+  const handlerThrewNoDbLine = await page
+    .locator('[data-testid="rf-xray-epoch-handler-db-no-write"]')
+    .count();
+  if (handlerThrewNoDbLine > 0) {
+    const lineText = (await page
+      .locator('[data-testid="rf-xray-epoch-handler-db-no-write"]')
+      .first()
+      .textContent()) || '';
+    failWithDetails('rf2-oqi0c — redundant "no :db (handler threw)" line not dropped', {
+      lineText,
+    });
+  }
+
   await clickTab(page, 'trace', 'rf-xray-trace');
   await expectVisible(page.locator('[data-testid="rf-xray-trace-feed"]'), 5000);
   await waitForValue(

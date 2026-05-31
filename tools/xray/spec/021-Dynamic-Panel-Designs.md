@@ -1308,7 +1308,7 @@ is rendered iff its driving trace events surfaced in this epoch:
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
 | **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. A coeffect that THREW on injection (`:rf.error/coeffect-exception`) but produced no `:rf.cofx/run` gets a synthesised placeholder COEFFECT step (rf2-yz57h) so the exception card has a home. |
-| **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only. One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card. Sits between COEFFECTS and HANDLER (the chain's cascade position). |
+| **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only. PHASE-SPLIT (rf2-vew2n): a `:before` throw renders its step BEFORE HANDLER, an `:after` throw AFTER HANDLER (execution order: COEFFECTS → :before → HANDLER → :after). One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card; the badge carries no "N threw" summary verb (rf2-oqi0c). |
 | **HANDLER** | every epoch settles through a handler | always (but rendered as **SKIPPED** — rf2-yz57h — when an upstream `:before`-chain throw aborted the cascade before the handler ran) |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |
 | **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired (rendered as **SKIPPED** when an upstream `:before`-chain throw aborted the cascade) |
@@ -2381,37 +2381,51 @@ mis-render):
 | Trace op | Owning step | Granularity |
 |----------|-------------|-------------|
 | `:rf.error/coeffect-exception` | COEFFECT, the step whose `:id` = `:failing-id` (cofx id) | step-level; falls back to the first COEFFECT step. When the throwing cofx produced no `:rf.cofx/run` (it threw on injection), `project` synthesises a placeholder COEFFECT step (`:no-value? true`) so the card has a home |
-| `:rf.error/interceptor-exception` | INTERCEPTOR (NEW) | step-level; the row matching `:failing-id` to `:interceptor-id` carries the card |
+| `:rf.error/interceptor-exception` | INTERCEPTOR (NEW), the step whose `:phase` = the exception's `:phase` (rf2-vew2n) | step-level; routes to the `:before` step (before HANDLER) or the `:after` step (after HANDLER); the row matching `:failing-id` to `:interceptor-id` carries the card |
 | `:rf.error/handler-exception` | HANDLER | step-level (only the event handler itself now) |
 | `:rf.error/fx-handler-exception` | SIDE EFFECTS, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
 | `:rf.error/no-such-fx` | SIDE EFFECTS | step-level (fallback) |
 | `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
 
-The error MESSAGE rides `[:tags :exception-message]` (handler / fx
+The error MESSAGE rides `[:tags :exception-message]` ONLY (handler / fx
 throws — `re-frame.router/emit-handler-exception!` stamps the
-exception's `.getMessage`) with `[:tags :reason]` as fallback; the
-failing handler's SOURCE-COORD rides the hoisted top-level
-`:rf.trace/trigger-handler :source-coord` slot (with
-`:rf.trace/call-site` as fallback). These are the SAME slots the
-Issues panel's `short-description` / `source-coord` read — the bead's
-original probe checked `:message` / `:source` / `:error-id`, which
-the substrate does not stamp (the empty-tags symptom).
+exception's `.getMessage`). rf2-oqi0c **DROPPED** the `[:tags :reason]`
+fallback: `:reason` is the terse CATEGORY boilerplate ("Event handler
+threw." / "…interceptor threw.") already conveyed by the card's position
++ "Exception Thrown" heading, so surfacing it as the card message was
+redundant chrome; the message line now renders ONLY when the throw
+carried a real `.getMessage`. The failing handler's SOURCE-COORD rides
+the hoisted top-level `:rf.trace/trigger-handler :source-coord` slot
+(with `:rf.trace/call-site` as fallback) — the SAME slot the Issues
+panel's `source-coord` reads.
 
-**INTERCEPTOR step (NEW, rf2-yz57h).** The pipeline had no distinct
-interceptor step before rf2-yz57h — interceptors WRAP the handler chain
-rather than appearing as their own cascade entry, so a user-interceptor
-`:before` / `:after` throw had no home. The INTERCEPTOR step
-(`projection/interceptor-step` → `view/render-interceptor-step`) sits
-between COEFFECTS and HANDLER (the cascade position of the chain:
-`:before` runs after coeffects, before the handler). It is
-**CONDITIONAL** — the substrate emits no per-interceptor "ran" trace
-(the chain runs as one unit; only a throw surfaces a trace), so the
-step renders ONLY when an interceptor threw this cascade. Each row is a
-throwing interceptor: the interceptor `:id` (click-to-source via
+**INTERCEPTOR step (NEW, rf2-yz57h · phase-placement rf2-vew2n).** The
+pipeline had no distinct interceptor step before rf2-yz57h — interceptors
+WRAP the handler chain rather than appearing as their own cascade entry,
+so a user-interceptor `:before` / `:after` throw had no home. The
+INTERCEPTOR step (`projection/interceptor-step` →
+`view/render-interceptor-step`) is **PHASE-SPLIT** and placed on the
+correct side of the EVENT HANDLER, reflecting execution ORDER + REACH:
+DISPATCH → COEFFECTS → **[:before interceptors]** → EVENT HANDLER →
+**[:after interceptors]** → EFFECT HANDLERS → FLOWS. A `:before`
+interceptor throws on the way IN (the chain aborts before the handler),
+so its step renders **BEFORE** HANDLER; an `:after` interceptor throws on
+the way OUT (the handler ran first), so its step renders **AFTER**
+HANDLER. (rf2-vew2n fix: the pre-existing single fixed-early step put an
+`:after` throw at position 2, before the handler — wrong; the `:phase`
+captured by rf2-mszrz now drives placement.) Each step carries its own
+`:phase`, and `attach-exceptions` routes each interceptor exception to
+the step matching its phase (`interceptor-exception-target`). Both are
+**CONDITIONAL** — the substrate emits no per-interceptor "ran" trace (the
+chain runs as one unit; only a throw surfaces a trace), so a phase's step
+renders ONLY when an interceptor threw in that phase this cascade. Each
+row is a throwing interceptor: the interceptor `:id` (click-to-source via
 `handler-meta`, degrading to plain text since interceptors are plain
 `->interceptor` records and carry no registered coord) + a `:before` /
-`:after` phase chip + the shared "Exception Thrown" card. Badge:
-`:INTERCEPTOR` pulls the `:accent` token (the chain WRAPS the handler;
+`:after` phase chip + the shared "Exception Thrown" card. rf2-oqi0c
+**DROPPED** the badge's "N interceptor(s) threw" summary verb — redundant
+with the per-row id + the inline card below; the `:INTERCEPTOR` badge
+stands alone (it pulls the `:accent` token — the chain WRAPS the handler;
 they read as one identity family). A `:before` throw skips the handler;
 an `:after` throw runs the handler first, then throws on the way out.
 
@@ -2441,26 +2455,26 @@ renders a red-edged card (sibling to the amber schema-violation card;
 carrying:
 
 1. a `✗ Exception Thrown` title bar + a `Rolled back` recovery chip
-   that paints **ONLY** when a `:db` actually committed before the
-   throw (`db-committed?` — the cascade-level presence of a
-   `:rf.event/db-changed` / schema rollback, stamped onto each
-   exception row by `attach-exceptions`). The substrate stamps
-   `:recovery :no-recovery` on EVERY `:rf.error/handler-exception`, so
-   keying the chip off recovery alone painted a **spurious** "Rolled
-   back" on button-15 — the handler threw before producing any `:db`,
-   so nothing committed and nothing reverted (rf2-wnvid fix);
-2. a one-line human headline derived from the OP (`error-block-label`),
-   naming the TRUE failing component (rf2-mszrz attribution): "The
-   :standard-epochs/throwing-cofx coeffect threw during injection." / "The
-   :app/auth interceptor threw on the way in (:before)." / "The event
-   handler threw." / "The :http/post effect threw." / "A flow's
-   computation threw." Pre-mszrz the router routed handler / interceptor /
-   coeffect throws ALL through `:rf.error/handler-exception`, so the
-   headline could only ever read "The event handler threw."; with the
-   rf2-mszrz split the headline reads off the component-attributed op and
-   `:phase`;
-3. the verbatim `ex-info` message (monospace); and
-4. a **collapsible** `<details>` disclosure ("Details", collapsed by
+   that paints **ONLY** when the cascade **ACTUALLY rolled back**
+   (`db-rolled-back?` — a `:where :app-db` schema-validation failure
+   reverted the commit, stamped onto each exception row by `project`).
+   The substrate stamps `:recovery :no-recovery` on EVERY `:rf.error/*`,
+   so keying the chip off recovery alone painted a **spurious** "Rolled
+   back". The earlier rf2-wnvid gate (`db-committed?`) fixed the
+   pre-commit handler throw (button-16 — no commit) but still mis-fired
+   on a **POST-COMMIT fx throw** (button-20 `:standard-epochs/boom`): fx
+   are best-effort post-commit (the FX atomicity asymmetry), so a
+   throwing fx leaves the `:db` committed yet reverts nothing. Gating on
+   actual rollback (rf2-s6oqd) paints the chip on a `:db` schema-fail
+   rollback (correct) and omits it on a post-commit fx throw AND a
+   pre-commit handler throw;
+2. the verbatim `ex-info` message (monospace) — the punchline. rf2-oqi0c
+   **DROPPED** the one-line category-reason boilerplate headline ("The
+   event handler threw." / "…interceptor threw." — formerly
+   `error-block-label`): it was redundant with the card's position (under
+   the failing step) + the "Exception Thrown" heading, which already
+   attribute the failure. The card now leads with the real `.getMessage`;
+3. a **collapsible** `<details>` disclosure ("Details", collapsed by
    default) carrying the exception's `ex-data` (via `ei/edn-inspector`)
    + its stack trace (monospace `<pre>`), read off the raw `:exception`
    object the projection lifts onto the exception row (rf2-wnvid).
@@ -2475,17 +2489,19 @@ steps); the SIDE EFFECTS step injects per-row cards via
 `fx-row-with-violations` plus a step-level
 `(error-blocks :side-effects errors)` for unmatched fx ids.
 
-**HANDLER `:db` — no phantom `:db` (rf2-wnvid).** The HANDLER step's
-`:db` sub-section (`view/handler-db-diff-block`) renders a
-`— no :db (handler threw)` / `— no :db (handler returned no :db)`
-placeholder when the handler wrote NO `:db` effect (the projection's
-`:db-write?` slot, from `projection/handler-wrote-db?`: t1
+**HANDLER `:db` — no phantom `:db` (rf2-wnvid); omitted on a throw
+(rf2-oqi0c).** When the handler **THREW**, `view/handler-body` OMITS the
+`:db` sub-section entirely (rf2-oqi0c): the redundant
+`— no :db (handler threw)` line was noise — the inline "Exception Thrown"
+card is the signal. For a CLEAN handler that simply wrote no `:db`, the
+sub-section (`view/handler-db-diff-block`) still renders the
+`— no :db (handler returned no :db)` placeholder, keyed off the
+projection's `:db-write?` slot (`projection/handler-wrote-db?`: t1
 `:rf.event/db-pending` OR a `:rf.event/db-changed` commit fired). The
 pre-rf2-wnvid code fell back to the record's full post-cascade
 `:db-after` whenever the post-handler db value was nil — painting the
 ENTIRE app-db tree under the HANDLER step as if the handler had returned
-it (the phantom `:db`, most visible on button-15 where the handler
-mutated nothing).
+it (the phantom `:db`, most visible where the handler mutated nothing).
 
 ### §9.1.10.5 Epoch outcome — tool-side, NOT the framework slot (rf2-ahhgn)
 
