@@ -5,7 +5,7 @@
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers two questions, and only two:
 
 1. **How do I launch Xray?** — the inline panel, the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 7 Dynamic event-spine tabs and the 5 Static registry-browse tabs.
+2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 6 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes) and the 5 Static registry-browse tabs.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 
@@ -19,7 +19,7 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 - `SKILL.md` — the skill itself
 - `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle, wired hotkeys)
-- `references/panels.md` — the full tab tour in depth (7 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance)
+- `references/panels.md` — the full tab tour in depth (6 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance)
 - `references/shared-components.md` — the components every L4 panel reuses (`edn_inspector/render`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — trigger-eval fixtures (should-trigger + should-not-trigger entries, per skill-creator's description-optimisation contract)
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
