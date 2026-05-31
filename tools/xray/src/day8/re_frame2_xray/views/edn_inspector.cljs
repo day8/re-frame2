@@ -3204,7 +3204,7 @@
                      :data-rf-mount-id mount-id
                      :data-rf-site-id  (when site-id (pr-str site-id))
                      :data-rf-mode    (if diff? "diff" "browse")
-                     :data-rf-popup-affordance? (when popup-affordance? "1")
+                     :data-rf-popup-affordance (when popup-affordance? "1")
                      :data-rf-card     (when card? "1")
                      :data-rf-header   "1"
                      :data-rf-zoomable (when zoomable? "1")
@@ -3254,7 +3254,7 @@
                  :data-rf-mount-id mount-id
                  :data-rf-site-id  (when site-id (pr-str site-id))
                  :data-rf-mode    (if diff? "diff" "browse")
-                 :data-rf-popup-affordance? (when popup-affordance? "1")
+                 :data-rf-popup-affordance (when popup-affordance? "1")
                  :data-rf-card     (when card? "1")
                  :data-rf-zoomable (when zoomable? "1")
                  :data-rf-zoomed   (when zoom-active? "1")
