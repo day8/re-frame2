@@ -19,14 +19,18 @@ It can draft a GitHub issue (against `day8/re-frame2-pair` for tool-side frictio
 
 It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file issues.
 
-## Repo contents
+## Directory contents
 
 - `SKILL.md` — the skill itself
+- `README.md` — this human-facing intro
 - `references/analysis-lenses.md` — friction taxonomy and prioritization prompts (re-frame2-aware)
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against
 - `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
+- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation
+- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill)
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
+- `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
 
 ## Relationship to other repos
 
