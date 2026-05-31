@@ -250,8 +250,25 @@
   `:frame` id and per-run id / timing counters here; the SEMANTIC tags
   (`:rf.trace/event-id`, `:rf.event/v` payload, `:rf.event/db` value) are
   NOT in this set, so a real behavioural difference still perturbs the
-  canonical value."
-  #{:frame :rf.trace/dispatch-id :rf.trace/trace-id :rf.event/elapsed-ms})
+  canonical value.
+
+  ## Per-run handler-timing stamps (the determinism strip)
+
+  `:rf.event/elapsed-ms` (event run), `:rf.fx/elapsed-ms` (fx handler), and
+  `:rf.cofx/elapsed-ms` (cofx handler) are the dev-only wall-clock durations
+  the framework stamps onto a `:rf.event/run-end` / `:rf.fx/handled` /
+  `:rf.cofx/run` trace event's `:tags` (Spec 009; emitted under
+  `interop/debug-enabled?`, DCE'd in production). They are pure per-RUN
+  timing jitter — two semantically-equal runs replayed into FRESH frames
+  measure DIFFERENT handler durations (e.g. 4ms vs 0ms under JIT / scheduling
+  noise), so they MUST be stripped or the determinism gate
+  (`re-frame.story.determinism/assert-deterministic`) false-drifts to
+  `:non-deterministic` whenever a replayed program runs a TIMED fx / cofx.
+  `:rf.event/elapsed-ms` was already stripped; `:rf.fx/elapsed-ms` and
+  `:rf.cofx/elapsed-ms` are its symmetric companions — all three are
+  handler wall-clock, none is behaviour."
+  #{:frame :rf.trace/dispatch-id :rf.trace/trace-id
+    :rf.event/elapsed-ms :rf.fx/elapsed-ms :rf.cofx/elapsed-ms})
 
 (defn- trace-event?
   "True iff `m` is a trace event (Spec 009 §Trace event shape): a map

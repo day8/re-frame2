@@ -2925,8 +2925,12 @@ so the gate is not blinded by them:
 
 - **wall-clock timestamps** — `:committed-at` (epoch record), `:time`
   (trace event), `:elapsed-ms` (run / assertion record);
-- **elapsed durations** — `:elapsed-ms`, the `:rf.event/elapsed-ms` trace
-  tag;
+- **elapsed durations** — `:elapsed-ms`, and the dev-only handler
+  wall-clock trace tags `:rf.event/elapsed-ms` (event run),
+  `:rf.fx/elapsed-ms` (fx handler), and `:rf.cofx/elapsed-ms` (cofx
+  handler); two semantically-equal runs replayed into fresh frames measure
+  different handler durations (JIT / scheduling jitter), so all three are
+  stripped or a TIMED fx / cofx would false-drift the gate;
 - **generated dispatch ids** — `:dispatch-id`, the `:rf.trace/dispatch-id`
   trace tag;
 - **generated frame ids** — `:frame` (the fresh `:rf.test.replay/*` id),
