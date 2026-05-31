@@ -77,13 +77,25 @@ on the server side surfaces as an SDK parse-error.
   against the canonical `ReFrame2PairProgressNotificationParams` schema
   pinned by `wire-vocab/`. Gated on `$SHADOW_CLJS_NREPL_PORT` (same
   posture as the overflow variant).
+- `test/live-re-frame2-pair-redaction.cjs` — re-frame2-pair-mcp **live**-runtime variant
+  (rf2-q4o83) that exercises egress redaction of a declared-`:sensitive?`
+  app-db slot through the pull-mode epoch tools (`trace-window` +
+  `watch-epochs`). Declares a sensitive slot app-side, dispatches a
+  recognisable sentinel into it, then asserts the sentinel is ABSENT
+  (and `:rf/redacted` PRESENT) in the egress payload with the
+  `--allow-sensitive-reads` gate OFF (default), and SHIPS with the gate
+  ON + `:include-sensitive true`. Pins BOTH directions so the gate can't
+  silently invert. This is the regression net for rf2-6wvh5 (the leak
+  the gate let ship green). Gated on `$SHADOW_CLJS_NREPL_PORT` (same
+  posture as the other live variants).
 - `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` — hermetic
   orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
   fixture (`skills/re-frame2-pair/tests/fixture/`), launches headless
-  Chromium so the runtime preload lands, then runs both
-  `live-re-frame2-pair-overflow.cjs` and `live-re-frame2-pair-subscribe.cjs` against
-  the spawned `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap
-  the SKIP path leaves on each.
+  Chromium so the runtime preload lands, then runs every live inner test
+  (`live-re-frame2-pair-overflow.cjs`, `live-re-frame2-pair-subscribe.cjs`,
+  `live-re-frame2-pair-redaction.cjs`) against the spawned
+  `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap the SKIP path
+  leaves on each.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled) + closed-world read-path success
   envelopes

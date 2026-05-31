@@ -60,6 +60,10 @@ const TESTS = [
     argv: ['test/live-re-frame2-pair-subscribe.cjs'],
   },
   {
+    name: 're-frame2-pair-mcp live-redaction (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-redaction.cjs'],
+  },
+  {
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],
   },
