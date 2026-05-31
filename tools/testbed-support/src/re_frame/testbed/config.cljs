@@ -69,7 +69,8 @@
   [param-name]
   (when (exists? js/window)
     (let [params (-> js/window .-location .-search (js/URLSearchParams.))]
-      (non-blank (.get params param-name)))))
+      (when-let [raw (non-blank (.get params param-name))]
+        (str/trim raw)))))
 
 (defn- strip-trailing-slash
   "Return `s` without a single trailing slash, leaving a lone `\"/\"` intact."
