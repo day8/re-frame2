@@ -62,6 +62,39 @@
   (is (some #(= % "#:rf.mcp{:overflow") envelope/marker-prefixes))
   (is (some #(= % "#:rf.mcp{:cache-hit") envelope/marker-prefixes)))
 
+(deftest marker-text?-only-matches-leading-marker-not-embedded-key
+  ;; Coverage gap (rf2-ynjts.17): `marker-text?` is `starts-with?`, not
+  ;; `includes?` — the marker key must be the LEADING top-level key for
+  ;; the text to count as a boundary marker. The comment block in
+  ;; envelope.cljc justifies the prefix-match precisely on this ground:
+  ;; an ordinary payload that merely CONTAINS `:rf.mcp/overflow` as a
+  ;; nested value must NOT be mistaken for a boundary-step marker (which
+  ;; would make a later boundary step skip re-walking a real payload).
+  ;; A regression that loosened `starts-with?` to `includes?` would
+  ;; trip this test.
+  (testing "marker key as a nested value ⇒ NOT a marker"
+    (is (false? (envelope/marker-text?
+                  (pr-str {:trace [{:note "saw :rf.mcp/overflow once"}]})))
+        "the key appearing as string content is not a leading marker")
+    (is (false? (envelope/marker-text?
+                  (pr-str {:result :ok :detail {vocab/overflow-key {:limit :reached}}})))
+        "an overflow marker nested under :detail is not a LEADING marker"))
+  (testing "marker key as a non-first top-level key ⇒ NOT a marker"
+    ;; pr-str of an array-map preserves insertion order, so :a prints
+    ;; first; the overflow key is present but not leading.
+    (let [s (pr-str (array-map :a 1 vocab/overflow-key {:limit :reached}))]
+      (is (false? (envelope/marker-text? s))
+          "overflow key present but not the leading key ⇒ not a marker"))))
+
+(deftest marker-text?-empty-and-blank-strings-are-not-markers
+  ;; Boundary pin (rf2-ynjts.17): the empty string and whitespace are
+  ;; strings (so they pass the `string?` guard) but match no prefix.
+  (is (false? (envelope/marker-text? "")))
+  (is (false? (envelope/marker-text? "   ")))
+  (is (false? (envelope/marker-text? "{")))
+  (is (false? (envelope/marker-text? "#:rf.mcp"))
+      "the namespaced-map prefix STEM alone (no key) is not a complete marker prefix"))
+
 (deftest marker-text?-handles-both-print-forms
   ;; JVM `pr-str` emits the namespaced-map shorthand for a single-ns
   ;; map; CLJS emits the flat form. Both MUST be detected so the cap /

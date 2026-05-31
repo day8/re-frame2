@@ -51,6 +51,20 @@
   (is (= overflow/default-max-tokens (cap/max-tokens :not-a-number)))
   (is (= overflow/default-max-tokens (cap/max-tokens [1 2 3]))))
 
+(deftest max-tokens-only-zero-disables-not-other-numbers
+  ;; Coverage gap (rf2-ynjts.17): the docstring is precise — ONLY a
+  ;; literal `0` disables the cap (returns nil); every other number is
+  ;; passed through as `(long raw)`. The existing tests pin nil-cap on
+  ;; `0` and passthrough on positives, but never pin that a NEGATIVE
+  ;; number is passed through (not treated as "disabled" and not
+  ;; defaulted). A regression that broadened the disable check to
+  ;; `(not (pos? raw))` would silently disable the cap for a negative
+  ;; arg — pin the exact `(zero? raw)` boundary.
+  (is (= -5 (cap/max-tokens -5))
+      "a negative number is NOT a disable signal — only 0 is")
+  (is (= 1 (cap/max-tokens 1)) "smallest positive passes through")
+  (is (integer? (cap/max-tokens -5)) "coerced to long like every numeric arm"))
+
 (deftest max-tokens-coerces-double-to-long
   (is (= 1000 (cap/max-tokens 1000.0)))
   (is (integer? (cap/max-tokens 1000.0))))

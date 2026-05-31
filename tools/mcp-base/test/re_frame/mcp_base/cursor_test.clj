@@ -74,6 +74,68 @@
     (is (= ::cursor/malformed
            (cursor/decode-cursor (cursor/encode-cursor {:wrong :shape}) offset-cursor?)))))
 
+(deftest decode-cursor-non-map-edn-is-malformed-without-consulting-predicate
+  ;; Coverage gap (rf2-ynjts.17): a cursor that base64+EDN-decodes to a
+  ;; well-formed but NON-MAP value (`"5"` ⇒ 5, `"[1 2 3]"` ⇒ vector,
+  ;; `":kw"` ⇒ keyword) hits the `(map? v)` short-circuit in
+  ;; `decode-cursor` — `valid?` is never consulted. The existing tests
+  ;; only exercised a map that FAILS `valid?`; the non-map arm (where
+  ;; `valid?` would throw if called on, say, a number) had no pin. We
+  ;; pass a `valid?` that THROWS on non-map input to prove the guard
+  ;; runs first: a throw here would mean `valid?` was reached.
+  (let [strict-map-pred (fn [m]
+                          ;; would explode on a non-map if reached
+                          (and (map? m) (pos? (count m))))
+        num-token  (cursor/b64-encode "5")
+        vec-token  (cursor/b64-encode "[1 2 3]")
+        kw-token   (cursor/b64-encode ":some-keyword")
+        str-token  (cursor/b64-encode "\"a string\"")]
+    (is (= ::cursor/malformed (cursor/decode-cursor num-token strict-map-pred))
+        "numeric EDN cursor ⇒ ::malformed (map? guard, valid? not consulted)")
+    (is (= ::cursor/malformed (cursor/decode-cursor vec-token strict-map-pred))
+        "vector EDN cursor ⇒ ::malformed")
+    (is (= ::cursor/malformed (cursor/decode-cursor kw-token strict-map-pred))
+        "keyword EDN cursor ⇒ ::malformed")
+    (is (= ::cursor/malformed (cursor/decode-cursor str-token strict-map-pred))
+        "string EDN cursor ⇒ ::malformed")))
+
+(deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
+  ;; Coverage gap (rf2-ynjts.17): the size guard is a STRICT `>`
+  ;; (`(> (count s) max-cursor-bytes)` ⇒ ::malformed). The existing
+  ;; oversize test only feeds `(inc max-cursor-bytes)` chars — the
+  ;; over-limit side. The INCLUSIVE side (a real cursor whose token
+  ;; length is `<= max-cursor-bytes`) was never pinned. A regression
+  ;; that flipped the guard to `>=` would reject a legitimate at-or-near-
+  ;; cap cursor; this test trips on that flip.
+  ;;
+  ;; Build the largest real, decodable cursor whose token length is
+  ;; still `<= max-cursor-bytes` (grow the payload's `:sig` to the cap).
+  ;; Under strict `>` it round-trips; under `>=` (if the token landed
+  ;; exactly on the cap) it would size-reject. The round-trip is the
+  ;; load-bearing assertion.
+  (let [grow      (fn [n] {:v 1 :offset 0 :total 1
+                           :sig (apply str (repeat n \s))})
+        token-len (fn [n] (count (cursor/encode-cursor (grow n))))
+        ;; largest sig length whose token is still within the cap.
+        max-n     (loop [n 0]
+                    (if (> (token-len (inc n)) cursor/max-cursor-bytes)
+                      n
+                      (recur (inc n))))
+        payload   (grow max-n)
+        token     (cursor/encode-cursor payload)]
+    (is (<= (count token) cursor/max-cursor-bytes)
+        "constructed cursor sits AT or just under the inclusive boundary")
+    (is (> (token-len (inc max-n)) cursor/max-cursor-bytes)
+        "one more sig char would push the token over the cap — boundary is tight")
+    (is (= payload (cursor/decode-cursor token offset-cursor?))
+        "a cursor at the inclusive size boundary is NOT size-rejected (strict >)"))
+  ;; Unconditional companion: a realistic small cursor is well under cap.
+  (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
+        token   (cursor/encode-cursor payload)]
+    (is (< (count token) cursor/max-cursor-bytes)
+        "a realistic cursor is well under the byte cap")
+    (is (= payload (cursor/decode-cursor token offset-cursor?)))))
+
 (deftest decode-cursor-rejects-tagged-literals
   ;; The hardening contract: a cursor smuggling a tagged literal must
   ;; be rejected by the reader's :default handler → ::malformed, never

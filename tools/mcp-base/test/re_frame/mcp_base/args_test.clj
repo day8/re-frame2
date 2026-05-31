@@ -220,6 +220,44 @@
   (is (nil? (args/safe-keyword "" #{:diff :full})))
   (is (nil? (args/safe-keyword ":" #{:diff :full}))))
 
+(deftest safe-keyword-disallowed-NAMESPACED-string-returns-nil-and-does-not-intern
+  ;; Coverage gap (rf2-ynjts.17): the existing no-intern pin
+  ;; (`safe-keyword-disallowed-string-returns-nil-and-does-not-intern`)
+  ;; exercises only the BARE-name arm (`find-keyword name-part`). The
+  ;; NAMESPACED arm (`find-keyword ns-part name-part`) is a distinct
+  ;; branch in `normalise-keyword-string` → `safe-keyword`, and it is
+  ;; the branch the registry-backed frame-id / `:rf.assert/*` coercions
+  ;; actually hit — those keys are namespaced. The DoS-gate guarantee
+  ;; (a rejected agent string MUST NOT intern a fresh JVM keyword) has
+  ;; to hold on the namespaced arm too, or the never-shrinking keyword
+  ;; table grows one slot per arbitrary `"ns/name"` an agent sends.
+  (let [novel-ns   "rf2-ynjts-novel-ns-do-not-intern"
+        novel-name "rf2-ynjts-novel-name-do-not-intern"
+        novel-kw   "rf2-ynjts-novel-ns-do-not-intern/rf2-ynjts-novel-name-do-not-intern"]
+    (is (nil? (find-keyword novel-ns novel-name))
+        "precondition: the novel namespaced keyword is not in the table")
+    (is (nil? (args/safe-keyword novel-kw #{:rf/foo :rf/bar}))
+        "out-of-allowlist namespaced string ⇒ nil")
+    (is (nil? (args/safe-keyword (str ":" novel-kw) #{:rf/foo :rf/bar}))
+        "leading-colon form also rejected")
+    (is (nil? (find-keyword novel-ns novel-name))
+        "safe-keyword MUST NOT intern a fresh NAMESPACED keyword on rejection — DoS gate")))
+
+(deftest safe-keyword-resolves-pre-interned-namespaced-keyword
+  ;; The positive companion: a namespaced keyword that DOES exist in the
+  ;; allowlist (and was therefore interned at allowlist-definition time)
+  ;; resolves from its string form via the namespaced `find-keyword`
+  ;; arm. Pins that the namespaced arm isn't merely a rejection path —
+  ;; it correctly returns the interned member when the input matches.
+  (is (= :rf.assert/path-equals
+         (args/safe-keyword "rf.assert/path-equals"
+                            #{:rf.assert/path-equals :rf.assert/path-absent}))
+      "an in-allowlist namespaced string resolves to its interned keyword")
+  (is (= :rf.assert/path-equals
+         (args/safe-keyword ":rf.assert/path-equals"
+                            #{:rf.assert/path-equals :rf.assert/path-absent}))
+      "leading-colon namespaced form resolves too"))
+
 (deftest safe-keyword-non-keyword-non-string-input-returns-nil
   (is (nil? (args/safe-keyword 42 #{:diff :full})))
   (is (nil? (args/safe-keyword [:diff] #{:diff :full})))
