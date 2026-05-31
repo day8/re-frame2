@@ -9,10 +9,10 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 - Framework keyword renames (M-20, M-35, M-54)
 - Tear-down verb renames (M-53)
 - Listener-registration verb unification (M-55)
+- `:rf.http/managed` `:retry :on` closed-set (M-31b)
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
-- `:rf.http/managed` `:retry :on` closed-set (M-31b)
 - Init / adapter (M-40)
 - Per-feature artefact adds (M-27 through M-33)
 
@@ -201,8 +201,8 @@ Inside the body, drop `(rf/dispatcher)` / `(rf/subscriber)` captures — `dispat
 ```clojure
 ;; SEARCH (inside reg-view body)
 (let [d (rf/dispatcher)
- s (rf/subscriber)]
- [:button {:on-click #(d [:inc])} @(s [:count])])
+      s (rf/subscriber)]
+  [:button {:on-click #(d [:inc])} @(s [:count])])
 
 ;; REWRITE
 [:button {:on-click #(dispatch [:inc])} @(subscribe [:count])]
