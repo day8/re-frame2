@@ -176,7 +176,7 @@
                                 :reason            "Error projector threw — using fallback."
                                 :recovery          :warned-and-replaced})
             ::threw))
-        public
+        public-error
         (cond
           (public-error-shape? result)
           result
@@ -196,7 +196,7 @@
                                 :reason            "Error projector returned a non-conforming shape — using fallback."
                                 :recovery          :warned-and-replaced})
             fallback-public-error))]
-    (cond-> public
+    (cond-> public-error
       dev-detail? (assoc :details trace-event))))
 
 (defn server-frame?

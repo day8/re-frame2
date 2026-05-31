@@ -33,9 +33,9 @@
       ;; frame if there is exactly one — the canonical SSR-request
       ;; shape.
       (nil? tag-frame)
-      (let [server-fids (filter error-projector/server-frame? (frame/frame-ids))]
-        (when (= 1 (count server-fids))
-          (first server-fids)))
+      (let [server-frame-ids (filter error-projector/server-frame? (frame/frame-ids))]
+        (when (= 1 (count server-frame-ids))
+          (first server-frame-ids)))
 
       :else nil)))
 
@@ -93,13 +93,13 @@
      (apply-error-projection! frame-id last-trace)))
   ([frame-id trace-event]
    (when (and frame-id trace-event (error-projector/server-frame? frame-id))
-     (let [public    (error-projector/project-error frame-id trace-event)
-           existing  (response/response-of frame-id)
-           redirect? (:redirect existing)]
+     (let [public-error (error-projector/project-error frame-id trace-event)
+           existing     (response/response-of frame-id)
+           redirect?    (:redirect existing)]
        (when-not redirect?
          (response/swap-response! frame-id
-                                  (fn [r] (assoc r :status (:status public)))))
-       public))))
+                                  (fn [r] (assoc r :status (:status public-error)))))
+       public-error))))
 
 (defn project-render-exception!
   "Route a render-time `Throwable` through the SSR error projector for
@@ -168,12 +168,12 @@
       ;; the projection that stamps :status on the response and
       ;; returns the public-error map the caller uses to render the
       ;; wire body.
-      (let [public (apply-error-projection! frame-id trace-event)]
+      (let [public-error (apply-error-projection! frame-id trace-event)]
         ;; Clear any duplicate buffer entry the listener appended above
         ;; (apply-error-projection! 2-arity does not drain). Without
         ;; this a later peek/flush would re-project the same event.
         (consume-pending-traces! frame-id)
-        public))))
+        public-error))))
 
 (defn error-projection-listener
   "Dev-only trace-cb listener — captures error trace events bound to a
@@ -196,8 +196,8 @@
     (let [op (:operation event)]
       ;; Skip our own sanitisation traces to avoid recursion.
       (when-not (= :rf.error/sanitised-on-projection op)
-        (when-let [fid (candidate-frame-for-error event)]
-          (buffer-error-trace! fid event))))))
+        (when-let [frame-id (candidate-frame-for-error event)]
+          (buffer-error-trace! frame-id event))))))
 
 (defn error-emit-projection-listener
   "Always-on error-emit-substrate listener (per rf2-fb598 / audit Finding
@@ -228,7 +228,7 @@
             ;; back to the candidate-frame lookup used on the trace-cb
             ;; path so a record missing `:frame` still routes to the
             ;; single active server frame when one exists.
-            direct-fid (:frame record)
+            direct-frame-id (:frame record)
             ;; Synthesise a trace-event-shaped envelope. The projector
             ;; reads `(:operation event)`; we copy the relevant flat
             ;; slots onto `:tags` so custom projectors using the tag
@@ -244,10 +244,11 @@
                                :time              (:time       record)
                                :source-coord      (:source-coord record)
                                :recovery          :no-recovery}}]
-        (when-let [fid (if (and direct-fid (error-projector/server-frame? direct-fid))
-                         direct-fid
-                         (candidate-frame-for-error event))]
-          (buffer-error-trace! fid event))))))
+        (when-let [frame-id (if (and direct-frame-id
+                                     (error-projector/server-frame? direct-frame-id))
+                              direct-frame-id
+                              (candidate-frame-for-error event))]
+          (buffer-error-trace! frame-id event))))))
 
 (defn peek-response
   "PURE read of the resolved response accumulator for a frame — does
