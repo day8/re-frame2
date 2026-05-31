@@ -920,6 +920,31 @@
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn counter-with-stories.core/run}}}
 
+  ;; Nine States Story + Xray showcase (rf2-rgyia). The
+  ;; examples/reagent/nine_states example wired up as a Story showcase:
+  ;; `nine-states.stories` registers one variant per canonical UI state
+  ;; (Nothing / Loading / Empty / One / Some / Too Many / Incorrect /
+  ;; Correct / Done) plus the RemoteData fetch-lifecycle variants
+  ;; (loading / loaded / error). Hash-routed via
+  ;; `nine-states.stories-host/run`: `#/` renders the live app; `#/stories`
+  ;; mounts the Story shell. The Xray preload is wired so a reader can
+  ;; press Ctrl+Shift+C and watch the `:nine-states.story/load` →
+  ;; `:rf.http/managed` → reply cascade light up Xray's Epoch / Trace /
+  ;; Side Effects panels.
+  ;;
+  ;; The `nine-states.*` namespaces resolve via the `../examples/reagent`
+  ;; source-path (already on :source-paths near the top of this file); the
+  ;; example does NOT use `re-frame.testbed.config`, so this build omits
+  ;; the open-in-editor repo-root closure-define the counter-with-stories
+  ;; / login-form testbed builds carry (those live under
+  ;; tools/story/testbeds and need it).
+  :examples/nine-states-with-stories
+  {:target     :browser
+   :output-dir "out/examples/nine-states-with-stories"
+   :asset-path "."
+   :modules    {:main {:init-fn nine-states.stories-host/run}}
+   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+
   ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
   ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
   ;; favour of the CLJS e2e at
