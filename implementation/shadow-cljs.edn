@@ -945,6 +945,32 @@
    :modules    {:main {:init-fn nine-states.stories-host/run}}
    :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 
+  ;; Login Story + Xray showcase (rf2-p8v0q). The examples/reagent/login
+  ;; example wired up as a Story showcase: `login.stories` registers one
+  ;; variant per reachable state of the `:auth.login/flow` machine (empty
+  ;; / submitting / invalid-credentials / auth-error / locked-out /
+  ;; success) plus two workspaces. Hash-routed via
+  ;; `login.stories-host/run`: `#/` renders the live app; `#/stories`
+  ;; mounts the Story shell. The Xray preload is wired so a reader can
+  ;; press Ctrl+Shift+C and watch the auth-submit cascade —
+  ;; `:auth.login/submit` → `:rf.http/managed` → reply → success/failure
+  ;; — light up Xray's Epoch / Trace / Side Effects panels (and the
+  ;; schema-rejection / 401 paths light the Issues ribbon).
+  ;;
+  ;; The `login.*` namespaces resolve via the `../examples/reagent`
+  ;; source-path (already on :source-paths near the top of this file); the
+  ;; example does NOT use `re-frame.testbed.config`, so this build omits
+  ;; the open-in-editor repo-root closure-define the counter-with-stories
+  ;; / login-form testbed builds carry (those live under
+  ;; tools/story/testbeds and need it). Mirrors
+  ;; :examples/nine-states-with-stories above.
+  :examples/login-with-stories
+  {:target     :browser
+   :output-dir "out/examples/login-with-stories"
+   :asset-path "."
+   :modules    {:main {:init-fn login.stories-host/run}}
+   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+
   ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
   ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
   ;; favour of the CLJS e2e at
