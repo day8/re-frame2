@@ -21,6 +21,15 @@
       (mount-machine-inspector! mount-point opts) → unmount-fn
       (mount-routing!          mount-point opts) → unmount-fn
 
+      ;; Spine surface — the L2 event list in isolation (rf2-9k43e).
+      ;; The SAME `shell/event-list` reg-view the full 4-layer shell
+      ;; composes at L2; mounted standalone it is the compact,
+      ;; clickable recent-events navigator. Clicking a row dispatches
+      ;; `:rf.xray/focus-cascade`, which re-binds the spine sub
+      ;; `:rf.xray/focus` — so any panel mounted alongside (App-db,
+      ;; Epoch, …) re-renders against the chosen past epoch.
+      (mount-event-spine! mount-point opts) → unmount-fn
+
       ;; Overlay / popup surfaces — same contract.
       (mount-segment-inspector! mount-point opts) → unmount-fn
       (mount-cancellation-cascade-side-panel! mount-point opts) → unmount-fn
@@ -233,6 +242,34 @@
   the registered-routes lens + simulate-URL surface."
   ([mount-point]      (mount-routing! mount-point nil))
   ([mount-point opts] (render-panel! routing/Panel mount-point opts)))
+
+(defn mount-event-spine!
+  "Mount Xray's L2 event spine in isolation at `mount-point` (rf2-9k43e).
+
+  Renders the SAME `shell/event-list` reg-view the full 4-layer shell
+  composes at L2 — the recent-events timeline (single-line rows,
+  latest-on-bottom) that IS the canonical scrubber. This is NOT a
+  parallel spine: it reuses the full-shell component verbatim, so the
+  embedded spine inherits the row anatomy, the issue-row wash
+  (rf2-b8guz), the relative-time chips, virtualisation, filters, and —
+  critically — the row-click → `:rf.xray/focus-cascade` write that
+  drives the single-axis spine sub `:rf.xray/focus` (spec/018 §4 + §6).
+
+  The contract for a host (Story) is: mount this spine ALONGSIDE a
+  focus-keyed panel (`mount-epoch-panel!` / `mount-app-db-diff!` / …)
+  in the SAME `:rf/xray` frame. Clicking a past event in the spine
+  re-binds `:rf.xray/focus`; the sibling panel re-renders against the
+  chosen epoch IN-PLACE — so a variant's event SEQUENCE is inspectable
+  without the full-shell pop-out (which remains the deep-history
+  escape hatch — spec/008 §Full-shell embed contract).
+
+  Per spec/018 §4 the event list owns its own height via
+  `:rf.xray/events-list-height-px`; the host caps the visible band
+  through its mount-point CSS for the compact embed footprint (the
+  contract is 'the host owns the container size' — spec/008 §Embed
+  props inventory)."
+  ([mount-point]      (mount-event-spine! mount-point nil))
+  ([mount-point opts] (render-panel! shell/event-list mount-point opts)))
 
 ;; (rf2-gbz39 — `mount-issues-ribbon!` removed alongside the retired
 ;; Issues tab. Mike RULED Option (c): the dedicated Issues tab + its

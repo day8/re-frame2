@@ -151,7 +151,14 @@
   `panel-id` is unknown. Compile-time symbol resolution via the
   `case` dispatch — no runtime namespace walk. (rf2-5gl5r retired
   `:event-detail` in favour of `:epoch`; rf2-gbz39 removed `:issues`
-  alongside the Xray Issues tab per Mike's Option (c) ruling.)"
+  alongside the Xray Issues tab per Mike's Option (c) ruling.)
+
+  rf2-9k43e — `:event-spine` resolves to `mount-event-spine!`, the
+  isolated L2 event list. It is NOT a chip-row panel (it's not in
+  `panel-catalog`); the embed renders it as a persistent compact band
+  ABOVE the chip-selected panel so past events are clickable in-place.
+  The `panel-host-component` class drives its mount via the same
+  contract every chip panel uses."
   [panel-id]
   (case panel-id
     :epoch        xray-panels/mount-epoch-panel!
@@ -160,6 +167,7 @@
     :trace        xray-panels/mount-trace!
     :machines     xray-panels/mount-machine-inspector!
     :routing      xray-panels/mount-routing!
+    :event-spine  xray-panels/mount-event-spine!
     nil))
 
 ;; ---- popout escape hatch -------------------------------------------------
@@ -248,6 +256,34 @@
                    :overflow "hidden"
                    :border-radius "4px"
                    :background (:bg-canvas colors/tokens)}
+   ;; rf2-9k43e — the compact in-place EVENT SPINE band. Sits BETWEEN
+   ;; the chip-row and the chip-selected panel-host so the user reads:
+   ;; pick a lens (chip-row) → scan the variant's recent events (spine)
+   ;; → click a past event → the panel below re-renders against that
+   ;; epoch. It hosts the SAME `shell/event-list` L2 component the full
+   ;; Xray shell composes (via `mount-event-spine!`), not a parallel
+   ;; spine. The band is height-capped (the full-shell L2 defaults to
+   ;; ~200px; the embed is 320px-wide and stacks below the chip-row, so
+   ;; a `max-height` keeps it compact and lets the list's own
+   ;; `overflow-y:auto` scroll older events) — the host owns the
+   ;; container size per spec/008 §Embed props inventory.
+   :spine-host    {:position "relative"
+                   :display "flex"
+                   :flex "0 0 auto"
+                   :flex-direction "column"
+                   :max-height "140px"
+                   :overflow "hidden"
+                   :border-radius "4px"
+                   :background (:bg-canvas colors/tokens)}
+   ;; rf2-9k43e — caption above the spine band so the affordance reads
+   ;; as 'this is the variant's recent-events timeline; click to focus'.
+   :spine-caption {:padding "0 2px 2px"
+                   :color (:text-tertiary colors/tokens)
+                   :font-family sans-stack
+                   :font-size (:caption typography/type-scale)
+                   :letter-spacing "0.02em"
+                   :text-transform "uppercase"
+                   :user-select "none"}
    :empty         {:padding "16px 8px"
                    :color (:text-tertiary colors/tokens)
                    :font-family sans-stack
@@ -369,13 +405,24 @@
 ;; container; only the prior root's release is queued.
 
 (defn- panel-host-component
-  "Reagent class-3 component owning the DOM mount lifecycle for the
-  Xray panel-host `<div>` across an arbitrary number of panel-id
-  swaps. On mount + on panel-id change, mounts the Xray
-  `mount-<panel>!` fn into a fresh child `<div>` of the host; on
-  unmount, releases every still-mounted Xray root via microtask
-  so the React 18+ root API never sees a synchronous unmount
-  inside the parent render cycle.
+  "Reagent class-3 component owning the DOM mount lifecycle for an Xray
+  mount-host `<div>` across an arbitrary number of panel-id swaps. On
+  mount + on panel-id change, mounts the Xray `mount-<panel>!` fn into a
+  fresh child `<div>` of the host; on unmount, releases every
+  still-mounted Xray root via microtask so the React 18+ root API never
+  sees a synchronous unmount inside the parent render cycle.
+
+  Argv: `[<panel-id>]` or `[<panel-id> <opts>]`. `opts` (rf2-9k43e) lets
+  the SAME class serve both the chip-selected panel host AND the compact
+  event-spine band:
+
+  - `:host-style`   — the host `<div>` inline style (defaults to the
+    panel-host style).
+  - `:host-test-id` — the host `<div>` `data-test` attr (defaults to
+    `\"story-xray-panel-host\"`).
+
+  Only the panel-id participates in the mount/swap diff; the opts are
+  pure presentation so a change to them never re-fires the mount.
 
   Lifecycle invariants (rf2-4l7t2):
 
@@ -392,7 +439,7 @@
     of the 'Attempted to synchronously unmount a root while React
     was already rendering' warning that previously fired 17× per
     Story-Xray browser-gate run)."
-  [_panel-id]
+  [_panel-id & _opts]
   (let [host-ref    (atom nil)
         ;; `mounted-ref` holds `{:unmount fn :container <div>}` for the
         ;; currently-mounted Xray root, or nil. Cleared eagerly when
@@ -465,11 +512,11 @@
        (fn [_this]
          (release!))
        :reagent-render
-       (fn [pid]
+       (fn [pid & {:keys [host-style host-test-id]}]
          [:div {:ref (fn [node] (reset! host-ref node))
                 :data-rf-xray-panel-host (name pid)
-                :data-test "story-xray-panel-host"
-                :style (:panel-host styles)}])})))
+                :data-test (or host-test-id "story-xray-panel-host")
+                :style (or host-style (:panel-host styles))}])})))
 
 ;; ---- disclosure toggle (rf2-ba86n.19) ------------------------------------
 
@@ -494,6 +541,41 @@
    [:span {:style (merge (:disclosure-glyph styles)
                          (when collapsed? (:disclosure-glyph-collapsed styles)))}
     [glyphs/chevron-right 11]]])
+
+;; ---- event-spine band (rf2-9k43e) ----------------------------------------
+
+(defn spine-band
+  "The compact, clickable recent-events SPINE for the Story RHS Xray
+  embed (rf2-9k43e). Renders a labelled band hosting the SAME
+  `shell/event-list` L2 component the full Xray shell composes — via
+  `xray-panels/mount-event-spine!` — so the variant's event SEQUENCE is
+  inspectable IN-PLACE, not only the final/focused event.
+
+  Mike RULED scope = A (2026-06-01): add the inline spine so past
+  events/epochs are focusable in-place; keep the Ctrl+Shift+C / `Pop
+  out` full-shell escape hatch for deep history. Clicking a past event
+  in the spine dispatches `:rf.xray/focus-cascade` (the row's own
+  handler — reused verbatim from the full shell), which re-binds the
+  spine sub `:rf.xray/focus`; the chip-selected panel below — mounted in
+  the SAME `:rf/xray` frame — re-renders against the chosen epoch.
+
+  The band mounts through the SAME `panel-host-component` class the
+  chip-selected panel uses (with the spine host-style + test-id), so it
+  inherits the rf2-4l7t2 React-18 deferred-unmount lifecycle. Its
+  panel-id (`:event-spine`) never changes, so the host class mounts the
+  spine once and leaves it; focus changes flow through the spine's own
+  subs, not a remount.
+
+  Public so the e2e hiccup test can assert the band + its mount slot."
+  []
+  [:div {:data-test "story-xray-spine-band"
+         :style {:display "flex" :flex-direction "column" :flex "0 0 auto"}}
+   [:div {:style (:spine-caption styles)
+          :data-test "story-xray-spine-caption"}
+    "Events — click to focus"]
+   [panel-host-component :event-spine
+    :host-style   (:spine-host styles)
+    :host-test-id "story-xray-spine-host"]])
 
 ;; ---- public surface: the embed panel -------------------------------------
 
@@ -579,7 +661,7 @@
          ;; panel-id changes, and same-panel-id variant changes are absorbed
          ;; by the Xray panel's own subs (`:rf.xray/focus` tracks the
          ;; variant-driven cascade).
-         (if collapsed?
+         (when collapsed?
            [:div {:style (:collapsed-rest styles)
                   :data-test "story-xray-embed-collapsed"
                   :on-click (fn [_]
@@ -587,5 +669,15 @@
             (str (or (some #(when (= active-panel (:panel %)) (:label %))
                            panel-catalog)
                      "Xray")
-                 " panel collapsed — expand to compute diffs.")]
-           [panel-host-component active-panel])]))))
+                 " panel collapsed — expand to compute diffs.")])
+         ;; rf2-9k43e — when expanded, the compact event SPINE band
+         ;; renders ABOVE the chip-selected panel so the variant's recent
+         ;; events are clickable in-place. Clicking a past event re-binds
+         ;; `:rf.xray/focus`; the panel below (same `:rf/xray` frame)
+         ;; re-renders against the chosen epoch. The spine + panel are
+         ;; SIBLINGS of the wrapper (not fragment-nested) so the panel-host
+         ;; slot stays a direct wrapper child for the e2e hiccup walkers.
+         ;; While collapsed neither the spine NOR the panel mounts —
+         ;; lazy-diff compute deferral (rf2-ba86n.19) covers both.
+         (when-not collapsed? [spine-band])
+         (when-not collapsed? [panel-host-component active-panel])]))))
