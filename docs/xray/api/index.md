@@ -1,6 +1,6 @@
 # Xray API reference
 
-This is the human-facing API reference for Xray — the dev-only panel that renders re-frame2's runtime as fourteen panels over a single observation surface. The tutorial chapters one folder up walk a developer through the surface from a sitting position; this folder walks it from a standing one, organised by **what part of the contract you're touching** rather than by user journey. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
+This is the human-facing API reference for Xray — the dev-only panel that renders re-frame2's runtime through six Dynamic lenses and five Static catalogues over a single observation surface. The tutorial chapters one folder up walk a developer through the surface from a sitting position; this folder walks it from a standing one, organised by **what part of the contract you're touching** rather than by user journey. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
 
 If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *host application* or a *tool integrator* may legitimately reach for, with intuition notes attached. Internal seams (the panel reg-views composed by Xray's own shell, the shell composer, the registry's per-key handlers) are deliberately absent — those are documented for Xray's maintainers, not for hosts.
 
@@ -26,7 +26,7 @@ Xray's user-facing surface splits across six namespaces. Five are CLJS / CLJC so
 
 | Namespace | Use when |
 |---|---|
-| `day8.re-frame2-xray.core` | The canonical require. The mount facade (`open!` / `close!` / `toggle!` / `popout!` / `status`), the frame picker (`target-frame` / `set-target-frame!`), and the four highest-traffic config setters re-exported for boot-time convenience. |
+| `day8.re-frame2-xray.core` | The canonical require. The mount facade (`open!` / `close!` / `toggle!` / `popout!` / `status`), the frame picker (`target-frame` / `set-target-frame!`), the Story-to-Xray `focus!` handoff, and the four highest-traffic config setters re-exported for boot-time convenience. |
 | `day8.re-frame2-xray.config` | The full configuration surface — `configure!` plus every per-key setter. Reach here when you're flipping a knob the facade doesn't re-export, or when your boot code is already routing all config through `configure!`. |
 | `day8.re-frame2-xray.keybinding` | The `attach!` / `detach!` lifecycle pair. Embed hosts (Story mounting Xray as a right-hand-side panel) reach here to take the `Ctrl+Shift+C` chord back. |
 | `day8.re-frame2-xray.runtime` | The Xray ↔ tool read-and-mutate seam. The MCP server, an IDE plugin, a record-replay harness — anything driving a running re-frame2 app from out-of-process reads the trace bus and epoch history through these accessors. |

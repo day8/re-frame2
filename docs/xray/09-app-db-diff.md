@@ -1,60 +1,49 @@
-# 9. App-DB diff
+# 9. App-DB Diff
 
-You just clicked *Refresh* on the parallel-frames testbed's `:above` panel and the title HTTP flow rewrote a couple of slots — `[:rf/machines :title/flow]` walked `:idle → :loading`, and once the mock fetch resolves it walks again to `:loaded` and writes `[:title :text]`. The Event-detail panel's mini-diff is the right size for "one leaf changed" — what you want now is the *whole* delta, slice by slice, with the un-touched 90% of the tree out of the way. App-DB panel is what you escalate to.
+You know which event ran; now you need to know what state changed. This chapter teaches the app-db panel: changed slices first, path-oriented inspection, read-only posture, and when to prefer Trace or Epoch instead.
 
-`app-db` is a value. Two epochs are two values. The diff is the difference between them — and on the epoch where the title-flow machine landed `:loaded`, the diff is two paths and four values: the machine slot moved from `:loading` to `:loaded`, and the `[:title :text]` slot picked up the resolved title. Not a 200-line tree dump.
+## Changed Slices First
 
-The panel is **per-frame**, scoped by the L1 frame picker. Switch from `:above` to `:below` and the same `[:rf/machines :title/flow]` slot reads from `:below`'s `app-db` — a different ring buffer, a different cascade history, a different diff per epoch.
+The app-db panel compares the focused epoch's `:db-before` and `:db-after`. It starts with the parts that changed because that is usually the question.
 
-The panel renders the diff of the **current epoch** (the one selected in Event detail or the time-travel scrubber) — `:db-before` and `:db-after`, slice-aware.
+![The app-db panel showing changed slices](../images/xray/xray-tutorial-app-db.png)
 
-![App-DB diff for a cascade](../images/xray/09-app-db-diff.png)
+This is deliberately not a giant tree dump on first paint. Giant tree dumps are where useful questions go to become archaeology.
 
-## Slice-centric, not tree dump
+Use app-db when you are asking:
 
-The panel does not render the full `app-db` tree on every epoch. That would be hostile to read — a 200-line tree where one leaf changed.
+- Did the handler write the path I expected?
+- Did a runtime-managed slice change?
+- Did a rollback preserve the old state?
+- Did a route, request, machine, or flow put data where I think it did?
+- Did a large or sensitive value get elided before display?
 
-It renders **only the slices that changed**, plus any slices you've explicitly *pinned*. The diff is shown:
+## Read-Only By Design
 
-- Inline JSON-ish (clojure pretty-printed with diff markers).
-- Side-by-side `:db-before` / `:db-after` toggle.
-- *Just the delta* — paths and value-pairs only.
+Xray does not edit app-db. That is a feature, not a missing form field.
 
-You pick the rendering mode that fits the diff size. The first cascade after app boot is a big diff (everything went from `{}` to seeded); subsequent cascades are usually a single nested update.
+The app-db panel is evidence. If you want to change state, dispatch an event, use a test frame, restore an epoch deliberately, or use the pair/MCP surface with the appropriate write permission. Xray keeps the diagnostic panel honest by not becoming an ad hoc state editor.
 
-![App-DB panel — the three rendering modes side-by-side](../images/xray/09-app-db-modes.png)
+## Paths Are The Handle
 
-## Pinning slices
+The panel is path-oriented. Follow path chips to drill into a slice or open a segment inspector where available. This makes large app-db values manageable because you can stay at the meaningful boundary instead of expanding everything.
 
-Click the pin icon next to a slice header (or use the *watch path* affordance) and that slice will render on every epoch — even when it didn't change. Useful for "I want to keep an eye on `:auth/state` while I work through a checkout flow."
+Good app-db debugging usually looks like this:
 
-Pinned slices show as `unchanged` rows in epochs where they didn't move. The signal is "still the same value," which is itself diagnostically useful when you expected it to change.
+1. Open the focused event in Epoch.
+2. Move to app-db for the changed slices.
+3. Drill only the suspicious path.
+4. Check downstream subscriptions in Views if the UI still looks wrong.
+5. Drop to Trace if you need exact operation order.
 
-## The underlying contract
+## Runtime-Owned Slices
 
-The panel reads the epoch record's `:db-before` and `:db-after` slots, and computes the diff in-panel. The runtime doesn't pre-compute diffs — it just stores the two value references. The diff fold is cheap (Clojure values are persistent; structural equality is fast) and tool-local. Production builds DCE the whole pathway.
+Some app-db paths are owned by re-frame2 runtime features: machines, routing, managed requests, flows, and related process state. You read those paths, but you do not hand-edit them.
 
-## Read-only
+That matters in Xray because the panel can show you framework-owned process state without implying that user handlers should write it directly. If a runtime-owned slice changed, ask which event or effect asked the runtime to advance the process.
 
-The panel never writes `app-db`. There's no inline editor. No "save changes" button.
+## Redaction And Elision
 
-Two reasons:
+Sensitive and large values are rendered through the same classification rules used by the rest of the tooling. Seeing `:rf/redacted` or a large-value marker is not a broken diff. It is the system refusing to spray secrets or huge payloads through the tool surface.
 
-1. **Xray is an observation tool.** Writes belong to dispatch (or, for bypass cases, `reset-frame-db!` from a pair session). Mixing observation and mutation makes Xray hard to trust during an investigation.
-2. **A typed `app-db` edit would race the runtime.** While you're typing, dispatches keep firing. Saving a half-typed edit would clobber whatever the runtime had just written. The pair tool's pathway handles this with explicit lock-the-drain semantics; baking it into the panel would force every panel session to think about drain locks.
-
-If you want to inject an `app-db` value — bug repro shipping, an experimental shape — call `(rf/reset-frame-db! :frame-id new-db)` from a pair session or the dev console. The runtime records a synthetic epoch and Xray renders the synthetic epoch in the scrubber so the injection is visible.
-
-## Wedge cases
-
-Three patterns the diff handles distinctively:
-
-- **Large blobs.** Slots tagged `:large?` (see [Guide 23b — Large blobs](../guide/23-privacy-and-large-things.md)) render as `:rf/elided` placeholders in the diff. The diff still flags "this slot changed"; it doesn't expand the value. The *show large* toggle is per-session — useful when you actually need to look.
-- **Sensitive values.** Slots whose schema declares `:sensitive? true` render as `:rf/redacted` by default, with a *N redacted* count at the bottom of the panel. Toggle on to inspect — same opt-in as the trace panel.
-- **Bigint and date types.** Values that don't pretty-print well in the default Clojure printer get a type chip — `[bigint]`, `[date]`, `[uuid]` — with the underlying value reachable through *expand*.
-
-## When you'd open it
-
-- "This cascade rewrote half the tree, and I want to see exactly which half." — the framing case from the opener; the App-DB panel is what Event detail's mini-diff escalates into.
-- "I think a sub is stale, but `app-db` says the value's right." — pin both the slot and the sub's recompute marker; watch them tick together.
-- "I want a session-long watch on `:auth/state`." — pin it; the panel paints it on every epoch.
+The path, marker, and surrounding context should still be enough to tell you what kind of value changed and where to look next.
