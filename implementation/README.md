@@ -257,6 +257,52 @@ the harness logs a warning and falls back to a free OS-chosen port.
 Set `BROWSER_TEST_PORT` to pin a specific port (CI determinism); the
 harness still falls back if that port is busy too.
 
+## Running the dev testbeds
+
+`npm run dev` (`scripts/dev-testbed.cjs`) is the cross-platform launcher
+for the Xray / Story driving surfaces. It seeds `RF2_TESTBED_PROJECT_ROOT`
+(so "open in editor" works on a fresh clone at any path, on any OS) and
+spawns `shadow-cljs watch` for the builds you name. Curated **group
+aliases** (rf2-jooy3) expand a single short name to a whole surface and
+print each watched build's served URL on start:
+
+```sh
+cd implementation
+npm run dev -- xray       # the 5 Xray driving surfaces
+npm run dev -- stories    # the 4 Story showcases
+npm run dev -- epochs     # the standard / routes / machine epochs trio
+npm run dev -- all        # xray + stories
+# package.json shortcuts (no `--` needed):
+npm run dev:xray
+npm run dev:stories
+```
+
+Anything that is not a group name passes through unchanged, so explicit
+build-ids and extra `shadow-cljs watch` flags keep working, and groups
+may be mixed with explicit builds (the launcher de-dupes builds while
+preserving first-seen order):
+
+```sh
+npm run dev -- :examples/standard-epochs
+npm run dev -- stories :examples/standard-epochs
+npm run dev -- xray --verbose
+```
+
+| Group | Build id | URL |
+|---|---|---|
+| `xray` | `:examples/standard-epochs` | http://localhost:8031/ |
+| `xray` | `:examples/routes-epochs` | http://localhost:8032/ |
+| `xray` | `:examples/machine-epochs` | http://localhost:8033/ |
+| `xray` | `:examples/two-frame-isolation` | http://localhost:8030/ |
+| `xray` | `:testbeds/panel-gallery` | http://localhost:8765/ |
+| `stories` | `:examples/nine-states-with-stories` | http://localhost:8040/ · `/#/stories` |
+| `stories` | `:examples/login-with-stories` | http://localhost:8041/ · `/#/stories` |
+| `stories` | `:examples/counter-with-stories` | http://localhost:8042/ · `/#/stories` |
+| `stories` | `:examples/login-form` | http://localhost:8043/ · `/#/stories` |
+
+(`epochs` is the first three `xray` rows; `all` is `xray` + `stories`.)
+The build→port table mirrors the `:dev-http` map in `shadow-cljs.edn`.
+
 ## Vocabulary — commonly confused public concepts
 
 When in doubt, the canonical reference is [`../spec/Conventions.md`](../spec/Conventions.md)

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /*
- * `dev` — cross-platform testbed dev launcher (rf2-5dphw).
+ * `dev` — cross-platform testbed dev launcher (rf2-5dphw; group
+ * aliases + URL discoverability per rf2-jooy3).
  *
  * Resolves the repo root from THIS script's own location (via node's
  * `path` module, which behaves identically on Windows / macOS / Linux),
@@ -17,16 +18,40 @@
  * therefore works on a fresh clone at any path, on any OS, with no
  * `?project-root=` override needed.
  *
- * Usage:
+ * GROUP ALIASES (rf2-jooy3). A single CLI arg matching a curated group
+ * name expands to that group's build-ids, so "watch the whole Xray
+ * surface" or "watch all the Story showcases" is one short command:
+ *
+ *   npm run dev -- xray       # the 5 Xray driving surfaces
+ *   npm run dev -- stories    # the 4 Story showcases
+ *   npm run dev -- epochs     # the standard / routes / machine epochs trio
+ *   npm run dev -- all        # xray + stories
+ *
+ * Anything that is NOT a group name passes through UNCHANGED, so explicit
+ * build-ids and extra `shadow-cljs watch` flags keep working exactly as
+ * before, and groups may be mixed with explicit build-ids / flags:
  *
  *   npm run dev -- :examples/standard-epochs
  *   npm run dev -- :testbeds/panel-gallery
- *   npm run dev -- :examples/counter-with-stories :examples/login-form
+ *   npm run dev -- stories :examples/standard-epochs
+ *   npm run dev -- xray --verbose
  *
- * Any extra `shadow-cljs watch` args pass straight through. Launching
- * `npx shadow-cljs watch ...` directly still works — the env var is just
- * unset, so the helper falls back to the `?project-root=` query string
- * (or a graceful open-in-editor no-op).
+ * After expansion the build list is de-duplicated while PRESERVING first-
+ * seen order (so `dev -- stories :examples/login-form` watches each build
+ * once). Non-build flags (anything not starting with `:`) pass through in
+ * place and are never treated as builds for URL printing.
+ *
+ * Launching `npx shadow-cljs watch ...` directly still works — the env
+ * var is just unset, so the helper falls back to the `?project-root=`
+ * query string (or a graceful open-in-editor no-op).
+ *
+ * URL DISCOVERABILITY (rf2-jooy3). For every watched build that has a
+ * `:dev-http` port, the launcher prints `http://localhost:<port>/` on
+ * start (Story builds also print the `/#/stories` shell URL) so "how do
+ * I see them" is answered before the compile even finishes. The
+ * build->port map below is kept in sync with the `:dev-http` map in
+ * `implementation/shadow-cljs.edn` (READ-only here — shadow-cljs.edn is
+ * a hot-zone file).
  */
 
 'use strict';
@@ -34,37 +59,165 @@
 const { spawn } = require('child_process');
 const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 
-const builds = process.argv.slice(2);
-if (builds.length === 0) {
-  console.error(
-    'Usage: npm run dev -- <build> [<build>...]\n' +
-      '  e.g. npm run dev -- :examples/standard-epochs',
-  );
-  process.exit(1);
+// ---------------------------------------------------------------------------
+// Curated group aliases (rf2-jooy3). group-name -> [build-id, ...].
+// Build-ids confirmed against implementation/shadow-cljs.edn :builds.
+// ---------------------------------------------------------------------------
+
+// The five Xray driving surfaces (the _epochs trio + the two-frame
+// isolation surface + the panel gallery).
+const XRAY_BUILDS = [
+  ':examples/standard-epochs',
+  ':examples/routes-epochs',
+  ':examples/machine-epochs',
+  ':examples/two-frame-isolation',
+  ':testbeds/panel-gallery',
+];
+
+// The _epochs trio only (standard / routes / machine).
+const EPOCHS_BUILDS = [
+  ':examples/standard-epochs',
+  ':examples/routes-epochs',
+  ':examples/machine-epochs',
+];
+
+// The four Story showcases (rf2-xz4zn wired their :dev-http ports).
+const STORIES_BUILDS = [
+  ':examples/nine-states-with-stories',
+  ':examples/login-with-stories',
+  ':examples/counter-with-stories',
+  ':examples/login-form',
+];
+
+const GROUPS = {
+  xray: XRAY_BUILDS,
+  stories: STORIES_BUILDS,
+  epochs: EPOCHS_BUILDS,
+  // `all` = xray + stories (deduped in the resolver below).
+  all: [...XRAY_BUILDS, ...STORIES_BUILDS],
+};
+
+// ---------------------------------------------------------------------------
+// build-id -> dev-http info. Kept in sync with shadow-cljs.edn :dev-http
+// (READ-only — shadow-cljs.edn is hot-zone). `story: true` marks builds
+// whose Story shell lives at /#/stories.
+// ---------------------------------------------------------------------------
+const DEV_HTTP = {
+  ':examples/two-frame-isolation': { port: 8030 },
+  ':examples/standard-epochs': { port: 8031 },
+  ':examples/routes-epochs': { port: 8032 },
+  ':examples/machine-epochs': { port: 8033 },
+  ':testbeds/panel-gallery': { port: 8765 },
+  ':examples/nine-states-with-stories': { port: 8040, story: true },
+  ':examples/login-with-stories': { port: 8041, story: true },
+  ':examples/counter-with-stories': { port: 8042, story: true },
+  ':examples/login-form': { port: 8043, story: true },
+};
+
+/**
+ * Expand group aliases in `argv`, de-duplicating builds while preserving
+ * first-seen order. Any token that is not a known group name passes
+ * through unchanged (explicit build-ids AND extra shadow-cljs flags),
+ * but duplicate build-ids (tokens starting with `:`) are dropped. Flags
+ * and other non-build tokens are passed through verbatim (never deduped,
+ * so e.g. a repeated `--verbose` is the caller's call to make).
+ *
+ * @param {string[]} argv  the raw CLI args (after `node script.cjs`).
+ * @returns {string[]}     the expanded, order-preserving, deduped args.
+ */
+function resolveArgs(argv) {
+  const out = [];
+  const seenBuilds = new Set();
+  const push = (token) => {
+    if (token.startsWith(':')) {
+      if (seenBuilds.has(token)) return;
+      seenBuilds.add(token);
+    }
+    out.push(token);
+  };
+  for (const token of argv) {
+    if (Object.prototype.hasOwnProperty.call(GROUPS, token)) {
+      for (const build of GROUPS[token]) push(build);
+    } else {
+      push(token);
+    }
+  }
+  return out;
 }
 
-const isWin = process.platform === 'win32';
-const cmd = isWin ? 'npx.cmd' : 'npx';
-const args = ['shadow-cljs', 'watch', ...builds];
+/**
+ * The URLs to print for a watched build, or [] if it has no dev-http
+ * port. Story builds get both the live-app `/` URL and the `/#/stories`
+ * shell URL.
+ *
+ * @param {string} build  a build-id token (e.g. ':examples/login-form').
+ * @returns {string[]}    zero, one, or two URLs.
+ */
+function urlsForBuild(build) {
+  const info = DEV_HTTP[build];
+  if (!info) return [];
+  const base = `http://localhost:${info.port}/`;
+  return info.story ? [base, `${base}#/stories`] : [base];
+}
 
-// Normalise to forward slashes so the value reads identically across
-// platforms when it becomes a string prefix in `re-frame.testbed.config`.
-const repoRoot = REPO_ROOT.split('\\').join('/');
+module.exports = { GROUPS, DEV_HTTP, resolveArgs, urlsForBuild };
 
-console.log(`> RF2_TESTBED_PROJECT_ROOT=${repoRoot}`);
-console.log(`> ${cmd} ${args.join(' ')}`);
-
-const child = spawn(cmd, args, {
-  cwd: IMPL_ROOT,
-  stdio: 'inherit',
-  shell: isWin,
-  env: { ...process.env, RF2_TESTBED_PROJECT_ROOT: repoRoot },
-});
-
-child.on('exit', (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
-    return;
+// ---------------------------------------------------------------------------
+// CLI entry-point (skipped when this module is require()'d by a test).
+// ---------------------------------------------------------------------------
+if (require.main === module) {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0) {
+    const groupList = Object.keys(GROUPS).join(' | ');
+    console.error(
+      'Usage: npm run dev -- <group | build> [<build>...] [shadow-cljs flags]\n' +
+        `  groups: ${groupList}\n` +
+        '  e.g. npm run dev -- xray\n' +
+        '       npm run dev -- stories\n' +
+        '       npm run dev -- :examples/standard-epochs\n' +
+        '       npm run dev -- stories :examples/standard-epochs',
+    );
+    process.exit(1);
   }
-  process.exit(code == null ? 0 : code);
-});
+
+  const builds = resolveArgs(rawArgs);
+
+  const isWin = process.platform === 'win32';
+  const cmd = isWin ? 'npx.cmd' : 'npx';
+  const args = ['shadow-cljs', 'watch', ...builds];
+
+  // Normalise to forward slashes so the value reads identically across
+  // platforms when it becomes a string prefix in `re-frame.testbed.config`.
+  const repoRoot = REPO_ROOT.split('\\').join('/');
+
+  console.log(`> RF2_TESTBED_PROJECT_ROOT=${repoRoot}`);
+  console.log(`> ${cmd} ${args.join(' ')}`);
+
+  // Print the served URL(s) for every watched build that has a dev-http
+  // port — answers "how do I see them" up front (rf2-jooy3).
+  const urlLines = [];
+  for (const build of builds) {
+    for (const url of urlsForBuild(build)) {
+      urlLines.push(`>   ${build.padEnd(36)} ${url}`);
+    }
+  }
+  if (urlLines.length > 0) {
+    console.log('> Serving:');
+    for (const line of urlLines) console.log(line);
+  }
+
+  const child = spawn(cmd, args, {
+    cwd: IMPL_ROOT,
+    stdio: 'inherit',
+    shell: isWin,
+    env: { ...process.env, RF2_TESTBED_PROJECT_ROOT: repoRoot },
+  });
+
+  child.on('exit', (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exit(code == null ? 0 : code);
+  });
+}
