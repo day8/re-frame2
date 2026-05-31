@@ -55,7 +55,7 @@
   the scaffold doesn't trip us."
   [^java.io.File f]
   (let [eof    (Object.)
-        pbr    (rt/source-logging-push-back-reader (slurp f))
+        reader (rt/source-logging-push-back-reader (slurp f))
         ;; tools.reader respects *data-readers*; supply a permissive
         ;; default-data-reader so unknown tags don't throw.
         opts   {:eof eof :read-cond :allow :features #{:cljs}
@@ -63,7 +63,7 @@
     (binding [tr/*read-eval* false
               tr/*default-data-reader-fn* (fn [_tag value] value)]
       (loop [acc []]
-        (let [form (tr/read opts pbr)]
+        (let [form (tr/read opts reader)]
           (if (identical? form eof)
             acc
             (recur (conj acc form))))))))
@@ -89,12 +89,12 @@
           (update acc ::required (fnil conj #{}) spec)
 
           (and (vector? spec) (symbol? (first spec)))
-          (let [nsym  (first spec)
-                rest- (rest spec)
-                pairs (partition 2 rest-)
-                as-kv (some (fn [[k v]] (when (= k :as) v)) pairs)]
-            (cond-> (update acc ::required (fnil conj #{}) nsym)
-              as-kv (assoc as-kv nsym)))
+          (let [ns-sym    (first spec)
+                spec-tail (rest spec)            ;; the `:as alias`, `:refer […]`, … pairs
+                opt-pairs (partition 2 spec-tail)
+                alias-sym (some (fn [[k v]] (when (= k :as) v)) opt-pairs)]
+            (cond-> (update acc ::required (fnil conj #{}) ns-sym)
+              alias-sym (assoc alias-sym ns-sym)))
 
           :else acc))
       {::required #{}}
