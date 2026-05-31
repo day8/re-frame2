@@ -118,11 +118,11 @@
   map; remove the `flow-id` key entirely when its inner map empties.
   The single home for the `last-inputs` two-level-map maintenance the
   clear / teardown / hot-reload paths share."
-  [m flow-id frame-id]
-  (let [m' (update m flow-id dissoc frame-id)]
-    (if (empty? (get m' flow-id))
-      (dissoc m' flow-id)
-      m')))
+  [index flow-id frame-id]
+  (let [pruned (update index flow-id dissoc frame-id)]
+    (if (empty? (get pruned flow-id))
+      (dissoc pruned flow-id)
+      pruned)))
 
 (defn- no-frame-holds?
   "True iff no frame in the per-frame `flows` map (`{frame-id {flow-id
