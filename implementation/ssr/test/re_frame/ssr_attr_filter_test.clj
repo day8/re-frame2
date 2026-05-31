@@ -1,9 +1,16 @@
 (ns re-frame.ssr-attr-filter-test
-  "Spec 011 §XSS at output boundaries — rule rf2-dwds9: the SSR static-
-  markup emitter MUST strip, at attribute-emit time:
+  "Spec 011 §XSS at output boundaries — rule rf2-dwds9 (+ rf2-1uex4): the
+  SSR static-markup emitter MUST strip, at attribute-emit time:
 
-    - `on*` event-handler props (matched on the normalised/lower-cased
-      name, so `:on-click` / `:onClick` / `:ONLOAD` all filter out),
+    - `on*` event-handler props. Detection is CASE-INSENSITIVE and covers
+      both the framework-shaped structural spellings (camelCase `on[A-Z]…`
+      and kebab `on-…`) and the WHATWG canonical all-lowercase HTML
+      event-handler names. So `:on-click` / `:onClick` / `:onclick` /
+      `:onload` / `:onerror` / `:ONLOAD` / `:OnClick` ALL filter out,
+      while non-handler keys (`:online` / `:once` / `:only` / `:on`)
+      round-trip (rf2-1uex4 — HTML attribute names are case-insensitive,
+      so the canonical lowercase + arbitrary `on`-prefix casings were the
+      live XSS hole the camelCase/kebab-only regex missed).
     - function-valued prop values, and
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
       `prototype`),
@@ -18,13 +25,13 @@
   the head emitter, and the streaming emitter)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.ssr.html-helpers :as html]))
+            [re-frame.ssr.html-helpers :as html]
+            [re-frame.ssr.emit :as emit]))
 
 (deftest attr-string-strips-event-handler-props
-  (testing "rf2-dwds9 — `on*` event-handler props are dropped at emit time.
-            Matched forms are the two canonical handler-prop spellings the
-            re-frame hiccup adapters and react-dom/server recognise:
-            camelCase `on[A-Z]…` and kebab `on-…`."
+  (testing "rf2-dwds9 — structural `on*` handler spellings the re-frame
+            hiccup adapters and react-dom/server recognise are dropped at
+            emit time: camelCase `on[A-Z]…` and kebab `on-…`."
     (testing ":on-click (kebab) is stripped"
       (is (= " id=\"x\""
              (html/attr-string {:on-click "alert(1)" :id "x"}))))
@@ -37,22 +44,51 @@
       (is (= " id=\"x\""
              (html/attr-string {:onMouseDown "alert(1)" :id "x"}))))
 
+    (testing ":onCustomEvent (camelCase, framework-shaped non-HTML name)
+              is stripped by the structural matcher"
+      (is (= " id=\"x\""
+             (html/attr-string {:onCustomEvent "alert(1)" :id "x"}))))
+
     (testing "`true`-valued on* boolean prop is also stripped (no bare attr)"
       (is (= " id=\"x\""
              (html/attr-string {:on-load true :id "x"}))))
 
-    (testing "a non-handler attribute starting with the letters `on`
-              survives — only `on[A-Z]` / `on-` discriminate, so innocuous
-              English-word keys like `one` / `once` / `online` are NOT eaten"
-      (let [out (html/attr-string {:data-on "ok" :one "1" :once "2" :online "3"})]
-        (is (str/includes? out "data-on=\"ok\""))
-        (is (str/includes? out "one=\"1\""))
-        (is (str/includes? out "once=\"2\""))
-        (is (str/includes? out "online=\"3\""))))
-
     (testing "a map whose every entry is a stripped on* prop yields the
               empty string — no stray leading space"
-      (is (= "" (html/attr-string {:on-click "f" :onScroll "g"}))))))
+      (is (= "" (html/attr-string {:on-click "f" :onScroll "g"})))))
+
+  (testing "rf2-1uex4 — canonical all-lowercase HTML event-handler names
+            are stripped. HTML attribute names are case-insensitive, so the
+            browser fires `onclick`/`onload`/`onerror` identically; these
+            are the canonical (and attacker-preferred) spellings the old
+            camelCase/kebab-only regex MISSED, emitting a live handler on
+            the wire."
+    (doseq [k [:onclick :onload :onerror :onmouseover :onsubmit :onfocus]]
+      (testing (str k " (lowercase canonical) is stripped")
+        (is (= " id=\"x\""
+               (html/attr-string {k "steal()" :id "x"}))
+            (str (name k) " must not survive to wire output")))))
+
+  (testing "rf2-1uex4 — arbitrary casings of a real handler name are
+            stripped (attribute names are case-insensitive)"
+    (doseq [k [:ONLOAD :OnClick :OnLoad :ONCLICK :onCLICK]]
+      (testing (str k " (mixed/upper casing) is stripped")
+        (is (= " id=\"x\""
+               (html/attr-string {k "steal()" :id "x"}))
+            (str (name k) " must not survive to wire output")))))
+
+  (testing "rf2-1uex4 — the allowlist does NOT over-reach onto innocuous
+            keys that merely begin with the letters `on`. `online` / `once`
+            / `only` / `on` / `data-on` are legitimate attributes and MUST
+            round-trip (a blind `starts-with? \"on\"` would eat them)."
+    (let [out (html/attr-string {:data-on "ok" :one "1" :once "2"
+                                 :online "3" :only "4" :on "5"})]
+      (is (str/includes? out "data-on=\"ok\""))
+      (is (str/includes? out "one=\"1\""))
+      (is (str/includes? out "once=\"2\""))
+      (is (str/includes? out "online=\"3\""))
+      (is (str/includes? out "only=\"4\""))
+      (is (str/includes? out "on=\"5\"")))))
 
 (deftest attr-string-strips-function-valued-props
   (testing "rf2-dwds9 — function-valued props have no HTML serialisation
@@ -90,3 +126,23 @@
     (is (= " id=\"x\""
            (html/attr-string {(keyword "onClick=alert(1) data-x") "v"
                               :id "x"})))))
+
+(deftest render-to-string-strips-lowercase-handlers-end-to-end
+  (testing "rf2-1uex4 — the canonical lowercase `on*` payload an attacker
+            splats into `:custom-attrs` does NOT survive through the public
+            emitter. The verified repro was `[:img {:src \"x\" :onerror
+            \"alert(document.cookie)\"}]` rendering the live handler on a
+            void element; the wire output MUST carry no `onerror`."
+    (let [out (emit/render-to-string
+               [:img {:src "x" :onerror "alert(document.cookie)"}] {})]
+      (is (str/includes? out "src=\"x\"") "the legitimate attr survives")
+      (is (not (str/includes? (str/lower-case out) "onerror"))
+          "the lowercase event-handler attr must be stripped from the wire")
+      (is (not (str/includes? out "alert(document.cookie)"))
+          "no live handler payload on the wire"))
+
+    (testing "uppercase casing through the emitter is also stripped"
+      (let [out (emit/render-to-string
+                 [:img {:src "x" :ONLOAD "steal()"}] {})]
+        (is (not (str/includes? (str/lower-case out) "onload")))
+        (is (not (str/includes? out "steal()")))))))
