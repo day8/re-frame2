@@ -53,7 +53,7 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
                                  (rf/dispatch-sync [::reset-app-db v])
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
-(reg/get-handler kind id) → (rf/get-handler kind id)
+(reg/get-handler kind id) → (rf/handler-meta kind id) ; public registrar query; returns the registration metadata map (no raw handler fn is exposed publicly in v2)
 ```
 
 **Edge case → Type B**: `(reset! re-frame.db/app-db ...)` is intent-sensitive (real bypass vs. test reset vs. seeding); promote to M-15 review.

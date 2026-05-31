@@ -273,7 +273,7 @@ When a per-feature surface is in use, add the dep AND add the `:require` of the 
 
 | Surface in code | Dep to add | Namespace to require |
 |---|---|---|
-| `reg-app-schema` / `reg-event-schema` | `day8/re-frame2-schemas` | `re-frame.schemas` |
+| `reg-app-schema` / `:spec` metadata | `day8/re-frame2-schemas` | `re-frame.schemas` |
 | `reg-machine` / `sub-machine` | `day8/re-frame2-machines` | `re-frame.machines` |
 | `reg-route` / `:rf.route/*` events | `day8/re-frame2-routing` | `re-frame.routing` |
 | `reg-flow` / `:rf.fx/reg-flow` | `day8/re-frame2-flows` | `re-frame.flows` |
