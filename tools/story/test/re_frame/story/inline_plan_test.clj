@@ -28,7 +28,6 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.frames :as frames]
             [re-frame.story.play.runner-events :as re]))
 
@@ -38,7 +37,6 @@
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (reset! assertions/trace-accumulators {})
   (reset! re/run-state {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)

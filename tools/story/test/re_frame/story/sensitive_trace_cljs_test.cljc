@@ -15,9 +15,10 @@
     against the `show-sensitive?` flag.
   - **`configure!`**: the `:rf.privacy/show-sensitive?` opts key wires
     through to the config atom.
-  - **Play listener**: the per-frame trace listener default-suppresses
-    sensitive events from the assertions module's accumulators
-    (warnings, dispatched-events, emitted-fx).
+  - **Play listener**: the per-frame trace listener (the Spec 009 privacy
+    egress seam, rf2-luzky) default-drops sensitive events at the gate
+    (bumping the redaction counter) before its handler-exception capture
+    runs.
   - **Recorder listener**: a sensitive event does not land in the
     recorder's captured-events vector.
 
@@ -29,7 +30,6 @@
   redaction indicator is verified by the CLJS ui-cljs test arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.config     :as config]
             [re-frame.story.play       :as play]
             [re-frame.story.recorder   :as recorder]))
@@ -91,6 +91,22 @@
    :sensitive? true
    :tags       {:rf.trace/dispatch-id 3
                 :frame                frame-id}})
+
+(defn- handler-exception-event
+  "Build a `:rf.error/handler-exception` trace event for `frame-id`. The
+  play-listener's surviving non-privacy job is to capture these into
+  `play/pending-exceptions`. `sensitive?` flags whether the privacy gate
+  should drop it before capture."
+  [frame-id sensitive?]
+  (cond-> {:op-type   :error
+           :operation :rf.error/handler-exception
+           :id        4
+           :time      1700000000030
+           :tags      {:rf.trace/dispatch-id 4
+                       :frame                frame-id
+                       :event                [:auth/login]
+                       :exception-message    "boom"}}
+    sensitive? (assoc :sensitive? true)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure config helpers
@@ -186,65 +202,95 @@
   (is (zero? (config/suppressed-count :story.a/b))))
 
 ;; ---------------------------------------------------------------------------
-;; Play listener — accumulator routing default-suppresses
+;; Play listener — the Spec 009 §Privacy egress seam (rf2-luzky)
+;;
+;; rf2-luzky folded the `trace-accumulators` dev side-table away; the
+;; play-listener's surviving jobs are the PRIVACY gate (default-drop
+;; `:sensitive?` + bump `config/note-suppressed!`) and the synchronous
+;; handler-exception capture into `play/pending-exceptions`. These tests
+;; pin the privacy INVARIANT directly against those observable outputs —
+;; not via the removed side-table accessors:
+;;
+;;   - a SENSITIVE event is dropped at the gate (the suppressed-events
+;;     counter bumps; the exception capture never sees it);
+;;   - a NON-sensitive event passes the gate (the counter stays zero; a
+;;     handler-exception reaches `pending-exceptions`);
+;;   - with `show-sensitive?` true the gate is open (a sensitive event is
+;;     NOT dropped and the counter stays zero).
+;;
+;; The listener is private; invoke the fn the `listener-for-frame` builder
+;; returns directly with synthetic events (the global trace bus spans the
+;; whole process).
 ;; ---------------------------------------------------------------------------
 
+(defn- pending-for [frame-id]
+  (get @play/pending-exceptions frame-id []))
+
 (deftest play-listener-suppresses-sensitive-warnings
-  (testing "by default a :sensitive? warning event doesn't reach the warnings accumulator"
+  (testing "by default a :sensitive? warning event is dropped at the privacy gate"
     (let [frame-id :story.sensitive/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
           ev       (sensitive-warning-event frame-id)]
-      ;; Reset the accumulators per the play-runner's contract.
-      (assertions/reset-trace-accumulators! frame-id)
-      ;; The listener is the fn returned by the (private)
-      ;; `listener-for-frame` builder; rather than emitting through
-      ;; the global trace bus (which spans the whole process), invoke
-      ;; the per-frame listener directly with our synthetic event.
+      (swap! play/pending-exceptions assoc frame-id [])
       (listen ev)
-      (is (empty? (assertions/frame-warnings frame-id))
-          "the warnings accumulator should be empty — the sensitive event was suppressed")
+      (is (empty? (pending-for frame-id))
+          "the sensitive warning never reached the listener body")
       (is (pos? (config/suppressed-count frame-id))
-          "the suppressed-events counter should have bumped"))))
+          "the suppressed-events counter bumped — the redaction hint stays accurate"))))
 
-(deftest play-listener-suppresses-sensitive-dispatched
-  (testing "by default a :sensitive? :rf.event/dispatched is dropped from the dispatched accumulator"
+(deftest play-listener-suppresses-sensitive-handler-exception
+  (testing "by default a :sensitive? handler-exception is dropped before capture"
     (let [frame-id :story.sensitive/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
-          ev       (sensitive-dispatch-event frame-id [:auth/login {:user "a"
-                                                                    :password "pw"}])]
-      (assertions/reset-trace-accumulators! frame-id)
+          ev       (handler-exception-event frame-id true)]
+      (swap! play/pending-exceptions assoc frame-id [])
       (listen ev)
-      (is (empty? (assertions/frame-dispatched frame-id))
-          "the dispatched-events accumulator stays empty")
-      (is (pos? (config/suppressed-count frame-id))))))
+      (is (empty? (pending-for frame-id))
+          "the sensitive handler-exception never reached pending-exceptions")
+      (is (pos? (config/suppressed-count frame-id))
+          "the suppressed-events counter bumped"))))
 
 (deftest play-listener-passes-sensitive-when-opted-in
-  (testing "with show-sensitive? true the listener routes sensitive events normally"
+  (testing "with show-sensitive? true the gate is open — a sensitive handler-exception is captured"
     (config/set-show-sensitive! true)
     (let [frame-id :story.sensitive/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
-          ev       (sensitive-dispatch-event frame-id [:auth/login {:user "a"}])]
-      (assertions/reset-trace-accumulators! frame-id)
+          ev       (handler-exception-event frame-id true)]
+      (swap! play/pending-exceptions assoc frame-id [])
       (listen ev)
-      (is (seq (assertions/frame-dispatched frame-id))
-          "the dispatched-events accumulator captured the event")
+      (is (= 1 (count (pending-for frame-id)))
+          "the sensitive handler-exception was captured (the gate is open)")
       (is (zero? (config/suppressed-count frame-id))
           "the suppressed-events counter stays at zero"))))
 
-(deftest play-listener-still-records-non-sensitive
-  (testing "regression: non-sensitive events flow through both default and opt-in modes"
+(deftest play-listener-captures-non-sensitive-handler-exception
+  (testing "regression: a non-sensitive handler-exception is captured under default settings"
+    (let [frame-id :story.regression/v
+          build    @#'play/listener-for-frame
+          listen   (build frame-id)
+          ev       (handler-exception-event frame-id false)]
+      (swap! play/pending-exceptions assoc frame-id [])
+      (listen ev)
+      (is (= 1 (count (pending-for frame-id)))
+          "the non-sensitive handler-exception landed in pending-exceptions")
+      (is (zero? (config/suppressed-count frame-id))
+          "no suppression — the counter stays at zero"))))
+
+(deftest play-listener-ignores-non-sensitive-non-error
+  (testing "a plain dispatched event is neither suppressed nor captured (no side-table to feed)"
     (let [frame-id :story.regression/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
           ev       (plain-dispatch-event frame-id [:counter/inc])]
-      (assertions/reset-trace-accumulators! frame-id)
+      (swap! play/pending-exceptions assoc frame-id [])
       (listen ev)
-      (is (= [[:counter/inc]] (assertions/frame-dispatched frame-id))
-          "non-sensitive event landed in the accumulator under default settings")
-      (is (zero? (config/suppressed-count frame-id))))))
+      (is (empty? (pending-for frame-id))
+          "a dispatched event is not a handler-exception — nothing captured")
+      (is (zero? (config/suppressed-count frame-id))
+          "non-sensitive — no suppression"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recorder listener — sensitive events skipped

@@ -34,8 +34,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story     :as story]
-            [re-frame.story.assertions :as assertions]))
+            [re-frame.story     :as story]))
 
 ;; ---- a host-free stand-in for the schemas artefact's late-bind seam ------
 ;;
@@ -70,7 +69,6 @@
   (reset! frame-schemas {})
   (try (rf/init! plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (reset! assertions/trace-accumulators {})
   ;; Clear any schema seam a prior test left so the no-validator floor case
   ;; is clean; tests that want validation install it explicitly.
   (uninstall-schema-seam!)

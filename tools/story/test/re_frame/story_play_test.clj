@@ -39,8 +39,8 @@
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
-  (reset! assertions/trace-accumulators {})
-  (reset! play/stepper-state                       {})
+  (reset! play/pending-exceptions {})
+  (reset! play/stepper-state      {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (test-fn))
@@ -163,17 +163,21 @@
     (story/destroy-variant! :story.ee/db)))
 
 ;; ===========================================================================
-;; Frame teardown clears accumulator entries
+;; Frame teardown clears per-frame accumulator entries
+;;
+;; rf2-luzky removed the `trace-accumulators` side-table; the only per-frame
+;; accumulator the teardown hook (`:drop-assertion-accumulators`) now evicts
+;; is the play module's `pending-exceptions` slot.
 ;; ===========================================================================
 
 (deftest teardown-clears-accumulators
-  (testing "destroy-variant! clears per-frame accumulator slots"
+  (testing "destroy-variant! clears the per-frame pending-exceptions slot"
     (story/reg-variant :story.tear/v
       {:events []
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:x] :nope]]]})
     (async/deref-blocking (story/run-variant :story.tear/v) 5000)
     (story/destroy-variant! :story.tear/v)
-    (is (not (contains? @assertions/trace-accumulators :story.tear/v)))))
+    (is (not (contains? @play/pending-exceptions :story.tear/v)))))
 
 ;; ===========================================================================
 ;; Play stepper

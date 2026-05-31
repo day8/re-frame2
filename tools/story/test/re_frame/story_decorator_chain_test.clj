@@ -37,7 +37,6 @@
             [re-frame.registrar        :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
@@ -57,7 +56,6 @@
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
-  (reset! assertions/trace-accumulators {})
   (reset! play/stepper-state            {})
   (reset! frames/stub-call-log          {})
   (story/install-canonical-vocabulary!)
@@ -130,8 +128,8 @@
                     [:seed-user]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     [[:record/observed]]
-       ;; :emit/track dispatches in :play-script so the assertion accumulator
-       ;; (reset at play-start by reset-trace-accumulators!) sees it.
+       ;; :emit/track dispatches in :play-script so the tape + stub-call log
+       ;; (the SSOT :rf.assert/effect-emitted projects from — rf2-luzky) sees it.
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
                     [:dispatch-sync [:emit/track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
@@ -239,8 +237,8 @@
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     [[:inc-and-track] [:inc-and-track]]
        ;; :play-script emits one more inc-and-track so :rf.assert/effect-emitted
-       ;; sees a fresh emission (the events-phase emissions are wiped by
-       ;; reset-trace-accumulators! at play start by design).
+       ;; sees the emission via the tape + stub-call log SSOT (rf2-luzky —
+       ;; there is no play-start accumulator reset).
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
                     [:dispatch-sync [:inc-and-track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]

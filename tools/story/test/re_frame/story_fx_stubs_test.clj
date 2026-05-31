@@ -20,7 +20,6 @@
             [re-frame.registrar        :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
@@ -41,7 +40,6 @@
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
-  (reset! assertions/trace-accumulators {})
   (reset! play/stepper-state            {})
   (reset! frames/stub-call-log          {})
   (story/install-canonical-vocabulary!)

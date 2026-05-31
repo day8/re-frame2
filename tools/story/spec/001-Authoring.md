@@ -100,7 +100,7 @@ The auto-install hook is wired via the `re-frame.story.late-bind`
 shim (`:ensure-canonical-installed` key) to avoid a circular require
 between `re-frame.story.registrar` (consumer) and
 `re-frame.story.canonical` (producer). Same pattern Story uses for
-`:tap-stub-event` / `:drop-assertion-accumulators`.
+`:stub-observed-fx-ids` / `:drop-assertion-accumulators`.
 
 ## Mental model — the three pillars (rf2-kemcu + rf2-adtmk + rf2-x6u3l)
 

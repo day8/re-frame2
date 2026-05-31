@@ -714,19 +714,20 @@
 
 (defn- run-phase-0!
   "Phase 0: allocate the variant frame with its decorator stack, then
-  install the play-runner's trace listener.
+  install the play-runner's privacy egress listener.
 
   The listener install order matters (rf2-v2g9): it must be in place
-  BEFORE phase-1 loaders fire so the assertions module's dispatched-
-  events accumulator captures loader-phase events. `:loaders-complete-
-  when`'s vector form consults that accumulator to gate the loaders-
-  complete transition; an empty accumulator during loaders would never
-  match. We seed the accumulators here so the listener has a clean
-  slot; `execute-play!` resets them again at play start so play-time
-  assertion semantics (\"during play\") are preserved."
+  BEFORE phase-1 loaders fire so the privacy gate suppresses sensitive
+  loader-phase events and loader-phase handler-exceptions are captured.
+  We clear the per-frame `pending-exceptions` slot so the listener has a
+  clean slot; `execute-play!` clears it again at play start.
+
+  rf2-luzky: the `:loaders-complete-when` vector form now reads the epoch
+  tape (`assertions/dispatched-events`, the SSOT) rather than a side-table
+  accumulator, so there is no accumulator to seed here."
   [{:keys [variant-id decorator-stack] :as ctx}]
   (frames/allocate! variant-id decorator-stack)
-  (assertions/reset-trace-accumulators! variant-id)
+  (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
   ctx)
 
@@ -1196,15 +1197,16 @@
 
 (defn- run-inline-phase-0!
   "Phase 0 for an inline run: allocate the ANONYMOUS frame from the plan
-  (registry-free), then seed the assertion accumulators + install the
-  play-runner trace listener — the same ordering `run-phase-0!` uses so
-  loader-phase events are captured."
+  (registry-free), then clear the per-frame `pending-exceptions` slot +
+  install the play-runner privacy egress listener — the same ordering
+  `run-phase-0!` uses so loader-phase events are captured (rf2-luzky: no
+  side-table to seed)."
   [{:keys [variant-id plan decorator-stack] :as ctx}]
   (frames/allocate-inline! variant-id
                            decorator-stack
                            (get-in plan [:world :frame :fx-overrides])
                            (inline-events-only? plan decorator-stack))
-  (assertions/reset-trace-accumulators! variant-id)
+  (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
   ctx)
 

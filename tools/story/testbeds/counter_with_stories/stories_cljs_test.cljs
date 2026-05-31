@@ -22,7 +22,6 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.async      :as async-lib]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.play       :as play]
             [re-frame.test-support     :as test-support]
@@ -48,7 +47,6 @@
   (frame/ensure-default-frame!)
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/trace-accumulators {})
   ;; Always re-fire the Story registrations so each test starts with
   ;; a freshly-resolved registry (clears any leftover stories from
   ;; previous tests and ensures the lifecycle machine is freshly

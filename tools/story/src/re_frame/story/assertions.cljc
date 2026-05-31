@@ -207,89 +207,29 @@
   (evidence/warnings (frame-tape frame-id)))
 
 ;; ---------------------------------------------------------------------------
-;; Per-frame trace side-table (privacy-gated) — NO LONGER THE EVIDENCE SOURCE
+;; Trace side-table — FULLY REMOVED (rf2-luzky)
 ;;
-;; rf2-q651r retired this atom AS THE EVIDENCE SOURCE for the three
-;; trace-bus assertions: they now project from the epoch tape (above), so
-;; there is no second evidence path that can drift into the documented
-;; "false GREEN". The atom is RETAINED — not removed — because three
-;; non-evidence consumers still drive it, and full removal would have to
-;; coordinate across lanes this change does not own:
+;; rf2-q651r retired the `trace-accumulators` atom AS THE EVIDENCE SOURCE
+;; for the three trace-bus assertions (they project from the epoch tape
+;; above); rf2-luzky removed the atom ENTIRELY. The facts it once mirrored
+;; (warnings / emitted-fx / dispatched) are answerable from the canonical
+;; tape + the stub-call log (the SSOT), so the parallel atom — and its
+;; `record-warning!` / `record-emitted-fx!` / `record-dispatched!` feeds +
+;; the `reset-trace-accumulators!` / `drop-trace-accumulators!` helpers —
+;; carried no fact the tape does not already hold. The three concerns that
+;; once rode through this module's listener feed now live where they belong:
 ;;
-;;   1. `re-frame.story.ui.test_mode.stepper-state` (a separate UI lane)
-;;      calls `reset-trace-accumulators!` when it rewinds a stepped run;
-;;   2. the per-frame trace listener in `re-frame.story.play` is the
-;;      load-bearing PRIVACY-suppression seam (Spec 009 §Privacy) — it
-;;      default-drops `:sensitive? true` events and bumps the UI redaction
-;;      counter; its suppression behaviour is pinned by
-;;      `sensitive-trace-cljs-test` against this side-table;
-;;   3. the `force-fx-stub` tap (`re-frame.story.fx-stubs/tap-stub-event!`)
-;;      records redirected fx-ids here for dev-tool surfacing.
-;;
-;; So the atom is a privacy-gated DEV side-table, decoupled from the
-;; assertion verdict. It is keyed by frame-id and reset at play start.
-;; (Follow-up: fully fold this side-table into the tape + stub-log once the
-;; UI stepper-rewind lane can be touched in the same change — rf2-q651r
-;; note.)
+;;   - PRIVACY suppression (default-drop `:sensitive? true` + the
+;;     `config/note-suppressed!` redaction-counter bump) is the egress seam
+;;     in `re-frame.story.play`'s per-frame trace listener — it was always
+;;     the gate at the head of that listener, never a property of this atom;
+;;   - the synchronous handler-exception capture is `re-frame.story.play`'s
+;;     `pending-exceptions` atom (likewise never this side-table);
+;;   - stub-redirected fx-ids are the stub-call log's
+;;     (`re-frame.story.fx-stubs/observed-fx-ids`, read via the
+;;     `:stub-observed-fx-ids` late-bind hook above) — the one fact the tape
+;;     cannot carry under the original id.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private empty-frame-accumulators
-  {:warnings   []
-   :emitted-fx #{}
-   :dispatched []})
-
-(defonce
-  ^{:doc "frame-id → {:warnings [...] :emitted-fx #{...} :dispatched [...]}.
-         A privacy-gated DEV side-table (NOT the assertion evidence source
-         since rf2-q651r — the three trace-bus assertions project from the
-         epoch tape). The play-runner calls `reset-trace-accumulators!` at
-         play start and `drop-trace-accumulators!` at frame teardown."}
-  trace-accumulators
-  (atom {}))
-
-(defn reset-trace-accumulators!
-  "Clear every per-frame trace side-table entry for `frame-id`. The
-  play-runner + the UI stepper-rewind call this at play start. Production
-  callers (without config/enabled?) no-op."
-  [frame-id]
-  (when config/enabled?
-    (swap! trace-accumulators assoc frame-id empty-frame-accumulators))
-  nil)
-
-(defn drop-trace-accumulators!
-  "Discard the per-frame side-table entry. Called from frame teardown so
-  destroyed variants don't leak memory."
-  [frame-id]
-  (swap! trace-accumulators dissoc frame-id)
-  nil)
-
-(defn record-warning!
-  "Append a warning trace event to `frame-id`'s side-table (privacy seam +
-  dev surfacing; NOT the `:rf.assert/no-warnings` evidence source)."
-  [frame-id ev]
-  (when config/enabled?
-    (swap! trace-accumulators update-in [frame-id :warnings] (fnil conj []) ev))
-  nil)
-
-(defn record-emitted-fx!
-  "Add `fx-id` to `frame-id`'s side-table emitted-fx set (dev surfacing;
-  NOT the `:rf.assert/effect-emitted` evidence source)."
-  [frame-id fx-id]
-  (when config/enabled?
-    (swap! trace-accumulators update-in [frame-id :emitted-fx] (fnil conj #{}) fx-id))
-  nil)
-
-(defn record-dispatched!
-  "Append `event-vec` to `frame-id`'s side-table dispatched vector (dev
-  surfacing; NOT the `:rf.assert/dispatched?` evidence source)."
-  [frame-id event-vec]
-  (when config/enabled?
-    (swap! trace-accumulators update-in [frame-id :dispatched] (fnil conj []) event-vec))
-  nil)
-
-(defn frame-warnings   [frame-id] (get-in @trace-accumulators [frame-id :warnings]   []))
-(defn frame-fx         [frame-id] (get-in @trace-accumulators [frame-id :emitted-fx] #{}))
-(defn frame-dispatched [frame-id] (get-in @trace-accumulators [frame-id :dispatched] []))
 
 ;; ---------------------------------------------------------------------------
 ;; Programmatic record helper

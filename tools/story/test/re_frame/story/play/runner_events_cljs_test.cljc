@@ -20,7 +20,6 @@
             [re-frame.core              :as rf]
             [re-frame.frame             :as frame]
             [re-frame.story             :as story]
-            [re-frame.story.assertions  :as assertions]
             [re-frame.story.loaders     :as loaders]
             [re-frame.story.play        :as legacy-play]
             [re-frame.story.play.runner-events :as re]
@@ -76,7 +75,6 @@
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   #?(:clj (config/set-global-args! {}))
-  (reset! assertions/trace-accumulators {})
   (reset! legacy-play/stepper-state {})
   (reset! re/run-state {})
   (story/install-canonical-vocabulary!)
