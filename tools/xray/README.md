@@ -265,7 +265,7 @@ reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
 `two_frame_isolation`, `standard_epochs`, `routes_epochs`, `machine_epochs`,
-`feature_matrix`, `panel_gallery`, `perf_counter` — covering the canonical
+`feature_matrix`, `panel_gallery` — covering the canonical
 multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
