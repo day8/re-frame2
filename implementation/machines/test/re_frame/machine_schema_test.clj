@@ -34,6 +34,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
+            [re-frame.registrar :as registrar]
             ;; The schemas artefact ships the registered-validator hot
             ;; path the new `:where :machine-data` boundary routes
             ;; through; the `.malli` adapter ns publishes Malli's
@@ -41,8 +42,7 @@
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -189,7 +189,15 @@
         ;; The spawned actor's snapshot was never installed.
         (is (nil? (get-in (rf/get-frame-db :rf/default)
                           [:rf/runtime :machines :snapshots :rf.machine-schema/spawned]))
-            "rejected spawn: snapshot is not in app-db")))))
+            "rejected spawn: snapshot is not in app-db")
+        ;; rf2-f3kp7 — atomic reject. The prior code called `reg-machine*`
+        ;; out of step with the install gate, leaking a registered event
+        ;; handler + a phantom `(rf/machines)` entry for the rejected actor.
+        ;; A schema-rejected spawn must register NOTHING.
+        (is (nil? (registrar/lookup :event :rf.machine-schema/spawned))
+            "rejected spawn: NO event handler is registered (rf2-f3kp7)")
+        (is (not (contains? (set (machines/machines)) :rf.machine-schema/spawned))
+            "rejected spawn: the actor does NOT appear in (rf/machines) (rf2-f3kp7)")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------
 
