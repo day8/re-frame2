@@ -907,6 +907,28 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 
 The stubs reuse the same dispatch shape the real fx produces so the test handler's reply branch sees the canonical envelope. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
+#### `:after-ms` — deferring a canned reply
+
+Both canned-stub fxs accept an optional `:after-ms` arg. It is a **parameter of the same effect**, not a separate `-later` fx:
+
+| `:after-ms` | Reply timing |
+|---|---|
+| absent / `0` / non-positive | immediate — the reply dispatches inside the same drain (the default, unchanged) |
+| positive `N` | deferred — the reply lands after an `N`-ms `:dispatch-later` tick |
+
+```clojure
+;; Immediate (default): reply lands in the same dispatch-sync drain.
+{:fx [[:rf.http/managed-canned-success {:value {:user {...}}}]]}
+
+;; Deferred: reply lands 50 ms later, so a `:loading` / `:submitting`
+;; UI state is observable before it resolves.
+{:fx [[:rf.http/managed-canned-success {:value {:user {...}} :after-ms 50}]]}
+```
+
+The delay rides the framework-native `:dispatch-later` timer — it is **observable in the tape** (the deferred dispatch self-tags `:source :fx-dispatch-later` with `:source-detail {:ms N}`) and time-travel-safe (Tool-Pair time-travel and the documented `:dispatch-later` nil-override seam both apply). It is **not** raw `js/setTimeout` / `interop/set-timeout!`. Reply addressing is identical to the immediate path — the originating event (or the explicit `:on-success` / `:on-failure`) still receives the canonical `{:kind ... }` envelope after the delay. `:after-ms` is the single mechanism a demo stub uses to simulate latency; it replaces the former per-app three-hop boilerplate (stub-fx → schedule-reply → `:dispatch-later` → deliver-reply → canned reply) with one arg on the canned effect.
+
+**Interaction with `:fx-overrides`.** When `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` redirects the production fx to a canned stub, the override target receives the **same args-map** the handler built for `:rf.http/managed` — so an `:after-ms` placed there flows straight through to the canned stub. A handler can therefore stay backend-agnostic (it never mentions `:after-ms`) while a test or demo dials in latency purely through the override, OR a demo stub that wraps the canned fx (the worked examples' pattern) can stamp `:after-ms` on the args-map before delegating. The override only redirects `:rf.http/managed`; the deferred reply the canned fx synthesises internally re-fires the canned fx by its own id (not `:rf.http/managed`), so it does not depend on the override staying installed across the delay, and reply addressing is identical to the immediate path.
+
 ### Test-support require — the HTTP test surface gate
 
 The canned-stub fxs above AND the `with-managed-request-stubs` family of macros / fns are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:

@@ -143,26 +143,18 @@
 
 ;; -- Cancel an in-flight request ---------------------------------------------
 ;;
-;; A "long" request defers its synthetic failure-reply via
-;; `:dispatch-later` so the :loading state is observable in a browser
-;; long enough for the cancel UI to interact with it. The Spec 014
-;; contract is that an in-flight request dispatches `:rf.http/aborted`
-;; on cancellation; routing the deferred reply through the framework's
-;; `:dispatch-later` + `:rf.http/managed-canned-failure` mimics that
-;; contract end-to-end without requiring a real long-running endpoint
-;; — and framework time controls (Tool-Pair time-travel, the
-;; documented `:dispatch-later` nil-override) apply automatically.
-
-(rf/reg-event-fx :managed-http-counter.demo/deliver-long-reply
-  {:doc "Private — invoked via :dispatch-later from :counter/start-long.
-         Synthesises a deferred :rf.http/managed-canned-failure reply
-         so the :loading UI state is observable before the failure
-         lands. No user dispatches this directly."}
-  (fn handler-deliver-long-reply [_ [_ args-map]]
-    {:fx [[:rf.http/managed-canned-failure
-           (assoc args-map
-                  :kind :rf.http/transport
-                  :tags {:message "Demo: long request did not resolve."})]]}))
+;; A "long" request defers its synthetic failure-reply via the
+;; canned-failure stub's `:after-ms` (rf2-j1mo4) so the :loading state is
+;; observable in a browser long enough for the cancel UI to interact with
+;; it. The Spec 014 contract is that an in-flight request dispatches
+;; `:rf.http/aborted` on cancellation; routing a deferred
+;; `:rf.http/managed-canned-failure` reply via `:after-ms` mimics that
+;; contract end-to-end without requiring a real long-running endpoint —
+;; the framework schedules it through `:dispatch-later` internally, so
+;; time controls (Tool-Pair time-travel, the documented `:dispatch-later`
+;; nil-override) apply automatically. `:after-ms` collapses the former
+;; `:dispatch-later` → deliver-long-reply → canned-failure chain into one
+;; parameter of the same canned effect.
 
 (rf/reg-event-fx :counter/start-long
   (fn [{:keys [db]} [_ msg]]
@@ -173,18 +165,19 @@
       (some-> msg :rf/reply :kind some?)
       {:db (assoc db :counter/status :idle)}
 
-      ;; Defer the canned-failure via :dispatch-later so the :loading UI
-      ;; state is observable before it lands. The +1 / Fail / Retry-recover
+      ;; Defer the canned-failure via :after-ms so the :loading UI state
+      ;; is observable before it lands. The +1 / Fail / Retry-recover
       ;; paths above still hit the framework's :rf.http/managed; only this
       ;; "long-running" demo defers a synthetic reply.
       :else
       {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [[:dispatch-later
-             {:ms    750
-              :event [:managed-http-counter.demo/deliver-long-reply
-                      {:request    {:method :get :url "api/long"}
-                       :request-id :counter/long
-                       :decode     :json}]}]]})))
+       :fx [[:rf.http/managed-canned-failure
+             {:request    {:method :get :url "api/long"}
+              :request-id :counter/long
+              :decode     :json
+              :after-ms   750
+              :kind       :rf.http/transport
+              :tags       {:message "Demo: long request did not resolve."}}]]})))
 
 (rf/reg-event-fx :counter/cancel
   (fn [{:keys [db]} _]
