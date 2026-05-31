@@ -100,6 +100,7 @@
             [re-frame.views :as views]
             [re-frame.epoch]
             [re-frame.adapter.context :as adapter-context]
+            [re-frame.adapter.react-test-support :as react-test-support]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace.tooling :as trace-tooling])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame bound-fn]]))
@@ -108,11 +109,11 @@
 ;; helpers
 ;; ===========================================================================
 
-(defn- react-element-attr
-  "Pull `attr` (a string key) off a React element's `.-props`, or nil."
-  [el attr]
-  (when (and el (.-props el))
-    (aget (.-props el) attr)))
+;; rf2-5g21s — `react-element-attr` is hoisted into the dependency-free
+;; `re-frame.adapter.react-test-support` so the narrow elision-prod twins
+;; can share it without dragging this heavy suite into their build. The
+;; suite consumes the same single source of truth.
+(def react-element-attr react-test-support/react-element-attr)
 
 (defn- source-coord [el] (react-element-attr el "data-rf2-source-coord"))
 (defn- view-attr     [el] (react-element-attr el "data-rf-view"))
