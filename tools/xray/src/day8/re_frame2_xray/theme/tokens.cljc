@@ -123,6 +123,21 @@
    ;; without overpowering the cascade.
    :bg-violation   "#3a1f25"   ; deep-rose-muted (dark)
 
+   ;; ── L2 issue-row wash (rf2-b8guz) ──
+   ;; Light-pink LOW-OPACITY wash painted as the background of an L2
+   ;; event row whose epoch CONTAINS AN ISSUE (any error / warning /
+   ;; schema-violation / hydration-mismatch / perf-overrun trace — the
+   ;; SAME set the Issues ribbon/feed aggregates, keyed off the
+   ;; trace-derived per-cascade issue signal). The cross-epoch
+   ;; "this event had a problem" cue at the spine — surfaced where the
+   ;; operator is already looking, not gated behind the Issues tab.
+   ;; Same rose hue as `:bg-violation` but as an 8-digit-hex wash
+   ;; (#RRGGBBAA, mirroring the `:diff-*-wash` pattern) so it COMPOSES
+   ;; over the focused-row / hover background without clobbering it.
+   ;; Alpha `26` = 38/255 ≈ 15% — operator-noticeable over the dark
+   ;; canvas while the row text + existing L2 signals stay legible.
+   :bg-issue-row   "#f8514926"  ; :error rose @ ~15% (dark)
+
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    ;; These do REAL semantic work — perf tiers, machine state, route
    ;; side-channel, redaction, op-family legends — and are NOT collapsed
@@ -299,6 +314,15 @@
    ;; Light-theme mirror of the dark `:bg-violation`. A soft rose
    ;; pink — alert-grade on white without overpowering the cascade.
    :bg-violation   "#fde0e3"   ; soft-rose (light)
+
+   ;; ── L2 issue-row wash (rf2-b8guz) ──
+   ;; Light-theme mirror of the dark `:bg-issue-row`. The light-pink
+   ;; wash painted behind an L2 row whose epoch contains an issue. An
+   ;; 8-digit-hex wash (#RRGGBBAA) so it composes over the focused-row
+   ;; / hover background. Light-theme washes need a touch more alpha
+   ;; than dark ones to read over the near-white canvas — alpha `2e` =
+   ;; 46/255 ≈ 18% of the light-error rose.
+   :bg-issue-row   "#c844442e"  ; :error rose @ ~18% (light)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    :green          "#1a7f37"

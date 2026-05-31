@@ -1158,6 +1158,59 @@
                (:text-align (style-of r-duration)))
             "header duration and row duration both right-align")))))
 
+;; ---- rf2-b8guz — light-pink row bg for issue-bearing epochs -------------
+;;
+;; The L2 row paints a light-pink WASH (`:bg-issue-row` token, painted as a
+;; flat `:background-image` gradient layer so it composes OVER the focus /
+;; hover `:background-color`) when its epoch CONTAINS AN ISSUE — keyed off
+;; the canonical `l2-timeline/cascade-has-issue?` predicate, which reuses
+;; the same Issues-ribbon `issue-event?` set. The `:li` carries
+;; `data-rf-xray-issue-row="true"` for the issue case (absent otherwise) so
+;; the contract is pinnable without parsing the inline gradient string.
+
+(defn- error-trace-ev
+  "An `:rf.error/*` trace event (`:op-type :error`) carrying the SAME
+  `:rf.trace/dispatch-id` as a cascade so `group-cascades` buckets it into
+  that cascade's `:other` slot — the canonical 'this epoch had an issue'
+  signal (mirrors button-15's `:rf.error/handler-exception`)."
+  [id]
+  {:id           (+ id 2000)
+   :op-type      :error
+   :operation    :rf.error/handler-exception
+   :tags         {:frame                :rf/default
+                  :rf.trace/dispatch-id id}})
+
+(deftest event-row-issue-epoch-gets-pink-wash
+  (testing "rf2-b8guz — a row whose epoch carries an issue trace gets the
+            light-pink `:bg-issue-row` wash (painted as a `:background-
+            image` layer) + the `data-rf-xray-issue-row` flag. A clean row
+            carries neither — the wash is the per-event 'something went
+            wrong here' signal at the spine."
+    (xray-setup!)
+    ;; cascade 1 — clean. cascade 2 — carries an :rf.error/* trace.
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:button-deck/throw-handler]))
+    (trace-collector/seed-trace-for-test! (error-trace-ev 2))
+    (rf/with-frame :rf/xray
+      (let [tree       (shell/shell-view)
+            clean-row  (find-by-testid tree "rf-xray-event-row-1")
+            issue-row  (find-by-testid tree "rf-xray-event-row-2")]
+        (is (some? clean-row) "the clean cascade's row renders")
+        (is (some? issue-row) "the issue cascade's row renders")
+        ;; issue row — flagged + washed
+        (is (= "true" (:data-rf-xray-issue-row (second issue-row)))
+            "issue row carries data-rf-xray-issue-row=true")
+        (is (some? (:background-image (style-of issue-row)))
+            "issue row paints the pink wash via :background-image")
+        (is (re-find #"--rf-xray-bg-issue-row"
+                     (str (:background-image (style-of issue-row))))
+            "the wash reads the :bg-issue-row theme token (rose in both themes)")
+        ;; clean row — neither flag nor wash
+        (is (nil? (:data-rf-xray-issue-row (second clean-row)))
+            "clean row carries no issue flag")
+        (is (nil? (:background-image (style-of clean-row)))
+            "clean row paints no wash")))))
+
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`
             cascade produced by group-cascades for registry-time emits /
@@ -2508,8 +2561,16 @@
             row   (find-by-testid tree "rf-xray-event-row-1")
             style (:style (second row))]
         (is (some? row) "the focused row renders")
-        (is (= (:hover tokens) (:background style))
+        ;; rf2-b8guz — the row's fill moved from the `:background`
+        ;; shorthand to an explicit `:background-color` so the issue-row
+        ;; wash can ride as a separate `:background-image` layer that
+        ;; composes over (not clobbers) the focus highlight.
+        (is (= (:hover tokens) (:background-color style))
             "focused row background is the subtle :hover fill")
+        ;; a clean focused cascade carries NO issue wash — only the
+        ;; focus-highlight background-color, no overlay layer.
+        (is (nil? (:background-image style))
+            "a clean focused row paints no issue wash")
         (is (= "1px solid transparent" (:border style))
             "focused row border is the transparent base — NO blue ring")
         (is (not= (str "1px solid " (:accent tokens)) (:border style))

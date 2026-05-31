@@ -1443,6 +1443,21 @@
         ;; No border ring, no trailing status stripe — those are not in
         ;; the mock.
         bg          (if focused? (:hover tokens) "transparent")
+        ;; rf2-b8guz — light-pink WASH when this event's epoch CONTAINS
+        ;; AN ISSUE (any error / warning / schema-violation / … — the
+        ;; SAME set the Issues ribbon/feed aggregates, via the canonical
+        ;; `l2-timeline/cascade-has-issue?` predicate). The cross-epoch
+        ;; "this event had a problem" cue at the spine. Painted as a flat
+        ;; `:background-image` gradient layer (the `:bg-issue-row` token,
+        ;; a low-opacity rose wash) so it COMPOSES OVER the focused-row /
+        ;; hover `:background-color` rather than clobbering it — an issue
+        ;; row reads pink whether focused or not, and the focus highlight
+        ;; survives underneath. Nil when no issue, so a clean row paints
+        ;; only its base background.
+        has-issue?  (l2-timeline/cascade-has-issue? cascade)
+        issue-wash  (when has-issue?
+                      (str "linear-gradient(" (:bg-issue-row tokens) ", "
+                           (:bg-issue-row tokens) ")"))
         ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
         ;; auto-tracking branch carries a ref. RETRO and non-focused rows
         ;; get nil (no DOM-side scroll work, no per-render cost).
@@ -1469,6 +1484,11 @@
     ;; right-click users get. The audit (2026-05-20) flagged this
     ;; surface as P1 because the menu's actions had no keyboard path.
     [:li (cond-> {:data-testid (str "rf-xray-event-row-" (str id))
+                  ;; rf2-b8guz — machine-readable issue-row flag so the
+                  ;; light-pink-wash contract is pinnable from a CLJS unit
+                  ;; test (issue epoch → "true"; clean row → absent) without
+                  ;; parsing the inline gradient string.
+                  :data-rf-xray-issue-row (when has-issue? "true")
                   :role        "button"
                   :tab-index   "0"
                   :aria-label  (if ev-id
@@ -1552,7 +1572,15 @@
                           ;; ONLY. The `1px solid transparent` border
                           ;; keeps border-box alignment with the header so
                           ;; columns never drift.
-                          :background    bg
+                          ;;
+                          ;; rf2-b8guz — split into `:background-color`
+                          ;; (the focus / hover highlight) + a flat
+                          ;; `:background-image` wash layer (the issue-row
+                          ;; rose, nil when no issue). The wash COMPOSITES
+                          ;; over the highlight so an issue row reads pink
+                          ;; with the focus state intact underneath.
+                          :background-color bg
+                          :background-image issue-wash
                           :border        "1px solid transparent"
                           :border-radius "2px"
                           :font-family   mono-stack

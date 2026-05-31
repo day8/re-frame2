@@ -361,6 +361,39 @@ in the L4 Event + Issues + Trace panels (the panels read the cascade's
 silent-by-default indicator on the chrome ribbon; see §12 for the full
 data-classification rendering contract.
 
+#### Issue-epoch row wash (rf2-b8guz)
+
+A row whose epoch **contains an issue** carries a **light-pink row
+background wash** — the per-event "something went wrong here" signal at the
+spine, surfaced where the operator is already looking rather than gated
+behind the Issues tab. This is the chosen visual for the event-row issue
+signal (it **supersedes** the earlier "warning indicator / icon" idea
+rf2-tszij — a wash, not a glyph, because the L2 row is intentionally
+glyph-free post-rf2-pjjwh).
+
+- **"contains an issue"** is the SAME set the Issues ribbon/feed aggregates
+  — errors + warnings + schema violations + hydration mismatches +
+  perf-budget overruns + app console errors. The renderer reuses the
+  canonical Issues predicate (`issues-ribbon-helpers/issue-event?`, applied
+  over the cascade's `:other` bucket via
+  `l2-timeline/cascade-has-issue?`) rather than re-enumerating what counts
+  as an issue, so the wash stays in lockstep with the ribbon/feed by
+  construction. It is the SAME trace-derived signal the Epoch panel's
+  per-step `:status` + `epoch-outcome` and `event-status-colour/
+  cascade-outcome` key off (rf2-ahhgn): a cascade carrying any issue trace
+  lights up. ONE light pink for ANY issue (Mike default — warnings are not
+  given a distinct shade from errors).
+- **Colour** is the `:bg-issue-row` theme token (a low-opacity rose wash —
+  the same hue family as the `:bg-violation` schema-violation wash, rendered
+  through the per-theme CSS variable so it reads rose in both light + dark
+  themes). See [`022-Design-Tokens.md`](022-Design-Tokens.md).
+- **Composes, does not clobber:** the wash is painted as a flat
+  `background-image` gradient layer over the row's `background-color`, so it
+  coexists with the selected/focused-row highlight (an issue row reads pink
+  whether focused or not, with the focus state intact underneath), the LIVE
+  head-pulse, and any cross-epoch perf-budget chrome. A clean (non-issue)
+  row carries no wash.
+
 ### Row variants
 
 ONE shape, decorated:
