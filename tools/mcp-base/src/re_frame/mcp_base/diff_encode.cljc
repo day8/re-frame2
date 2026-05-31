@@ -188,6 +188,33 @@
      :cljs (try (resolve 'malli.core/validate)
                 (catch :default _ nil))))
 
+(defn- validate-against!
+  "Shared soft-pass Malli gate behind `validate-patches!` /
+  `validate-sections!`. Validates `data` against `schema` and throws
+  `:rf.error/<error-id>` ex-info on mismatch; no-op when Malli is not
+  resolvable on the runtime classpath (soft-pass — mirrors
+  `re-frame.schemas.malli`'s default validator) or when
+  `validate-patches?` is elided.
+
+  `where` is the calling-site symbol threaded through to the ex-info
+  `:where` slot so it reflects the ACTUAL wire boundary that tripped
+  (rf2-4ypau) rather than a hardcoded one side. `data-key` names the
+  ex-data slot the offending value rides under (`:patches` /
+  `:sections`) so an operator reading the ex-data finds it under the
+  shape it expected. Returns nil."
+  [schema data where error-id reason data-key]
+  (when validate-patches?
+    (when-let [validate (resolve-malli-validate)]
+      (when-not (validate schema data)
+        (throw (ex-info (str error-id)
+                        {:rf.error/id error-id
+                         :where       where
+                         :recovery    :no-recovery
+                         :reason      reason
+                         :schema      schema
+                         data-key     data})))))
+  nil)
+
 (defn- validate-patches!
   "Validate `patches` against `patches-schema` and throw ex-info on
   mismatch. No-op when Malli is not resolvable on the runtime
@@ -202,17 +229,10 @@
   encoder and misleads operator triage about which side of the wire
   drifted."
   [patches where]
-  (when validate-patches?
-    (when-let [validate (resolve-malli-validate)]
-      (when-not (validate patches-schema patches)
-        (throw (ex-info ":rf.error/bad-diff-patches"
-                        {:rf.error/id    :rf.error/bad-diff-patches
-                         :where          where
-                         :recovery       :no-recovery
-                         :reason         "diff-encode patch grammar violated"
-                         :schema         patches-schema
-                         :patches        patches})))))
-  nil)
+  (validate-against! patches-schema patches where
+                     :rf.error/bad-diff-patches
+                     "diff-encode patch grammar violated"
+                     :patches))
 
 (defn- validate-sections!
   "Validate `sections` against `sections-schema` and throw ex-info on
@@ -226,17 +246,10 @@
   from the decoder. Both boundaries call this; hardcoding one side
   misattributes a decode-side throw to the encoder."
   [sections where]
-  (when validate-patches?
-    (when-let [validate (resolve-malli-validate)]
-      (when-not (validate sections-schema sections)
-        (throw (ex-info ":rf.error/bad-diff-sections"
-                        {:rf.error/id   :rf.error/bad-diff-sections
-                         :where         where
-                         :recovery      :no-recovery
-                         :reason        "diff-encode section grammar violated"
-                         :schema        sections-schema
-                         :sections      sections})))))
-  nil)
+  (validate-against! sections-schema sections where
+                     :rf.error/bad-diff-sections
+                     "diff-encode section grammar violated"
+                     :sections))
 
 (declare collect-patches-into)
 
