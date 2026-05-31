@@ -51,10 +51,11 @@
     Trace   — every button emits trace; #3 a managed fx, #4 a cascade,
               #5 a flow recompute, #12 a sub-chain recompute.
     Issues  — #16 handler exception (db rolls back) · #17 interceptor
-              exception · #18 coeffect exception · #19 effect exception
-              (post-commit, best-effort) · #20 slow fx flagged ·
-              #21 event-args schema violation · #22 app-db schema
-              violation (survives rollback).
+              :before exception (handler skipped) · #18 interceptor :after
+              exception (handler ran, threw on the way out) · #19 coeffect
+              exception · #20 effect exception (post-commit, best-effort) ·
+              #21 slow fx flagged · #22 event-args schema violation · #23
+              app-db schema violation (survives rollback).
 
   ## Test surface, not tutorial
 
@@ -142,10 +143,10 @@
 (defn- bump [db] (update db :baseline inc))
 
 ;; ============================================================================
-;; APP-DB SCHEMA (button #21)
+;; APP-DB SCHEMA (button #23)
 ;; ============================================================================
 ;;
-;; The only constraint: [:auth :token] must be a string. Button #21
+;; The only constraint: [:auth :token] must be a string. Button #23
 ;; writes an int there; the post-handler app-db validation (Spec 010
 ;; §Validation order) rejects it and rolls the :db effect back, while the
 ;; schema-violation issue survives in Xray's Issues lens.
@@ -167,7 +168,7 @@
   (fn cofx-now [ctx]
     (rf/assoc-coeffect ctx :button-deck/now (.getTime (js/Date.)))))
 
-;; A coeffect that throws on injection (button #17). A FEATURE being
+;; A coeffect that throws on injection (button #19). A FEATURE being
 ;; exercised — the supported way to light up the cofx error surface.
 (rf/reg-cofx :button-deck/throwing-cofx
   {:doc "Throws during coeffect injection so Xray's Issues lens surfaces
@@ -177,15 +178,38 @@
                     {:surface :coeffect-exception}))))
 
 ;; ============================================================================
-;; INTERCEPTOR that throws in :before (button #16)
+;; INTERCEPTORS that throw — one in :before (button #17), one in :after
+;; (button #18)
 ;; ============================================================================
+;;
+;; Two throwing interceptors so the per-step placement work can tell the
+;; two halves of the interceptor chain apart. The :before interceptor
+;; aborts on the way IN (before the handler runs); the :after interceptor
+;; runs the handler successfully, then throws on the way OUT. Pairing them
+;; makes the framework's per-step exception attribution (the :before-chain
+;; vs interceptor-:after distinction) visible live in Xray.
 
+;; Throws in :before — aborts before the handler runs (button #17).
 (def throwing-interceptor
   (rf/->interceptor
     :id     :button-deck/throwing-interceptor
-    :before (fn interceptor-throws [_ctx]
-              (throw (ex-info "button-deck / interceptor (intentional — exercises the interceptor error surface)"
-                              {:surface :interceptor-exception})))))
+    :before (fn interceptor-before-throws [_ctx]
+              (throw (ex-info "button-deck / interceptor :before (intentional — exercises the interceptor :before error surface)"
+                              {:surface :interceptor-exception :phase :before})))))
+
+;; Throws in :after — the handler runs to completion first, THEN this
+;; throws on the way back out of the chain (button #18). The foil to the
+;; :before interceptor above: the failing step is the interceptor's :after,
+;; not the handler, so the per-step placement renders the exception under
+;; the interceptor's :after step (rf2-yz57h) and the framework attributes
+;; it to the interceptor rather than collapsing it into a handler
+;; exception (rf2-mszrz).
+(def throwing-interceptor-after
+  (rf/->interceptor
+    :id    :button-deck/throwing-interceptor-after
+    :after (fn interceptor-after-throws [_ctx]
+             (throw (ex-info "button-deck / interceptor :after (intentional — exercises the interceptor :after error surface)"
+                             {:surface :interceptor-exception :phase :after})))))
 
 ;; ============================================================================
 ;; EFFECTS
@@ -198,7 +222,7 @@
   (fn fx-ping [_ctx args]
     (swap! ping-log conj args)))
 
-;; A managed slow fx (~600ms, button #19). Resolves later with a
+;; A managed slow fx (~600ms, button #21). Resolves later with a
 ;; follow-on dispatch back onto the originating frame. ~600ms exceeds
 ;; Spec 009's slow-effect threshold, so Xray's Issues lens flags it as a
 ;; (non-bug) slow effect; the status moves :loading -> :loaded.
@@ -209,7 +233,7 @@
       (fn [] (rf/dispatch [:button-deck/slow-done] {:frame frame}))
       SLOW-MS)))
 
-;; An fx whose body throws (button #18). The handler's :db commits first;
+;; An fx whose body throws (button #20). The handler's :db commits first;
 ;; the throw fires later, during the post-commit fx walk — best-effort
 ;; per the FX atomicity asymmetry — so Xray's Issues lens shows the fx
 ;; error while the baseline bump survives.
@@ -376,23 +400,34 @@
     (throw (ex-info "button-deck / handler (intentional — exercises the handler error surface)"
                     {:surface :handler-exception}))))
 
-;; -- 17. exception in an interceptor (:before) → Issues: interceptor exc. ----
+;; -- 17. exception in an interceptor :before → Issues: interceptor exc. ------
 (rf/reg-event-db :button-deck/throw-interceptor
-  {:doc "Button 17 — an interceptor throws in :before. Issues shows the
-         interceptor exception; the handler never runs."}
+  {:doc "Button 17 — an interceptor throws in :before. The chain aborts on
+         the way IN; Issues shows the interceptor :before exception and the
+         handler never runs."}
   [throwing-interceptor]
   (fn handler-after-throwing-interceptor [db _ev] (bump db)))
 
-;; -- 18. exception in a coeffect handler → Issues: cofx error ----------------
+;; -- 18. exception in an interceptor :after → Issues: interceptor exc. -------
+(rf/reg-event-db :button-deck/throw-interceptor-after
+  {:doc "Button 18 — an interceptor throws in :after. The foil to button
+         17: the handler runs to completion (the :db is computed), THEN the
+         interceptor throws on the way OUT. Issues shows the interceptor
+         :after exception; per-step placement renders it under the
+         interceptor's :after step, distinct from a handler exception."}
+  [throwing-interceptor-after]
+  (fn handler-before-throwing-after-interceptor [db _ev] (bump db)))
+
+;; -- 19. exception in a coeffect handler → Issues: cofx error ----------------
 (rf/reg-event-fx :button-deck/throw-cofx
-  {:doc "Button 18 — a coeffect throws on injection. Issues shows the
+  {:doc "Button 19 — a coeffect throws on injection. Issues shows the
          cofx error; the handler never runs."}
   [(rf/inject-cofx :button-deck/throwing-cofx)]
   (fn handler-after-throwing-cofx [{:keys [db]} _ev] {:db (bump db)}))
 
-;; -- 19. exception in an effect handler (post-commit) → Issues: fx error -----
+;; -- 20. exception in an effect handler (post-commit) → Issues: fx error -----
 (rf/reg-event-fx :button-deck/throw-fx
-  {:doc "Button 19 — the :db commits (baseline bumps), then a post-commit
+  {:doc "Button 20 — the :db commits (baseline bumps), then a post-commit
          fx throws. Issues shows the fx error; post-commit fx are
          best-effort per the FX atomicity asymmetry, so the db delta
          survives."}
@@ -400,9 +435,9 @@
     {:db (bump db)
      :fx [[:button-deck/boom {}]]}))
 
-;; -- 20. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
+;; -- 21. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
 (rf/reg-event-fx :button-deck/slow
-  {:doc "Button 20 — issue a ~600ms managed fx. Status moves :loading;
+  {:doc "Button 21 — issue a ~600ms managed fx. Status moves :loading;
          Issues flags the slow fx; the reply lands :loaded ~600ms later."}
   (fn handler-slow [{:keys [db]} _ev]
     {:db (-> db bump (assoc :slow-status :loading))
@@ -414,17 +449,17 @@
   (fn handler-slow-done [db _ev]
     (assoc db :slow-status :loaded)))
 
-;; -- 21. schema violation, bad event args → Issues / Schema-timeline ---------
+;; -- 22. schema violation, bad event args → Issues / Schema-timeline ---------
 (rf/reg-event-db :button-deck/bad-event-args
-  {:doc "Button 21 — dispatched with a bad arg (a string where a pos-int
+  {:doc "Button 22 — dispatched with a bad arg (a string where a pos-int
          is required). The handler is skipped; Issues / Schema-timeline
          shows `:rf.error/schema-validation-failure :where :event`."
    :schema [:cat [:= :button-deck/bad-event-args] pos-int?]}
   (fn handler-bad-event-args [db _ev] (bump db)))
 
-;; -- 22. schema violation, app-db write → Issues: app-db schema failure ------
+;; -- 23. schema violation, app-db write → Issues: app-db schema failure ------
 (rf/reg-event-db :button-deck/bad-app-db-write
-  {:doc "Button 22 — write an int into [:auth :token] (the registered
+  {:doc "Button 23 — write an int into [:auth :token] (the registered
          app-schema requires a string). The post-handler app-db
          validation rolls the :db back; Issues shows the app-db schema
          failure, which survives the rollback."}
@@ -557,17 +592,19 @@
    [:section "Errors / Issues — each a real feature, not a buggy demo"]
    [16 "Exception in the handler"     "Issues: handler-exception + source coord; db rolls back"
     [:button-deck/throw-handler]]
-   [17 "Exception in an interceptor"  "Issues: interceptor exception (:before); handler skipped"
+   [17 "Exception in an interceptor :before" "Issues: interceptor :before exception; handler skipped"
     [:button-deck/throw-interceptor]]
-   [18 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
+   [18 "Exception in an interceptor :after"  "Issues: interceptor :after exception; handler ran, threw on the way out (foil to #17)"
+    [:button-deck/throw-interceptor-after]]
+   [19 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
     [:button-deck/throw-cofx]]
-   [19 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
+   [20 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
     [:button-deck/throw-fx]]
-   [20 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
+   [21 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
     [:button-deck/slow]]
-   [21 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
+   [22 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
     [:button-deck/bad-event-args "not-a-number"]]
-   [22 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
+   [23 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
     [:button-deck/bad-app-db-write]]])
 
 (defn- testid-for [event]
