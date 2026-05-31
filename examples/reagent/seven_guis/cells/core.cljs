@@ -1,7 +1,7 @@
 (ns seven-guis.cells.core
   "7GUIs #7 — Cells.
 
-   A small spreadsheet with cells A1..Z99. Each cell holds either a literal
+   A small spreadsheet with cells A1..Z100. Each cell holds either a literal
    value or a formula. Formulas reference other cells. Changes propagate.
 
    The 7GUIs page calls this out as a test of *change propagation through
@@ -42,8 +42,11 @@
   100)
 
 (def cell-re
-  "Cell-id regex — one capital letter + 1-2 digits (e.g. A1, Z99)."
-  #"^[A-Z]\d{1,2}$")
+  "Cell-id regex — one capital letter + 1-3 digits (e.g. A1, Z99, A100).
+   The grid is 26 cols × 100 rows, so row 100 cell-ids (A100..Z100) carry
+   three digits and MUST match here, otherwise a formula referencing a
+   row-100 cell parses as #PARSE even though the cell exists in the grid."
+  #"^[A-Z]\d{1,3}$")
 
 (defn cell-id [col row] (str (char (+ 65 col)) row))
 (defn parse-cell-id [s]
