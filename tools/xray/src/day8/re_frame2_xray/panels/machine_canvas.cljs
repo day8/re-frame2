@@ -57,6 +57,7 @@
             [cljs.reader :as reader]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
@@ -106,34 +107,16 @@
   Chart stays expanded."
   "xray.machine-canvas.chart-collapsed-by-id")
 
-(defn- storage-available? []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
-
-(defn- read-raw [k]
-  (when (storage-available?)
-    (try (.getItem (.-localStorage js/window) k)
-         (catch :default _ nil))))
-
-(defn- write-raw! [k v]
-  (when (storage-available?)
-    (try (.setItem (.-localStorage js/window) k v)
-         (catch :default _ nil)))
-  nil)
-
-(defn- remove-raw! [k]
-  (when (storage-available?)
-    (try (.removeItem (.-localStorage js/window) k)
-         (catch :default _ nil)))
-  nil)
+;; Raw browser access lives in the shared `local-storage` seam
+;; (rf2-jkake.24); both slots are key-parameterised here.
 
 (defn save-view-mode-by-id!
   "Persist the view-mode-by-id map to localStorage. Empty/nil clears
   the slot."
   [m]
   (if (or (nil? m) (and (map? m) (empty? m)))
-    (remove-raw! storage-key)
-    (write-raw! storage-key (pr-str m)))
+    (ls/remove-item! storage-key)
+    (ls/set-item! storage-key (pr-str m)))
   nil)
 
 (defn load-view-mode-by-id
@@ -141,7 +124,7 @@
   the slot is absent / unparseable. Values normalise to `:canvas`
   by default."
   []
-  (when-let [raw (read-raw storage-key)]
+  (when-let [raw (ls/get-item storage-key)]
     (try
       (let [parsed (reader/read-string raw)]
         (when (map? parsed)
@@ -157,8 +140,8 @@
   issue #4). Empty/nil clears the slot."
   [m]
   (if (or (nil? m) (and (map? m) (empty? m)))
-    (remove-raw! chart-collapsed-storage-key)
-    (write-raw! chart-collapsed-storage-key (pr-str m)))
+    (ls/remove-item! chart-collapsed-storage-key)
+    (ls/set-item! chart-collapsed-storage-key (pr-str m)))
   nil)
 
 (defn load-chart-collapsed-by-id
@@ -166,7 +149,7 @@
   when the slot is absent / unparseable. Values normalise to booleans
   (truthy → `true`, anything else → `false`)."
   []
-  (when-let [raw (read-raw chart-collapsed-storage-key)]
+  (when-let [raw (ls/get-item chart-collapsed-storage-key)]
     (try
       (let [parsed (reader/read-string raw)]
         (when (map? parsed)

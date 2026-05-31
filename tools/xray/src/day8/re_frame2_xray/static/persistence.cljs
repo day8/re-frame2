@@ -40,7 +40,8 @@
   real browser localStorage call `with-storage-stub` which threads a
   per-call stub through the load/save fns. Standalone tests that need
   a clean slate call `clear!` in their `:each` fixture."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.local-storage :as ls]))
 
 (def storage-key
   "Canonical localStorage key for Xray's Dynamic ↔ Static mode
@@ -81,44 +82,27 @@
   (normalise-mode s))
 
 ;; ---- localStorage helpers -----------------------------------------------
-
-(defn- storage-available?
-  "True when `js/window.localStorage` is reachable. Tests that drive
-  the registry without a browser (node-test) need the load path to
-  no-op silently."
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access + the no-op-when-unavailable / swallow-throws
+;; posture live in the shared `local-storage` seam (rf2-jkake.24).
 
 (defn read-raw
   "Read the raw string Xray wrote under `storage-key`. Returns nil
   when the slot is empty or localStorage is unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) storage-key)
-      (catch :default _ nil))))
+  (ls/get-item storage-key))
 
 (defn write-raw!
   "Write `s` under `storage-key`. No-op when localStorage is
   unavailable. Swallows any throw — a quota error must not poison
   the dispatch chain."
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) storage-key s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! storage-key s))
 
 (defn clear!
   "Remove the persisted mode slot. Used by tests to reset between
   scenarios. No-op when localStorage is unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) storage-key)
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! storage-key))
 
 ;; ---- public API ---------------------------------------------------------
 

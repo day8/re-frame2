@@ -65,6 +65,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
@@ -121,10 +122,8 @@
   "localStorage key the mute set persists under per bead rf2-ikuwt."
   "xray.spine.muted-event-ids")
 
-(defn- storage-available?
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access lives in the shared `local-storage` seam
+;; (rf2-jkake.24).
 
 (defn ->edn
   "Serialise the muted set into a stable EDN string. Sorting the
@@ -147,27 +146,16 @@
 
 (defn read-raw
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) default-storage-key)
-      (catch :default _ nil))))
+  (ls/get-item default-storage-key))
 
 (defn write-raw!
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) default-storage-key s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! default-storage-key s))
 
 (defn clear-raw!
   "Remove the persisted slot. Used by tests."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) default-storage-key)
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! default-storage-key))
 
 (defn load
   "Read + parse the persisted muted set. Returns `#{}` when localStorage

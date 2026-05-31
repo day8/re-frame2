@@ -39,6 +39,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.static.machines.helpers :as h]))
 
 (def selection-key
@@ -50,30 +51,8 @@
   "xray.static.machines.sub-mode-by-id")
 
 ;; ---- localStorage helpers -----------------------------------------------
-
-(defn- storage-available? []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
-
-(defn- read-raw [k]
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) k)
-      (catch :default _ nil))))
-
-(defn- write-raw! [k v]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) k v)
-      (catch :default _ nil)))
-  nil)
-
-(defn- remove-raw! [k]
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) k)
-      (catch :default _ nil)))
-  nil)
+;; Raw browser access lives in the shared `local-storage` seam
+;; (rf2-jkake.24); both slots are key-parameterised here.
 
 ;; ---- selection round-trip -----------------------------------------------
 
@@ -82,9 +61,9 @@
   the slot."
   [machine-id]
   (if (nil? machine-id)
-    (remove-raw! selection-key)
+    (ls/remove-item! selection-key)
     (when (keyword? machine-id)
-      (write-raw! selection-key (subs (str machine-id) 1))))
+      (ls/set-item! selection-key (subs (str machine-id) 1))))
   nil)
 
 (defn load-selected-id
@@ -92,7 +71,7 @@
   slot is empty / localStorage is unavailable / the value is not a
   valid keyword name."
   []
-  (when-let [raw (read-raw selection-key)]
+  (when-let [raw (ls/get-item selection-key)]
     (try
       (keyword raw)
       (catch :default _ nil))))
@@ -104,8 +83,8 @@
   EDN. Empty / nil map clears the slot."
   [by-id]
   (if (or (nil? by-id) (and (map? by-id) (empty? by-id)))
-    (remove-raw! sub-mode-key)
-    (write-raw! sub-mode-key (pr-str by-id)))
+    (ls/remove-item! sub-mode-key)
+    (ls/set-item! sub-mode-key (pr-str by-id)))
   nil)
 
 (defn load-sub-mode-by-id
@@ -114,7 +93,7 @@
   `helpers/normalise-sub-mode` so a corrupted entry falls back to
   `:topology` rather than crashing the render."
   []
-  (when-let [raw (read-raw sub-mode-key)]
+  (when-let [raw (ls/get-item sub-mode-key)]
     (try
       (let [parsed (reader/read-string raw)]
         (when (map? parsed)
@@ -131,8 +110,8 @@
   "Drop both slots. Used by tests to reset between scenarios. No-op
   when localStorage is unavailable."
   []
-  (remove-raw! selection-key)
-  (remove-raw! sub-mode-key)
+  (ls/remove-item! selection-key)
+  (ls/remove-item! sub-mode-key)
   nil)
 
 ;; ---- re-frame fx + hydration -------------------------------------------

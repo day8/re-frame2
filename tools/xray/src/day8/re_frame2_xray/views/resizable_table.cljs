@@ -54,7 +54,8 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [day8.re-frame2-xray.defaults :as defaults]))
+            [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.local-storage :as ls]))
 
 (def ^:private gutter-width-px 4)
 (def ^:private min-col-width-px 24)
@@ -85,37 +86,24 @@
   []
   @storage-key)
 
-(defn- storage-available?
-  "True when `js/window.localStorage` is reachable. JVM / node tests
-  without jsdom land in the no-op branch."
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access lives in the shared `local-storage` seam
+;; (rf2-jkake.24). The key is resolved per call through
+;; `get-storage-key` so a runtime `set-storage-key!` re-key takes
+;; effect immediately.
 
 (defn- read-raw
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil))))
+  (ls/get-item (get-storage-key)))
 
 (defn- write-raw!
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) (get-storage-key) s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! (get-storage-key) s))
 
 (defn clear!
   "Remove the persisted column-widths slot. Used by tests to reset
   between scenarios. No-op when localStorage is unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! (get-storage-key)))
 
 (defn ->edn
   "Serialise `widths` (`{table-id {col-id px}}`) into a stable EDN
