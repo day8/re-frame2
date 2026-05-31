@@ -40,6 +40,16 @@
 
 ;; ---- visual constants --------------------------------------------------
 
+;; SVG `<text>` does not inherit the panel's CSS font-size cascade, so the
+;; waterfall must paint a literal size. It reads the shared `:caption`
+;; type-scale token (≈11px at the default knob) — the panel's
+;; secondary-label level — rather than the `:micro` refused-floor (≈10px)
+;; the labels used to sit at, which read uncomfortably small in live use
+;; (rf2-zyjm7). A token (calc-string) keeps the chart on the one-knob
+;; `--rf-xray-font-size` scale with the rest of the shell. Fits the 16px
+;; `row-height` comfortably.
+(def ^:private label-font-size (:caption tokens/type-scale))
+
 (def ^:private row-height 16)
 (def ^:private label-width 80)
 (def ^:private value-width 60)
@@ -163,7 +173,7 @@
                  ;; left label
                  [:text {:x 4
                          :y (+ y (- row-height 4))
-                         :font-size 10
+                         :font-size label-font-size
                          :fill (:text-secondary tokens/tokens)}
                   (phase-label row)]
                  ;; track background
@@ -185,7 +195,7 @@
                  ;; right value
                  [:text {:x (+ bar-x bar-area-w bar-padding)
                          :y (+ y (- row-height 4))
-                         :font-size 10
+                         :font-size label-font-size
                          :fill (if slow?
                                  (:yellow tokens/tokens)
                                  (:text-tertiary tokens/tokens))}
