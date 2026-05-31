@@ -88,6 +88,14 @@
         {:status         status
          :epoch-id       (or focus-epoch-id (:epoch-id record))
          :record         record
+         ;; rf2-ahhgn — the TOOL-SIDE outcome (`:ok` / `:error`) derived
+         ;; from the projected steps (any step carrying an exception or
+         ;; schema violation reads `:error`). Surfaced so the panel
+         ;; header signals a failed cascade — the framework epoch-record
+         ;; `:outcome` slot stays `:ok` for a recovered handler exception
+         ;; by spec, and is NOT the panel's outcome (see
+         ;; `projection/epoch-outcome`).
+         :outcome        (proj/epoch-outcome steps)
          ;; rf2-yx1ae — the CHILD-DISPATCHES section's view resolves
          ;; child epoch-ids via `find-child-epoch` against this cascade's
          ;; `:dispatch-id` + the epoch-history. Pinning them on the

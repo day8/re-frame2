@@ -2201,3 +2201,124 @@
           "decoded sub-block is omitted when no Malli explain is present")
       (is (some? (th/find-by-testid tree (str base "-explain")))
           "the humanized explain still renders (unchanged behaviour)"))))
+
+;; ---- rf2-ahhgn — inline exception card + per-step ✓/✗ + outcome banner ---
+
+(deftest error-block-renders-message-and-coord-test
+  (testing "rf2-ahhgn — `error-block` renders the red exception card with
+            the title, human headline, the verbatim message, and a
+            jump-to-source link reading `file:line`"
+    (let [row  {:operation :rf.error/handler-exception
+                :message "button-deck / handler (intentional — exercises the handler error surface)"
+                :coord {:file "button_deck/core.cljs" :line 322}
+                :failing-id :button-deck/throw-handler
+                :recovery :no-recovery}
+          tree (view/error-block :handler 0 row)
+          base "rf-xray-epoch-error-handler-0"]
+      (is (some? (th/find-by-testid tree base))
+          "the exception card wrapper renders")
+      (is (string/includes? (text-of tree (str base "-title")) "Exception")
+          "title reads 'Exception'")
+      (is (string/includes? (text-of tree (str base "-recovery")) "Rolled back")
+          ":no-recovery → 'Rolled back' chip")
+      (is (string/includes? (text-of tree (str base "-headline"))
+                            "event handler threw")
+          "headline names the handler failure")
+      (is (string/includes? (text-of tree (str base "-message"))
+                            "intentional")
+          "the verbatim ex-info message renders")
+      (is (string/includes? (text-of tree (str base "-source"))
+                            "button_deck/core.cljs:322")
+          "the jump-to-source link reads file:line"))))
+
+(deftest error-block-fx-headline-test
+  (testing "rf2-ahhgn — an fx-handler exception names the failing fx-id"
+    (let [tree (view/error-block :fx 0
+                 {:operation :rf.error/fx-handler-exception
+                  :message "fx boom" :failing-id :http/post
+                  :recovery :no-recovery})]
+      (is (string/includes? (text-of tree "rf-xray-epoch-error-fx-0-headline")
+                            ":http/post")
+          "headline names the failing effect"))))
+
+(deftest error-block-degrades-when-coord-absent-test
+  (testing "rf2-ahhgn — no coord → the source link reads a muted
+            'source unavailable' fallback rather than a dead link"
+    (let [tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception
+                  :message "boom" :coord nil})]
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-handler-0-source")
+            "source unavailable")))))
+
+(deftest error-blocks-nil-safe-test
+  (testing "rf2-ahhgn — `error-blocks` renders nothing for empty / nil"
+    (is (nil? (view/error-blocks :handler nil)))
+    (is (nil? (view/error-blocks :handler [])))))
+
+(deftest handler-step-renders-inline-exception-test
+  (testing "rf2-ahhgn — the live button-15 shape: a handler step carrying
+            an attached exception renders the inline error card AND the
+            header's ✗ status glyph"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-event-db :event-id :button-deck/throw-handler
+                :db-diff [] :fx [] :machine nil
+                :status :error
+                :errors [{:operation :rf.error/handler-exception
+                          :message "boom in handler"
+                          :coord {:file "core.cljs" :line 322}
+                          :failing-id :button-deck/throw-handler
+                          :recovery :no-recovery}]}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-error-handler-0"))
+          "the inline exception card renders under the HANDLER step")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-handler-0-message")
+            "boom in handler"))
+      (let [glyph (th/find-by-testid tree "rf-xray-epoch-handler-status")]
+        (is (some? glyph) "the per-step status glyph renders")
+        (is (= "error" (:data-rf-xray-step-status (th/attrs glyph)))
+            "the glyph data-attr reports :error")
+        (is (string/includes? (th/text-content glyph) "✗")
+            "a failed step paints the ✗ glyph")))))
+
+(deftest handler-step-clean-paints-ok-glyph-test
+  (testing "rf2-ahhgn — a clean handler step paints the quiet ✓ glyph and
+            renders no error card"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-event-db :event-id :counter/inc
+                :db-diff [] :fx [] :machine nil}
+          tree (view/render-handler-step step)
+          glyph (th/find-by-testid tree "rf-xray-epoch-handler-status")]
+      (is (= "ok" (:data-rf-xray-step-status (th/attrs glyph))))
+      (is (string/includes? (th/text-content glyph) "✓"))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-errors-handler"))
+          "a clean step renders no error block"))))
+
+(deftest fx-step-renders-per-row-exception-test
+  (testing "rf2-ahhgn — a throwing fx (button-18) surfaces its message on
+            its own FX row via `fx-row-with-violations`"
+    (let [step {:step :fx :badge :FX :step-number 4 :threw 1
+                :rows [{:fx-id :db :status :ok}
+                       {:fx-id :button-deck/ping :status :error
+                        :errors [{:operation :rf.error/fx-handler-exception
+                                  :message "fx threw on purpose"
+                                  :failing-id :button-deck/ping
+                                  :recovery :no-recovery}]}]}
+          tree (view/render-fx-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-error-fx-row-1-0"))
+          "the throwing fx row carries its inline error card")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-fx-row-1-0-message")
+            "fx threw on purpose")))))
+
+(deftest outcome-banner-renders-on-error-test
+  (testing "rf2-ahhgn — the outcome banner renders for `:error` and is
+            absent for `:ok` (silence is the success signal)"
+    (is (some? (th/find-by-testid (view/outcome-banner :error)
+                                  "rf-xray-epoch-outcome-banner"))
+        "an errored cascade paints the red banner")
+    (is (nil? (view/outcome-banner :ok))
+        "a clean cascade paints no banner")
+    (is (nil? (view/outcome-banner nil))
+        "a nil outcome paints no banner")))

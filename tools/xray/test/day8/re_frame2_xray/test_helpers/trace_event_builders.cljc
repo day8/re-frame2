@@ -370,3 +370,51 @@
        :path              path
        :mismatching-value mismatching-value
        :recovery          :logged-and-skipped}))
+
+;; ---- cascade exceptions (rf2-ahhgn) ------------------------------------
+
+(defn handler-exception-ev
+  "`:rf.error/handler-exception` trace (rf2-ahhgn) — a handler /
+  interceptor / injected-coeffect threw; the router emits this from
+  `emit-handler-exception!`. Mirrors that emit shape: the message rides
+  `[:tags :exception-message]`, the handler id rides `[:tags :handler-id]`
+  / `[:tags :failing-id]`, the optional interceptor `:phase` rides
+  `[:tags :phase]`, and the failing handler's SOURCE-COORD rides the
+  hoisted top-level `:rf.trace/trigger-handler :source-coord` slot.
+  Drives the HANDLER step's inline error card + the per-step ✗ status.
+
+  2-arg form: event-id + message. The 3-arg form adds the source-coord;
+  the 4-arg form adds the interceptor `:phase` (`:before` / `:after`)."
+  ([event-id message] (handler-exception-ev event-id message nil nil))
+  ([event-id message coord] (handler-exception-ev event-id message coord nil))
+  ([event-id message coord phase]
+   (cond-> (ev :error :rf.error/handler-exception
+               (cond-> {:event-id          event-id
+                        :handler-id        event-id
+                        :failing-id        event-id
+                        :exception-message message
+                        :reason            "Event handler threw."}
+                 phase (assoc :phase phase)))
+     true     (assoc :recovery :no-recovery)
+     coord    (assoc :rf.trace/trigger-handler {:kind         :event
+                                                :id           event-id
+                                                :source-coord coord}))))
+
+(defn fx-handler-exception-ev
+  "`:rf.error/fx-handler-exception` trace (rf2-ahhgn) — a registered
+  fx-handler threw during the post-commit fx walk. The fx-id rides
+  `[:tags :rf.fx/id]` so the projection's `attach-to-fx-error-row` can
+  match it to the FX step's `:db`/user-fx rows; the message rides
+  `[:tags :exception-message]`. Drives the FX step's inline error card
+  (per-row when the fx-id matches, step-level otherwise)."
+  ([fx-id message] (fx-handler-exception-ev fx-id message nil))
+  ([fx-id message coord]
+   (cond-> (ev :error :rf.error/fx-handler-exception
+               {:rf.fx/id          fx-id
+                :failing-id        fx-id
+                :exception-message message
+                :reason            "Effect handler threw."})
+     true  (assoc :recovery :no-recovery)
+     coord (assoc :rf.trace/trigger-handler {:kind         :fx
+                                             :id           fx-id
+                                             :source-coord coord}))))
