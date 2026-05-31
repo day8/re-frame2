@@ -841,6 +841,37 @@
       (is (string? (:note s)))
       (is (re-find #"CLJS-only" (:note s))))))
 
+(deftest run-a11y-co-hosted-surfaces-stored-violations
+  ;; rf2-ynjts.20 — the co-hosted (CLJS var resolved) branch of
+  ;; `tool-run-a11y`. The existing test covers ONLY the JVM-standalone
+  ;; path (var unresolved ⇒ empty + :note). The populated path — the
+  ;; resolved violations atom carries findings for the frame — was
+  ;; untested. We stand in for the resolved CLJS var with a var-of-atom
+  ;; mirror: the handler does `(deref @violations-by-frame-var)`, so the
+  ;; redef must hold a value whose deref is the per-frame violations atom.
+  (testing "violations stored for the frame are surfaced; :note is nil"
+    (let [vios   [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]
+          ;; `@var` → inner atom; `(deref inner)` → the by-frame map.
+          stand-in (atom (atom {:story.button/primary vios}))]
+      (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+        (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= vios (:violations s))
+              "the stored violations for the frame ride through verbatim")
+          (is (nil? (:note s))
+              "co-hosted deploy with a resolved atom emits no JVM-standalone hint")))))
+  (testing "a frame with no stored violations returns an empty vec (still co-hosted, :note nil)"
+    (let [stand-in (atom (atom {:story.other/frame [{:id "x"}]}))]
+      (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+        (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= [] (:violations s))
+              "no entry for this frame ⇒ empty vec, not nil")
+          (is (nil? (:note s))
+              "the atom resolved, so this is NOT the JVM-standalone path"))))))
+
 (deftest read-failures-empty-after-no-run
   (testing "no run yet ⇒ zero accumulated assertions, vacuously :pass"
     (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
@@ -1108,6 +1139,31 @@
                      :body {:tags #{:nonexistent-tag}}})]
       (is (error? r))
       (is (re-find #"(?i)Registration failed" (-> r :content first :text))))))
+
+(deftest register-variant-rejects-non-map-body
+  ;; rf2-ynjts.20 — the `coerce-body` `::not-a-map` branch (write.cljc).
+  ;; The hardening tests above all cover the `::edn-error` branch (tagged
+  ;; literal, oversize, over-deep, malformed). The DISTINCT `::not-a-map`
+  ;; branch — a `:body` that PARSES cleanly but isn't a map — emits a
+  ;; different error message ("must be a map; got <class>") and was
+  ;; untested. A vector/scalar body must not reach the registrar.
+  (testing "an EDN-string body that parses to a vector is rejected as not-a-map"
+    (config/set-allow-writes! true)
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/vecbody"
+                     :body "[:not :a :map]"})]
+      (is (error? r))
+      (is (re-find #"(?i):body must be a map" (-> r :content first :text))
+          "the not-a-map branch emits the map-required message, not the edn-error message")
+      (is (nil? (story/variant->edn :story.button/vecbody))
+          "a non-map body never reaches the registrar")))
+  (testing "an EDN-string body that parses to a scalar is rejected as not-a-map"
+    (config/set-allow-writes! true)
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/scalarbody"
+                     :body "42"})]
+      (is (error? r))
+      (is (re-find #"(?i):body must be a map" (-> r :content first :text))))))
 
 (deftest unregister-variant-gated-by-default
   (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
@@ -2422,6 +2478,41 @@
             ":written-back? false rides through so callers see the no-op")
         (is (= :garbage-id-no-namespace (:new-variant-id s))
             "the failing target id round-trips so the agent can localise")))))
+
+;; ---------------------------------------------------------------------------
+;; record-as-variant unregistered :extends (rf2-ynjts.20)
+;;
+;; recorder.cljc resolves the caller-supplied `:extends` id through
+;; `safe-keyword` against the registered-variant set; an unregistered id
+;; resolves to nil and the tool short-circuits with the structured
+;; `:rf.story-mcp/extends-not-registered` error (so the rendered snippet
+;; never carries a dangling `:extends` reference). This branch was
+;; untested — the only existing :extends test (`…-honours-doc-and-alias`)
+;; exercises the DEFAULT (omitted ⇒ source vk), never the reject path.
+;; ---------------------------------------------------------------------------
+
+(deftest record-as-variant-rejects-unregistered-extends
+  (testing ":extends naming an unregistered variant returns the structured reject"
+    (let [r (invoke "record-as-variant"
+                    {:variant-id "story.button/primary"
+                     :extends    "story.nope/missing"})]
+      (is (error? r))
+      (is (re-find #"(?i):extends references an unregistered variant"
+                   (-> r :content first :text)))
+      (let [s (:structuredContent r)]
+        (is (= :rf.story-mcp/extends-not-registered (:rf.error s))
+            "the structured payload names the canonical reject reason")
+        (is (= "record-as-variant" (:tool s)))
+        (is (= "story.nope/missing" (:extends s))
+            "the offending id round-trips so the agent can localise"))))
+  (testing "a registered :extends is accepted (the happy peer of the reject)"
+    (let [r (invoke "record-as-variant"
+                    {:variant-id "story.button/primary"
+                     :extends    "story.button/secondary"})
+          snippet (-> r :structuredContent :play-snippet)]
+      (is (success? r))
+      (is (re-find #":extends :story\.button/secondary" snippet)
+          "a registered :extends flows into the rendered snippet"))))
 
 ;; ---------------------------------------------------------------------------
 ;; record-as-variant :duration-ms ceiling (rf2-4yuhi)
