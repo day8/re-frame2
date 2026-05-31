@@ -25,8 +25,11 @@
   (ns-regexp `-dom-cljs-test$`) discovers it for the real DOM assertions;
   `:node-test`'s `cljs-test$` regex also matches, where every suite fn
   self-gates on `(browser?)` and no-ops cleanly."
-  (:require [cljs.test :refer-macros [deftest use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            ["react" :as React]
+            ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
+            [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.adapter.react-shared-suite :as suite]
             [re-frame.test-support :as test-support]))
@@ -162,3 +165,61 @@
 (deftest view-unmount-emits-on-react-hook-teardown
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
+
+;; ---- regression: frame-provider under the documented `$` shape (rf2-8svnm) -
+;;
+;; The UIx twin of the Helix rf2-9ok1s defect. The shared-suite
+;; `assert-use-subscribe-frame-provider-resolution` invokes `frame-provider`
+;; DIRECTLY as a CLJS fn (with a real CLJS map) — that path NEVER exercises
+;; UIx's `$`. `frame-provider` is a plain re-exported CLJS fn, NOT a `defui`
+;; component (no `.-uix-component?` marker), so UIx's `$` routes it through
+;; `uix.compiler.alpha/react-component-element` → `interpret-attrs`, handing
+;; the component a *raw JS object* (string keys "frame"/"children") rather
+;; than the `argv`-wrapped shape `glue-args` unwraps for a real `defui`. The
+;; bare spine re-export read `nil` for both keys under that shape: `:frame`
+;; silently resolved to `:rf/default` and the subtree rendered nothing. This
+;; test mounts the provider via the EXACT documented `($ frame-provider {...})`
+;; shape and asserts the descendant `use-subscribe` reads the WRAPPED frame's
+;; value (proving the frame propagated). Fails before the uix.cljs prop-
+;; normalisation wrapper; passes after.
+
+(defn- browser? []
+  (and (exists? js/document)
+       (some? (.-createElement js/document))))
+
+(defn- get-act []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try
+        (let [test-utils (js/require "react-dom/test-utils")]
+          (.-act test-utils))
+        (catch :default _ nil))))
+
+(deftest frame-provider-dollar-shape-propagates-frame
+  (testing "UIx — ($ frame-provider {...}) propagates :frame to descendants (rf2-8svnm)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (let [frame-kw :rf.uix-use-subscribe-test/frame-provider-frame
+                query-v  [:rf.uix-use-subscribe-test/k]]
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+            (reset! probe-frame-provider-observed [])
+            (rf/reg-frame frame-kw {:doc "rf2-8svnm $-shape frame-provider probe"})
+            (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
+            (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
+            (rf/reg-sub (first query-v) (fn [db _] (:k db)))
+            (let [mount-node (.createElement js/document "div")
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (act-fn
+                  (fn []
+                    ;; The documented public call shape — props flow
+                    ;; through UIx's `$` as a raw JS object.
+                    (.render root
+                      ($ uix-adapter/frame-provider
+                         {:frame frame-kw :children [($ ProbeFrameProvider)]}))))
+                (is (some #{:wrapped} @probe-frame-provider-observed)
+                    "descendant use-subscribe read the wrapped frame's value, not :rf/default")
+                (finally
+                  (try (.unmount root) (catch :default _ nil)))))))))))
