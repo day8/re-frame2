@@ -1,7 +1,7 @@
 (ns counter-slim-and-fast.core
   "A minimal counter mounted on the day8/reagent-slim rewrite. Binds the
-   S3-008 contract from reagent-slim's
-   IMPL-SPEC §1.4 + §1.8 + §6 + §12.
+   S3-008 + S3-005 bundle-isolation contract from reagent-slim's
+   IMPL-SPEC §1.4 + §1.8 + §8.
 
    Same six-domino dataflow as `examples/reagent/counter`, but every
    user-facing Reagent import points at `reagent2.*` instead of stock
@@ -10,11 +10,12 @@
 
    What this fixture proves (the Reagent Slim bundle-isolation contract):
 
-     - The advanced-compiled bundle for this example contains NO
-       `reagent.impl.*` symbols. The slim rewrite has its own
-       `reagent2.impl.*` substrate; the bridge's `reagent.impl.*`
-       internals must be entirely absent.
-     - The bundle contains NO `react-dom/server` symbols. The slim's
+     - Stock-Reagent impl isolation (S3-008): the advanced-compiled
+       bundle for this example contains NO `reagent.impl.*` symbols.
+       The slim rewrite has its own `reagent2.impl.*` substrate; the
+       bridge's `reagent.impl.*` internals must be entirely absent.
+     - Pure-CLJS SSR (S3-005): the bundle contains NO `react-dom/server`
+       symbols. The slim's
        `reagent2.dom.server/render-to-static-markup` is pure-CLJS
        (per IMPL-SPEC §8.7), so the bundle has no compiled-in path
        to `react-dom/server`.
@@ -25,12 +26,9 @@
    See `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` for the
    bundle-isolation grep that enforces both invariants in CI.
 
-   NOTE on frame-provider: the namespace docstring on
-   `counter.core` describes a frame-provider variant of this example
-   wired in `examples/reagent/login`. The slim variant stays on the
-   default frame for the same reason — it keeps the smoke test
-   focused on the substrate swap (stock → slim) rather than the
-   frame-provider feature."
+   NOTE on frames: this fixture stays on the default frame
+   deliberately. Keeping it single-frame focuses the bundle-isolation
+   check on the substrate swap (stock -> slim) and nothing else."
   (:require [reagent2.dom.client                :as rdc]
             [reagent2.dom.server                :as rds]
             [re-frame.core                      :as rf]
