@@ -1849,7 +1849,7 @@ into a single canonical home at
   SUB-ID off `(rf/handler-meta :sub <sub-id>)` via the `sub-input-signals`
   helper (parity with the `sub-coord` lookup, which also keys by sub-id).
   `:input-signals` is registered on the sub-id, so every parameterized
-  instance (`[:button-deck/greater-than? 5]`) shows its REAL input sub
+  instance (`[:standard-epochs/greater-than? 5]`) shows its REAL input sub
   (`chain-root`) regardless of whether it re-ran inside a cascade this
   epoch. Each input sub-id paints through `edn-inspector/mini`. The
   `app-db` label renders ONLY for a genuine Level-1 reader (empty
@@ -2069,7 +2069,7 @@ and silently rendered empty rows. The binding inventory:
 | `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :machine id) → :rf/machine → :rf.machine/source-coords` (rf2-8bp3), keyed by `[:actions <id>] | [:guards <id>]`. |
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
-| `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these). **`inputs` column source (rf2-87c8a):** the column is NOT trace-sourced — the view resolves the sub's STATIC input topology via `(rf/handler-meta :sub <sub-id>) → :input-signals` keyed by the SUB-ID (first element of the query-v), so every parameterized instance `[:sub-id arg…]` shows its REAL input sub. `app-db` is the label only for a genuine Level-1 reader (`:input-signals` empty). The `:rf.sub/cause-sub` cascade attribution feeds the `caused by <event-id>` chrome (rf2-1cc03), not the `inputs` column — pre-rf2-87c8a the projection's `:inputs` slot sourced from `:rf.sub/cause-sub`, which was OMITTED outside an in-flight cascade and so mislabeled fresh-run derived/parameterized subs (`[:button-deck/greater-than? 5]`) as `app-db`. |
+| `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these). **`inputs` column source (rf2-87c8a):** the column is NOT trace-sourced — the view resolves the sub's STATIC input topology via `(rf/handler-meta :sub <sub-id>) → :input-signals` keyed by the SUB-ID (first element of the query-v), so every parameterized instance `[:sub-id arg…]` shows its REAL input sub. `app-db` is the label only for a genuine Level-1 reader (`:input-signals` empty). The `:rf.sub/cause-sub` cascade attribution feeds the `caused by <event-id>` chrome (rf2-1cc03), not the `inputs` column — pre-rf2-87c8a the projection's `:inputs` slot sourced from `:rf.sub/cause-sub`, which was OMITTED outside an in-flight cascade and so mislabeled fresh-run derived/parameterized subs (`[:standard-epochs/greater-than? 5]`) as `app-db`. |
 | `:subscriptions` disposed (rf2-wpfjo) | `:rf.sub/dispose` (emitted by `re-frame.subs.cache/emit-dispose!` per rf2-mrnur — every cache eviction site funnels through ONE emit shape) | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`), `:frame`. Surfaced via `projection/disposed-subs-rows`; the SUBSCRIPTIONS step carries an optional `:disposed-rows` slot (omit-by-absence). The step renders a DISPOSED sub-section when populated and reads `N recomputed (...); L disposed` in its header. A dispose-only cascade (no run/skip) still renders the step. |
 | `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker). The projection derives a `:cause` slot per row (rf2-bhi3t) from `:rf.view/mount?` + `:rf.view/triggered-by` — `:mount` (first render) / `{:kind :sub :sub-id <id>}` (a deref'd sub changed value) / `:props` (a re-render with no own sub change → the orthogonal `:rf/props` channel). The VIEWS table paints it as a `← :sub-id` / `← props` chip; no substrate/instrumentation change — fully tool-side inference. |
 | `:views` unmounted (rf2-gmw1i) | `:rf.view/unmounted` (already emitted by `re-frame.views/emit-view-unmounted!` per rf2-9hoos + rf2-te71r) | `:rf.view/id`, `:rf.view/render-key`, `:frame`. Surfaced via `projection/unmounted-views-rows`; the VIEWS step carries an optional `:unmounted-rows` slot (omit-by-absence when none fired). The step renders an UNMOUNTED sub-section when populated and reads `N re-rendered; M unmounted` in its header. |
@@ -2327,7 +2327,7 @@ Issues panel only.
 > EXCEPTION (distinct from a schema VIOLATION) leaves a
 > `:rf.error/*` cascade trace but, pre-rf2-ahhgn, surfaced
 > NOWHERE in the Epoch panel — the cascade rendered as if it ran
-> clean. Clicking button-15 (`:button-deck/throw-handler`) showed
+> clean. Clicking button-15 (`:standard-epochs/throw-handler`) showed
 > nothing explaining the failure, and the framework epoch
 > `:outcome` read `:ok`. This section adds inline per-step error
 > cards + a per-step pass/fail glyph + a tool-side outcome so a
@@ -2439,7 +2439,7 @@ carrying:
    so nothing committed and nothing reverted (rf2-wnvid fix);
 2. a one-line human headline derived from the OP (`error-block-label`),
    naming the TRUE failing component (rf2-mszrz attribution): "The
-   :button-deck/throwing-cofx coeffect threw during injection." / "The
+   :standard-epochs/throwing-cofx coeffect threw during injection." / "The
    :app/auth interceptor threw on the way in (:before)." / "The event
    handler threw." / "The :http/post effect threw." / "A flow's
    computation threw." Pre-mszrz the router routed handler / interceptor /

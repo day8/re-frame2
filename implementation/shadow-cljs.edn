@@ -241,14 +241,16 @@
             ;; per the same cascade as :testbeds/panel-gallery above.
             8030 ["../tools/xray/testbeds/two_frame_isolation"
                   "out/examples/two-frame-isolation"]
-            ;; Single-frame button-deck testbed (rf2-gsr6z) — the
-            ;; deliberately simple Xray driving surface that superseded
-            ;; the old step-deck. Source dir first so the hand-written
-            ;; index.html resolves at `/`; the compiled main.js falls
-            ;; through to out/examples/button-deck per the same cascade
-            ;; as the entries above.
-            8031 ["../tools/xray/testbeds/button_deck"
-                  "out/examples/button-deck"]}
+            ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed
+            ;; per rf2-zthnj) — the deliberately simple Xray driving
+            ;; surface that superseded the old step-deck.
+            ;; Source dir first so the hand-written index.html resolves at
+            ;; `/`; the compiled main.js falls through to
+            ;; out/examples/standard-epochs per the same cascade as the
+            ;; entries above. Port 8031 is the trio anchor: routes_epochs
+            ;; takes 8032, machine_epochs 8033.
+            8031 ["../tools/xray/testbeds/standard_epochs"
+                  "out/examples/standard-epochs"]}
 
  :builds
  {:node-test
@@ -600,7 +602,7 @@
   ;; testdeck/) — Counter / Machine / Routing / Async&errors tabs
   ;; navigated AS ROUTES. This testbed is now the sole consumer of the
   ;; shared testdeck.* modules; it covers the multi-frame isolation +
-  ;; routing surface the deliberately-simple single-frame button-deck
+  ;; routing surface the deliberately-simple single-frame standard-epochs
   ;; (rf2-gsr6z) intentionally drops. Both frames are registered
   ;; :url-bound? false (Spec 012 §Multi-frame routing) so per-frame tab
   ;; nav does not fight over the single browser URL. No deliberate bugs,
@@ -627,31 +629,34 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame button-deck testbed (rf2-gsr6z) — the deliberately
-  ;; simple Xray driving surface that SUPERSEDES the old step-deck. A
-  ;; tall column of numbered buttons in ONE plainly-mounted frame; each
-  ;; button bumps a shared baseline counter and exercises exactly one
-  ;; more feature, so clicking top-to-bottom completely exercises any one
-  ;; Xray panel (Epoch / App-db / Views / Trace / Issues). No tabs, no
-  ;; URL machinery, no machines / routes / SSR. A TEST surface — no
-  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
+  ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed per
+  ;; rf2-zthnj) — the deliberately simple Xray driving surface that
+  ;; SUPERSEDES the old step-deck. A tall column of numbered
+  ;; buttons in ONE plainly-mounted frame; each button bumps a shared
+  ;; baseline counter and exercises exactly one more feature, so clicking
+  ;; top-to-bottom completely exercises any one Xray panel (Epoch / App-db
+  ;; / Views / Trace / Issues). No tabs, no URL machinery, no machines /
+  ;; routes / SSR. A TEST surface — no deliberate bugs, no teaching layers
+  ;; (feedback_testbeds_are_test_surfaces).
   ;;
-  ;; The events / subs / views are OWNED in button_deck/core.cljs — it
+  ;; The events / subs / views are OWNED in standard_epochs/core.cljs — it
   ;; does NOT reuse the shared testdeck.* modules (those still back the
   ;; two-frame-isolation testbed for the multi-frame + routing surface).
-  ;; Sources live under tools/xray/testbeds/button_deck/; the Xray
+  ;; Sources live under tools/xray/testbeds/standard_epochs/; the Xray
   ;; preload auto-mounts inline so every lens reads the single frame.
   ;; Served at http://localhost:8031 via the top-level `:dev-http` map.
-  :examples/button-deck
+  ;; This is the anchor of the _epochs trio (routes_epochs on 8032,
+  ;; machine_epochs on 8033 mirror this build-id scheme).
+  :examples/standard-epochs
   {:target           :browser
-   :output-dir       "out/examples/button-deck"
+   :output-dir       "out/examples/standard-epochs"
    :asset-path       "."
    ;; rf2-5dphw — build-env project-root for open-in-editor (see
    ;; :examples/two-frame-isolation above for the mechanism).
    :compiler-options {:closure-defines
                       {re-frame.testbed.config/repo-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
-   :modules          {:main {:init-fn button-deck.core/run}}
+   :modules          {:main {:init-fn standard-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 

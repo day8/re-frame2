@@ -142,7 +142,7 @@
 
 ;; ---- rf2-4wywy — live t1/t2 db attribution ------------------------------
 ;;
-;; button-deck button 5 shape: a reg-event-db handler bumps `:base`; a
+;; standard-epochs button 5 shape: a reg-event-db handler bumps `:base`; a
 ;; reg-flow recomputes `:derived = 2 × :base` into app-db AFTER the
 ;; handler. The fix relies on the router stamping `:rf.event/db-pending`
 ;; (t1, post-handler/pre-flow) + `:rf.event/db-pending-post-flow` (t2,

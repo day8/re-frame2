@@ -1193,7 +1193,7 @@
     (xray-setup!)
     ;; cascade 1 — clean. cascade 2 — carries an :rf.error/* trace.
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:button-deck/throw-handler]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:standard-epochs/throw-handler]))
     (trace-collector/seed-trace-for-test! (error-trace-ev 2))
     (rf/with-frame :rf/xray
       (let [tree       (shell/shell-view)

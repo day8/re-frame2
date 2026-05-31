@@ -95,7 +95,7 @@
            ;; Per rf2-quir9: the CLJS analyzer's indexing reader stamps
            ;; `:file` / `:line` / `:column` (+ `:source` / `:end-*`) onto
            ;; the view SYMBOL, and that `:file` is CLASSPATH-RELATIVE
-           ;; (`"button_deck/core.cljs"`). If we let those ride into the
+           ;; (`"standard_epochs/core.cljs"`). If we let those ride into the
            ;; registry slot they become `user-meta` in
            ;; `source-coords/merge-coords`, where user keys WIN over the
            ;; pending coords — so the relative reader `:file` clobbers the

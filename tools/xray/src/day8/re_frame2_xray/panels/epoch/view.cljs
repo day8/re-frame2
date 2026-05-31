@@ -3455,7 +3455,7 @@
   projection sources purely from `:rf.sub/cause-sub` (the cascade
   attribution — which upstream sub's value-change drove THIS re-run).
   That tag is OMITTED outside an in-flight cascade, so any derived sub
-  that ran fresh (e.g. the parameterized `[:button-deck/greater-than? 5]`
+  that ran fresh (e.g. the parameterized `[:standard-epochs/greater-than? 5]`
   on first mount) fell through to the `app-db` fallback and was mislabeled
   a Level-1 reader. The cascade attribution still surfaces — via the
   `caused by <event-id>` chrome (rf2-1cc03) — it is just no longer the

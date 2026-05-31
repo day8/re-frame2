@@ -1,5 +1,5 @@
-(ns button-deck.core
-  "BUTTON-DECK testbed (rf2-gsr6z) — a deliberately simple Xray driving
+(ns standard-epochs.core
+  "STANDARD-EPOCHS testbed (rf2-gsr6z) — a deliberately simple Xray driving
   surface that supersedes the step-deck.
 
   ## Shape
@@ -36,7 +36,7 @@
               writes a derived slot.
     Views   — two children make re-render CAUSES separable. Child A is
               SUBSCRIPTION-driven (an own L1→L2→L3 chain + the arg-keyed
-              `[:button-deck/greater-than? N]` sub); Child B is
+              `[:standard-epochs/greater-than? N]` sub); Child B is
               PROPS-driven (a prop, NO subs). #10 mount A (node + the
               sub-cache entries appear) · #11 change the arg N (a NEW
               [:gt? N] cache entry — cache keyed by arg) · #12 change a
@@ -110,7 +110,7 @@
 ;;
 ;;   :a-mounted? / :b-mounted?  — the two children's mount slots.
 ;;   :threshold                 — N, the changeable arg to the dynamic
-;;                                sub `[:button-deck/greater-than? N]`.
+;;                                sub `[:standard-epochs/greater-than? N]`.
 ;;   :chain-input               — the root of Child A's own L1→L2→L3
 ;;                                chain (button #12 perturbs it).
 ;;   :b-prop                    — the prop fed to the props-driven
@@ -127,7 +127,7 @@
               :chain-input 1
               :b-prop      "alpha"}})
 
-(rf/reg-event-db :button-deck/reset
+(rf/reg-event-db :standard-epochs/reset
   {:doc "Button 0 — re-seed app-db and unmount both child views. Start clean."}
   (fn handler-reset [_db _ev]
     initial-db))
@@ -155,26 +155,26 @@
 (rf/reg-app-schema [:auth] AuthSlice)
 
 ;; ============================================================================
-;; COEFFECT — :button-deck/now  (button #2)
+;; COEFFECT — :standard-epochs/now  (button #2)
 ;; ============================================================================
 ;;
 ;; A wall-clock injection point so the handler stays a pure fn of
 ;; (coeffects, event). Xray's Epoch event-detail shows this coeffect
 ;; feeding the handler.
 
-(rf/reg-cofx :button-deck/now
+(rf/reg-cofx :standard-epochs/now
   {:doc "Inject the current wall-clock time (ms since epoch) under
-         `:button-deck/now`."}
+         `:standard-epochs/now`."}
   (fn cofx-now [ctx]
-    (rf/assoc-coeffect ctx :button-deck/now (.getTime (js/Date.)))))
+    (rf/assoc-coeffect ctx :standard-epochs/now (.getTime (js/Date.)))))
 
 ;; A coeffect that throws on injection (button #19). A FEATURE being
 ;; exercised — the supported way to light up the cofx error surface.
-(rf/reg-cofx :button-deck/throwing-cofx
+(rf/reg-cofx :standard-epochs/throwing-cofx
   {:doc "Throws during coeffect injection so Xray's Issues lens surfaces
          a cofx error. A feature being exercised, not a buggy demo."}
   (fn cofx-throws [_ctx]
-    (throw (ex-info "button-deck / coeffect (intentional — exercises the cofx error surface)"
+    (throw (ex-info "standard-epochs / coeffect (intentional — exercises the cofx error surface)"
                     {:surface :coeffect-exception}))))
 
 ;; ============================================================================
@@ -192,9 +192,9 @@
 ;; Throws in :before — aborts before the handler runs (button #17).
 (def throwing-interceptor
   (rf/->interceptor
-    :id     :button-deck/throwing-interceptor
+    :id     :standard-epochs/throwing-interceptor
     :before (fn interceptor-before-throws [_ctx]
-              (throw (ex-info "button-deck / interceptor :before (intentional — exercises the interceptor :before error surface)"
+              (throw (ex-info "standard-epochs / interceptor :before (intentional — exercises the interceptor :before error surface)"
                               {:surface :interceptor-exception :phase :before})))))
 
 ;; Throws in :after — the handler runs to completion first, THEN this
@@ -206,9 +206,9 @@
 ;; exception (rf2-mszrz).
 (def throwing-interceptor-after
   (rf/->interceptor
-    :id    :button-deck/throwing-interceptor-after
+    :id    :standard-epochs/throwing-interceptor-after
     :after (fn interceptor-after-throws [_ctx]
-             (throw (ex-info "button-deck / interceptor :after (intentional — exercises the interceptor :after error surface)"
+             (throw (ex-info "standard-epochs / interceptor :after (intentional — exercises the interceptor :after error surface)"
                              {:surface :interceptor-exception :phase :after})))))
 
 ;; ============================================================================
@@ -218,7 +218,7 @@
 ;; A one-shot, instantaneous fx (button #3). Records its calls so the
 ;; effect genuinely runs; Xray's Trace / Effects show it fire this epoch.
 (defonce ping-log (atom []))
-(rf/reg-fx :button-deck/ping
+(rf/reg-fx :standard-epochs/ping
   (fn fx-ping [_ctx args]
     (swap! ping-log conj args)))
 
@@ -227,19 +227,19 @@
 ;; Spec 009's slow-effect threshold, so Xray's Issues lens flags it as a
 ;; (non-bug) slow effect; the status moves :loading -> :loaded.
 (def SLOW-MS 600)
-(rf/reg-fx :button-deck/slow-fetch
+(rf/reg-fx :standard-epochs/slow-fetch
   (fn fx-slow-fetch [{:keys [frame]} _args]
     (js/setTimeout
-      (fn [] (rf/dispatch [:button-deck/slow-done] {:frame frame}))
+      (fn [] (rf/dispatch [:standard-epochs/slow-done] {:frame frame}))
       SLOW-MS)))
 
 ;; An fx whose body throws (button #20). The handler's :db commits first;
 ;; the throw fires later, during the post-commit fx walk — best-effort
 ;; per the FX atomicity asymmetry — so Xray's Issues lens shows the fx
 ;; error while the baseline bump survives.
-(rf/reg-fx :button-deck/boom
+(rf/reg-fx :standard-epochs/boom
   (fn fx-boom [_ctx _args]
-    (throw (ex-info "button-deck / effect (intentional — exercises the fx error surface)"
+    (throw (ex-info "standard-epochs / effect (intentional — exercises the fx error surface)"
                     {:surface :effect-exception}))))
 
 ;; ============================================================================
@@ -251,7 +251,7 @@
 ;; and Trace shows the flow run.
 
 (rf/reg-flow
-  {:id     :button-deck/derived
+  {:id     :standard-epochs/derived
    :inputs [[:base]]
    :output (fn [base] (* 2 (or base 0)))
    :path   [:derived]
@@ -262,55 +262,55 @@
 ;; ============================================================================
 
 ;; -- 1. plain increment ------------------------------------------------------
-(rf/reg-event-db :button-deck/increment
+(rf/reg-event-db :standard-epochs/increment
   {:doc "Button 1 — a plain event. App-db :baseline ++ ; Epoch shows the
          event with db-before / db-after."}
   (fn handler-increment [db _ev] (bump db)))
 
 ;; -- 2. increment + coeffect -------------------------------------------------
-(rf/reg-event-fx :button-deck/increment-cofx
-  {:doc "Button 2 — inject the `:button-deck/now` cofx. Epoch's event
+(rf/reg-event-fx :standard-epochs/increment-cofx
+  {:doc "Button 2 — inject the `:standard-epochs/now` cofx. Epoch's event
          detail shows the coeffect feeding the handler."}
-  [(rf/inject-cofx :button-deck/now)]
-  (fn handler-increment-cofx [{:keys [db button-deck/now]} _ev]
+  [(rf/inject-cofx :standard-epochs/now)]
+  (fn handler-increment-cofx [{:keys [db standard-epochs/now]} _ev]
     {:db (-> db bump (assoc :last-clicked now))}))
 
 ;; -- 3. increment + effect ---------------------------------------------------
-(rf/reg-event-fx :button-deck/increment-fx
+(rf/reg-event-fx :standard-epochs/increment-fx
   {:doc "Button 3 — return a one-shot fx. Effects / Trace show
-         `:button-deck/ping` fire this epoch."}
+         `:standard-epochs/ping` fire this epoch."}
   (fn handler-increment-fx [{:keys [db]} _ev]
     {:db (bump db)
-     :fx [[:button-deck/ping {:at (.getTime (js/Date.))}]]}))
+     :fx [[:standard-epochs/ping {:at (.getTime (js/Date.))}]]}))
 
 ;; -- 4. increment + cascade --------------------------------------------------
-(rf/reg-event-fx :button-deck/increment-cascade
+(rf/reg-event-fx :standard-epochs/increment-cascade
   {:doc "Button 4 — dispatch a follow-on event. Epoch's dispatch-id tree
-         shows the cascade (this event → :button-deck/cascade-tail)."}
+         shows the cascade (this event → :standard-epochs/cascade-tail)."}
   (fn handler-increment-cascade [{:keys [db]} _ev]
     {:db (bump db)
-     :fx [[:dispatch [:button-deck/cascade-tail]]]}))
+     :fx [[:dispatch [:standard-epochs/cascade-tail]]]}))
 
-(rf/reg-event-db :button-deck/cascade-tail
+(rf/reg-event-db :standard-epochs/cascade-tail
   {:doc "The follow-on event dispatched by button 4. Bumps baseline again
          so the cascade has two epochs under one root dispatch-id."}
   (fn handler-cascade-tail [db _ev] (bump db)))
 
 ;; -- 5. increment + flow -----------------------------------------------------
-(rf/reg-event-db :button-deck/increment-flow
-  {:doc "Button 5 — perturb :base so the `:button-deck/derived` flow
+(rf/reg-event-db :standard-epochs/increment-flow
+  {:doc "Button 5 — perturb :base so the `:standard-epochs/derived` flow
          recomputes a derived slot into app-db; App-db / Trace show it."}
   (fn handler-increment-flow [db _ev]
     (-> db bump (update :base inc))))
 
 ;; -- 6. add a nested key (assoc-in) → App-db diff: added ---------------------
-(rf/reg-event-db :button-deck/add-key
+(rf/reg-event-db :standard-epochs/add-key
   {:doc "Button 6 — assoc-in a new nested key. App-db diff: added."}
   (fn handler-add-key [db _ev]
     (-> db bump (assoc-in [:shapes :added] {:label "added" :n 42}))))
 
 ;; -- 7. remove a key (dissoc) → App-db diff: removed -------------------------
-(rf/reg-event-db :button-deck/remove-key
+(rf/reg-event-db :standard-epochs/remove-key
   {:doc "Button 7 — dissoc a key. App-db diff: removed. (Adds a key first
          if absent so there is always something to remove.)"}
   (fn handler-remove-key [db _ev]
@@ -320,14 +320,14 @@
         (assoc-in db [:shapes :removed-marker] true)))))
 
 ;; -- 8. change a nested value (update-in) → App-db diff: changed -------------
-(rf/reg-event-db :button-deck/change-value
+(rf/reg-event-db :standard-epochs/change-value
   {:doc "Button 8 — update-in a nested value. App-db diff: changed
          (diff-mode-3 shows the in-place value delta)."}
   (fn handler-change-value [db _ev]
     (-> db bump (update-in [:shapes :counter] (fnil inc 0)))))
 
 ;; -- 9. write a large collection → edn-inspector collapse/expand + elision --
-(rf/reg-event-db :button-deck/write-large
+(rf/reg-event-db :standard-epochs/write-large
   {:doc "Button 9 — write a large collection. The edn-inspector
          collapses / expands it and elides past its threshold."}
   (fn handler-write-large [db _ev]
@@ -341,32 +341,32 @@
 ;; CAUSE — Child A re-renders ← a SUB changed (#12); Child B re-renders ←
 ;; PROPS changed (#15).
 
-(rf/reg-event-db :button-deck/mount-a
+(rf/reg-event-db :standard-epochs/mount-a
   {:doc "Button 10 — mount the SUBSCRIPTION-driven Child A (sets
          :views/a-mounted? true). On mount A subscribes its own
          L1→L2→L3 chain (:chain-root → :chain-doubled → :chain-labelled)
-         PLUS the arg-keyed `[:button-deck/greater-than? N]` sub — so
+         PLUS the arg-keyed `[:standard-epochs/greater-than? N]` sub — so
          Views shows the node and those sub-cache entries appear."}
   (fn handler-mount-a [db _ev]
     (-> db bump (assoc-in [:views :a-mounted?] true))))
 
-(rf/reg-event-db :button-deck/set-threshold
-  {:doc "Button 11 — change the sub-arg N (5 → 10). `[:button-deck/
+(rf/reg-event-db :standard-epochs/set-threshold
+  {:doc "Button 11 — change the sub-arg N (5 → 10). `[:standard-epochs/
          greater-than? N]` is keyed by its arg, so the new N is a NEW,
          distinct sub-cache entry alongside the old one."}
   (fn handler-set-threshold [db [_ n]]
     (-> db bump (assoc-in [:views :threshold] n))))
 
-(rf/reg-event-db :button-deck/perturb-chain
+(rf/reg-event-db :standard-epochs/perturb-chain
   {:doc "Button 12 — perturb Child A's chain input (:views/chain-input).
          With A mounted, Views shows the L1 (:chain-root) → L2
          (:chain-doubled) → L3 (:chain-labelled) invalidation recompute,
-         and A re-renders BECAUSE A SUB CHANGED (← :button-deck/chain-
+         and A re-renders BECAUSE A SUB CHANGED (← :standard-epochs/chain-
          labelled), not because its props changed."}
   (fn handler-perturb-chain [db _ev]
     (-> db bump (update-in [:views :chain-input] inc))))
 
-(rf/reg-event-db :button-deck/unmount-a
+(rf/reg-event-db :standard-epochs/unmount-a
   {:doc "Button 13 — unmount Child A (sets :views/a-mounted? false). The
          node disappears and ALL of A's subs are disposed once the last
          reader is gone (the chain L1/L2/L3 + every [:gt? N] cache
@@ -374,7 +374,7 @@
   (fn handler-unmount-a [db _ev]
     (-> db bump (assoc-in [:views :a-mounted?] false))))
 
-(rf/reg-event-db :button-deck/mount-b
+(rf/reg-event-db :standard-epochs/mount-b
   {:doc "Button 14 — mount the PROPS-driven Child B (sets
          :views/b-mounted? true). B receives a prop and subscribes
          NOTHING, so Views shows the node appear with NO new sub-cache
@@ -382,7 +382,7 @@
   (fn handler-mount-b [db _ev]
     (-> db bump (assoc-in [:views :b-mounted?] true))))
 
-(rf/reg-event-db :button-deck/set-b-prop
+(rf/reg-event-db :standard-epochs/set-b-prop
   {:doc "Button 15 — change Child B's prop. B re-renders BECAUSE ITS
          PROPS CHANGED (no sub cause) — the foil to button 12's
          sub-driven re-render."}
@@ -391,17 +391,17 @@
                            {"alpha" "beta" "beta" "gamma" "gamma" "alpha"}))))
 
 ;; -- 16. exception in the handler → Issues: handler-exception, db rolls back -
-(rf/reg-event-db :button-deck/throw-handler
+(rf/reg-event-db :standard-epochs/throw-handler
   {:doc "Button 16 — throw in the handler. The router catches it; the :db
          effect (the baseline bump) rolls back; Issues shows
          `:rf.error/handler-exception` with the source coord."}
   (fn handler-throw [db _ev]
     (bump db) ;; would bump, but the throw below aborts the commit
-    (throw (ex-info "button-deck / handler (intentional — exercises the handler error surface)"
+    (throw (ex-info "standard-epochs / handler (intentional — exercises the handler error surface)"
                     {:surface :handler-exception}))))
 
 ;; -- 17. exception in an interceptor :before → Issues: interceptor exc. ------
-(rf/reg-event-db :button-deck/throw-interceptor
+(rf/reg-event-db :standard-epochs/throw-interceptor
   {:doc "Button 17 — an interceptor throws in :before. The chain aborts on
          the way IN; Issues shows the interceptor :before exception and the
          handler never runs."}
@@ -409,7 +409,7 @@
   (fn handler-after-throwing-interceptor [db _ev] (bump db)))
 
 ;; -- 18. exception in an interceptor :after → Issues: interceptor exc. -------
-(rf/reg-event-db :button-deck/throw-interceptor-after
+(rf/reg-event-db :standard-epochs/throw-interceptor-after
   {:doc "Button 18 — an interceptor throws in :after. The foil to button
          17: the handler runs to completion (the :db is computed), THEN the
          interceptor throws on the way OUT. Issues shows the interceptor
@@ -419,46 +419,46 @@
   (fn handler-before-throwing-after-interceptor [db _ev] (bump db)))
 
 ;; -- 19. exception in a coeffect handler → Issues: cofx error ----------------
-(rf/reg-event-fx :button-deck/throw-cofx
+(rf/reg-event-fx :standard-epochs/throw-cofx
   {:doc "Button 19 — a coeffect throws on injection. Issues shows the
          cofx error; the handler never runs."}
-  [(rf/inject-cofx :button-deck/throwing-cofx)]
+  [(rf/inject-cofx :standard-epochs/throwing-cofx)]
   (fn handler-after-throwing-cofx [{:keys [db]} _ev] {:db (bump db)}))
 
 ;; -- 20. exception in an effect handler (post-commit) → Issues: fx error -----
-(rf/reg-event-fx :button-deck/throw-fx
+(rf/reg-event-fx :standard-epochs/throw-fx
   {:doc "Button 20 — the :db commits (baseline bumps), then a post-commit
          fx throws. Issues shows the fx error; post-commit fx are
          best-effort per the FX atomicity asymmetry, so the db delta
          survives."}
   (fn handler-throw-fx [{:keys [db]} _ev]
     {:db (bump db)
-     :fx [[:button-deck/boom {}]]}))
+     :fx [[:standard-epochs/boom {}]]}))
 
 ;; -- 21. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
-(rf/reg-event-fx :button-deck/slow
+(rf/reg-event-fx :standard-epochs/slow
   {:doc "Button 21 — issue a ~600ms managed fx. Status moves :loading;
          Issues flags the slow fx; the reply lands :loaded ~600ms later."}
   (fn handler-slow [{:keys [db]} _ev]
     {:db (-> db bump (assoc :slow-status :loading))
-     :fx [[:button-deck/slow-fetch {}]]}))
+     :fx [[:standard-epochs/slow-fetch {}]]}))
 
-(rf/reg-event-db :button-deck/slow-done
+(rf/reg-event-db :standard-epochs/slow-done
   {:doc "The deferred reply from the slow fx. Lands on the originating
          frame and flips status to :loaded."}
   (fn handler-slow-done [db _ev]
     (assoc db :slow-status :loaded)))
 
 ;; -- 22. schema violation, bad event args → Issues / Schema-timeline ---------
-(rf/reg-event-db :button-deck/bad-event-args
+(rf/reg-event-db :standard-epochs/bad-event-args
   {:doc "Button 22 — dispatched with a bad arg (a string where a pos-int
          is required). The handler is skipped; Issues / Schema-timeline
          shows `:rf.error/schema-validation-failure :where :event`."
-   :schema [:cat [:= :button-deck/bad-event-args] pos-int?]}
+   :schema [:cat [:= :standard-epochs/bad-event-args] pos-int?]}
   (fn handler-bad-event-args [db _ev] (bump db)))
 
 ;; -- 23. schema violation, app-db write → Issues: app-db schema failure ------
-(rf/reg-event-db :button-deck/bad-app-db-write
+(rf/reg-event-db :standard-epochs/bad-app-db-write
   {:doc "Button 23 — write an int into [:auth :token] (the registered
          app-schema requires a string). The post-handler app-db
          validation rolls the :db back; Issues shows the app-db schema
@@ -471,34 +471,34 @@
 ;; ============================================================================
 
 ;; L1 — read app-db directly.
-(rf/reg-sub :button-deck/baseline    (fn [db _] (:baseline db)))
-(rf/reg-sub :button-deck/a-mounted?  (fn [db _] (get-in db [:views :a-mounted?])))
-(rf/reg-sub :button-deck/b-mounted?  (fn [db _] (get-in db [:views :b-mounted?])))
-(rf/reg-sub :button-deck/threshold   (fn [db _] (get-in db [:views :threshold])))
-(rf/reg-sub :button-deck/b-prop      (fn [db _] (get-in db [:views :b-prop])))
+(rf/reg-sub :standard-epochs/baseline    (fn [db _] (:baseline db)))
+(rf/reg-sub :standard-epochs/a-mounted?  (fn [db _] (get-in db [:views :a-mounted?])))
+(rf/reg-sub :standard-epochs/b-mounted?  (fn [db _] (get-in db [:views :b-mounted?])))
+(rf/reg-sub :standard-epochs/threshold   (fn [db _] (get-in db [:views :threshold])))
+(rf/reg-sub :standard-epochs/b-prop      (fn [db _] (get-in db [:views :b-prop])))
 
 ;; Child A's OWN L1 → L2 → L3 chain, rooted at :views/chain-input (NOT
 ;; :base — that feeds button #5's flow). Button #12 perturbs the root;
 ;; with A mounted, Views shows the L1 → L2 → L3 invalidation recompute.
-(rf/reg-sub :button-deck/chain-root            ;; L1
+(rf/reg-sub :standard-epochs/chain-root            ;; L1
   (fn [db _] (get-in db [:views :chain-input])))
 
-(rf/reg-sub :button-deck/chain-doubled         ;; L2
-  :<- [:button-deck/chain-root]
+(rf/reg-sub :standard-epochs/chain-doubled         ;; L2
+  :<- [:standard-epochs/chain-root]
   (fn [root _] (* 2 root)))
 
-(rf/reg-sub :button-deck/chain-labelled        ;; L3
-  :<- [:button-deck/chain-doubled]
+(rf/reg-sub :standard-epochs/chain-labelled        ;; L3
+  :<- [:standard-epochs/chain-doubled]
   (fn [doubled _] (str "2×input = " doubled)))
 
 ;; DYNAMIC, parameterised by the threshold N carried in the query
-;; vector: `[:button-deck/greater-than? n]`. It cascades from the chain
+;; vector: `[:standard-epochs/greater-than? n]`. It cascades from the chain
 ;; root (a section-owned value, so the sub's behaviour is NOT linked to
 ;; a counter value). A different n is a DISTINCT cache entry over the
 ;; same registration — button #11 (5 → 10) creates a new [:gt? 10]
 ;; entry alongside the original [:gt? 5].
-(rf/reg-sub :button-deck/greater-than?
-  :<- [:button-deck/chain-root]
+(rf/reg-sub :standard-epochs/greater-than?
+  :<- [:standard-epochs/chain-root]
   (fn [root [_ threshold]] (> root threshold)))
 
 ;; ============================================================================
@@ -512,7 +512,7 @@
 ;; --- Child A — subscription-driven -----------------------------------------
 ;;
 ;; On mount A subscribes its own L1→L2→L3 chain AND the arg-keyed
-;; `[:button-deck/greater-than? threshold]` sub — so the Views lens
+;; `[:standard-epochs/greater-than? threshold]` sub — so the Views lens
 ;; shows the node + those sub-cache entries appear, the chain recompute
 ;; (button #12), and a NEW [:gt? N] cache entry when the arg changes
 ;; (button #11). `threshold` arrives as a PROP from the root (which
@@ -520,9 +520,9 @@
 ;; while the deref itself is A's own subscription.
 
 (reg-view child-a [threshold]
-  (let [labelled @(subscribe [:button-deck/chain-labelled])
-        over?    @(subscribe [:button-deck/greater-than? threshold])]
-    [:div {:data-testid "button-deck-child-a"
+  (let [labelled @(subscribe [:standard-epochs/chain-labelled])
+        over?    @(subscribe [:standard-epochs/greater-than? threshold])]
+    [:div {:data-testid "standard-epochs-child-a"
            :style {:border "1px solid #d8d2ff" :border-radius "6px"
                    :padding "0.5em 0.75em" :margin "0.5em 0"
                    :background "#fcfbff"}}
@@ -540,7 +540,7 @@
 ;; re-render.
 
 (reg-view child-b [prop]
-  [:div {:data-testid "button-deck-child-b"
+  [:div {:data-testid "standard-epochs-child-b"
          :style {:border "1px solid #d8efd8" :border-radius "6px"
                  :padding "0.5em 0.75em" :margin "0.5em 0"
                  :background "#fbfffb"}}
@@ -558,54 +558,54 @@
   is the dispatch vector; nil rows are section separators (label only)."
   [[:section "Events — Epoch / Trace / App-db scalar"]
    [1  "Increment"             "App-db :baseline ++ · Epoch: the event, db-before/after"
-    [:button-deck/increment]]
+    [:standard-epochs/increment]]
    [2  "Increment + coeffect"  "Epoch event-detail: a `now` coeffect feeds the handler"
-    [:button-deck/increment-cofx]]
+    [:standard-epochs/increment-cofx]]
    [3  "Increment + effect"    "Effects / Trace: a one-shot fx fires this epoch"
-    [:button-deck/increment-fx]]
+    [:standard-epochs/increment-fx]]
    [4  "Increment + cascade"   "Epoch: the dispatch-id tree — a follow-on event"
-    [:button-deck/increment-cascade]]
+    [:standard-epochs/increment-cascade]]
    [5  "Increment + flow"      "App-db: a reg-flow-derived slot recomputes; Trace shows it"
-    [:button-deck/increment-flow]]
+    [:standard-epochs/increment-flow]]
    [:section "App-db shapes — diff modes / edn-inspector"]
    [6  "Add a nested key"      "App-db diff: added (assoc-in)"
-    [:button-deck/add-key]]
+    [:standard-epochs/add-key]]
    [7  "Remove a key"          "App-db diff: removed (dissoc)"
-    [:button-deck/remove-key]]
+    [:standard-epochs/remove-key]]
    [8  "Change a nested value" "App-db diff: changed (update-in, diff-mode-3)"
-    [:button-deck/change-value]]
+    [:standard-epochs/change-value]]
    [9  "Write a large collection" "edn-inspector: collapse / expand + elision"
-    [:button-deck/write-large]]
+    [:standard-epochs/write-large]]
    [:section "Views / subscriptions — sub-driven A vs props-driven B"]
    [10 "Mount Child A (sub-driven)"  "Views: node + A's sub-cache entries appear (chain L1/L2/L3 + [:gt? 5])"
-    [:button-deck/mount-a]]
+    [:standard-epochs/mount-a]]
    [11 "Change the sub-arg N → 10"   "Views: a NEW cache entry [:gt? 10] (parameterized-sub cache keyed by arg)"
-    [:button-deck/set-threshold 10]]
+    [:standard-epochs/set-threshold 10]]
    [12 "Perturb A's chain input"     "Views: L1→L2→L3 invalidation recompute; A re-renders ← a SUB changed"
-    [:button-deck/perturb-chain]]
+    [:standard-epochs/perturb-chain]]
    [13 "Unmount Child A"             "Views: node gone; ALL of A's subs disposed (last reader gone); unmount recorded"
-    [:button-deck/unmount-a]]
+    [:standard-epochs/unmount-a]]
    [14 "Mount Child B (props-driven)" "Views: node appears with NO subs created"
-    [:button-deck/mount-b]]
+    [:standard-epochs/mount-b]]
    [15 "Change B's prop"             "Views: B re-renders ← PROPS changed (foil to #12's sub-driven re-render)"
-    [:button-deck/set-b-prop]]
+    [:standard-epochs/set-b-prop]]
    [:section "Errors / Issues — each a real feature, not a buggy demo"]
    [16 "Exception in the handler"     "Issues: handler-exception + source coord; db rolls back"
-    [:button-deck/throw-handler]]
+    [:standard-epochs/throw-handler]]
    [17 "Exception in an interceptor :before" "Issues: interceptor :before exception; handler skipped"
-    [:button-deck/throw-interceptor]]
+    [:standard-epochs/throw-interceptor]]
    [18 "Exception in an interceptor :after"  "Issues: interceptor :after exception; handler ran, threw on the way out (foil to #17)"
-    [:button-deck/throw-interceptor-after]]
+    [:standard-epochs/throw-interceptor-after]]
    [19 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
-    [:button-deck/throw-cofx]]
+    [:standard-epochs/throw-cofx]]
    [20 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
-    [:button-deck/throw-fx]]
+    [:standard-epochs/throw-fx]]
    [21 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
-    [:button-deck/slow]]
+    [:standard-epochs/slow]]
    [22 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
-    [:button-deck/bad-event-args "not-a-number"]]
+    [:standard-epochs/bad-event-args "not-a-number"]]
    [23 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
-    [:button-deck/bad-app-db-write]]])
+    [:standard-epochs/bad-app-db-write]]])
 
 (defn- testid-for [event]
   (-> (first event) name (str "-button")))
@@ -637,11 +637,11 @@
    label])
 
 (reg-view root []
-  [:div {:data-testid "button-deck-root"
+  [:div {:data-testid "standard-epochs-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
                  :max-width "720px"}}
    [:header {:style {:margin-bottom "0.5em"}}
-    [:h2 {:style {:margin 0}} "Button-deck"]
+    [:h2 {:style {:margin 0}} "Standard-epochs"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
      "One frame, one tall column of test buttons. Each button bumps a shared "
      [:strong "baseline"] " counter (so App-db / Epoch always show a delta) and "
@@ -650,7 +650,7 @@
      "exercised."]]
    ;; Button 0 — Reset.
    [:button {:data-testid "reset-button"
-             :on-click #(dispatch [:button-deck/reset])
+             :on-click #(dispatch [:standard-epochs/reset])
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#f4f1ff" :margin "0.5em 0"}}
@@ -666,10 +666,10 @@
    ;; :views/threshold here so the arg-key is driven by app-db state
    ;; while A owns the actual deref. Child B (props-driven) takes its
    ;; prop directly.
-   (when @(subscribe [:button-deck/a-mounted?])
-     [child-a @(subscribe [:button-deck/threshold])])
-   (when @(subscribe [:button-deck/b-mounted?])
-     [child-b @(subscribe [:button-deck/b-prop])])])
+   (when @(subscribe [:standard-epochs/a-mounted?])
+     [child-a @(subscribe [:standard-epochs/threshold])])
+   (when @(subscribe [:standard-epochs/b-mounted?])
+     [child-b @(subscribe [:standard-epochs/b-prop])])])
 
 ;; ============================================================================
 ;; MOUNT
@@ -693,5 +693,5 @@
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
   ;; no routing here). The default frame is the one Xray reads.
-  (rf/dispatch-sync [:button-deck/reset])
+  (rf/dispatch-sync [:standard-epochs/reset])
   (rdc/render react-root [root]))

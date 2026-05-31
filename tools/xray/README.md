@@ -264,13 +264,13 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
-`two_frame_isolation`, `button_deck`, `feature_matrix`, `panel_gallery`,
+`two_frame_isolation`, `standard_epochs`, `feature_matrix`, `panel_gallery`,
 `perf_counter` — covering the canonical multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
 per-frame trace / events / issues / cascades · Xray target-frame
 round-trip; built from the shared `testdeck/` modules), the
-deliberately-simple single-frame driving surface (`button_deck`,
+deliberately-simple single-frame driving surface (`standard_epochs`,
 rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
 a shared baseline counter + exercising exactly one more feature, so
 clicking top-to-bottom completely exercises any one Xray panel —

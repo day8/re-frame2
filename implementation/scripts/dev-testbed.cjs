@@ -19,7 +19,7 @@
  *
  * Usage:
  *
- *   npm run dev -- :examples/button-deck
+ *   npm run dev -- :examples/standard-epochs
  *   npm run dev -- :testbeds/panel-gallery
  *   npm run dev -- :examples/counter-with-stories :examples/login-form
  *
@@ -38,7 +38,7 @@ const builds = process.argv.slice(2);
 if (builds.length === 0) {
   console.error(
     'Usage: npm run dev -- <build> [<build>...]\n' +
-      '  e.g. npm run dev -- :examples/button-deck',
+      '  e.g. npm run dev -- :examples/standard-epochs',
   );
   process.exit(1);
 }
