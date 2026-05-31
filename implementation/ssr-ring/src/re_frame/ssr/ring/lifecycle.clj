@@ -9,6 +9,26 @@
                                  rendered fragment plus `:html-attrs` /
                                  `:body-attrs` bags for the host shell
 
+  Plus the two construction-time contracts shared verbatim by BOTH
+  `re-frame.ssr.ring/ssr-handler` AND
+  `re-frame.ssr.ring.streaming/stream-handler`:
+
+    - `validate-construction-opts!` — the fail-closed-at-boot triple
+                                      (required opts + payload policy +
+                                      trusted-shell shape)
+    - `resolve-on-error`            — the rf2-c1tac `:on-error` /
+                                      `:on-error-fallback` / locked-default
+                                      precedence
+
+  Both lived twice (once in the `ring` façade, once inlined in
+  `streaming`) before — colocating them here, alongside the
+  `validate-required-opts!` / `make-default-on-error` / `default-on-error`
+  pieces they already compose, keeps the boot contract single-sourced.
+  Same sibling-placement rationale as `validate-required-opts!`:
+  `streaming` and the `ring` façade both already require `lifecycle`,
+  so hosting the shared checks here avoids any circular-require between
+  the streaming sub-namespace and the façade.
+
   Per Spec 011 §Request storage substrate + §Head/meta contract.
 
   Note (audit rf2-cegm7 A2 / rf2-j54ee): the prior `on-create-with-request`
@@ -21,6 +41,8 @@
   forgot to destructure ended up with the request riding the unused-arg
   slot). Pre-alpha: one canonical surface, no fallback."
   (:require [re-frame.core :as rf]
+            [re-frame.ssr.payload-policy :as payload-policy]
+            [re-frame.ssr.ring.trust :as trust]
             [re-frame.trace :as trace]))
 
 (set! *warn-on-reflection* true)
@@ -224,3 +246,57 @@
                      :reason   "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"
                      :recovery :no-recovery})))
   opts)
+
+(defn validate-construction-opts!
+  "Run the full fail-closed-at-boot validation triple shared by
+  `re-frame.ssr.ring/ssr-handler` AND
+  `re-frame.ssr.ring.streaming/stream-handler`. A misconfigured handler
+  MUST refuse to construct rather than fail per-request — the canonical
+  fail-closed pattern (rf2-gtgf9). The three checks:
+
+    1. required-opt presence (`:on-create` / `:root-view`) via
+       `validate-required-opts!` — a streaming handler built without
+       `:on-create` would otherwise fail per-request inside
+       `setup-request-frame!`; one without `:root-view` would fail inside
+       the writer thread, truncating the chunked response (rf2-ee38b.11).
+    2. hydration-payload policy (`:payload-keys` / `:payload-policy`) via
+       `payload-policy/validate-policy-opts!` — throws
+       `:rf.error/ssr-missing-payload-policy` (or
+       `:rf.error/ssr-unknown-payload-policy` on a typo'd policy) per
+       rf2-gtgf9.
+    3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
+       `:app-element-id` are strings or nil) via
+       `trust/validate-trusted-shell-opts!` — both shells inject these
+       RAW into the HTML envelope, so a structural mistake (map / vector
+       / symbol / number) surfaces here as
+       `:rf.error/ssr-trusted-shell-opt-invalid` at boot rather than as a
+       `ClassCastException` deep in the rendering path (rf2-o6ndb).
+
+  Returns `opts` unchanged on success — composes into a `let` /
+  threading position cleanly."
+  [opts]
+  (validate-required-opts! opts)
+  (payload-policy/validate-policy-opts! opts)
+  (trust/validate-trusted-shell-opts! opts))
+
+(defn resolve-on-error
+  "Resolve the effective `:on-error` Ring-fn from `raw-opts`. Shared by
+  `ssr-handler` AND `stream-handler` so the rf2-c1tac precedence lives
+  in one place. Precedence:
+
+    1. caller-supplied `:on-error`      — full Ring-fn override; used verbatim.
+    2. caller-supplied `:on-error-fallback` — `{:body … :content-type …}`
+       template; built into a default-shaped fn via
+       `make-default-on-error`. The fn ignores the throwable (rf2-kzvwq
+       no-leak contract preserved).
+    3. neither                          — host-locked `default-on-error`
+       (\"Internal error\" plaintext).
+
+  Per rf2-c1tac — splits the templatable-default case from the full-
+  override case so callers can swap the body string without writing a
+  Ring fn AND without inheriting the `.getMessage` topology-leak risk."
+  [{:keys [on-error on-error-fallback]}]
+  (cond
+    on-error          on-error
+    on-error-fallback (make-default-on-error on-error-fallback)
+    :else             default-on-error))

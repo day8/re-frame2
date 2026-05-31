@@ -38,13 +38,15 @@
   default), `shell` (`default-html-shell` + shared envelope helpers),
   `payload` (`build-payload` — the non-streaming wrapper over the
   shared `re-frame.ssr.payload-policy` version-resolution + assembly),
-  `lifecycle` (frame
-  teardown, root-view / head resolution, required-opt validation,
-  `default-on-error`), `pipeline` (the 4-step request pipeline +
-  accumulator → Ring-map materialiser), `trust` (trusted-shell-hook
-  contract), `streaming` (chunked-HTTP counterpart). `handler-defaults`
-  + `validate-handler-opts!` live here so the handler constructor reads
-  top-down as one concept.
+  `lifecycle` (frame teardown, root-view / head resolution, the
+  construction-time validation triple `validate-construction-opts!`, the
+  `:on-error` precedence `resolve-on-error`, and `default-on-error`),
+  `pipeline` (the 4-step request pipeline + accumulator → Ring-map
+  materialiser), `trust` (trusted-shell-hook contract), `streaming`
+  (chunked-HTTP counterpart). `handler-defaults` lives here so the
+  handler constructor reads top-down as one concept; the construction
+  validation + on-error resolution it composes are shared verbatim with
+  `stream-handler`, so they live in `lifecycle`.
 
   This façade re-exposes the public surface (`ssr-handler`,
   `ssr-middleware`, `stream-handler`, `cookie->set-cookie-header`,
@@ -85,12 +87,10 @@
     - Async Ring handler (3-arity) — synchronous-only in v1;
       extension is additive."
   (:require [re-frame.ssr :as ssr]
-            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.cookie :as cookie]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.shell :as shell]
-            [re-frame.ssr.ring.trust :as trust]
             ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR adapter. Loaded
             ;; eagerly so `stream-handler` resolves at the façade. The
             ;; streaming surface is the chunked-HTTP counterpart of
@@ -115,12 +115,16 @@
 (def default-streaming-prefix  streaming/default-streaming-prefix)
 (def default-streaming-suffix  streaming/default-streaming-suffix)
 
-;; ---- handler defaults + caller-opt validation -----------------------------
+;; ---- handler defaults + re-exported construction helpers ------------------
 ;;
 ;; Co-located with the handler constructor so the file reads top-down as
 ;; one concept. `default-on-error` is re-exported from `lifecycle`
 ;; (shared with `stream-handler` so the rf2-kzvwq topology-leak contract
-;; lives in one place).
+;; lives in one place). The construction-time validation triple
+;; (`validate-construction-opts!`) and the `:on-error` precedence
+;; (`resolve-on-error`) also live in `lifecycle` — shared verbatim with
+;; `stream-handler` so the fail-closed-at-boot + rf2-c1tac on-error
+;; contracts are single-sourced.
 
 (def default-on-error lifecycle/default-on-error)
 (def make-default-on-error lifecycle/make-default-on-error)
@@ -129,67 +133,6 @@
   {:emit-hash?   true
    :html-shell   shell/default-html-shell
    :content-type "text/html; charset=utf-8"})
-
-(defn- resolve-on-error
-  "Resolve the effective `:on-error` from `raw-opts`. Precedence:
-
-    1. caller-supplied `:on-error`     — full Ring-fn override; used verbatim.
-    2. caller-supplied `:on-error-fallback` — `{:body … :content-type …}`
-       template; built into a default-shaped fn via
-       `make-default-on-error`. The fn ignores the throwable (rf2-kzvwq
-       no-leak contract preserved).
-    3. neither                          — host-locked `default-on-error`
-       (`\"Internal error\"` plaintext).
-
-  Per rf2-c1tac — splits the templatable-default case from the full-
-  override case so callers can swap the body string without writing a
-  Ring fn AND without inheriting the `.getMessage` topology-leak risk."
-  [{:keys [on-error on-error-fallback]}]
-  (cond
-    on-error          on-error
-    on-error-fallback (make-default-on-error on-error-fallback)
-    :else             default-on-error))
-
-;; ---- trusted-shell-hook contract (rf2-o6ndb) ------------------------------
-;;
-;; The four trusted-shell-hook opts (`:head`, `:body-end`, `:script-src`,
-;; `:app-element-id`) are TRUSTED STRINGS — injected RAW into the
-;; rendered HTML envelope, no escaping, no validation, no sandbox.
-;; Naming, structural validation, and the structured-alternative
-;; recommendation for untrusted-customization use cases live in
-;; `re-frame.ssr.ring.trust` (sibling to `re-frame.ssr.payload-policy`).
-;; See Spec 011 §Trusted shell hook contract for the full surface.
-
-(defn- validate-handler-opts!
-  "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required `ssr-handler` opt. Separated from the handler
-  body so `ssr-handler` reads as the lifecycle wiring rather than a
-  validation-then-wire two-step.
-
-  Per rf2-gtgf9 the hydration-payload policy is also validated here so
-  misconfigured deployments fail at handler-construction time (boot)
-  rather than at first request — the canonical fail-closed pattern.
-  Delegates to `re-frame.ssr.payload-policy/validate-policy-opts!`,
-  which throws `:rf.error/ssr-missing-payload-policy` (or
-  `:rf.error/ssr-unknown-payload-policy` on a typo'd
-  `:payload-policy`).
-
-  Per rf2-o6ndb the four trusted-shell-hook opts (`:head`, `:body-end`,
-  `:script-src`, `:app-element-id`) are structural-shape-checked — they
-  are TRUSTED STRINGS injected RAW into the rendered HTML envelope, so
-  a structural error (map / vector / symbol) surfaces here as
-  `:rf.error/ssr-trusted-shell-opt-invalid`. The framework names the
-  trust boundary; the content trust itself remains the caller's per
-  Spec 011 §Trusted shell hook contract.
-
-  The required-opt presence checks (`:on-create` / `:root-view`) and
-  the policy / trusted-shell checks are shared with `stream-handler`
-  (`lifecycle/validate-required-opts!` + `payload-policy` + `trust`) so
-  both handlers fail closed at the same boundary."
-  [opts]
-  (lifecycle/validate-required-opts! opts)
-  (payload-policy/validate-policy-opts! opts)
-  (trust/validate-trusted-shell-opts! opts))
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -338,18 +281,19 @@
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
-  (validate-handler-opts! raw-opts)
+  (lifecycle/validate-construction-opts! raw-opts)
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
   ;;
-  ;; rf2-c1tac — `:on-error` resolution moved through `resolve-on-error`:
-  ;; the templatable `:on-error-fallback {:body … :content-type …}` opt
+  ;; rf2-c1tac — `:on-error` resolution goes through
+  ;; `lifecycle/resolve-on-error` (shared with `stream-handler`): the
+  ;; templatable `:on-error-fallback {:body … :content-type …}` opt
   ;; produces a default-shaped fn without forcing the caller to write a
   ;; Ring fn. Resolution happens AFTER merge so handler-defaults can stay
   ;; orthogonal to on-error (no `:on-error` slot in the defaults map).
   (let [opts        (-> (merge handler-defaults raw-opts)
-                        (assoc :on-error (resolve-on-error raw-opts)))
+                        (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id short-circuit]}

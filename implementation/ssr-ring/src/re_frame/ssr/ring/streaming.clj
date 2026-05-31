@@ -44,11 +44,9 @@
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
-            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.shell :as shell]
-            [re-frame.ssr.ring.trust :as trust]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.trace :as trace])
   (:import [java.io PipedInputStream PipedOutputStream OutputStream]
@@ -216,42 +214,26 @@
 
     (fn handler [ring-request] ring-response)"
   [raw-opts]
-  ;; Construction-time validation — identical fail-closed-at-boot
-  ;; contract as `ssr-handler`'s `validate-handler-opts!`. A
-  ;; misconfigured streaming handler MUST refuse to construct, not fail
-  ;; per-request (missing :on-create → per-request 500; missing
-  ;; :root-view → silently-truncated chunked response from the writer
-  ;; thread). The three checks are the same ones the non-streaming
-  ;; handler runs:
-  ;;   - required-opt presence (:on-create / :root-view) per rf2-gtgf9,
-  ;;     shared via `lifecycle/validate-required-opts!`,
-  ;;   - hydration-payload policy (:payload-keys / :payload-policy) per
-  ;;     rf2-gtgf9 — throws `:rf.error/ssr-missing-payload-policy`,
-  ;;   - the four trusted-shell-hook opts are strings (or nil) per
-  ;;     rf2-o6ndb — the streaming prefix/suffix injects these RAW into
-  ;;     the HTML envelope, same trust contract as the non-streaming
-  ;;     `default-html-shell`. Throws
-  ;;     `:rf.error/ssr-trusted-shell-opt-invalid` on a structural
-  ;;     mistake (map / vector / symbol / number).
-  (lifecycle/validate-required-opts! raw-opts)
-  (payload-policy/validate-policy-opts! raw-opts)
-  (trust/validate-trusted-shell-opts! raw-opts)
+  ;; Construction-time validation — the SAME fail-closed-at-boot triple
+  ;; `ssr-handler` runs, shared via `lifecycle/validate-construction-opts!`
+  ;; so both handlers refuse to construct at the same boundary. For
+  ;; streaming specifically, a missing :on-create would otherwise fail
+  ;; per-request (500) and a missing :root-view would silently truncate
+  ;; the chunked response from the writer thread; the four trusted-shell
+  ;; opts are injected RAW by the streaming prefix/suffix, same trust
+  ;; contract as the non-streaming `default-html-shell`. See
+  ;; `validate-construction-opts!` for the per-check rationale.
+  (lifecycle/validate-construction-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
   ;; handlers feel symmetric to callers. `:on-error` resolves the same
-  ;; way (rf2-c1tac): caller's `:on-error` wins, then
-  ;; `:on-error-fallback {:body … :content-type …}` is templated through
-  ;; `lifecycle/make-default-on-error`, then the locked
-  ;; `lifecycle/default-on-error` (rf2-kzvwq topology-leak contract).
-  (let [resolved-on-error
-        (cond
-          (:on-error raw-opts)          (:on-error raw-opts)
-          (:on-error-fallback raw-opts) (lifecycle/make-default-on-error
-                                          (:on-error-fallback raw-opts))
-          :else                         lifecycle/default-on-error)
-        opts        (-> (merge {:emit-hash?   true
+  ;; way via the shared `lifecycle/resolve-on-error` (rf2-c1tac): caller's
+  ;; `:on-error` wins, then `:on-error-fallback {:body … :content-type …}`
+  ;; is templated through `make-default-on-error`, then the locked
+  ;; `default-on-error` (rf2-kzvwq topology-leak contract).
+  (let [opts        (-> (merge {:emit-hash?   true
                                 :content-type "text/html; charset=utf-8"}
                                raw-opts)
-                        (assoc :on-error resolved-on-error))
+                        (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id short-circuit]}
