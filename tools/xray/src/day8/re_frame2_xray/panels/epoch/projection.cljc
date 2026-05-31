@@ -1894,16 +1894,32 @@
 
 (def cascade-exception-ops
   "Closed set of cascade-level `:rf.error/*` trace ops the Epoch panel
-  surfaces as INLINE per-step exceptions (rf2-ahhgn). Schema-validation
+  surfaces as INLINE per-step exceptions (rf2-ahhgn · per-component
+  attribution rf2-mszrz / placement rf2-yz57h). Schema-validation
   failures are NOT here — they ride the distinct `schema-violation-rows`
   + `attach-violations` path (they carry `:explain` + `:where` + recovery
   chrome, not an exception message). New exception ops extend this set
   AND the `exception-op->step` table in lockstep.
 
-  - `:rf.error/handler-exception` — a handler / interceptor `:before` or
-    `:after` / injected-coeffect threw; the chain captured it into
-    `:rf/interceptor-error` and the router emitted this op (the `:db`/`:fx`
-    did NOT apply — db rolled back). Owns the HANDLER step.
+  rf2-mszrz split the pre-existing blanket `:rf.error/handler-exception`
+  (which the pre-mszrz router emitted for EVERY interceptor-chain throw —
+  handler, user interceptor, coeffect injector alike) into THREE
+  component-attributed ops. The Epoch panel now places each under the
+  step where it actually occurred (rf2-yz57h) instead of collapsing them
+  all onto HANDLER:
+
+  - `:rf.error/coeffect-exception` (rf2-mszrz) — a coeffect injector threw
+    during `:before`-chain coeffect injection. `:failing-id` = the cofx id.
+    Owns the COEFFECT step (the matching cofx's step; falls back to any
+    COEFFECT step / step-level). The handler never ran.
+  - `:rf.error/interceptor-exception` (rf2-mszrz) — a USER interceptor threw
+    in its `:before` or `:after` phase (`:phase` discriminates). `:failing-id`
+    = the interceptor `:id`. Owns the INTERCEPTOR step (NEW, rf2-yz57h). A
+    `:before` throw skips the handler; an `:after` throw runs the handler
+    first, then throws on the way out.
+  - `:rf.error/handler-exception` — the event HANDLER itself threw. The chain
+    captured it into `:rf/interceptor-error` and the router emitted this op
+    (the `:db`/`:fx` did NOT apply — db rolled back). Owns the HANDLER step.
   - `:rf.error/fx-handler-exception` — a registered fx-handler threw during
     the post-commit fx walk. Owns the SIDE EFFECTS step (best-effort
     per-row match on `:rf.fx/id`; falls back to step-level).
@@ -1912,19 +1928,27 @@
   - `:rf.error/flow-eval-exception` — a flow's compute fn threw (pre-commit
     abort). Owns the FLOW step (step-level; the throwing flow aborted the
     cascade)."
-  #{:rf.error/handler-exception
+  #{:rf.error/coeffect-exception
+    :rf.error/interceptor-exception
+    :rf.error/handler-exception
     :rf.error/fx-handler-exception
     :rf.error/no-such-fx
     :rf.error/flow-eval-exception})
 
 (def ^:private exception-op->step
   "Map a cascade-exception trace op → the `:step` keyword of the pipeline
-  step it attaches to (rf2-ahhgn). The router emits a handler / interceptor
-  / coeffect throw all as `:rf.error/handler-exception` (the interceptor
-  chain is the unit that threw), so all three attach to HANDLER — correct
-  for the headline button-15 (handler) + button-16 (interceptor) cases and
-  acceptable for button-17 (the coeffect throw aborts the handler chain)."
-  {:rf.error/handler-exception    :handler
+  step it attaches to (rf2-ahhgn · rf2-mszrz · rf2-yz57h). Each
+  component-attributed op (rf2-mszrz) lands under the step where it
+  actually occurred (rf2-yz57h) rather than all collapsing onto HANDLER:
+
+    - coeffect injector throw → COEFFECT step
+    - user-interceptor :before/:after throw → INTERCEPTOR step (NEW)
+    - event handler throw → HANDLER step
+    - fx-handler throw / no-such-fx → SIDE EFFECTS step
+    - flow compute throw → FLOW step"
+  {:rf.error/coeffect-exception   :coeffect
+   :rf.error/interceptor-exception :interceptor
+   :rf.error/handler-exception    :handler
    :rf.error/fx-handler-exception :side-effects
    :rf.error/no-such-fx           :side-effects
    :rf.error/flow-eval-exception  :flow})
@@ -1998,6 +2022,102 @@
           :when (contains? cascade-exception-ops (op ev))]
       (exception-row ev))))
 
+;; ---- INTERCEPTOR step (rf2-yz57h) ---------------------------------------
+;;
+;; The pipeline had no distinct interceptor step before rf2-yz57h —
+;; interceptors WRAP the handler chain rather than appearing as their own
+;; cascade entry, so a user-interceptor `:before` / `:after` throw
+;; (rf2-mszrz `:rf.error/interceptor-exception`) had no home and collapsed
+;; onto HANDLER.
+;;
+;; The substrate does NOT emit a per-interceptor "ran" trace (the chain
+;; runs as one unit; only a throw surfaces a trace), so the INTERCEPTOR
+;; step is CONDITIONAL: it renders ONLY when an interceptor exception fired
+;; this cascade, and its rows are the throwing interceptor(s) — each row
+;; carries the interceptor `:id` + the `:phase` (`:before` / `:after`) it
+;; threw in, so the operator reads WHICH interceptor failed on WHICH side
+;; of the chain. The view resolves a jump-to-source coord off
+;; `handler-meta` at render time (degrades to plain text when none is
+;; registered — interceptors are plain `->interceptor` records, not always
+;; coord-stamped). The shared "Exception Thrown" card (rf2-wnvid) attaches
+;; per the standard `attach-exceptions` path.
+
+(defn interceptor-exception-rows
+  "The `:rf.error/interceptor-exception` subset of `exception-rows`
+  (rf2-yz57h / rf2-mszrz) — one per user-interceptor throw, in trace
+  order. Empty vec when no interceptor threw."
+  [events]
+  (filterv #(= :rf.error/interceptor-exception (op (:raw %)))
+           (exception-rows events)))
+
+(defn interceptor-step
+  "Build the INTERCEPTOR step, or nil when no interceptor exception fired
+  this cascade (the step is OMITTED — conditional, rf2-yz57h). The step's
+  `:rows` are the throwing interceptors (one per
+  `:rf.error/interceptor-exception`), each carrying the interceptor
+  `:interceptor-id` (== the exception row's `:failing-id`) + the `:phase`
+  it threw in. The shared exception card attaches to this step via
+  `attach-exceptions`."
+  [events]
+  (let [exc (interceptor-exception-rows events)]
+    (when (seq exc)
+      {:step  :interceptor
+       :badge :INTERCEPTOR
+       :rows  (mapv (fn [{:keys [failing-id phase]}]
+                      {:interceptor-id failing-id
+                       :phase          phase})
+                    exc)})))
+
+;; ---- SKIPPED-step marking (rf2-yz57h) -----------------------------------
+;;
+;; When an EARLIER pipeline step throws on the way IN — a coeffect injector
+;; (`:rf.error/coeffect-exception`) or a user-interceptor `:before`
+;; (`:rf.error/interceptor-exception` with `:phase :before`) — the event
+;; HANDLER never runs. Pre-rf2-yz57h the HANDLER step still rendered its
+;; body and the `:db` sub-section read "— no :db (handler returned no :db)"
+;; — WRONG: the handler's body returns a `:db` via `bump`, it simply never
+;; executed (buttons 17 / coeffect throw). The fix marks the HANDLER step
+;; (and the SIDE EFFECTS step, which equally never ran) `:status :skipped`
+;; so the view renders it as SKIPPED rather than "ran, returned no :db".
+;;
+;; An interceptor `:after` throw is NOT a skip-the-handler case — the
+;; handler ran successfully and the throw fired on the way OUT — so it does
+;; NOT mark the handler skipped.
+
+(defn handler-skipped-by-upstream?
+  "True iff an UPSTREAM `:before`-chain throw skipped the event handler
+  this cascade (rf2-yz57h): a coeffect injector threw
+  (`:rf.error/coeffect-exception`), or a user interceptor threw in its
+  `:before` phase (`:rf.error/interceptor-exception` + `:phase :before`).
+  Both abort the chain on the way IN, so the handler body never executes.
+
+  An interceptor `:after` throw is excluded — the handler ran first; the
+  throw fired on the way out."
+  [events]
+  (boolean
+    (some (fn [ev]
+            (let [o (op ev)]
+              (or (= :rf.error/coeffect-exception o)
+                  (and (= :rf.error/interceptor-exception o)
+                       (= :before (common/tag-of ev :phase))))))
+          events)))
+
+(defn mark-skipped-handler
+  "When an upstream `:before`-chain throw skipped the handler
+  (`handler-skipped-by-upstream?`), stamp the HANDLER step + the SIDE
+  EFFECTS step (which equally never ran) with `:status :skipped`
+  (rf2-yz57h). The view reads `:skipped` to render the step as SKIPPED
+  rather than 'ran, returned no :db'. Pure fn over the step vector; a
+  cascade with no upstream skip returns `steps` unchanged."
+  [steps events]
+  (if (handler-skipped-by-upstream? events)
+    (mapv (fn [step]
+            (if (contains? #{:handler :side-effects} (:step step))
+              (assoc step :status :skipped)
+              step))
+          steps)
+    steps))
+
 (defn- attach-to-fx-error-row
   "Attach an fx exception row to the SIDE EFFECTS step's matching
   `:fx-id` row (rf2-ahhgn / rf2-kt6js). When `:failing-id` matches a
@@ -2015,25 +2135,56 @@
                       rows)))
       (update step :errors (fnil conj []) row))))
 
+(defn- coeffect-exception-target
+  "Index of the COEFFECT step a `:rf.error/coeffect-exception` row attaches
+  to (rf2-yz57h). Prefers the step whose `:id` == the row's `:failing-id`
+  (the cofx that threw); falls back to the FIRST COEFFECT step when the
+  throwing cofx produced no `:rf.cofx/run` step (it threw on injection, so
+  the granular cofx-run trace may be absent — `project` synthesises a
+  placeholder COEFFECT step in that case so there is always a home).
+  Returns nil when no COEFFECT step exists at all."
+  [steps failing-id]
+  (or (index-of #(and (= :coeffect (:step %)) (= failing-id (:id %))) steps)
+      (index-of #(= :coeffect (:step %)) steps)))
+
 (defn attach-exceptions
   "Take a projected step vector + a vec of `exception-row` records and
   return the step vector with each exception attached to its owning step
-  (rf2-ahhgn — per `exception-op->step`). Returns `steps` unchanged when
+  (rf2-ahhgn · rf2-mszrz component attribution · rf2-yz57h per-step
+  placement — per `exception-op->step`). Returns `steps` unchanged when
   `rows` is empty.
 
-  Attachment is step-level for HANDLER / FLOW (the exception aborted that
-  step's work) and row-level (matching `:fx-id`) for FX, falling back to
-  step-level when no row matches. Each touched step additionally gains
-  `:status :error` so the per-step ✓/✗ primitive paints the failure
-  glyph; the same `:status` slot is what rf2-kt6js's SIDE-EFFECTS sub-
-  steps will reuse."
+  Placement (rf2-yz57h — each under the step where it actually occurred):
+
+    - COEFFECT exception → the matching COEFFECT step (by `:failing-id` =
+      cofx `:id`; falls back to the first COEFFECT step), step-level.
+    - INTERCEPTOR exception → the INTERCEPTOR step, step-level.
+    - HANDLER / FLOW exception → that step, step-level (the exception
+      aborted the step's work).
+    - FX exception → the SIDE EFFECTS row whose `:fx-id` = `:failing-id`
+      (row-level), falling back to step-level when no row matches.
+
+  Each touched step additionally gains `:status :error` so the per-step
+  ✓/✗ primitive paints the failure glyph; the same `:status` slot is what
+  rf2-kt6js's SIDE-EFFECTS sub-steps reuse.
+
+  Catch-all: when the owning step is absent from the cascade (e.g. a
+  flow-eval throw with no FLOW step projected) the exception attaches to
+  the HANDLER step so the failure never disappears entirely. `project`
+  guarantees a COEFFECT placeholder + an INTERCEPTOR step exist whenever
+  the matching exception fired, so those two never hit the catch-all."
   [steps rows]
   (if (empty? rows)
     steps
     (reduce
       (fn [s row]
-        (let [target-step (get exception-op->step (:operation row))
-              i           (index-of #(= target-step (:step %)) s)]
+        (let [op-kw       (:operation row)
+              target-step (get exception-op->step op-kw)
+              i           (cond
+                            (= :coeffect target-step)
+                            (coeffect-exception-target s (:failing-id row))
+                            :else
+                            (index-of #(= target-step (:step %)) s))]
           (if i
             (update s i
                     (fn [step]
@@ -2057,25 +2208,42 @@
 ;; ---- per-step status + epoch outcome (rf2-ahhgn) ------------------------
 
 (defn step-status
-  "The pass/fail status of a projected step (rf2-ahhgn) — `:error` when
-  the step (or any of its rows) carries an attached exception or schema
-  violation, else `:ok`. The view paints a ✓ (`:ok`) / ✗ (`:error`)
-  glyph on every step header off this primitive; rf2-kt6js's SIDE-EFFECTS
-  sub-steps reuse the same shape for their per-effect ticks.
+  "The status of a projected step (rf2-ahhgn · rf2-yz57h) — one of:
 
-  Reads the step's own `:status` slot first (stamped by `attach-
-  exceptions`), then falls back to scanning the step-level + row-level
-  `:errors` / `:violations` vecs so a step that gained a violation via
-  `attach-violations` (which does not stamp `:status`) still reads
-  `:error`. Pure-data over an already-attached step."
+    `:error`   — the step (or any of its rows) carries an attached
+                 exception or schema violation.
+    `:skipped` — the step never RAN because an upstream `:before`-chain
+                 throw aborted the cascade (rf2-yz57h `mark-skipped-handler`
+                 stamps `:status :skipped` on the HANDLER + SIDE EFFECTS
+                 steps). Distinct from `:ok` — the step did NOT run, so it
+                 must NOT read as 'ran, returned no :db'.
+    `:ok`      — otherwise (the step ran cleanly).
+
+  The view paints a ✓ (`:ok`) / ✗ (`:error`) / ⊘ (`:skipped`) glyph on
+  every step header off this primitive; rf2-kt6js's SIDE-EFFECTS sub-steps
+  reuse the same shape for their per-effect ticks.
+
+  A failure (`:error`) takes precedence over a skip — a step that both was
+  marked skipped AND carries an attached error reads `:error` (the error is
+  the load-bearing signal). Reads the step's own `:status` slot (stamped by
+  `attach-exceptions` / `mark-skipped-handler`), then falls back to scanning
+  the step-level + row-level `:errors` / `:violations` vecs so a step that
+  gained a violation via `attach-violations` (which does not stamp
+  `:status`) still reads `:error`. Pure-data over an already-attached step."
   [step]
   (let [row-has? (fn [k] (some #(seq (get % k)) (:rows step)))]
-    (if (or (= :error (:status step))
-            (seq (:errors step))
-            (seq (:violations step))
-            (row-has? :errors)
-            (row-has? :violations))
+    (cond
+      (or (= :error (:status step))
+          (seq (:errors step))
+          (seq (:violations step))
+          (row-has? :errors)
+          (row-has? :violations))
       :error
+
+      (= :skipped (:status step))
+      :skipped
+
+      :else
       :ok)))
 
 (defn epoch-outcome
@@ -2383,6 +2551,32 @@
                                  (some? duration-ms)
                                  (assoc :duration-ms duration-ms)))
                              cofx-rows)
+            ;; rf2-yz57h — a coeffect that throws ON INJECTION
+            ;; (`:rf.error/coeffect-exception`) produces NO `:rf.cofx/run`
+            ;; trace (it threw before completing), so `cofx-steps` carries no
+            ;; step for it. Synthesise a placeholder COEFFECT step (no
+            ;; resolved value — it never produced one) keyed on the throwing
+            ;; cofx id so the shared exception card has a home UNDER the
+            ;; COEFFECT step rather than collapsing onto HANDLER. Skipped when
+            ;; an existing cofx-step already covers the failing id.
+            cofx-exc-ids (->> (exception-rows events)
+                              (filter #(= :rf.error/coeffect-exception
+                                          (op (:raw %))))
+                              (map :failing-id)
+                              (remove nil?)
+                              distinct)
+            cofx-step-ids (set (map :id cofx-steps))
+            cofx-placeholder-steps
+            (vec (for [id   cofx-exc-ids
+                       :when (not (contains? cofx-step-ids id))]
+                   {:step      :coeffect
+                    :badge     :COEFFECT
+                    :id        id
+                    :threw?    true
+                    ;; no `:value` — the injector threw before resolving one;
+                    ;; the view renders the failed-injection body, not a
+                    ;; `+ [id] <value>` line.
+                    :no-value? true}))
             ;; rf2-xnb1x — one FLOW step per flow that fired (mirror
             ;; of the cofx-steps splat above). The operator counts
             ;; flows by counting numbered circles in the cascade
@@ -2438,7 +2632,15 @@
                         (concat
                           [(dispatch-row events fallback)]
                           cofx-steps
-                          [(handler-row events event-id db-before db-after)]
+                          cofx-placeholder-steps
+                          ;; rf2-yz57h — the INTERCEPTOR step rides between
+                          ;; COEFFECTS and HANDLER (the cascade position of
+                          ;; the interceptor chain: `:before` runs after
+                          ;; coeffects, before the handler). Conditional —
+                          ;; nil (filtered out below) when no interceptor
+                          ;; threw this cascade.
+                          [(interceptor-step events)
+                           (handler-row events event-id db-before db-after)]
                           ;; APP-DB DIFF removed pair-debug 2026-05-26 —
                           ;; redundant with the HANDLER step's `:db`
                           ;; sub-section's [diff][all] toggle which
@@ -2458,13 +2660,19 @@
                            ]))
             present    (filterv some? base-steps)
             attached   (attach-violations present violations)
-            ;; rf2-ahhgn — attach cascade-level exceptions (handler /
-            ;; interceptor / coeffect / fx / flow throws) to their owning
-            ;; step AFTER schema violations so both inline-failure surfaces
-            ;; coexist; `attach-exceptions` additionally stamps `:status
-            ;; :error` on each touched step for the per-step ✓/✗ primitive.
+            ;; rf2-ahhgn · rf2-mszrz · rf2-yz57h — attach cascade-level
+            ;; exceptions (coeffect / interceptor / handler / fx / flow
+            ;; throws) to the step where each actually occurred AFTER schema
+            ;; violations so both inline-failure surfaces coexist;
+            ;; `attach-exceptions` additionally stamps `:status :error` on
+            ;; each touched step for the per-step ✓/✗ primitive.
             with-errs  (attach-exceptions attached exceptions)
-            steps      (mark-rolled-back-downstream with-errs violations)]
+            ;; rf2-yz57h — when an upstream `:before`-chain throw (coeffect /
+            ;; interceptor :before) skipped the handler, mark the HANDLER +
+            ;; SIDE EFFECTS steps `:status :skipped` so the view renders them
+            ;; as SKIPPED rather than 'ran, returned no :db'.
+            skipped    (mark-skipped-handler with-errs events)
+            steps      (mark-rolled-back-downstream skipped violations)]
         steps))))
 
 (defn number-steps
@@ -2762,10 +2970,14 @@
     standalone tail step (drift has no owning cascade step).
   - rf2-kt6js: FX → SIDE-EFFECTS (the single :fx step became the SIDE
     EFFECTS step with :db / :fx / other sub-steps).
+  - rf2-yz57h: + INTERCEPTOR (conditional — present only when a user
+    interceptor threw this cascade; the throwing interceptor's :before /
+    :after row carries the shared 'Exception Thrown' card).
 
   The view's badge resolver bails to `:text-tertiary` on an unknown
   badge, so adding to this set is purely additive."
-  #{:DISPATCH :COEFFECT :HANDLER :FLOW :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS
+  #{:DISPATCH :COEFFECT :INTERCEPTOR :HANDLER :FLOW :SIDE-EFFECTS
+    :SUBSCRIPTIONS :VIEWS
     :SCHEMA-HOT-RELOAD :CHILD-DISPATCHES :APP-DB-DIFF})
 
 (defn valid-badge?

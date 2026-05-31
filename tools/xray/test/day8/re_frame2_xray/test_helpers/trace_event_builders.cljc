@@ -59,7 +59,11 @@
   | `machine-action-ev`            | `:rf.machine/action-ran`               | HANDLER LIFECYCLE                   |
   | `machine-timer-cancel-ev`      | `:rf.machine.timer/cancelled`          | HANDLER AFTER-TIMERS                |
   | `schema-violation-ev`          | `:rf.error/schema-validation-failure`  | SCHEMA VIOLATIONS                   |
-  | `schema-hot-reload-ev`         | `:rf.schema/violation`                 | SCHEMA HOT-RELOAD                   |"
+  | `schema-hot-reload-ev`         | `:rf.schema/violation`                 | SCHEMA HOT-RELOAD                   |
+  | `handler-exception-ev`         | `:rf.error/handler-exception`          | HANDLER inline error card           |
+  | `coeffect-exception-ev`        | `:rf.error/coeffect-exception`         | COEFFECT inline error card (rf2-yz57h) |
+  | `interceptor-exception-ev`     | `:rf.error/interceptor-exception`      | INTERCEPTOR step (rf2-yz57h)        |
+  | `fx-handler-exception-ev`      | `:rf.error/fx-handler-exception`       | SIDE EFFECTS inline error card      |"
   (:refer-clojure :exclude [ev]))
 
 ;; ---- low-level primitive -----------------------------------------------
@@ -422,3 +426,42 @@
      coord (assoc :rf.trace/trigger-handler {:kind         :fx
                                              :id           fx-id
                                              :source-coord coord}))))
+
+(defn coeffect-exception-ev
+  "`:rf.error/coeffect-exception` trace (rf2-mszrz / rf2-yz57h) — a
+  coeffect INJECTOR threw during `:before`-chain coeffect injection. The
+  cofx id rides `[:tags :failing-id]`; the message rides
+  `[:tags :exception-message]`. The router emits this from
+  `emit-pipeline-exception!` after `classify-pipeline-exception` reads the
+  throwing interceptor's captured `:rf/cofx-id`. Drives the COEFFECT
+  step's inline 'Exception Thrown' card (rf2-yz57h)."
+  ([cofx-id message] (coeffect-exception-ev cofx-id message nil))
+  ([cofx-id message exception]
+   (cond-> (ev :error :rf.error/coeffect-exception
+               (cond-> {:failing-id        cofx-id
+                        :exception-message message
+                        :reason            (str "Coeffect injection for `"
+                                                cofx-id "` threw.")}
+                 exception (assoc :exception exception)))
+     true (assoc :recovery :no-recovery))))
+
+(defn interceptor-exception-ev
+  "`:rf.error/interceptor-exception` trace (rf2-mszrz / rf2-yz57h) — a USER
+  interceptor threw in its `:before` or `:after` phase. The interceptor id
+  rides `[:tags :failing-id]`, the phase rides `[:tags :phase]`
+  (`:before` / `:after`), and the message rides `[:tags :exception-message]`.
+  The router emits this from `emit-pipeline-exception!` after
+  `classify-pipeline-exception` finds a captured `:id` that is neither a
+  handler-wrapper nor a cofx injector. Drives the INTERCEPTOR step's inline
+  'Exception Thrown' card (rf2-yz57h)."
+  ([intc-id phase message] (interceptor-exception-ev intc-id phase message nil))
+  ([intc-id phase message exception]
+   (cond-> (ev :error :rf.error/interceptor-exception
+               (cond-> {:failing-id        intc-id
+                        :phase             phase
+                        :exception-message message
+                        :reason            (str "Interceptor `" intc-id
+                                                "` threw in its `" (name phase)
+                                                "` phase.")}
+                 exception (assoc :exception exception)))
+     true (assoc :recovery :no-recovery))))

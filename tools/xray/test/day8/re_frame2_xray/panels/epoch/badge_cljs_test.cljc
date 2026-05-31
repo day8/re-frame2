@@ -159,10 +159,13 @@
 ;; ---- rf2-ahhgn — per-step pass/fail status primitive --------------------
 
 (deftest step-status-set-test
-  (testing "rf2-ahhgn — the per-step status closed set is {:ok :error}"
-    (is (= #{:ok :error} badge/step-status-set))
+  (testing "rf2-ahhgn · rf2-yz57h — the per-step status closed set is
+            {:ok :error :skipped} (:skipped added rf2-yz57h for steps that
+            never ran because an upstream :before-chain throw aborted)"
+    (is (= #{:ok :error :skipped} badge/step-status-set))
     (is (badge/step-status? :ok))
     (is (badge/step-status? :error))
+    (is (badge/step-status? :skipped))
     (is (not (badge/step-status? :NOT-A-STATUS)))))
 
 (deftest step-status-glyph-test

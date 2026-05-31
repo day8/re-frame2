@@ -1276,6 +1276,35 @@
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
 
+;; rf2-yz57h — SKIPPED-step body. When an upstream `:before`-chain throw
+;; (coeffect injector / `:before` interceptor) aborts the cascade, the
+;; HANDLER + SIDE EFFECTS steps never run. The view renders a SKIPPED
+;; placeholder body — a muted italic line stating the step did not run —
+;; instead of the normal body (whose `:db` sub-section would otherwise read
+;; the misleading "— no :db (handler returned no :db)" even though the
+;; handler's body DOES return a :db; it simply never executed). The header
+;; glyph is the muted ⊘ (`badge/step-status-glyph :skipped`).
+(def ^:private skipped-body-style
+  {:margin-top  "5px"
+   :padding     "6px 8px"
+   :background  bg-1-colour
+   :border      border-subtle-1px
+   :border-radius "3px"
+   :font-family sans-stack
+   :font-size   "12px"
+   :font-style  "italic"
+   :color       text-tertiary-colour})
+
+(defn- skipped-body
+  "Render a SKIPPED step's body (rf2-yz57h) — a muted italic line stating
+  the step did not run because an upstream step threw. `what` names the
+  step for the operator (e.g. \"The handler\" / \"Side effects\")."
+  [testid what]
+  [:div {:data-testid (str testid "-skipped")
+         :data-rf-xray-step-skipped "true"
+         :style skipped-body-style}
+   (str what " did not run — an upstream step threw before this step could execute.")])
+
 ;; `rolled-back-banner-style` + the `rolled-back-banner` render fn
 ;; were retired (rf2-w8evg) — the rf2-7gf7v / rf2-8resu redesign moves
 ;; the :app-db violation to the FX step's :db row (the implicit
@@ -1518,20 +1547,27 @@
 ;; which match this panel's prior shape exactly.
 
 (defn- step-status-glyph
-  "Render the per-step ✓/✗ pass-fail glyph (rf2-ahhgn). `status` is the
-  `:ok` / `:error` keyword from `projection/step-status`; the colour +
-  glyph resolve off the shared `badge/step-status-*` primitive (the
-  same one rf2-kt6js's SIDE-EFFECTS sub-steps reuse). `testid` keys the
+  "Render the per-step ✓/✗/⊘ status glyph (rf2-ahhgn · rf2-yz57h).
+  `status` is the `:ok` / `:error` / `:skipped` keyword from
+  `projection/step-status`; the colour + glyph resolve off the shared
+  `badge/step-status-*` primitive (the same one rf2-kt6js's SIDE-EFFECTS
+  sub-steps reuse). `:skipped` (rf2-yz57h) is the step that never RAN
+  because an upstream `:before`-chain throw aborted the cascade — a muted
+  ⊘ that reads as 'did not run', NOT a failure. `testid` keys the
   `-status` suffix + the `data-rf-xray-step-status` attribute tests +
   the issues-ribbon eye-scan read."
   [status testid]
-  [:span {:data-testid (str testid "-status")
-          :data-rf-xray-step-status (name (or status :ok))
-          :aria-label (if (= :error status) "step failed" "step ok")
-          :title (if (= :error status) "this step failed" "this step ran cleanly")
-          :style (assoc step-header-status-glyph-base-style
-                        :color (badge/step-status-colour status))}
-   (badge/step-status-glyph status)])
+  (let [[aria title] (case status
+                       :error   ["step failed"  "this step failed"]
+                       :skipped ["step skipped" "this step was skipped — an upstream step threw before it could run"]
+                       ["step ok" "this step ran cleanly"])]
+    [:span {:data-testid (str testid "-status")
+            :data-rf-xray-step-status (name (or status :ok))
+            :aria-label aria
+            :title title
+            :style (assoc step-header-status-glyph-base-style
+                          :color (badge/step-status-colour status))}
+     (badge/step-status-glyph status)]))
 
 (defn- step-header
   "Render a step's header row — badge pill + per-step ✓/✗ status glyph
@@ -1960,7 +1996,7 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value step-number violations] :as step}]
+  [{:keys [id value no-value? step-number violations errors] :as step}]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta :cofx id)
                           (catch :default _ nil)))
@@ -1990,16 +2026,139 @@
      ;; 2026-05-26 the body sits left-aligned with the badge (no
      ;; indent) so the diff-line reads at the same column as the
      ;; header's badge pill.
-     [:div {:data-testid (str "rf-xray-epoch-coeffect-value-" (name id))
-            :style coeffect-body-style}
-      [:span {:style coeffect-body-plus-style} "+"]
-      [:span {:style coeffect-body-path-style}
-       (str "[" (proj/ns-keyword id) "]")]
-      [:span {:style coeffect-body-value-style}
-       [ei/mini value 80]]]
+     ;;
+     ;; rf2-yz57h — a coeffect that THREW on injection
+     ;; (`:rf.error/coeffect-exception`, button-19) produced no resolved
+     ;; value, so the projection stamps `:no-value?` + omits `:value`. The
+     ;; diff-line is replaced by a muted "injection failed" line; the shared
+     ;; 'Exception Thrown' card below carries the message + details.
+     (if no-value?
+       [:div {:data-testid (str "rf-xray-epoch-coeffect-failed-" (name id))
+              :style coeffect-body-style}
+        [:span {:style coeffect-body-path-style}
+         (str "injection of [" (proj/ns-keyword id) "] threw")]]
+       [:div {:data-testid (str "rf-xray-epoch-coeffect-value-" (name id))
+              :style coeffect-body-style}
+        [:span {:style coeffect-body-plus-style} "+"]
+        [:span {:style coeffect-body-path-style}
+         (str "[" (proj/ns-keyword id) "]")]
+        [:span {:style coeffect-body-value-style}
+         [ei/mini value 80]]])
+     ;; rf2-yz57h — a coeffect-injection EXCEPTION attaches here as the
+     ;; shared inline 'Exception Thrown' card (button-19), under the
+     ;; COEFFECT step where it occurred (no longer collapsed onto HANDLER).
+     (error-blocks :coeffect errors)
      ;; rf2-xgeag — `:cofx` boundary violations attach to the matching
      ;; COEFFECT step by cofx-id.
      (violation-blocks :coeffect violations)]))
+
+;; ---- INTERCEPTOR step (rf2-yz57h) ---------------------------------------
+;;
+;; The pipeline had no distinct interceptor step before rf2-yz57h —
+;; interceptors WRAP the handler chain rather than appearing as their own
+;; cascade entry. A user-interceptor `:before` / `:after` throw
+;; (rf2-mszrz `:rf.error/interceptor-exception`) therefore had no home and
+;; collapsed onto HANDLER. The INTERCEPTOR step gives those exceptions a
+;; home (between COEFFECTS and HANDLER — the cascade position of the chain)
+;; and makes the throwing interceptor + its phase visible.
+;;
+;; CONDITIONAL — the projection emits the step only when an interceptor
+;; threw this cascade (the substrate emits no per-interceptor "ran" trace,
+;; so a clean chain leaves nothing to show). One row per throwing
+;; interceptor: the interceptor id (click-to-source via `handler-meta`,
+;; degrading to plain text) + a `:before` / `:after` phase chip + the
+;; shared 'Exception Thrown' card (rf2-wnvid).
+
+(def ^:private interceptor-row-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"
+   :padding     "3px 0"
+   :font-family mono-stack
+   :font-size   "12px"
+   :flex-wrap   "wrap"})
+
+(def ^:private interceptor-phase-chip-style
+  {:display        "inline-flex"
+   :align-items    "center"
+   :background     bg-3-colour
+   :color          text-tertiary-colour
+   :border         border-subtle-1px
+   :border-radius  "2px"
+   :padding        "1px 5px"
+   :font-family    mono-stack
+   :font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.3px"
+   :white-space    "nowrap"})
+
+(defn- interceptor-phase-label
+  "Render an interceptor exception row's `:phase` as a UI chip label
+  (rf2-yz57h). `:before` (threw on the way IN — handler skipped) /
+  `:after` (threw on the way OUT — handler ran first). nil → no chip."
+  [phase]
+  (case phase
+    :before "before"
+    :after  "after"
+    (when (keyword? phase) (name phase))))
+
+(defn- interceptor-row-view
+  "Render one INTERCEPTOR-step row (rf2-yz57h) — the throwing interceptor's
+  id (click-to-source when `handler-meta` carries a coord) + a `:before` /
+  `:after` phase chip + the shared inline 'Exception Thrown' card."
+  [idx {:keys [interceptor-id phase errors]}]
+  (let [intc-meta (when (keyword? interceptor-id)
+                    (try (rf/handler-meta :interceptor interceptor-id)
+                         (catch :default _ nil)))
+        coord     (when (and intc-meta (string? (:file intc-meta)))
+                    {:file (:file intc-meta) :line (:line intc-meta)})
+        label     (proj/ns-keyword interceptor-id)]
+    [:div {:key (str "interceptor-row-" idx)
+           :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
+           :data-interceptor-phase (when phase (name phase))}
+     [:div {:style interceptor-row-style}
+      (coord-link/coord-link coord label
+                             (str "rf-xray-epoch-interceptor-id-" idx)
+                             {:style       coeffect-verb-link-button-style
+                              :plain-style coeffect-verb-plain-style})
+      (when-let [pl (interceptor-phase-label phase)]
+        [:span {:data-testid (str "rf-xray-epoch-interceptor-phase-" idx)
+                :style interceptor-phase-chip-style}
+         pl])]
+     ;; rf2-yz57h — the interceptor EXCEPTION attaches here as the shared
+     ;; inline 'Exception Thrown' card (button-17 :before / button-18
+     ;; :after), under the INTERCEPTOR step where it occurred.
+     (error-blocks (keyword (str "interceptor-row-" idx)) errors)]))
+
+(defn render-interceptor-step
+  "Render the INTERCEPTOR step (rf2-yz57h — present ONLY when a user
+  interceptor threw this cascade). One row per throwing interceptor; each
+  carries the interceptor id (click-to-source) + a `:before` / `:after`
+  phase chip + the shared 'Exception Thrown' card. The step's `:errors`
+  slot (attached by `attach-exceptions`) is rendered per-row by matching
+  the exception's `:failing-id` to the row's `:interceptor-id`."
+  [{:keys [rows step-number errors] :as step}]
+  ;; The step-level `:errors` (from `attach-exceptions`) carry the exception
+  ;; records; thread each onto its matching row by `:failing-id`.
+  (let [rows* (mapv (fn [row]
+                      (assoc row :errors
+                             (filterv #(= (:interceptor-id row) (:failing-id %))
+                                      errors)))
+                    rows)]
+    [:div {:data-testid "rf-xray-epoch-step-interceptor"
+           :data-step-kw "interceptor"}
+     (numbered-circle step-number :INTERCEPTOR)
+     (step-header
+       {:step :interceptor
+        :badge :INTERCEPTOR
+        :verb (str (count rows) " interceptor"
+                   (when (not= 1 (count rows)) "s") " threw")
+        :expandable? false
+        :testid "rf-xray-epoch-interceptor"
+        :status (proj/step-status step)}
+       nil)
+     [:div {:style margin-top-5-style}
+      (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]]))
 
 ;; ---- HANDLER step --------------------------------------------------------
 
@@ -2762,26 +2921,39 @@
   violation kinds attach here."
   [{:keys [flavour event-id duration-ms step-number violations errors]
     :as step}]
-  [:div {:data-testid "rf-xray-epoch-step-handler"
-         :data-step-kw "handler"
-         :data-handler-flavour (when flavour (name flavour))}
-   (numbered-circle step-number :HANDLER)
-   (step-header
-     {:step :handler
-      :badge :HANDLER
-      :verb (handler-verb-link flavour event-id)
-      :expandable? false
-      :testid "rf-xray-epoch-handler"
-      :status (proj/step-status step)
-      :duration-ms duration-ms}
-     nil)
-   (handler-body step)
-   ;; rf2-ahhgn — a handler / interceptor / coeffect EXCEPTION attaches
-   ;; here as an inline error card (button-15/16/17). Rendered BELOW the
-   ;; handler body so the operator reads what the handler tried to do,
-   ;; then the failure that aborted it.
-   (error-blocks :handler errors)
-   (violation-blocks :handler violations)])
+  (let [status   (proj/step-status step)
+        skipped? (= :skipped status)]
+    [:div {:data-testid "rf-xray-epoch-step-handler"
+           :data-step-kw "handler"
+           :data-handler-flavour (when flavour (name flavour))}
+     (numbered-circle step-number :HANDLER)
+     (step-header
+       {:step :handler
+        :badge :HANDLER
+        :verb (handler-verb-link flavour event-id)
+        :expandable? false
+        :testid "rf-xray-epoch-handler"
+        :status status
+        ;; rf2-yz57h — a skipped handler has no real duration (it never
+        ;; ran); elide the chip.
+        :duration-ms (when-not skipped? duration-ms)}
+       nil)
+     (if skipped?
+       ;; rf2-yz57h — the handler was skipped (a `:before` interceptor /
+       ;; coeffect threw upstream). Render the SKIPPED placeholder instead
+       ;; of the normal body — the prior body's `:db` sub-section read
+       ;; "— no :db (handler returned no :db)" which was WRONG: the handler
+       ;; body returns a :db (via `bump`), it just never executed.
+       (skipped-body "rf-xray-epoch-handler" "The handler")
+       (handler-body step))
+     ;; rf2-ahhgn — a handler EXCEPTION attaches here as an inline error
+     ;; card (button-16). Rendered BELOW the handler body so the operator
+     ;; reads what the handler tried to do, then the failure that aborted
+     ;; it. (Coeffect / interceptor exceptions now land under their OWN
+     ;; steps per rf2-yz57h, so this slot carries only genuine handler
+     ;; throws.)
+     (error-blocks :handler errors)
+     (violation-blocks :handler violations)]))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -3068,31 +3240,39 @@
   that didn't match a row attach to the step level (rf2-xgeag /
   rf2-ahhgn) and render at the foot. `:db` schema-fail (pre-commit) →
   just the `:db` CROSS row + badge cross, no fx rows (atomicity)."
-  [{:keys [rows step-number threw violations errors]}]
-  [:div {:data-testid "rf-xray-epoch-step-side-effects"
-         :data-step-kw "side-effects"
-         :data-fx-threw (str (or threw 0))}
-   (numbered-circle step-number :SIDE-EFFECTS)
-   (step-header
-     {:step :side-effects
-      :badge :SIDE-EFFECTS
-      :expandable? false
-      :testid "rf-xray-epoch-side-effects"
-      ;; rf2-j630b — the single overall badge glyph is the AND of the
-      ;; present ledger rows (`side-effects-badge-status`): cross iff a
-      ;; row is a real failure (its `:status` is `:error` / `:rollback`,
-      ;; or it carries an attached exception / violation); SKIPPED rows
-      ;; are neutral. Distinct from the generic `step-status` (which keys
-      ;; off the step's own `:status` + attachments only) because a
-      ;; row's `:status :error` / `:rollback` must trip the badge too.
-      :status (proj/side-effects-badge-status rows)}
-     nil)
-   [:div {:style margin-top-5-style}
-    (map-indexed (fn [i row] (fx-row-with-violations i row)) rows)]
-   ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
-   ;; or an fx-id absent from `:rows`) attach to the step level.
-   (error-blocks :side-effects errors)
-   (violation-blocks :side-effects violations)])
+  [{:keys [rows step-number threw violations errors] :as step}]
+  (let [skipped? (= :skipped (proj/step-status step))]
+    [:div {:data-testid "rf-xray-epoch-step-side-effects"
+           :data-step-kw "side-effects"
+           :data-fx-threw (str (or threw 0))}
+     (numbered-circle step-number :SIDE-EFFECTS)
+     (step-header
+       {:step :side-effects
+        :badge :SIDE-EFFECTS
+        :expandable? false
+        :testid "rf-xray-epoch-side-effects"
+        ;; rf2-yz57h — when the step was skipped (an upstream `:before`-chain
+        ;; throw aborted the cascade before any side effect ran) the header
+        ;; glyph is the muted ⊘ via the generic `step-status`. Otherwise the
+        ;; single overall badge glyph is the AND of the present ledger rows
+        ;; (`side-effects-badge-status`, rf2-j630b): cross iff a row is a real
+        ;; failure (its `:status` is `:error` / `:rollback`, or it carries an
+        ;; attached exception / violation); SKIPPED-on-platform rows are
+        ;; neutral. The row-level AND is distinct from the generic
+        ;; `step-status` (which keys off the step's own `:status` +
+        ;; attachments only) because a row's `:status :error` / `:rollback`
+        ;; must trip the badge too.
+        :status (if skipped? :skipped (proj/side-effects-badge-status rows))}
+       nil)
+     (if skipped?
+       ;; rf2-yz57h — side effects never ran (upstream `:before`-chain throw).
+       (skipped-body "rf-xray-epoch-side-effects" "Side effects")
+       [:div {:style margin-top-5-style}
+        (map-indexed (fn [i row] (fx-row-with-violations i row)) rows)])
+     ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
+     ;; or an fx-id absent from `:rows`) attach to the step level.
+     (error-blocks :side-effects errors)
+     (violation-blocks :side-effects violations)]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -4054,23 +4234,32 @@
     (when (keyword? recovery) (name recovery))))
 
 (defn- error-block-label
-  "Render the card's one-line failure headline (rf2-ahhgn / rf2-wnvid) —
-  the failing unit + a human verb keyed off the exception OP. E.g.
-  'The event handler threw.' / 'The :http/post effect threw.'
+  "Render the card's one-line failure headline (rf2-ahhgn / rf2-wnvid /
+  rf2-mszrz attribution / rf2-yz57h placement) — the failing unit + a
+  human verb keyed off the exception OP. E.g. 'The event handler threw.' /
+  'The :http/post effect threw.'
 
-  rf2-wnvid — attribution derives from `:operation` (== the trace
-  `:category` / `:reason` family), NOT the interceptor `:phase`. The
-  substrate routes a handler / interceptor / injected-coeffect throw ALL
-  through `:rf.error/handler-exception` with `:reason \"Event handler
-  threw.\"` and `:phase :before` (the handler is the terminal `:before`
-  interceptor — `re-frame.router/emit-handler-exception!`). The
-  pre-rf2-wnvid code read `:phase :before` and mislabelled button-15 (a
-  plain handler throw) as 'An interceptor / coeffect threw (:before).'
-  Since the substrate cannot distinguish the three sub-kinds, the
-  headline reads off the op and says 'The event handler threw.' —
-  matching the substrate's own `:reason`."
-  [{:keys [operation failing-id]}]
+  Attribution derives from `:operation` (== the trace `:category` /
+  `:reason` family). rf2-mszrz split the pre-mszrz blanket
+  `:rf.error/handler-exception` (the router used to route handler /
+  interceptor / injected-coeffect throws ALL through it) into
+  component-attributed ops, so the headline now names the TRUE failing
+  component: a coeffect injector (`:rf.error/coeffect-exception`, by cofx
+  id), a user interceptor (`:rf.error/interceptor-exception`, by
+  interceptor id + `:phase`), or the event handler itself
+  (`:rf.error/handler-exception`). The card is rendered UNDER the step
+  where the throw occurred (rf2-yz57h), so the headline reinforces that
+  placement rather than re-attributing."
+  [{:keys [operation failing-id phase]}]
   (case operation
+    :rf.error/coeffect-exception
+    (str "The " (proj/ns-keyword failing-id) " coeffect threw during injection.")
+    :rf.error/interceptor-exception
+    (str "The " (proj/ns-keyword failing-id) " interceptor threw"
+         (case phase
+           :before " on the way in (:before)."
+           :after  " on the way out (:after)."
+           "."))
     :rf.error/handler-exception
     "The event handler threw."
     :rf.error/fx-handler-exception
@@ -4331,6 +4520,7 @@
   (case (:step step)
     :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
     :coeffect          (render-coeffect-step step)
+    :interceptor       (render-interceptor-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)
     :side-effects      (render-side-effects-step step)
