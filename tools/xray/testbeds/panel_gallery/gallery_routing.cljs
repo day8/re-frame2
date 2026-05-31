@@ -1,5 +1,5 @@
 (ns panel-gallery.gallery-routing
-  "Story coverage for the **Routes tab** of the 7-tab Xray chrome
+  "Story coverage for the **Routes tab** of the 6-tab Xray chrome
   (rf2-nrbs9, reshaped per rf2-lq0ef).
 
   The Routes tab body is the `routing/Panel` view. The panel reads:

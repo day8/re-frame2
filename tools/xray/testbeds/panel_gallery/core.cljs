@@ -5,18 +5,27 @@
 
   ## What this testbed is
 
-  A visual gallery of the seven L4 tab panels (Epoch / App-db / Views
-  / Trace / Machines / Routing / Issues) plus the full 4-layer Xray
-  chrome, framed exactly like Storybook frames UI components. Scroll
-  the workspace; see what each panel looks like under varying state
-  magnitude / payload shape / privacy posture. The gallery IS the
-  surface a developer (Mike first) reaches for when asking 'what
+  A visual gallery of the six L4 tab panels (Epoch · App-db · Reactive
+  · Trace · Machines · Routing) plus the full 4-layer Xray chrome,
+  framed exactly like Storybook frames UI components. Issues is NOT a
+  tab (rf2-gbz39 — Option (c)): issue surfacing folds INLINE into the
+  Epoch panel + the L2 event-row pink-wash + the always-on issues
+  ribbon signal, so there is no standalone Issues panel to gallery.
+  Scroll the workspace; see what each panel looks like under varying
+  state magnitude / payload shape / privacy posture. The gallery IS
+  the surface a developer (Mike first) reaches for when asking 'what
   does this look like under load X?'.
+
+  The standout is the **edn-inspector** widget gallery — the single
+  CLJS-value renderer behind every panel (App-db, Trace payloads,
+  Reactive sub values, Machine snapshots, Routing diffs). Its
+  dedicated workspace exercises every input shape + the full opts
+  surface in isolation; it is the gem of this testbed.
 
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
-  seven L4 tabs replacing the legacy sidebar's 16+ panels. Time Travel
-  is folded into the spine.
+  six L4 tabs replacing the legacy sidebar's 16+ panels (Issues folded
+  inline per rf2-gbz39). Time Travel is folded into the spine.
 
   ## Per-variant frame isolation (de-singletoned shell — rf2-1w07r)
 
@@ -145,9 +154,17 @@
 (defn- landing-view []
   [:div {:class "gallery-landing"}
    [:h1 "Xray panel gallery"]
-   [:p "A visual gallery of the new 7-tab Xray chrome (per "
+   [:p "A visual gallery of the 6-tab Xray chrome (per "
     [:code "tools/xray/spec/018-Event-Spine.md"]
-    ") and each of the seven L4 tab panels."]
+    ") and each of the six L4 tab panels — Epoch · App-db · Reactive ·
+    Trace · Machines · Routing. Issues is not a tab; it surfaces inline
+    in the Epoch panel + the L2 event-row pink-wash + the ribbon signal
+    (rf2-gbz39)."]
+   [:p "The centrepiece is the "
+    [:strong "edn-inspector"]
+    " widget gallery — the single CLJS-value renderer behind every
+    panel — exercised in isolation across every input shape + the full
+    opts surface."]
    [:p "Open the gallery at "
     [:a {:href "#/stories"} [:code "#/stories"]]
     " to scroll the workspaces."]

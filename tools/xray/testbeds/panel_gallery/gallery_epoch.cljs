@@ -16,10 +16,12 @@
   |--------------------------|----------------------------------------------------|
   | `vanilla-db`             | DISPATCH · COEFFECT · HANDLER (db FULL+DIFF) · SIDE EFFECTS (flat ledger: `:db` ✓ → app-db) · SUBSCRIPTIONS · VIEWS |
   | `side-effects`           | DISPATCH · HANDLER (fx) · SIDE EFFECTS — FLAT per-effect ledger (rf2-j630b): one row per effect in execution order — `:db` ✓ → app-db, then the `:fx` rows (✓ ran · ↺ overridden · – skipped-on-platform), then the dropped `other` row (–). Single badge ✓/✗ (AND-of-rows; skipped neutral) |
-  | `machine-driven`         | DISPATCH · HANDLER (machine cascade: GUARDS · LIFECYCLE · TRANSITION · AFTER-TIMERS) · SIDE EFFECTS |
+  | `machine-driven`         | DISPATCH · HANDLER (machine cascade: a SINGLE time-ordered row stream — guard · action(phase) · transition · timer — rf2-u69j7) · SIDE EFFECTS |
   | `db-schema-fail`         | DISPATCH · HANDLER (db) · SIDE EFFECTS (flat ledger: `:db` ✗ schema-fail rollback ONLY — the `:where :app-db` violation reason box rides the `:db` row, badge + row paint ✗, no fx rows ran, `:outcome :error`, SUBSCRIPTIONS / VIEWS mute downstream — rf2-j630b / rf2-8resu) |
-  | `exception`              | DISPATCH · HANDLER (✗ — inline 'Exception Thrown' block: message + collapsible stack/ex-data, `— no :db (handler threw)` placeholder, NO 'Rolled back' chip, `:outcome :error` — rf2-ahhgn / rf2-wnvid) |
+  | `exception`              | DISPATCH · HANDLER (✗ — inline 'Exception Thrown' block UNDER the HANDLER step: message + collapsible stack/ex-data, `— no :db (handler threw)` placeholder, NO 'Rolled back' chip, `:outcome :error` — rf2-ahhgn / rf2-wnvid / rf2-yz57h) |
   | `fx-exception`           | DISPATCH · HANDLER (db) · SIDE EFFECTS (flat ledger: `:db` ✓ then the `:fx` rows; the throwing `:email/send` row ✗ with its inline 'Exception Thrown' card; badge ✗; committed `:db` NOT rolled back — rf2-ahhgn / rf2-j630b) |
+  | `interceptor-exception`  | DISPATCH · COEFFECT · INTERCEPTOR (✗ — NEW conditional step rf2-yz57h, `:audit/trail` threw `:after`; inline 'Exception Thrown' card UNDER the INTERCEPTOR step) · HANDLER (db — ran; `:after` throw doesn't skip it) · `:outcome :error` |
+  | `coeffect-throw-skipped` | DISPATCH · COEFFECT (✗ — `:session` injector threw on the way IN; inline 'Exception Thrown' card UNDER the COEFFECT step) · HANDLER (⊘ SKIPPED — handler never ran, rf2-yz57h `mark-skipped-handler`) · `:outcome :error` |
   | `caused-by-subs`         | DISPATCH · HANDLER (db) · SUBSCRIPTIONS — `caused by <event-id>` cell (rf2-1cc03) + static `:input-signals` inputs column (layer-1 → `app-db`, derived → upstream sub-ids — rf2-87c8a) |
   | `handler-flow-db`        | DISPATCH · HANDLER (`:db` diff = handler-only, t1) · FLOW (`:db` diff = flow's t1→t2 reshape) — the two `:db` contributions as SEPARATE steps (rf2-4wywy / rf2-48oc4) |
   | `child-dispatches`       | DISPATCH · HANDLER (fx) · SIDE EFFECTS · CHILD DISPATCHES (resolved + not-in-buffer) |
@@ -119,10 +121,13 @@
   (story/reg-variant :story.xray.epoch/machine-driven
     {:doc        "Machine-handler cascade for a :ws/connection machine
                  (`:ws/open` transitions :connecting → :open).
-                 Exercises the rich machine-handler section — TRANSITION,
-                 GUARDS, LIFECYCLE (across :exit / :transition / :entry
-                 / :always phases), AFTER-TIMERS, DATA-REDUCTION,
-                 SNAPSHOT-DIFF (the rf2-9c27r full design)."
+                 Exercises the rich machine-handler section as a SINGLE
+                 TIME-ORDERED CASCADE (rf2-u69j7) — one row per substrate
+                 emit in trace order: guard (pass/fail) · action (across
+                 :exit / :transition / :entry / :always / :after-action
+                 phases, with per-action data + fx attribution) ·
+                 transition · timer-cancel — replacing the pre-rf2-u69j7
+                 category roll-up."
      :events     [[:rf.xray/sync-epoch-history (fixtures/machine-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -138,8 +143,9 @@
                  attaches to it with its reason box; the single badge +
                  the `:db` row both paint ✗; the epoch `:outcome` flips
                  `:error`; SUBSCRIPTIONS / VIEWS mute downstream.
-                 Hot-reload drift is an Issues-panel concern (rf2-7gf7v)
-                 — no cascade step surfaces it."
+                 Hot-reload drift surfaces inline (rf2-gbz39 — Issues
+                 is no longer a tab; rf2-7gf7v) — no cascade step
+                 surfaces it."
      :events     [[:rf.xray/sync-epoch-history (fixtures/schema-violations-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -175,7 +181,38 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4c. subscriptions caused-by + input-signals ----------------
+  ;; ----- 4d. INTERCEPTOR step — :after throw (rf2-yz57h · rf2-mszrz) -
+  (story/reg-variant :story.xray.epoch/interceptor-exception
+    {:doc        "Cascade where a user interceptor (`:audit/trail`) threw
+                 in its `:after` phase (`:rf.error/interceptor-exception`)
+                 AFTER the handler ran cleanly. Exercises the NEW
+                 conditional INTERCEPTOR step (rf2-yz57h): the step renders
+                 between COEFFECT and HANDLER, paints ✗, and carries the
+                 interceptor id + `:after` phase + the inline 'Exception
+                 Thrown' card placed UNDER the INTERCEPTOR step (rf2-yz57h
+                 per-step placement, no longer collapsing onto HANDLER).
+                 The HANDLER step is NOT skipped — an `:after` throw runs
+                 the handler first — so its `:db` write still renders; the
+                 epoch `:outcome` flips `:error`."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/interceptor-after-throw-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4e. upstream :before throw — HANDLER SKIPPED (rf2-yz57h) ----
+  (story/reg-variant :story.xray.epoch/coeffect-throw-skipped
+    {:doc        "Cascade where a coeffect injector (`:session`) threw on
+                 the way IN (`:rf.error/coeffect-exception`), so the event
+                 handler never ran. Exercises the rf2-yz57h skip path: the
+                 throwing cofx's (synthesised placeholder) COEFFECT step
+                 paints ✗ with the inline 'Exception Thrown' card UNDER it,
+                 and the downstream HANDLER step renders as SKIPPED (⊘
+                 muted) — NOT 'ran, returned no :db' (the handler body
+                 never executed). The epoch `:outcome` flips `:error`."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/coeffect-throw-skipped-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 4f. subscriptions caused-by + input-signals ----------------
   ;;          (rf2-1cc03 · rf2-87c8a)
   (story/reg-variant :story.xray.epoch/caused-by-subs
     {:doc        "Cascade where `:cart/add` invalidates the layer-1
@@ -341,20 +378,24 @@
 
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.epoch/all
-    {:doc      "All twenty Epoch panel variants in one auto-grid. Scroll
-                to see the cascade across vanilla-db / side-effects /
-                machine-driven / db-schema-fail / exception /
-                fx-exception / caused-by-subs / handler-flow-db /
-                child-dispatches / long-step / flow-firing / empty /
+    {:doc      "All twenty-two Epoch panel variants in one auto-grid.
+                Scroll to see the cascade across vanilla-db /
+                side-effects / machine-driven / db-schema-fail /
+                exception / fx-exception / interceptor-exception /
+                coeffect-throw-skipped / caused-by-subs / handler-flow-db
+                / child-dispatches / long-step / flow-firing / empty /
                 no-events / unmounted-views / disposed-subs and the
                 rf2-5qp4g per-source-kind enrichment variants
                 (after-timer / machine-spawn / fx-dispatch /
-                fx-dispatch-later / fx-dispatch-orphan). The
-                rf2-j630b refresh surfaces the SIDE EFFECTS step as a
-                FLAT per-effect ledger (one row per effect in execution
-                order + a single ✓/✗ badge + the `:db` → app-db marker +
-                the `:db` schema-fail rollback), the inline 'Exception
-                Thrown' block (handler + fx throws), the subscriptions
+                fx-dispatch-later / fx-dispatch-orphan). The rf2-yz57h
+                refresh surfaces exceptions UNDER the step where they
+                occurred (the NEW conditional INTERCEPTOR step + the
+                per-step ✓/✗/⊘ status), an upstream `:before`-chain
+                throw marking the HANDLER SKIPPED (⊘). The rf2-j630b
+                refresh surfaces the SIDE EFFECTS step as a FLAT
+                per-effect ledger (one row per effect in execution order
+                + a single ✓/✗ badge + the `:db` → app-db marker + the
+                `:db` schema-fail rollback). Plus the subscriptions
                 `caused by <event-id>` cell + static `:input-signals`
                 inputs column, and the handler-`:db` vs flow-`:db`-diff
                 split."

@@ -7,10 +7,11 @@
   epoch's complete computational timeline as a numbered vertical
   cascade: DISPATCH → COEFFECT (one per cofx) → HANDLER → FLOW
   (one per flow, rf2-xnb1x) → FX → SUBSCRIPTIONS → VIEWS. Runtime-
-  boundary schema violations attach as inline sub-blocks under
-  their owning step (rf2-xgeag + rf2-8resu); hot-reload drift
-  surfaces via the Issues panel exclusively (rf2-7gf7v retired the
-  standalone SCHEMA HOT-RELOAD tail step). Each step is
+  boundary schema violations + cascade exceptions attach as inline
+  sub-blocks UNDER their owning step (rf2-xgeag + rf2-8resu +
+  rf2-yz57h); hot-reload drift surfaces inline (rf2-gbz39 — Issues is
+  no longer a tab; rf2-7gf7v retired the standalone SCHEMA HOT-RELOAD
+  tail step). Each step is
   CONDITIONAL — only the steps whose driving trace events surfaced
   get rendered (per
   `tools/xray/src/day8/re_frame2_xray/panels/epoch/projection.cljc`).
@@ -194,6 +195,47 @@
      true  (assoc :recovery :no-recovery)
      coord (assoc :rf.trace/trigger-handler {:kind         :event
                                              :id           event-id
+                                             :source-coord coord}))))
+
+(defn- coeffect-exception-ev
+  "`:rf.error/coeffect-exception` trace (rf2-mszrz · rf2-yz57h) — a
+  coeffect injector threw during `:before`-chain injection. `:failing-id`
+  = the cofx id, so the projection attaches the inline 'Exception Thrown'
+  card to the matching COEFFECT step (synthesising a placeholder COEFFECT
+  step when the throwing cofx produced no `:rf.cofx/run` trace). Because
+  this is an UPSTREAM `:before`-chain throw, `handler-skipped-by-upstream?`
+  marks the HANDLER + SIDE EFFECTS steps `:status :skipped` (⊘) — they
+  never ran."
+  ([cofx-id message] (coeffect-exception-ev cofx-id message nil))
+  ([cofx-id message coord]
+   (cond-> (ev :error :rf.error/coeffect-exception
+               {:failing-id        cofx-id
+                :exception-message message
+                :reason            "Coeffect injector threw."})
+     true  (assoc :recovery :no-recovery)
+     coord (assoc :rf.trace/trigger-handler {:kind         :cofx
+                                             :id           cofx-id
+                                             :source-coord coord}))))
+
+(defn- interceptor-exception-ev
+  "`:rf.error/interceptor-exception` trace (rf2-mszrz · rf2-yz57h) — a
+  USER interceptor threw in its `:before` or `:after` phase (`:phase`
+  discriminates). `:failing-id` = the interceptor `:id`, so the
+  projection's conditional INTERCEPTOR step (`interceptor-step`) renders
+  a row carrying the interceptor id + phase + the inline 'Exception
+  Thrown' card. A `:before` throw additionally marks the HANDLER + SIDE
+  EFFECTS steps SKIPPED (the handler never ran); an `:after` throw runs
+  the handler first, then throws on the way out (handler NOT skipped)."
+  ([interceptor-id phase message] (interceptor-exception-ev interceptor-id phase message nil))
+  ([interceptor-id phase message coord]
+   (cond-> (ev :error :rf.error/interceptor-exception
+               {:failing-id        interceptor-id
+                :phase             phase
+                :exception-message message
+                :reason            "Interceptor threw."})
+     true  (assoc :recovery :no-recovery)
+     coord (assoc :rf.trace/trigger-handler {:kind         :interceptor
+                                             :id           interceptor-id
                                              :source-coord coord}))))
 
 (defn- db-pending-ev
@@ -384,9 +426,10 @@
 
 ;; `schema-hot-reload-ev` retired per rf2-w8evg — the standalone
 ;; SCHEMA HOT-RELOAD tail step was retired in rf2-7gf7v; hot-reload
-;; drift now surfaces via the Issues panel exclusively, so a fixture
-;; helper that synthesises a tail-step trace is dead weight. If the
-;; Issues-panel gallery needs an equivalent it lives there.
+;; drift now surfaces inline (rf2-gbz39 — Issues is no longer a tab;
+;; issues fold into the Epoch panel + the L2 pink-wash + the ribbon
+;; signal), so a fixture helper that synthesises a tail-step trace is
+;; dead weight.
 
 ;; ---- epoch-record builder ------------------------------------------------
 
@@ -1238,3 +1281,96 @@
         ;; t2 — POST-flow, PRE-commit: the flow-augmented :total.
         (db-pending-post-flow-ev t2)
         (run-end-ev 0.7)]})))
+
+;; ---- VARIANT 21: INTERCEPTOR :after throw (rf2-yz57h · rf2-mszrz) --------
+;;
+;; Section coverage: the NEW conditional INTERCEPTOR step (rf2-yz57h).
+;; A user interceptor threw in its `:after` phase — the handler RAN
+;; successfully (the throw fired on the way OUT), so:
+;;
+;;   - the projection's `interceptor-step` renders (CONDITIONAL — only
+;;     present when an interceptor threw); its row carries the
+;;     interceptor `:interceptor-id` + the `:phase :after`.
+;;   - `attach-exceptions` places the `:rf.error/interceptor-exception`
+;;     UNDER the INTERCEPTOR step (per `exception-op->step`, rf2-yz57h —
+;;     no longer collapsing onto HANDLER) + stamps `:status :error`, so
+;;     the step header paints ✗ + carries the inline 'Exception Thrown'
+;;     card; the epoch `:outcome` flips `:error`.
+;;   - the HANDLER step is NOT skipped (an `:after` throw runs the
+;;     handler first), so its `:db` write still renders normally.
+;;
+;; The INTERCEPTOR step rides BETWEEN COEFFECT and HANDLER in the
+;; numbered cascade (the chain's `:before` runs after coeffects, before
+;; the handler; the step position reflects that).
+
+(defn interceptor-after-throw-history
+  "Cascade where a user interceptor (`:audit/trail`) threw in its
+  `:after` phase AFTER the handler ran cleanly. Exercises the NEW
+  conditional INTERCEPTOR step (rf2-yz57h): the step renders ✗ with the
+  interceptor id + `:after` phase + the inline 'Exception Thrown' card,
+  while the HANDLER step's `:db` write still rendered (the handler ran —
+  an `:after` throw fires on the way out, so the handler is NOT skipped).
+  The epoch `:outcome` flips `:error`."
+  []
+  (single-epoch-history
+    {:epoch-id  29
+     :event     [:counter/inc 1]
+     :db-before {:counter 5}
+     :db-after  {:counter 6}
+     :trace-events
+     [(dispatched-ev [:counter/inc 1] :ui)
+      ;; the handler ran cleanly + wrote :db (t1 present → db-write?).
+      (db-pending-ev {:counter 6})
+      (db-changed-ev [[[:counter] 5 6 :modified]])
+      (run-end-ev 0.4)
+      ;; an `:after`-phase user interceptor threw on the way out — owns
+      ;; the INTERCEPTOR step; the handler is NOT skipped (it ran first).
+      (interceptor-exception-ev
+        :audit/trail :after
+        "Audit sink unreachable (POST /audit 503)"
+        {:file "src/app/interceptors.cljs" :line 31})]}))
+
+;; ---- VARIANT 22: upstream :before throw — HANDLER SKIPPED (rf2-yz57h) -----
+;;
+;; Section coverage: the `:skipped` per-step status (rf2-yz57h ⊘ glyph)
+;; + per-step exception placement UNDER the COEFFECT step. A coeffect
+;; injector threw on the way IN, so:
+;;
+;;   - the projection synthesises a placeholder COEFFECT step keyed on
+;;     the throwing cofx id (the injector threw before producing a
+;;     `:rf.cofx/run` trace) so the inline 'Exception Thrown' card has a
+;;     home UNDER the COEFFECT step (rf2-yz57h) rather than on HANDLER.
+;;   - `handler-skipped-by-upstream?` is true (a `:before`-chain throw),
+;;     so `mark-skipped-handler` stamps the HANDLER + SIDE EFFECTS steps
+;;     `:status :skipped` → the view renders them as SKIPPED (⊘ muted),
+;;     NOT 'ran, returned no :db'. (The handler's body would have written
+;;     a `:db`, but it never executed.)
+;;   - the COEFFECT step paints ✗; the epoch `:outcome` flips `:error`.
+
+(defn coeffect-throw-skipped-history
+  "Cascade where a coeffect injector (`:session`) threw on the way IN,
+  so the event handler never ran. Exercises the rf2-yz57h skip path: the
+  throwing cofx's COEFFECT step carries the inline 'Exception Thrown'
+  card (✗), and the downstream HANDLER + SIDE EFFECTS steps render as
+  SKIPPED (⊘) — the handler body never executed, so it must NOT read
+  'ran, returned no :db'. The epoch `:outcome` flips `:error`."
+  []
+  (single-epoch-history
+    {:epoch-id  30
+     :event     [:dashboard/load {:tenant :acme}]
+     ;; db-before == db-after — the handler never ran, so nothing
+     ;; mutated. There is NO db-pending (t1) and NO db-changed.
+     :db-before {:dashboard {:status :idle}}
+     :db-after  {:dashboard {:status :idle}}
+     :trace-events
+     [(dispatched-ev [:dashboard/load {:tenant :acme}] :ui)
+      ;; the :session coeffect injector threw before resolving — it
+      ;; emits NO :rf.cofx/run trace; the projection synthesises a
+      ;; placeholder COEFFECT step for it so the card has a home.
+      (coeffect-exception-ev
+        :session
+        "No auth token in storage (session injector threw)"
+        {:file "src/app/cofx.cljs" :line 17})
+      ;; NO run-end (the handler never ran). The HANDLER + SIDE EFFECTS
+      ;; steps are marked :skipped by `mark-skipped-handler`.
+      ]}))

@@ -1,8 +1,8 @@
 (ns panel-gallery.panel-views
   "Registered re-frame views referenced by Story variant `:component`
-  slots in the Xray panel gallery (rf2-sszlr — rebuilt for the new
-  7-tab Xray shape; rf2-5gl5r retired the Event/Handler tab in
-  favour of the Epoch panel).
+  slots in the Xray panel gallery (rf2-sszlr — rebuilt for the
+  6-tab Xray shape; rf2-5gl5r retired the Event/Handler tab in
+  favour of the Epoch panel; rf2-gbz39 folded Issues inline).
 
   Story canvas resolves `:component` to a registered re-frame view
   via `(rf/view <id>)` (per

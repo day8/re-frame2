@@ -75,10 +75,16 @@
                      :reason                <string>
                      ...}}
 
-  The fixtures here keep the shape minimal but exercise all 9 filter
-  axes the trace panel renders chip rows for: op-type / severity /
-  source / origin / frame / operation / event-id / handler-id /
-  dispatch-id.")
+  The flat Trace panel (rf2-aqusw) projects each raw event into a row
+  carrying `Δt · stage · area-badge · what-happened · target/detail ·
+  duration` via `trace_helpers/project-feed-from-epoch`. There is no
+  chip-filtering UI (the focused epoch IS the scope, rf2-gkczt) — the
+  fixtures keep the event shape minimal but exercise the full op-family
+  vocabulary so the STAGE column + colour-coded left edge (resolved
+  through the Epoch panel's `panels.epoch.badge` taxonomy) light up
+  across the canonical pipeline steps: DISPATCH · COEFFECT · HANDLER ·
+  FLOW · SIDE EFFECTS · SUBSCRIPTIONS · VIEWS, plus the cross-cutting
+  ERROR / WARNING severity tiers.")
 
 ;; ---- per-event builders -------------------------------------------------
 
@@ -116,8 +122,9 @@
 
 (defn ten-events-buffer
   "Ten events spanning the canonical op-types and a couple of frames /
-  origins. Each row distinguishable; chip rows surface op-type +
-  source + origin + frame axes with ≥2 values each."
+  origins. Each row distinguishable; the STAGE column + colour-coded
+  left edge light up across DISPATCH / HANDLER / SIDE EFFECTS /
+  SUBSCRIPTIONS / VIEWS plus the ERROR / WARNING severity tiers."
   []
   (vec
     (concat
@@ -149,7 +156,7 @@
        (ev {:id 8 :time 1102 :op-type :rf.fx :operation :rf.fx/handled
             :source :after-timer :origin :story :frame :rf/xray
             :event-id :story/tick :dispatch-id 101 :fx-id :dispatch})]
-      ;; Warning + error rows surface the severity axis chip-row.
+      ;; Warning + error rows ride the severity colour on the left edge.
       [(ev {:id 9 :time 1200 :op-type :warning :operation :rf.warning/large-value-unschema'd
             :source :http :origin :app :frame :rf/default :dispatch-id 100
             :sub-id :user/profile :severity :warning
@@ -195,24 +202,22 @@
 
 (defn hundred-events-buffer
   "One hundred events spanning all four op-types, three frames, three
-  origins, four sources. The cap (200 per common/panel-row-cap) is not
-  hit; cap-eviction indicator stays quiet."
+  origins, four sources. A mid-density epoch — the flat list renders
+  every row (no row cap, rf2-aqusw)."
   []
   (n-events 100))
 
 (defn thousand-events-buffer
-  "One thousand events — exercises the 200-row cap (common/panel-row-cap)
-  and surfaces the overflow indicator. Per
-  `overflow_indicator.cljc` §capped-list, the panel renders 200 rows +
-  one '... N rows hidden' indicator row at the head."
+  "One thousand events — a deep epoch. The flat list (rf2-aqusw)
+  renders the whole epoch's trace in fire order; exercises the panel +
+  the shared resizable-table under a large row count."
   []
   (n-events 1000))
 
 (defn filtered-active-buffer
-  "A buffer with two op-types and a pre-active filter (set by the
-  variant after seeding via :rf.xray/set-trace-filter). The panel
-  renders the chip ladder with the active chip highlit. Returns the
-  buffer; the variant fires the filter event after seed."
+  "A buffer mixing two op-types (events + fx). The flat panel renders
+  every row (no chip-filtering post-rf2-gkczt — the focused epoch IS
+  the scope); used by the mixed-op-types variant."
   []
   (vec
     (concat
@@ -227,9 +232,10 @@
 
 (defn redacted-buffer
   "A buffer whose dispatched-event payload carries `:rf/redacted`
-  markers (per Spec 009 §Privacy). The panel's description column
-  renders the marker verbatim — the upstream emit sets it; the panel
-  surfaces it."
+  markers (per Spec 009 §Privacy). The row's target/detail column
+  renders the event vector with the marker verbatim, and clicking the
+  row opens the edn-inspector on the raw trace MAP (the marker survives
+  there too) — the upstream emit sets it; the panel surfaces it."
   []
   [(ev {:id 1 :time 1000 :op-type :rf.event :operation :rf.event/dispatched
         :source :ui :origin :app :frame :rf/default
@@ -246,7 +252,9 @@
 
 (defn error-buffer
   "A buffer where every row is an issue (error / warning / info) —
-  exercises the severity chip row with all three levels populated."
+  exercises the cross-cutting severity rendering: the left EDGE rides
+  the severity colour over the stage colour and the Δt leads with `!`
+  so a failure stands out (spec/023 §7), across all three levels."
   []
   [(ev {:id 1 :time 1000 :op-type :error :operation :rf.error/handler-exception
         :source :ui :origin :app :frame :rf/default
@@ -272,15 +280,17 @@
 ;;
 ;; Two extra axes the trace panel uniquely exercises:
 ;;
-;;   A. Cross-frame mix — the :frame chip row surfaces 3+ values
-;;      side-by-side (per Spec 009 §Canonical per-frame routing key).
+;;   A. Cross-frame mix — the per-row `:frame` projection surfaces 3+
+;;      frames across the flat list (per Spec 009 §Canonical per-frame
+;;      routing key).
 ;;   B. Source-coord population — every emit inside a dispatch carries
-;;      :rf.trace/trigger-handler :source-coord; the per-row source-
-;;      coord chip is the trace panel's signature affordance.
+;;      :rf.trace/trigger-handler :source-coord; the per-row `↗`
+;;      open-in-editor glyph (riding the target/detail column) is the
+;;      trace panel's jump-to-source affordance.
 
 (defn cross-frame-buffer
-  "Buffer spanning three frames evenly — exercises the panel's :frame
-  chip row at full ladder. Panel-specific axis A."
+  "Buffer spanning three frames evenly — exercises the panel's per-row
+  `:frame` projection across the flat list. Panel-specific axis A."
   []
   (vec
     (for [i (range 12)]
@@ -293,7 +303,7 @@
 (defn source-coord-buffer
   "Buffer where every event carries a `:rf.trace/trigger-handler`
   `:source-coord` slot (per Spec 009 §Source-coord). Exercises the
-  panel-specific source-coord chip rendering. Panel-specific axis B."
+  panel's per-row `↗` open-in-editor glyph. Panel-specific axis B."
   []
   (vec
     (for [i (range 6)]
@@ -395,16 +405,16 @@
      :trace-events (ten-events-buffer)}))
 
 (defn medium-trace-history
-  "One epoch carrying a 100-row domino trail. The cap (200) is not hit;
-  the overflow indicator stays quiet."
+  "One epoch carrying a 100-row domino trail. A mid-density epoch —
+  the flat list renders every row (no row cap, rf2-aqusw)."
   []
   (single-epoch-history
     {:epoch-id 3 :event [:dashboard/recompute-all]
      :trace-events (hundred-events-buffer)}))
 
 (defn long-trace-history
-  "One epoch carrying a 1000-row trail — exercises the 200-row cap and
-  the overflow indicator at the head of the feed."
+  "One epoch carrying a 1000-row trail — a deep epoch. The flat list
+  renders the whole epoch's trace in fire order (oldest-first)."
   []
   (single-epoch-history
     {:epoch-id 4 :event [:storm/replay]
@@ -458,7 +468,7 @@
 
 (defn source-coord-history
   "One epoch whose every row carries a `:source-coord` slot — exercises
-  the panel's clickable source-coord chip (jump-to-editor affordance)."
+  the panel's per-row `↗` open-in-editor glyph (jump-to-editor)."
   []
   (single-epoch-history
     {:epoch-id 11 :event [:counter/inc]

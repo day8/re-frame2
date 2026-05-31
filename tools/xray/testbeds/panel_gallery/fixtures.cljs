@@ -499,8 +499,9 @@
 
 (defn event-lens-handler-threw-buffer
   "Event lens fixture — handler threw mid-run. §5 + §6 should be
-  ABSENT; the cascade-outcome glyph is ✗ red and the Issues-tab
-  footer is the only inline cross-reference."
+  ABSENT; the cascade-outcome glyph is ✗ red and the failure surfaces
+  inline (rf2-gbz39 — Issues is no longer a tab; issues fold into the
+  Epoch panel + the L2 pink-wash + the ribbon signal)."
   []
   (let [dispatch-id 300
         id-base     300
@@ -520,7 +521,8 @@
 (defn event-lens-hydration-completed-buffer
   "Event lens fixture — a :rf.ssr/hydrated completion event. Renders
   the SSR✓ outcome-line badge plus the hydration-outcome row inside
-  §5. With :mismatches 0 there's no jump-to-Issues affordance."
+  §5. With :mismatches 0 there's no issue cross-reference (rf2-gbz39 —
+  issues surface inline, not via a tab)."
   []
   (let [dispatch-id 400
         id-base     400
@@ -539,7 +541,8 @@
 
 (defn event-lens-hydration-mismatch-buffer
   "Event lens fixture — hydration completed WITH mismatches. The
-  hydration-outcome row carries the jump-to-Issues affordance."
+  hydration-outcome row carries the inline issue cross-reference
+  (rf2-gbz39 — issues surface inline, not via a dedicated tab)."
   []
   (let [dispatch-id 401
         id-base     410
