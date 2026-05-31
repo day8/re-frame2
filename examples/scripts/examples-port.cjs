@@ -12,9 +12,16 @@
  * gave no hint that the dev's own watch session was the cause.
  *
  * This resolver fixes both halves:
- *   1. DEFAULT_PORT is 8040 — outside the top-level :dev-http set
- *      (8765 / 8031 / 8030), so the common "watch + test:examples"
- *      dev state no longer collides at all.
+ *   1. DEFAULT_PORT is 8040. NOTE (rf2-xz4zn): 8040 now OVERLAPS the
+ *      top-level :dev-http set — that map currently claims
+ *      8765 / 8030-8033 (Xray testbeds) AND 8040-8043 (the four Story
+ *      showcases, on the 804x band). So when a `shadow-cljs watch` is up,
+ *      8040 may already be taken. This is harmless here: the resolver
+ *      PRE-FLIGHTS (step 2) and scans forward, so test:examples just lands
+ *      on the next free port (8044+) instead of hard-failing. The 8040
+ *      default predates the 804x Story band; whether to bump it off the
+ *      band is a deliberate config call (see rf2-uuxjd), kept out of this
+ *      comment-only reconcile.
  *   2. It PRE-FLIGHTS the port (binds-and-releases on 127.0.0.1). If the
  *      preferred port is busy and no explicit EXAMPLES_PORT was set, it
  *      scans forward to the next free port. If an explicit EXAMPLES_PORT
@@ -41,8 +48,11 @@ const {
   portError,
 } = require('./port-resolver.cjs');
 
-// Default outside the top-level :dev-http set (8765 / 8031 / 8030) so a
-// running `shadow-cljs watch` never pre-claims the orchestrator's port.
+// Default port. NOTE (rf2-xz4zn): 8040 now sits INSIDE the top-level
+// :dev-http band (8040-8043 are the Story showcases; 8765 / 8030-8033 are
+// the Xray testbeds), so a running `shadow-cljs watch` CAN pre-claim it.
+// The pre-flight + forward scan (below) keep this harmless — we just land
+// on 8044+. A bump off the 804x band is a deliberate config call (rf2-uuxjd).
 const DEFAULT_PORT = 8040;
 
 const parseExplicitPort = makeParseExplicitPort('EXAMPLES_PORT', { actionable: true });
@@ -78,8 +88,8 @@ async function resolveExamplesPort({ env = process.env } = {}) {
       throw portError(
         `EXAMPLES_PORT=${explicit} is already in use. Is a 'shadow-cljs watch' ` +
           `running? The top-level :dev-http map (implementation/shadow-cljs.edn) ` +
-          `claims 8765 / 8031 / 8030 whenever a watch is up. Stop the watch, or ` +
-          `set EXAMPLES_PORT to a free port.`,
+          `claims 8765 / 8030-8033 / 8040-8043 whenever a watch is up. Stop the ` +
+          `watch, or set EXAMPLES_PORT to a free port.`,
         { actionable: true },
       );
     }
