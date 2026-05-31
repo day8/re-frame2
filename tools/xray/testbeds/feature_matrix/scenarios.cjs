@@ -1757,6 +1757,22 @@ async function runLargeDispatcher(page, state) {
       appDbText: appDbText.slice(0, 1200),
     });
   }
+  // rf2-8pfkk — the edn-inspector's internal `::missing` absence
+  // sentinel (`:day8.re-frame2-xray.views.edn-inspector/missing`) must
+  // NEVER reach the rendered App-DB Diff. A removed slot renders as a
+  // struck-through ghost, not a literal sentinel keyword. The
+  // per-rendering removed-to-empty + deleted-ancestor cases are pinned
+  // exhaustively in the CLJS unit tests (`edn_inspector_cljs_test.cljs`
+  // — diff-removed-only-key-renders-struck-ghost-not-sentinel et al.,
+  // which thread a real `engine/project` projection); this is the
+  // browser-layer backstop on the live panel that the sentinel never
+  // escapes into the DOM under any dispatch sequence.
+  if (appDbText.includes('edn-inspector/missing')) {
+    failWithDetails('Internal ::missing sentinel leaked into App-DB Diff text (rf2-8pfkk)', {
+      traceCount: traceEvents.length,
+      appDbText: appDbText.slice(0, 1200),
+    });
+  }
   state.loadStats = {
     eventCountBefore: 0,
     eventCountAfter: traceEvents.length,
