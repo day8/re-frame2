@@ -19,7 +19,7 @@ Because a variant body has *no substrate-specific code* in it — no JSX, no `us
 
 ## Multi-substrate
 
-<!-- SCREENSHOT S13: the substrate toolbar switch on a variant, and (login is the ch9 multi-substrate example) the same login variant rendered under Reagent vs UIx vs Helix. NOTE: v1 ships Reagent; the UIx/Helix toolbar switch is the contract the matrix is built on. -->
+![A variant declared over multiple substrates — the Reagent cell renders the counter while the UIx cell honestly projects an unsupported-substrate state. v1 ships Reagent; the UIx/Helix switch is the contract the matrix is built on.](../images/story/s13-multi-substrate.png)
 
 The substrate toolbar switch flips the active renderer for the selected variant. The per-substrate adapter smoke test — mount, dispatch, assert — is exactly one smoke per adapter (Reagent / UIx / Helix), which is the right shape: the smokes prove the adapter boundary works; the real behavioural regression coverage lives in the headless substrate contract tests ([chapter 4](04-the-variant-is-a-test.md#run-it-from-a-unit-test)), not in per-example browser tests.
 

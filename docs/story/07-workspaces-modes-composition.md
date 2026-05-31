@@ -19,7 +19,7 @@ The three tabs across the canvas:
 - **Docs** — executable documentation. `:docs`-tagged variants plus an auto-generated docs table built from each variant's `:doc` string and the view's schema. This is the *doc* face: the same variants you render *are* the documentation, so the docs can't drift from the component — they're the same artifact.
 - **Test** — the run-result presentation: pass/fail/cannot-run per assertion, plus the step-debugger (step, pause, rewind, step-back, breakpoint).
 
-<!-- SCREENSHOT S8: the mode-tab strip across the canvas, with Docs mode showing an auto-generated docs table beside a rendered variant. -->
+![The mode-tab strip across the canvas, with Docs mode showing an auto-generated docs table beside a rendered variant.](../images/story/s08-docs-mode.png)
 
 That Docs mode is fed by the *same* schema-derived machinery as the controls panel ([chapter 2](02-every-state-side-by-side.md#controls-that-derived-themselves)) is the schema dividend paying out a third time: one Malli schema → validation → controls → docs.
 
@@ -87,7 +87,7 @@ The principle in one line: a child inherits where the parent *was* (the world it
 
 The whole point: composition reuses common context **without decorator-style opacity.** Everything that flows into the variant is named at the call site — `:extends` this, `:compose` those — and [`story/explain`](04-the-variant-is-a-test.md#the-four-bucket-plan-a-peek-under-the-hood) will show you exactly what resolved, including which source won any conflict. There is no hidden global behaviour; the seam is explicit fragments and checks, and the explanation is mandatory.
 
-<!-- SCREENSHOT S12 (net-new thesis shot): the Explain panel over a composed variant — source chain, field-level merge decisions, resolved args, final setup/script order, and the winning source for any strict conflict. NOTE (floor-state): the story/explain DATA API is CURRENT where 017 has landed, but the Explain PANEL UI is a TARGET net-new Story surface (018 §6); confirm the panel renders before leaning this shot on it — until then the explain data is reachable via (story/explain target) at the REPL. -->
+![The Explain panel over a composed variant — source chain, field-level merge decisions, resolved args, and the winning source for any strict conflict.](../images/story/s12-explain-panel.png)
 
 
 One inversion to name so it doesn't surprise you: **`:hiccup` decorators read outermost-wraps-innermost** (the first decorator is the outer wrapper), but **`:fx-override` reads innermost-overrides-outermost** (last-wins on an `:fx-id` collision). Two different stacking directions for two different jobs; the spec is explicit about both.

@@ -42,19 +42,19 @@ Let's make it concrete. Here's a deterministically-red variant, drawn from the c
 
 The run fails, predictably. On the spine you see the failed assertion row; expand it to its span; the span points at the beat that committed `:count` as `1`; and the gap between "expected 999, got 1" is right there, attributed to the exact step you wrote. You never went fishing.
 
-<!-- SCREENSHOT S9: the evidence spine with a failed span expanded over its epoch beats, beside the Xray epoch panel showing the db diff at the failing beat. NOTE (floor-state): the two-level narrative spine UI is BLOCKED on the script-span + epoch-beat projection landing in the Story shell (018 §6). Confirm the spine renders before leaning this shot on it; until then the navigation projection ships (narrative-beats etc.) but the scrub UI does not. -->
+![The evidence spine with a failed span expanded over its epoch beats — each beat carrying its db diff and direct Xray: Epoch / App-db / Trace links into the detailed diagnostics.](../images/story/s09-evidence-spine.png)
 
 !!! note "Floor-state, honestly"
 
     The *navigation projection* behind the spine — the pure functions that flatten
-    spans-over-beats into an addressable beat sequence (below) — ships today. The
-    full two-level **spine UI** in the Story shell is, per the north-star spec
+    spans-over-beats into an addressable beat sequence (below) — ships today, and so
+    does the two-level **spine UI** in the Story shell (above): the failed span
+    expands over its epoch beats, each beat carrying its db diff and a one-gesture
+    Xray link. Per the north-star spec
     ([`018`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/018-Story-UI-North-Star.md)
-    §6), a target that depends on the script-span + epoch-beat projection landing in
-    the shell, and the scrub slider above it is deferred. The data is real and
-    JVM-testable now; the polished UI is converging. Where this chapter describes a
-    *screen*, read it as the target the tool is building toward — the evidence
-    itself is already there in the run-result.
+    §6) the remaining refinement is the scrub slider above the spine, which is still
+    converging. The data is real and JVM-testable, the spine is rendered, and the
+    evidence is right there in the run-result.
 
 ## Earned at failure — the no-fourth-mode discipline
 
