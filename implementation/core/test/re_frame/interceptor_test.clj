@@ -595,6 +595,115 @@
           "only the one (uncaught) :before error is in the vector —
            skipped :before stages don't synthesize errors"))))
 
+;; ---- context-plumbing helpers (rf2-ynjts.1) -------------------------------
+;;
+;; `get-coeffect` / `assoc-coeffect` / `update-coeffect` / `get-effect` /
+;; `assoc-effect` are the public read/write substrate every custom
+;; interceptor uses (re-exported as `rf/get-coeffect` etc. per
+;; spec/API.md §Interceptors). The chain / dispatch tests above exercise
+;; them obliquely, but nothing pinned their ARITY contracts directly —
+;; in particular the 3-arity `not-found` forms of the two readers and
+;; `update-coeffect`'s trailing-args form had no coverage. These are
+;; pure fns over the context map; pinning them here means an arity
+;; regression surfaces at the source rather than via a far-off cascade
+;; assertion. Driven directly against a literal context map — no runtime.
+
+(deftest get-coeffect-arities
+  (let [ctx {:coeffects {:db {:n 1} :event [:e 7] :now 42} :effects {}}]
+    (testing "1-arity returns the whole :coeffects map"
+      (is (= {:db {:n 1} :event [:e 7] :now 42}
+             (interceptor/get-coeffect ctx))))
+    (testing "2-arity returns the value at k, nil when absent"
+      (is (= {:n 1} (interceptor/get-coeffect ctx :db)))
+      (is (= [:e 7] (interceptor/get-coeffect ctx :event)))
+      (is (nil? (interceptor/get-coeffect ctx :missing))
+          "absent key yields nil under the 2-arity form"))
+    (testing "3-arity returns not-found when the key is absent, the value when present"
+      (is (= ::sentinel (interceptor/get-coeffect ctx :missing ::sentinel))
+          "absent key yields the not-found arg")
+      (is (= {:n 1} (interceptor/get-coeffect ctx :db ::sentinel))
+          "present key wins over not-found"))
+    (testing "3-arity distinguishes a stored nil from absence"
+      (let [ctx-nil {:coeffects {:maybe nil} :effects {}}]
+        (is (nil? (interceptor/get-coeffect ctx-nil :maybe ::sentinel))
+            "a key present with value nil returns nil, NOT the not-found arg")
+        (is (= ::sentinel (interceptor/get-coeffect ctx-nil :absent ::sentinel))
+            "a genuinely absent key still returns the not-found arg")))))
+
+(deftest get-effect-arities
+  (let [ctx {:coeffects {} :effects {:db {:n 2} :fx [[:do-thing]]}}]
+    (testing "1-arity returns the whole :effects map"
+      (is (= {:db {:n 2} :fx [[:do-thing]]} (interceptor/get-effect ctx))))
+    (testing "2-arity returns the value at k, nil when absent"
+      (is (= {:n 2} (interceptor/get-effect ctx :db)))
+      (is (= [[:do-thing]] (interceptor/get-effect ctx :fx)))
+      (is (nil? (interceptor/get-effect ctx :missing))))
+    (testing "3-arity returns not-found when absent"
+      (is (= ::none (interceptor/get-effect ctx :missing ::none)))
+      (is (= {:n 2} (interceptor/get-effect ctx :db ::none))))
+    (testing "3-arity distinguishes a stored nil from absence"
+      (let [ctx-nil {:coeffects {} :effects {:db nil}}]
+        (is (nil? (interceptor/get-effect ctx-nil :db ::none)))
+        (is (= ::none (interceptor/get-effect ctx-nil :fx ::none)))))))
+
+(deftest assoc-coeffect-writes-and-is-readable
+  (testing "assoc-coeffect sets k in :coeffects and returns the updated ctx;
+            the round-trip is observable via get-coeffect"
+    (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
+          ctx' (interceptor/assoc-coeffect ctx :now 99)]
+      (is (= 99 (interceptor/get-coeffect ctx' :now))
+          "the assoc'd value reads back through get-coeffect")
+      (is (= {:n 1} (interceptor/get-coeffect ctx' :db))
+          "sibling coeffects are preserved")
+      (is (= {} (:effects ctx'))
+          ":effects is untouched by a coeffect write")
+      (is (nil? (interceptor/get-coeffect ctx :now))
+          "the original ctx is unchanged (persistent — no in-place mutation)"))))
+
+(deftest assoc-effect-writes-and-is-readable
+  (testing "assoc-effect sets k in :effects and returns the updated ctx"
+    (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
+          ctx' (interceptor/assoc-effect ctx :db {:n 2})]
+      (is (= {:n 2} (interceptor/get-effect ctx' :db))
+          "the assoc'd effect reads back through get-effect")
+      (is (= {:n 1} (interceptor/get-coeffect ctx' :db))
+          ":coeffects :db is independent of :effects :db")
+      (is (= {} (:effects ctx))
+          "the original ctx's :effects is unchanged (persistent)"))))
+
+(deftest update-coeffect-applies-fn-with-trailing-args
+  (testing "update-coeffect applies f to the value at k, threading trailing args"
+    (let [ctx {:coeffects {:n 10} :effects {}}]
+      (is (= 11 (interceptor/get-coeffect
+                  (interceptor/update-coeffect ctx :n inc) :n))
+          "no-arg fn form: inc applied to the value at :n")
+      (is (= 13 (interceptor/get-coeffect
+                  (interceptor/update-coeffect ctx :n + 3) :n))
+          "single trailing arg threaded after the current value")
+      (is (= 16 (interceptor/get-coeffect
+                  (interceptor/update-coeffect ctx :n + 3 2 1) :n))
+          "multiple trailing args threaded in order")))
+  (testing "update-coeffect on an absent key applies f to nil"
+    ;; A fn that records the arg it was handed for the absent key, then
+    ;; returns a deterministic value. Confirms f is invoked with nil
+    ;; (clojure.core/update-in semantics) — not skipped.
+    (let [seen-arg (atom ::unset)
+          result   (interceptor/update-coeffect
+                     {:coeffects {} :effects {}}
+                     :missing
+                     (fn [v] (reset! seen-arg v) :computed))]
+      (is (nil? @seen-arg)
+          "f saw nil for the absent key (matches clojure.core/update-in semantics)")
+      (is (= :computed (interceptor/get-coeffect result :missing))
+          "f's return value is written back at the previously-absent key")))
+  (testing "update-coeffect preserves siblings and leaves :effects untouched"
+    (let [ctx  {:coeffects {:n 10 :keep :me} :effects {:db {}}}
+          ctx' (interceptor/update-coeffect ctx :n inc)]
+      (is (= :me (interceptor/get-coeffect ctx' :keep))
+          "sibling coeffects preserved")
+      (is (= {:db {}} (:effects ctx'))
+          ":effects untouched"))))
+
 ;; ---- pipeline-exception attribution (rf2-mszrz) ---------------------------
 ;;
 ;; The :before/:after chain runs three distinct kinds of component — the
