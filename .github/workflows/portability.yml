@@ -1,0 +1,51 @@
+# Portability gate (rf2-1ppe4, child of the rf2-v6wyb portability EPIC).
+#
+# Root-cause LOCK for the portability scrub (rf2-q4sah, #2509). Fails the
+# build if any TRACKED file reintroduces environment-specific hardcoding —
+# the maintainer's username/home token, or a personal/home absolute path
+# naming a real person (`/Users/<name>/`, `/home/<name>/`,
+# `C:/Users/<name>/`). The detection + the deliberate-fixture allowlist
+# live in the POSIX-sh script scripts/check-no-hardcoded-paths.sh; this
+# workflow just runs it (plus a shellcheck of the script itself).
+#
+# UNLIKE lint.yml / docs.yml this gate has NO surface-detect job: ANY
+# tracked file can leak a personal path, so the only correct surface is
+# "the whole tree". The script is a sub-second `git grep`, so running it on
+# every PR is cheap. It runs on PRs (the gate), on push to main (so a
+# direct-to-main edit is still caught), and via manual dispatch.
+#
+# NOTE for post-merge-workflow-sanity.yml: this workflow already runs on
+# push to main, so it is on that canary's EXCLUDE list — re-dispatching it
+# would only duplicate the push run.
+
+name: portability
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: portability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-hardcoded-paths:
+    name: No hardcoded personal/home paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # shellcheck ships preinstalled on the ubuntu-latest runner image.
+      # Lint the gate script itself so a future edit cannot introduce a
+      # shell bug that silently weakens the gate.
+      - name: Shellcheck the gate script
+        run: shellcheck scripts/check-no-hardcoded-paths.sh
+
+      # The script `git grep`s the tracked tree and exits non-zero with a
+      # per-hit message on any violation. No `|| true` / continue-on-error:
+      # a reintroduced personal path genuinely blocks the PR.
+      - name: Run the portability gate
+        run: sh scripts/check-no-hardcoded-paths.sh
