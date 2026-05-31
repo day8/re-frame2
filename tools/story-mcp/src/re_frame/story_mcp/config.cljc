@@ -18,7 +18,7 @@
     CLI flag), from the JVM property `-Drf.story-mcp.allow-writes=true`,
     or programmatically (tests).
   - `allow-sensitive-reads?` — atom holding the sensitive-read gate. Read
-    by the wire-egress scrubbers (`helpers/include-sensitive?`); a `false`
+    by the wire-egress scrubbers (`args/include-sensitive?`); a `false`
     value forces redaction regardless of any per-call `:include-sensitive`
     arg. The default-OFF posture matches the cross-MCP convention for
     privacy gates: an operator who genuinely needs raw sensitive state
@@ -130,7 +130,7 @@
 ;;
 ;; Per the rf2-uaymx (b) decision, raw sensitive-state reads are an
 ;; operator-only opt-in. The wire-egress helpers
-;; (`helpers/include-sensitive?`) defer to this atom — when it is
+;; (`args/include-sensitive?`) defer to this atom — when it is
 ;; `false` the per-call `:include-sensitive` arg is silently treated as
 ;; `false`, so a hostile or careless caller cannot exfiltrate declared-
 ;; sensitive `:app-db` slots / assertion records by flipping a JSON

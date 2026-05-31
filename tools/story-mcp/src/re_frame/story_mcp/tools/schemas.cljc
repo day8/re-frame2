@@ -64,7 +64,7 @@
   The Anthropic Messages API constrains tool input-schema property
   keys to `^[a-zA-Z0-9_.-]{1,64}$` — the trailing `?` Clojure-idiomatic
   for booleans is rejected at the host, so the wire form drops it. The
-  predicate FUNCTION `helpers/include-sensitive?` retains the `?` (the
+  predicate FUNCTION `args/include-sensitive?` retains the `?` (the
   Clojure idiom belongs on the predicate, not on the data key whose
   wire form disallows it).
 
@@ -101,7 +101,7 @@
 
   Tools that don't carry the slot ignore any caller-supplied
   `:dedup` value at the dispatch boundary
-  (`cap/invoke-tool` gates dedup on the descriptor's
+  (`wire-pipeline/invoke-tool` gates dedup on the descriptor's
   `:dedup-eligible?` flag)."
   [props]
   (assoc props :dedup dedup-schema))
@@ -178,7 +178,7 @@
 ;; ---------------------------------------------------------------------------
 ;; outputSchema fragments (rf2-3l3be)
 ;;
-;; Story-mcp tools route through `helpers/text-result` / `error-result`,
+;; Story-mcp tools route through `result/text-result` / `error-result`,
 ;; both of which emit a dual-slot envelope (rf2-vw4sq) — `:content` plus
 ;; `:structuredContent`. The structuredContent slot carries the EDN
 ;; payload as a JS-coerced object; this fragment describes its shape so
