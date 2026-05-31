@@ -21,8 +21,10 @@ shipped to consumers.
 
 Xray consumes the re-frame2 instrumentation surface (Spec 009 trace
 bus, Tool-Pair epoch history, the registrar query API) — it adds
-nothing the framework didn't already expose. The 16 panels are
-*presentation* of an already-structured runtime.
+nothing the framework didn't already expose. The chrome is one tool in
+two modes: a **6-tab Dynamic detail panel** (event-coupled) and a
+**5-tab Static mode** (registry browse). The tabs are *presentation* of
+an already-structured runtime.
 
 AI agent access to Xray's surfaces flows through
 `tools/re-frame2-pair-mcp/` against the framework-published Xray
@@ -181,7 +183,7 @@ that the tool could be one-shotted from it.
 
 | File | Covers |
 |---|---|
-| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the 16-panel inventory; the bar it sets. |
+| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the two-mode chrome (6-tab Dynamic + 5-tab Static); the bar it sets. |
 | [`spec/002-Time-Travel.md`](./spec/002-Time-Travel.md) | Epoch scrubber; replay semantics; read-only posture. |
 | [`spec/003-Machine-Inspector.md`](./spec/003-Machine-Inspector.md) | Embeds `tools/machines-viz/`; transition history; source jumps. |
 | [`spec/004-App-DB-Diff.md`](./spec/004-App-DB-Diff.md) | Slice-centric diff; pinned slices; full-tree escape hatch. |
@@ -255,8 +257,9 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. Running shell with the full 16-panel layout, one wired
-keybinding (`Ctrl+Shift+C` toggle), default true-inline mount under
+Pre-alpha. Running shell with the full two-mode chrome (6-tab Dynamic
+detail panel + 5-tab Static mode), one wired keybinding
+(`Ctrl+Shift+C` toggle), default true-inline mount under
 `[data-rf-xray-host]`, programmatic pop-out via `(xray/popout!)`,
 and a frame-isolated `:rf/xray` registrar.
 Spec corpus landed via rf2-1lls (2026-05-12); the 17-row test
