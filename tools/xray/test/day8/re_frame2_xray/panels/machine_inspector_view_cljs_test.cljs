@@ -588,12 +588,12 @@
 (defn- find-popup-affordance-containers
   "Walk hiccup (already expand-tree'd by the find-by-testid helper) and
   collect every edn-inspector container that carries
-  `:data-rf-popup-affordance? \"1\"` (the widget surfaces the opt as a
+  `:data-rf-popup-affordance \"1\"` (the widget surfaces the opt as a
   data-attr on its outer `:div`)."
   [tree]
   (filter (fn [n]
             (and (vector? n) (map? (second n))
-                 (= "1" (:data-rf-popup-affordance? (second n)))))
+                 (= "1" (:data-rf-popup-affordance (second n)))))
           (tree-seq (some-fn vector? seq?) seq tree)))
 
 (deftest snapshot-drill-in-edn-inspector-carries-popup-affordance
@@ -601,7 +601,7 @@
             the Machine Inspector panel passes
             `:popup-affordance? true` so the operator can pop the
             snapshot into the popup overlay. After expansion the widget's
-            outer `:div` surfaces the opt as a `data-rf-popup-affordance?`
+            outer `:div` surfaces the opt as a `data-rf-popup-affordance`
             attribute."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray

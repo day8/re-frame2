@@ -745,7 +745,7 @@
             the operator can pop a trace event's full EDN into the
             popup overlay (trace rows are narrow column space). After
             `expand-tree` the edn-inspector widget's outer `:div` carries
-            `:data-rf-popup-affordance? \"1\"` when the opt is set."
+            `:data-rf-popup-affordance \"1\"` when the opt is set."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -759,12 +759,12 @@
             payload  (find-by-testid tree "rf-xray-trace-row-51-payload")
             ;; Walk the payload subtree (which is itself the result of
             ;; `expand-tree`-ing) and find the edn-inspector widget's
-            ;; outer container — it carries the `data-rf-popup-affordance?`
+            ;; outer container — it carries the `data-rf-popup-affordance`
             ;; attribute when the opt is enabled.
             dd-containers
             (filter (fn [n]
                       (and (vector? n) (map? (second n))
-                           (= "1" (:data-rf-popup-affordance?
+                           (= "1" (:data-rf-popup-affordance
                                     (second n)))))
                     (hiccup-seq payload))]
         (is (some? payload) "expanded-row payload renders")

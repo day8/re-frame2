@@ -2276,7 +2276,7 @@
                       first)]
       (is (= "relative" (:position (:style attrs)))
           "section establishes positioning context for the absolute button")
-      (is (= "1" (:data-rf-popup-affordance? attrs))
+      (is (= "1" (:data-rf-popup-affordance attrs))
           "section publishes the affordance flag")
       (is (some? button)
           "section contains the popup affordance button as a direct child"))))
