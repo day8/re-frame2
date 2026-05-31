@@ -889,61 +889,72 @@
 ;; `project-attaches-app-db-violation-to-fx-db-row-test` pins down
 ;; that no tail step is appended.
 
-;; ---- rf2-uffov — FX section header + per-action attribution ----------
+;; ---- rf2-kt6js — SIDE EFFECTS step (:db / :fx / other sub-steps) ------
+;; rf2-uffov — per-action attribution + the threw-count header chip;
+;; rf2-g1mfc — per-:fx-row open-code chip; rf2-kt6js — the :fx step
+;; became the SIDE EFFECTS step.
 
-(deftest fx-step-header-shows-outcome-split-test
-  (testing "rf2-uffov — FX step header surfaces the threw-count when
-            non-zero, beside the subdued `(side effects)` caption.
+(defn- side-effects-step
+  "Build a projected SIDE EFFECTS step for the view tests (rf2-kt6js) —
+  the step the `render-side-effects-step` renderer consumes. `subs` is
+  a vec of `{:kind :rows}` groups in render order; this flattens them
+  into the single tagged `:rows` slot + the `:sub-kinds` order vec the
+  renderer reads (mirrors `projection/side-effects-step`'s output
+  shape — one row vector, each row tagged `:sub-kind`)."
+  ([subs] (side-effects-step subs 0))
+  ([subs threw]
+   {:step :side-effects :badge :SIDE-EFFECTS :step-number 4
+    :sub-kinds (mapv :kind subs)
+    :rows (vec (mapcat (fn [{:keys [kind rows]}]
+                         (mapv #(assoc % :sub-kind kind) rows))
+                       subs))
+    :threw threw}))
 
-            Post pair-debug 2026-05-26 (commits 862288aca / adaabb8aa):
-            the prior `N fired (M succeeded, K threw)` verb was
-            dropped — the per-row ✓/✗ glyphs already convey per-fx
-            outcome; the count summary was noise. The header now
-            renders a subdued `(side effects)` caption beside the
-            badge, with a red `K threw` chip only when fx errored.
-            `N fired` + `M succeeded` are no longer surfaced in the
-            header."
-    (let [step {:step :fx :badge :FX :step-number 4
-                :rows [{:fx-id :db :status :ok}
-                       {:fx-id :http/get :status :ok}
-                       {:fx-id :bad :status :error}]
-                :succeeded 2 :threw 1 :skipped 0}
-          tree (view/render-fx-step step)
-          header (text-of tree "rf-xray-epoch-fx-header")]
-      (is (string/includes? header "(side effects)")
+(deftest side-effects-step-header-shows-outcome-split-test
+  (testing "rf2-kt6js / rf2-uffov — SIDE EFFECTS step header surfaces the
+            threw-count when non-zero, beside the subdued `(post-commit)`
+            caption. The per-row ✓/✗ glyphs convey per-effect outcome;
+            the header carries only the at-a-glance error chip."
+    (let [step (side-effects-step
+                 [{:kind :db :status :ok :rows [{:fx-id :db :status :ok}]}
+                  {:kind :fx :status :error
+                   :rows [{:fx-id :http/get :status :ok}
+                          {:fx-id :bad :status :error}]}]
+                 1)
+          tree (view/render-side-effects-step step)
+          header (text-of tree "rf-xray-epoch-side-effects-header")]
+      (is (string/includes? header "(post-commit)")
           "the subdued caption rides beside the badge")
       (is (string/includes? header "1 threw")
           "threw-count chip surfaces in the header when non-zero"))))
 
-(deftest fx-row-shows-attribution-chip-test
-  (testing "rf2-uffov — when an FX row carries :attributed-to, the
-            attribution chip renders alongside"
-    (let [step {:step :fx :badge :FX :step-number 4
-                :rows [{:fx-id :http/get :status :ok
-                        :attributed-to {:action-id :open-socket
-                                        :phase :entry}}]
-                :succeeded 1 :threw 0 :skipped 0}
-          tree (view/render-fx-step step)
+(deftest side-effects-fx-row-shows-attribution-chip-test
+  (testing "rf2-uffov — when an :fx sub-step row carries :attributed-to,
+            the attribution chip renders alongside"
+    (let [step (side-effects-step
+                 [{:kind :fx :status :ok
+                   :rows [{:fx-id :http/get :status :ok
+                           :attributed-to {:action-id :open-socket
+                                           :phase :entry}}]}])
+          tree (view/render-side-effects-step step)
           chip (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0")]
       (is (some? chip) "the attribution chip is present")
       (is (string/includes? (th/text-content chip) ":open-socket")
           "the action-id rides the chip"))))
 
-(deftest fx-row-omits-attribution-chip-when-none-test
-  (testing "rf2-uffov — FX row without :attributed-to omits the chip"
-    (let [step {:step :fx :badge :FX :step-number 4
-                :rows [{:fx-id :db :status :ok}]
-                :succeeded 1 :threw 0 :skipped 0}
-          tree (view/render-fx-step step)]
+(deftest side-effects-fx-row-omits-attribution-chip-when-none-test
+  (testing "rf2-uffov — :fx sub-step row without :attributed-to omits
+            the chip"
+    (let [step (side-effects-step
+                 [{:kind :db :status :ok :rows [{:fx-id :db :status :ok}]}])
+          tree (view/render-side-effects-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
 
-(deftest fx-row-mounts-coord-chip-when-meta-resolves-test
-  (testing "rf2-g1mfc — each FX-step row routes its fx-id through
+(deftest side-effects-fx-row-mounts-coord-chip-when-meta-resolves-test
+  (testing "rf2-g1mfc — each :fx sub-step row routes its fx-id through
             `coord-chip/coord-chip` to surface a click-to-source
             affordance for the `reg-fx` registration (parity with the
-            SUBSCRIPTIONS / VIEWS rows + the HANDLER verb). Pre-fix the
-            fx row rendered the fx-id with NO open-code affordance at
-            all — the affordance was inconsistent across pipeline steps.
+            SUBSCRIPTIONS / VIEWS rows + the HANDLER verb).
 
             The chip's <button> mounts when `(rf/handler-meta :fx
             fx-id)` resolves a `:file` coord. CLJS macro-form `reg-fx`
@@ -957,10 +968,10 @@
         (fn [_ctx _args] nil))
       (let [meta-resolved? (boolean (some-> (rf/handler-meta :fx :rf.g1mfc-fixture/ping)
                                             :file string?))
-            step {:step :fx :badge :FX :step-number 4
-                  :rows [{:fx-id :rf.g1mfc-fixture/ping :status :ok}]
-                  :succeeded 1 :threw 0 :skipped 0}
-            tree (view/render-fx-step step)]
+            step (side-effects-step
+                   [{:kind :fx :status :ok
+                     :rows [{:fx-id :rf.g1mfc-fixture/ping :status :ok}]}])
+            tree (view/render-side-effects-step step)]
         (is (some? (th/find-by-testid tree "rf-xray-epoch-fx-row-0"))
             "the fx row itself renders")
         ;; If the test harness captured a source coord the chip mounts;
@@ -1469,22 +1480,21 @@
       (is (string/includes? (th/text-content oth-sec) "1 entry")
           "the other sub-header carries the singular entry chip"))))
 
-(deftest fx-step-args-route-through-edn-inspector-test
-  (testing "rf2-ef2hy — FX step row's args render through the
-            edn-inspector widget with `:default-expanded-depth 1`,
-            replacing the prior rf2-8w8er mini rendering. Top-level
-            map keys (`:strategy`, `:from`, `:to`) are visible inline;
-            nested maps collapse to a clickable chevron so the
-            operator can drill into a complex args map.
+(deftest side-effects-fx-args-route-through-edn-inspector-test
+  (testing "rf2-ef2hy — :fx sub-step row's args render through the
+            edn-inspector widget with `:default-expanded-depth 1`. Top-
+            level map keys are visible inline; nested maps collapse to a
+            clickable chevron so the operator can drill into a complex
+            args map.
 
             Sibling rendering for the HANDLER step's `:fx` section
             (rf2-p2zy0) uses the same widget with depth 16 (full-
             expand). Both share the widget; per-call-site depth
             reflects each section's role."
-    (let [tree (view/render-fx-step
-                 {:step :fx :badge :FX :step-number 4
-                  :rows [{:fx-id :http/get :status :ok :args {:url "/x"}}]
-                  :succeeded 1 :threw 0 :skipped 0})
+    (let [tree (view/render-side-effects-step
+                 (side-effects-step
+                   [{:kind :fx :status :ok
+                     :rows [{:fx-id :http/get :status :ok :args {:url "/x"}}]}]))
           row  (th/find-by-testid tree "rf-xray-epoch-fx-row-0")]
       (is (some? row))
       (is (pos? (count (ei-mounts row)))
@@ -2370,19 +2380,24 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-errors-handler"))
           "a clean step renders no error block"))))
 
-(deftest fx-step-renders-per-row-exception-test
-  (testing "rf2-ahhgn — a throwing fx (button-18) surfaces its message on
-            its own FX row via `fx-row-with-violations`"
-    (let [step {:step :fx :badge :FX :step-number 4 :threw 1
-                :rows [{:fx-id :db :status :ok}
-                       {:fx-id :button-deck/ping :status :error
-                        :errors [{:operation :rf.error/fx-handler-exception
-                                  :message "fx threw on purpose"
-                                  :failing-id :button-deck/ping
-                                  :recovery :no-recovery}]}]}
-          tree (view/render-fx-step step)]
+(deftest side-effects-renders-per-row-exception-test
+  (testing "rf2-ahhgn / rf2-kt6js — a throwing fx (button-18) surfaces
+            its message on its own :fx sub-step row via
+            `fx-row-with-violations`. The per-row testids use the GLOBAL
+            flat-row index, so the :fx row after the :db row lands at
+            index 1."
+    (let [step (side-effects-step
+                 [{:kind :db :rows [{:fx-id :db :status :ok}]}
+                  {:kind :fx
+                   :rows [{:fx-id :button-deck/ping :status :error
+                           :errors [{:operation :rf.error/fx-handler-exception
+                                     :message "fx threw on purpose"
+                                     :failing-id :button-deck/ping
+                                     :recovery :no-recovery}]}]}]
+                 1)
+          tree (view/render-side-effects-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-error-fx-row-1-0"))
-          "the throwing fx row carries its inline error card")
+          "the throwing fx row (global index 1) carries its inline error card")
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-fx-row-1-0-message")
             "fx threw on purpose")))))

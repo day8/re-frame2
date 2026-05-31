@@ -2840,14 +2840,15 @@
      ;; aborting the cascade pre-commit) attaches here as an inline card.
      (error-blocks :flow errors)]))
 
-;; ---- FX step -------------------------------------------------------------
+;; ---- SIDE EFFECTS step (rf2-kt6js — the pre-rf2-kt6js FX step) ----------
 
 (defn- fx-coord
   "Pull the registered fx-handler's source coord off
   `(rf/handler-meta :fx fx-id)`. Returns nil when no meta is captured.
   Mirrors the sibling `sub-coord` shape (rf2-g1mfc — bring the
-  click-to-source affordance to FX-step rows on parity with the
-  HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS rows).
+  click-to-source affordance to the SIDE EFFECTS step's :fx rows on
+  parity with the HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS
+  rows).
 
   The `:file` here is ABSOLUTE: `reg-fx` registers through the same
   `core-reg-macros/defreg-macro` → `with-coords-form` → `coords-form`
@@ -2863,8 +2864,8 @@
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
 (defn- fx-row-view
-  "Render one fx-handler row inside the FX step — green check + fx-id
-  + truncated args.
+  "Render one fx-handler row inside the SIDE EFFECTS step's :db / :fx
+  sub-steps — per-effect tick glyph + fx-id + truncated args.
 
   Argument order matches `map-indexed`'s `(f idx item)` convention
   (rf2-cq0ch — companion swap with `coeffect-row-view`).
@@ -2961,45 +2962,140 @@
    (error-blocks (keyword (str "fx-row-" idx)) (:errors row))
    (violation-blocks (keyword (str "fx-row-" idx)) (:violations row))])
 
-(defn render-fx-step
-  "Render the FX step (only present when fx-handlers fired).
+;; ---- SIDE EFFECTS sub-steps (rf2-kt6js) ---------------------------------
 
-  Pair-debug 2026-05-26: the prior verb that read `N fired (M
-  succeeded, K threw)` is dropped — the row glyphs (✓/✗) already
-  convey per-fx outcome; the count summary is noise in the
-  step header. Threw-count surfaces as a chip only if non-zero so
-  the operator still sees errors at-a-glance.
+(def ^:private side-effects-sub-label
+  "Map a SIDE EFFECTS sub-step `:kind` → its sub-header label. `:db` and
+  `:fx` render as the literal keyword (lowercase, matching the
+  `sub-header` keyword-identity convention); `other` renders as the
+  plain word."
+  {:db    ":db"
+   :fx    ":fx"
+   :other "other"})
 
-  rf2-xgeag — `:fx-args` boundary violations attach per-row when
-  `:failing-id` matches an fx-id; otherwise they attach to the
-  step-level `:violations` slot (rendered at the foot of the
-  step)."
-  [{:keys [rows step-number threw violations errors] :as step}]
+(defn- sub-step-header
+  "Render a SIDE EFFECTS sub-step header (rf2-kt6js) — the
+  corner-down-right sub-header glyph + the shared per-step ✓/✗ status
+  glyph (rf2-ahhgn `step-status-glyph`, the exact primitive the
+  top-level step headers reuse) + the sub-step label + a trailing
+  entry-count chip. `kind` is `:db / :fx / :other`; `status` is the
+  sub-step's `:ok` / `:error` rollup; `n` is the row count."
+  [kind status n]
+  (let [testid (str "rf-xray-epoch-side-effects-sub-" (name kind))]
+    [:div {:data-testid (str testid "-header")
+           :style sub-header-style}
+     [:span {:style sub-header-glyph-style}
+      (icons/corner-down-right)]
+     (step-status-glyph status testid)
+     [:span (get side-effects-sub-label kind (name kind))]
+     [:span {:style sub-header-trailing-style}
+      (str n " effect" (when (not= 1 n) "s"))]]))
+
+(defn- other-effect-row-view
+  "Render one `other` sub-step row (rf2-kt6js) — a top-level effect key
+  the runtime DID NOT execute (re-frame2's effect map is the closed
+  `{:db :fx}` shape; any other key is dropped). The `·` skipped glyph +
+  muted tone signal not-run; the fx-id + value render so the operator
+  sees exactly which declared effect the runtime ignored."
+  [idx {:keys [fx-id value]}]
+  [:div {:key (str "other-" idx)
+         :data-testid (str "rf-xray-epoch-side-effects-other-row-" idx)
+         :data-fx-status "skipped"
+         :style fx-row-style}
+   [:span {:style (assoc diff-glyph-bold-style :color text-tertiary-colour)
+           :title "this effect was not run — re-frame2 executes only :db and :fx"}
+    "·"]
+   [:span {:style fx-row-id-style}
+    (proj/ns-keyword fx-id)]
+   (when (some? value)
+     [:span {:style fx-row-args-style}
+      [ei/edn-inspector value
+       {:site-id [:rf.xray.epoch/other-effect-row fx-id idx]
+        :card? false
+        :zoomable? true
+        :default-expanded-depth 1}]])])
+
+(defn- render-side-effects-sub-step
+  "Render one SIDE EFFECTS sub-step group (rf2-kt6js): its
+  status-bearing sub-header + its rows. `:db` / `:fx` rows render via
+  `fx-row-with-violations` (the per-effect ✓/✗ tick + open-code chip +
+  inline error / violation cards); `other` rows render via
+  `other-effect-row-view` (the `·` not-run diagnostic).
+
+  `step` is the WHOLE side-effects step; `kind` selects the group. Rows
+  are read off the step's flat `:rows` via `proj/sub-rows-of` (so
+  post-attachment errors / violations surface inline) and rendered at
+  their GLOBAL flat-row index so the per-row testids are stable across
+  groups + match the index the attachment machinery resolved by
+  `:fx-id`."
+  [step kind]
+  (let [rows   (proj/sub-rows-of step kind)
+        all    (:rows step)
+        ;; global flat-row index of each sub-row (identity-stable —
+        ;; rows are distinct maps once tagged with :sub-kind).
+        idx-of (fn [row] (some (fn [[i r]] (when (identical? r row) i))
+                               (map-indexed vector all)))]
+    [:div {:data-testid (str "rf-xray-epoch-side-effects-sub-" (name kind))}
+     (sub-step-header kind (proj/sub-step-status rows) (count rows))
+     [:div {:style margin-top-5-style}
+      (for [row rows
+            :let [i (idx-of row)]]
+        ^{:key (str (name kind) "-" i)}
+        [(if (= :other kind) other-effect-row-view fx-row-with-violations)
+         i row])]]))
+
+(defn render-side-effects-step
+  "Render the SIDE EFFECTS step (rf2-kt6js — replaces the pre-rf2-kt6js
+  FX step). ALWAYS present when ANY side effect occurred — including a
+  bare reg-event-db that returns only `:db` (the step's `:db` sub-step
+  keys off `:rf.event/db-changed`, not a non-existent fx-id-less
+  `:rf.fx/handled`).
+
+  Composed of up to three OPTIONAL sub-step groups in fixed order
+  `:db → :fx → other` (`:sub-kinds`), each shown only when it has rows,
+  each carrying its own per-effect ✓/✗ tick (reusing the shared
+  rf2-ahhgn `step-status` primitive via `proj/sub-step-status`):
+
+    :db    — the handler's app-db write — ✓ committed / ✗ schema-fail
+             rollback (the `:where :app-db` violation reason box rides
+             the row via `attach-to-fx-db-row`).
+    :fx    — the `:fx`-vector entries — each with the rf2-g1mfc
+             open-code chip + a per-effect tick (✓ ran / ✗ threw / ↺
+             overridden / · skipped-on-platform). For async / deferred
+             fx the ✓ means ACTIONED (handler invoked ok), not awaited.
+    other  — top-level non-`:db`/`:fx` effects the runtime DROPPED —
+             rendered `·` not-run (diagnostic).
+
+  Threw-count chip surfaces only when non-zero. `:fx-args` / fx
+  exception attachments that didn't match a row attach to the step
+  level (rf2-xgeag / rf2-ahhgn) and render at the foot."
+  [{:keys [sub-kinds step-number threw violations errors] :as step}]
   (let [k (or threw 0)]
-    [:div {:data-testid "rf-xray-epoch-step-fx"
-           :data-step-kw "fx"
+    [:div {:data-testid "rf-xray-epoch-step-side-effects"
+           :data-step-kw "side-effects"
            :data-fx-threw (str k)}
-     (numbered-circle step-number :FX)
+     (numbered-circle step-number :SIDE-EFFECTS)
      (step-header
-       {:step :fx
-        :badge :FX
+       {:step :side-effects
+        :badge :SIDE-EFFECTS
         :verb [:span {:style fx-verb-style}
-               [:span {:data-testid "rf-xray-epoch-fx-caption"
+               [:span {:data-testid "rf-xray-epoch-side-effects-caption"
                        :style fx-caption-style}
-                "(side effects)"]
+                "(post-commit)"]
                (when (pos? k)
                  [:span {:style fx-threw-style}
                   (str k " threw")])]
         :expandable? false
-        :testid "rf-xray-epoch-fx"
+        :testid "rf-xray-epoch-side-effects"
         :status (proj/step-status step)}
        nil)
-     [:div {:style margin-top-5-style}
-      (map-indexed fx-row-with-violations rows)]
+     (for [kind sub-kinds]
+       ^{:key (name kind)}
+       [render-side-effects-sub-step step kind])
      ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
      ;; or an fx-id absent from `:rows`) attach to the step level.
-     (error-blocks :fx errors)
-     (violation-blocks :fx violations)]))
+     (error-blocks :side-effects errors)
+     (violation-blocks :side-effects violations)]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -4187,7 +4283,7 @@
     :coeffect          (render-coeffect-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)
-    :fx                (render-fx-step step)
+    :side-effects      (render-side-effects-step step)
     :subscriptions     (render-subscriptions-step step)
     :views             (render-views-step step)
     ;; :schema-hot-reload case retired per rf2-7gf7v — the

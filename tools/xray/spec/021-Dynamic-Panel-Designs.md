@@ -1329,7 +1329,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:COEFFECT`           | `:magenta`       | purple |
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
 | `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
-| `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
+| `:SIDE-EFFECTS`       | `:orange`        | functional amber (post-commit irreversible; the pre-rf2-kt6js `:FX` step) |
 | `:SUBSCRIPTIONS`      | `:magenta-pink`  | pink (rf2-cgm4f split from COEFFECT violet) |
 | `:VIEWS`              | `:success`       | green |
 | `:SCHEMA-HOT-RELOAD`  | `:warning`       | warning amber (rf2-17vxj · renamed rf2-xgeag for the narrowed hot-reload-only scope) |
@@ -2127,8 +2127,8 @@ unchanged); only the aggregation moved.
 |-----------------|-----------------------------------------------------|--------------------------|
 | `:event`        | DISPATCH                                            | step-level               |
 | `:cofx`         | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
-| `:app-db`       | FX step `:db` row (the implicit commit fx) — per rf2-8resu | row-level         |
-| `:fx-args`      | FX step, row whose `:fx-id` = `:failing-id`         | row-level (fallback step)|
+| `:app-db`       | SIDE EFFECTS step `:db` row (the handler's app-db write) — per rf2-8resu / rf2-kt6js | row-level         |
+| `:fx-args`      | SIDE EFFECTS step, row whose `:fx-id` = `:failing-id` | row-level (fallback step)|
 | `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
 | `:machine-data` | HANDLER, machine-cascade row whose machine id = `:failing-id` (the failing machine). When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is signalled via the §Rollback blast-radius mute pass (no special tail step); the violation itself stays attached to the machine-cascade row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
 
@@ -2292,14 +2292,13 @@ row drops out cleanly and the humanized / raw map renders alone.
 When the cascade carries an `:app-db` violation with
 `:rollback? true`, the projection's
 `mark-rolled-back-downstream` pass flags every step AFTER the
-FX step with `:rolled-back? true`. The view's pipeline wrapper
-applies a `:opacity 0.55` overlay to those steps. The FX step
-itself stays visible — the violation rides on its `:db` row
-(per the attachment table above, post-rf2-8resu) so the operator
-reads the failing commit inline with the implicit commit fx. The
-operator sees the blast radius at a glance instead of reading
-downstream rows that claim success for fx that never actually
-fired.
+SIDE EFFECTS step with `:rolled-back? true`. The view's pipeline
+wrapper applies a `:opacity 0.55` overlay to those steps. The SIDE
+EFFECTS step itself stays visible — the violation rides on its `:db`
+row (per the attachment table above, post-rf2-8resu / rf2-kt6js) so
+the operator reads the failing commit inline. The operator sees the
+blast radius at a glance instead of reading downstream rows that
+claim success for fx that never actually fired.
 
 #### What does NOT change
 
@@ -2414,46 +2413,84 @@ outcome chips + MCP wire consumers + the pinned
 `outcome-enum-projection-pins-mapping` test. No spec/009 /
 Spec-Schemas edit was needed (rf2-ahhgn settle-first finding).
 
-### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
+### §9.1.10.6 SIDE EFFECTS step — `:db` / `:fx` / other sub-steps (rf2-kt6js · rf2-uffov · rf2-m8ac9)
 
-The FX step has rendered per-fx rows since rf2-sc3r1. rf2-uffov
-extends it with header + attribution; Mike's pair-debug commit
-`adaabb8aa` (2026-05-26, rf2-m8ac9) reshaped the header. Current
-shape:
+The pre-rf2-kt6js single `:fx` step became the **SIDE EFFECTS** step
+(badge `:SIDE-EFFECTS`, the same `:orange` post-commit hue). It is the
+cascade's post-commit-effects lens, composed of up to **three OPTIONAL
+sub-steps in fixed order `:db → :fx → other`**, each shown only when it
+has rows and each carrying its own per-effect `✓/✗` tick (reusing the
+shared rf2-ahhgn `step-status` + `badge/step-status-*` primitive —
+**not a one-off**):
 
-- **Header chrome** — badge `:FX` (uppercase pill, single-token
-  hue per §9.1.4), a muted-italic `(side effects)` caption beside
-  the badge, and a threw-count chip in `:error` tone that surfaces
-  **only when non-zero**. The prior `N fired (M succeeded, K threw,
-  L skipped)` count summary was dropped per Mike's pair-debug
-  rationale: the per-row glyphs (`✓ / ✗`) already convey per-fx
-  outcome, so the count summary was noise in the step header. The
-  threw chip is the at-a-glance error signal that survives.
-- **Per-action attribution** — when the cascade was driven by a
-  machine handler, each FX row that maps to a fx-id emitted by an
-  action's outcome `:fx` slot carries `:attributed-to {:action-id
-  …, :phase …}` (rf2-9c27r + rf2-uffov). The view renders an
-  italic `← <action-id> (<phase>)` chip alongside the row so the
-  operator reads `fx X emitted by action Y in phase Z` in one
-  line. Best-effort: first-attribution wins when the same fx-id
-  is emitted by multiple actions in the same cascade (cascade
-  order).
-- **Conditional emit unchanged** — section omits when no fx-handler
-  events fired.
-- **Args rendering (rf2-ef2hy)** — each fx row's args mount the
-  shared edn-inspector widget with `:default-expanded-depth 1`.
-  Top-level keys (`:strategy`, `:from`, `:to`) are visible inline;
-  nested maps collapse to clickable `▸` chevrons (`{…N keys}`). The
-  FX step is a dense table the operator scans, then drills into one
-  row's args — depth 1 hits the right scan-then-drill posture.
-  `:zoomable?` is on so the popup overlay opens for a complex fx
-  args map.
+- **`:db` sub-step** — the handler's app-db write (the `:db` effect).
+  `✓` on a successful commit; `✗` when the post-commit app-db schema
+  check rejected the write and the cascade rolled back — the `:where
+  :app-db` violation reason box attaches to the `:db` row via
+  `attach-to-fx-db-row`. The `:db` sub-step ALWAYS appears when a `:db`
+  commit happened, **including a plain reg-event-db that returns only
+  `:db`** (no `:fx`). Reconciles with rf2-4wywy: this is the HANDLER db
+  write (post-handler / pre-flow); the FLOW step's own `:db` diff (the
+  flow's t1→t2 reshape) stays a SEPARATE step.
+- **`:fx` sub-step** — one row per entry in the handler's `:fx` vector,
+  each carrying the rf2-g1mfc open-code chip + a per-effect success
+  tick: `✓` ran / `✗` threw / `↺` overridden / `·` skipped-on-platform.
+  For ASYNC / deferred fx (`dispatch-later`, `http`, a slow fx) the `✓`
+  means **ACTIONED** (the fx handler was invoked ok), not awaited —
+  matching the trace's `:rf.fx/handled` semantics.
+- **`other` sub-step** — one row per TOP-LEVEL effect key on the
+  handler's returned map beyond `:db` / `:fx` (the historical
+  `{:db .. :fx .. :other-key ..}` form). In re-frame2 the effect map is
+  the closed `{:db :fx}` shape (spec/002 §The binary fx-handler
+  signature — "the v1 :dispatch-n top-level key is gone") and the
+  runtime's `run-fx-effects!` reads ONLY `:fx`; any other key is
+  silently DROPPED — never executed, never traced. So each `other` row
+  is a `·` not-run **DIAGNOSTIC** flagging a declared effect the runtime
+  ignored (almost always a bug — the effect belongs inside `:fx`). In
+  the canonical `{:db :fx}` shape there are NO `other` rows.
 
-  Sibling: the HANDLER step's `:fx` section (§9.1.10.5 lineage,
-  rf2-p2zy0) uses the same widget with `:default-expanded-depth 16`
-  (full-expand). Both share the widget; per-call-site depth reflects
-  each section's role — HANDLER reads INTENT (full), FX reads
-  EXECUTION (compact + drill).
+**ALWAYS APPEARS.** Unlike the pre-rf2-kt6js `:fx` step (which showed
+only when an `:fx` fired), the SIDE EFFECTS step appears whenever ANY
+side effect occurred. The `:db`-commit signal is the framework's
+`:rf.event/db-changed` trace (a second one with `:rf.trace/phase
+:rollback` flags a schema-fail rollback) — NOT a fx-id-less
+`:rf.fx/handled` (which the substrate never emits; `re-frame.fx/emit-
+handled!` always stamps `:rf.fx/id`, and the `:db` install path
+`re-frame.router/commit-db-effect!` routes through `:rf.event/db-changed`,
+not the fx pipeline). The pre-rf2-kt6js heuristic looked for that
+non-existent emit, so a clean reg-event-db surfaced no side-effects step
+at all — the bug rf2-kt6js fixes tool-side.
+
+**Settle-first (rf2-kt6js — confirmed against the live substrate; NO
+framework-instrumentation change).** Per-`:fx` success is ALREADY
+RECORDED: each `:fx`-vector entry emits exactly one of `:rf.fx/handled`
+/ `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` /
+`:rf.error/fx-handler-exception` / `:rf.error/no-such-fx`
+(`re-frame.fx/handle-one-fx`). The `:db` commit + schema-fail are
+recorded by `:rf.event/db-changed` + `:rf.error/schema-validation-
+failure :where :app-db`. "Other" effects don't exist on the trace
+stream because the runtime never touches them. So the whole step is a
+PRESENTATION over already-recorded data — implemented tool-side in
+`projection/side-effects-step`, no core / spec-009 edit.
+
+**Header chrome** — badge `:SIDE-EFFECTS`, a muted-italic
+`(post-commit)` caption, and a threw-count chip in `:error` tone that
+surfaces **only when non-zero**. The per-row + per-sub-step glyphs
+(`✓ / ✗`) carry per-effect outcome; the count summary is omitted as
+noise (the rf2-m8ac9 rationale carries over).
+
+**Per-action attribution** — when the cascade was driven by a machine
+handler, each `:fx` sub-step row that maps to a fx-id emitted by an
+action's outcome `:fx` slot carries `:attributed-to {:action-id …,
+:phase …}` (rf2-9c27r + rf2-uffov). The view renders an italic
+`← <action-id> (<phase>)` chip. First-attribution wins (cascade order).
+
+**Args rendering (rf2-ef2hy)** — each `:fx` / `other` row's args/value
+mount the shared edn-inspector widget with `:default-expanded-depth 1`
+(scan-then-drill); `:zoomable?` opens the popup overlay for a complex
+map. Sibling: the HANDLER step's `:fx` section (§9.1.10.5 lineage,
+rf2-p2zy0) uses depth 16 (full-expand) — HANDLER reads INTENT, SIDE
+EFFECTS reads EXECUTION.
 
 ### §9.1.10.7 COEFFECT step chrome (rf2-s1jw4 · pair-debug 2026-05-26)
 

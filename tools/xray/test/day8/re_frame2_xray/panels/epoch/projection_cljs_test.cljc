@@ -1195,84 +1195,174 @@
       (is (= 4 (:derived (:db-post-flow f)))
           "post-flow :derived = the flow's recomputed value"))))
 
-;; ---- FX -----------------------------------------------------------------
+;; ---- SIDE EFFECTS step (rf2-kt6js) --------------------------------------
+;;
+;; The pre-rf2-kt6js single `:fx` step (`proj/fx-step`) became the SIDE
+;; EFFECTS step (`proj/side-effects-step`) with three optional sub-steps —
+;; `:db` / `:fx` / other — each reusing the shared rf2-ahhgn `:status`
+;; primitive for its per-effect tick. See the projection ns's SIDE EFFECTS
+;; settle-first note for what's recorded vs derived.
 
-(deftest fx-step-conditional-test
-  (testing "no fx events → step is OMITTED"
-    (is (nil? (proj/fx-step []))))
+(defn- sub-rows
+  "Pull the SIDE EFFECTS sub-step rows of `kind` (`:db / :fx / :other`)
+  off a projected `side-effects-step`. Empty vec when the sub-step is
+  absent."
+  [step kind]
+  (proj/sub-rows-of step kind))
 
-  (testing "fx-handled events → step rendered with status"
-    (let [s (proj/fx-step [(fx-handled-ev :db nil 0.2)
-                           (fx-handled-ev :http/post {:url "/x"} 12.0)])]
-      (is (= :fx (:step s)))
-      (is (= :FX (:badge s)))
-      (is (= 2 (count (:rows s))))
-      (is (= :ok (-> s :rows first :status))))))
+(defn- has-sub?
+  "True iff the projected `side-effects-step` carries a `kind` sub-step."
+  [step kind]
+  (boolean (some #{kind} (:sub-kinds step))))
 
-(deftest fx-rows-reads-canonical-elapsed-ms-test
-  (testing "rf2-ipaza — substrate stamps the per-fx-handler invocation
-            duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled`
-            (rf2-hhh92 · `re-frame.fx`; spec 009 §241). The pre-rf2-ipaza
-            reader looked for the never-emitted `:duration-ms` — every
-            FX row showed nil duration."
-    (let [ev {:op-type   :rf.fx
-              :operation :rf.fx/handled
-              :tags      {:rf.fx/id         :http/post
-                          :rf.fx/args       {:url "/x"}
-                          :rf.fx/elapsed-ms 3.4}}
-          s (proj/fx-step [ev])]
-      (is (= 3.4 (-> s :rows first :duration-ms))
-          "FX row duration resolves through canonical :rf.fx/elapsed-ms")))
+(defn- sub-status
+  "The per-effect status rollup for the `kind` sub-step of a projected
+  `side-effects-step`."
+  [step kind]
+  (proj/sub-step-status (sub-rows step kind)))
 
-  (testing "rf2-ipaza — fixture-compat: a runtime that still stamps
-            `:duration-ms` falls through the preserved fallback"
-    (let [ev {:op-type   :rf.fx
-              :operation :rf.fx/handled
-              :tags      {:rf.fx/id    :http/get
-                          :duration-ms 7.7}}
-          s (proj/fx-step [ev])]
-      (is (= 7.7 (-> s :rows first :duration-ms))
+(deftest side-effects-step-conditional-test
+  (testing "no side effect at all → step is OMITTED"
+    (is (nil? (proj/side-effects-step []))))
+
+  (testing ":fx-vector entries → step rendered as SIDE EFFECTS with a
+            :fx sub-step"
+    (let [s (proj/side-effects-step
+              [(fx-handled-ev :http/post {:url "/x"} 12.0)
+               (fx-handled-ev :navigate {:to :home} 0.4)])]
+      (is (= :side-effects (:step s)))
+      (is (= :SIDE-EFFECTS (:badge s)))
+      (is (not (has-sub? s :db)) "no :db commit → no :db sub-step")
+      (is (has-sub? s :fx) ":fx sub-step present")
+      (is (= 2 (count (sub-rows s :fx))))
+      (is (= :ok (sub-status s :fx)) "all fx ran → sub-step :ok")
+      (is (= :ok (-> (sub-rows s :fx) first :status))))))
+
+;; ---- :db sub-step — pass / schema-fail (rf2-kt6js) ----------------------
+
+(deftest side-effects-db-sub-step-pass-test
+  (testing "rf2-kt6js — a bare reg-event-db (only :db, NO :fx) STILL
+            shows the SIDE EFFECTS step with a passing :db sub-step.
+            The :db commit is keyed off `:rf.event/db-changed` — the
+            ALWAYS-APPEARS contract. Pre-rf2-kt6js this showed nothing."
+    (let [s (proj/side-effects-step [(db-changed-ev [[[:counter] 0 1 :edit]])])]
+      (is (= :side-effects (:step s)) "SIDE EFFECTS step present on a bare :db")
+      (is (has-sub? s :db) ":db sub-step present")
+      (is (= 1 (count (sub-rows s :db))))
+      (is (= :db (-> (sub-rows s :db) first :fx-id)))
+      (is (= :ok (-> (sub-rows s :db) first :status)) ":db committed → ✓")
+      (is (= :ok (sub-status s :db)) ":db sub-step :ok")
+      (is (not (has-sub? s :fx)) "no :fx → no :fx sub-step"))))
+
+(deftest side-effects-db-sub-step-schema-fail-test
+  (testing "rf2-kt6js — a post-commit app-db schema failure that rolled
+            the cascade back paints the :db sub-step ✗ (:status :error)
+            so `step-status` reads :error and the :where :app-db reason
+            box attaches to the :db row"
+    (let [s (proj/side-effects-step
+              [(db-changed-ev [])
+               (schema-violation-ev :app-db :counter/inc [:counter] -3 true)])]
+      (is (has-sub? s :db) ":db sub-step present on a rolled-back commit")
+      (is (= :error (-> (sub-rows s :db) first :status)) ":db row ✗ on schema-fail")
+      (is (= :error (sub-status s :db)) ":db sub-step :error"))))
+
+;; ---- :fx sub-step — per-effect tick (rf2-kt6js) -------------------------
+
+(deftest side-effects-fx-sub-step-per-effect-tick-test
+  (testing "rf2-kt6js — each :fx entry carries a per-effect tick:
+            ✓ ran / ✗ threw / ↺ overridden / · skipped-on-platform.
+            Per-fx success is ALREADY RECORDED on the trace stream."
+    (let [s  (proj/side-effects-step
+               [(fx-handled-ev :http/post {} 1.0)
+                (ev :rf.fx :rf.fx/override-applied {:rf.fx/id :metrics})
+                (ev :warning :rf.fx/skipped-on-platform {:rf.fx/id :clipboard})
+                (ev :error :rf.error/fx-handler-exception {:rf.fx/id :bad-fx})])
+          rows (sub-rows s :fx)
+          by   (into {} (map (juxt :fx-id :status) rows))]
+      (is (= 4 (count rows)))
+      (is (= :ok         (:http/post by)) ":rf.fx/handled → :ok")
+      (is (= :overridden (:metrics   by)) ":rf.fx/override-applied → :overridden")
+      (is (= :skipped    (:clipboard by)) ":rf.fx/skipped-on-platform → :skipped")
+      (is (= :error      (:bad-fx    by)) "fx-handler-exception → :error")
+      (is (= :error (sub-status s :fx)) "any ✗ fx → sub-step :error")
+      (is (= 1 (:threw s)) "threw count = the one fx that threw"))))
+
+(deftest side-effects-fx-reads-canonical-elapsed-ms-test
+  (testing "rf2-ipaza — :fx row duration resolves through the canonical
+            `:rf.fx/elapsed-ms`; legacy `:duration-ms` is a fallback"
+    (let [s (proj/side-effects-step
+              [{:op-type :rf.fx :operation :rf.fx/handled
+                :tags {:rf.fx/id :http/post :rf.fx/elapsed-ms 3.4}}])]
+      (is (= 3.4 (-> (sub-rows s :fx) first :duration-ms))))
+    (let [s (proj/side-effects-step
+              [{:op-type :rf.fx :operation :rf.fx/handled
+                :tags {:rf.fx/id :http/get :duration-ms 7.7}}])]
+      (is (= 7.7 (-> (sub-rows s :fx) first :duration-ms))
           "legacy :duration-ms fallback retained for older fixtures"))))
 
-;; ---- rf2-uffov — FX section header split + per-action attribution -----
-
-(deftest fx-step-header-counter-split-test
-  (testing "rf2-uffov — FX step header carries split counts
-            (succeeded / threw / skipped)"
-    (let [s (proj/fx-step
-              [(fx-handled-ev :db nil 0.1)
-               (fx-handled-ev :http/post {} 1.0)
-               (ev :error :rf.error/fx-handler-exception
-                   {:rf.fx/id :bad-fx})])]
-      (is (= 2 (:succeeded s))
-          ":ok rows roll into :succeeded")
-      (is (= 1 (:threw s))
-          ":error rows roll into :threw"))))
-
-(deftest fx-step-attribution-from-machine-actions-test
+(deftest side-effects-fx-attribution-from-machine-actions-test
   (testing "rf2-uffov — when a machine action's outcome :fx emits a
-            fx-id, the corresponding FX row carries :attributed-to"
+            fx-id, the corresponding :fx sub-step row carries
+            :attributed-to"
     (let [evs [(ev :rf.machine :rf.machine/action-ran
                    {:action-id :open-socket
                     :phase     :entry
                     :outcome   {:fx [[:http/get {:url "/x"}]]}
                     :input     {:data {} :event nil}})
                (fx-handled-ev :http/get {:url "/x"} 5.0)]
-          s   (proj/fx-step evs)
-          row (-> s :rows first)]
+          row (-> (proj/side-effects-step evs) (sub-rows :fx) first)]
       (is (= :http/get (:fx-id row)))
-      (is (some? (:attributed-to row))
-          "FX row carries :attributed-to for machine-emitted fx")
       (is (= :open-socket (-> row :attributed-to :action-id)))
-      (is (= :entry       (-> row :attributed-to :phase))))))
+      (is (= :entry       (-> row :attributed-to :phase)))))
 
-(deftest fx-step-no-attribution-for-non-machine-cascades-test
   (testing "rf2-uffov — pure reg-event-fx cascades have no per-action
             attribution; the slot stays absent"
-    (let [s (proj/fx-step [(fx-handled-ev :db nil 0.1)])
-          row (-> s :rows first)]
-      (is (not (contains? row :attributed-to))
-          "no machine actions → no :attributed-to slot"))))
+    (let [row (-> (proj/side-effects-step [(fx-handled-ev :http/post {} 0.1)])
+                  (sub-rows :fx) first)]
+      (is (not (contains? row :attributed-to))))))
+
+;; ---- other sub-step — dropped top-level effects (rf2-kt6js) -------------
+
+(deftest side-effects-other-sub-step-test
+  (testing "rf2-kt6js — a top-level effect key beyond :db/:fx on the
+            handler's returned map is surfaced in the `other` sub-step
+            as a :skipped (not-run) DIAGNOSTIC. re-frame2's effect map
+            is the closed {:db :fx} shape — `run-fx-effects!` reads only
+            :fx — so any other key is DROPPED (never executed/traced).
+            The `other` sub-step flags the dropped effect rather than
+            leaving the operator to wonder why nothing fired."
+    (let [;; `:rf.event/fx` is stamped as the FULL effects map on the
+          ;; do-fx marker only in the legacy/defensive shape; `effects-
+          ;; decomp` reads the map form and projects MINUS :db/:fx.
+          s     (proj/side-effects-step
+                  [(do-fx-ev {:db {:n 1}
+                              :fx [[:http/post {}]]
+                              :legacy/persist {:to :disk}})
+                   (db-changed-ev [])
+                   (fx-handled-ev :http/post {} 1.0)])
+          rows  (sub-rows s :other)]
+      (is (has-sub? s :other) "other sub-step present when a non-:db/:fx key exists")
+      (is (= 1 (count rows)))
+      (is (= :legacy/persist (-> rows first :fx-id)))
+      (is (= :skipped (-> rows first :status)) "dropped effect = :skipped")
+      (is (= {:to :disk} (-> rows first :value)))))
+
+  (testing "rf2-kt6js — the canonical {:db :fx} shape yields NO other
+            sub-step (the common case)"
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:db {:n 1} :fx [[:http/post {}]]})
+               (db-changed-ev [])
+               (fx-handled-ev :http/post {} 1.0)])]
+      (is (not (has-sub? s :other))
+          "closed {:db :fx} shape → no other sub-step"))))
+
+(deftest side-effects-sub-step-order-test
+  (testing "rf2-kt6js — sub-steps render in fixed order :db → :fx → other"
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:db {} :fx [[:http/post {}]] :legacy/x 1})
+               (db-changed-ev [])
+               (fx-handled-ev :http/post {} 1.0)])]
+      (is (= [:db :fx :other] (:sub-kinds s))))))
 
 ;; ---- SUBSCRIPTIONS ------------------------------------------------------
 
@@ -1577,18 +1667,35 @@
 ;; ---- top-level project --------------------------------------------------
 
 (deftest project-minimal-test
-  (testing "minimal epoch (dispatch + handler, no cofx/flow/fx/sub/view).
+  (testing "minimal epoch (dispatch + handler + a :db write, no
+            cofx/flow/user-fx/sub/view).
 
-  Post pair-debug 2026-05-26 (commit ee9def224 / 862288aca): the
-  standalone APP-DB DIFF step (rf2-rrykz) was retired — the HANDLER
-  step's `:db` sub-section with `[diff][all]` toggle surfaces the
-  same data in-context. The minimal cascade is now :dispatch +
-  :handler only."
+  rf2-kt6js — the SIDE EFFECTS step ALWAYS appears when a `:db` commit
+  happened, INCLUDING a bare reg-event-db with no `:fx` (`db-commit?`
+  keys off `:rf.event/db-changed`). Pre-rf2-kt6js a plain reg-event-db
+  surfaced NO side-effects step at all (the FX step keyed off a
+  non-existent fx-id-less `:rf.fx/handled`). The minimal :db-writing
+  cascade is now :dispatch + :handler + :side-effects (a :db sub-step
+  only)."
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
+          steps (proj/project rec)
+          se    (some #(when (= :side-effects (:step %)) %) steps)]
+      (is (= 3 (count steps)))
+      (is (= [:dispatch :handler :side-effects] (mapv :step steps)))
+      (is (some? se) "SIDE EFFECTS step present on a bare :db write")
+      (is (= [:db] (:sub-kinds se))
+          "only the :db sub-step — no :fx, no other"))))
+
+(deftest project-no-db-no-fx-omits-side-effects-test
+  (testing "rf2-kt6js — a cascade with NO :db commit and NO :fx (e.g. a
+            handler that returned nothing) omits the SIDE EFFECTS step
+            entirely — silence is correct when nothing happened"
+    (let [rec   (record [(dispatched-ev [:noop] :ui nil)
+                         (run-end-ev 0.3)])
           steps (proj/project rec)]
-      (is (= 2 (count steps)))
-      (is (= [:dispatch :handler] (mapv :step steps))))))
+      (is (not-any? #(= :side-effects (:step %)) steps)
+          "no side effect → no SIDE EFFECTS step"))))
 
 (deftest project-full-pipeline-test
   (testing "full epoch with every cascade step.
@@ -1610,20 +1717,24 @@
                          (view-render-ev ::cart-view [:total])])
           steps (proj/project rec)
           kws   (mapv :step steps)]
-      (is (= [:dispatch :coeffect :handler :flow :fx
+      (is (= [:dispatch :coeffect :handler :flow :side-effects
               :subscriptions :views]
-             kws))
+             kws)
+          "rf2-kt6js — the :fx step is now the :side-effects step")
       (is (= 7 (count steps))))))
 
 (deftest project-numbered-test
-  (testing "number-steps assigns sequential 1..N regardless of omissions"
+  (testing "number-steps assigns sequential 1..N regardless of omissions.
+            rf2-kt6js — the `:db` write surfaces the SIDE EFFECTS step
+            between HANDLER and SUBSCRIPTIONS."
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [])
                          (sub-run-ev [:total] true 1 2)])
           steps (proj/project-numbered rec)]
-      (is (= 3 (count steps)))
-      (is (= [1 2 3] (mapv :step-number steps)))
-      (is (= [:dispatch :handler :subscriptions] (mapv :step steps))))))
+      (is (= 4 (count steps)))
+      (is (= [1 2 3 4] (mapv :step-number steps)))
+      (is (= [:dispatch :handler :side-effects :subscriptions]
+             (mapv :step steps))))))
 
 (deftest project-machine-test
   (testing "machine event handler → reg-machine flavour + machine block"
@@ -1792,16 +1903,15 @@
           "matching cofx step attached"))))
 
 (deftest attach-violations-app-db-to-fx-db-row-test
-  (testing "rf2-8resu — `:app-db` violation attaches to the FX step's
-            `:db` row (the implicit commit fx). The commit IS an fx —
-            the framework treats `:db` as the first, implicit fx —
-            so the schema violation belongs on the row representing
-            the failed commit, not on HANDLER (which describes what
-            the handler RETURNED). HANDLER + DISPATCH stay clean."
+  (testing "rf2-8resu / rf2-kt6js — `:app-db` violation attaches to the
+            SIDE EFFECTS step's `:db` row (the handler's app-db write).
+            The schema violation belongs on the row representing the
+            failed commit, not on HANDLER (which describes what the
+            handler RETURNED). HANDLER + DISPATCH stay clean."
     (let [steps  [{:step :dispatch :badge :DISPATCH}
                   {:step :handler  :badge :HANDLER}
-                  {:step :fx       :badge :FX
-                   :rows [{:fx-id :db :status :rollback}]}]
+                  {:step :side-effects :badge :SIDE-EFFECTS
+                   :rows [{:fx-id :db :status :error}]}]
           rows   [{:where :app-db :failing-id :counter/inc :rollback? true}]
           out    (proj/attach-violations steps rows)
           fx     (nth out 2)]
@@ -1810,15 +1920,15 @@
       (is (nil? (:violations (nth out 1)))
           "HANDLER step untouched — the violation no longer attaches here")
       (is (nil? (:violations fx))
-          "FX step-level :violations untouched — the violation routes
-           into the :db row, not the step")
+          "SIDE EFFECTS step-level :violations untouched — the violation
+           routes into the :db row, not the step")
       (is (= 1 (count (:violations (first (:rows fx)))))
-          "FX :db row carries the attached violation"))))
+          "SIDE EFFECTS :db row carries the attached violation"))))
 
 (deftest attach-violations-fx-row-test
-  (testing "rf2-xgeag — `:fx-args` violation attaches to the FX row whose
-            `:fx-id` matches `:failing-id`"
-    (let [steps  [{:step :fx :badge :FX
+  (testing "rf2-xgeag / rf2-kt6js — `:fx-args` violation attaches to the
+            SIDE EFFECTS row whose `:fx-id` matches `:failing-id`"
+    (let [steps  [{:step :side-effects :badge :SIDE-EFFECTS
                    :rows [{:fx-id :http/post :status :ok}
                           {:fx-id :db        :status :ok}]}]
           rows   [{:where :fx-args :failing-id :http/post}]
@@ -1854,14 +1964,15 @@
                   [{:where :app-db :rollback? true}])))))
 
 (deftest mark-rolled-back-downstream-test
-  (testing "rf2-8resu — rollback flags every step AFTER the FX step
-            (not after HANDLER). The FX step itself is NOT muted —
-            its `:db` row IS the visible rollback indicator (red ✗ +
-            violation sub-block); muting the entire FX step would hide
-            the signal. DISPATCH + HANDLER are upstream of the failed
-            commit so they stay unmuted too — they ran for real."
+  (testing "rf2-8resu / rf2-kt6js — rollback flags every step AFTER the
+            SIDE EFFECTS step (not after HANDLER). The SIDE EFFECTS step
+            itself is NOT muted — its `:db` row IS the visible rollback
+            indicator (red ✗ + violation sub-block); muting the entire
+            step would hide the signal. DISPATCH + HANDLER are upstream
+            of the failed commit so they stay unmuted too — they ran for
+            real."
     (let [steps [{:step :dispatch} {:step :handler}
-                 {:step :fx}       {:step :subscriptions}
+                 {:step :side-effects} {:step :subscriptions}
                  {:step :views}]
           rows  [{:where :app-db :rollback? true}]
           out   (proj/mark-rolled-back-downstream steps rows)]
@@ -1870,14 +1981,14 @@
       (is (nil? (:rolled-back? (nth out 1)))
           "HANDLER untouched (described what it RETURNED; that ran)")
       (is (nil? (:rolled-back? (nth out 2)))
-          "FX step itself NOT muted — its :db row is the visible signal")
+          "SIDE EFFECTS step itself NOT muted — its :db row is the signal")
       (is (true? (:rolled-back? (nth out 3)))
-          "SUBSCRIPTIONS downstream of FX gets muted")
+          "SUBSCRIPTIONS downstream of SIDE EFFECTS gets muted")
       (is (true? (:rolled-back? (nth out 4)))
-          "VIEWS downstream of FX gets muted")))
+          "VIEWS downstream of SIDE EFFECTS gets muted")))
 
   (testing "rf2-xgeag — no rollback → no `:rolled-back?` flags"
-    (let [steps [{:step :dispatch} {:step :handler} {:step :fx}]
+    (let [steps [{:step :dispatch} {:step :handler} {:step :side-effects}]
           rows  [{:where :sub-return :rollback? true}]
           out   (proj/mark-rolled-back-downstream steps rows)]
       (is (every? #(nil? (:rolled-back? %)) out)))))
@@ -2022,37 +2133,40 @@
 ;; helpers section.
 
 (deftest project-attaches-app-db-violation-to-fx-db-row-test
-  (testing "rf2-8resu — top-level `project` attaches `:app-db`
-            boundary violations to the FX step's `:db` row (the
-            implicit-commit fx). The FX step is synthesised even when
-            no user-fx fired — the `:where :app-db` violation alone
-            is sufficient signal that a `:db` commit was attempted
-            (the framework suppresses user-fx on rollback per Spec
-            010, so the `:rf.fx/handled` trace doesn't emit; the
-            violation IS the signal). The FX step contains exactly
-            one row — the synthesised `:db` row, `:status :rollback`,
-            carrying the violation. HANDLER stays clean — it
-            describes what the handler RETURNED; the commit outcome
-            is the FX step's `:db` row's concern."
+  (testing "rf2-8resu / rf2-kt6js — top-level `project` attaches
+            `:app-db` boundary violations to the SIDE EFFECTS step's
+            `:db` row (the handler's app-db write). The step is
+            synthesised when a `:db` commit was attempted (here both a
+            `:rf.event/db-changed` AND a `:where :app-db` rollback fire).
+            The `:db` sub-step's row carries `:status :error` (✗ on the
+            schema-fail rollback) + the attached violation. HANDLER stays
+            clean — it describes what the handler RETURNED; the commit
+            outcome is the SIDE EFFECTS `:db` row's concern."
     (let [rec     (record [(dispatched-ev [:counter/inc] :ui nil)
                            (db-changed-ev [[[:count] 0 "boom" :modified]])
                            (schema-violation-ev :app-db :counter/inc
                                                 [:count] "boom" true)])
           steps   (proj/project rec)
           handler (some #(when (= :handler (:step %)) %) steps)
-          fx      (some #(when (= :fx (:step %)) %) steps)
-          db-row  (some #(when (= :db (:fx-id %)) %) (:rows fx))]
+          se      (some #(when (= :side-effects (:step %)) %) steps)
+          db-rows (proj/sub-rows-of se :db)
+          db-row  (first db-rows)]
       (is (some? handler))
       (is (nil? (:violations handler))
-          "HANDLER step carries no violations — routing moved to FX :db row")
-      (is (some? fx)
-          "FX step is synthesised when a :where :app-db rollback fires
-           even with no user-emitted fx")
+          "HANDLER step carries no violations — routing moved to the :db row")
+      (is (some? se)
+          "SIDE EFFECTS step is synthesised when a :where :app-db rollback
+           fires even with no user-emitted fx")
+      (is (some? (some #{:db} (:sub-kinds se))) ":db sub-step present")
+      (is (= :error (proj/sub-step-status db-rows))
+          ":db sub-step :error on rollback — the attached violation lifts it")
       (is (some? db-row)
-          "the FX step's first row is the synthesised :db row")
-      (is (= :rollback (:status db-row))
-          "the :db row's status reflects the rollback")
-      (is (= 1 (count (:violations db-row))))
+          "the SIDE EFFECTS step's :db sub-step carries the :db row")
+      (is (= :error (:status db-row))
+          "the :db row's status reflects the schema-fail rollback")
+      (is (= 1 (count (:violations db-row)))
+          "the :app-db violation attached to the :db row flows through to the
+           rendered sub-step (single-source-of-truth :rows slot)")
       (is (true? (-> db-row :violations first :rollback?)))
       (is (not-any? #(= :schema-violations (:step %)) steps)
           "the retired aggregate SCHEMA-VIOLATIONS step never appears")
@@ -2140,7 +2254,7 @@
             HANDLER step's `:errors` + stamps `:status :error`"
     (let [steps [{:step :dispatch :badge :DISPATCH}
                  {:step :handler  :badge :HANDLER}
-                 {:step :fx       :badge :FX :rows []}]
+                 {:step :side-effects :badge :SIDE-EFFECTS :rows []}]
           rows  [(proj/exception-row
                    (handler-exception-ev :e "boom" {:file "a.cljs" :line 1}))]
           out   (proj/attach-exceptions steps rows)
@@ -2151,9 +2265,10 @@
       (is (nil? (:status (nth out 0))) "DISPATCH not flagged"))))
 
 (deftest attach-exceptions-fx-row-test
-  (testing "rf2-ahhgn — a `:rf.error/fx-handler-exception` attaches to the
-            FX step's matching `:fx-id` row + stamps the step `:status :error`"
-    (let [steps [{:step :fx :badge :FX
+  (testing "rf2-ahhgn / rf2-kt6js — a `:rf.error/fx-handler-exception`
+            attaches to the SIDE EFFECTS step's matching `:fx-id` row +
+            stamps the step `:status :error`"
+    (let [steps [{:step :side-effects :badge :SIDE-EFFECTS
                   :rows [{:fx-id :db :status :ok}
                          {:fx-id :http/post :status :error}]}]
           rows  [(proj/exception-row
@@ -2166,8 +2281,8 @@
           "http/post row carries the exception")))
 
   (testing "rf2-ahhgn — an fx exception with no matching row falls back to
-            the FX step-level `:errors`"
-    (let [steps [{:step :fx :badge :FX :rows [{:fx-id :db}]}]
+            the SIDE EFFECTS step-level `:errors`"
+    (let [steps [{:step :side-effects :badge :SIDE-EFFECTS :rows [{:fx-id :db}]}]
           rows  [(proj/exception-row
                    (fx-handler-exception-ev :unknown/fx "boom" nil))]
           out   (proj/attach-exceptions steps rows)]
@@ -2184,11 +2299,11 @@
     (is (= :error (proj/step-status {:step :handler :status :error})))
     (is (= :error (proj/step-status {:step :handler :errors [{:message "x"}]})))
     (is (= :error (proj/step-status {:step :handler :violations [{:where :app-db}]})))
-    (is (= :error (proj/step-status {:step :fx :rows [{:fx-id :db :errors [{}]}]}))
+    (is (= :error (proj/step-status {:step :side-effects :rows [{:fx-id :db :errors [{}]}]}))
         "row-level :errors lift the step to :error")
-    (is (= :error (proj/step-status {:step :fx :rows [{:fx-id :db :violations [{}]}]}))
+    (is (= :error (proj/step-status {:step :side-effects :rows [{:fx-id :db :violations [{}]}]}))
         "row-level :violations lift the step to :error")
-    (is (= :ok (proj/step-status {:step :fx :rows [{:fx-id :db}]}))
+    (is (= :ok (proj/step-status {:step :side-effects :rows [{:fx-id :db}]}))
         "clean rows keep :ok")))
 
 (deftest epoch-outcome-test
