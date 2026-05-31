@@ -264,8 +264,9 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
-`two_frame_isolation`, `standard_epochs`, `feature_matrix`, `panel_gallery`,
-`perf_counter` — covering the canonical multi-frame isolation surface
+`two_frame_isolation`, `standard_epochs`, `routes_epochs`, `feature_matrix`,
+`panel_gallery`, `perf_counter` — covering the canonical multi-frame
+isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
 per-frame trace / events / issues / cascades · Xray target-frame
@@ -275,7 +276,12 @@ rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
 a shared baseline counter + exercising exactly one more feature, so
 clicking top-to-bottom completely exercises any one Xray panel —
 Epoch / App-db / Views / Trace / Issues; no tabs, no routing, no
-machines/SSR; supersedes the old `step_deck`), the deterministic
+machines/SSR; supersedes the old `step_deck`), the routing sibling
+(`routes_epochs`, rf2-5crg4: the same numbered-button shape — one frame ·
+baseline-bump per press · one more ROUTING feature per rung — aimed
+squarely at the Routing panel, so clicking top-to-bottom completely
+exercises its Current route · Navigation this epoch · Route table
+sections; served on port 8032), the deterministic
 feature-matrix sweep across panels + shell + launch modes + redaction
 + 20-event load, the Panel-view gallery, and the performance probe.
 
