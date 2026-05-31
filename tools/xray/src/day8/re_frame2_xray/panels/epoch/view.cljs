@@ -63,7 +63,7 @@
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack spacing type-scale with-alpha]]))
 
 ;; ---- style hoists (rf2-zlk6h) -------------------------------------------
 ;;
@@ -1187,34 +1187,97 @@
    :border-radius "3px"
    :padding "6px 8px"})
 
-;; -- inline EXCEPTION card (rf2-ahhgn) ------------------------------------
+;; -- inline EXCEPTION card (rf2-ahhgn · sophistication pass rf2-ynvv7) ----
 ;;
 ;; A handler / interceptor / coeffect / fx / flow EXCEPTION renders as a
-;; red-edged card under its owning step (sibling to the amber schema-
+;; raised card under its owning step (sibling to the amber schema-
 ;; violation card). Distinct chrome from violations: a violation is an
 ;; expected-ish boundary rejection (amber, "Aborted"/"Skipped"); an
-;; exception is a genuine bug (red `✗`, the exception MESSAGE verbatim).
-;; The card reuses the violation block's flex/padding skeleton so the two
-;; failure surfaces read as a family, with the error tone swapped in.
+;; exception is a genuine bug (the `✗` glyph + the exception MESSAGE
+;; verbatim).
+;;
+;; rf2-ynvv7 — the card no longer borrows the violation block's flat
+;; skeleton. It now sits in the design system the way the surrounding
+;; pipeline-step cards do, sophisticated rather than basic:
+;;
+;;   - SURFACE — the raised panel surface (`:bg-2`) the other step cards
+;;     read, NOT the saturated rose wash. The card reads QUIET when
+;;     collapsed; the severity signal carries on the edge + glyph, not a
+;;     shouty fill.
+;;   - BORDER + RAIL — a refined hairline keyed to the error token via
+;;     `with-alpha` (a tinted edge, not a solid red box) plus a solid
+;;     `:error` LEFT RAIL — the same "accented left edge" language the
+;;     panel header stripe (`accent-stripe-style`) + the diff stripes
+;;     use, so the severity reads at the column-1 anchor.
+;;   - ELEVATION — a layered `box-shadow`: a soft neutral drop shadow
+;;     (the card lifts off the cascade) plus a faint error-tinted glow so
+;;     the lift is keyed to the failure tone without flooding the fill.
+;;   - SPACING — padding from the 4px `spacing` scale (`:gap-2` /
+;;     `:gap-3`), consistent with every other panel surface.
+;;
+;; All colour / spacing values resolve through the theme token ns (no
+;; hardcoded hex; the few residual px are radii, for which the token ns
+;; carries no scale — they match the surrounding cards' `3px`/`4px`).
 
 (def ^:private error-block-style
-  (assoc schema-violation-block-style
-         :border (str "1px solid " error-colour)))
+  {:display        "flex"
+   :flex-direction "column"
+   :gap            (:gap-2 spacing)
+   :padding        (str (:gap-2 spacing) " " (:gap-3 spacing))
+   :margin         (str (:gap-1 spacing) " 0")
+   :background     bg-2-colour
+   ;; Refined tinted hairline (not a shouty solid red box) + the solid
+   ;; `:error` left rail carrying the severity at the column-1 anchor.
+   :border         (str "1px solid " (with-alpha :error 38))
+   :border-left    (str "3px solid " error-colour)
+   :border-radius  "4px"
+   ;; Elevation — neutral drop shadow + a faint error-keyed glow so the
+   ;; lift reads as "failure" without flooding the surface.
+   :box-shadow     (str "0 1px 3px rgba(0,0,0,0.32), "
+                        "0 0 0 1px " (with-alpha :error 10))
+   :font-family    mono-stack
+   :font-size      (:mono-body type-scale)})
+
+(def ^:private error-block-glyph-style
+  ;; A restrained `✗` glyph badge (rf2-ynvv7) — sized + vertically
+  ;; centred in the error accent, sitting in a small fixed box so it
+  ;; aligns with the headline baseline rather than floating as a bare
+  ;; character.
+  {:display         "inline-flex"
+   :align-items     "center"
+   :justify-content "center"
+   :flex            "0 0 auto"
+   :width           "14px"
+   :height          "14px"
+   :color           error-colour
+   :font-size       "13px"
+   :font-weight     700
+   :line-height     1})
 
 (def ^:private error-block-title-style
-  (assoc schema-violation-title-style
-         :color error-colour))
+  ;; Headline tier of the card's typographic hierarchy: the `:error`
+  ;; accent, sans face, slight tracking — reads as the failure label
+  ;; above the verbatim mono message.
+  {:display     "flex"
+   :align-items "center"
+   :gap         (:gap-2 spacing)
+   :color       error-colour
+   :font-family sans-stack
+   :font-weight 700
+   :font-size   (:body-tight type-scale)
+   :letter-spacing "0.2px"})
 
 (def ^:private error-block-message-style
   ;; The exception message is verbatim text the developer wrote in their
   ;; `ex-info` — render it monospace (it often quotes code / ids) and in
   ;; the primary text colour so it reads as the punchline of the card.
+  ;; The second tier of the hierarchy: below the headline, brighter than
+  ;; the collapsed detail affordance.
   {:color       text-primary-colour
    :font-family mono-stack
-   :font-size   "12px"
-   :line-height 1.5
-   :word-break  "break-word"
-   :margin      "2px 0"})
+   :font-size   (:mono-body type-scale)
+   :line-height (:line-height-mono type-scale)
+   :word-break  "break-word"})
 
 (def ^:private error-block-recovery-chip-style
   (assoc schema-violation-rollback-chip-style
@@ -1224,42 +1287,46 @@
 ;; The stack trace + ex-data are diagnostic depth the operator wants on
 ;; demand, not always-expanded clutter under every failed step. A native
 ;; `<details>` element gives a zero-app-db-state, accessible disclosure;
-;; the summary row is the clickable affordance.
+;; the summary row is the clickable affordance. The third + quietest tier
+;; of the hierarchy (rf2-ynvv7) — kept calm so the card stays quiet when
+;; collapsed.
 (def ^:private error-block-details-style
-  {:margin "4px 0 0 0"})
+  {:margin-top (:gap-1 spacing)})
 
 (def ^:private error-block-summary-style
   {:cursor      "pointer"
-   :color       text-secondary-colour
+   :color       text-tertiary-colour
    :font-family sans-stack
-   :font-size   "11px"
+   :font-size   (:caption type-scale)
    :user-select "none"
    :outline     "none"})
 
 (def ^:private error-block-stack-style
   ;; The stack trace is verbatim multi-line text — render it monospace
   ;; in a scrollable, pre-wrapped block so long stacks don't blow out the
-  ;; panel width.
+  ;; panel width. Recessed surface (`:bg-1`) so the disclosed depth reads
+  ;; as a well inside the raised card.
   {:color          text-tertiary-colour
    :font-family    mono-stack
-   :font-size      "11px"
-   :line-height    1.45
+   :font-size      (:caption type-scale)
+   :line-height    (:line-height-mono type-scale)
    :white-space    "pre-wrap"
    :word-break     "break-word"
    :max-height     "240px"
    :overflow       "auto"
-   :margin         "4px 0 0 0"
-   :padding        "6px 8px"
+   :margin-top     (:gap-1 spacing)
+   :padding        (str (:gap-1 spacing) " " (:gap-2 spacing))
    :background     bg-1-colour
+   :border         border-subtle-1px
    :border-radius  "3px"})
 
 (def ^:private error-block-data-label-style
   {:color          text-tertiary-colour
    :font-family    sans-stack
-   :font-size      "10px"
+   :font-size      (:micro type-scale)
    :text-transform "uppercase"
    :letter-spacing "0.5px"
-   :margin         "6px 0 2px 0"})
+   :margin         (str (:gap-2 spacing) " 0 " (:gap-0 spacing) " 0")})
 
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
@@ -4294,9 +4361,9 @@
            :data-testid testid-base
            :data-error-op (when (:operation row) (name (:operation row)))
            :style error-block-style}
-     ;; 1. Title bar — ✗ + 'Exception Thrown' + recovery chip
+     ;; 1. Title bar — ✗ glyph + 'Exception Thrown' + recovery chip
      [:div {:style error-block-title-style}
-      [:span {:aria-hidden true} "✗"]
+      [:span {:aria-hidden true :style error-block-glyph-style} "✗"]
       [:span {:data-testid (str testid-base "-title")} "Exception Thrown"]
       [:span {:style schema-violation-title-spacer-style}]
       (when recovery-label

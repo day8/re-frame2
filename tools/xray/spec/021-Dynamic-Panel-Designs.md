@@ -2460,10 +2460,36 @@ per-stage `⊘` glyph retired in rf2-9wq0v). A skip is NEUTRAL, not a
 failure, so it does NOT inflate the epoch outcome (the failing COEFFECT /
 INTERCEPTOR step is the load-bearing `:error` signal).
 
-**Inline error card (rf2-ahhgn · refined rf2-wnvid).** `view/error-block`
-renders a red-edged card (sibling to the amber schema-violation card;
-`:bg-violation` background, `:error` border) for ALL exception kinds,
-carrying:
+**Inline error card (rf2-ahhgn · refined rf2-wnvid · sophistication pass
+rf2-ynvv7).** `view/error-block` renders a RAISED card (sibling to the
+amber schema-violation card) for ALL exception kinds. **rf2-ynvv7** lifts
+the card out of the flat violation skeleton it formerly borrowed and sits
+it in the design system the way the surrounding pipeline-step cards do —
+every colour / spacing value resolves through the theme token ns (`theme/
+tokens`), no hardcoded hex:
+
+- **Surface** — the raised panel surface (`:bg-2`), the same neutral the
+  other step cards read, NOT the saturated `:bg-violation` rose wash. The
+  card reads **quiet when collapsed**; the severity signal carries on the
+  edge + glyph, not a shouty fill.
+- **Border + rail** — a refined hairline keyed to the error token via
+  `tokens/with-alpha` (a tinted edge, not a solid-red box) plus a solid
+  `:error` **left rail** (the same accented-left-edge language as the L4
+  panel header stripe + the diff stripes), so severity reads at the
+  column-1 anchor.
+- **Elevation** — a layered `box-shadow`: a soft neutral drop shadow (the
+  card lifts off the cascade) plus a faint `:error`-tinted ring so the
+  lift is keyed to the failure tone without flooding the fill.
+- **Spacing + radius** — padding from the 4px `tokens/spacing` scale
+  (`:gap-2` / `:gap-3`); radius matches the surrounding cards.
+- **Typographic hierarchy** — the `✗ Exception Thrown` headline (sans,
+  `:error` accent, `:body-tight`) → the verbatim mono message
+  (`:text-primary`, `:mono-body`) → the quiet collapsed-detail affordance
+  (`:text-tertiary`, `:caption`).
+- **Glyph** — the `✗` is a sized + baseline-aligned badge in the `:error`
+  accent (a fixed 14px box), not a bare floating character.
+
+The card carries, top to bottom:
 
 1. a `✗ Exception Thrown` title bar + a `Rolled back` recovery chip
    that paints **ONLY** when the cascade **ACTUALLY rolled back**

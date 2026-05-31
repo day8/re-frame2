@@ -14,6 +14,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.theme.tokens :as tokens]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator]))
@@ -30,6 +31,11 @@
 (defn- text-of
   [tree testid]
   (some-> tree (th/find-by-testid testid) th/text-content))
+
+(defn- style-of
+  "The inline `:style` map of the node carrying `testid` under `tree`."
+  [tree testid]
+  (some-> tree (th/find-by-testid testid) th/attrs :style))
 
 ;; ---- rf2-9jvx1 — text-duplication audit --------------------------------
 
@@ -2394,6 +2400,47 @@
           "the verbatim ex-info message renders")
       (is (nil? (th/find-by-testid tree (str base "-source")))
           "rf2-wnvid — the redundant jump-to-source link is dropped"))))
+
+(deftest error-block-styling-is-token-driven-test
+  (testing "rf2-ynvv7 — the sophistication pass styles the exception card
+            from the design tokens (the raised `:bg-2` surface, the solid
+            `:error` left rail, an `:error`-keyed elevation glow, and the
+            `:error`-accent glyph), NOT hardcoded hex. The card sits in the
+            design system like the surrounding step cards."
+    (let [error-var (:error tokens/tokens)        ; "var(--rf-xray-error)"
+          bg-2-var  (:bg-2  tokens/tokens)         ; "var(--rf-xray-bg-2)"
+          tree      (view/error-block :handler 0
+                      {:operation :rf.error/handler-exception
+                       :message   "boom"
+                       :recovery  :no-recovery})
+          base      "rf-xray-epoch-error-handler-0"
+          card      (style-of tree base)
+          glyph     (some-> tree (th/find-by-testid base)
+                            ;; the glyph span is the first title-bar child
+                            (->> (tree-seq vector? seq)
+                                 (filter #(and (vector? %)
+                                               (= "✗" (last %))))
+                                 first
+                                 th/attrs
+                                 :style))]
+      ;; The card root reads the raised panel surface + a token-keyed
+      ;; left rail + an `:error`-tinted elevation — all from tokens.
+      (is (= bg-2-var (:background card))
+          "card surface is the raised `:bg-2` token (not the rose wash)")
+      (is (string/includes? (str (:border-left card)) error-var)
+          "the severity left rail is the `:error` token")
+      (is (string/includes? (str (:border card)) error-var)
+          "the hairline border is a `with-alpha` mix over the `:error` token")
+      (is (string/includes? (str (:box-shadow card)) error-var)
+          "the elevation glow is keyed to the `:error` token")
+      (is (some? (:box-shadow card))
+          "the card carries elevation (box-shadow) — not a flat box")
+      ;; No hardcoded hex anywhere in the card root style (token discipline).
+      (is (not (re-find #"#[0-9A-Fa-f]{3,8}" (pr-str card)))
+          "no hardcoded hex in the exception-card root style")
+      ;; The glyph badge paints in the `:error` accent.
+      (is (= error-var (:color glyph))
+          "the ✗ glyph is the `:error` accent token"))))
 
 (deftest error-block-no-spurious-rolled-back-test
   (testing "rf2-s6oqd — a POST-COMMIT fx throw leaves the :db committed but
