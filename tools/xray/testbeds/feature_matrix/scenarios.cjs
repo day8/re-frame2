@@ -47,12 +47,20 @@ const STAGED_SURFACES = [
     html: ['examples', 'reagent', 'counter', 'index.html'],
     servedPath: 'counter',
   },
-  {
-    build: 'examples/counter-perf',
-    bundleDir: ['out', 'examples', 'counter-perf'],
-    html: ['tools', 'xray', 'testbeds', 'perf_counter', 'index.html'],
-    servedPath: 'counter-perf',
-  },
+  // ---- retired with the perf_counter testbed (rf2-6cq3u) --------------
+  //
+  // The `examples/counter-perf` surface staged + served the
+  // perf-instrumented counter from `tools/xray/testbeds/perf_counter/
+  // index.html`, but NO scenario navigated to `/counter-perf/` — it was
+  // a dead staged surface that compiled + served a bundle nothing hit.
+  // The three load scenarios the bead tracked ride independent
+  // surfaces: '20-event large value elision load' on
+  // `/testbeds/large-dispatcher/`, and the '1000-event trace row-budget'
+  // + '20-event launch-mode shared runtime' re-checks on `/counter/`.
+  // Deleting the perf_counter testbed therefore drops this surface with
+  // zero scenario impact. The migrated User-Timing-emission assertions
+  // live nightly as pure CLJS at `implementation/core/test/re_frame/
+  // performance_emit_nightly_test.cljs` (Wave 4, rf2-e3j8l).
   {
     build: 'testbeds/deliberate-throw',
     bundleDir: ['out', 'testbeds', 'deliberate-throw'],

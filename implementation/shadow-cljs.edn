@@ -109,12 +109,14 @@
                 "../tools/machines-viz/src"
                 "../tools/machines-viz/test"
                 ;; tools/xray/testbeds (rf2-p8f2s — examples-split step 1).
-                ;; Tool-owned testbeds colocate the testbed app source (where
-                ;; an app is needed — perf-counter) with the spec that drives
-                ;; it. Source path added so `perf-counter.core` resolves for
-                ;; the `:examples/counter-perf` build below; bundle-isolation
-                ;; contract still holds (nothing under implementation/ may
-                ;; :require anything under tools/).
+                ;; Tool-owned testbeds colocate their testbed app source
+                ;; (where an app is needed) with the spec that drives it.
+                ;; Source path added so the testbed entry-point namespaces
+                ;; (`standard-epochs.core`, `routes-epochs.core`,
+                ;; `machine-epochs.core`, `two-frame-isolation.core`, …)
+                ;; resolve for their `:examples/*` / `:testbeds/*` builds
+                ;; below; bundle-isolation contract still holds (nothing
+                ;; under implementation/ may :require anything under tools/).
                 "../tools/xray/testbeds"
                 ;; tools/story/testbeds (rf2-p8f2s — examples-split step 1).
                 ;; The `counter_with_stories/` testbed (formerly under
@@ -317,9 +319,10 @@
   ;; `performance.getEntriesByType('measure')` for the rf:* entries.
   ;;
   ;; Runs NIGHTLY ONLY (not per-PR). The migrated assertions were
-  ;; previously the Playwright spec at
-  ;; `tools/xray/testbeds/perf_counter/spec.cjs` (deleted in this
-  ;; bead). Migrated here for two reasons:
+  ;; previously a Playwright browser smoke beside the (since-deleted,
+  ;; rf2-6cq3u) `perf_counter` testbed; that smoke itself was retired in
+  ;; Wave 4 (rf2-e3j8l) and its User-Timing assertions migrated here for
+  ;; two reasons:
   ;;
   ;;   1. The User-Timing emission is a CORE concern (every call site
   ;;      lives in `implementation/core/src/re_frame/`) so the test
@@ -575,40 +578,38 @@
    :modules    {:main {:init-fn counter-slim-and-fast.core/run}}}
 
   ;; Performance-API instrumented variant of the counter example
-  ;; (rf2-du3i). Same source, same :advanced compilation, but with the
-  ;; `re-frame.performance/enabled?` goog-define flipped to `true`. Used
-  ;; by:
-  ;;
-  ;;   1. The bundle-presence assertion in scripts/check-perf-bundle.cjs:
-  ;;      `performance.mark` / `performance.measure` and the helper's
-  ;;      bracketing strings MUST appear in this bundle.
-  ;;   2. (rf2-e3j8l, Wave 4) The companion browser smoke at
-  ;;      tools/xray/testbeds/perf_counter/spec.cjs was DELETED — the
-  ;;      User-Timing emission assertions migrated to pure CLJS at
-  ;;      implementation/core/test/re_frame/performance_emit_nightly_test.cljs
-  ;;      (nightly only via the :node-test-perf-nightly build above;
-  ;;      `npm run test:cljs-perf-emit-nightly`). This bundle target is
-  ;;      retained for #1 (bundle-presence grep) and as the live
-  ;;      Xray-displayable counter under `npx shadow-cljs watch`.
+  ;; (rf2-du3i). The SAME canonical source as `:examples/counter`
+  ;; (`counter.core/run`, examples/reagent/counter/core.cljs), same
+  ;; `:advanced` compilation, but with the `re-frame.performance/enabled?`
+  ;; goog-define flipped to `true`. Its sole consumer is the
+  ;; bundle-presence assertion in scripts/check-perf-bundle.cjs (`npm run
+  ;; test:perf-bundle`): with the flag on, the `performance.mark` /
+  ;; `performance.measure` / `"rf:` strings emitted by
+  ;; `re-frame.performance` MUST survive `:advanced` DCE in this bundle —
+  ;; the dual of the `:examples/counter` perf-off negative grep. Without
+  ;; the perf-on bundle the negative assertion would be vacuous.
   ;;
   ;; Per Spec 009 §Performance instrumentation: the flag is the consumer's
-  ;; surface. Default :examples/counter is the shape every other example
-  ;; ships in (perf elided); this counter-perf variant proves the toggle
-  ;; produces the expected bracket entries when consumers want them.
+  ;; surface. Default :examples/counter is the shape every example ships
+  ;; in (perf elided); this counter-perf variant proves the toggle keeps
+  ;; the bracket entries when consumers opt in.
   ;;
-  ;; rf2-p8f2s (examples-split step 1): the perf-instrumented variant is a
-  ;; tool-owned testbed (tools/xray/testbeds/perf_counter/) so the
-  ;; canonical tutorial counter (examples/reagent/counter/core.cljs) can
-  ;; stay on the idiomatic `reg-event-db` shape every other example uses
-  ;; for its initialiser. The non-canonical `reg-event-fx :db + :fx` shape
-  ;; the perf bundle needs (to populate the `rf:fx:*` bucket on init) lives
-  ;; here in the testbed.
+  ;; rf2-6cq3u: previously the `perf-counter.core` entry-point lived in a
+  ;; tool-owned testbed (tools/xray/testbeds/perf_counter/) carrying a
+  ;; deliberately non-canonical `reg-event-fx :db + :fx` init shape, which
+  ;; only the now-deleted browser smoke (rf2-e3j8l, Wave 4) needed —
+  ;; that smoke's User-Timing assertions migrated to pure CLJS at
+  ;; implementation/core/test/re_frame/performance_emit_nightly_test.cljs
+  ;; (nightly, via :node-test-perf-nightly above). With the smoke gone,
+  ;; the perf-on bundle has no need for the bespoke shape: it simply
+  ;; reuses the canonical counter source, and the perf_counter testbed
+  ;; (its index.html / core.cljs) was deleted.
   :examples/counter-perf
   {:target           :browser
    :output-dir       "out/examples/counter-perf"
    :asset-path       "."
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
-   :modules          {:main {:init-fn perf-counter.core/run}}}
+   :modules          {:main {:init-fn counter.core/run}}}
 
   ;; Two-frame isolation testbed (rf2-6qgbs.1) — THE canonical multi-
   ;; frame isolation surface for Xray. Replaces the parallel-frames
