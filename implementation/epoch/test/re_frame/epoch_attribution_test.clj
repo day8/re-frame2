@@ -813,7 +813,7 @@
 ;;                cross-frame / observer sibling of inv-3)
 ;; ===========================================================================
 ;;
-;; The LIVE repro (build :examples/button-deck): the :rf/default boot epoch's
+;; The LIVE repro (build :examples/standard-epochs): the :rf/default boot epoch's
 ;; :renders carried ["shell-view" 27] (mount + update) — Xray's OWN shell-view,
 ;; the observer, leaking into the observed app's render tape. Root cause:
 ;; `shell-view` is a `reg-view` (its :rf.view/rendered carries

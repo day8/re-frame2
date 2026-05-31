@@ -598,7 +598,7 @@
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-db :event-id :button-deck/throw-handler
+                      :flavour :reg-event-db :event-id :standard-epochs/throw-handler
                       :db-diff [] :db-write? false :fx [] :machine nil
                       :status :error
                       :errors [{:operation :rf.error/handler-exception
@@ -650,11 +650,11 @@
             before→after line. This is what keeps the flow's `:derived`
             recompute SEPARATE from the HANDLER step's `:db`."
     (frame/reg-frame :rf/xray {})
-    ;; testids embed `(name flow-id)` — `:button-deck/derived` → `derived`.
+    ;; testids embed `(name flow-id)` — `:standard-epochs/derived` → `derived`.
     (let [tree (rf/with-frame :rf/xray
                  (view/render-flow-step
                    {:step :flow :badge :FLOW :step-number 4
-                    :flow-id :button-deck/derived
+                    :flow-id :standard-epochs/derived
                     :path [:derived] :before 2 :after 4
                     :db-pre-flow  {:base 2 :baseline 1 :derived 2}
                     :db-post-flow {:base 2 :baseline 1 :derived 4}}))]
@@ -2390,8 +2390,8 @@
             and the verbatim message. The redundant jump-to-source link is
             DROPPED (rf2-wnvid — the HANDLER verb is the canonical link)."
     (let [row  {:operation :rf.error/handler-exception
-                :message "button-deck / handler (intentional — exercises the handler error surface)"
-                :failing-id :button-deck/throw-handler
+                :message "standard-epochs / handler (intentional — exercises the handler error surface)"
+                :failing-id :standard-epochs/throw-handler
                 :recovery :no-recovery
                 ;; a committed-then-rolled-back db → the chip is legitimate
                 :db-committed? true}
@@ -2420,7 +2420,7 @@
     (let [tree (view/error-block :handler 0
                  {:operation :rf.error/handler-exception
                   :message "boom" :phase :before
-                  :failing-id :button-deck/throw-handler})
+                  :failing-id :standard-epochs/throw-handler})
           head (text-of tree "rf-xray-epoch-error-handler-0-headline")]
       (is (string/includes? head "event handler threw"))
       (is (not (string/includes? head "interceptor"))
@@ -2479,13 +2479,13 @@
             an attached exception renders the inline error card AND the
             header's ✗ status glyph"
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :button-deck/throw-handler
+                :flavour :reg-event-db :event-id :standard-epochs/throw-handler
                 :db-diff [] :fx [] :machine nil
                 :status :error
                 :errors [{:operation :rf.error/handler-exception
                           :message "boom in handler"
                           :coord {:file "core.cljs" :line 322}
-                          :failing-id :button-deck/throw-handler
+                          :failing-id :standard-epochs/throw-handler
                           :recovery :no-recovery}]}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-error-handler-0"))
@@ -2522,10 +2522,10 @@
             at index 1 (compatible with yz57h's exception-under-step)."
     (let [step (side-effects-step
                  [{:fx-id :db :status :ok}
-                  {:fx-id :button-deck/ping :status :error
+                  {:fx-id :standard-epochs/ping :status :error
                    :errors [{:operation :rf.error/fx-handler-exception
                              :message "fx threw on purpose"
-                             :failing-id :button-deck/ping
+                             :failing-id :standard-epochs/ping
                              :recovery :no-recovery}]}]
                  1)
           tree (view/render-side-effects-step step)]
@@ -2554,11 +2554,11 @@
     (let [tree (rf/with-frame :rf/xray
                  (view/render-coeffect-step
                    {:step :coeffect :badge :COEFFECT :step-number 2
-                    :id :button-deck/throwing-cofx :no-value? true :threw? true
+                    :id :standard-epochs/throwing-cofx :no-value? true :threw? true
                     :status :error
                     :errors [{:operation :rf.error/coeffect-exception
                               :message "cofx threw on purpose"
-                              :failing-id :button-deck/throwing-cofx
+                              :failing-id :standard-epochs/throwing-cofx
                               :recovery :no-recovery}]}))]
       ;; the failed-injection body, NOT a `+ [id] value` diff line.
       ;; (testids key off `(name id)` — the namespace is stripped.)
@@ -2589,11 +2589,11 @@
                  (view/render-interceptor-step
                    {:step :interceptor :badge :INTERCEPTOR :step-number 3
                     :status :error
-                    :rows [{:interceptor-id :button-deck/throwing-interceptor
+                    :rows [{:interceptor-id :standard-epochs/throwing-interceptor
                             :phase :before}]
                     :errors [{:operation :rf.error/interceptor-exception
                               :message "interceptor :before boom"
-                              :failing-id :button-deck/throwing-interceptor
+                              :failing-id :standard-epochs/throwing-interceptor
                               :phase :before
                               :recovery :no-recovery}]}))]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-step-interceptor"))
@@ -2641,7 +2641,7 @@
     (let [tree (rf/with-frame :rf/xray
                  (view/render-handler-step
                    {:step :handler :badge :HANDLER :step-number 4
-                    :flavour :reg-event-db :event-id :button-deck/throw-interceptor
+                    :flavour :reg-event-db :event-id :standard-epochs/throw-interceptor
                     :db-diff [] :db-write? true :fx [] :machine nil
                     :status :skipped}))]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-skipped"))

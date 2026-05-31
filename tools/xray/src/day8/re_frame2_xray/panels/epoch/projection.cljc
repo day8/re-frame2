@@ -935,7 +935,7 @@
      installed a `:db` from the handler.
 
   FALSE when the handler returned NO `:db` — INCLUDING the
-  handler-threw case (button-15 `:button-deck/throw-handler`: the
+  handler-threw case (button-15 `:standard-epochs/throw-handler`: the
   handler threw before returning, db-before == db-after, no t1, no
   db-changed). The HANDLER step's `:db` sub-section keys off this to
   show 'no :db (handler threw / returned no :db)' rather than falling

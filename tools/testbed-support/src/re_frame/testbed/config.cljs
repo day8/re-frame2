@@ -5,7 +5,7 @@
 
   ## Why this exists
 
-  Xray and Story turn a source-coord (`button_deck/core.cljs:42`) into an
+  Xray and Story turn a source-coord (`standard_epochs/core.cljs:42`) into an
   editor URI by prepending an on-disk *project-root*. SHIPPED code reads
   that root from host config (`xray-config/configure!` /
   `story/configure!`); there is no baked default. But the dev testbeds

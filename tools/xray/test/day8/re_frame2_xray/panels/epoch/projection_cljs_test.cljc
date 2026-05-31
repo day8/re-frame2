@@ -962,8 +962,8 @@
 
 ;; ---- t1 / t2 db attribution (rf2-4wywy) ---------------------------------
 ;;
-;; button-deck button 5 (`:button-deck/increment-flow`): the handler bumps
-;; `:base`; the `:button-deck/derived` flow then recomputes `:derived =
+;; standard-epochs button 5 (`:standard-epochs/increment-flow`): the handler bumps
+;; `:base`; the `:standard-epochs/derived` flow then recomputes `:derived =
 ;; 2 × :base` into app-db AFTER the handler. The HANDLER step's `:db` must
 ;; reflect ONLY the handler's change (`:base` bumped, NO `:derived`); the
 ;; FLOW step must show the flow's OWN contribution (`:derived` recomputed)
@@ -996,13 +996,13 @@
             the authoritative HANDLER `:db`."
     (let [t1     {:base 2 :baseline 1 :derived 2}  ; post-handler: :base/:baseline bumped, :derived UNTOUCHED (still 2)
           t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed 2 → 4
-          record {:event-id     :button-deck/increment-flow
+          record {:event-id     :standard-epochs/increment-flow
                   :db-before    {:base 1 :baseline 0 :derived 2}
                   ;; the record's :db-after is the FINAL post-flow state
                   :db-after     t2
-                  :trace-events [(dispatched-ev [:button-deck/increment-flow])
+                  :trace-events [(dispatched-ev [:standard-epochs/increment-flow])
                                  (db-pending-ev t1)
-                                 (flow-recomputed-ev :button-deck/derived [:derived] 2 4)
+                                 (flow-recomputed-ev :standard-epochs/derived [:derived] 2 4)
                                  (db-pending-post-flow-ev t2)
                                  (run-end-ev 0.3)]}
           steps  (proj/project record)
@@ -1029,19 +1029,19 @@
             handler's change."
     (let [t1     {:base 2 :baseline 1 :derived 2}  ; pre-flow: :derived still 2
           t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed
-          record {:event-id     :button-deck/increment-flow
+          record {:event-id     :standard-epochs/increment-flow
                   :db-before    {:base 1 :baseline 0 :derived 2}
                   :db-after     t2
-                  :trace-events [(dispatched-ev [:button-deck/increment-flow])
+                  :trace-events [(dispatched-ev [:standard-epochs/increment-flow])
                                  (db-pending-ev t1)
-                                 (flow-recomputed-ev :button-deck/derived [:derived] 2 4)
+                                 (flow-recomputed-ev :standard-epochs/derived [:derived] 2 4)
                                  (db-pending-post-flow-ev t2)
                                  (run-end-ev 0.3)]}
           steps  (proj/project record)
           flows  (filter #(= :flow (:step %)) steps)
           f      (first flows)]
       (is (= 1 (count flows)) "one FLOW step for the single recompute")
-      (is (= :button-deck/derived (:flow-id f)))
+      (is (= :standard-epochs/derived (:flow-id f)))
       (is (= [:derived] (:path f)))
       (is (= t1 (:db-pre-flow f))
           "FLOW step carries t1 (pre-flow) so the view diff's `:before` =
@@ -2216,7 +2216,7 @@
 
 ;; ---- rf2-ahhgn — inline exception attachment + per-step status ----------
 ;;
-;; The live button-15 (`:button-deck/throw-handler`) scenario: the handler
+;; The live button-15 (`:standard-epochs/throw-handler`) scenario: the handler
 ;; threw, the router caught it (db rolled back), the epoch settled with the
 ;; framework `:outcome :ok` (by spec — the reference runtime recovers + does
 ;; NOT emit `:halted-handler-exception`) and a `:rf.error/handler-exception`
@@ -2231,17 +2231,17 @@
             the wrong key) and the source-coord off the hoisted
             `:rf.trace/trigger-handler :source-coord`"
     (let [ev  (handler-exception-ev
-                :button-deck/throw-handler
-                "button-deck / handler (intentional — exercises the handler error surface)"
-                {:file "button_deck/core.cljs" :line 322})
+                :standard-epochs/throw-handler
+                "standard-epochs / handler (intentional — exercises the handler error surface)"
+                {:file "standard_epochs/core.cljs" :line 322})
           row (proj/exception-row ev)]
       (is (= :rf.error/handler-exception (:operation row)))
-      (is (= "button-deck / handler (intentional — exercises the handler error surface)"
+      (is (= "standard-epochs / handler (intentional — exercises the handler error surface)"
              (:message row))
           "message resolves through :exception-message")
-      (is (= {:file "button_deck/core.cljs" :line 322} (:coord row))
+      (is (= {:file "standard_epochs/core.cljs" :line 322} (:coord row))
           "coord resolves through :rf.trace/trigger-handler :source-coord")
-      (is (= :button-deck/throw-handler (:failing-id row)))
+      (is (= :standard-epochs/throw-handler (:failing-id row)))
       (is (= :no-recovery (:recovery row)))))
 
   (testing "rf2-ahhgn — falls back to `:reason` for the message + nil-safe
@@ -2275,8 +2275,8 @@
   (testing "rf2-wnvid — FALSE for the handler-threw shape (button-15: no
             t1, no db-changed — handler threw before returning a :db)"
     (is (false? (proj/handler-wrote-db?
-                  [(dispatched-ev [:button-deck/throw-handler] :ui nil)
-                   (handler-exception-ev :button-deck/throw-handler "boom" nil)
+                  [(dispatched-ev [:standard-epochs/throw-handler] :ui nil)
+                   (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
                    (run-end-ev 1)]))))
   (testing "rf2-wnvid — FALSE for a reg-event-fx that returned only :fx"
     (is (false? (proj/handler-wrote-db?
@@ -2288,10 +2288,10 @@
             `:db` sub-section chooses the no-write placeholder over the
             phantom full-app-db fallback"
     (let [threw (proj/handler-row
-                  [(dispatched-ev [:button-deck/throw-handler] :ui nil)
-                   (handler-exception-ev :button-deck/throw-handler "boom" nil)
+                  [(dispatched-ev [:standard-epochs/throw-handler] :ui nil)
+                   (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
                    (run-end-ev 1)]
-                  :button-deck/throw-handler
+                  :standard-epochs/throw-handler
                   {:n 1} {:n 1})]
       (is (false? (:db-write? threw))
           "handler that threw before returning a :db → db-write? false"))
@@ -2391,13 +2391,13 @@
             trace under `:trace-events` surfaces on the HANDLER step inline
             (message + coord) AND the projected cascade reads `:error`. The
             handler step also carries `:status :error` so the view paints ✗."
-    (let [rec   (record [(dispatched-ev [:button-deck/throw-handler] :ui
+    (let [rec   (record [(dispatched-ev [:standard-epochs/throw-handler] :ui
                                         {:file "core.cljs" :line 481})
                          (handler-exception-ev
-                           :button-deck/throw-handler
-                           "button-deck / handler (intentional — exercises the handler error surface)"
-                           {:file "button_deck/core.cljs" :line 322})]
-                        :button-deck/throw-handler)
+                           :standard-epochs/throw-handler
+                           "standard-epochs / handler (intentional — exercises the handler error surface)"
+                           {:file "standard_epochs/core.cljs" :line 322})]
+                        :standard-epochs/throw-handler)
           steps   (proj/project rec)
           handler (some #(when (= :handler (:step %)) %) steps)]
       (is (some? handler))
@@ -2408,9 +2408,9 @@
       (is (= 1 (count (:errors handler)))
           "the handler-exception attached as an inline error")
       (let [err (first (:errors handler))]
-        (is (= "button-deck / handler (intentional — exercises the handler error surface)"
+        (is (= "standard-epochs / handler (intentional — exercises the handler error surface)"
                (:message err)))
-        (is (= {:file "button_deck/core.cljs" :line 322} (:coord err)))
+        (is (= {:file "standard_epochs/core.cljs" :line 322} (:coord err)))
         ;; rf2-wnvid — the live button-15 had NO :db commit (handler
         ;; threw before returning), so the exception row's cascade-level
         ;; `:db-committed?` is false → the view omits the spurious
@@ -2484,15 +2484,15 @@
   (testing "rf2-yz57h — a coeffect-exception with NO matching :rf.cofx/run
             synthesises a placeholder COEFFECT step (no value), carries the
             exception, and marks the HANDLER + SIDE EFFECTS skipped"
-    (let [rec   (record [(dispatched-ev [:button-deck/throw-cofx] :ui nil)
-                         (coeffect-exception-ev :button-deck/throwing-cofx
+    (let [rec   (record [(dispatched-ev [:standard-epochs/throw-cofx] :ui nil)
+                         (coeffect-exception-ev :standard-epochs/throwing-cofx
                                                 "cofx boom")]
-                        :button-deck/throw-cofx)
+                        :standard-epochs/throw-cofx)
           steps (proj/project rec)
           cofx  (some #(when (= :coeffect (:step %)) %) steps)
           h     (some #(when (= :handler (:step %)) %) steps)]
       (is (some? cofx) "a COEFFECT step exists for the throwing cofx")
-      (is (= :button-deck/throwing-cofx (:id cofx)))
+      (is (= :standard-epochs/throwing-cofx (:id cofx)))
       (is (true? (:no-value? cofx)) "placeholder carries :no-value? (no resolved value)")
       (is (= 1 (count (:errors cofx))) "the exception lands under COEFFECT")
       (is (= :error (proj/step-status cofx)) "COEFFECT reads :error")
@@ -2537,11 +2537,11 @@
   (testing "rf2-yz57h — button-17 live scenario: a `:before` interceptor
             threw → INTERCEPTOR step present, carries the exception, HANDLER
             skipped"
-    (let [rec   (record [(dispatched-ev [:button-deck/throw-interceptor] :ui nil)
+    (let [rec   (record [(dispatched-ev [:standard-epochs/throw-interceptor] :ui nil)
                          (interceptor-exception-ev
-                           :button-deck/throwing-interceptor :before
+                           :standard-epochs/throwing-interceptor :before
                            "interceptor :before boom")]
-                        :button-deck/throw-interceptor)
+                        :standard-epochs/throw-interceptor)
           steps (proj/project rec)
           intc  (some #(when (= :interceptor (:step %)) %) steps)
           h     (some #(when (= :handler (:step %)) %) steps)]
@@ -2562,15 +2562,15 @@
   (testing "rf2-yz57h — button-18 live scenario: an `:after` interceptor
             threw → INTERCEPTOR step present, HANDLER NOT skipped (it ran
             first; the throw fired on the way out)"
-    (let [rec   (record [(dispatched-ev [:button-deck/throw-interceptor-after] :ui nil)
+    (let [rec   (record [(dispatched-ev [:standard-epochs/throw-interceptor-after] :ui nil)
                          ;; the handler ran + committed a :db on the way in
                          (db-pending-ev {:n 1})
                          (db-changed-ev [[[:n] 0 1 :modified]])
                          (run-end-ev 1)
                          (interceptor-exception-ev
-                           :button-deck/throwing-interceptor-after :after
+                           :standard-epochs/throwing-interceptor-after :after
                            "interceptor :after boom")]
-                        :button-deck/throw-interceptor-after)
+                        :standard-epochs/throw-interceptor-after)
           steps (proj/project rec)
           intc  (some #(when (= :interceptor (:step %)) %) steps)
           h     (some #(when (= :handler (:step %)) %) steps)]

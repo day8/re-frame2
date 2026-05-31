@@ -333,12 +333,12 @@
   indexing reader produces."
     (let [reader-sym (with-meta 'child-view
                        {:source 'child-view
-                        :file   "button_deck/core.cljs"   ;; RELATIVE — the trap
+                        :file   "standard_epochs/core.cljs"   ;; RELATIVE — the trap
                         :line   1 :column 11
                         :end-line 1 :end-column 21
                         :doc    "a real slot-meta key — must survive"})
-          exp        (rvm/expand-reg-view {:line 1 :column 1 :file "button_deck/core.cljs"}
-                                          'button-deck.core "button_deck/core.cljs"
+          exp        (rvm/expand-reg-view {:line 1 :column 1 :file "standard_epochs/core.cljs"}
+                                          'standard-epochs.core "standard_epochs/core.cljs"
                                           reader-sym '([] [:div]))
           ;; expansion: (do (binding [...] (reg-view* id slot-meta fn)) (def ...) id)
           binding-form (nth exp 1)
