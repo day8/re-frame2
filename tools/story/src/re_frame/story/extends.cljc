@@ -21,10 +21,12 @@
   Cycle detection:
 
   - Walks the parent chain bounded by `*max-extends-depth*` (default 32).
-  - Throws `:rf.error/extends-cycle` if a cycle is detected (we revisit
-    an id already in the chain).
-  - Throws `:rf.error/extends-unknown` if a parent id is not registered
-    when `:extends` is resolved.
+  - Throws `:rf.error/story-extends-cycle` if a cycle is detected (we
+    revisit an id already in the chain), or
+    `:rf.error/story-extends-chain-too-long` if the chain exceeds the
+    depth cap.
+  - Throws `:rf.error/story-extends-unknown` if a parent id is not
+    registered when `:extends` is resolved.
 
   Stage 2 resolves at registration time (per IMPL-SPEC §2.6). Production
   builds elide the entire registration surface so `:extends` resolution
@@ -46,9 +48,11 @@
 
   `lookup` is a fn `(parent-id) → body-or-nil`.
 
-  Throws `:rf.error/extends-cycle` if a cycle is detected (an id
-  appears twice on the chain). Throws `:rf.error/extends-unknown` if a
-  named parent is not yet registered."
+  Throws `:rf.error/story-extends-cycle` if a cycle is detected (an id
+  appears twice on the chain) or `:rf.error/story-extends-chain-too-long`
+  if the chain exceeds `*max-extends-depth*`. Throws
+  `:rf.error/story-extends-unknown` if a named parent is not yet
+  registered."
   [body lookup]
   (loop [acc      []
          current  body
@@ -131,7 +135,8 @@
   closer to the child still shadow farther ones key-by-key as usual.
 
   Per IMPL-SPEC §4.6: 'Resolution at registration time. Cycles raise
-  `:rf.error/extends-cycle`.'"
+  `:rf.error/extends-cycle`.' (The implemented error id is namespaced
+  `:rf.error/story-extends-cycle` — see `chain-of`.)"
   ([body lookup] (resolve-extends body lookup nil))
   ([body lookup exclusive-groups]
    (if-let [_parent-id (:extends body)]
