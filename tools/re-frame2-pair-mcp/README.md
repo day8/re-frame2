@@ -446,7 +446,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The eighteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
 
 ## Development
 

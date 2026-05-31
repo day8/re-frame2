@@ -10,6 +10,7 @@
   | discover-app  | Verify nREPL + confirm the preloaded runtime + health     |
   | eval-cljs     | Eval a CLJS form, return the value                        |
   | dispatch      | Fire a re-frame2 event with :origin :pair                 |
+  | dispatch-dry-run | Simulate a cascade without committing it (rf2-17hvp)   |
   | restore-epoch | Time-travel undo — rewind a frame to a prior epoch        |
   |               | (gated behind --allow-writes; rf2-ee38b.18)              |
   | reset-frame-db| State injection — replace a frame's app-db with EDN data  |
@@ -21,6 +22,11 @@
   | get-path      | Direct read-by-path against a frame's app-db (rf2-tygdv)  |
   | read-dom      | View-plane read — querySelector -> per-node text/attrs    |
   |               | EDN; read-only, text/node-capped (rf2-nfjil)             |
+  | record        | Install a background signal recorder, return a            |
+  |               | :recording-id (rf2-zo4b9)                                 |
+  | read-recording| Read back a recorder's change-log; :drain / :stop         |
+  |               | (rf2-zo4b9)                                              |
+  | watch-until   | Block until a predicate over a signal holds (rf2-zo4b9)   |
   | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
@@ -38,18 +44,20 @@
   ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The nineteen tool
-  bodies and the cross-cutting concerns each live in
-  `tools/<concern>` or `tools/<tool>` files:
+  dispatch, and re-exported descriptor surface. The tool bodies and the
+  cross-cutting concerns each live in `tools/<concern>` or `tools/<tool>`
+  files:
 
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
     `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
     `writes` (the --allow-writes gate, rf2-ee38b.18).
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
     `restore-epoch`, `reset-frame-db`, `trace-window`, `watch-epochs`,
-    `tail-build`, `snapshot`, `get-path`, `read-dom`, `subscribe`,
-    `unsubscribe`, `list-subscriptions`, `list-streams`, `handler-meta`,
-    `list-handlers`, `get-re-frame2-pair-instructions`.
+    `tail-build`, `snapshot`, `get-path`, `read-dom`, `record`,
+    `read-recording`, `watch-until`, `subscribe`, `unsubscribe`,
+    `list-subscriptions`, `list-streams`, `handler-meta`, `list-handlers`,
+    `get-re-frame2-pair-instructions`. The authoritative, ordered list
+    (with handler + cacheable? + descriptor for each) is `registry/tools`.
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`
     (`tool-descriptors-js` + the knob splicers).
