@@ -139,6 +139,71 @@
         (is (not (contains? db-after :step-2))
             "no spurious `:step-2 nil` parent was created")))))
 
+(deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
+  ;; Regression for rf2-2vpac. `clear-flow` skips `replace-container!`
+  ;; when the dissoc branch was a no-op (the slot was never materialised
+  ;; / already absent). Without the guard, clearing an absent slot would
+  ;; install a value-equal-but-fresh db reference and trigger a needless
+  ;; O(n) reactive sub-graph invalidation walk — costly during teardown,
+  ;; where clearing absent slots is common.
+  ;;
+  ;; The value-equality test above (`...before-first-compute...`) proves
+  ;; the db VALUE is unchanged; this test proves the db REFERENCE is
+  ;; unchanged — i.e. the container was not rewritten at all. On the JVM
+  ;; persistent maps are immutable, so two `get-frame-db` reads return the
+  ;; IDENTICAL object iff no `replace-container!` ran between them.
+  ;; Precondition for the no-op branch: the flow's `:path` must never be
+  ;; materialised. We seed app-db FIRST, then register the flow, then
+  ;; clear it WITHOUT ever dispatching — so its `:output` never runs and
+  ;; its `:path` slot stays absent. (Driving a drain would compute the
+  ;; flow and materialise the slot, turning the clear into a real dissoc.)
+  (testing "clearing a never-materialised nested-path flow leaves the app-db container reference identical (no rewrite, no sub-cache invalidation)"
+    (rf/reg-event-db :seed (fn [_ _] {:other 1}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-flow {:id     :pending
+                  :inputs [[:n]]
+                  :output (fn [_] "never-runs")
+                  :path   [:step-2 :result]})
+    (let [db-ref-before (rf/get-frame-db :rf/default)]
+      (rf/clear-flow :pending)
+      (let [db-ref-after (rf/get-frame-db :rf/default)]
+        (is (identical? db-ref-before db-ref-after)
+            "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc (rf2-2vpac)"))))
+  (testing "clearing a single-element-path flow whose top-level key is absent also skips the rewrite"
+    ;; The length-1 branch (`(dissoc db (first path))`) is a no-op when the
+    ;; key is absent — `(identical? new-db db)` holds, so the guard skips
+    ;; the write here too. Same precondition: never drive the drain.
+    (rf/reg-event-db :seed2 (fn [_ _] {:other 1}))
+    (rf/dispatch-sync [:seed2])
+    (rf/reg-flow {:id     :absent-top
+                  :inputs [[:n]]
+                  :output (fn [_] "never-runs")
+                  :path   [:never-written]}) ;; single-element path, never materialised
+    (let [db-ref-before (rf/get-frame-db :rf/default)]
+      (rf/clear-flow :absent-top)
+      (is (identical? db-ref-before (rf/get-frame-db :rf/default))
+          "single-element absent key: container reference unchanged (no rewrite)")))
+  (testing "POSITIVE control — clearing a MATERIALISED slot DOES rewrite the container (guard must not over-suppress real clears)"
+    ;; The guard is `(when-not (identical? new-db db) (replace-container! ...))`.
+    ;; When the slot was actually written, the dissoc produces a NEW db
+    ;; reference, so the write MUST fire — otherwise the cleared value
+    ;; would linger in app-db and stale subs would never invalidate.
+    (rf/reg-event-db :seed3 (fn [_ _] {:rect {:w 3 :h 4}}))
+    (rf/reg-flow {:id     :area3
+                  :inputs [[:rect :w] [:rect :h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]})
+    (rf/dispatch-sync [:seed3])
+    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+        "precondition: the flow materialised [:rect :area]")
+    (let [db-ref-before (rf/get-frame-db :rf/default)]
+      (rf/clear-flow :area3)
+      (let [db-ref-after (rf/get-frame-db :rf/default)]
+        (is (not (identical? db-ref-before db-ref-after))
+            "the container WAS rewritten — a real dissoc installs a fresh reference")
+        (is (not (contains? (get db-ref-after :rect) :area))
+            "and the leaf is gone from the installed value")))))
+
 (deftest clear-flow-non-map-intermediate-is-noop
   ;; Regression for rf2-q25os Repro 2. When an intermediate path step
   ;; holds a non-map value (e.g. someone wrote a scalar at `:step-2`
@@ -211,6 +276,41 @@
     (is (thrown? Throwable
                  (rf/reg-flow {:id :bad :inputs [[:n]]
                                :output identity :path :not-a-vec})))))
+
+(deftest reg-flow-missing-id-and-bad-output-carry-canonical-error-ids
+  ;; Companion to `reg-flow-error-carries-canonical-rf-error-id-slot`
+  ;; (which pins the :inputs / cycle discriminators) and the dedicated
+  ;; bad-inputs / bad-path tests. The two remaining `validate-flow`
+  ;; rules — `:rf.error/flow-missing-id` and `:rf.error/flow-bad-output`
+  ;; — had only bare `(thrown? Throwable ...)` coverage, so a regression
+  ;; that changed EITHER discriminator id (read by `:on-error` policies
+  ;; and Xray's error widget keyed on `:rf.error/id`, per Spec 009 §The
+  ;; thrown-error shape) would pass silently. Pin both ids + the
+  ;; canonical shape slots so the table's discriminator coverage is
+  ;; total.
+  (testing "a flow with no :id throws :rf.error/flow-missing-id"
+    (let [ex   (try (rf/reg-flow {:inputs [[:n]] :output identity :path [:x]})
+                    (catch Throwable t t))
+          data (ex-data ex)]
+      (is (some? ex) "registration threw")
+      (is (= :rf.error/flow-missing-id (:rf.error/id data))
+          ":rf.error/id carries the missing-id discriminator")
+      (is (= ":rf.error/flow-missing-id" (ex-message ex))
+          "message string is the stringified discriminator kw")
+      (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
+      (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
+      (is (string? (:reason data))           ":reason is a human-readable sentence")))
+  (testing "a flow whose :output is not a fn throws :rf.error/flow-bad-output"
+    (let [ex   (try (rf/reg-flow {:id :bad :inputs [[:n]] :output 42 :path [:x]})
+                    (catch Throwable t t))
+          data (ex-data ex)]
+      (is (some? ex) "registration threw")
+      (is (= :rf.error/flow-bad-output (:rf.error/id data))
+          ":rf.error/id carries the bad-output discriminator")
+      (is (= ":rf.error/flow-bad-output" (ex-message ex))
+          "message string is the stringified discriminator kw")
+      (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
+      (is (= :fix-registration (:recovery data)) ":recovery names the disposition"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b. validate-flow well-formedness (rf2-gnl7q)
