@@ -255,3 +255,59 @@
   (testing ":div#bar.foo shorthand"
     (let [[a b] (=parity [:div#bar.foo "x"])]
       (is (= a b)))))
+
+;; ---------------------------------------------------------------------------
+;; Inline-style serialisation (rf2-9nyg6)
+;;
+;; `react-dom/server.renderToStaticMarkup` appends `px` to numeric values
+;; of non-unitless CSS properties, keeps unitless properties bare, and
+;; omits entries whose value is nil/boolean/empty. The pure-CLJS rewrite
+;; must match. The =parity assertions below pin against react-dom/server;
+;; the explicit-string assertions document the target output independently
+;; of the React reference so a future React change is easy to spot.
+;; ---------------------------------------------------------------------------
+
+(deftest parity-style-numeric-px
+  (testing "numeric px-property values render with px"
+    (let [[a b] (=parity [:div {:style {:width 10 :height 20}}])]
+      (is (= a b)))
+    (is (= "<div style=\"width:10px;height:20px\"></div>"
+           (via-rewrite [:div {:style {:width 10 :height 20}}])))))
+
+(deftest parity-style-unitless-bare
+  (testing "unitless properties render bare (no px)"
+    (let [[a b] (=parity [:div {:style {:flex-grow 1 :z-index 5 :opacity 0.5}}])]
+      (is (= a b)))
+    (is (= "<div style=\"flex-grow:1;z-index:5;opacity:0.5\"></div>"
+           (via-rewrite [:div {:style {:flex-grow 1 :z-index 5 :opacity 0.5}}])))))
+
+(deftest parity-style-zero-no-px
+  (testing "numeric zero never gets px (matches React)"
+    (let [[a b] (=parity [:div {:style {:width 0}}])]
+      (is (= a b)))
+    (is (= "<div style=\"width:0\"></div>"
+           (via-rewrite [:div {:style {:width 0}}])))))
+
+(deftest parity-style-nil-omitted
+  (testing "nil-valued style entry is omitted entirely"
+    (let [[a b] (=parity [:div {:style {:color nil :width 10}}])]
+      (is (= a b)))
+    (is (= "<div style=\"width:10px\"></div>"
+           (via-rewrite [:div {:style {:color nil :width 10}}])))))
+
+(deftest parity-style-string-value-untouched
+  (testing "string values pass through (px in the string is preserved)"
+    (let [[a b] (=parity [:div {:style {:width "10em" :color "red"}}])]
+      (is (= a b)))
+    (is (= "<div style=\"width:10em;color:red\"></div>"
+           (via-rewrite [:div {:style {:width "10em" :color "red"}}])))))
+
+(deftest style-custom-property-verbatim
+  (testing "CSS custom property (--foo) passes through verbatim, no px"
+    ;; Direct (non-parity) assertion: the React-element path's `kv-conv`
+    ;; camelCases every style key (incl. `--foo` → `Foo`), so it can't
+    ;; serve as a custom-property reference. The rewrite's standalone
+    ;; behaviour (verbatim name, no px) matches React's `pushStyleAttribute`
+    ;; custom-property branch.
+    (is (= "<div style=\"--gap:8\"></div>"
+           (via-rewrite [:div {:style {:--gap 8}}])))))
