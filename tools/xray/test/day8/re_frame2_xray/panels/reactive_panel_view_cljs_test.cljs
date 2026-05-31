@@ -205,6 +205,42 @@
       (is (re-find #":cart/total" meta) "shows the triggered-by cause sub")
       (is (re-find #"2ms" meta) "shows the render timing"))))
 
+(deftest view-node-attributes-props-driven-rerender
+  (testing "rf2-bhi3t — a re-render with NO triggered-by (none of the
+            view's own subs changed value) attributes the cause to the
+            orthogonal :rf/props channel: the sub-label reads `← props`,
+            NOT a blank/missing cause and NOT a mislabelled sub."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Badge :action :rerender
+                    :reason {:kind :structural} :elapsed-ms 0.5}]})
+    (let [tree (view/reactive-panel)
+          meta (text-of tree "rf-xray-reactive-view-meta-_cart_Badge")]
+      (is (some? meta) "view-node meta label renders")
+      (is (re-find #"rerendered" meta) "labelled (rerendered)")
+      (is (re-find #"← props" meta)
+          "props-driven re-render attributes the cause to props"))))
+
+(deftest view-node-mount-carries-no-render-cause
+  (testing "rf2-bhi3t — a fresh MOUNT carries no render-cause sub-label
+            (the `(mounted)` label already conveys the first render; the
+            cause question is about RE-renders)."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Fresh :action :mount
+                    :reason {:kind :structural}}]})
+    (let [tree (view/reactive-panel)
+          meta (text-of tree "rf-xray-reactive-view-meta-_cart_Fresh")]
+      (is (re-find #"mounted" meta) "labelled (mounted)")
+      (is (not (re-find #"← " meta))
+          "no cause arrow on a mount"))))
+
 (deftest shared-sub-node-carries-fan-out-annotation
   (testing "rf2-ad7zx.6 — a sub read by ≥2 views is shared; the node
             carries a ×N annotation + fans out to N view nodes."

@@ -1334,10 +1334,39 @@
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
+(defn render-cause
+  "Classify WHY a view rendered this cascade (rf2-bhi3t), purely from
+  data the substrate already stamps on `:rf.view/rendered`:
+
+    `:mount`                     — the instance's FIRST render
+                                   (`:rf.view/mount?` true). Not a
+                                   re-render-attribution question.
+    {:kind :sub :sub-id <id>}    — a SUBSCRIPTION the view derefs
+                                   changed value: `:rf.view/triggered-by`
+                                   (the first sub in the view's read-set
+                                   whose value changed — rf2-8wrzz.1).
+    :props                       — a re-render where NONE of the view's
+                                   own subs changed value. The view
+                                   re-rendered anyway, so the cause is
+                                   the orthogonal `:rf/props` channel
+                                   (a prop changed / parent re-rendered).
+                                   We never name the parent (rf2-8ve8z).
+
+  A view re-renders for exactly one of two reasons — a sub it derefs
+  changed, or its props changed — so the absence of a `triggered-by`
+  on a re-render IS the props signal. Pure; takes the already-projected
+  `:mount?` + `:triggered-by` row slots."
+  [mount? triggered-by]
+  (cond
+    (true? mount?)      :mount
+    (some? triggered-by) {:kind :sub :sub-id triggered-by}
+    :else                :props))
+
 (defn view-rows
   "Project view-render events into rows. Each row carries the view-id,
-  the subs the view dereffed during this render, and the wall-clock
-  duration of the render-fn.
+  the subs the view dereffed during this render, the wall-clock
+  duration of the render-fn, and the render `:cause` (rf2-bhi3t —
+  `:mount` / `{:kind :sub :sub-id <id>}` / `:props`).
 
   Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
   per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
@@ -1350,16 +1379,19 @@
   [events]
   (vec
     (for [ev (filter-op events :rf.view/rendered)]
-      {:view-id      (or (common/tag-of ev :rf.view/id)
-                         (common/tag-of ev :view-id))
-       :subs-read    (or (common/tag-of ev :rf.view/deref-subs)
-                         (common/tag-of ev :rf.view/subs)
-                         (common/tag-of ev :subs-read)
-                         [])
-       :mount?       (common/tag-of ev :rf.view/mount?)
-       :triggered-by (common/tag-of ev :rf.view/triggered-by)
-       :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
-                         (common/tag-of ev :duration-ms))})))
+      (let [mount?       (common/tag-of ev :rf.view/mount?)
+            triggered-by (common/tag-of ev :rf.view/triggered-by)]
+        {:view-id      (or (common/tag-of ev :rf.view/id)
+                           (common/tag-of ev :view-id))
+         :subs-read    (or (common/tag-of ev :rf.view/deref-subs)
+                           (common/tag-of ev :rf.view/subs)
+                           (common/tag-of ev :subs-read)
+                           [])
+         :mount?       mount?
+         :triggered-by triggered-by
+         :cause        (render-cause mount? triggered-by)
+         :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
+                           (common/tag-of ev :duration-ms))}))))
 
 (defn unmounted-views-rows
   "Project `:rf.view/unmounted` events into rows (rf2-gmw1i). Each row

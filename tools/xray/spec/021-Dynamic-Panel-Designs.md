@@ -489,7 +489,12 @@ FLOW`), not the prior depth-first indented tree. Columns, left → right:
   Level-1 sub reads app-db; the fan-out is a plain edge, no path detail — see §3.2 constraint 1).
 - **Level-1 subs** (extractors) — each drawn with its changed/unchanged state.
 - **Level-2 subs** (derived via `:<-`; *optional* layer; precise `:<-` edges).
-- **Views** (right-most — **the focus**) — each tagged re-rendered + *why*.
+- **Views** (right-most — **the focus**) — each tagged re-rendered + *why*. A view re-renders for
+  exactly one of two reasons: a **subscription** it derefs changed value, or its **props** changed
+  (the orthogonal `:rf/props` channel). The per-view cause sub-label attributes which (rf2-bhi3t):
+  `← :sub-id` when `:rf.view/triggered-by` is present, `← props` on a re-render whose own subs all
+  held value. A mount carries no cause — the `(mounted)` label conveys the first render. The parent
+  is never named (rf2-8ve8z) — `props` is the attribution, not the specific parent component.
 
 **Node + edge encoding (colour/edge first, per Visual encoding §022 — NOT glyphs):**
 
@@ -2030,7 +2035,7 @@ and silently rendered empty rows. The binding inventory:
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |
 | `:subscriptions` disposed (rf2-wpfjo) | `:rf.sub/dispose` (emitted by `re-frame.subs.cache/emit-dispose!` per rf2-mrnur — every cache eviction site funnels through ONE emit shape) | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`), `:frame`. Surfaced via `projection/disposed-subs-rows`; the SUBSCRIPTIONS step carries an optional `:disposed-rows` slot (omit-by-absence). The step renders a DISPOSED sub-section when populated and reads `N recomputed (...); L disposed` in its header. A dispose-only cascade (no run/skip) still renders the step. |
-| `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
+| `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker). The projection derives a `:cause` slot per row (rf2-bhi3t) from `:rf.view/mount?` + `:rf.view/triggered-by` — `:mount` (first render) / `{:kind :sub :sub-id <id>}` (a deref'd sub changed value) / `:props` (a re-render with no own sub change → the orthogonal `:rf/props` channel). The VIEWS table paints it as a `← :sub-id` / `← props` chip; no substrate/instrumentation change — fully tool-side inference. |
 | `:views` unmounted (rf2-gmw1i) | `:rf.view/unmounted` (already emitted by `re-frame.views/emit-view-unmounted!` per rf2-9hoos + rf2-te71r) | `:rf.view/id`, `:rf.view/render-key`, `:frame`. Surfaced via `projection/unmounted-views-rows`; the VIEWS step carries an optional `:unmounted-rows` slot (omit-by-absence when none fired). The step renders an UNMOUNTED sub-section when populated and reads `N re-rendered; M unmounted` in its header. |
 
 ### §9.1.10.2 Per-step elapsed time (rf2-nqt3d · rf2-dwuq3)
