@@ -309,6 +309,24 @@ Post-Lock additions accumulated as follows:
   `re-frame2-pair.runtime` registrar primitives (and `(rf/machines)`
   for the `:machine` kind per Spec 005 §Querying machines); both are
   `:cacheable? true` since the registrar is stable across a session.
+- **rf2-zo4b9** added the **signal recorder** triplet — `record`,
+  `read-recording`, `watch-until`. The canonical move for intermittent
+  / human-in-the-loop bugs (the rf2-yng0y render-timing race, only
+  reproducible under real mouse input): install a read-only observer
+  over a heterogeneous signal-set (app-db path / sub value / DOM
+  query / focus-slot), let the human interact, read the change-log
+  back. Pre-bead this was hand-built each session (a `requestAnimationFrame`
+  loop pushing focus + DOM into `window.__zoombug`) — decisive but
+  bespoke and footgun-prone (rAF timing, change-dedup, teardown). The
+  rAF/dedup/teardown machinery is first-classed in
+  `re-frame2-pair.runtime` (`start-recording!` / `read-recording` /
+  `stop-recording!` / `sample-signals`); the three tools own only the
+  wire shape + the data→predicate compile. `record` is a bare-verb
+  mega-op (a recorder spanning multiple signal kinds — see Lock #8);
+  `read-recording` rides the `read-` prefix; `watch-until` introduces
+  the `watch-` blocking-predicate prefix (Lock #8). All three are
+  read-only observation (no app mutation) and `:cacheable? false` (the
+  recording state is volatile, not a function of an app-db hash).
 
 ---
 
@@ -555,6 +573,72 @@ that the principle alone doesn't carry.
 
 ---
 
+## Lock #8 — Recorder verb shapes (`record` bare, `watch-` prefix)
+
+**Locked 2026-05-31 (rf2-zo4b9).** **`record` is a bare-verb mega-op;
+`watch-until` introduces a `watch-` blocking-predicate prefix.**
+`read-recording` rides the existing `read-` prefix (no new verb).
+
+### Question
+
+The signal-recorder triplet needs three tool names. `read-recording`
+fits the catalogued `read-` prefix (diagnostic re-read of recorded
+state) cleanly. But the recorder-installer and the blocking-watch op
+have no catalogued home: a bare `record` is NOT catalogued (only the
+`record-as-<thing>` PREFIX exists, for capture-as-artefact), and
+`watch-` is NOT a prefix (only `watch-epochs` sits on the bare-verb
+allowlist). What verbs do they take?
+
+### Options considered
+
+- **`record` bare + `watch-until` under a new `watch-` prefix** (the
+  pick). `record` joins the mega-op bare verbs alongside `snapshot` /
+  `trace-window` / `watch-epochs`; `watch-` becomes a locked prefix
+  for blocking-on-a-predicate.
+- **`record-as-recording` + `watch-epochs`-style bare `watch`.** The
+  `record-as-` prefix means *capture as a persisted artefact* (story-
+  mcp's `record-as-variant`) — a live change-log observer is a
+  different semantic, so reusing the prefix would conflate two ideas
+  the agent must keep distinct.
+- **Fold both into `eval-cljs`.** The escape hatch can express either,
+  but that's exactly the per-session boilerplate + timing footgun the
+  bead exists to kill — a first-class op is the whole point.
+
+### Pick
+
+`record` (bare mega-op), `read-recording` (`read-` prefix),
+`watch-until` (`watch-` prefix).
+
+### Why
+
+- **`record` as a mega-op bare verb.** Like `snapshot`, it spans
+  multiple registry/observable kinds (app-db / sub / DOM / focus) in
+  one op — the mega-op clause is its natural home. Reusing the
+  `record-as-` prefix would falsely signal "persist an artefact".
+- **`watch-` distinct from `tail-`.** `tail-build` awaits an EXTERNAL
+  state change via a probe-value delta; `watch-until` blocks on a
+  PREDICATE over an in-runtime signal-set. Two different await
+  semantics earn two prefixes. `watch-epochs` stays on the bare-verb
+  allowlist (its pull-mode pagination predates and differs from the
+  blocking-until semantic) to avoid churn.
+- **`read-recording` needs no new verb** — the diagnostic-re-read
+  `read-` prefix already describes "the recording already ran; this
+  is a cheap reflection of its log".
+
+### Date locked
+
+2026-05-31 (rf2-zo4b9).
+
+### Trail-of-thought citations
+
+- `tools/mcp-conformance/NAMING.md` §The verb table (the `watch-` row,
+  the mega-op row's `record` addition, the §What's NOT a locked verb
+  clarification).
+- `tools/mcp-conformance/wire-vocab/test/.../verb_vocab_test.clj`
+  (`verb-prefixes` gains `watch`; `bare-verbs` gains `record`).
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -566,8 +650,9 @@ that the principle alone doesn't carry.
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
+| 8 | Recorder verb shapes | **`record` bare mega-op; `read-recording` (`read-`); `watch-until` (new `watch-` prefix)** | 2026-05-31 |
 
-These seven locks together define re-frame2-pair-mcp's shipped surface.
+These eight locks together define re-frame2-pair-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
 cardinality has since grown additively from seven to fourteen

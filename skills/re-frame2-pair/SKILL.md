@@ -25,6 +25,9 @@ allowed-tools:
   - mcp__re-frame2-pair__snapshot
   - mcp__re-frame2-pair__get-path
   - mcp__re-frame2-pair__read-dom
+  - mcp__re-frame2-pair__record
+  - mcp__re-frame2-pair__read-recording
+  - mcp__re-frame2-pair__watch-until
   - mcp__re-frame2-pair__subscribe
   - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions

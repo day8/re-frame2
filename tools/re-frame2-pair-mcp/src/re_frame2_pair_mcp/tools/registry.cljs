@@ -74,6 +74,8 @@
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
+            [re-frame2-pair-mcp.tools.record :as record]
+            [re-frame2-pair-mcp.tools.watch-until :as watch-until]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
             [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
@@ -99,9 +101,8 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Eighteen of the
-  nineteen registered tools ignore `extra` (only `subscribe`
-  consults it);
+  3-arity convention `(fn [conn args _extra])`. All but one of the
+  registered tools ignore `extra` (only `subscribe` consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
 
@@ -122,13 +123,14 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The nineteen-tool catalogue. Single source of truth for the
-  `tools/list` descriptors, the `tools/call` dispatcher, and the
-  per-tool cache opt-in. See ns docstring for the entry shape.
+  "The tool catalogue (canonical count: spec/003-Tool-Catalogue.md).
+  Single source of truth for the `tools/list` descriptors, the
+  `tools/call` dispatcher, and the per-tool cache opt-in. See ns
+  docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the eighteen tools that ignore `extra`,
-  or an inline `(fn [conn args extra] ...)` for `subscribe` (which
+  fn — `ignoring-extra` for every tool that ignores `extra`, or an
+  inline `(fn [conn args extra] ...)` for `subscribe` (which
   uses `extra` for its progress-callback plumbing). Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
   var (rf2-nogok) take effect on the next dispatch."
@@ -186,6 +188,27 @@
     ;; as the action / streaming tools.
     :cacheable? false
     :descriptor data/read-dom}
+   {:name       "record"
+    :handler    (ignoring-extra #(record/record-tool %1 %2))
+    ;; Installs a live recorder on the runtime (mints a recording-id, runs
+    ;; a background rAF sampler) — an action with an observable side-effect
+    ;; on the recording registry, NOT a function of frame state. Same
+    ;; non-cacheable posture as the streaming / action tools.
+    :cacheable? false
+    :descriptor data/record}
+   {:name       "read-recording"
+    :handler    (ignoring-extra #(record/read-recording-tool %1 %2))
+    ;; Reads the volatile recording change-log (and may drain / stop it) —
+    ;; the return value is the live recording buffer, not a pure function
+    ;; of app-db, so a precheck-hash cache would serve stale logs.
+    :cacheable? false
+    :descriptor data/read-recording}
+   {:name       "watch-until"
+    :handler    (ignoring-extra #(watch-until/watch-until-tool %1 %2))
+    ;; Blocks (server-polls) until a predicate holds — the result depends
+    ;; on WHEN the condition trips, not on a single app-db snapshot.
+    :cacheable? false
+    :descriptor data/watch-until}
    {:name       "subscribe"
     :handler    (fn [conn args extra] (subscribe/subscribe-tool conn args extra))
     :cacheable? false

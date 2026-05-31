@@ -68,12 +68,18 @@
     "explain"     ; rf2-ba86n.17 — `explain-variant` (story-mcp; the agent
                   ; mirror of the human Explain panel over `story/explain`)
     "record-as"
+    "watch"       ; rf2-zo4b9 — `watch-<until>` blocking watch family
+                  ; (re-frame2-pair; block until a predicate over a signal
+                  ; holds). Generalises the `watch-epochs` bare verb into a
+                  ; prefix; `watch-epochs` stays on the bare-verb allowlist
+                  ; below to avoid churn.
     "tail"})
 
 (def ^:private bare-verbs
   "Catalogued bare-verb tool names from NAMING.md §The verb table
   (`dispatch`, `eval-cljs`, `subscribe` / `unsubscribe`) plus the
-  mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)."
+  mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`,
+  `record`)."
   #{"dispatch"
     "dispatch-dry-run"  ; sibling of `dispatch` (rf2-ee38b.18 dry-run gate)
     "eval-cljs"
@@ -81,7 +87,12 @@
     "unsubscribe"
     "snapshot"
     "trace-window"
-    "watch-epochs"})
+    "watch-epochs"
+    "record"})          ; rf2-zo4b9 — bare-verb mega-op signal recorder
+                        ; (re-frame2-pair; spans app-db / sub / DOM / focus
+                        ; signals). Distinct from the `record-as-` prefix
+                        ; (capture-as-artefact); `record` installs a live
+                        ; change-log observer.
 
 (def ^:private bare-noun-exceptions
   "Bare-noun reads catalogued in NAMING.md §Server alignment today as

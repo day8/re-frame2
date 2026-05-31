@@ -171,6 +171,18 @@
    :idempotentHint true
    :openWorldHint  true})
 
+(def ^:private record-annotations
+  "Annotations for `record` (rf2-zo4b9) — installs a read-only observer
+  on the runtime. `:readOnlyHint true` because the recorder never mutates
+  app-db / the DOM (every signal sampler only reads), but NOT
+  `:idempotentHint` (each call mints a fresh recording-id and starts a
+  new background sampler) and `:openWorldHint true` (it reaches the
+  browser runtime and has an observable side-effect on the recording
+  registry). `read-recording` / `watch-until` are pure reads and ride the
+  plain read-only annotation set."
+  {:readOnlyHint  true
+   :openWorldHint true})
+
 (def ^:private streaming-final-summary
   "Streaming-tool final-summary envelope (subscribe). The progress
   notifications it emits along the way carry their own shape
@@ -799,6 +811,140 @@
                                                                "in control — no prefix sweep.")}
                               :build        {:type "string"}}
                  :required ["selector"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; record
+;; ---------------------------------------------------------------------------
+
+(def record
+  {:name "record"
+   :description (str "First-class signal recorder (rf2-zo4b9): install a READ-ONLY observer over one or more "
+                     "SIGNALS with a STOP condition, let the human interact, then read the change-log back with "
+                     "read-recording. The canonical move for catching intermittent / human-in-the-loop bugs "
+                     "(render-timing races reproducible only under real mouse input). Returns IMMEDIATELY with a "
+                     ":recording-id — the recording runs in the background. The runtime samples each signal once per "
+                     "animation frame, records each CHANGE (structural = against the last value) with a :t timestamp + "
+                     ":frame counter, dedups (a steady signal yields ONE baseline entry, not one-per-frame), and tears "
+                     "itself down at the stop condition. The rAF/dedup/teardown footguns are solved once in the runtime. "
+                     "SIGNAL shapes (each a map naming one observable): {:app-db [path]} (get-in app-db), "
+                     "{:sub [query-v]} (subscription deref), {:dom \"sel\"} or {:dom \"sel\" :attr \"name\"} (a node's "
+                     "textContent or attribute), {:focus true} (a stable descriptor of document.activeElement — the "
+                     "focus-slot). STOP condition (first to trip wins; defaults to {:ms 30000} when omitted): :ms "
+                     "(wall-clock), :changes (total change count), :pred (a DATA predicate map over the positional "
+                     "sample map {<signal-index> <value>} — {:signal 0 :equals <v>} / {:signal 0 :changed true} / "
+                     "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>}; compiled to a pure "
+                     "value-comparison fn — no host source crosses the wire). READ-ONLY: never dispatches, never mutates "
+                     "app-db, never writes the DOM. "
+                     "Examples: "
+                     "1. Watch focus + a DOM count during interaction: {:signals \"[{:focus true} {:dom \\\"#count\\\"}]\" :stop {:ms 15000}} -> {:ok? true :recording-id \"rec-<uuid>\" :signals [{:focus true} {:dom \"#count\"}] :frame :rf/default :stop {:ms 15000}}; interact, then read-recording. "
+                     "2. App-db path until a value lands: {:signals \"[{:app-db [:upload :status]}]\" :stop {:pred {:signal 0 :equals :done}}} -> {:ok? true :recording-id \"rec-<uuid>\" ...}. "
+                     "3. Bounded by change count: {:signals \"[{:dom \\\"input\\\" :attr \\\"value\\\"}]\" :stop {:changes 20}} -> {:ok? true :recording-id \"rec-<uuid>\" ...}. "
+                     "4. No signals: {} -> {:ok? false :reason :no-signals}.")
+   :typicalTokens 200
+   :annotations record-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:signals {:description (str "Signal-set to observe — a vector of signal maps (or one bare "
+                                                          "signal map). EDN-encoded string or JSON array. Each names one "
+                                                          "observable: {:app-db [path]}, {:sub [query-v]}, {:dom \"sel\"} "
+                                                          "(optionally :attr \"name\"), or {:focus true}. Required, non-empty.")
+                                        :oneOf [{:type "string"}
+                                                {:type "array" :items {:type "object"}}
+                                                {:type "object"}]}
+                              :stop    {:description (str "Stop condition (first key to trip wins; defaults to {:ms 30000} "
+                                                          "when omitted). :ms (wall-clock ms), :changes (total change-entry "
+                                                          "count), :pred (a DATA predicate map over the positional sample "
+                                                          "map — see the description). JSON object or EDN string.")
+                                        :oneOf [{:type "object"}
+                                                {:type "string"}]}
+                              :max-entries {:type "integer"
+                                            :description "Drop-oldest ring cap on the change-log (default 2000). Bounds memory on a forgotten recording."}
+                              :frame   {:type "string"
+                                        :description "Operating frame for :app-db / :sub signals (e.g. \":rf/default\"). Defaults to the operating frame; an :app-db / :sub signal in a multi-frame session with no resolvable frame returns :reason :ambiguous-frame."}
+                              :build   {:type "string"}}
+                 :required ["signals"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; read-recording
+;; ---------------------------------------------------------------------------
+
+(def read-recording
+  {:name "read-recording"
+   :description (str "Read back a recording's change-log (rf2-zo4b9) — the diagnostic re-read paired with record. "
+                     "Returns {:ok? true :recording-id <id> :status :recording|:stopped :stopped-reason <kw|nil> "
+                     ":frames-sampled <n> :count <n> :entries [{:i <signal-index> :signal {...} :value <v> :t <ms> "
+                     ":frame <frame-counter>} ...]}. Each entry is one CHANGE — the moment signal :i took a new value; "
+                     ":t is wall-clock ms, :frame is the rAF frame counter (two signals that changed on the same paint "
+                     "share a :frame). Pass `drain true` for the live-watch idiom (poll, consume the buffered entries, "
+                     "repeat — the recording keeps running) or `stop true` to read-and-close in one round-trip. "
+                     "Examples: "
+                     "1. Read after interaction: {:recording-id \"rec-abc\"} -> {:ok? true :recording-id \"rec-abc\" :status :stopped :stopped-reason :ms :frames-sampled 900 :count 3 :entries [{:i 0 :signal {:focus true} :value {:tag \"input\" :id \"q\"} :t 1712... :frame 0} ...]}. "
+                     "2. Drain (live watch): {:recording-id \"rec-abc\" :drain true} -> returns buffered entries AND clears them; the next read sees only subsequent changes. "
+                     "3. Read and close: {:recording-id \"rec-abc\" :stop true} -> returns the log and tears the recording down. "
+                     "4. Unknown id: {:recording-id \"nope\"} -> {:ok? false :reason :no-such-recording}.")
+   :typicalTokens 800
+   :annotations read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:recording-id {:type "string"
+                                             :description "The :recording-id returned by record. Required."}
+                              :drain {:type "boolean"
+                                      :description "When true, return the buffered change-entries AND clear them from the recording so the next read sees only subsequent changes (the poll→consume→repeat live-watch idiom). Default false. The recording keeps running either way."}
+                              :stop  {:type "boolean"
+                                      :description "When true, tear the recording down after reading (read-and-close in one round-trip). Default false."}
+                              :build {:type "string"}}
+                 :required ["recording-id"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; watch-until
+;; ---------------------------------------------------------------------------
+
+(def watch-until
+  {:name "watch-until"
+   :description (str "Block until a predicate over a signal holds (rf2-zo4b9) — the blocking counterpart to record. "
+                     "The answer to \"wait until focus lands on the modal\" / \"wait until app-db's [:upload :status] "
+                     "flips to :done\". Like tail-build, the server polls a cheap runtime read on a fixed cadence "
+                     "(~100ms) until the condition trips or `timeout-ms` (default 30000) elapses — no rAF loop, no "
+                     "browser mailbox. Resolves on the first poll where the predicate holds, returning "
+                     "{:ok? true :held? true :elapsed-ms <n> :sample {<signal-index> <value>} :t <ms>}. On timeout: "
+                     "{:ok? false :reason :watch-timeout :timed-out? true :last-sample {...}} — :last-sample shows the "
+                     "final reading so you can see how close it got. SIGNALS use the same vocabulary as record "
+                     "({:app-db [path]} / {:sub [query-v]} / {:dom \"sel\" [:attr \"name\"]} / {:focus true}). PRED is a "
+                     "DATA predicate map (same shapes as record's :stop {:pred ...}, matched against the positional "
+                     "sample map {<signal-index> <value>}): {:signal 0 :equals <v>} / {:signal 0 :changed true} / "
+                     "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>} / {:signal 0} (any non-nil). "
+                     "Compiled to a pure value-comparison fn — no host source crosses the wire. READ-ONLY: never "
+                     "dispatches or mutates. "
+                     "Examples: "
+                     "1. Wait for an app-db flag: {:signals \"[{:app-db [:upload :status]}]\" :pred {:signal 0 :equals :done}} -> blocks, then {:ok? true :held? true :elapsed-ms 4200 :sample {0 :done} :t 1712...}. "
+                     "2. Wait for focus to move into the dialog: {:signals \"[{:focus true}]\" :pred {:signal 0 :path [:id] :equals \"dialog-close\"}} -> {:ok? true :held? true :sample {0 {:tag \"button\" :id \"dialog-close\"}}}. "
+                     "3. Timeout: {:signals \"[{:dom \\\"#spinner\\\"}]\" :pred {:signal 0 :equals nil} :timeout-ms 2000} -> {:ok? false :reason :watch-timeout :timed-out? true :last-sample {0 \"loading…\"}}. "
+                     "4. No predicate: {:signals \"[{:focus true}]\"} -> {:ok? false :reason :missing-pred}.")
+   :typicalTokens 200
+   :annotations read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:signals {:description (str "Signal-set to watch — same vocabulary as record. A vector of "
+                                                          "signal maps (or one bare signal map). EDN string or JSON array. "
+                                                          "Required, non-empty.")
+                                        :oneOf [{:type "string"}
+                                                {:type "array" :items {:type "object"}}
+                                                {:type "object"}]}
+                              :pred    {:description (str "DATA predicate map over the positional sample map "
+                                                          "{<signal-index> <value>} — see the description for the shapes. "
+                                                          "Required: without one the watch can only time out. JSON object "
+                                                          "or EDN string.")
+                                        :oneOf [{:type "object"}
+                                                {:type "string"}]}
+                              :timeout-ms {:type "integer"
+                                           :description "Max ms to wait for the predicate to hold (default 30000). On expiry returns :reason :watch-timeout with the final :last-sample."}
+                              :frame   {:type "string"
+                                        :description "Operating frame for :app-db / :sub signals (e.g. \":rf/default\"). Defaults to the operating frame."}
+                              :build   {:type "string"}}
+                 :required ["signals" "pred"]
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------

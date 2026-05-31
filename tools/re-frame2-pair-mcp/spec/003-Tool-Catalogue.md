@@ -6,14 +6,17 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The eighteen MCP tools. All eighteen are catalogued below; the
+The twenty-two MCP tools. All twenty-two are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance), the write pair
 `restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the Tool-Pair
 time-travel + state-injection primitives, gated behind `--allow-writes`),
-and `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
-committing) live in the live registry at
+`dispatch-dry-run` (rf2-17hvp — simulate a cascade without
+committing), the view-plane read `read-dom` (rf2-nfjil), and the signal
+recorder `record` + `read-recording` + `watch-until` (rf2-zo4b9 — the
+first-class recorder for races + watch sessions) live in the live
+registry at
 [`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
 and have full per-tool sections here.
 
@@ -1602,6 +1605,136 @@ nREPL round-trip);
 `js/document` (headless / server-side);
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :read-dom-failed` (with `:message`) on any other failure.
+
+## record
+
+First-class **signal recorder** (rf2-zo4b9) — the canonical move for
+intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing
+race, only reproducible under real mouse input): install a read-only
+observer over a heterogeneous signal-set, let the human interact, read
+the change-log back via `read-recording`. Pre-bead this was hand-built
+each session (a `requestAnimationFrame` loop pushing focus + DOM into
+`window.__zoombug`) — decisive but bespoke and footgun-prone. `record`
+first-classes the rAF/dedup/teardown machinery in the runtime.
+
+`record` **returns immediately** with a `:recording-id`; the recording
+runs in the background. The runtime samples every signal once per
+animation frame, records each **change** (structural `=` against the
+last value) with a `:t` timestamp + a rAF `:frame` counter, **dedups**
+(a steady signal yields one baseline entry, not one-per-frame), and
+**tears itself down** at the stop condition. A `requestAnimationFrame`-
+absent target (headless / SSR) falls back to `next-tick`; a drop-oldest
+ring (`max-entries`, default 2000) bounds memory on a forgotten
+recording.
+
+A bare-verb **mega-op** (NAMING.md Lock #8) — like `snapshot`, it spans
+multiple observable kinds. Distinct from the `record-as-` prefix
+(story-mcp's capture-as-artefact); bare `record` installs a live
+change-log observer.
+
+**Read-only by construction.** Every signal sampler only reads (`get-in`
+/ subscribe-deref / `querySelector` text+attr / `activeElement`) — a
+recording never dispatches, never mutates app-db, never writes the DOM.
+
+**Signal shapes** (each a map naming one observable):
+
+| Signal | Samples |
+|---|---|
+| `{:app-db [path]}` | `(get-in app-db path)` for the frame |
+| `{:sub [query-v]}` | current deref of the subscription |
+| `{:dom "sel"}` / `{:dom "sel" :attr "name"}` | first matching node's `textContent`, or that attribute |
+| `{:focus true}` | a stable descriptor of `document.activeElement` (`:tag` / `:id` / `:class` / `:name` / `:rf2-src`) — the focus-slot |
+
+**Stop condition** (`stop` arg; first key to trip wins; defaults to
+`{:ms 30000}` when omitted): `:ms` (wall-clock), `:changes` (total
+change-entry count), `:pred` (a **data** predicate map over the
+positional sample map `{<signal-index> <value>}` — compiled to a pure
+value-comparison fn, no host source crosses the wire; same shapes as
+`watch-until`'s `pred`, below).
+
+**Args**: `signals` (vector of signal maps / one bare signal map; EDN
+string or JSON array; required, non-empty), `stop` (map; JSON object or
+EDN string), `max-entries` (integer, default 2000), `frame` (string —
+operating frame for `:app-db` / `:sub` signals), `build` (string).
+
+**Returns**: `{:ok? true :recording-id "rec-<uuid>" :signals [...]
+:frame <id> :stop {...}}`. `:reason :no-signals` when `signals` is empty;
+`:reason :ambiguous-frame` when an `:app-db` / `:sub` signal needs a
+frame but none resolves (multi-frame session, no selection).
+
+## read-recording
+
+Read back a recording's change-log (rf2-zo4b9) — the diagnostic re-read
+paired with `record`, under the catalogued `read-<thing>` verb.
+
+**Args**: `recording-id` (string, required), `drain` (boolean, default
+false — return the buffered change-entries **and clear them**, so the
+next read sees only subsequent changes: the poll→consume→repeat
+live-watch idiom; the recording keeps running either way), `stop`
+(boolean, default false — tear the recording down after reading:
+read-and-close in one round-trip), `build` (string).
+
+**Returns**:
+
+```clojure
+{:ok?            true
+ :recording-id   "rec-<uuid>"
+ :status         :recording           ; or :stopped
+ :stopped-reason :ms                  ; :ms / :changes / :predicate / nil
+ :frames-sampled 900                  ; rAF ticks since start
+ :count          3
+ :entries [{:i 0 :signal {:focus true}        ; one entry per CHANGE
+            :value {:tag "input" :id "q"}
+            :t 1712... :frame 0}              ; :frame = rAF counter
+           ...]}
+```
+
+Each entry is one **change** — the moment signal `:i` took a new value.
+Two signals that changed on the same paint share a `:frame`.
+`:reason :missing-recording-id` if omitted/blank; `:reason
+:no-such-recording` for an unknown id.
+
+## watch-until
+
+Block until a predicate over a signal holds (rf2-zo4b9) — the
+**blocking** counterpart to `record` ("wait until focus lands on the
+modal" / "wait until `[:upload :status]` flips to `:done`"). Introduces
+the `watch-<thing>` prefix (NAMING.md Lock #8): distinct from `tail-`
+(which awaits an *external* state change via a probe-value delta),
+`watch-` blocks on a **predicate over an in-runtime signal-set**.
+
+Like `tail-build`, the server polls a cheap runtime read on a fixed
+cadence (~100 ms) until the condition trips or `timeout-ms` (default
+30000) elapses — no rAF loop, no browser-side mailbox. Each poll evals
+one form that samples the signal-set (`sample-signals`) and applies the
+compiled predicate **server-side**, returning `{:held? bool :sample {...}
+:t <ms>}`.
+
+**Signals** use the same vocabulary as `record`. **`pred`** is a **data**
+predicate map (no host source crosses the wire; same injection-closing
+posture as `dispatch` / `reset-frame-db`), matched against the positional
+sample map `{<signal-index> <value>}`:
+
+| Predicate | Holds when |
+|---|---|
+| `{:signal 0 :equals <v>}` | sample 0 equals `<v>` |
+| `{:signal 0 :changed true}` | sample 0 is non-nil |
+| `{:signal 0 :path [...] :equals <v>}` | `(get-in (sample 0) path)` equals `<v>` |
+| `{:signal 0 :contains <substr>}` | `(str (sample 0))` includes `<substr>` |
+| `{:signal 0}` | sample 0 took any non-nil value |
+
+**Read-only by construction** — the runtime sampler only reads.
+
+**Args**: `signals` (required, non-empty), `pred` (required — without one
+the watch can only time out), `timeout-ms` (integer, default 30000),
+`frame` (string), `build` (string).
+
+**Returns** on the first poll where the predicate holds: `{:ok? true
+:held? true :elapsed-ms <n> :sample {<i> <v>} :t <ms>}`. On timeout:
+`{:ok? false :reason :watch-timeout :timed-out? true :timeout-ms <n>
+:last-sample {...}}` — `:last-sample` is the final reading, to see how
+close the condition got. `:reason :no-signals` / `:reason :missing-pred`
+on the respective omission.
 
 ## subscribe
 
