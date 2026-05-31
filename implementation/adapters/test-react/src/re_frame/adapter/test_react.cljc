@@ -187,29 +187,37 @@
   `:rf.error/sync-unmount-during-render` if called while a render is in flight
   ANYWHERE in the tree (the rf2-4l7t2 class) — keyed off the global
   `render-depth`, so a parent re-render that synchronously unmounts a separate
-  sibling/child root trips the guard just as React does."
-  [mount]
+  sibling/child root trips the guard just as React does.
+
+  `self-ref` is an atom that `mount-tree!` fills with the FINAL record (the one
+  it `conj`'d into `active-mounts`). The thunk must `disj` THAT record, not the
+  pre-`assoc` skeleton: a defrecord's equality includes the `:unmount-fn`
+  field, so the skeleton (`:unmount-fn` nil) and the final record (`:unmount-fn`
+  this thunk) are UNEQUAL — `(disj active-mounts skeleton)` would silently fail
+  to remove the registered record and leak it for the adapter's lifetime."
+  [self-ref]
   (fn unmount []
-    (when @(:mounted? mount)
-      (when (rendering?)
-        (throw (ex-info ":rf.error/sync-unmount-during-render"
-                        {:where    'rf/test-react-unmount
-                         :recovery :no-recovery
-                         :reason   (str "Attempted to synchronously unmount a root"
-                                        " while React was already rendering. React"
-                                        " 18+ raises the equivalent runtime error;"
-                                        " the Test-React adapter raises here so the"
-                                        " bug is caught at unit-test speed. See"
-                                        " rf2-4l7t2 for the production manifestation.")
-                         :mount-id (:id mount)})))
-      ;; Children-first teardown (mirrors React). Each child's own thunk runs
-      ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
-      (doseq [child @(:children mount)]
-        ((:unmount-fn child)))
-      (log-phase! mount :will-unmount)
-      (reset! (:mounted? mount) false)
-      (reset! (:render-tree mount) nil)
-      (swap! active-mounts disj mount))
+    (let [mount @self-ref]
+      (when @(:mounted? mount)
+        (when (rendering?)
+          (throw (ex-info ":rf.error/sync-unmount-during-render"
+                          {:where    'rf/test-react-unmount
+                           :recovery :no-recovery
+                           :reason   (str "Attempted to synchronously unmount a root"
+                                          " while React was already rendering. React"
+                                          " 18+ raises the equivalent runtime error;"
+                                          " the Test-React adapter raises here so the"
+                                          " bug is caught at unit-test speed. See"
+                                          " rf2-4l7t2 for the production manifestation.")
+                           :mount-id (:id mount)})))
+        ;; Children-first teardown (mirrors React). Each child's own thunk runs
+        ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
+        (doseq [child @(:children mount)]
+          ((:unmount-fn child)))
+        (log-phase! mount :will-unmount)
+        (reset! (:mounted? mount) false)
+        (reset! (:render-tree mount) nil)
+        (swap! active-mounts disj mount)))
     nil))
 
 (defn- mount-tree!
@@ -224,15 +232,20 @@
   with `*rendering-mount*` bound) the new mount is appended to that parent's
   `:children`, so unmounting the parent later cascades to it."
   [render-tree]
-  (let [base    (->MountedComponent
-                  (gensym "test-react-mount-")
-                  (atom nil)   ; render-tree
-                  (atom [])    ; lifecycle-log
-                  (atom false) ; currently-rendering?
-                  (atom true)  ; mounted?
-                  (atom [])    ; children
-                  nil)         ; unmount-fn — filled in below
-        mount   (assoc base :unmount-fn (unmount-thunk base))]
+  (let [self-ref (atom nil)   ; forward ref so the thunk can disj the FINAL record
+        base     (->MountedComponent
+                   (gensym "test-react-mount-")
+                   (atom nil)   ; render-tree
+                   (atom [])    ; lifecycle-log
+                   (atom false) ; currently-rendering?
+                   (atom true)  ; mounted?
+                   (atom [])    ; children
+                   nil)         ; unmount-fn — filled in below
+        mount    (assoc base :unmount-fn (unmount-thunk self-ref))]
+    ;; The thunk closes over `self-ref`, not `mount`, so it disj's the exact
+    ;; record that was conj'd (see unmount-thunk docstring — equality includes
+    ;; :unmount-fn, so the skeleton would not match the registered record).
+    (reset! self-ref mount)
     (log-phase! mount :constructor)
     (run-render! mount render-tree)
     (log-phase! mount :did-mount)
