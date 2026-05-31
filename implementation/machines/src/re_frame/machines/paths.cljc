@@ -53,7 +53,7 @@
 
     (spawned-path)                   => [:rf/runtime :machines :spawned]
     (spawned-path parent-id)         => [:rf/runtime :machines :spawned parent-id]
-    (spawned-path parent-id inv-id)  => [:rf/runtime :machines :spawned parent-id inv-id]"
+    (spawned-path parent-id invoke-id) => [:rf/runtime :machines :spawned parent-id invoke-id]"
   ([]                    [:rf/runtime :machines :spawned])
   ([parent-id]           [:rf/runtime :machines :spawned parent-id])
   ([parent-id invoke-id] [:rf/runtime :machines :spawned parent-id invoke-id]))

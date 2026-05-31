@@ -95,19 +95,19 @@
     - `:rf.error/machine-spawn-all-with-spawn` — a state node declares
       both `:spawn` and `:spawn-all` (mutually exclusive)."
   [state-key state-node]
-  (let [inv-all (:spawn-all state-node)]
-    (when inv-all
+  (let [spawn-all-spec (:spawn-all state-node)]
+    (when spawn-all-spec
       (when (:spawn state-node)
         (throw (validation-error
                  :rf.error/machine-spawn-all-with-spawn
                  "a state node cannot declare both :spawn and :spawn-all (they are mutually exclusive)"
                  {:state state-key})))
-      (when-not (map? inv-all)
+      (when-not (map? spawn-all-spec)
         (throw (validation-error
                  :rf.error/machine-spawn-all-bad-shape
                  ":spawn-all slot must be a map"
                  {:state state-key})))
-      (let [children (:children inv-all)]
+      (let [children (:children spawn-all-spec)]
         (when-not (and (vector? children) (seq children))
           (throw (validation-error
                    :rf.error/machine-spawn-all-bad-shape
@@ -133,20 +133,20 @@
                        :rf.error/machine-spawn-all-duplicate-id
                        "two children share an :id keyword inside the same :spawn-all block"
                        {:state state-key :duplicate-ids dup}))))))
-      (when-not (keyword? (:on-child-done inv-all))
+      (when-not (keyword? (:on-child-done spawn-all-spec))
         (throw (validation-error
                  :rf.error/machine-spawn-all-bad-shape
                  ":on-child-done is required (event keyword)"
                  {:state state-key})))
-      (when-not (keyword? (:on-child-error inv-all))
+      (when-not (keyword? (:on-child-error spawn-all-spec))
         (throw (validation-error
                  :rf.error/machine-spawn-all-bad-shape
                  ":on-child-error is required (event keyword)"
                  {:state state-key})))
-      (let [join (:join inv-all :all)]
+      (let [join (:join spawn-all-spec :all)]
         (cond
           (= :all join)
-          (when-not (vector? (:on-all-complete inv-all))
+          (when-not (vector? (:on-all-complete spawn-all-spec))
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
                      ":on-all-complete event-vector is required when :join is :all (default)"
@@ -154,7 +154,7 @@
           (or (= :any join)
               (and (map? join) (or (pos-int? (:n join))
                                    (fn? (:fn join)))))
-          (when-not (vector? (:on-some-complete inv-all))
+          (when-not (vector? (:on-some-complete spawn-all-spec))
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
                      ":on-some-complete event-vector is required when :join is :any / {:n N} / {:fn ...}"
