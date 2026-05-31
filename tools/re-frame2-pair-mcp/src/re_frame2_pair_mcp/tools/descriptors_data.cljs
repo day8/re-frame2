@@ -727,6 +727,66 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
+;; read-dom
+;; ---------------------------------------------------------------------------
+
+(def read-dom
+  {:name "read-dom"
+   :description (str "View-plane READ (rf2-nfjil): query the RENDERED DOM by CSS selector and return matched "
+                     "count + per-node {:tag :text :attrs}. The data-plane reads (snapshot / get-path / "
+                     "trace-window / list-subscriptions) tell you what's in app-db and the trace; read-dom "
+                     "tells you what the app actually PUT ON SCREEN — the answer to 'did the UI update?' / "
+                     "'what does the rendered node say?'. Generalises the source-coord reads (handler-meta's "
+                     ":rf.source/uri — where a handler is DEFINED) to rendered-CONTENT reads (what's on screen NOW). "
+                     "Pairs with dispatch :await-render (rf2-gfu33): dispatch -> settle -> read-dom is a "
+                     "deterministic three-step observe. "
+                     "READ-ONLY by construction — the browser-side form calls querySelectorAll and reads "
+                     "textContent / attribute strings only; it never assigns a property, dispatches, or mutates a node. "
+                     "Capped at the SOURCE: the per-node text cap (:max-text, default 2000 chars) and the matched-node "
+                     ":limit (default 50) are applied browser-side so only bounded EDN crosses the wire — a 5 MB <pre> "
+                     "never leaves the tab. Over-cap text is replaced with the framework's {:rf.size/large-elided "
+                     "{:type :dom-text :chars N :preview \"...\"}} marker (same convention get-path / snapshot emit, rf2-urjnc). "
+                     ":sub-selector runs RELATIVE to each matched node (node.querySelectorAll) to narrow a coarse match "
+                     "(a card) to its inner parts (the card's .title). :attrs picks which attributes ride; omit it and a "
+                     "curated default set rides PLUS a data-* / aria-* sweep (the re-frame2 view-plane idiom for surfacing "
+                     "rendered state). :count is the full pre-:limit tally; :truncated? flips true when more matched than were returned. "
+                     "Examples: "
+                     "1. Read a counter's rendered text: {:selector \"#app .counter\"} -> {:ok? true :selector \"#app .counter\" :count 1 :truncated? false :nodes [{:tag \"div\" :text \"Count: 3\" :attrs {\"class\" \"counter\" \"data-count\" \"3\"}}]}. "
+                     "2. Scope to inner parts: {:selector \".card\" :sub-selector \".title\"} -> {:ok? true :count 4 :nodes [{:tag \"h3\" :text \"First\" :attrs {}} ...]}. "
+                     "3. Specific attributes only: {:selector \"input[name=email]\" :attrs [\"value\" \"data-valid\"]} -> {:ok? true :count 1 :nodes [{:tag \"input\" :text \"\" :attrs {\"value\" \"a@b.com\" \"data-valid\" \"true\"}}]}. "
+                     "4. Large text elided: {:selector \"pre\" :max-text 100} -> {:ok? true :count 1 :nodes [{:tag \"pre\" :text {:rf.size/large-elided {:type :dom-text :chars 54000 :preview \"...\"}} :attrs {}}]}. "
+                     "5. No match: {:selector \".nope\"} -> {:ok? true :count 0 :nodes []}. "
+                     "6. Bad selector: {:selector \"###\"} -> {:ok? false :reason :rf.error/read-dom-bad-selector}.")
+   :typicalTokens 600
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:selector     {:type "string"
+                                             :description "CSS selector for the matched nodes, e.g. \"#app .counter\". Required. A malformed selector returns :reason :rf.error/read-dom-bad-selector."}
+                              :sub-selector {:type "string"
+                                             :description (str "Optional CSS selector run RELATIVE to each matched node "
+                                                               "(node.querySelectorAll). Narrows a coarse match (a card) "
+                                                               "to its inner parts (the card's .title). When supplied the "
+                                                               "result's :nodes are the sub-matches.")}
+                              :limit        {:type "integer"
+                                             :description "Max matched nodes to return (default 50). Excess nodes drop and :truncated? flips true; :count still reports the full tally."}
+                              :max-text     {:type "integer"
+                                             :description (str "Per-node textContent character cap (default 2000). Text longer than "
+                                                               "this is replaced with a {:rf.size/large-elided {:type :dom-text "
+                                                               ":chars N :preview \"...\"}} marker — same shape get-path / snapshot "
+                                                               "emit for over-threshold app-db slots (rf2-urjnc).")}
+                              :attrs        {:type "array"
+                                             :items {:type "string"}
+                                             :description (str "Attribute names to include per node, e.g. [\"id\" \"class\" \"data-state\"]. "
+                                                               "When omitted, a curated structural set (id / class / role / type / name / "
+                                                               "value / href / title / placeholder / disabled / checked / selected / hidden) "
+                                                               "rides PLUS a data-* / aria-* prefix sweep. With an explicit list the caller is "
+                                                               "in control — no prefix sweep.")}
+                              :build        {:type "string"}}
+                 :required ["selector"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
 ;; subscribe
 ;; ---------------------------------------------------------------------------
 

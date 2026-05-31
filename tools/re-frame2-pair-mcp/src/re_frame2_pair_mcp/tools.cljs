@@ -19,6 +19,8 @@
   | tail-build    | Wait for a hot-reload to land                             |
   | snapshot      | Coarse-grained per-frame state read (mega-op)             |
   | get-path      | Direct read-by-path against a frame's app-db (rf2-tygdv)  |
+  | read-dom      | View-plane read — querySelector -> per-node text/attrs    |
+  |               | EDN; read-only, text/node-capped (rf2-nfjil)             |
   | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
@@ -36,7 +38,7 @@
   ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The eighteen tool
+  dispatch, and re-exported descriptor surface. The nineteen tool
   bodies and the cross-cutting concerns each live in
   `tools/<concern>` or `tools/<tool>` files:
 
@@ -45,9 +47,9 @@
     `writes` (the --allow-writes gate, rf2-ee38b.18).
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
     `restore-epoch`, `reset-frame-db`, `trace-window`, `watch-epochs`,
-    `tail-build`, `snapshot`, `get-path`, `subscribe`, `unsubscribe`,
-    `list-subscriptions`, `list-streams`, `handler-meta`, `list-handlers`,
-    `get-re-frame2-pair-instructions`.
+    `tail-build`, `snapshot`, `get-path`, `read-dom`, `subscribe`,
+    `unsubscribe`, `list-subscriptions`, `list-streams`, `handler-meta`,
+    `list-handlers`, `get-re-frame2-pair-instructions`.
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`
     (`tool-descriptors-js` + the knob splicers).
