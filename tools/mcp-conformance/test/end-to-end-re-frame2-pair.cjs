@@ -103,152 +103,79 @@ runWithWatchdog(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
-    // 3. Canonical workflow (degraded, since no nREPL is available):
-    //    a. dispatch — proves the write-shaped tool routes through the
-    //       SDK; expect graceful degraded `isError: true`.
-    //    b. watch-epochs — proves a pull-mode tool routes through the
-    //       SDK; expect graceful degraded `isError: true` matching the
-    //       documented pattern.
-    //    c. snapshot — proves the mega-op tool routes; expect graceful
-    //       degraded.
+    // 3. Canonical workflow (degraded, since no nREPL is available).
+    // Every live-runtime tool returns the SAME degraded envelope —
+    // `isError: true` + a `:nrepl-port-not-found` text — so the per-tool
+    // assertion is identical; only the tool name, its argument shape, and
+    // the reason it earns coverage differ. The `DEGRADED_TOOLS` table
+    // below pins one row per tool (with that rationale inline) and
+    // `assertDegraded` runs the shared assertion. Each call still goes
+    // through the SDK's CallToolResultSchema, so a malformed degraded
+    // response (missing `content` array, malformed structuredContent)
+    // surfaces here as a Zod parse error before the `isError` assertion.
     //
-    // Each call goes through the SDK's CallToolResultSchema, so a
-    // malformed degraded response (missing `content` array, malformed
-    // structuredContent) would surface here as a Zod parse error
-    // before we even reach the `isError` assertion.
-    const dispatchResp = await client.callTool({
-      name: 'dispatch',
-      // The dispatch tool's MCP inputSchema names the slot `event` —
-      // a single EDN-vector string parsed server-side (rf2-vflrg).
-      // (Degraded-mode returns `:nrepl-port-not-found` regardless of
-      // args, so the pre-rf2-zb5z6 `event-v` typo went unobserved
-      // here; the live subscribe gate surfaced it.)
-      arguments: { event: '[:rf-conformance/probe]' },
-    });
-    if (!dispatchResp.isError) {
-      throw new Error(
-        'dispatch in degraded mode should isError; got: ' + JSON.stringify(dispatchResp),
-      );
-    }
-    const dispatchText = dispatchResp.content?.[0]?.text || '';
-    if (!dispatchText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'dispatch degraded text should mention :nrepl-port-not-found; got: ' + dispatchText,
-      );
-    }
-    console.log('OK   tools/call dispatch (degraded) -> isError + nrepl-port-not-found');
+    // The covered tools span every category, which is the point — the
+    // degraded walk proves each descriptor reaches the SDK and each
+    // dispatch-table entry is wired:
+    //
+    //   - dispatch          write-shaped tool. The MCP inputSchema names
+    //                        the slot `event` — a single EDN-vector
+    //                        string parsed server-side (rf2-vflrg).
+    //                        (Degraded-mode returns :nrepl-port-not-found
+    //                        regardless of args, so the pre-rf2-zb5z6
+    //                        `event-v` typo went unobserved here; the
+    //                        live subscribe gate surfaced it.)
+    //   - watch-epochs       pull-mode tool.
+    //   - snapshot           mega-op tool.
+    //   - subscribe          streaming-shaped tool. In connected mode it
+    //                        would open a notification stream; degraded it
+    //                        returns the same error envelope.
+    //   - list-subscriptions lists the LIVE reactive sub-cache for a frame
+    //                        (rf2-qicji repointed it here from the
+    //                        streaming-tap registry; it now reads the same
+    //                        source as `snapshot :sub-cache` via the
+    //                        runtime's `sub-cache-info` fn). Pure-read,
+    //                        optional :frame / :include-values.
+    //   - list-streams       the streaming-tap diagnostic list-subscriptions
+    //                        formerly carried (rf2-qicji split). Wraps
+    //                        `re-frame2-pair.runtime/subscription-info`
+    //                        (runtime fn keeps the historical name) so AI
+    //                        clients can list active streaming subscriptions
+    //                        without an eval-cljs round-trip. Pure-read,
+    //                        optional :topic / :sub-id filters.
+    const DEGRADED_TOOLS = [
+      { name: 'dispatch', arguments: { event: '[:rf-conformance/probe]' } },
+      { name: 'watch-epochs', arguments: { 'max-ms': 50 } },
+      { name: 'snapshot', arguments: { frames: 'all' } },
+      { name: 'subscribe', arguments: { topic: 'trace' } },
+      { name: 'list-subscriptions', arguments: {} },
+      { name: 'list-streams', arguments: {} },
+    ];
 
-    const watchResp = await client.callTool({
-      name: 'watch-epochs',
-      arguments: { 'max-ms': 50 },
-    });
-    if (!watchResp.isError) {
-      throw new Error(
-        'watch-epochs in degraded mode should isError; got: ' + JSON.stringify(watchResp),
-      );
+    // Call one tool and assert the shared degraded envelope. Returns the
+    // SDK response so the structuredContent dual-slot check below can
+    // spot-check the assembled spool.
+    async function assertDegraded({ name, arguments: args }) {
+      const resp = await client.callTool({ name, arguments: args });
+      if (!resp.isError) {
+        throw new Error(
+          name + ' in degraded mode should isError; got: ' + JSON.stringify(resp),
+        );
+      }
+      const text = resp.content?.[0]?.text || '';
+      if (!text.includes('nrepl-port-not-found')) {
+        throw new Error(
+          name + ' degraded text should mention :nrepl-port-not-found; got: ' + text,
+        );
+      }
+      console.log('OK   tools/call ' + name + ' (degraded) -> isError + nrepl-port-not-found');
+      return resp;
     }
-    const watchText = watchResp.content?.[0]?.text || '';
-    if (!watchText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'watch-epochs degraded text should mention :nrepl-port-not-found; got: ' + watchText,
-      );
-    }
-    console.log('OK   tools/call watch-epochs (degraded) -> isError + nrepl-port-not-found');
 
-    const snapResp = await client.callTool({
-      name: 'snapshot',
-      arguments: { frames: 'all' },
-    });
-    if (!snapResp.isError) {
-      throw new Error(
-        'snapshot in degraded mode should isError; got: ' + JSON.stringify(snapResp),
-      );
+    const degradedResp = {};
+    for (const tool of DEGRADED_TOOLS) {
+      degradedResp[tool.name] = await assertDegraded(tool);
     }
-    const snapText = snapResp.content?.[0]?.text || '';
-    if (!snapText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'snapshot degraded text should mention :nrepl-port-not-found; got: ' + snapText,
-      );
-    }
-    console.log('OK   tools/call snapshot (degraded) -> isError + nrepl-port-not-found');
-
-    // 3b. subscribe — same degraded shape. The streaming-shaped tool
-    // still routes through `tools/call`; in connected mode it would
-    // open a notification stream, but in degraded mode it just
-    // returns the same nrepl-port-not-found error envelope.
-    const subResp = await client.callTool({
-      name: 'subscribe',
-      arguments: { topic: 'trace' },
-    });
-    if (!subResp.isError) {
-      throw new Error(
-        'subscribe in degraded mode should isError; got: ' + JSON.stringify(subResp),
-      );
-    }
-    const subText = subResp.content?.[0]?.text || '';
-    if (!subText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'subscribe degraded text should mention :nrepl-port-not-found; got: ' + subText,
-      );
-    }
-    console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
-
-    // 3c. list-subscriptions — lists the LIVE reactive sub-cache for a
-    // frame (rf2-qicji repointed it here from the streaming-tap registry;
-    // it now reads the same source as `snapshot :sub-cache` via the
-    // runtime's `sub-cache-info` fn). Pure-read tool, no required
-    // arguments — optional :frame / :include-values. In degraded mode it
-    // returns the same nrepl-port-not-found envelope as every other
-    // live-runtime tool; covering it here proves the dispatch table is
-    // wired and the descriptor reaches the SDK.
-    const subInfoResp = await client.callTool({
-      name: 'list-subscriptions',
-      arguments: {},
-    });
-    if (!subInfoResp.isError) {
-      throw new Error(
-        'list-subscriptions in degraded mode should isError; got: ' +
-          JSON.stringify(subInfoResp),
-      );
-    }
-    const subInfoText = subInfoResp.content?.[0]?.text || '';
-    if (!subInfoText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'list-subscriptions degraded text should mention :nrepl-port-not-found; got: ' +
-          subInfoText,
-      );
-    }
-    console.log(
-      'OK   tools/call list-subscriptions (degraded) -> isError + nrepl-port-not-found',
-    );
-
-    // 3c-bis. list-streams — the streaming-tap diagnostic that
-    // list-subscriptions formerly carried (rf2-qicji split). Wraps
-    // `re-frame2-pair.runtime/subscription-info` (runtime fn keeps the
-    // historical name) so AI clients can list active streaming
-    // subscriptions without an eval-cljs round-trip. Pure-read tool,
-    // optional :topic / :sub-id filters. Same degraded envelope; covering
-    // it proves the new dispatch entry is wired and reaches the SDK.
-    const streamsResp = await client.callTool({
-      name: 'list-streams',
-      arguments: {},
-    });
-    if (!streamsResp.isError) {
-      throw new Error(
-        'list-streams in degraded mode should isError; got: ' +
-          JSON.stringify(streamsResp),
-      );
-    }
-    const streamsText = streamsResp.content?.[0]?.text || '';
-    if (!streamsText.includes('nrepl-port-not-found')) {
-      throw new Error(
-        'list-streams degraded text should mention :nrepl-port-not-found; got: ' +
-          streamsText,
-      );
-    }
-    console.log(
-      'OK   tools/call list-streams (degraded) -> isError + nrepl-port-not-found',
-    );
 
     // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
     // pair-mcp result envelope MUST carry BOTH the wire-canonical
@@ -259,14 +186,16 @@ runWithWatchdog(
     // (snapshot, list-subscriptions), action (dispatch), streaming-
     // shaped (subscribe). All four degraded responses above route
     // through wire/err-text which now emits both slots; we spot-
-    // check the assembled spool here.
-    for (const [label, resp] of [
-      ['dispatch', dispatchResp],
-      ['watch-epochs', watchResp],
-      ['snapshot', snapResp],
-      ['subscribe', subResp],
-      ['list-subscriptions', subInfoResp],
+    // check the assembled spool here. The responses come from the
+    // `degradedResp` map keyed by tool name (filled by the loop above).
+    for (const label of [
+      'dispatch',
+      'watch-epochs',
+      'snapshot',
+      'subscribe',
+      'list-subscriptions',
     ]) {
+      const resp = degradedResp[label];
       if (resp.structuredContent === undefined || resp.structuredContent === null) {
         throw new Error(
           'tool ' + label + " result MUST carry :structuredContent slot " +
