@@ -687,6 +687,36 @@
       (is (string/includes? subs ":counter/threshold")
           "every consumed sub renders, one per line"))))
 
+(deftest views-row-shows-render-cause-test
+  (testing "rf2-bhi3t — the VIEWS table attributes WHY each view
+            re-rendered: `← :sub-id` when a deref'd sub changed value,
+            `← props` when the re-render had no own sub change (the
+            orthogonal :rf/props channel). A fresh mount carries no
+            cause chip."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app/ChildA
+                        :subs-read [[:child-a/value]]
+                        :cause {:kind :sub :sub-id :child-a/value}
+                        :duration-ms 0.4}
+                       {:view-id :app/ChildB
+                        :subs-read [[:child-b/label]]
+                        :cause :props
+                        :duration-ms 0.3}
+                       {:view-id :app/ChildC
+                        :subs-read []
+                        :cause :mount
+                        :duration-ms 0.2}]}
+          tree (view/render-views-step step)
+          a    (text-of tree "rf-xray-epoch-view-row-cause-0")
+          b    (text-of tree "rf-xray-epoch-view-row-cause-1")]
+      (is (some? a) "sub-driven row renders a cause chip")
+      (is (string/includes? a ":child-a/value")
+          "sub-driven cause names the cause sub")
+      (is (string/includes? b "props")
+          "props-driven re-render reads `← props`")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-view-row-cause-2"))
+          "a fresh mount carries no render-cause chip"))))
+
 (deftest views-row-graceful-degrades-when-id-absent-test
   (testing "rf2-6djth — a row whose view-id is nil renders an
             anonymous-view placeholder rather than the bare keyword

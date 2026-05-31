@@ -1026,6 +1026,22 @@
    :margin-left "8px"
    :font-size   "10px"})
 
+;; rf2-bhi3t — the per-row render-cause chip ("← props" / "← :sub-id").
+;; Sub-driven re-renders tint accent (the reactive cause — same family
+;; as the sub column); props-driven re-renders tint tertiary (the muted
+;; orthogonal `:rf/props` channel). Mounts render no chip — the cause
+;; question is about RE-renders, and the (mounted) signal lives elsewhere.
+(def ^:private views-row-cause-base-style
+  {:margin-left "8px"
+   :font-size   "10px"
+   :font-family mono-stack})
+
+(def ^:private views-row-cause-sub-style
+  (assoc views-row-cause-base-style :color accent-colour))
+
+(def ^:private views-row-cause-props-style
+  (assoc views-row-cause-base-style :color text-tertiary-colour))
+
 (def ^:private views-anonymous-style
   {:color text-tertiary-colour :font-style "italic"})
 
@@ -3287,12 +3303,48 @@
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
+(defn- render-cause-chip
+  "Render the per-row render-cause attribution chip (rf2-bhi3t).
+
+  A view re-renders for exactly one of two reasons — a SUBSCRIPTION it
+  derefs changed value, or its PROPS changed (the orthogonal `:rf/props`
+  channel). This chip answers that first debugging question inline:
+
+    `{:kind :sub :sub-id <id>}`  →  `← :sub-id` (accent-tinted; the sub
+                                    routes through `ei/mini` so it carries
+                                    the same syntax-token chrome the subs
+                                    column uses).
+    `:props`                     →  `← props` (tertiary-tinted; muted).
+    `:mount`                     →  nil (the cause question is about
+                                    RE-renders; a first render has no
+                                    re-render cause).
+
+  `idx` keys the `data-testid` per row."
+  [cause idx]
+  (cond
+    (and (map? cause) (= :sub (:kind cause)))
+    [:span {:data-testid (str "rf-xray-epoch-view-row-cause-" idx)
+            :data-rf-render-cause "sub"
+            :style views-row-cause-sub-style}
+     "← " [ei/mini (:sub-id cause) 60]]
+
+    (= :props cause)
+    [:span {:data-testid (str "rf-xray-epoch-view-row-cause-" idx)
+            :data-rf-render-cause "props"
+            :style views-row-cause-props-style}
+     "← props"]
+
+    :else nil))
+
 (defn- views-table
   "Render the VIEWS table — 2 columns (views / subs). Per the bead
   body's §VIEWS (Step 8) shape (rf2-6djth).
 
   Each row carries:
     - view-id (hyperlinked via the registrar's `:view` meta coord)
+    - the render cause (rf2-bhi3t — `← :sub-id` when a deref'd sub
+      changed value, `← props` when a re-render had no own sub change;
+      the orthogonal `:rf/props` channel)
     - duration (when stamped, rendered as a muted chip below the id)
     - the subs the view dereffed during this render (one per line —
       vectors via `pr-str`, scalars via `ns-keyword`).
@@ -3323,7 +3375,7 @@
                                    subs-row-style-with-border
                                    subs-row-style)})
       :row-cells
-      (fn [{:keys [view-id subs-read duration-ms]} i]
+      (fn [{:keys [view-id subs-read duration-ms cause]} i]
         [;; view cell
          [:div {:data-rf-xray-resizable-col "view"
                 :style views-cell-view-style}
@@ -3342,6 +3394,7 @@
               "<anonymous view>"])
            (coord-chip/coord-chip (view-coord view-id)
                                   (str "rf-xray-epoch-view-row-coord-" i))]
+          (render-cause-chip cause i)
           (when (number? duration-ms)
             [:span {:style views-row-duration-style}
              (proj/format-duration-ms duration-ms)])]

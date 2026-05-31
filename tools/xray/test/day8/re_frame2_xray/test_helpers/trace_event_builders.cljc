@@ -246,7 +246,19 @@
   `:rf.view/render` marker; only `:rf.view/rendered` carries
   `:rf.view/id` + `:rf.view/deref-subs` + `:rf.view/elapsed-ms`).
 
-  Two-arg form omits elapsed-ms; three-arg stamps it."
+  Two-arg form omits elapsed-ms; three-arg stamps it. The four-arg
+  form takes an `opts` map carrying the cascade-attribution slots the
+  substrate stamps conditionally (rf2-25zo2 / rf2-8wrzz.1) so render-
+  cause fixtures (rf2-bhi3t) match the emit shape one-for-one:
+
+    `:elapsed-ms`   — wall-clock render duration.
+    `:mount?`       — `true` on the instance's first render (mount),
+                      `false`/absent on a re-render. Stamped only when
+                      `true` (the substrate's `:rf.view/mount?` cond->
+                      shape — absent means re-render).
+    `:triggered-by` — the single sub-id whose value changed in the
+                      view's read-set (the per-view re-render cause).
+                      Absent on a structural / props-driven re-render."
   ([view-id deref-subs]
    (view-rendered-ev view-id deref-subs nil))
   ([view-id deref-subs elapsed-ms]
@@ -254,7 +266,14 @@
        (cond-> {:rf.view/id         view-id
                 :rf.view/deref-subs deref-subs}
          (some? elapsed-ms)
-         (assoc :rf.view/elapsed-ms elapsed-ms)))))
+         (assoc :rf.view/elapsed-ms elapsed-ms))))
+  ([view-id deref-subs elapsed-ms {:keys [mount? triggered-by]}]
+   (ev :rf.view :rf.view/rendered
+       (cond-> {:rf.view/id         view-id
+                :rf.view/deref-subs deref-subs}
+         (some? elapsed-ms)   (assoc :rf.view/elapsed-ms elapsed-ms)
+         (true? mount?)       (assoc :rf.view/mount? true)
+         (some? triggered-by) (assoc :rf.view/triggered-by triggered-by)))))
 
 (defn view-unmounted-ev
   "`:rf.view/unmounted` trace — drives the VIEWS UNMOUNTED sub-section

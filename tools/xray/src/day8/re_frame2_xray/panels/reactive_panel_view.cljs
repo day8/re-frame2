@@ -257,15 +257,29 @@
 (defn- view-node
   "Render a view node — the cascade leaf + focus. Success-tinted box
   labelled `(rerendered)` (or `(mounted)`); carries the per-view
-  `:triggered-by` cause + `:elapsed-ms` timing as a sub-label
-  (rf2-8wrzz.1). Hovering toggles the pink DOM highlight (rf2-8l03l)."
+  render CAUSE + `:elapsed-ms` timing as a sub-label (rf2-8wrzz.1).
+
+  A view re-renders for exactly one of two reasons — a SUBSCRIPTION it
+  derefs changed value, or its PROPS changed (the orthogonal `:rf/props`
+  channel). The cause sub-label attributes which (rf2-bhi3t):
+  `← :sub-id` when `:triggered-by` is present, `← props` on a re-render
+  whose own subs all held value (the props channel). A mount carries no
+  cause — the `(mounted)` label already conveys the first render.
+  Hovering toggles the pink DOM highlight (rf2-8l03l)."
   [{:keys [id slug label action triggered-by elapsed-ms x y w h]}]
   (let [meta      (when id (rf/handler-meta :view id))
         disp-name (view-display-name id meta)
         coord     (when (string? (:file meta))
                     {:file (:file meta) :line (:line meta) :ns (:ns meta)})
-        sub-label (str "(" (if (= :mount action) "mounted" "rerendered") ")")
-        cause     (when triggered-by (str "← " (format-id triggered-by)))
+        mount?    (= :mount action)
+        sub-label (str "(" (if mount? "mounted" "rerendered") ")")
+        ;; rf2-bhi3t — props-driven re-render attribution. On a re-render
+        ;; with no `:triggered-by`, none of the view's own subs changed
+        ;; value, so the cause is props. Mounts show no cause.
+        cause     (cond
+                    triggered-by (str "← " (format-id triggered-by))
+                    mount?       nil
+                    :else        "← props")
         timing    (elapsed-label elapsed-ms)
         meta-line (->> [cause timing] (remove nil?) (string/join " · "))]
     [:g {:data-testid (str "rf-xray-reactive-view-node-" slug)

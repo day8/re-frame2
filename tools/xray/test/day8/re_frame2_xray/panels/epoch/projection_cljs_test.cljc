@@ -1481,6 +1481,51 @@
       (is (= [[:counter/total] [:counter/threshold]] (:subs-read row)))
       (is (= 1.2 (:duration-ms row))))))
 
+(deftest render-cause-classifier-test
+  (testing "rf2-bhi3t — `render-cause` classifies WHY a view rendered
+            purely from the substrate's `:rf.view/mount?` +
+            `:rf.view/triggered-by` slots"
+    (testing "first render → :mount (mount? true wins even with a
+              triggered-by present)"
+      (is (= :mount (proj/render-cause true nil)))
+      (is (= :mount (proj/render-cause true :counter/total))))
+
+    (testing "re-render whose deref'd sub changed value → {:kind :sub
+              :sub-id <id>}"
+      (is (= {:kind :sub :sub-id :counter/total}
+             (proj/render-cause false :counter/total)))
+      (is (= {:kind :sub :sub-id [:counter/total 7]}
+             (proj/render-cause false [:counter/total 7]))))
+
+    (testing "re-render with NO own sub change → :props (the orthogonal
+              :rf/props channel — the view re-rendered anyway)"
+      (is (= :props (proj/render-cause false nil)))
+      ;; nil mount? (absent slot) defaults to the re-render branch
+      (is (= :props (proj/render-cause nil nil))))))
+
+(deftest views-step-attributes-render-cause-test
+  (testing "rf2-bhi3t — each view-row carries a `:cause` attributing the
+            re-render to a sub-change vs a props-change. A view re-renders
+            for exactly one of two reasons (a deref'd sub changed, or its
+            props changed); the row makes that the first-class answer."
+    (let [s    (proj/views-step
+                 [;; Child A: re-rendered because :child-a/value changed
+                  (view-render-ev :app/ChildA [[:child-a/value]] 0.4
+                                  {:triggered-by :child-a/value})
+                  ;; Child B: re-rendered with NO own sub change → props
+                  (view-render-ev :app/ChildB [[:child-b/label]] 0.3 {})
+                  ;; Fresh mount → :mount (not a re-render cause)
+                  (view-render-ev :app/ChildC [] 0.2 {:mount? true})])
+          rows (:rows s)
+          [a b c] rows]
+      (is (= 3 (count rows)))
+      (is (= {:kind :sub :sub-id :child-a/value} (:cause a))
+          "sub-driven re-render attributes to the cause sub")
+      (is (= :props (:cause b))
+          "props-driven re-render (no own sub changed) attributes to props")
+      (is (= :mount (:cause c))
+          "fresh mount carries :mount, not a re-render cause"))))
+
 (deftest unmounted-views-rows-test
   (testing "rf2-gmw1i — `unmounted-views-rows` projects each
             `:rf.view/unmounted` trace event into a row with `:view-id`,
