@@ -1483,26 +1483,35 @@ Three modal surfaces float over the chrome:
 
 ### Shared modal-chrome scaffold (rf2-7oxvd)
 
-Seven of Xray's eight modal/popover surfaces (Settings, Filter
+**All eight** of Xray's modal/popover surfaces (Settings, Filter
 edit-popup, Share, Mute manager, App-DB segment-inspector, EDN-inspector
-popup, Cancellation-cascade popover) render the **same backdrop + dialog
-scaffold** — a full-inset click-to-dismiss overlay wrapping a WAI-ARIA
-dialog box that carries `role="dialog"` + `aria-modal="true"` + an
-accessible name (via `aria-label` or `aria-labelledby`) + the
-focus-trap contract (focus-on-open, Tab/Shift+Tab trap, restore-on-close
-— see `theme/a11y`). That genuinely-identical scaffold is extracted to
+popup, Cancellation-cascade popover, **Command palette**) render the
+**same backdrop + dialog scaffold** — a full-inset click-to-dismiss
+overlay wrapping a WAI-ARIA dialog box that carries `role="dialog"` +
+`aria-modal="true"` + an accessible name (via `aria-label` or
+`aria-labelledby`) + the focus-trap contract (focus-on-open,
+Tab/Shift+Tab trap, restore-on-close — see `theme/a11y`). That
+genuinely-identical scaffold is extracted to
 `day8.re-frame2-xray.theme.modal-chrome`; each modal supplies its own
 divergent bits (dim colour / blur / alignment / z-index, dialog size,
 header / body content, Esc / mnemonic key handling, accessible name) as
-**slots/props**, never flags. This is a pure internal-DRY refactor: the
-rendered DOM, `data-testid`s, ARIA attributes, z-stacking, dismiss and
-focus behaviour are unchanged.
+**slots/props, never flags**. Each modal's `data-testid`s, ARIA
+attributes, z-stacking and dismiss behaviour are unchanged.
 
-The **command palette** deliberately does NOT use this scaffold: it
-ships a distinct surface (always-`:fixed` positioning, hand-rolled
-combobox/listbox ARIA, no focus-trap, Esc handled inside its text input)
-with its own ARIA contract test, so folding it onto the shared scaffold
-would change its behaviour.
+The **command palette** was the eighth and last surface to adopt the
+scaffold (Mike ruled Option A — full consolidation). Its apparent
+divergences all land on existing slots without a per-palette flag:
+always-`:fixed` (literal `:positioning :fixed` — it has no Story testbed
+cell), Esc handled inside its `:auto-focus` text input (it passes no
+chrome keydown handler, the edit-popup pattern), its `data-rf-xray-mode`
+marker via `:dialog-extra`, and its hand-rolled combobox/listbox ARIA
+staying in the dialog `children` while the dialog-level role/aria-modal/
+accessible-name comes from the shared `a11y/dialog-attrs`. Adoption also
+gives the palette the focus trap it previously lacked — the trap
+intercepts only Tab/Shift+Tab and the palette's sole focusable is the
+input (rows drive a virtual `aria-activedescendant` cursor, not real
+focus), so Tab wraps to the input and the arrow-key navigation is
+untouched.
 
 ## Discoverability
 

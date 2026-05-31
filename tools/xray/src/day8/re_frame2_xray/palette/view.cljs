@@ -11,13 +11,21 @@
   `palette.cljs` wraps it in `reg-view` so its subscribes route to
   the surrounding `:rf/xray` frame via React context.
 
-  ## Modal layer
+  ## Modal layer (rf2-7oxvd)
 
   Phase 1 layers the palette over the Xray shell's `shell-view`
   (mounted there so subscribes resolve through the shell's frame
-  provider). The backdrop swallows clicks outside the dialog and
-  closes the palette; the dialog itself stops propagation so input
-  / row clicks don't bubble.
+  provider). The backdrop + dialog scaffold is the shared
+  `theme/modal-chrome` contract — the eighth and last Xray modal to
+  adopt it. The palette supplies its own `backdrop-style` /
+  `dialog-style`, the `:label \"Command palette\"` accessible name, the
+  `data-rf-xray-mode` marker (via `:dialog-extra`) and the
+  click-outside dismiss (`:on-dismiss`); `modal-chrome` owns the
+  click-outside wiring, the `a11y/dialog-attrs` (role / aria-modal /
+  accessible name) and the `a11y/dialog-ref` focus trap. The palette
+  is always `:fixed` (it has no Story testbed cell, so no
+  `:rf.xray/modal-positioning` subscribe — it passes the literal
+  `:fixed`).
 
   ## Keyboard handling
 
@@ -25,7 +33,20 @@
   cursor, Enter invokes, Ctrl+Enter (or Cmd+Enter on mac) invokes
   in a pop-out, ESC closes. The shell-level Cmd/Ctrl+K listener
   handles open; ESC inside the input also closes so the user does
-  not need to drop modifier hands.
+  not need to drop modifier hands. Because the input owns Esc, the
+  palette passes NO chrome keydown handler (the edit-popup pattern).
+
+  ## Focus trap + the combobox cursor (rf2-7oxvd)
+
+  Adopting `modal-chrome` brings the `a11y/dialog-ref` focus trap the
+  palette previously lacked. The trap intercepts only `Tab` /
+  `Shift+Tab`; the palette's sole real focusable is the search input
+  (the result `<li>`s carry no tabindex — the cursor is a VIRTUAL
+  selection tracked via `aria-activedescendant`, focus never leaves the
+  input). So `Tab` simply wraps back to the input and the arrow-key
+  navigation is untouched. `dialog-ref` also respects the input's
+  `:auto-focus` — it skips focus-on-open when a descendant already
+  holds focus — so there is no double-focus on mount.
 
   ## Why every deferred dispatch captures the surrounding frame (rf2-w8lxg / rf2-r0o63 / rf2-nesy9)
 
@@ -56,6 +77,7 @@
   literal), so N isolated instances each route to their own frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.palette.sources :as sources]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -281,21 +303,31 @@
   (let [query   (or @(rf/subscribe [:rf.xray/palette-query]) "")
         results @(rf/subscribe [:rf.xray/palette-results])
         cursor  @(rf/subscribe [:rf.xray/palette-cursor])]
-    [:div {:data-testid "rf-xray-palette-backdrop"
-           :on-click    #(dispatch [:rf.xray/palette-close])
-           :style       (backdrop-style)}
-     [:div {:data-testid "rf-xray-palette-dialog"
-            :data-rf-xray-mode "palette"
-            ;; rf2-tt7ax — modal/listbox ARIA: the dialog wrapper
-            ;; carries `role="dialog"` + `aria-modal="true"` so screen
-            ;; readers announce the surface as a modal and the assistive
-            ;; layer keeps focus inside; `aria-label` provides the
-            ;; accessible name (no visible title bar).
-            :role        "dialog"
-            :aria-modal  "true"
-            :aria-label  "Command palette"
-            :on-click    #(.stopPropagation %)
-            :style       (dialog-style)}
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. The palette keeps
+    ;; its own `backdrop-style` / `dialog-style` and its `:auto-focus`
+    ;; input owning Esc (handled in `handle-input-keydown`, exactly the
+    ;; edit-popup pattern), so it passes NO chrome keydown handler.
+    ;; `modal-chrome` owns the click-outside dismiss, the
+    ;; `a11y/dialog-attrs` (rf2-tt7ax role/aria-modal + the `:label`
+    ;; accessible name — no visible title bar) and the `a11y/dialog-ref`
+    ;; focus trap. The trap intercepts only Tab/Shift+Tab; the palette's
+    ;; sole focusable is the input (rows drive the combobox cursor via
+    ;; `aria-activedescendant`, not real focus), so Tab wraps back to the
+    ;; input and the activedescendant navigation is untouched. The
+    ;; `data-rf-xray-mode` marker rides in via `:dialog-extra`. The
+    ;; palette is always `:fixed` (no `:rf.xray/modal-positioning` —
+    ;; it has no Story testbed cell), so the positioning is the literal
+    ;; `:fixed`.
+    (modal-chrome/modal-chrome
+      {:positioning      :fixed
+       :backdrop-style   (backdrop-style)
+       :dialog-style     (dialog-style)
+       :on-dismiss       #(dispatch [:rf.xray/palette-close])
+       :label            "Command palette"
+       :backdrop-testid  "rf-xray-palette-backdrop"
+       :dialog-testid    "rf-xray-palette-dialog"
+       :dialog-tab-index "-1"
+       :dialog-extra     {:data-rf-xray-mode "palette"}}
       [:div {:style (input-row-style)}
        [:span {:aria-hidden "true"
                :style (icon-style :command)} "⌘"]
@@ -363,4 +395,4 @@
         [:span "pop-out"]]
        [:div
         [:span {:style (footer-key-style)} "ESC"]
-        [:span "close"]]]]]))
+        [:span "close"]]])))
