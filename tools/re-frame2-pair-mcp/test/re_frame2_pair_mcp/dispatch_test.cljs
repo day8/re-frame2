@@ -240,6 +240,135 @@
                          "cascade-summary contents unchanged"))
                    (done)))))))
 
+;; ---------------------------------------------------------------------------
+;; Frame targeting (rf2-ldfnx) — the colon-prefixed `frame` arg must route
+;; to the named frame, NOT the malformed `::rf/xray` the raw `(keyword ...)`
+;; coercion minted. Reproduces the live silent-wrong-success: `frame
+;; ":rf/xray"` reported `{:mode :sync}` while no-op'ing on the named frame.
+;; ---------------------------------------------------------------------------
+
+(deftest colon-prefixed-frame-routes-to-named-frame
+  ;; The documented `frame` arg form is colon-prefixed (`":rf/xray"` —
+  ;; Tool-Catalogue §Id representation, rf2-cg37y). Pre-fix the tool
+  ;; coerced it with raw `(keyword ":rf/xray")`, which mints the
+  ;; MALFORMED `::rf/xray` (namespace literally `":rf"`) — a frame the
+  ;; runtime never registered, so dispatch silently no-op'd. The emitted
+  ;; opts map MUST carry the well-formed `:rf/xray`.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:rf.xray/focus-cascade 85]"
+                                           :frame ":rf/xray"
+                                           :sync true})))
+          (.then (fn [_]
+                   (let [parsed (cljs.reader/read-string @captured)
+                         opts   (nth parsed 2)]
+                     (is (= 're-frame2-pair.runtime/pair-dispatch-sync! (first parsed)))
+                     (is (= [:rf.xray/focus-cascade 85] (second parsed)))
+                     (is (= :rf/xray (:frame opts))
+                         "frame routes to the well-formed :rf/xray keyword")
+                     (is (not= ::malformed (:frame opts)))
+                     ;; The malformed `::rf/xray` keyword carries namespace
+                     ;; ":rf" — assert it never reaches the runtime call.
+                     (is (= "rf" (namespace (:frame opts)))
+                         "namespace is the clean `rf`, not `:rf`")
+                     (is (not (re-find #"::rf/xray" @captured))
+                         "no malformed double-colon keyword in the emitted form"))
+                   (done)))))))
+
+(deftest bare-name-frame-also-routes
+  ;; The bare-name form (`"rf/xray"`, no leading colon) must coerce to
+  ;; the same `:rf/xray` — the `->frame-keyword` contract accepts both.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"
+                                           :frame "rf/xray"
+                                           :sync true})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= :rf/xray (:frame opts))))
+                   (done)))))))
+
+(deftest no-frame-arg-omits-frame-opt
+  ;; Absent `frame` arg ⇒ no `:frame` key in the opts map (the runtime
+  ;; resolves the operating frame itself). Guards against a stray
+  ;; nil-frame slot.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :queued? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (not (contains? opts :frame))
+                         "no :frame opt when the arg is absent"))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Success-vs-error contract (rf2-ldfnx) — a runtime `{:ok? false ...}`
+;; (the frame-untargetable / no-epoch result) MUST surface as an :isError
+;; envelope WITHOUT a `:mode` slot. The pre-fix shape merged `{:mode :sync}`
+;; over the failure and emitted a success envelope — the silent
+;; wrong-success the bead targets.
+;; ---------------------------------------------------------------------------
+
+(deftest runtime-failure-surfaces-as-error-not-mode-success
+  ;; Frame couldn't be targeted (head didn't advance) — the runtime
+  ;; reports {:ok? false :reason :no-new-epoch}. The tool MUST NOT
+  ;; report {:mode :sync}; it must surface the structured failure as an
+  ;; error envelope.
+  (async done
+    (let [runtime-result {:ok?    false
+                          :reason :no-new-epoch
+                          :event  [:rf.xray/focus-cascade 85]
+                          :frame  :rf/xray
+                          :hint   "dispatch-sync returned, but epoch-history head did not advance."}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:rf.xray/focus-cascade 85]"
+                                           :frame ":rf/xray"
+                                           :sync true})))
+          (.then (fn [r]
+                   (is (err? r) "runtime :ok? false ⇒ :isError envelope")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :no-new-epoch (:reason edn)))
+                     (is (not (contains? edn :mode))
+                         "NO :mode slot — the dispatch did not land")
+                     (is (= :rf/xray (:frame edn))
+                         "structured failure carries the targeted frame"))
+                   (done)))))))
+
+(deftest runtime-no-epoch-recorded-surfaces-as-error
+  ;; The other untargetable-frame failure mode: epoch-history empty
+  ;; (frame destroyed / recording disabled). Same contract — error
+  ;; envelope, no :mode.
+  (async done
+    (let [runtime-result {:ok?    false
+                          :reason :no-epoch-recorded
+                          :event  [:counter/inc]
+                          :frame  :rf/gone
+                          :hint   "epoch-history is empty after dispatch."}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"
+                                           :frame ":rf/gone"
+                                           :sync true})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :no-epoch-recorded (:reason edn)))
+                     (is (not (contains? edn :mode))))
+                   (done)))))))
+
 (deftest cascade-summary-pending-passes-through-on-queued-mode
   ;; Queued dispatch may return BEFORE the cascade drains. The runtime
   ;; reports `:cascade-summary-pending? true` and `:before-epoch-id`
