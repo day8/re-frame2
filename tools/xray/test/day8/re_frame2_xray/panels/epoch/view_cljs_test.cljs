@@ -1991,6 +1991,81 @@
             (is (nil? chip)
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
+(deftest parameterized-sub-inputs-resolve-by-sub-id-test
+  (testing "rf2-87c8a — the SUBSCRIPTIONS `inputs` column resolves a
+            row's input by the SUB-ID off `:input-signals`, NOT the
+            cascade attribution the row's `:inputs` slot carries. A
+            PARAMETERIZED derived sub (`[:chain-root>? 5]`, declared
+            `:<- [:chain-root]`) ran fresh with NO cascade attribution
+            (`:inputs nil`); pre-fix the cell fell through to the
+            `app-db` fallback and mislabeled it a Level-1 reader. The
+            fix keys `:input-signals` by the sub-id (first element of
+            the query-v), so the cell reads its REAL input sub
+            (`chain-root`) regardless of cascade state."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      ;; L1 — reads app-db directly (genuine `:input-signals []`).
+      (rf/reg-sub :rf.87c8a-fixture/chain-root
+        (fn [db _] (get db :chain-input 0)))
+      ;; Parameterized L2 — `:<-` chain on the SUB-ID; every
+      ;; `[:chain-root>? N]` instance shares this one registration.
+      (rf/reg-sub :rf.87c8a-fixture/chain-root>?
+        :<- [:rf.87c8a-fixture/chain-root]
+        (fn [root [_ threshold]] (> root threshold)))
+      ;; `reg-sub` ALWAYS stashes `:input-signals` in the registrar meta
+      ;; (`re-frame.subs/parse-reg-sub-args`), so resolution is a hard
+      ;; precondition — not a may-or-may-not branch. Pin it so a
+      ;; regression in handler-meta resolution can't silently no-op the
+      ;; assertions below.
+      (is (= [[:rf.87c8a-fixture/chain-root]]
+             (:input-signals (rf/handler-meta
+                               :sub :rf.87c8a-fixture/chain-root>?)))
+          "the parameterized sub's `:input-signals` resolves by sub-id
+           (arg-free) to the input sub's query-v")
+      (is (= [] (:input-signals (rf/handler-meta
+                                 :sub :rf.87c8a-fixture/chain-root)))
+          "the L1 root has empty `:input-signals` (genuine app-db reader)")
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{;; the PARAMETERIZED instance — arg in the
+                          ;; query-v, `:inputs nil` (ran with no cascade
+                          ;; attribution, the rf2-87c8a symptom).
+                          :sub-id  :rf.87c8a-fixture/chain-root>?
+                          :sub-vec [:rf.87c8a-fixture/chain-root>? 5]
+                          :inputs  nil :changed? true :before 1 :after 2}
+                         {;; the L1 root — genuinely reads app-db.
+                          :sub-id  :rf.87c8a-fixture/chain-root
+                          :sub-vec [:rf.87c8a-fixture/chain-root]
+                          :inputs  nil :changed? true :before 0 :after 1}]
+                  :changed 2 :unchanged 0}
+            tree        (view/render-subscriptions-step step)
+            ;; Scope the assertion to each row's INPUTS cell specifically:
+            ;; the sub-id `:…/chain-root>?` ALSO contains "chain-root", so
+            ;; asserting on the whole row text would be a false positive.
+            ;; Search WITHIN each row's subtree so the shared `inputs`
+            ;; header cell (which also stamps `data-rf-xray-resizable-col`)
+            ;; doesn't shift the indexing.
+            param-row    (th/find-by-testid tree "rf-xray-epoch-sub-row-0")
+            l1-row       (th/find-by-testid tree "rf-xray-epoch-sub-row-1")
+            param-inputs (some-> (th/find-by-attr
+                                   param-row :data-rf-xray-resizable-col "inputs")
+                                 th/text-content)
+            l1-inputs    (some-> (th/find-by-attr
+                                   l1-row :data-rf-xray-resizable-col "inputs")
+                                 th/text-content)]
+        (is (some? param-row) "the parameterized sub row renders")
+        (is (some? l1-row) "the L1 root row renders")
+        (is (string/includes? param-inputs "chain-root")
+            "the parameterized sub's INPUTS cell reads its REAL input
+             sub (chain-root), resolved by sub-id from `:input-signals`")
+        (is (not (string/includes? param-inputs "app-db"))
+            "the parameterized sub's INPUTS cell is NOT the `app-db`
+             fallback — the rf2-87c8a bug (a fresh-run derived sub
+             mislabeled as a Level-1 reader)")
+        (is (string/includes? l1-inputs "app-db")
+            "a genuine Level-1 reader (empty `:input-signals`) still
+             shows the `app-db` source label in its INPUTS cell")))))
+
 (deftest first-run-container-sub-renders-added-chrome-test
   (testing "rf2-kp7bw — a first-run subscription whose value is a
             CONTAINER (map / vector / set) renders the whole subtree

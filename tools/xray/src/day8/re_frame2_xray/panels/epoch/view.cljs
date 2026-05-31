@@ -3159,6 +3159,41 @@
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
+(defn- sub-input-signals
+  "The sub's STATIC input topology — the sub-ids of its registered
+  `:input-signals`, resolved by the SUB-ID (first element of the
+  query-v) off `(rf/handler-meta :sub sub-id)` (rf2-87c8a).
+
+  `:input-signals` is registered on the SUB-ID, not the full instance
+  query-v: the `:<-` chain a `reg-sub` declares is the same for every
+  parameterized instance (`[:sub-id arg…]` all share one registration).
+  Keying the lookup by the sub-id is therefore the correct, deterministic
+  source for the `inputs` column — present whether or not the sub re-ran
+  inside a cascade this epoch.
+
+  Returns a vector of input SUB-IDs (each input-signal's first element,
+  e.g. `[[:chain-root]] → [:chain-root]`) so the inputs cell paints them
+  as `mini` keywords. Returns nil when:
+    - the sub-id can't be resolved (anonymous sub / no meta captured), or
+    - `:input-signals` is empty — a genuine Level-1 app-db reader, where
+      the cell falls back to the `app-db` source label.
+
+  Pre-rf2-87c8a the inputs cell read the row's `:inputs` slot, which the
+  projection sources purely from `:rf.sub/cause-sub` (the cascade
+  attribution — which upstream sub's value-change drove THIS re-run).
+  That tag is OMITTED outside an in-flight cascade, so any derived sub
+  that ran fresh (e.g. the parameterized `[:button-deck/greater-than? 5]`
+  on first mount) fell through to the `app-db` fallback and was mislabeled
+  a Level-1 reader. The cascade attribution still surfaces — via the
+  `caused by <event-id>` chrome (rf2-1cc03) — it is just no longer the
+  source for the static-topology `inputs` column."
+  [sub-id]
+  (when (some? sub-id)
+    (let [m (try (rf/handler-meta :sub sub-id) (catch :default _ nil))
+          signals (:input-signals m)]
+      (when (seq signals)
+        (mapv (fn [sig] (if (vector? sig) (first sig) sig)) signals)))))
+
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
   Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v).
@@ -3235,16 +3270,32 @@
          ;; inputs cell
          [:div {:data-rf-xray-resizable-col "inputs"
                 :style subs-cell-inputs-style}
+          ;; rf2-87c8a — the inputs column shows the sub's STATIC input
+          ;; topology, resolved by the SUB-ID off `:input-signals`
+          ;; (`sub-input-signals`), NOT the cascade attribution the row's
+          ;; `:inputs` slot carries (that was nil outside a cascade →
+          ;; "app-db" fallback, which mislabeled fresh-run derived /
+          ;; parameterized subs as Level-1 readers).
+          ;;
           ;; rf2-8w8er — each input keyword routes through `mini` so
           ;; the input column lights up as keywords, not plain text.
           ;; "app-db" stays as a label (it's a source descriptor, not
-          ;; a CLJS value).
-          (cond
-            (vector? inputs)
-            (into [:div {:style subs-inputs-list-style}]
-                  (map (fn [i] [:div [ei/mini i 40]]) inputs))
-            (some? inputs) [ei/mini inputs 40]
-            :else          "app-db")]
+          ;; a CLJS value) — rendered only for a genuine Level-1 reader
+          ;; whose `:input-signals` is empty.
+          (let [input-ids (sub-input-signals sub-id)]
+            (cond
+              (seq input-ids)
+              (into [:div {:style subs-inputs-list-style}]
+                    (map (fn [i] [:div [ei/mini i 40]]) input-ids))
+              ;; rf2-87c8a fallback: a runtime with no captured meta but
+              ;; a cascade-attributed `:inputs` slot still paints that
+              ;; upstream sub (preserves the pre-fix shape for traces
+              ;; replayed against a frame where the sub isn't registered).
+              (vector? inputs)
+              (into [:div {:style subs-inputs-list-style}]
+                    (map (fn [i] [:div [ei/mini i 40]]) inputs))
+              (some? inputs) [ei/mini inputs 40]
+              :else          "app-db"))]
          ;; value cell
          [:div {:data-rf-xray-resizable-col "value"
                 :style subs-cell-changed-style}
