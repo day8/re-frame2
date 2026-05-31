@@ -4,7 +4,7 @@ Cancellable spawn-and-join coordination via `:spawn-all` — one parent coordina
 
 State-machine `:spawn` / `:spawn-all` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, `:rf.ws/*`, `:rf.server/*`, and `:rf.flow/*`. The runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability — which is exactly what makes the spawn-and-join shape below correctness-by-construction. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names the *coordination* shape on top.
 
-## When to load this leaf
+## When to load
 
 Load when the task is:
 

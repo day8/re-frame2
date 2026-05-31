@@ -2,7 +2,7 @@
 
 > Authoring `reg-route`, programmatic navigation, link wiring, and the `:can-leave` pending-nav protocol. Assumes you already know what client-side routing is — this leaf only covers re-frame2's specific declarations.
 
-## When to load this leaf
+## When to load
 
 - Author or edit route registrations (`reg-route`).
 - Wire programmatic navigation (`:rf.route/navigate`) or anchor clicks (`:rf/url-requested`).

@@ -28,7 +28,7 @@ Sketch in Storybook mentally, then translate.
 
 > **One-liner for the next leaf:** the same "think in Storybook, map onto Story" bridge applies to the recorder (`story-recorder.md`) and the agent loop (`story-mcp-loop.md`).
 
-## When to load this leaf
+## When to load
 
 - Author or edit a `.cljs` namespace under `<app>/stories/*` that uses `re-frame.story`.
 - Add a variant, decorator, mode, workspace, panel, or tag.

@@ -4,7 +4,7 @@ The cross-cutting epoch idiom re-frame2 uses to silently ignore async results fr
 
 Stale-detection is the cross-cutting **correctness** idiom layered over **managed external effects** — `:rf.http/managed`, `:rf.ws/*`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. The umbrella's framework-owned reply addressing delivers the reply to the *originating* event id; this leaf names the epoch convention that decides whether the receiving state still wants it. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella.
 
-## When to load this leaf
+## When to load
 
 Load when the task is:
 

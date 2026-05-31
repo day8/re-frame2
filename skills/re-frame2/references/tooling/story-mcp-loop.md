@@ -4,7 +4,7 @@
 
 > **Mental model: think in Storybook, map onto Story.** When authoring a variant in step 1, sketch it as a Storybook story first (which args, which play steps?), then translate to the EDN `reg-variant` body — see `stories.md` §Mental model for the full concept map. The loop's distinctive twist over a Storybook play function: `:rf.assert/*` events *record* (they don't throw), so `read-failures` returns **every** mismatch in one pass — the agent refines against the complete failure set, not just the first thrown assertion.
 
-## When to load this leaf
+## When to load
 
 - An agent (Claude Code, Cursor, Copilot) is generating variants against a re-frame2 codebase and needs to iterate against the running Story library.
 - You're hand-driving the loop yourself via the MCP tool palette to debug a flaky variant.

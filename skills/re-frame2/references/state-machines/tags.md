@@ -71,12 +71,12 @@ From `examples/reagent/nine_states/core.cljs` (the `render-priority` table + `:u
             render-priority))))
 
 ;; The root view: one `case`, not nine boolean discriminator subs + a cond.
-[case @(subscribe [:ui/render])
-   :done      [view-done]
-   :loading   [view-loading]
-   :error     [view-error]
-   ;; ...
-   ]
+(case @(subscribe [:ui/render])
+  :done    [view-done]
+  :loading [view-loading]
+  :error   [view-error]
+  ;; ...
+  )
 ```
 
 The render-priority table is plain data — adding a tenth case is one row.

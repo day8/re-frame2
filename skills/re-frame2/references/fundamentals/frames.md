@@ -25,7 +25,7 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 
 ;; Inspect.
 (rf/current-frame)                  ;; returns the active frame id
-(rf/get-frame-db :frame-id)         ;; underlying container (for tools / tests)
+(rf/get-frame-db :frame-id)         ;; current app-db VALUE (plain map, no deref)
 ```
 
 Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`.

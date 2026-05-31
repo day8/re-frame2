@@ -6,7 +6,7 @@ The standard form-lifecycle convention. A 7-key slice (or one machine region) ca
 
 Forms is an **app-side** lifecycle slice composed on top of a **managed external effect** — almost always `:rf.http/managed` for the submit. The slice carries draft/touched/errors; the submit fx is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the `:errors` vs `:submit-error` split here is exactly the seam where the umbrella's structured failure taxonomy hands off to app-level field-error UI.
 
-## When to load this leaf
+## When to load
 
 The prompt mentions: a form, validation, "show errors after submit", inline field errors, `:disabled` while submitting, a login / signup / settings / editor screen, or any UI that collects user input and submits it. Also load this leaf when picking between the **slice form** (a key in `app-db`) and the **machine form** (`:form-region` of a `reg-machine`) — see §Common variations.
 
