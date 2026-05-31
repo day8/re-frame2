@@ -835,6 +835,45 @@
   [events]
   (or (some-> (find-op events :rf.event/run-end) :tags) {}))
 
+;; ---- t1 / t2 pending-`:db` snapshots (rf2-4wywy) ------------------------
+;;
+;; Per rf2-ta0y7 the router stamps two pending-`:db` snapshots on the trace
+;; stream so per-step db attribution is possible WITHOUT a core change:
+;;
+;;   t1 `:rf.event/db-pending`            — POST-handler-chain, PRE-flow
+;;                                          (what the handler returned;
+;;                                          before any flow could touch it).
+;;   t2 `:rf.event/db-pending-post-flow`  — POST-flow, PRE-commit (the
+;;                                          flow-augmented value). OMITTED
+;;                                          when no flow changed `:db`
+;;                                          (t1 == t2 carries no info).
+;;
+;; Both carry the FULL db value under `:tags :rf.event/db`. The epoch
+;; record's `:db-after` is the FINAL post-commit state (== t2 when flows
+;; fired, == t1 otherwise); reading it for the HANDLER step conflated the
+;; handler's change with the following flow change (rf2-4wywy bug). The
+;; HANDLER step now reads t1; the FLOW step shows the t1→t2 reshape as its
+;; OWN `:db` diff.
+
+(defn db-pending-t1
+  "The POST-handler, PRE-flow db value off the `:rf.event/db-pending`
+  (t1) trace event (rf2-ta0y7 · `:tags :rf.event/db`). nil when no t1
+  fired — the handler returned no `:db`, or the runtime predates
+  rf2-ta0y7. Callers fall back to the epoch record's `:db-before` /
+  `:db-after` in that case."
+  [events]
+  (some-> (find-op events :rf.event/db-pending)
+          (common/tag-of :rf.event/db)))
+
+(defn db-pending-t2
+  "The POST-flow, PRE-commit db value off the
+  `:rf.event/db-pending-post-flow` (t2) trace event (rf2-ta0y7 ·
+  `:tags :rf.event/db`). nil when no t2 fired — no flow changed `:db`
+  this epoch (t1 == t2), or the runtime predates rf2-ta0y7."
+  [events]
+  (some-> (find-op events :rf.event/db-pending-post-flow)
+          (common/tag-of :rf.event/db)))
+
 (defn handler-row
   "Build the step-N HANDLER row. ALWAYS present (every epoch has a
   dispatched event therefore a handler). Adapts to the trace stream's
@@ -877,12 +916,28 @@
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
         decomp      (effects-decomp events)
+        ;; rf2-4wywy — the HANDLER step's `:db` must reflect ONLY the
+        ;; handler's own contribution (post-handler, PRE-flow), not the
+        ;; final post-flow state. `db-post-handler` is the t1 snapshot
+        ;; (`:rf.event/db-pending`); when t1 is absent (handler returned
+        ;; no `:db`, or pre-rf2-ta0y7 runtime) the view falls back to the
+        ;; record's `:db-after`. The `:db-diff` flat-rows are likewise
+        ;; computed against t1 when present so non-view consumers + tests
+        ;; read the handler-only change.
+        db-t1       (db-pending-t1 events)
+        db-handler  (if (some? db-t1) db-t1 db-after)
         base        {:step           :handler
                      :badge          :HANDLER
                      :flavour        flavour
                      :event-id       event-id
                      :duration-ms    duration-ms
-                     :db-diff        (db-diff-paths db-before db-after)
+                     ;; The post-handler (t1) db value — the HANDLER
+                     ;; step's `:db` sub-section renders this diffed
+                     ;; against `:db-before`. nil-safe: absent t1 leaves
+                     ;; the slot nil and the view falls back to the
+                     ;; record's `:db-after`.
+                     :db-post-handler db-t1
+                     :db-diff        (db-diff-paths db-before db-handler)
                      ;; :fx — legacy flat-entries slot (kept for non-view
                      ;; consumers; tests + pre-rf2-p2zy0 callers).
                      :fx             (or (fx-entries events) [])
@@ -1810,6 +1865,16 @@
             ;; step. `flow-rows` projection (per-row data) is
             ;; unchanged; the aggregation shape was the only thing
             ;; that changed.
+            ;; rf2-4wywy — thread the t1 (pre-flow) / t2 (post-flow) db
+            ;; snapshots onto every FLOW step so the view can render the
+            ;; flow's OWN contribution as a `:db` DIFF (the t1→t2 reshape),
+            ;; rather than the per-path before/after scalar line that read
+            ;; as a flow-internal value rather than an app-db change. The
+            ;; snapshots are shared across all flow steps of the epoch (one
+            ;; flows pass produces one t1→t2 transition); each step scopes
+            ;; the rendered diff to its own `:path`.
+            flow-db-pre  (db-pending-t1 events)
+            flow-db-post (db-pending-t2 events)
             flow-steps (mapv (fn [{:keys [flow-id path before after duration-ms]}]
                                (cond-> {:step    :flow
                                         :badge   :FLOW
@@ -1818,7 +1883,11 @@
                                         :before  before
                                         :after   after}
                                  (some? duration-ms)
-                                 (assoc :duration-ms duration-ms)))
+                                 (assoc :duration-ms duration-ms)
+                                 (some? flow-db-pre)
+                                 (assoc :db-pre-flow flow-db-pre)
+                                 (some? flow-db-post)
+                                 (assoc :db-post-flow flow-db-post)))
                              (flow-rows events))
             violations (schema-violation-rows events)
             base-steps (vec

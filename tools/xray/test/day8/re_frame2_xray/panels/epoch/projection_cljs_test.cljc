@@ -57,6 +57,8 @@
 (def ^:private do-fx-ev             teb/do-fx-ev)
 (def ^:private fx-handled-ev        teb/fx-handled-ev)
 (def ^:private flow-recomputed-ev   teb/flow-recomputed-ev)
+(def ^:private db-pending-ev        teb/db-pending-ev)
+(def ^:private db-pending-post-flow-ev teb/db-pending-post-flow-ev)
 (def ^:private sub-run-ev           teb/sub-run-ev)
 (def ^:private view-render-ev       teb/view-rendered-ev)
 (def ^:private view-unmounted-ev    teb/view-unmounted-ev)
@@ -953,6 +955,141 @@
                           :rf.flow/after 1}}]
       (is (= [] (proj/flow-rows [ev]))
           "legacy op-name produces zero rows — no silent fallthrough"))))
+
+;; ---- t1 / t2 db attribution (rf2-4wywy) ---------------------------------
+;;
+;; button-deck button 5 (`:button-deck/increment-flow`): the handler bumps
+;; `:base`; the `:button-deck/derived` flow then recomputes `:derived =
+;; 2 × :base` into app-db AFTER the handler. The HANDLER step's `:db` must
+;; reflect ONLY the handler's change (`:base` bumped, NO `:derived`); the
+;; FLOW step must show the flow's OWN contribution (`:derived` recomputed)
+;; as a SEPARATE `:db` diff. The two must not be conflated.
+;;
+;; The fix reads the t1 (`:rf.event/db-pending`, post-handler/pre-flow) +
+;; t2 (`:rf.event/db-pending-post-flow`, post-flow) snapshots off the trace
+;; stream (rf2-ta0y7). The epoch record's `:db-after` is the FINAL
+;; post-flow state — reading it for the HANDLER step was the bug.
+
+(deftest db-pending-t1-t2-readers-test
+  (testing "rf2-4wywy — t1 reader pulls the post-handler db off
+            `:rf.event/db-pending`'s `:rf.event/db` tag"
+    (is (= {:base 2 :baseline 1}
+           (proj/db-pending-t1 [(db-pending-ev {:base 2 :baseline 1})])))
+    (is (nil? (proj/db-pending-t1 []))
+        "absent t1 → nil (caller falls back to record :db-after)"))
+  (testing "rf2-4wywy — t2 reader pulls the post-flow db off
+            `:rf.event/db-pending-post-flow`'s `:rf.event/db` tag"
+    (is (= {:base 2 :baseline 1 :derived 4}
+           (proj/db-pending-t2 [(db-pending-post-flow-ev {:base 2 :baseline 1 :derived 4})])))
+    (is (nil? (proj/db-pending-t2 []))
+        "absent t2 → nil (no flow changed :db this epoch)")))
+
+(deftest handler-step-db-reflects-post-handler-not-post-flow-test
+  (testing "rf2-4wywy ACCEPTANCE — the HANDLER step's `:db` reflects ONLY
+            the handler's change (post-handler / t1). The epoch record's
+            `:db-after` carries the FLOW-augmented `:derived` slot, but the
+            HANDLER step must NOT surface it — `:db-post-handler` (t1) is
+            the authoritative HANDLER `:db`."
+    (let [t1     {:base 2 :baseline 1 :derived 2}  ; post-handler: :base/:baseline bumped, :derived UNTOUCHED (still 2)
+          t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed 2 → 4
+          record {:event-id     :button-deck/increment-flow
+                  :db-before    {:base 1 :baseline 0 :derived 2}
+                  ;; the record's :db-after is the FINAL post-flow state
+                  :db-after     t2
+                  :trace-events [(dispatched-ev [:button-deck/increment-flow])
+                                 (db-pending-ev t1)
+                                 (flow-recomputed-ev :button-deck/derived [:derived] 2 4)
+                                 (db-pending-post-flow-ev t2)
+                                 (run-end-ev 0.3)]}
+          steps  (proj/project record)
+          h      (first (filter #(= :handler (:step %)) steps))]
+      (is (some? h) "HANDLER step present")
+      (is (= t1 (:db-post-handler h))
+          "HANDLER `:db-post-handler` is the t1 (post-handler / pre-flow) db")
+      (is (= 2 (:derived (:db-post-handler h)))
+          "the HANDLER step's :derived is the PRE-flow value (2), NOT the
+           flow's recomputed value (4) — the handler did not touch it")
+      ;; The flat-row `:db-diff` (non-view consumers) is computed against
+      ;; t1, so it shows ONLY the handler's path changes, no :derived.
+      (let [diff-paths (set (map first (:db-diff h)))]
+        (is (contains? diff-paths [:base])
+            ":db-diff carries the handler's :base bump")
+        (is (not (contains? diff-paths [:derived]))
+            ":db-diff must NOT carry the flow's :derived recompute — that
+             belongs to the FLOW step, not the HANDLER step")))))
+
+(deftest flow-step-carries-its-own-db-diff-snapshots-test
+  (testing "rf2-4wywy ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
+            + t2 (post-flow) db snapshots so the view renders the flow's
+            OWN `:db` diff (`:derived` recomputed) separately from the
+            handler's change."
+    (let [t1     {:base 2 :baseline 1 :derived 2}  ; pre-flow: :derived still 2
+          t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed
+          record {:event-id     :button-deck/increment-flow
+                  :db-before    {:base 1 :baseline 0 :derived 2}
+                  :db-after     t2
+                  :trace-events [(dispatched-ev [:button-deck/increment-flow])
+                                 (db-pending-ev t1)
+                                 (flow-recomputed-ev :button-deck/derived [:derived] 2 4)
+                                 (db-pending-post-flow-ev t2)
+                                 (run-end-ev 0.3)]}
+          steps  (proj/project record)
+          flows  (filter #(= :flow (:step %)) steps)
+          f      (first flows)]
+      (is (= 1 (count flows)) "one FLOW step for the single recompute")
+      (is (= :button-deck/derived (:flow-id f)))
+      (is (= [:derived] (:path f)))
+      (is (= t1 (:db-pre-flow f))
+          "FLOW step carries t1 (pre-flow) so the view diff's `:before` =
+           the db BEFORE this flow's write")
+      (is (= t2 (:db-post-flow f))
+          "FLOW step carries t2 (post-flow) so the view diff's value =
+           the db WITH this flow's write")
+      ;; The t1→t2 reshape IS the flow's contribution: :derived 2 → 4.
+      (is (= 2 (:derived (:db-pre-flow f)))
+          "pre-flow db carries :derived at its PRE-recompute value (2)")
+      (is (= 4 (:derived (:db-post-flow f)))
+          "post-flow db carries :derived = 2 × :base = 4"))))
+
+(deftest handler-step-db-falls-back-to-record-when-no-t1-test
+  (testing "rf2-4wywy — graceful fallback: when no t1 fired (handler
+            returned no `:db`, or a pre-rf2-ta0y7 runtime) the HANDLER
+            step carries no `:db-post-handler`; the view falls back to
+            the record's `:db-after`. The flat `:db-diff` then reads the
+            db-before → db-after change (prior behaviour preserved)."
+    (let [record {:event-id     :legacy/no-t1
+                  :db-before    {:counter 1}
+                  :db-after     {:counter 2}
+                  :trace-events [(dispatched-ev [:legacy/no-t1])
+                                 (run-end-ev 0.2)]}
+          steps  (proj/project record)
+          h      (first (filter #(= :handler (:step %)) steps))]
+      (is (some? h))
+      (is (nil? (:db-post-handler h))
+          "no t1 on the stream → :db-post-handler absent")
+      (is (contains? (set (map first (:db-diff h))) [:counter])
+          "without t1 the :db-diff falls back to db-before → db-after"))))
+
+(deftest flow-step-falls-back-to-scalar-when-no-snapshots-test
+  (testing "rf2-4wywy — when no t1/t2 snapshots rode the stream (pre-
+            rf2-ta0y7 fixture) the FLOW step carries no `:db-pre-flow` /
+            `:db-post-flow`; the view renders the legacy scalar
+            before→after line. Projection-side: the slots are simply
+            absent."
+    (let [record {:event-id     :counter/inc
+                  :trace-events [(dispatched-ev [:counter/inc])
+                                 (flow-recomputed-ev :total-parity [:total] 5 6)]}
+          steps  (proj/project record)
+          f      (first (filter #(= :flow (:step %)) steps))]
+      (is (some? f))
+      (is (not (contains? f :db-pre-flow))
+          "no t1 → :db-pre-flow absent (view falls back to scalar line)")
+      (is (not (contains? f :db-post-flow))
+          "no t2 → :db-post-flow absent")
+      ;; the per-path scalar slots survive for the fallback rendering
+      (is (= [:total] (:path f)))
+      (is (= 5 (:before f)))
+      (is (= 6 (:after f))))))
 
 ;; ---- FX -----------------------------------------------------------------
 

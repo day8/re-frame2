@@ -155,6 +155,26 @@
                              :rf.fx/args       args
                              :rf.fx/elapsed-ms duration-ms}))
 
+;; ---- pending-`:db` snapshots (t1 / t2) — rf2-ta0y7 / rf2-4wywy ----------
+
+(defn db-pending-ev
+  "`:rf.event/db-pending` trace (t1) — the POST-handler, PRE-flow db
+  value the handler chain returned, stamped under `:tags :rf.event/db`
+  (rf2-ta0y7). The Epoch HANDLER step's `:db` sub-section reads this
+  so it shows ONLY the handler's contribution, not the post-flow
+  state (rf2-4wywy)."
+  [db]
+  (ev :rf.event :rf.event/db-pending {:rf.event/db db}))
+
+(defn db-pending-post-flow-ev
+  "`:rf.event/db-pending-post-flow` trace (t2) — the POST-flow,
+  PRE-commit (flow-augmented) db value, stamped under
+  `:tags :rf.event/db` (rf2-ta0y7). OMITTED at the emit site when no
+  flow changed `:db` (t1 == t2). The Epoch FLOW step reads the t1→t2
+  pair to render the flow's OWN `:db` diff (rf2-4wywy)."
+  [db]
+  (ev :rf.event :rf.event/db-pending-post-flow {:rf.event/db db}))
+
 ;; ---- flows -------------------------------------------------------------
 
 (defn flow-recomputed-ev
