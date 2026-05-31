@@ -288,7 +288,8 @@ boolean GitHub-Actions outputs per surface:
 |---|---|
 | `implementation_jvm` | JVM artefact under `implementation/` changed; gates JVM unit + conformance jobs. |
 | `adapter_diagnostic` | Adapter artefact changed; gates the diagnostic skip-ok JVM classpath probes. |
-| `cljs_browser` | CLJS surface that the browser tests cover changed. |
+| `cljs_node_test` | A surface that compiles into the consolidated `:node-test` build changed (core, any adapter, any feature artefact, `spec/conformance/fixtures/*`, the build config in `implementation/{shadow-cljs.edn,package.json,package-lock.json}` + `implementation/scripts/*`, or a `.cljs`/`.cljc` file under `tools/{story,xray}/{src,test}` — rf2-f79t8); gates the `cljs` job (`shadow-cljs compile node-test` + `node out/node-test.js`). |
+| `cljs_browser` | CLJS surface that the browser tests cover changed; gates the separate `cljs-browser` job (`:browser-test` DOM build via Playwright). |
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
@@ -370,34 +371,34 @@ hand-maintained against [`.github/scripts/report-changed-surfaces.sh`](.github/s
 condition changes (per the **Adding a new artefact directory** rule above).
 
 **Surface → output** — read this to verify "did my PR fire the right
-classifier outputs?" Rows are surface groups; columns are the 13
+classifier outputs?" Rows are surface groups; columns are the 15
 classifier outputs (exact names from the script). A `✓` means a change
 under that surface sets that output to `true`. The **blast-trigger row
 (S1)** is bold: any change to those four files calls `mark_all` and
 lights every output (defensive — anything that re-tiers the matrix
 must re-run the matrix).
 
-| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_xray_browser` | `skills_structural` | `playground` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
-| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
-| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
-| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
-| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
-| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
-| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
-| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Xray observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
-| S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |
-| S11 | `tools/story/{src,testbeds}/**`, `tools/xray/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
-| S11a | `tools/story/{spec,test,bench}/**`, `tools/xray/{spec,test}/**`, `tools/{story,xray}/{deps.edn,README.md}` (non-runtime under story/xray) |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
-| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
-| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |   |
-| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |
-| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |   |
-| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |   |
-| S17 | `docs/tools/playground/*`, `docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js` (rf2-ee38b.22) |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_node_test` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_xray_browser` | `skills_structural` | `playground` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
+| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
+| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
+| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
+| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Xray observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S10 | `tools/template/*` |   |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |
+| S11 | `tools/story/{src,testbeds}/**`, `tools/xray/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz; `.cljs`/`.cljc` also fire `cljs_node_test` — rf2-f79t8) |   |   | ✓ |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
+| S11a | `tools/story/{spec,test,bench}/**`, `tools/xray/{spec,test}/**`, `tools/{story,xray}/{deps.edn,README.md}` (non-runtime under story/xray; a `.cljs`/`.cljc` file under `test/**` still compiles into `:node-test` and fires `cljs_node_test` — rf2-f79t8 — but `spec/**.md`, `bench/**`, `deps.edn`, `README.md` do not) |   |   | ✓ |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |   |
+| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |
+| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |   |
+| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |   |
+| S17 | `docs/tools/playground/*`, `docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js` (rf2-ee38b.22) |   |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at
@@ -407,7 +408,8 @@ PR time; one row per output here so the table stays scannable).
 |---|---|
 | `implementation_jvm` | JVM artefact unit suites ×9 (`jvm-core`, `jvm-flows`, `jvm-schemas`, `jvm-machines`, `jvm-routing`, `jvm-http`, `jvm-ssr`, `jvm-ssr-ring`, `jvm-epoch`) |
 | `adapter_diagnostic` | Adapter classpath probes ×4 (`jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix`) |
-| `cljs_browser` | `node-test` (consolidated CLJS unit + browser-test) |
+| `cljs_node_test` | `cljs` (the `CLJS (shadow-cljs :node-test)` job — consolidated CLJS unit suite: `shadow-cljs compile node-test` + `node out/node-test.js`, covering core + every adapter + every feature artefact + the `tools/{story,xray}/{src,test}` source paths). |
+| `cljs_browser` | `cljs-browser` (the `CLJS (shadow-cljs :browser-test, headless Chromium)` job — DOM `:browser-test` build served + driven by the Playwright runner; a distinct job from `cljs`, split off node-test gating in rf2-f79t8). |
 | `cljs_prod` | Release-mode probes ×3 (`browser-test-prod-elision`, schemas boundary prod, etc.) |
 | `bundle_isolation` | `bundle-isolation` |
 | `reagent_slim_bundle` | `reagent-slim-bundle-isolation` |
