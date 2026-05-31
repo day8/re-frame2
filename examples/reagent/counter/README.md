@@ -59,5 +59,5 @@ lives in `npm run test:cljs` and the framework gates.
 - [`spec/002-Frames.md`](../../../spec/002-Frames.md) — the dispatch / drain semantics under the buttons.
 - [`spec/004-Views.md`](../../../spec/004-Views.md) §`reg-view` — the Form-1 view-registration macro.
 - [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the Reagent reactive substrate the subscription runs on.
-- [`examples/reagent/counter_slim_and_fast/`](../counter_slim_and_fast/) — the same counter re-mounted on `day8/reagent-slim` (bundle-isolation contrast pair).
+- [`examples/reagent-slim/counter_slim_and_fast/`](../../reagent-slim/counter_slim_and_fast/) — the same counter re-mounted on `day8/reagent-slim` (bundle-isolation contrast pair).
 - [`examples/uix/counter_uix/`](../../uix/counter_uix/) + [`examples/helix/counter_helix/`](../../helix/counter_helix/) — UIx and Helix substrate variants.

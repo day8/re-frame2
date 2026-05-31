@@ -78,7 +78,7 @@ npm run test:reagent-slim:bundle-isolation
 
 ## Cross-references
 
-- [`examples/reagent/counter/`](../counter/) — the canonical counter
+- [`examples/reagent/counter/`](../../reagent/counter/) — the canonical counter
   on the stock-Reagent bridge; this example's behavioural twin.
 - [`implementation/adapters/reagent-slim/IMPL-SPEC.md`](../../../implementation/adapters/reagent-slim/IMPL-SPEC.md)
   §1.4 + §1.8 + §8 — the spec the bundle-isolation contract binds

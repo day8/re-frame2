@@ -381,7 +381,7 @@ must re-run the matrix).
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
 | S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
 | S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
 | S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
