@@ -46,6 +46,29 @@
 
 (use-fixtures :each install-test-react!)
 
+;; ---- lifecycle-log query helpers -------------------------------------------
+;; The assertions below repeatedly interrogate a mount's lifecycle log by
+;; phase — counting how many times a phase fired (render-count contracts) and
+;; reading the first `:at` timestamp for a phase (teardown-ordering checks).
+;; These two helpers name those queries so each assertion reads as the
+;; property under test rather than a `->>`/filter thread.
+
+(defn- phase-count
+  "How many `phase` entries the mount's lifecycle log holds."
+  [mount phase]
+  (->> (test-react/lifecycle-log mount)
+       (filter (comp #{phase} :phase))
+       count))
+
+(defn- phase-first-at
+  "The `:at` timestamp of the first `phase` entry in the mount's lifecycle
+  log, or nil if the phase never fired."
+  [mount phase]
+  (->> (test-react/lifecycle-log mount)
+       (filter (comp #{phase} :phase))
+       first
+       :at))
+
 ;; ----------------------------------------------------------------------------
 ;; A. Demonstration scenarios
 ;; ----------------------------------------------------------------------------
@@ -165,12 +188,8 @@
           "parent unmount cascaded to the child — nothing leaks")
       (is (some #{:will-unmount} (mapv :phase (test-react/lifecycle-log @child-ref)))
           "the child saw its own :will-unmount during the cascade")
-      (let [child-unmount-at  (->> (test-react/lifecycle-log @child-ref)
-                                   (filter (comp #{:will-unmount} :phase))
-                                   first :at)
-            parent-unmount-at (->> (test-react/lifecycle-log parent)
-                                   (filter (comp #{:will-unmount} :phase))
-                                   first :at)]
+      (let [child-unmount-at  (phase-first-at @child-ref :will-unmount)
+            parent-unmount-at (phase-first-at parent :will-unmount)]
         (is (<= child-unmount-at parent-unmount-at)
             "children tear down before (or no later than) their parent")))))
 
@@ -321,12 +340,8 @@
       ;; second render real double-render bugs produce).
       (test-react/trigger-update! mount [:div "v2"])
       (test-react/trigger-update! mount [:div "v2"]) ; redundant re-render
-      (let [renders (->> (test-react/lifecycle-log mount)
-                         (filter (comp #{:render} :phase))
-                         count)
-            updates (->> (test-react/lifecycle-log mount)
-                         (filter (comp #{:did-update} :phase))
-                         count)]
+      (let [renders (phase-count mount :render)
+            updates (phase-count mount :did-update)]
         ;; Mount render + two update renders = 3.
         (is (= 3 renders)
             "render count is 3 (1 mount + 2 update) — the doubled update render is visible")
@@ -339,8 +354,6 @@
             render (one :did-update). A double-render regression breaks this."
     (let [mount (test-react/mount! [:div "v1"])]
       (test-react/trigger-update! mount [:div "v2"])
-      (is (= 1 (->> (test-react/lifecycle-log mount)
-                    (filter (comp #{:did-update} :phase))
-                    count))
+      (is (= 1 (phase-count mount :did-update))
           "exactly one update render for one logical change")
       (test-react/unmount! mount))))
