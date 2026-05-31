@@ -322,6 +322,64 @@
         (is (= "absolute"
                (:data-rf-xray-modal-positioning (second backdrop))))))))
 
+;; ---- (8) dialog Esc keydown (rf2-op8c7) --------------------------------
+;;
+;; The popover DIALOG's `:on-key-down` MUST be the BUILT handler
+;; `(handle-popover-keydown dispatch)`, not the bare 1-arity builder.
+;; With the bug, React called the builder with the keydown event and
+;; discarded the handler fn it RETURNED, so a dialog-focused Esc was a
+;; no-op — and the `a11y/dialog-ref` focus trap kept that Esc from ever
+;; reaching the backdrop's correctly-built handler.
+;;
+;; Idiom mirrors `edn_inspector_popup_cljs_test`: pull the rendered
+;; dialog node's `:on-key-down` (exercising the actual wiring at the
+;; bug site), redef `rf/dispatch*` to capture the dispatched event, fire
+;; a fake Escape keydown through it, and assert the close event was
+;; dispatched. With the BUILT handler the close event is captured; with
+;; the bare builder the call returns an inner fn and dispatches NOTHING
+;; (capture stays nil) — so this assertion is the discriminating guard.
+
+(defn- fake-keydown-event
+  "Minimal stand-in for a React keydown SyntheticEvent — `.-key` plus
+  the no-op `preventDefault` / `stopPropagation` the handler calls."
+  [key]
+  #js {:key             key
+       :preventDefault  (fn [])
+       :stopPropagation (fn [])})
+
+(deftest popover-dialog-esc-keydown-dispatches-close
+  (testing "an Escape keydown on the popover DIALOG invokes the BUILT
+            keydown handler and dispatches :cancellation-cascade-close
+            — guards against the bare-builder no-op (rf2-op8c7)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+      (let [tree     (cc/Popover)
+            dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
+            on-key   (:on-key-down (second dialog))
+            captured (atom nil)]
+        (is (some? dialog) "dialog node rendered")
+        (is (fn? on-key) "dialog carries an :on-key-down handler")
+        (with-redefs [rf/dispatch* (fn [event-v & _] (reset! captured event-v))]
+          (on-key (fake-keydown-event "Escape")))
+        (is (= [:rf.xray/cancellation-cascade-close] @captured)
+            "Esc on the dialog dispatched the close event (built handler invoked)")))))
+
+(deftest popover-dialog-keydown-ignores-non-escape
+  (testing "a non-Escape keydown on the dialog dispatches NOTHING (the
+            built handler keys on 'Escape')"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+      (let [tree     (cc/Popover)
+            dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
+            on-key   (:on-key-down (second dialog))
+            captured (atom nil)]
+        (with-redefs [rf/dispatch* (fn [event-v & _] (reset! captured event-v))]
+          (on-key (fake-keydown-event "Enter")))
+        (is (nil? @captured)
+            "Enter on the dialog dispatched nothing")))))
+
 ;; ---------------------------------------------------------------------------
 ;; rf2-ppzid — React unique-key warning regression guard.
 ;;
