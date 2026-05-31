@@ -1499,21 +1499,34 @@ epoch's `:db-before` threaded as the diff pre-image, so inline diff
 annotations paint per the R1-R8 grammar below. There is no mode
 toggle.
 
-> **Post-handler `:db`, not post-flow (rf2-4wywy)** — the rendered
-> value is the **t1 snapshot** (`:rf.event/db-pending`, post-handler /
-> pre-flow · rf2-ta0y7), surfaced by the projection as the HANDLER
-> step's `:db-post-handler`. It is NOT the epoch record's `:db-after`.
-> `:db-after` is the FINAL post-flow / post-commit state — flows write
-> app-db AFTER the handler returns (at the outermost `:after`
-> interceptor), so reading `:db-after` here CONFLATED the handler's
-> change with any flow recompute that followed it (the bug). With t1
-> the HANDLER step shows ONLY what the handler returned; the flow's own
+> **Post-handler `:db`, not post-flow (rf2-4wywy / rf2-48oc4)** — the
+> rendered value is the **effective post-handler db** (the db AS IT
+> STOOD AT END-OF-HANDLER, pre-flow), surfaced by the projection as the
+> HANDLER step's `:db-post-handler`. It is NOT the epoch record's
+> `:db-after`. `:db-after` is the FINAL post-flow / post-commit state —
+> flows write app-db AFTER the handler returns (at the outermost
+> `:after` interceptor), so reading `:db-after` here CONFLATED the
+> handler's change with any flow recompute that followed it (the bug).
+> The HANDLER step shows ONLY what the handler returned; the flow's own
 > contribution is rendered on the FLOW step as its own `:db` diff (the
-> t1→t2 reshape · §9.1.10.8). **Graceful fallback**: when no t1 rode
-> the stream (handler returned no `:db`, or a pre-rf2-ta0y7 runtime),
-> the sub-section falls back to the record's `:db-after` so older
-> epochs still render. The diff pre-image stays `:db-before`
-> throughout.
+> reshape · §9.1.10.8). The diff pre-image stays `:db-before` throughout.
+>
+> The effective post-handler db **MUST NOT assume the handler returned a
+> `:db`** (`projection/effective-post-handler-db`):
+>
+> 1. **Handler returned `:db`** → the **t1 snapshot**
+>    (`:rf.event/db-pending`, post-handler / pre-flow · rf2-ta0y7).
+> 2. **Handler returned NO `:db` but a flow fired** (rf2-48oc4 edge
+>    case) → **`db-before`**. The substrate stamps t1 only `(when
+>    has-db?)`, so no t1 rides the stream; but t2
+>    (`:rf.event/db-pending-post-flow`) DOES fire because a flow
+>    synthesised a `:db` from app-db and changed it. The db at
+>    end-of-handler equals `db-before` (the handler wrote nothing), so
+>    the HANDLER step shows **NO `:db` change** — the flow's change is
+>    attributed to the FLOW step, not the handler.
+> 3. **Neither t1 nor t2** (no flow + no `:db`, OR a pre-rf2-ta0y7
+>    runtime) → the slot is nil and the sub-section **falls back to the
+>    record's `:db-after`** so older epochs still render.
 
 > **Retirement (2026-05-29, rf2-vv3m6)** — the prior
 > `[diff][full][full+diff]` three-mode toggle (rf2-n2jig + rf2-yqjrd)
@@ -2341,11 +2354,22 @@ each carries `:flow-id`, `:path`, `:before`, `:after`, and
 `:duration-ms` (when stamped). The aggregate `flow-step` defn
 retired with rf2-xnb1x.
 
-Per rf2-4wywy each FLOW step additionally carries the t1 (pre-flow)
-+ t2 (post-flow) db snapshots — `:db-pre-flow` (`:rf.event/db-pending`)
-and `:db-post-flow` (`:rf.event/db-pending-post-flow`) — threaded by
-`project` off the trace stream (rf2-ta0y7). One flows pass produces
-one t1→t2 transition shared across all FLOW steps of the epoch.
+Per rf2-4wywy / rf2-48oc4 each FLOW step additionally carries the
+pre-flow + post-flow db snapshots — `:db-pre-flow` and `:db-post-flow`
+— threaded by `project` off the trace stream (rf2-ta0y7). One flows
+pass produces one pre→post transition shared across all FLOW steps of
+the epoch.
+
+- `:db-pre-flow` = the **effective post-handler db**
+  (`projection/effective-post-handler-db`): the **t1 snapshot**
+  (`:rf.event/db-pending`) when the handler returned `:db`, else
+  **`db-before`** when the handler returned NO `:db` yet a flow fired
+  (the rf2-48oc4 edge case — the flow's diff baseline is the ACTUAL
+  post-handler db, which equals db-before since the handler wrote
+  nothing; the implementation MUST NOT assume the handler supplied a
+  `:db`). nil only on a pre-rf2-ta0y7 / no-flow stream.
+- `:db-post-flow` = the **t2 snapshot**
+  (`:rf.event/db-pending-post-flow`) — what the flow returned.
 
 The accompanying view-layer chrome:
 
@@ -2355,29 +2379,34 @@ The accompanying view-layer chrome:
   jumps through the shared `:rf.xray/open-in-editor` allowlist —
   see §9.1.11); otherwise the id renders as a plain coloured span.
   An external-link glyph trails the id when source-jump is wired.
-- **Body — the flow's OWN `:db` diff (rf2-4wywy)** — a flow's
-  contribution IS an app-db mutation: it writes `:output` into `:path`
-  AFTER the handler returned. The body renders that contribution as a
-  `:db` DIFF via the shared edn-inspector diff renderer (FULL+DIFF,
-  parity with the HANDLER `:db` sub-section §9.1.5.1 + the App-DB Diff
-  panel), under a `↳ :db <path>` sub-header. The diff is **scoped to
-  the flow's `:path`**: `:before` = t1 with the flow's pre-write value
-  at `:path`, value = t2 with the flow's post-write value at `:path`,
-  so each FLOW step shows ONLY its own slot's reshape even when several
-  flows rode the same t1→t2 transition. This keeps the flow's change
-  (e.g. `:derived` recomputed) SEPARATE from the HANDLER step's `:db`
-  (which shows only the t1 / post-handler state). Testid
+- **Body — the flow's OWN `:db` diff (rf2-4wywy / rf2-48oc4)** — a
+  flow's contribution IS an app-db mutation: it writes `:output` into
+  `:path` AFTER the handler returned. The body renders that
+  contribution as a `:db` DIFF via the shared edn-inspector diff
+  renderer (FULL+DIFF, parity with the HANDLER `:db` sub-section
+  §9.1.5.1 + the App-DB Diff panel), under a `↳ :db <path>` sub-header.
+  The diff is **scoped to the flow's `:path`**: `:before` =
+  `:db-pre-flow` with the flow's pre-write value at `:path`, value =
+  `:db-post-flow` with the flow's post-write value at `:path`, so each
+  FLOW step shows ONLY its own slot's reshape even when several flows
+  rode the same pre→post transition. Because `:db-pre-flow` is the
+  EFFECTIVE post-handler db, this renders correctly EVEN WHEN the
+  handler returned no `:db` (the diff baseline is `db-before`, NOT a
+  scalar fallback — rf2-48oc4). This keeps the flow's change (e.g.
+  `:derived` recomputed) SEPARATE from the HANDLER step's `:db` (which
+  shows only the post-handler state). Testid
   `rf-xray-epoch-flow-db-diff-<name>`; the step root carries
   `data-rf-xray-flow-db-diff="true"`.
 - **Fallback (pre-rf2-ta0y7 / no snapshots)** — when the step carries
-  no t1/t2 snapshots (handler returned no `:db`, or an older runtime),
-  the body falls back to the legacy `<glyph> [path] before → after`
-  diff-style scalar line, left-aligned with the badge (no indent),
-  reusing the COEFFECT body styles (`coeffect-body-*`). Glyph is `~`
-  for an update (both before and after present) or `+` for a
-  first-write (no before). Values render through the edn-inspector
-  `mini` widget. Testid `rf-xray-epoch-flow-value-<name>`; the step
-  root carries `data-rf-xray-flow-db-diff="false"`.
+  no pre/post snapshots (a pre-rf2-ta0y7 runtime, or a flow on a stream
+  with neither t1 nor t2), the body falls back to the legacy
+  `<glyph> [path] before → after` diff-style scalar line, left-aligned
+  with the badge (no indent), reusing the COEFFECT body styles
+  (`coeffect-body-*`). Glyph is `~` for an update (both before and
+  after present) or `+` for a first-write (no before). Values render
+  through the edn-inspector `mini` widget. Testid
+  `rf-xray-epoch-flow-value-<name>`; the step root carries
+  `data-rf-xray-flow-db-diff="false"`.
 - **Verb dropped** — the prior `N flows recomputed` aggregate
   verb is gone; the per-step expansion of flows makes the count
   visible in the cascade numbering itself (operator scans left
@@ -3361,8 +3390,8 @@ signal to render plainly. None set any mode flag:
 
 | Surface                              | Call site                                                                                  | Test surface                                                                |
 |--------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (post-handler t1 `:db-post-handler`, fallback `:db-after`; `:before db-before` · rf2-4wywy) | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
-| Epoch FLOW step `:db`                | `panels/epoch/view.cljs` — `render-flow-step` (path-scoped t1→t2 diff `:db-pre-flow`→`:db-post-flow` · rf2-4wywy) | `data-testid="rf-xray-epoch-flow-db-diff-<name>"`                           |
+| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (effective post-handler db `:db-post-handler` = t1, else `db-before` when no-`:db`-with-flow, else fallback `:db-after`; `:before db-before` · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
+| Epoch FLOW step `:db`                | `panels/epoch/view.cljs` — `render-flow-step` (path-scoped pre→post diff `:db-pre-flow` (effective post-handler db) → `:db-post-flow` (t2) · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-flow-db-diff-<name>"`                           |
 | App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->`)         | App-DB panel-gallery story fixtures + segment-inspector tests               |
 | Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` via `cond->` when captured)  | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
 | Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch (`:before` / `:added?`)      | `data-testid="rf-xray-epoch-sub-row-*"` mount                               |
