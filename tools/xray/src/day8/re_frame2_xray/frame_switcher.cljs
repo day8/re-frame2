@@ -81,6 +81,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack]]))
 
@@ -169,43 +170,30 @@
   []
   @storage-key)
 
-(defn- storage-available?
-  "True when `js/window.localStorage` is reachable. JVM / node tests
-  without jsdom land in the no-op branch."
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access + the no-op-when-unavailable / swallow-throws
+;; posture live in the shared `local-storage` seam (rf2-jkake.24). The
+;; key is resolved per call through `get-storage-key` so a runtime
+;; `set-storage-key!` re-key takes effect immediately.
 
 (defn- read-raw
   "Read the raw EDN string Xray wrote under `storage-key`. Returns nil
   when the slot is empty or localStorage is unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil))))
+  (ls/get-item (get-storage-key)))
 
 (defn- write-raw!
   "Write `s` (an EDN string) under `storage-key`. No-op when
   localStorage is unavailable. Swallows any throw — a quota error
   must not poison the dispatch chain."
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) (get-storage-key) s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! (get-storage-key) s))
 
 (defn clear!
   "Remove the persisted selection. No-op when localStorage is
   unavailable. Hosts use this when tearing down per-scenario state in
   Story testbeds."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! (get-storage-key)))
 
 (defn ->edn
   "Serialise `frame-id` (a keyword or nil) into a stable EDN string.

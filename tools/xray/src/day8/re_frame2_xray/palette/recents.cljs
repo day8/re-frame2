@@ -33,7 +33,8 @@
   registry) doesn't blow up on classpath load. All writes swallow
   throws so quota / serialisation failures never poison the dispatch
   chain that drove the record."
-  (:require [cljs.reader :as reader]))
+  (:require [cljs.reader :as reader]
+            [day8.re-frame2-xray.local-storage :as ls]))
 
 (def storage-key
   "Canonical localStorage key for the palette's recents list. Versioned
@@ -49,38 +50,22 @@
   3)
 
 ;; ---- localStorage helpers -----------------------------------------------
-
-(defn- storage-available?
-  "True when `js/window.localStorage` is reachable. Node test runtimes
-  return false here so the load/save fns no-op silently."
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access lives in the shared `local-storage` seam
+;; (rf2-jkake.24).
 
 (defn- read-raw
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) storage-key)
-      (catch :default _ nil))))
+  (ls/get-item storage-key))
 
 (defn- write-raw!
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) storage-key s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! storage-key s))
 
 (defn clear!
   "Remove the persisted slot. Test-only — fixtures reset between
   scenarios."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) storage-key)
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! storage-key))
 
 ;; ---- public API ---------------------------------------------------------
 

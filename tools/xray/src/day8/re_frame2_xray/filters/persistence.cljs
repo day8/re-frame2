@@ -42,7 +42,8 @@
   than throwing at boot."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [day8.re-frame2-xray.config :as config]))
+            [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.local-storage :as ls]))
 
 (def default-storage-key
   "Default localStorage key Xray writes filter state under. Hosts
@@ -73,44 +74,29 @@
   (config/get-filters-storage-key))
 
 ;; ---- localStorage helpers ------------------------------------------------
-
-(defn- storage-available?
-  "True when `js/window.localStorage` is reachable. Tests that drive the
-  registry without a browser environment (node + no jsdom) need the
-  load path to no-op silently."
-  []
-  (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+;; Raw browser access + the no-op-when-unavailable / swallow-throws
+;; posture live in the shared `local-storage` seam (rf2-jkake.24). The
+;; key is resolved per call through `get-storage-key` so a runtime
+;; `configure!` re-key takes effect immediately.
 
 (defn read-raw
   "Read the raw EDN string Xray wrote under `storage-key`. Returns nil
   when the slot is empty or localStorage is unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.getItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil))))
+  (ls/get-item (get-storage-key)))
 
 (defn write-raw!
   "Write `s` (an EDN string) under `storage-key`. No-op when
   localStorage is unavailable. Swallows any throw — a quota error must
   not poison the dispatch chain."
   [s]
-  (when (storage-available?)
-    (try
-      (.setItem (.-localStorage js/window) (get-storage-key) s)
-      (catch :default _ nil)))
-  nil)
+  (ls/set-item! (get-storage-key) s))
 
 (defn clear!
   "Remove the persisted filter state. No-op when localStorage is
   unavailable."
   []
-  (when (storage-available?)
-    (try
-      (.removeItem (.-localStorage js/window) (get-storage-key))
-      (catch :default _ nil)))
-  nil)
+  (ls/remove-item! (get-storage-key)))
 
 ;; ---- (de)serialisation ---------------------------------------------------
 
