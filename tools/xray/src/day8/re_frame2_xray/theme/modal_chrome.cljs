@@ -1,10 +1,10 @@
 (ns day8.re-frame2-xray.theme.modal-chrome
   "Shared modal-chrome scaffold (rf2-7oxvd).
 
-  Seven of Xray's eight modal surfaces — Settings, Filter edit-popup,
+  ALL EIGHT of Xray's modal surfaces — Settings, Filter edit-popup,
   Share, Mute manager, App-DB segment-inspector, EDN-inspector popup,
-  and the Cancellation-cascade popover — render the SAME two-`:div`
-  scaffold:
+  the Cancellation-cascade popover and the Command palette — render
+  the SAME two-`:div` scaffold:
 
       [:div BACKDROP            ;; full-inset overlay, click-outside dismiss
        [:div DIALOG …content…]] ;; the WAI-ARIA dialog box
@@ -44,16 +44,29 @@
       `:dialog-extra` (merged last so the caller can override anything,
       including the testid).
 
-  ## Why the palette is NOT a caller
+  ## The palette is a caller too (rf2-7oxvd, Option A)
 
-  The command palette (`palette/view`) deliberately ships a DIFFERENT
-  scaffold: no `:rf.xray/modal-positioning` honouring (always `:fixed`),
-  no `a11y/dialog-ref` focus-trap, hand-rolled combobox/listbox ARIA,
-  and Esc handled only inside its text input. It has its own ARIA
-  contract test (`palette/aria-cljs-test`) distinct from the six-modal
-  `modals-aria-cljs-test`. Folding it onto this scaffold would CHANGE
-  its behaviour (add a focus trap it does not have), so it stays as-is
-  per the bead's stop-on-divergence guidance.
+  The command palette (`palette/view`) was the eighth and last modal
+  to adopt this scaffold. Its apparent divergences all land cleanly on
+  the existing slots — no per-palette flag, no new slot:
+
+    * always-`:fixed` (no `:rf.xray/modal-positioning` subscribe) → it
+      passes the literal `:positioning :fixed`;
+    * Esc handled inside its `:auto-focus` text input → it passes NO
+      chrome keydown handler (the edit-popup pattern);
+    * the `data-rf-xray-mode \"palette\"` marker → `:dialog-extra`;
+    * its hand-rolled combobox/listbox ARIA stays in the `children`
+      (the dialog-level role/aria-modal/accessible-name comes from
+      `a11y/dialog-attrs` via `:label`, exactly the contract its
+      `palette/aria-cljs-test` already asserts).
+
+  Adopting the chrome ALSO gives the palette the `a11y/dialog-ref`
+  focus trap it previously lacked — a strict a11y improvement. The
+  trap intercepts only Tab/Shift+Tab, and the palette's sole focusable
+  is the input (rows drive a virtual `aria-activedescendant` cursor,
+  not real focus), so Tab wraps to the input and the arrow-key
+  navigation is untouched. (Earlier partial passes left the palette
+  out under the C-stance; Mike ruled Option A — full consolidation.)
 
   ## Tab-index
 
