@@ -53,7 +53,7 @@ Xray is **dev-only by construction** — production builds elide every byte of i
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's listeners under `register-listener!` and `register-epoch-listener!`, attaches the `Ctrl+Shift+C` keybinding, and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
+The preload registers Xray's listeners under `register-listener!` and `register-epoch-listener!`, attaches the global keydown listener (`Ctrl+Shift+C` and the rest — see [Keybindings](#keybindings-whats-actually-wired)), and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
 
 ---
 
@@ -103,15 +103,30 @@ The resize *handle* (a vertical splitter that writes the property), the per-rout
 
 ## Keybindings (what's actually wired)
 
-One keybinding ships in `tools/xray/src/day8/re_frame2_xray/keybinding.cljs` today:
+The global keydown listener in `tools/xray/src/day8/re_frame2_xray/keybinding.cljs` wires three modifier chords (always live whenever the listener is attached) plus a set of focus-gated bare keys (live only inside the Xray shell).
+
+**Global chords** — fire anywhere on the page:
 
 | Action | Keys | Notes |
 |---|---|---|
-| Toggle the Xray panel (show / hide) | `Ctrl+Shift+C` | Toggles visibility of the mounted shell; does not unmount. |
+| Toggle the Xray panel (show / hide) | `Ctrl+Shift+C` | Toggles visibility of the mounted shell; does not unmount. `Ctrl` only — see Cross-OS below. |
+| Toggle Dynamic ↔ Static mode | `Cmd+Shift+M` / `Ctrl+Shift+M` | Dispatches `:rf.xray/toggle-mode` on the `:rf/xray` frame. Accepts either Cmd (macOS) or Ctrl. |
+| Toggle the command palette | `Cmd+K` / `Ctrl+K` | Dispatches `:rf.xray/palette-toggle` on the `:rf/xray` frame; opens the shell first if it isn't visible. Accepts either Cmd (macOS muscle-memory) or Ctrl (Windows/Linux). |
 
-**Cross-OS:** Xray uses `Ctrl` (not `Cmd`) on every host OS. macOS Safari sometimes maps `Cmd+Shift+C` to dev-tools' Inspect; the `Ctrl` modifier avoids that collision. macOS users who prefer `Cmd+Shift+C` can rebind in their browser's keyboard-shortcut UI.
+**Spine / shell bare keys** — fire ONLY when the shell is visible, the keydown target is inside the Xray shell DOM (`[data-testid="rf-xray-shell"]`), the target is not an editable element (`<input>` / `<textarea>` / `<select>` / `contenteditable`), and the target is not inside an Xray modal (Settings popup or command palette). No modifier:
 
-**Not currently wired as keybindings:** `Ctrl+Shift+P` (pop-out to second window) and `Ctrl+K` (command palette) appear in some docs and spec tables, but the keydown listener in `keybinding.cljs` does not currently handle them. Pop-out is reachable programmatically via `window.day8.re_frame2_xray.popout_BANG_()` (or `(xray/popout!)` from CLJS); the command palette is shell-internal. If the author asks specifically about either, point them at the programmatic surface and note the keybinding gap. Do not claim Xray supports a keybinding it doesn't.
+| Action | Keys | Dispatches |
+|---|---|---|
+| Pause / resume the LIVE feed | `Space` | `:rf.xray/toggle-live-pause` |
+| Snap to LIVE (follow head) | `L` | `:rf.xray/follow-head` |
+| Fast-forward to head ("Go to head") | `Shift+G` | `:rf.xray/follow-head` |
+| Step backward through events | `j` | `:rf.xray/focus-cascade-prev` |
+| Step forward through events | `k` | `:rf.xray/focus-cascade-next` |
+| Toggle the Settings popup | `,` or `s` | `:rf.xray/settings-toggle` |
+
+**Cross-OS:** the shell-toggle is `Ctrl+Shift+C` (not `Cmd`) on every host OS. macOS Safari sometimes maps `Cmd+Shift+C` to dev-tools' Inspect; the `Ctrl` modifier avoids that collision. macOS users who prefer `Cmd+Shift+C` can rebind in their browser's keyboard-shortcut UI. The mode-toggle and command-palette chords intentionally accept *either* Cmd or Ctrl, so macOS users get the muscle-memory Cmd form and Windows/Linux users get Ctrl.
+
+**Pop-out is NOT a keybinding.** Pop-out to a second window is reachable programmatically via `window.day8.re_frame2_xray.popout_BANG_()` (or `(xray/popout!)` from CLJS); the keydown listener does not handle a pop-out chord. The command palette, by contrast, IS wired (`Cmd/Ctrl+K`, above). Do not claim a pop-out keybinding exists.
 
 The earlier `Ctrl+Shift+/` co-pilot keybinding has been removed —
 the AI co-pilot rail no longer ships; AI integration lives in
