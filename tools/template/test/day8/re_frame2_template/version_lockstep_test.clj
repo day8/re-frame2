@@ -27,13 +27,12 @@
             [clojure.java.io :as io]
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
-             :refer [tmp-dir delete-recursively repo-root template-resource-dir]]
-            [org.corfield.new :as deps-new]))
+             :refer [tmp-dir delete-recursively repo-root run-template!]]))
 
 ;; --- Helpers ---------------------------------------------------------------
 ;;
-;; repo-root / template-resource-dir / tmp-dir / delete-recursively live
-;; in the shared `test-support` ns (rf2-5v619, D1). repo-root anchors on
+;; repo-root / run-template! / tmp-dir / delete-recursively live in the
+;; shared `test-support` ns (rf2-5v619, D1). repo-root anchors on
 ;; `implementation/core/src/re_frame` — the same repo root that holds
 ;; VERSION + implementation/package.json read below.
 
@@ -101,18 +100,13 @@
 ;; package.json + deps.edn. This tests the literals as actually-consumed
 ;; (the same value that flows into a generated app), not the source
 ;; string parsed out of the .clj.
-
-(defn- emit-reagent! [tmp]
-  (let [dir-str  (.toString ^java.nio.file.Path tmp)
-        proj-dir (io/file dir-str "my-app")
-        opts     {:template   'day8/re-frame2-template
-                  :name       'acme/my-app
-                  :target-dir (.getCanonicalPath proj-dir)
-                  :src-dirs   [(template-resource-dir)]
-                  :overwrite  :delete
-                  :substrate  :reagent}]
-    (deps-new/create opts)
-    proj-dir))
+;;
+;; Emission uses the shared `run-template!` (test-support) — the
+;; pin literals are substrate-invariant, so the Reagent default path
+;; recovers them. (Previously a local `emit-reagent!` re-implemented
+;; the same `org.corfield.new/create` opts map; folded into the shared
+;; helper per rf2-jkake.22, keeping the rf2-5v619 D1 'one harness'
+;; posture.)
 
 (defn- extract-pin
   "Pull `\"pkg\": \"value\"` out of the emitted package.json text.
@@ -135,7 +129,7 @@
           pkg-react-dom (read-package-json-pin "react-dom")
           tmp           (tmp-dir "rf2-template-lockstep-react-")]
       (try
-        (let [root      (emit-reagent! tmp)
+        (let [root      (run-template! tmp "acme/my-app" :reagent)
               pj-text   (slurp (io/file root "package.json"))
               tpl-react     (extract-pin pj-text "react")
               tpl-react-dom (extract-pin pj-text "react-dom")]
@@ -160,7 +154,7 @@
     (let [pkg-shadow (read-package-json-pin "shadow-cljs")
           tmp        (tmp-dir "rf2-template-lockstep-shadow-")]
       (try
-        (let [root       (emit-reagent! tmp)
+        (let [root       (run-template! tmp "acme/my-app" :reagent)
               pj-text    (slurp (io/file root "package.json"))
               tpl-shadow (extract-pin pj-text "shadow-cljs")]
           (is (= pkg-shadow tpl-shadow)
@@ -176,7 +170,7 @@
     (let [version-file (read-version-file)
           tmp          (tmp-dir "rf2-template-lockstep-rf2-")]
       (try
-        (let [root        (emit-reagent! tmp)
+        (let [root        (run-template! tmp "acme/my-app" :reagent)
               deps-text   (slurp (io/file root "deps.edn"))
               tpl-rf2     (extract-rf2-version deps-text)]
           (is (= version-file tpl-rf2)
