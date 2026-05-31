@@ -120,6 +120,8 @@ skills/re-frame2-pair-retro/
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── agents/
 │ └── openai.yaml (alt-host config — kept for cross-LLM operation)
+├── evals/
+│ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 ├── references/
 │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses + improvement shapes)
 │ ├── known-frictions.md (~120 lines; recurring re-frame2-pair pain patterns)
