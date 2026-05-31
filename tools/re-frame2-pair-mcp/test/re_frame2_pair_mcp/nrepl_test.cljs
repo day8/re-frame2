@@ -61,6 +61,41 @@
     (is (= 3 (count fs)))
     (is (zero? (.-length rst)))))
 
+(deftest incomplete-frame-retained-as-trailer
+  ;; rf2-ynjts.19 — the partial-frame branch directly on the public
+  ;; seam. A truncated bencode frame can't decode; `decode-all-frames`
+  ;; MUST return zero frames and hand the partial bytes back as the
+  ;; trailer so the next TCP chunk can complete them. This is the
+  ;; contract `attach-handlers!` relies on for its partial-frame
+  ;; buffering — pinned here directly on the walker.
+  (let [full     (js/Buffer.from "d3:foo3:bare" "utf8")
+        partial  (.slice full 0 (dec (.-length full)))   ; drop the closing 'e'
+        [fs rst] (decode-all partial)]
+    (is (zero? (count fs)) "a truncated frame yields no complete frames")
+    (is (= (.-length partial) (.-length rst))
+        "the partial bytes are retained verbatim as the trailer")))
+
+(deftest complete-frame-then-incomplete-tail-splits
+  ;; One complete frame followed by the start of a second. The first
+  ;; dispatches; the incomplete tail is retained for the next chunk —
+  ;; the exact multi-frame-chunk-with-partial-tail shape a busy socket
+  ;; produces.
+  (let [whole    (js/Buffer.from "d3:foo3:bare" "utf8")
+        head     (js/Buffer.from "d3:baz" "utf8")          ; start of a 2nd frame
+        chunk    (js/Buffer.concat #js [whole head])
+        [fs rst] (decode-all chunk)]
+    (is (= 1 (count fs)) "exactly the one complete frame is returned")
+    (is (= "bar" (j/get (first fs) "foo")))
+    (is (= (.-length head) (.-length rst))
+        "the incomplete second frame's bytes are held as the trailer")))
+
+(deftest empty-buffer-yields-no-frames
+  ;; The loop's base case — a zero-length buffer returns no frames and
+  ;; an empty trailer (never loops).
+  (let [[fs rst] (decode-all (js/Buffer.alloc 0))]
+    (is (zero? (count fs)))
+    (is (zero? (.-length rst)))))
+
 ;; ===========================================================================
 ;; Port discovery — `read-port-from-fs` (rf2-wnrpi, finding G2).
 ;;

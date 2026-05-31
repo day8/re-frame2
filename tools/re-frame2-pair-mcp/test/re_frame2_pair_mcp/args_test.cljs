@@ -118,3 +118,75 @@
   ;; agent host.
   (let [a (args-js {:include-sensitive "true"})]
     (is (true? (args/parse-bool-arg a :include-sensitive)))))
+
+;; ---------------------------------------------------------------------------
+;; read-edn-arg — the [:ok parsed] / [:err reason] EDN-arg helper
+;; (rf2-jkake.19). Factored out of reset-frame-db (:db),
+;; restore-epoch (:epoch-id) and handler-meta (:id); each passes its own
+;; per-tool reason keywords so the error envelope stays specific. The
+;; three outcomes (missing / invalid / ok) were only exercised
+;; indirectly via the conformance corpus; pin the helper directly so a
+;; regression surfaces at the unit it lives in (rf2-ynjts.19).
+;; ---------------------------------------------------------------------------
+
+(deftest read-edn-arg-absent-returns-missing-reason
+  ;; nil / blank value yields the caller's `missing` reason keyword.
+  (is (= [:err :missing-db] (args/read-edn-arg nil :missing-db :invalid-db)))
+  (is (= [:err :missing-db] (args/read-edn-arg "" :missing-db :invalid-db)))
+  (is (= [:err :missing-db] (args/read-edn-arg "   " :missing-db :invalid-db))))
+
+(deftest read-edn-arg-unreadable-returns-invalid-reason
+  ;; Unbalanced delimiters → the caller's `invalid` reason keyword, NOT
+  ;; the missing one (the discriminator is read-string success/failure).
+  (is (= [:err :invalid-db] (args/read-edn-arg "{:k" :missing-db :invalid-db)))
+  (is (= [:err :invalid-db] (args/read-edn-arg "(((" :missing-db :invalid-db))))
+
+(deftest read-edn-arg-parses-valid-edn
+  ;; A readable value rides back under [:ok parsed] with the EDN shape
+  ;; preserved — maps, vectors, scalars, keywords.
+  (is (= [:ok {:counter 0}] (args/read-edn-arg "{:counter 0}" :missing :invalid)))
+  (is (= [:ok 7] (args/read-edn-arg "7" :missing :invalid)))
+  (is (= [:ok 7] (args/read-edn-arg "  7  " :missing :invalid))
+      "leading/trailing whitespace trimmed before read")
+  (is (= [:ok :user/login] (args/read-edn-arg ":user/login" :missing :invalid)))
+  (is (= [:ok [:a :b 0]] (args/read-edn-arg "[:a :b 0]" :missing :invalid))))
+
+(deftest read-edn-arg-reason-keywords-are-caller-specific
+  ;; Each consumer passes distinct reason keywords; the helper forwards
+  ;; them verbatim so the envelope stays per-tool specific (the whole
+  ;; point of taking them as args rather than hard-coding).
+  (is (= [:err :missing-epoch-id]
+         (args/read-edn-arg nil :missing-epoch-id :invalid-epoch-id-edn)))
+  (is (= [:err :invalid-epoch-id-edn]
+         (args/read-edn-arg "{:unterminated" :missing-epoch-id :invalid-epoch-id-edn))))
+
+(deftest read-edn-arg-reads-only-the-first-form
+  ;; read-string reads exactly ONE form and stops — trailing tokens are
+  ;; NOT a parse error. `"nope("` reads as the symbol `nope` (the
+  ;; dangling `(` is never consumed), so the helper reports [:ok nope],
+  ;; not an :invalid error. Pinning this documents the read-string
+  ;; contract the helper inherits: only an UNTERMINATED first form
+  ;; (`"{:k"`, `"((("`) trips the :invalid arm.
+  (is (= [:ok 'nope] (args/read-edn-arg "nope(" :missing :invalid))))
+
+;; ---------------------------------------------------------------------------
+;; parse-filter-arg — the streaming filter map (rf2-hq49). The nil /
+;; string / map arms are covered in subscribe_test; the `:else` arm
+;; (a JS object that is neither a string nor a CLJS map — the shape an
+;; MCP host sends a structured filter as) routes through
+;; `js->clj :keywordize-keys true` and was untested. Pin it (rf2-ynjts.19).
+;; ---------------------------------------------------------------------------
+
+(deftest parse-filter-arg-js-object-keywordizes
+  (let [obj #js {"op-type" "error" "frame" "rf/default"}
+        out (args/parse-filter-arg obj)]
+    (is (= {:op-type "error" :frame "rf/default"} out)
+        "JS-object keys keywordized; values left as-is")))
+
+(deftest parse-filter-arg-nested-js-object-keywordizes-deep
+  ;; `:keywordize-keys true` recurses — a nested JS object's keys are
+  ;; keywordized too.
+  (let [obj #js {"touches-path" #js ["cart" "items"]
+                 "meta" #js {"min-ms" 50}}
+        out (args/parse-filter-arg obj)]
+    (is (= {:touches-path ["cart" "items"] :meta {:min-ms 50}} out))))
