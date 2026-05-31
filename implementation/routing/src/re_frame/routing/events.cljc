@@ -28,22 +28,30 @@
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
 ;; counters are per-frame. Pure allocators: take db, return [db' id-str].
+;; Both share one increment-and-stringify shape over a per-frame counter
+;; key under `[:rf/runtime :routing ...]`; the only per-allocator
+;; variation is the counter key and the id prefix.
+
+(defn- alloc-counter
+  "Pure per-frame counter allocator. Increments the counter at
+  `[:rf/runtime :routing counter-key]` and returns
+  `[db' (str prefix n)]`."
+  [db counter-key prefix]
+  (let [n (inc (or (get-in db [:rf/runtime :routing counter-key]) 0))]
+    [(assoc-in db [:rf/runtime :routing counter-key] n)
+     (str prefix n)]))
 
 (defn alloc-nav-token
   "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
   counter at [:rf/runtime :routing :nav-token-counter]."
   [db]
-  (let [n (inc (or (get-in db [:rf/runtime :routing :nav-token-counter]) 0))]
-    [(assoc-in db [:rf/runtime :routing :nav-token-counter] n)
-     (str "nav-" n)]))
+  (alloc-counter db :nav-token-counter "nav-"))
 
 (defn alloc-pending-nav-id
   "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
   counter at [:rf/runtime :routing :pending-nav-counter]."
   [db]
-  (let [n (inc (or (get-in db [:rf/runtime :routing :pending-nav-counter]) 0))]
-    [(assoc-in db [:rf/runtime :routing :pending-nav-counter] n)
-     (str "pn-" n)]))
+  (alloc-counter db :pending-nav-counter "pn-"))
 
 (defn emit-activation-traces!
   "Per Spec 012 §Trace events: emit `:rf.route/deactivated`
