@@ -47,18 +47,19 @@
   is a React lib so the underlying React-class boundary is fine for
   every substrate; only the Reagent `as-element` glue needs a
   substrate-specific shim."
-  (:require ["@xyflow/react" :as xyflow]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.event-node
              :as event-node]
             [day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
              :as parallel-region-node]
+            [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
+             :refer [Handle pos-top pos-right pos-bottom pos-left
+                     chart-constants]]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
-             :refer [mono-stack sans-stack]]
-            [day8.re-frame2-machines-viz.visual-constants :as vc]))
+             :refer [mono-stack sans-stack]]))
 
 ;; ---- density-resolved constants -----------------------------------------
 ;;
@@ -66,37 +67,16 @@
 ;; projector threads the resolved density's `visual-constants` map onto
 ;; every node payload as `:data {:chart {...}}`; xyflow `clj->js`-es the
 ;; node array, so the map arrives as a JS object. `chart-constants`
-;; recovers a kebab-keyword CLJS map (the keys `visual-constants` ships),
-;; falling back to `vc/chart-regular` so a node payload without a `:chart`
-;; entry (legacy / direct construction) still renders the regular default.
-
-(defn- chart-constants
-  "Recover the resolved visual-constants map off a node's `:data`
-  (`(.-chart d)`). The projector emits a CLJS map; xyflow `clj->js`-es
-  it into a JS object, so we `js->clj` it back with keyword keys.
-  Returns `vc/chart-regular` when absent so the regular density stays
-  pixel-identical to the pre-rf2-k647w hardcoded numbers."
-  [^js d]
-  (let [c (.-chart d)]
-    (if (some? c)
-      (js->clj c :keywordize-keys true)
-      vc/chart-regular)))
+;; (shared via `chart.nodes.xyflow-node`) recovers a kebab-keyword CLJS
+;; map, falling back to `vc/chart-regular` so a node payload without a
+;; `:chart` entry (legacy / direct construction) still renders the
+;; regular default.
 
 ;; ---- xyflow Handle adapter ----------------------------------------------
-
-(def ^:private Handle
-  "xyflow `Handle` React class. Used inside every custom node via
-  Reagent's `:>` interop so xyflow knows where to attach edges."
-  (.-Handle xyflow))
-
-(def ^:private Position
-  "xyflow position constants (`Top`, `Right`, `Bottom`, `Left`)."
-  (.-Position xyflow))
-
-(def ^:private pos-top    (.-Top Position))
-(def ^:private pos-right  (.-Right Position))
-(def ^:private pos-bottom (.-Bottom Position))
-(def ^:private pos-left   (.-Left Position))
+;;
+;; `Handle` + the four `pos-*` constants are the shared xyflow node-
+;; interop preamble (`chart.nodes.xyflow-node`); referred above so every
+;; custom node attaches edges identically.
 
 ;; ---- node-size floor constants ------------------------------------------
 ;;

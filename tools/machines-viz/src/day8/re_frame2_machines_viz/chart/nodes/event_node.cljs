@@ -37,30 +37,13 @@
   `visual-constants` map threaded through `:data {:chart ...}` —
   same pattern the state-node + edge components use. No hex literals
   appear in this ns; all colour goes through `theme/tokens`."
-  (:require ["@xyflow/react" :as xyflow]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
+             :refer [Handle pos-top pos-right pos-bottom pos-left
+                     chart-constants]]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
-             :refer [mono-stack sans-stack]]
-            [day8.re-frame2-machines-viz.visual-constants :as vc]))
-
-(def ^:private Handle   (.-Handle xyflow))
-(def ^:private Position (.-Position xyflow))
-(def ^:private pos-top    (.-Top Position))
-(def ^:private pos-right  (.-Right Position))
-(def ^:private pos-bottom (.-Bottom Position))
-(def ^:private pos-left   (.-Left Position))
-
-(defn- chart-constants
-  "Recover the resolved visual-constants map off an event-node's `:data`
-  (`(.-chart d)`). xyflow `clj->js`-es the CLJS map into a JS object, so
-  recover it with kebab-keyword keys. Falls back to `vc/chart-regular`
-  when absent (legacy / direct construction)."
-  [^js d]
-  (let [c (.-chart d)]
-    (if (some? c)
-      (js->clj c :keywordize-keys true)
-      vc/chart-regular)))
+             :refer [mono-stack sans-stack]]))
 
 (defn- variant-glyph
   "rf2-qo5xy — convention-glyph variants for the event-node header. The
