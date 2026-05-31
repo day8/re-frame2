@@ -160,10 +160,12 @@ function expectedStatusFor(variantId, playKey) {
   return 'pass';
 }
 
-function variantIdToKw(idStr) {
+function variantIdToParam(idStr) {
   // The CI hook serialises `:story.foo/bar` as `"story.foo/bar"` (no
   // leading colon); the Playwright runner reads that string back to
-  // build the URL search-param value the Story shell expects.
+  // build the URL search-param value the Story shell expects. This is
+  // a defensive String() coercion — NOT a keyword conversion — so the
+  // already-string id flows straight into encodeURIComponent below.
   return String(idStr);
 }
 
@@ -177,7 +179,7 @@ function variantIdToKw(idStr) {
  * if the URL parse path is unreachable.
  */
 async function navigateToVariant(page, baseUrl, variantId) {
-  const variantStr = variantIdToKw(variantId);
+  const variantStr = variantIdToParam(variantId);
   // Share-link convention: search params BEFORE the hash route, so
   // `window.location.search` carries `?variant=...` and the share
   // hydrator picks it up on shell mount.
@@ -204,7 +206,7 @@ async function readRunStateOnce(page, variantId) {
     } catch (e) {
       return { error: String(e && e.message ? e.message : e) };
     }
-  }, variantIdToKw(variantId));
+  }, variantIdToParam(variantId));
 }
 
 /**
@@ -221,7 +223,7 @@ async function readPlayRunStateOnce(page, variantId, playKey) {
         return { error: String(e && e.message ? e.message : e) };
       }
     },
-    { vid: variantIdToKw(variantId), pk: playKey || '' },
+    { vid: variantIdToParam(variantId), pk: playKey || '' },
   );
 }
 
@@ -270,7 +272,7 @@ async function triggerPlay(page, variantId, playKey) {
         return false;
       }
     },
-    { vid: variantIdToKw(variantId), pk: playKey || '' },
+    { vid: variantIdToParam(variantId), pk: playKey || '' },
   );
 }
 
