@@ -72,6 +72,7 @@
       (non-blank (.get params param-name)))))
 
 (defn- strip-trailing-slash
+  "Return `s` without a single trailing slash, leaving a lone `\"/\"` intact."
   [s]
   (if (and (> (count s) 1) (str/ends-with? s "/"))
     (subs s 0 (dec (count s)))
@@ -98,10 +99,10 @@
   [subdir]
   (or (query-param "project-root")
       (when-let [root (non-blank repo-root)]
-        (let [root*   (strip-trailing-slash (str/trim root))
-              subdir* (-> (or subdir "")
-                          str/trim
-                          (str/replace #"^/+" ""))]
-          (if (seq subdir*)
-            (str root* "/" subdir*)
-            root*)))))
+        (let [normalized-root   (strip-trailing-slash (str/trim root))
+              normalized-subdir (-> (or subdir "")
+                                    str/trim
+                                    (str/replace #"^/+" ""))]
+          (if (seq normalized-subdir)
+            (str normalized-root "/" normalized-subdir)
+            normalized-root)))))
