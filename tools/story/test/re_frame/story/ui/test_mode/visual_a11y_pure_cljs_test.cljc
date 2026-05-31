@@ -58,8 +58,35 @@
                           :help "Elements must have sufficient colour contrast"}]})]
     (is (= 1 (count rows)))
     (is (= "Elements must have sufficient colour contrast" (:finding (first rows))))
+    ;; rf2-ffu8t — a violation with no node target falls the locus back to the
+    ;; rule id so the finding still reads; no fabricated selector.
     (is (= "color-contrast" (:locus (first rows))))
+    (is (nil? (:selector (first rows))) "no selector fabricated when axe carried no node target")
     (is (= "serious" (:impact (first rows))))))
+
+(deftest axe-findings-surface-selector-source-link
+  (testing "rf2-ffu8t — the axe finding's recovered :selector is the SOURCE
+            LINK (spec/021 §4 + §5): :locus is the selector, not the rule id,
+            and :selector / :targets carry the offending-element coordinates"
+    (let [rows (pure/axe-a11y-findings
+                 {:actual [{:id       "image-alt"
+                            :impact   "critical"
+                            :help     "Images must have alternate text"
+                            :selector "main > img:nth-child(2)"
+                            :targets  ["main > img:nth-child(2)"]}]})
+          row  (first rows)]
+      (is (= "main > img:nth-child(2)" (:locus row))
+          "the selector is the source-link locus, NOT the rule id")
+      (is (= "main > img:nth-child(2)" (:selector row)))
+      (is (= ["main > img:nth-child(2)"] (:targets row)))
+      (is (= "image-alt" (:rule row)) "the rule id is still carried for keying")))
+  (testing "a multi-node violation carries every target selector"
+    (let [row (first (pure/axe-a11y-findings
+                       {:actual [{:id       "label"
+                                  :selector "#a"
+                                  :targets  ["#a" "#b"]}]}))]
+      (is (= "#a" (:selector row)) "the primary source link is the first target")
+      (is (= ["#a" "#b"] (:targets row))))))
 
 ;; ---- browser-result-rows: selection + kinds -----------------------------
 
@@ -104,7 +131,37 @@
     (is (= 1 (count (:findings row))))
     (is (= "image missing alt text" (:finding (first (:findings row)))))
     (is (= "<img>" (:locus (first (:findings row)))))
+    ;; rf2-ffu8t — the structural tier has NO real source coord (it walks an
+    ;; in-memory hiccup tree, not a DOM); it surfaces the hiccup-tag locus and
+    ;; offers no selector, rather than fabricating one.
+    (is (nil? (:selector (first (:findings row))))
+        "structural findings carry no selector — honest, not fabricated")
     (is (string? (:reason row)) "the diagnostic reason is threaded through")))
+
+;; ---- browser-result-rows: axe fail carries the selector source link -----
+
+(deftest browser-rows-axe-fail-carries-selector-source-link
+  (testing "rf2-ffu8t — an axe :rf.assert/a11y fail surfaces the recovered
+            selector (the violation's :nodes → :target) end-to-end as the
+            finding's SOURCE LINK (spec/021 §4 + §5 MUST)"
+    (let [result {:assertions
+                  [{:assertion :rf.assert/a11y
+                    :status    :fail
+                    :count     1
+                    :reason    "1 axe-core a11y violation(s)"
+                    :actual    [{:id       "image-alt"
+                                 :impact   "critical"
+                                 :help     "Images must have alternate text"
+                                 :selector "main > img:nth-child(2)"
+                                 :targets  ["main > img:nth-child(2)"]}]}]}
+          row    (first (pure/browser-result-rows result))
+          finding (first (:findings row))]
+      (is (= :a11y (:kind row)))
+      (is (= :fail (:status row)))
+      (is (= "main > img:nth-child(2)" (:locus finding))
+          "the selector is the source-link locus surfaced by the projection")
+      (is (= "main > img:nth-child(2)" (:selector finding)))
+      (is (= "critical" (:impact finding))))))
 
 ;; ---- browser-result-rows: honest :cannot-run ----------------------------
 

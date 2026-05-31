@@ -173,6 +173,47 @@
         (finally (reset! browser/a11y-reader saved))))))
 
 ;; ===========================================================================
+;; AXE FINDING SELECTOR RECOVERY — :nodes → :target source link (rf2-ffu8t)
+;; ===========================================================================
+;;
+;; `eval-a11y` is :cannot-run headless (browser-available? false on the JVM),
+;; so the selector-recovery projection is unit-tested on its pure helpers
+;; (`violation-targets` / `axe-finding`, private — deref'd via the var). The
+;; executor formerly did `select-keys [:id :impact :help]`, DISCARDING the
+;; axe `:nodes` that carry the offending-element CSS selectors; these pin the
+;; recovery so the source-link MUST (spec/021 §4 + §5) is met.
+
+(deftest violation-targets-recovers-node-selectors
+  (let [violation-targets @#'browser/violation-targets]
+    (testing "the CSS selectors are recovered from :nodes → :target, deduped"
+      (is (= ["main > img:nth-child(2)"]
+             (violation-targets
+               {:id "image-alt"
+                :nodes [{:target ["main > img:nth-child(2)"]}]})))
+      (is (= ["#a" "#b"]
+             (violation-targets
+               {:nodes [{:target ["#a"]} {:target ["#b" "#a"]}]}))
+          "multi-node targets flatten, order-preserving + deduped"))
+    (testing "a violation with no :nodes / :target recovers no selector"
+      (is (= [] (violation-targets {:id "page-rule"})))
+      (is (= [] (violation-targets {:nodes []})))
+      (is (= [] (violation-targets {:nodes [{:target []}]}))))))
+
+(deftest axe-finding-threads-selector-onto-the-record
+  (let [axe-finding @#'browser/axe-finding]
+    (testing "the axe finding carries :id/:impact/:help PLUS the recovered
+              :selector (first target) and :targets (all)"
+      (is (= {:id "image-alt" :impact "critical" :help "Images must have alt"
+              :selector "main > img" :targets ["main > img"]}
+             (axe-finding {:id     "image-alt" :impact "critical"
+                           :help   "Images must have alt"
+                           :nodes  [{:target ["main > img"]}]}))))
+    (testing "a node-target-less violation projects WITHOUT a fabricated selector"
+      (let [f (axe-finding {:id "page-rule" :impact "minor" :help "h"})]
+        (is (= {:id "page-rule" :impact "minor" :help "h"} f))
+        (is (nil? (:selector f)) "no selector slot when there is no node target")))))
+
+;; ===========================================================================
 ;; DISPATCH ENTRY — one router per browser-tier atom
 ;; ===========================================================================
 

@@ -566,8 +566,14 @@
 
   `:locus` is the offending element's hiccup tag (the structural check works
   over the rendered hiccup TREE, so the tag is the locus the `:hiccup` tier
-  can prove — a real-browser selector/source link is the axe / `:browser`
-  tier's job). Empty when the record carried no issues. Pure data → data;
+  can prove). The structural tier has NO real source coordinate to thread
+  (rf2-ffu8t): the `:hiccup-structure` runner walks an in-memory hiccup tree,
+  not a DOM, so there is no CSS selector and no file/line coord to recover —
+  the tree carries none. Honesty over fabrication: the §4 source-link MUST is
+  met by the axe `:browser` tier (`axe-a11y-findings`, which recovers a real
+  selector from the violation's `:nodes`); a structural finding surfaces its
+  hiccup tag as the locus and offers NO selector slot, rather than minting a
+  fake coordinate. Empty when the record carried no issues. Pure data → data;
   JVM-testable."
   [record]
   (mapv (fn [{:keys [rule tag detail]}]
@@ -579,16 +585,33 @@
 
 (defn axe-a11y-findings
   "Project a `:rf.assert/a11y` record's `:actual` violation vector
-  (`re-frame.story.play.browser/eval-a11y` — `{:id :impact :help}` maps, the
-  axe-core surface) into a readable findings list (spec/021 §4 — a11y
-  findings with the finding + locus). Empty when no violation. Pure data →
+  (`re-frame.story.play.browser/eval-a11y` — `{:id :impact :help :selector
+  :targets}` maps, the axe-core surface) into a readable findings list
+  (spec/021 §4 + §5 — a11y findings with the finding + locus + SOURCE LINK).
+
+      [{:finding  <help text | rule id | \"a11y violation\">
+        :locus    <CSS selector | rule id>   ; the source link, see below
+        :selector <CSS selector | nil>        ; the offending element selector
+        :targets  [<CSS selector> …]          ; every node selector (multi-node)
+        :impact   <impact level | nil>
+        :rule     <rule id>}]
+
+  `:locus` is the SOURCE LINK the §4 MUST requires (\"a11y findings with
+  selector/source/context links\"). The axe `:browser` tier carries a real
+  selector (recovered from the violation's `:nodes` → `:target` by
+  `browser/axe-finding`, rf2-ffu8t), so `:locus` is that selector — the
+  result UI links it to the offending DOM element. When a violation carried
+  no node target (rare — e.g. a page-level rule) `:locus` falls back to the
+  rule id so the finding still reads. Empty when no violation. Pure data →
   data; JVM-testable."
   [record]
-  (mapv (fn [{:keys [id impact help]}]
-          {:finding (or help (some-> id name) "a11y violation")
-           :locus   (some-> id name)
-           :impact  impact
-           :rule    id})
+  (mapv (fn [{:keys [id impact help selector targets]}]
+          {:finding  (or help (some-> id name) "a11y violation")
+           :locus    (or selector (some-> id name))
+           :selector selector
+           :targets  (vec targets)
+           :impact   impact
+           :rule     id})
         (or (:actual record) [])))
 
 (defn browser-result-rows

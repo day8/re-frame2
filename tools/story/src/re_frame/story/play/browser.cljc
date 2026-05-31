@@ -210,6 +210,44 @@
 ;; AXE-STYLE A11Y  (`:rf.assert/a11y`, requires :a11y-engine)
 ;; ===========================================================================
 
+(defn- violation-targets
+  "The CSS selector(s) axe-core attached to a violation's `:nodes`, in
+  document order (rf2-ffu8t — the SOURCE LINK a11y findings MUST carry,
+  tools/story/spec/021 §4 + §5). Each axe node carries `:target` — a vector
+  of CSS selectors pointing at the offending element(s); `re-frame.story.ui.
+  a11y/record-violation-overlay!` already queries against exactly these to
+  decorate the DOM. `select-keys [:id :impact :help]` DISCARDED `:nodes`,
+  so the finding could only surface the rule id as its locus; this recovers
+  the selectors so the result UI can link to the source element.
+
+  Returns a flat vector of selector strings (deduped, order-preserving); an
+  empty vector when the violation carries no `:nodes` / `:target`. Pure data
+  → data; the violation is read as CLJS data (the live atom is normalised via
+  `js->clj` before it reaches the executor), so this is JVM-testable."
+  [violation]
+  (into []
+        (comp (mapcat (fn [node] (:target node)))
+              (filter string?)
+              (distinct))
+        (:nodes violation)))
+
+(defn- axe-finding
+  "Project ONE axe violation into the finding map the result UI renders
+  (rf2-ffu8t). Carries the axe surface (`:id` / `:impact` / `:help`) plus the
+  recovered source-link selectors:
+
+  - `:selector` — the FIRST target selector (the primary source link, nil
+    when the violation carried no node target);
+  - `:targets`  — every target selector (so a multi-node violation can list
+    them all).
+
+  Pure data → data."
+  [violation]
+  (let [targets (violation-targets violation)]
+    (cond-> (select-keys violation [:id :impact :help])
+      (seq targets) (assoc :selector (first targets)
+                           :targets  targets))))
+
 (defn eval-a11y
   "Evaluate an axe-style `:rf.assert/a11y` assertion (spec/017 §Visual,
   a11y, and browser checks — requires `:browser` / `:a11y-engine`). Returns
@@ -252,7 +290,7 @@
        :passed?   passed?
        :status    (if passed? :pass :fail)
        :expected  :no-a11y-violations
-       :actual    (mapv #(select-keys % [:id :impact :help]) counted)
+       :actual    (mapv axe-finding counted)
        :count     (count counted)
        :reason    (if passed?
                     (str "no axe-core a11y violations"
