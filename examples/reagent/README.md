@@ -11,7 +11,6 @@ Story Stage 8 (`tools/story` end-to-end on the counter) lives as a tool-owned te
 ```
 reagent/
   counter/                     <-- the smallest possible app (CP-1, CP-2, CP-4)
-  counter_slim_and_fast/       <-- adapter-owned day8/reagent-slim bundle-isolation fixture
   login/                       <-- single-feature scaffold (CP-5, CP-6)
   todomvc/                     <-- canonical benchmark (TodoMVC spec)
   routing/                     <-- CP-7 worked example (Spec 012)
@@ -55,3 +54,4 @@ shadow-cljs watch examples/counter
 - [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate contract Reagent's adapter satisfies.
 - [`spec/Conventions.md`](../../spec/Conventions.md) — adapter test matrix policy, packaging conventions, the bundle-isolation argument.
 - [`examples/uix/`](../uix/) — UIx-substrate counterparts of `counter` and `login` (smoke-test pair per Decision 7).
+- [`examples/reagent-slim/`](../reagent-slim/) — the `day8/reagent-slim` substrate's example set (the counter re-mounted on the slim Reagent rewrite; adapter-owned bundle-isolation fixture).

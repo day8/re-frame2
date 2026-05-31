@@ -141,6 +141,14 @@
                 ;; uses the catalogue's `seven-guis.<task>.core` shape
                 ;; and resolves under this same root.
                 "../examples/reagent"
+                ;; rf2-955bx — reagent-slim is its own substrate/adapter
+                ;; (implementation/adapters/reagent-slim/), so its single
+                ;; example lives under examples/reagent-slim/ rather than
+                ;; in the stock-reagent tree. Its source root mirrors the
+                ;; reagent root above; `counter-slim-and-fast.core` (the
+                ;; `:examples/counter-slim-and-fast` build below) resolves
+                ;; from here.
+                "../examples/reagent-slim"
                 "../examples/reagent/boot/test"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"

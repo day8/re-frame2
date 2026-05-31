@@ -142,7 +142,7 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      implementation/adapters/reagent-slim/*|examples/reagent/counter_slim_and_fast/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
+      implementation/adapters/reagent-slim/*|examples/reagent-slim/counter_slim_and_fast/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
         # used to ship a paired spec.cjs but the bundle-isolation contract
         # at scripts/check-reagent-slim-bundle-isolation.cjs is the
