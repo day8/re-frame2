@@ -2244,12 +2244,18 @@
       (is (= :standard-epochs/throw-handler (:failing-id row)))
       (is (= :no-recovery (:recovery row)))))
 
-  (testing "rf2-ahhgn — falls back to `:reason` for the message + nil-safe
-            coord when neither trigger-handler nor call-site carries a file"
+  (testing "rf2-oqi0c — the `:reason` CATEGORY boilerplate is NO LONGER
+            surfaced as the card message: when the throw carried no real
+            `:exception-message`, `:message` is nil (the card shows only
+            the position + 'Exception Thrown' heading, no boilerplate line).
+            nil-safe coord when neither trigger-handler nor call-site
+            carries a file."
     (let [ev  (handler-exception-ev :foo/bar nil)
           row (proj/exception-row ev)]
-      ;; handler-exception-ev stamps `:reason "Event handler threw."`
-      (is (= "Event handler threw." (:message row)))
+      ;; handler-exception-ev stamps `:reason "Event handler threw."` —
+      ;; rf2-oqi0c drops the :reason fallback, so :message resolves nil.
+      (is (nil? (:message row))
+          "no :exception-message → :message nil (the :reason boilerplate is dropped)")
       (is (nil? (:coord row)))))
 
   (testing "rf2-wnvid — `exception-row` lifts the raw `:exception` object
@@ -2411,12 +2417,12 @@
         (is (= "standard-epochs / handler (intentional — exercises the handler error surface)"
                (:message err)))
         (is (= {:file "standard_epochs/core.cljs" :line 322} (:coord err)))
-        ;; rf2-wnvid — the live button-15 had NO :db commit (handler
-        ;; threw before returning), so the exception row's cascade-level
-        ;; `:db-committed?` is false → the view omits the spurious
-        ;; 'Rolled back' chip.
-        (is (false? (:db-committed? err))
-            "no :db commit preceded the throw → :db-committed? false (no spurious rollback)"))
+        ;; rf2-s6oqd — the live button-16 handler threw before returning,
+        ;; so NO :db committed AND nothing rolled back. The exception row's
+        ;; cascade-level `:db-rolled-back?` is false → the view omits the
+        ;; spurious 'Rolled back' chip.
+        (is (false? (:db-rolled-back? err))
+            "no rollback (pre-commit handler throw) → :db-rolled-back? false (no spurious chip)"))
       ;; rf2-wnvid — the HANDLER step carries :db-write? false (it threw
       ;; before producing a :db), so the view shows 'no :db (handler
       ;; threw)' rather than the phantom full app-db.
@@ -2438,6 +2444,73 @@
       (is (= :ok (proj/epoch-outcome steps)))
       (is (every? #(nil? (:errors %)) steps))
       (is (every? #(= :ok (proj/step-status %)) steps)))))
+
+;; ---- rf2-s6oqd — 'Rolled back' chip gates on ACTUAL rollback ------------
+;;
+;; fx are POST-COMMIT / best-effort (the FX atomicity asymmetry): a throwing
+;; fx leaves the `:db` committed (the baseline bump survives) — nothing
+;; rolled back. The chip's predicate is `:db-rolled-back?` (a real
+;; `:where :app-db` schema-fail rollback), NOT mere commit. So:
+;;   - post-commit fx throw (button-20 `:standard-epochs/boom`) → committed,
+;;     NOT rolled back → NO chip.
+;;   - :db schema-fail rollback (button-23) → committed AND rolled back →
+;;     chip.
+;;   - pre-commit handler throw (button-16) → no commit, no rollback → no
+;;     chip (covered above).
+
+(deftest fx-exception-stamps-db-rolled-back-false-test
+  (testing "rf2-s6oqd — a POST-COMMIT fx throw (`:standard-epochs/boom`)
+            leaves the :db committed; the cascade did NOT roll back, so the
+            attached exception row carries `:db-rolled-back? false` → the
+            view omits the spurious 'Rolled back' chip"
+    (let [rec   (record [(dispatched-ev [:standard-epochs/throw-fx] :ui nil)
+                         ;; the handler committed a :db (baseline bumped)
+                         ;; BEFORE the post-commit fx walk
+                         (db-pending-ev {:baseline 1})
+                         (db-changed-ev [[[:baseline] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (do-fx-ev {:fx [[:standard-epochs/boom {}]]})
+                         ;; the post-commit fx threw (best-effort; :db stays)
+                         (fx-handler-exception-ev :standard-epochs/boom
+                                                  "standard-epochs / boom fx threw")]
+                        :standard-epochs/throw-fx)
+          steps (proj/project rec)
+          se    (some #(when (= :side-effects (:step %)) %) steps)
+          ;; the fx exception attaches to the SIDE EFFECTS step's :boom row
+          err   (or (first (:errors se))
+                    (->> (:rows se) (mapcat :errors) first))]
+      (is (some? err) "the fx exception attached to the SIDE EFFECTS step")
+      (is (false? (:db-rolled-back? err))
+          "post-commit fx throw → :db-rolled-back? false (NO spurious 'Rolled back' chip)")
+      ;; the cascade did commit (the baseline bump survives) — but nothing
+      ;; was reverted, which is the whole point.
+      (is (true? (proj/db-commit? (:trace-events rec)))
+          "the :db DID commit (baseline survives)")
+      (is (false? (proj/db-rolled-back? (:trace-events rec)))
+          "but nothing rolled back"))))
+
+(deftest schema-rollback-stamps-db-rolled-back-true-test
+  (testing "rf2-s6oqd — a `:where :app-db` schema-fail rollback DID revert
+            the commit, so an exception row this cascade carries
+            `:db-rolled-back? true` → the 'Rolled back' chip DOES paint.
+            (The schema-fail rolled back AND a handler exception fired.)"
+    (let [rec   (record [(dispatched-ev [:standard-epochs/set-bad-auth] :ui nil)
+                         (db-changed-ev [[[:auth :token] "ok" 42 :modified]])
+                         ;; the app-db schema check rejected the write +
+                         ;; flagged the cascade rolled back
+                         (schema-violation-ev :app-db :standard-epochs/set-bad-auth
+                                              [:auth :token] 42 true)
+                         (handler-exception-ev :standard-epochs/set-bad-auth
+                                               "post-rollback handler note")]
+                        :standard-epochs/set-bad-auth)
+          steps (proj/project rec)
+          errs  (mapcat :errors steps)
+          err   (first errs)]
+      (is (true? (proj/db-rolled-back? (:trace-events rec)))
+          "the :app-db schema-fail flagged the cascade rolled back")
+      (is (some? err) "an exception row attached this cascade")
+      (is (true? (:db-rolled-back? err))
+          ":db-rolled-back? true → the 'Rolled back' chip paints (correct)"))))
 
 ;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR step --------
 ;;
@@ -2508,22 +2581,36 @@
 (deftest interceptor-step-projection-test
   (testing "rf2-yz57h — `interceptor-step` is nil when no interceptor threw"
     (is (nil? (proj/interceptor-step [(dispatched-ev [:x] :ui nil)
-                                      (run-end-ev 1)]))))
+                                      (run-end-ev 1)] :before)))
+    (is (nil? (proj/interceptor-step [(dispatched-ev [:x] :ui nil)
+                                      (run-end-ev 1)] :after))))
 
-  (testing "rf2-yz57h — `interceptor-step` projects one row per throwing
-            interceptor, carrying :interceptor-id + :phase"
+  (testing "rf2-vew2n — `interceptor-step` is PHASE-FILTERED: the :before
+            step carries only :before throws, the :after step only :after"
     (let [events [(interceptor-exception-ev :app/auth :before "intc boom")]
-          step   (proj/interceptor-step events)]
-      (is (= :interceptor (:step step)))
-      (is (= :INTERCEPTOR (:badge step)))
-      (is (= 1 (count (:rows step))))
-      (is (= :app/auth (:interceptor-id (first (:rows step)))))
-      (is (= :before   (:phase (first (:rows step))))))))
+          before (proj/interceptor-step events :before)
+          after  (proj/interceptor-step events :after)]
+      (is (= :interceptor (:step before)))
+      (is (= :INTERCEPTOR (:badge before)))
+      (is (= :before (:phase before)) "the step carries its own :phase")
+      (is (= 1 (count (:rows before))))
+      (is (= :app/auth (:interceptor-id (first (:rows before)))))
+      (is (= :before   (:phase (first (:rows before)))))
+      (is (nil? after) "no :after throw → no :after interceptor step")))
+
+  (testing "rf2-vew2n — an :after throw populates ONLY the :after step"
+    (let [events [(interceptor-exception-ev :app/audit :after "intc boom")]
+          before (proj/interceptor-step events :before)
+          after  (proj/interceptor-step events :after)]
+      (is (nil? before) "no :before throw → no :before interceptor step")
+      (is (= :after (:phase after)))
+      (is (= 1 (count (:rows after))))
+      (is (= :app/audit (:interceptor-id (first (:rows after))))))))
 
 (deftest attach-interceptor-exception-to-interceptor-step-test
   (testing "rf2-yz57h — a `:rf.error/interceptor-exception` attaches to the
             INTERCEPTOR step (not HANDLER)"
-    (let [steps [{:step :interceptor :badge :INTERCEPTOR
+    (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
                   :rows [{:interceptor-id :app/auth :phase :before}]}
                  {:step :handler :badge :HANDLER}]
           rows  [(proj/exception-row
@@ -2531,7 +2618,23 @@
           out   (proj/attach-exceptions steps rows)]
       (is (= 1 (count (:errors (nth out 0)))) "INTERCEPTOR carries the exception")
       (is (= :error (:status (nth out 0))) "INTERCEPTOR stamped :error")
-      (is (nil? (:errors (nth out 1))) "HANDLER untouched"))))
+      (is (nil? (:errors (nth out 1))) "HANDLER untouched")))
+
+  (testing "rf2-vew2n — with TWO phase-split INTERCEPTOR steps, an exception
+            routes to the step whose :phase matches (NOT the first one)"
+    (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
+                  :rows [{:interceptor-id :app/before :phase :before}]}
+                 {:step :handler :badge :HANDLER}
+                 {:step :interceptor :badge :INTERCEPTOR :phase :after
+                  :rows [{:interceptor-id :app/after :phase :after}]}]
+          rows  [(proj/exception-row
+                   (interceptor-exception-ev :app/after :after "after boom"))]
+          out   (proj/attach-exceptions steps rows)]
+      (is (nil? (:errors (nth out 0)))
+          "the :before step (first) is NOT the target — the :after throw skips it")
+      (is (= 1 (count (:errors (nth out 2))))
+          "the :after step (after HANDLER) carries the :after throw")
+      (is (= :error (:status (nth out 2))) "the :after step is stamped :error"))))
 
 (deftest project-interceptor-before-end-to-end-test
   (testing "rf2-yz57h — button-17 live scenario: a `:before` interceptor
@@ -2559,9 +2662,12 @@
       (is (= :error (proj/epoch-outcome steps))))))
 
 (deftest project-interceptor-after-end-to-end-test
-  (testing "rf2-yz57h — button-18 live scenario: an `:after` interceptor
-            threw → INTERCEPTOR step present, HANDLER NOT skipped (it ran
-            first; the throw fired on the way out)"
+  (testing "rf2-yz57h / rf2-vew2n — button-18 live scenario: an `:after`
+            interceptor threw → INTERCEPTOR step present, HANDLER NOT skipped
+            (it ran first; the throw fired on the way out), and the
+            INTERCEPTOR step renders AFTER the EVENT HANDLER step (the
+            rf2-vew2n bug fix — it used to land at position 2, before the
+            handler)"
     (let [rec   (record [(dispatched-ev [:standard-epochs/throw-interceptor-after] :ui nil)
                          ;; the handler ran + committed a :db on the way in
                          (db-pending-ev {:n 1})
@@ -2575,12 +2681,44 @@
           intc  (some #(when (= :interceptor (:step %)) %) steps)
           h     (some #(when (= :handler (:step %)) %) steps)]
       (is (some? intc) "INTERCEPTOR step present")
+      (is (= :after (:phase intc)) "the step itself carries the :after phase")
       (is (= :after (:phase (first (:rows intc)))) "the row records the :after phase")
       (is (= 1 (count (:errors intc))) "exception under INTERCEPTOR")
       (is (not= :skipped (proj/step-status h))
           "HANDLER NOT skipped — it ran before the :after interceptor threw")
       (is (true? (:db-write? h)) "the handler DID write a :db (it ran)")
-      (is (= :error (proj/epoch-outcome steps))))))
+      ;; rf2-vew2n — cascade-position: the :after INTERCEPTOR sits AFTER
+      ;; the EVENT HANDLER (the bug: it used to render at position 2).
+      (let [step-kws (mapv :step steps)
+            i-idx    (.indexOf step-kws :interceptor)
+            h-idx    (.indexOf step-kws :handler)]
+        (is (> i-idx h-idx) "INTERCEPTOR (:after) renders AFTER HANDLER"))
+      (is (= :error (proj/epoch-outcome steps)))))
+
+  (testing "rf2-vew2n — BOTH a :before and an :after interceptor throw in the
+            same cascade → TWO INTERCEPTOR steps, one on each side of HANDLER"
+    (let [rec   (record [(dispatched-ev [:multi/intc] :ui nil)
+                         (interceptor-exception-ev :app/before :before "before boom")
+                         (db-changed-ev [[[:n] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (interceptor-exception-ev :app/after :after "after boom")]
+                        :multi/intc)
+          steps (proj/project rec)
+          step-kws (mapv :step steps)
+          h-idx    (.indexOf step-kws :handler)
+          intc-steps (filterv #(= :interceptor (:step %)) steps)]
+      (is (= 2 (count intc-steps)) "two INTERCEPTOR steps (one per phase)")
+      (is (= #{:before :after} (set (map :phase intc-steps))))
+      ;; the :before step precedes HANDLER; the :after step follows it
+      (let [before-idx (.indexOf (mapv (juxt :step :phase) steps) [:interceptor :before])
+            after-idx  (.indexOf (mapv (juxt :step :phase) steps) [:interceptor :after])]
+        (is (< before-idx h-idx) ":before INTERCEPTOR precedes HANDLER")
+        (is (> after-idx h-idx)  ":after INTERCEPTOR follows HANDLER"))
+      ;; each exception lands on the step of its own phase
+      (let [before-step (some #(when (and (= :interceptor (:step %)) (= :before (:phase %))) %) steps)
+            after-step  (some #(when (and (= :interceptor (:step %)) (= :after (:phase %))) %) steps)]
+        (is (= :app/before (:failing-id (first (:errors before-step)))))
+        (is (= :app/after  (:failing-id (first (:errors after-step)))))))))
 
 ;; -- SKIPPED-step marking -------------------------------------------------
 

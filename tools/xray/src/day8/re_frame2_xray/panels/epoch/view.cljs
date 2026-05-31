@@ -2112,11 +2112,13 @@
     [:div {:data-testid "rf-xray-epoch-step-interceptor"
            :data-step-kw "interceptor"}
      (numbered-circle step-number :INTERCEPTOR)
+     ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb is DROPPED:
+     ;; redundant with the per-interceptor row(s) + the inline 'Exception
+     ;; Thrown' card(s) below, which already carry which interceptor threw
+     ;; and on which phase. The badge stands alone.
      (step-header
        {:step :interceptor
         :badge :INTERCEPTOR
-        :verb (str (count rows) " interceptor"
-                   (when (not= 1 (count rows)) "s") " threw")
         :expandable? false
         :testid "rf-xray-epoch-interceptor"}
        nil)
@@ -2739,19 +2741,23 @@
   the parent's `handler-body` signature for projection compatibility.
 
   rf2-wnvid — PHANTOM-`:db` fix. When the handler wrote NO `:db` effect
-  (`db-write?` false — it threw before returning, per button-15, or
-  returned only `:fx`), the block renders a `— no :db (…)` placeholder
-  instead of falling back to the record's full post-cascade `:db-after`.
-  The pre-rf2-wnvid fallback painted the ENTIRE app-db tree under the
-  HANDLER step as if the handler had returned it — misleading on a
-  thrown handler that mutated nothing. `threw?` tunes the placeholder
-  wording so a handler-exception reads 'no :db (handler threw)'.
+  (`db-write?` false — e.g. it returned only `:fx`), the block renders a
+  `— no :db (handler returned no :db)` placeholder instead of falling
+  back to the record's full post-cascade `:db-after`. The pre-rf2-wnvid
+  fallback painted the ENTIRE app-db tree under the HANDLER step as if
+  the handler had returned it — misleading on a handler that mutated
+  nothing.
+
+  rf2-oqi0c — the THREW case no longer reaches this block at all: the
+  caller (`handler-body`) OMITS the whole `:db` sub-section when the
+  handler threw (the inline exception card is the signal), so the
+  placeholder is only ever the clean 'returned no :db' wording.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
-  [_db-diff db-post-handler db-write? threw?]
+  [_db-diff db-post-handler db-write?]
   (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
         db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
@@ -2772,12 +2778,12 @@
      (sub-header ":db" nil)
      (cond
        ;; rf2-wnvid — the handler wrote no `:db` → no phantom app-db.
+       ;; rf2-oqi0c — the threw case is omitted upstream (`handler-body`),
+       ;; so this placeholder is only ever the clean 'returned no :db'.
        (not db-write?)
        [:span {:data-testid "rf-xray-epoch-handler-db-no-write"
                :style handler-db-all-missing-style}
-        (if threw?
-          "— no :db (handler threw)"
-          "— no :db (handler returned no :db)")]
+        "— no :db (handler returned no :db)"]
 
        (some? db-after)
        [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
@@ -2841,8 +2847,12 @@
      ;; folded into SNAPSHOT DIFF for machines. rf2-4wywy — the
      ;; post-handler (t1) db is threaded so the diff shows ONLY the
      ;; handler's contribution, not the post-flow state.
-     (when-not machine?
-       (handler-db-diff-block db-diff db-post-handler db-write? threw?))
+     ;; rf2-oqi0c — OMIT the `:db` sub-section entirely when the handler
+     ;; THREW: the redundant "— no :db (handler threw)" line was noise (the
+     ;; inline 'Exception Thrown' card below is the signal). The slot
+     ;; stays present for a clean handler that simply returned no `:db`.
+     (when (and (not machine?) (not threw?))
+       (handler-db-diff-block db-diff db-post-handler db-write?))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -4165,58 +4175,33 @@
 ;; ---- inline EXCEPTION card (rf2-ahhgn) ----------------------------------
 
 (defn- error-recovery-label
-  "Short recovery chip text for an exception card (rf2-ahhgn / rf2-wnvid).
+  "Short recovery chip text for an exception card (rf2-ahhgn / rf2-wnvid /
+  rf2-s6oqd).
 
-  rf2-wnvid — `db-committed?` gates the `Rolled back` chip: it paints
-  ONLY when a `:db` install actually preceded the throw (so there was a
-  commit to revert). The substrate stamps `:recovery :no-recovery` on
-  EVERY `:rf.error/handler-exception`, so keying off recovery alone
-  painted a SPURIOUS `Rolled back` on button-15 — the handler threw
-  before producing any `:db`, so nothing committed + nothing reverted.
-  With no commit, the chip is omitted (the headline already says the
-  handler threw; there is no rollback to surface). Other recovery
-  keywords render name-d; nil recovery omits the chip."
-  [recovery db-committed?]
+  rf2-s6oqd — `db-rolled-back?` gates the `Rolled back` chip: it paints
+  ONLY when the cascade ACTUALLY rolled back (a `:where :app-db`
+  schema-validation failure reverted the commit). The substrate stamps
+  `:recovery :no-recovery` on EVERY `:rf.error/*`, so keying off recovery
+  alone painted a SPURIOUS `Rolled back`. The earlier rf2-wnvid gate
+  (`db-committed?`) fixed the pre-commit handler throw (button-16 — no
+  commit) but still mis-fired on a POST-COMMIT fx throw (button-20
+  `:standard-epochs/boom`): fx are best-effort post-commit, so the `:db`
+  stays committed yet nothing reverted. Gating on actual rollback paints
+  the chip on a :db schema-fail rollback (correct) and omits it on a
+  post-commit fx throw and a pre-commit handler throw (the headline
+  already names the failure; there is no rollback to surface). Other
+  recovery keywords render name-d; nil recovery omits the chip."
+  [recovery db-rolled-back?]
   (case recovery
-    :no-recovery (when db-committed? "Rolled back")
+    :no-recovery (when db-rolled-back? "Rolled back")
     (when (keyword? recovery) (name recovery))))
 
-(defn- error-block-label
-  "Render the card's one-line failure headline (rf2-ahhgn / rf2-wnvid /
-  rf2-mszrz attribution / rf2-yz57h placement) — the failing unit + a
-  human verb keyed off the exception OP. E.g. 'The event handler threw.' /
-  'The :http/post effect threw.'
-
-  Attribution derives from `:operation` (== the trace `:category` /
-  `:reason` family). rf2-mszrz split the pre-mszrz blanket
-  `:rf.error/handler-exception` (the router used to route handler /
-  interceptor / injected-coeffect throws ALL through it) into
-  component-attributed ops, so the headline now names the TRUE failing
-  component: a coeffect injector (`:rf.error/coeffect-exception`, by cofx
-  id), a user interceptor (`:rf.error/interceptor-exception`, by
-  interceptor id + `:phase`), or the event handler itself
-  (`:rf.error/handler-exception`). The card is rendered UNDER the step
-  where the throw occurred (rf2-yz57h), so the headline reinforces that
-  placement rather than re-attributing."
-  [{:keys [operation failing-id phase]}]
-  (case operation
-    :rf.error/coeffect-exception
-    (str "The " (proj/ns-keyword failing-id) " coeffect threw during injection.")
-    :rf.error/interceptor-exception
-    (str "The " (proj/ns-keyword failing-id) " interceptor threw"
-         (case phase
-           :before " on the way in (:before)."
-           :after  " on the way out (:after)."
-           "."))
-    :rf.error/handler-exception
-    "The event handler threw."
-    :rf.error/fx-handler-exception
-    (str "The " (proj/ns-keyword failing-id) " effect threw.")
-    :rf.error/no-such-fx
-    (str "No fx handler registered for " (proj/ns-keyword failing-id) ".")
-    :rf.error/flow-eval-exception
-    "A flow's computation threw."
-    "An exception was thrown."))
+;; rf2-oqi0c — `error-block-label` (the one-line category-reason headline
+;; 'The event handler threw.' / '…interceptor threw.') was REMOVED. The
+;; card's position (under the failing step) + its 'Exception Thrown'
+;; heading already attribute the failure; the headline merely restated
+;; the category as boilerplate chrome. The card now leads with the real
+;; `.getMessage` (when present) + the collapsible stack / ex-data.
 
 (defn- exception-stack
   "Lift the stack trace string off a thrown exception object (rf2-wnvid).
@@ -4273,13 +4258,14 @@
   projected `exception-row`. Top to bottom:
 
     1. Title bar: `✗` + 'Exception Thrown' + right-aligned recovery chip
-       (`Rolled back`, painted ONLY when a `:db` actually committed +
-       rolled back — `db-committed?`; rf2-wnvid drops the spurious chip
-       on a handler that threw before any commit).
-    2. Failure headline: a one-line human verb (`error-block-label`),
-       attributed off the op (NOT the interceptor `:phase` — rf2-wnvid).
-    3. Exception message: the verbatim `ex-info` message (monospace).
-    4. Collapsible details (`error-block-details`): the stack trace +
+       (`Rolled back`, painted ONLY when the cascade ACTUALLY rolled back
+       — `db-rolled-back?`; rf2-s6oqd drops the spurious chip on a
+       post-commit fx throw, rf2-wnvid on a pre-commit handler throw).
+    2. Exception message: the verbatim `ex-info` message (monospace).
+       rf2-oqi0c — the category-reason boilerplate headline ('The event
+       handler threw.' / '…interceptor threw.') was DROPPED as redundant
+       with the card position + 'Exception Thrown' heading.
+    3. Collapsible details (`error-block-details`): the stack trace +
        any `ex-data`, collapsed behind a `<details>` disclosure.
 
   rf2-wnvid — the pre-existing always-expanded jump-to-source link is
@@ -4291,8 +4277,8 @@
   `step-key` + `idx` give stable test ids. The card paints the failing
   step's blast radius right where the work happened — the inline half of
   rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
-  [step-key idx {:keys [message recovery db-committed?] :as row}]
-  (let [recovery-label (error-recovery-label recovery db-committed?)
+  [step-key idx {:keys [message recovery db-rolled-back?] :as row}]
+  (let [recovery-label (error-recovery-label recovery db-rolled-back?)
         testid-base    (str "rf-xray-epoch-error-"
                             (name (or step-key :unknown)) "-" idx)]
     [:div {:key (str "error-" step-key "-" idx)
@@ -4308,16 +4294,16 @@
         [:span {:data-testid (str testid-base "-recovery")
                 :style error-block-recovery-chip-style}
          recovery-label])]
-     ;; 2. Failure headline (human verb)
-     [:p {:data-testid (str testid-base "-headline")
-          :style violation-prose-style}
-      (error-block-label row)]
-     ;; 3. Exception message (verbatim, monospace) — the punchline
+     ;; rf2-oqi0c — the category-reason boilerplate headline ('The event
+     ;; handler threw.' / '…interceptor threw.') is DROPPED: redundant with
+     ;; the card's position (under the failing step) + the 'Exception
+     ;; Thrown' heading. The real `.getMessage` + ex-data carry the signal.
+     ;; 2. Exception message (verbatim, monospace) — the punchline
      (when (and (string? message) (not (str/blank? message)))
        [:div {:data-testid (str testid-base "-message")
               :style error-block-message-style}
         message])
-     ;; 4. Collapsible details — stack + ex-data behind a disclosure
+     ;; 3. Collapsible details — stack + ex-data behind a disclosure
      (error-block-details testid-base row)]))
 
 (defn error-blocks

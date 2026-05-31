@@ -1954,14 +1954,19 @@
    :rf.error/flow-eval-exception  :flow})
 
 (defn- exception-message
-  "Lift the human-readable failure message off an exception trace event
-  (rf2-ahhgn). Reads `[:tags :exception-message]` (handler / fx throws —
-  `re-frame.router/emit-handler-exception!` stamps the exception's
-  `.getMessage`) then `[:tags :reason]` (the canonical terse summary).
-  nil when neither is present."
+  "Lift the REAL exception message off an exception trace event (rf2-ahhgn
+  / rf2-oqi0c). Reads `[:tags :exception-message]` ONLY — the exception's
+  own `.getMessage` (`re-frame.router/emit-handler-exception!` stamps it).
+  nil when absent.
+
+  rf2-oqi0c — the `[:tags :reason]` fallback is DROPPED. `:reason` is the
+  terse CATEGORY boilerplate ('Event handler threw.' / '…interceptor
+  threw.') already conveyed by the card's position (under the failing
+  step) + its 'Exception Thrown' heading; surfacing it as the card's
+  message line was redundant chrome. The card now shows the message line
+  ONLY when the throw carried a real `.getMessage`."
   [ev]
-  (let [msg (or (common/tag-of ev :exception-message)
-                (common/tag-of ev :reason))]
+  (let [msg (common/tag-of ev :exception-message)]
     (when (and (string? msg) (not= "" msg)) msg)))
 
 (defn- exception-source-coord
@@ -1996,10 +2001,12 @@
   collapsible details (stack / ex-data). Empty slots are tolerated
   absent by the view.
 
-  rf2-wnvid — the cascade-level `:db-committed?` slot is stamped LATER
-  by `attach-exceptions` (it needs the whole event stream, not the one
-  exception event); it gates the view's 'Rolled back' chip so the chip
-  only paints when a `:db` install actually preceded the throw."
+  rf2-s6oqd — the cascade-level `:db-rolled-back?` slot is stamped LATER
+  by `project` (it needs the whole event stream, not the one exception
+  event); it gates the view's 'Rolled back' chip so the chip paints ONLY
+  when the cascade ACTUALLY rolled back (a `:where :app-db` schema-fail),
+  NOT merely when a `:db` committed — a post-commit fx throw leaves the
+  `:db` committed yet nothing reverted (the FX atomicity asymmetry)."
   [ev]
   {:operation  (op ev)
    :message    (exception-message ev)
@@ -2051,18 +2058,28 @@
            (exception-rows events)))
 
 (defn interceptor-step
-  "Build the INTERCEPTOR step, or nil when no interceptor exception fired
-  this cascade (the step is OMITTED — conditional, rf2-yz57h). The step's
-  `:rows` are the throwing interceptors (one per
-  `:rf.error/interceptor-exception`), each carrying the interceptor
-  `:interceptor-id` (== the exception row's `:failing-id`) + the `:phase`
-  it threw in. The shared exception card attaches to this step via
-  `attach-exceptions`."
-  [events]
-  (let [exc (interceptor-exception-rows events)]
+  "Build the INTERCEPTOR step for ONE chain `phase` (`:before` / `:after`),
+  or nil when no interceptor threw in that phase this cascade (the step is
+  OMITTED — conditional, rf2-yz57h / rf2-vew2n). The step's `:rows` are the
+  throwing interceptors of that phase (one per
+  `:rf.error/interceptor-exception` with the matching `:phase`), each
+  carrying the interceptor `:interceptor-id` (== the exception row's
+  `:failing-id`) + the `:phase` it threw in. The shared exception card
+  attaches to this step via `attach-exceptions`.
+
+  rf2-vew2n — a `:before` interceptor throws on the way IN (the chain
+  aborts before the handler runs), so the `:before` step renders BEFORE
+  the EVENT HANDLER step. An `:after` interceptor throws on the way OUT
+  (the handler ran first), so the `:after` step renders AFTER the EVENT
+  HANDLER step. The step carries its own `:phase` so `project` can place
+  it on the correct side of HANDLER and `attach-exceptions` routes each
+  interceptor exception to the step matching its phase."
+  [events phase]
+  (let [exc (filterv #(= phase (:phase %)) (interceptor-exception-rows events))]
     (when (seq exc)
       {:step  :interceptor
        :badge :INTERCEPTOR
+       :phase phase
        :rows  (mapv (fn [{:keys [failing-id phase]}]
                       {:interceptor-id failing-id
                        :phase          phase})
@@ -2147,6 +2164,19 @@
   (or (index-of #(and (= :coeffect (:step %)) (= failing-id (:id %))) steps)
       (index-of #(= :coeffect (:step %)) steps)))
 
+(defn- interceptor-exception-target
+  "Index of the INTERCEPTOR step a `:rf.error/interceptor-exception` row
+  attaches to (rf2-vew2n). With the phase-split INTERCEPTOR steps the
+  cascade may carry TWO interceptor steps — a `:before` one (before
+  HANDLER) and an `:after` one (after HANDLER). Match the step whose
+  `:phase` == the exception row's `:phase` so a `:before` throw lands on
+  the pre-HANDLER step and an `:after` throw on the post-HANDLER step.
+  Falls back to ANY interceptor step (phase-less legacy fixtures), else
+  nil."
+  [steps phase]
+  (or (index-of #(and (= :interceptor (:step %)) (= phase (:phase %))) steps)
+      (index-of #(= :interceptor (:step %)) steps)))
+
 (defn attach-exceptions
   "Take a projected step vector + a vec of `exception-row` records and
   return the step vector with each exception attached to its owning step
@@ -2158,7 +2188,10 @@
 
     - COEFFECT exception → the matching COEFFECT step (by `:failing-id` =
       cofx `:id`; falls back to the first COEFFECT step), step-level.
-    - INTERCEPTOR exception → the INTERCEPTOR step, step-level.
+    - INTERCEPTOR exception → the INTERCEPTOR step matching the row's
+      `:phase` (rf2-vew2n — the `:before` step before HANDLER, the
+      `:after` step after HANDLER; falls back to any interceptor step),
+      step-level.
     - HANDLER / FLOW exception → that step, step-level (the exception
       aborted the step's work).
     - FX exception → the SIDE EFFECTS row whose `:fx-id` = `:failing-id`
@@ -2183,6 +2216,8 @@
               i           (cond
                             (= :coeffect target-step)
                             (coeffect-exception-target s (:failing-id row))
+                            (= :interceptor target-step)
+                            (interceptor-exception-target s (:phase row))
                             :else
                             (index-of #(= target-step (:step %)) s))]
           (if i
@@ -2621,29 +2656,45 @@
                                  (assoc :db-post-flow flow-db-post)))
                              (flow-rows events))
             violations (schema-violation-rows events)
-            ;; rf2-wnvid — stamp the cascade-level `:db-committed?` onto
+            ;; rf2-s6oqd — stamp the cascade-level `:db-rolled-back?` onto
             ;; every exception row so the view's 'Rolled back' chip paints
-            ;; ONLY when a `:db` install actually preceded the throw (a real
-            ;; commit there is something to roll back). `db-commit?` keys off
-            ;; `:rf.event/db-changed` / a schema rollback — both absent on a
-            ;; handler that threw before returning (button-15), so the chip
-            ;; correctly stays off there (NO SPURIOUS 'Rolled back').
-            db-committed? (db-commit? events)
-            exceptions (mapv #(assoc % :db-committed? db-committed?)
+            ;; ONLY when the cascade ACTUALLY rolled back — i.e. a
+            ;; `:where :app-db` schema-validation failure reverted the
+            ;; commit. `db-committed?` (the rf2-wnvid predicate) was the
+            ;; WRONG gate: fx are POST-COMMIT / best-effort (the FX
+            ;; atomicity asymmetry), so a throwing fx (button-20
+            ;; `:standard-epochs/boom`) leaves `:db` COMMITTED yet nothing
+            ;; rolled back — the spurious chip. `db-rolled-back?` is true
+            ;; iff a real rollback happened:
+            ;;   - :db schema-fail rollback → committed AND rolled back →
+            ;;     chip (correct);
+            ;;   - post-commit fx throw → committed, NOT rolled back → NO
+            ;;     chip (the baseline bump survives);
+            ;;   - pre-commit handler throw (button-16) → no commit, no
+            ;;     rollback → no chip (already correct under wnvid).
+            db-rolled-back? (db-rolled-back? events)
+            exceptions (mapv #(assoc % :db-rolled-back? db-rolled-back?)
                              (exception-rows events))
             base-steps (vec
                         (concat
                           [(dispatch-row events fallback)]
                           cofx-steps
                           cofx-placeholder-steps
-                          ;; rf2-yz57h — the INTERCEPTOR step rides between
-                          ;; COEFFECTS and HANDLER (the cascade position of
-                          ;; the interceptor chain: `:before` runs after
-                          ;; coeffects, before the handler). Conditional —
+                          ;; rf2-yz57h / rf2-vew2n — the INTERCEPTOR step is
+                          ;; PHASE-SPLIT + placed on the correct side of the
+                          ;; EVENT HANDLER, reflecting execution ORDER:
+                          ;; DISPATCH → COEFFECTS → [:before interceptors] →
+                          ;; EVENT HANDLER → [:after interceptors] → …
+                          ;; A `:before` interceptor throws on the way IN
+                          ;; (the chain aborts before the handler), so it
+                          ;; renders BEFORE HANDLER; an `:after` interceptor
+                          ;; throws on the way OUT (the handler ran first),
+                          ;; so it renders AFTER HANDLER. Both conditional —
                           ;; nil (filtered out below) when no interceptor
-                          ;; threw this cascade.
-                          [(interceptor-step events)
-                           (handler-row events event-id db-before db-after)]
+                          ;; threw in that phase this cascade.
+                          [(interceptor-step events :before)
+                           (handler-row events event-id db-before db-after)
+                           (interceptor-step events :after)]
                           ;; APP-DB DIFF removed pair-debug 2026-05-26 —
                           ;; redundant with the HANDLER step's `:db`
                           ;; sub-section's [diff][all] toggle which
