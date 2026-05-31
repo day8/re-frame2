@@ -1,5 +1,13 @@
 *.sh text eol=lf
 
+# The git-hook sources (post-merge, pre-commit) are POSIX sh but carry no
+# .sh extension, so the rule above misses them. Pin them to LF so the
+# checked-out source matches the LF-normalised installed hook byte-for-byte
+# on the line-ending axis, and so the `sh -n` parse / `dash` checks never see
+# a stray CR on a Windows (core.autocrlf=true) checkout (rf2-ujhpf).
+scripts/git-hooks/post-merge text eol=lf
+scripts/git-hooks/pre-commit text eol=lf
+
 # The docs/cljs playground bundles are committed, vendored prebuilts that
 # esbuild / shadow-cljs emit with LF endings (rf2-ee38b.22). Pin LF so a
 # Windows checkout / rebuild never CRLF-normalises them — that would make the
