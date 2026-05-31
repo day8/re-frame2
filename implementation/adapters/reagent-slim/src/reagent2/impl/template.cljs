@@ -391,14 +391,45 @@
                                  (or (:class props)
                                      (:className props)))))))
 
+(defn- collapse-class-keys
+  "Fold a co-occurring `:className` into `:class` and drop `:className`,
+  leaving a single canonical `:class` key.
+
+  `:class` and `:className` both map to React's `className` prop via
+  `cached-prop-name`, so leaving both keys in the map sends two writes
+  to the same JS slot — the survivor is iteration-order dependent
+  (PersistentArrayMap vs PersistentHashMap differ), silently dropping
+  one class string. Mirrors the server path's `merge-shorthand`
+  (which already `dissoc`'s `:className`) so React and SSR agree.
+
+  Per stock Reagent, the prop-map `:class` is the value; a stray
+  `:className` is treated as an additional class and merged with a
+  space. When only `:className` is present it is renamed to `:class`
+  so `set-id-class`'s shorthand merge has a single key to read. A no-op
+  when neither `:className` nor `:class` is present."
+  [props]
+  (cond
+    (and (contains? props :class) (contains? props :className))
+    (-> props
+        (assoc :class (class-names (:class props) (:className props)))
+        (dissoc :className))
+
+    (contains? props :className)
+    (-> props
+        (assoc :class (:className props))
+        (dissoc :className))
+
+    :else props))
+
 (defn- convert-props
   "Convert a hiccup prop map `props` to a React-shape JS props object.
   `parsed` is the HiccupTag with id/class shorthand merged in.
 
   Returns nil for empty input."
   [props ^HiccupTag parsed]
-  (let [class       (:class props)
-        normalised  (cond-> props
+  (let [collapsed   (collapse-class-keys props)
+        class       (:class collapsed)
+        normalised  (cond-> collapsed
                       class (assoc :class (class-names class)))
         with-shorthand (set-id-class normalised parsed)
         ^js js-props (when (seq with-shorthand)
