@@ -172,6 +172,61 @@
     (is (nil? out))
     (is (zero? dropped))))
 
+(deftest scrub-snapshot-non-map-frame-values-pass-through-untouched
+  ;; Coverage gap (rf2-ynjts.17): `scrub-snapshot`'s per-frame reduce-kv
+  ;; only scrubs a frame value when `(map? v)`; a non-map value rides
+  ;; the `:else v` arm untouched. The runtime snapshot is a map of
+  ;; frame-id → frame-map, but the helper is defensive against a slot
+  ;; whose value isn't a frame map (a scalar marker, a nil sentinel).
+  ;; That else-arm had ZERO executing coverage — a regression that
+  ;; mangled non-map slots (e.g. `(scrub-frame v)` unconditionally)
+  ;; would NPE/throw rather than pass through, and no test would catch
+  ;; it. Pin the leave-alone guarantee for every non-map shape.
+  (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]}
+              :meta-count  7              ;; scalar — must survive verbatim
+              :flag        :rf.size/large-elided ;; keyword — survives
+              :nilslot     nil            ;; nil — survives
+              :listslot    [1 2 3]}       ;; vector (non-map) — survives
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 1 dropped) "the one map frame's sensitive trace is still dropped")
+    (is (= [{:id 2}] (get-in out [:rf/default :traces]))
+        "map frame scrubbed")
+    (is (= 7 (:meta-count out))   "scalar frame value untouched")
+    (is (= :rf.size/large-elided (:flag out)) "keyword frame value untouched")
+    (is (contains? out :nilslot)  "nil frame value key preserved")
+    (is (nil? (:nilslot out))     "nil frame value untouched")
+    (is (= [1 2 3] (:listslot out)) "vector frame value untouched")))
+
+(deftest scrub-snapshot-frame-without-trace-or-epoch-slices-is-no-op
+  ;; Coverage gap (rf2-ynjts.17): `scrub-frame`'s `cond->` only updates
+  ;; `:traces` / `:epochs` when present. A frame map carrying NEITHER
+  ;; slice (an `:app-db`-only frame, or a frame whose only slices are
+  ;; the left-alone `:sub-cache` / `:machines`) must return byte-equal
+  ;; — the `cond->` falls through both clauses. The existing
+  ;; strip-from-traces test always carried at least one of the two
+  ;; slices, so the both-absent fall-through was never exercised.
+  (let [snap {:rf/default {:app-db    {:user/name "ada"}
+                           :sub-cache {:user/profile {:data "x"}}
+                           :machines  {:auth {:state :idle}}}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (zero? dropped) "no trace / epoch slices ⇒ nothing dropped")
+    (is (= snap out)
+        "a frame with neither :traces nor :epochs is returned unchanged")))
+
+(deftest scrub-snapshot-frame-with-only-epochs-slice-scrubbed
+  ;; Companion to the existing :stories-only-:traces frame in
+  ;; `scrub-snapshot-strips-sensitive-from-traces`: pin the symmetric
+  ;; `cond->` arm where ONLY `:epochs` is present (no `:traces`). Both
+  ;; single-slice arms now have positive coverage.
+  (let [snap {:rf/default {:epochs [{:event-id :foo}
+                                    {:event-id :auth/sign-in :sensitive? true}
+                                    {:event-id :bar}]}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 1 dropped))
+    (is (= [{:event-id :foo} {:event-id :bar}]
+           (get-in out [:rf/default :epochs]))
+        "only-:epochs frame has its epoch slice scrubbed")))
+
 (deftest scrub-snapshot-handles-lazy-seq-slice-values
   ;; Regression pin (rf2-cwqc8 / round-2 F17): `:traces` and `:epochs`
   ;; arrive as vectors in the typical runtime emission, but the
