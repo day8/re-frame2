@@ -87,6 +87,16 @@ one edit per token.
   `info`). `info` shares `advisory`'s hue — both are the GitHub syntax-number blue.
 - **app-db diff:** added → `success`, removed → `error`, changed → `warning` (reuse the
   semantic tokens; no new colours).
+- **Low-opacity row washes:** a few surfaces tint a whole ROW rather than colour text — the
+  schema-violation sub-block wash (`bg-violation`, a rose surface), the app-db-diff per-op
+  washes (`diff-added-wash` / `diff-modified-wash` / `diff-removed-wash`, 8-digit-hex
+  `#RRGGBBAA` at ~10-12%), and the **L2 issue-epoch row wash** (`bg-issue-row`, rf2-b8guz — a
+  light-pink rose wash, same hue family as `bg-violation`, painted behind any L2 event row whose
+  epoch carries an issue per the canonical Issues predicate; see
+  [`018-Event-Spine.md`](018-Event-Spine.md) §Issue-epoch row wash). Washes are deliberately low
+  alpha so the row text + other row signals stay legible and the wash COMPOSES over the
+  selected/focused-row background. Full hex values live in `theme/tokens.cljc` (the source of
+  truth for every token).
 - **Views / recompute:** changed/recomputed highlight → `changed` (= `accent`); unchanged /
   short-circuited → `unchanged` (= `dim`). Use the accent sparingly (the changed node, not whole
   rows) so the UI doesn't over-saturate.

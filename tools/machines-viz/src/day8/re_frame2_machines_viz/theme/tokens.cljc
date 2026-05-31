@@ -113,6 +113,13 @@
    ;; violation wash (rf2-xgeag · key parity mirror with Xray)
    :bg-violation   "#3a1f25"
 
+   ;; L2 issue-row wash (rf2-b8guz · key parity mirror with Xray) — the
+   ;; light-pink wash Xray paints behind an L2 event row whose epoch
+   ;; contains an issue. machines-viz never paints it, but the drift gate
+   ;; (rf2-z7ms8) requires the dark-palette key set to match Xray's, so the
+   ;; token is mirrored here at its Xray value.
+   :bg-issue-row   "#f8514926"
+
    ;; functional categorical hues (spec/022 carve-out)
    ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
    ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
@@ -209,6 +216,12 @@
 
    ;; violation wash (rf2-xgeag · key parity mirror with Xray)
    :bg-violation   "#fde0e3"
+
+   ;; L2 issue-row wash (rf2-b8guz · key parity mirror with Xray) — the
+   ;; light-theme mirror of Xray's `:bg-issue-row`. machines-viz never
+   ;; paints it; mirrored here at its Xray value so the two light palettes
+   ;; stay symmetric (the dark drift gate asserts full key-set parity).
+   :bg-issue-row   "#c844442e"
 
    ;; functional categorical hues
    ;; Two pink/violet-family hues — see Xray's `light-palette` block for

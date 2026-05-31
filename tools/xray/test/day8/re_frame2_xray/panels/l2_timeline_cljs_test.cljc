@@ -331,6 +331,53 @@
               :timer? false :fx-emit? true}
              flags)))))
 
+;; ---- 4b. epoch-has-an-issue signal (rf2-b8guz) --------------------------
+;;
+;; `cascade-has-issue?` drives the L2 row's light-pink `:bg-issue-row`
+;; wash. It must light up for EXACTLY the set the Issues ribbon/feed
+;; aggregates — it reuses `issues-ribbon-helpers/issue-event?`, which is
+;; severity-driven off `:op-type` (`:error` / `:warning` / `:info`), so a
+;; lifecycle / success-path trace (no severity `:op-type`) is NOT an issue.
+
+(deftest cascade-has-issue?-clean-test
+  (testing "a clean cascade (no issue traces) → false; nil-safe"
+    (is (false? (l2/cascade-has-issue? {})))
+    (is (false? (l2/cascade-has-issue? nil)))
+    (is (false? (l2/cascade-has-issue? "not a cascade")))
+    (is (false? (l2/cascade-has-issue? (cascade-with-source :ui))))
+    ;; lifecycle / success-path traces in :other are NOT issues — the
+    ;; row must stay unstyled (no wash) for a clean cascade that merely
+    ;; carried machine / frame / registry chatter.
+    (is (false? (l2/cascade-has-issue?
+                 {:other [(ev :rf.machine/transition :op-type :rf.machine)
+                          (ev :rf.frame/created      :op-type :rf.frame)]})))))
+
+(deftest cascade-has-issue?-issue-test
+  (testing "an error trace (`:op-type :error`) in :other → true"
+    (is (true? (l2/cascade-has-issue?
+                {:other [(ev :rf.error/handler-exception :op-type :error)]}))))
+
+  (testing "a warning trace (`:op-type :warning`) in :other → true"
+    (is (true? (l2/cascade-has-issue?
+                {:other [(ev :rf.warning/schema-violation :op-type :warning)]}))))
+
+  (testing "an advisory trace (`:op-type :info`) in :other → true — the
+            wash covers the FULL Issues set (error + warning + advisory),
+            matching the Issues ribbon/feed"
+    (is (true? (l2/cascade-has-issue?
+                {:other [(ev :rf.ssr/hydration-mismatch :op-type :info)]}))))
+
+  (testing "the cascade's legacy :errors slot alone → true (defence in
+            depth for synthetic / older traces that populate it directly)"
+    (is (true? (l2/cascade-has-issue?
+                {:errors [{:operation :rf.error/no-such-fx}]}))))
+
+  (testing "an issue mixed with lifecycle chatter still lights up"
+    (let [c (-> (cascade-with-source :fx-dispatch)
+                (assoc :other [(ev :rf.machine/transition :op-type :rf.machine)
+                               (ev :rf.error/handler-exception :op-type :error)]))]
+      (is (true? (l2/cascade-has-issue? c))))))
+
 ;; ---- 5. activity-badges projection --------------------------------------
 
 (deftest activity-badges-empty-test

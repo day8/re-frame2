@@ -77,7 +77,8 @@
   | `:machine-spawn`                                                 | `:machine-spawn`| `i` chip   |
   | `:websocket`                                                     | `:websocket`    | `🌊` glyph |
   | unknown / nil                                                    | nil             | (nothing)  |"
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]))
 
 ;; ---- 1. source prefix (post-rf2-1ve9h) ----------------------------------
 
@@ -360,6 +361,45 @@
      :http?    (has-http-op? others)
      :timer?   (or (has-timer-op? others) (= :timer bucket))
      :fx-emit? (= :fx-emit bucket)}))
+
+;; ---- 2b. epoch-has-an-issue signal (rf2-b8guz) --------------------------
+;;
+;; The L2 row paints a light-pink WASH (theme token `:bg-issue-row`) when
+;; the event's epoch CONTAINS AN ISSUE — the cross-epoch "this event had a
+;; problem" cue at the spine, surfaced where the operator is already
+;; looking rather than gated behind the Issues tab.
+;;
+;; "CONTAINS AN ISSUE" is the SAME set the Issues ribbon/feed aggregates:
+;; errors + warnings + schema violations + hydration mismatches +
+;; perf-budget overruns + app console errors. We reuse the canonical
+;; `issues-ribbon-helpers/issue-event?` predicate (severity-driven off
+;; `:op-type`, per Spec 009) rather than re-enumerating what counts as an
+;; issue — so the wash stays in lockstep with the ribbon/feed by
+;; construction. This is the SAME trace-derived signal the Epoch panel's
+;; `epoch-outcome` + `event-status-colour/cascade-outcome` key off
+;; (rf2-ahhgn): a cascade carrying any issue trace lights up.
+;;
+;; Source of the issue traces on a cascade record: every non-domino trace
+;; event (errors / warnings / …) lands in the cascade's `:other` bucket
+;; (`re-frame.trace.projection/group-cascades` · `domino-bucket` →
+;; `:other`); the cascade's existing `:errors` slot is checked too for
+;; defence in depth (synthetic fixtures / older traces that populated it
+;; directly).
+
+(defn cascade-has-issue?
+  "True iff this cascade's epoch CONTAINS AN ISSUE — i.e. any trace event
+  in the cascade's `:other` bucket (or its `:errors` slot) is an issue per
+  the canonical `issues-ribbon-helpers/issue-event?` predicate (errors +
+  warnings + advisories — the SAME set the Issues ribbon/feed aggregates,
+  reused rather than re-enumerated). Drives the L2 row's light-pink
+  `:bg-issue-row` wash (rf2-b8guz).
+
+  Pure data → bool; nil-safe on missing slots; JVM-runnable."
+  [cascade]
+  (boolean
+    (when (map? cascade)
+      (or (some issues/issue-event? (:other cascade))
+          (seq (:errors cascade))))))
 
 (def activity-badge-glyphs
   "Pure-data badge map. Render order is fixed — issues first (the
