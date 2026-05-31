@@ -488,12 +488,12 @@
           (emit-handled! fx-id args frame-id
                          (when interop/debug-enabled? (- (interop/now-ms) t0))))
         (catch #?(:clj Throwable :cljs :default) e
-          (let [d        (ex-data e)
-                category (:rf.error/id d)]
+          (let [ex-data-map (ex-data e)
+                category    (:rf.error/id ex-data-map)]
             (if (keyword? category)
-              (let [msg  #?(:clj (.getMessage ^Throwable e)
-                            :cljs (.-message e))
-                    time (interop/now-ms)]
+              (let [msg     #?(:clj (.getMessage ^Throwable e)
+                               :cljs (.-message e))
+                    errored-at-ms (interop/now-ms)]
                 ;; Sticky hook (rf2-f72pd) — always-on per-error
                 ;; observability fan-out per rf2-bacs4; survives
                 ;; `:advanced` + `goog.DEBUG=false`.
@@ -506,7 +506,7 @@
                     frame-id
                     e
                     0
-                    time
+                    errored-at-ms
                     {:operation category
                      :op-type   :error
                      :tags      (merge {:event-id          origin-event-id
@@ -518,7 +518,7 @@
                                         :exception         e
                                         :exception-message msg
                                         :recovery          :no-recovery}
-                                       (dissoc d :rf.error/id))
+                                       (dissoc ex-data-map :rf.error/id))
                      :recovery  :no-recovery}))
                 ;; Trace path for dev consumers; DCE'd in CLJS prod.
                 (trace/emit-error! category
@@ -529,7 +529,7 @@
                                            :exception         e
                                            :exception-message msg
                                            :recovery          :no-recovery}
-                                          (dissoc d :rf.error/id))))
+                                          (dissoc ex-data-map :rf.error/id))))
               ;; Untyped reserved-fx throw — preserve crash-loud
               ;; contract by re-throwing.
               (throw e)))))
