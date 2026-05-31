@@ -114,7 +114,12 @@
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.xray/active-timers-for-focused-machine
    :rf.xray/app-db-diff
-   ;; rf2-okvit — app-db tab current-state inspector section model.
+   ;; rf2-yng0y — atomic current-state + focused-epoch before-image
+   ;; (collapses the former 5-deep focus chain so `:before` / `:epoch-id`
+   ;; move together — no stale-`before` frame on zoom navigation).
+   :rf.xray/app-db-current+diff
+   ;; rf2-okvit — app-db tab current-state inspector section model
+   ;; (derived from the atomic sub above).
    :rf.xray/app-db-state
    :rf.xray/cascades
    ;; First-class edn-inspector widget owns the WHOLE renderer contract

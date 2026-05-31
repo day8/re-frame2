@@ -45,6 +45,7 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-xray.panels.app-db-diff-state :as state]
             [day8.re-frame2-xray.panels.app-db-diff-subs
              :as app-db-diff-subs]))
 
@@ -124,14 +125,46 @@
 
 ;; ---- hiccup walker (mirrors event_detail_cljs_test.cljs) ----------------
 
+(defn- structural-component?
+  "True when `node` is one of the App-DB Panel's OWN pure-hiccup
+  structural fn-components — currently just `state/state-body`, the
+  per-epoch keyed body wrapper the Panel mounts (rf2-yng0y). These
+  realize to plain section `:div`s carrying the `data-testid` hooks the
+  assertions below pin. Leaf widgets like the `edn-inspector` (which
+  produce render-context-bound wrapper fns that are not ISeqable) are
+  deliberately NOT structural — they stay un-expanded so the walker
+  treats them as leaves, exactly as the pre-rf2-yng0y shallow walker
+  did when `state-body` was called inline."
+  [node]
+  (and (vector? node) (= state/state-body (first node))))
+
 (defn- expand-fn-component [node]
   (if (and (vector? node) (fn? (first node)))
     (apply (first node) (rest node))
     node))
 
-(defn- hiccup-seq [tree]
-  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn-component tree))
-       (map expand-fn-component)))
+(defn- hiccup-seq
+  "Walk a (possibly component-wrapped) hiccup tree, expanding the
+  Panel's own structural fn-components (see `structural-component?`) AS
+  the walk descends so their nested section testids are realized.
+
+  rf2-yng0y — the App-DB Panel now wraps its body as a KEYED component
+  `^{:key epoch-id} [state/state-body model]` (to force a clean per-epoch
+  React remount). The pre-rf2-yng0y walker expanded one component deep at
+  each leaf, which sufficed when `state-body` was called inline; the new
+  wrapper hides the section testids one level down. Expanding the
+  structural wrapper during descent restores full visibility while
+  leaving the leaf widgets (edn-inspector) un-expanded, as before."
+  [tree]
+  (let [descend (fn [node]
+                  (seq (if (structural-component? node)
+                         (expand-fn-component node)
+                         node)))
+        seed    (if (structural-component? tree)
+                  (expand-fn-component tree)
+                  tree)]
+    (->> (tree-seq (some-fn vector? seq?) descend seed)
+         (map expand-fn-component))))
 
 (defn- find-by-testid [tree testid]
   (some (fn [node]

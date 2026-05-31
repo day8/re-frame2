@@ -90,7 +90,13 @@
   comparison-context `:full` lacked, so the three-mode toggle (and its
   sub/event/slot trio) is gone."
   []
-  (let [section-model @(rf/subscribe [:rf.xray/app-db-state])]
+  (let [section-model @(rf/subscribe [:rf.xray/app-db-state])
+        ;; rf2-yng0y — the focused epoch-id, sourced from the SAME
+        ;; atomic sub the section model derives from
+        ;; (`:rf.xray/app-db-current+diff`), so the render key and the
+        ;; threaded `:before` move in lockstep — they can never name
+        ;; different epochs on the same frame.
+        selected-epoch-id (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff]))]
     [:section {:data-testid "rf-xray-app-db-diff"
                ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
                ;; the enclosing section. FULL+DIFF is the single mode
@@ -102,7 +108,21 @@
      ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
      ;; content starts immediately under the tab bar.
      [:div {:style panel-body-host-style}
-      (state/state-body section-model)]]))
+      ;; rf2-5kfxe.2 / rf2-yng0y — key the state body by the focused
+      ;; epoch-id so each epoch navigation forces a clean React re-mount
+      ;; per cascade (replaying the diff-flash CSS animation as
+      ;; originally intended, and flushing any per-mount carryover). This
+      ;; is a COMPLEMENT to the atomic sub above, not a substitute: a
+      ;; remount alone does not fix a sub-level stale-`before` (a fresh
+      ;; mount would still receive whatever `before` the sub hands it) —
+      ;; the atomic sub guarantees that `before` is never stale; the key
+      ;; guarantees a clean per-epoch mount. Zoom + expansion survive the
+      ;; remount because both are keyed by the stable `:site-id
+      ;; [:rf.xray/app-db render-id]` (e.g. ["top"]) in the `:rf/xray`
+      ;; frame's app-db (value-body, app_db_diff_state.cljs), not by
+      ;; React component identity.
+      ^{:key selected-epoch-id}
+      [state/state-body section-model]]]))
 
 (defn install!
   "Idempotent install for the app-db tab's Xray-side registrations.

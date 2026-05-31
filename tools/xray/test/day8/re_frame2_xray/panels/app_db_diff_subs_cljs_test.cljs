@@ -36,7 +36,12 @@
   ;; rf2-s8r6c — flow-writes projection sub for the origin-tag chip.
   (is (some? (registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
   (is (some? (registrar/handler :sub :rf.xray/app-db-diff)))
-  ;; rf2-okvit — the current-state inspector's section-model sub.
+  ;; rf2-yng0y — the atomic current-state + focused-epoch before-image
+  ;; sub the panel pivots on (collapses the former 5-deep focus chain so
+  ;; `:before` / `:epoch-id` move together — no stale-`before` frame).
+  (is (some? (registrar/handler :sub :rf.xray/app-db-current+diff)))
+  ;; rf2-okvit — the current-state inspector's section-model sub (now
+  ;; derived from the atomic sub above).
   (is (some? (registrar/handler :sub :rf.xray/app-db-state)))
   ;; rf2-e9tb0 — pinned-slices subs are gone.
   (is (nil? (registrar/handler :sub :rf.xray/pinned-slices-store)))
