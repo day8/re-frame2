@@ -162,9 +162,8 @@
     ;; Stamp `:origin :story-mcp` per spec/Cross-Cutting-Designs.md §5
     ;; — every write surface tags its writes so post-mortem queries
     ;; can identify which actor produced the registration.
-    (let [id      (story/reg-variant* vk (assoc body-v :origin config/origin))
-          payload {:variant-id id :registered? true}]
-      (result/text-result (result/pr-edn payload) payload))
+    (let [id (story/reg-variant* vk (assoc body-v :origin config/origin))]
+      (result/edn-result {:variant-id id :registered? true}))
     (catch Throwable e
       (result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
@@ -218,8 +217,7 @@
         (fn [vk]
           (let [had? (some? (story/variant->edn vk))]
             (story/unregister! :variant vk)
-            (let [payload {:variant-id vk :unregistered? had?}]
-              (result/text-result (result/pr-edn payload) payload)))))))
+            (result/edn-result {:variant-id vk :unregistered? had?}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

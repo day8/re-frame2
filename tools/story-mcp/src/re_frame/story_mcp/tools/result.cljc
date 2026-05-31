@@ -34,6 +34,22 @@
    (cond-> {:content [{:type "text" :text text}]}
      (some? structured) (assoc :structuredContent structured))))
 
+(defn edn-result
+  "Build a success result whose `payload` rides BOTH wire slots: the
+  `pr-edn`-stringified EDN in the `:content` text slot and the raw map
+  in `:structuredContent`. The canonical success envelope for every
+  data-returning story-mcp handler — `(edn-result payload)` is the dual-
+  coded `(text-result (pr-edn payload) payload)` pair the handlers
+  shared at fifteen call sites (rf2-jkake.20), named once so each
+  handler reads as 'return this payload' rather than re-spelling the
+  stringify-into-text-plus-same-map-as-structured dance.
+
+  The two slots are dual-coded on purpose (per `wire-pipeline`): the
+  text slot serves agent hosts that read EDN; the structured slot
+  serves hosts that prefer JSON data — and the cap pipeline sizes both."
+  [payload]
+  (text-result (pr-edn payload) payload))
+
 (defn error-result
   "Build a tool-execution error result. Per MCP §Error Handling these
   use `isError: true` rather than a protocol-level JSON-RPC error so

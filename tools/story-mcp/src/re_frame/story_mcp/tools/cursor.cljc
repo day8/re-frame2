@@ -172,7 +172,12 @@
   The caller assembles the final payload by merging the page-metadata
   into the tool's normal response shape (the metadata slots only land
   when pagination actually kicked in — small registries that fit on
-  one page return `[:ok entries {}]`)."
+  one page return `[:ok entries {}]`).
+
+  Most callers don't touch this directly — they reach for the
+  `paged-result` wrapper below, which folds the `[:ok …]` / `[:err …]`
+  branch + the `result/text-result` build into one call. `page` stays
+  public for the rare caller that wants the raw slice (none today)."
   [entries ids arguments tool-name]
   (let [limit         (parse-limit-arg (:limit arguments))
         cursor        (decode-cursor (:cursor arguments))
@@ -206,3 +211,26 @@
                          :next-cursor next-c}
                         {})]
         [:ok page-vec meta-map]))))
+
+(defn paged-result
+  "Page `entries` and build the tool's `tools/call` result in one step —
+  the shape every Docs `list-*` handler shares (rf2-jkake.20). Pages via
+  `page`; on a malformed/stale cursor returns the `cursor-stale-result`
+  envelope directly; otherwise calls `(page->payload page-vec)` to build
+  the tool-specific base payload, merges in the pagination metadata
+  (`:total` / `:limit` / `:has-more?` / `:next-cursor` — present only
+  when pagination kicked in), and wraps it in the dual-slot
+  `text-result` envelope.
+
+  `page->payload` receives the page slice and returns the base payload
+  map (e.g. `(fn [p] {:stories p})` for `list-stories`, or the
+  bifurcated `{:canonical … :registered p}` for `list-assertions`).
+  This folds the four-line `(let [[res page meta] (page …)] (if (= res
+  :err) …))` boilerplate that previously sat inline in five handlers
+  into a single call, so each handler reads as 'compute entries, then
+  page them under this shape'."
+  [entries ids arguments tool-name page->payload]
+  (let [[res page-vec meta] (page entries ids arguments tool-name)]
+    (if (= res :err)
+      page-vec
+      (result/edn-result (merge (page->payload page-vec) meta)))))

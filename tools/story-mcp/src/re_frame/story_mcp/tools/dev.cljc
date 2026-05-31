@@ -149,7 +149,7 @@
                         :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                         :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                         :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
-        (result/text-result (result/pr-edn payload) payload)))))
+        (result/edn-result payload)))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
@@ -167,8 +167,7 @@
   `cljs-resolve/registered-substrates` is the single accessor
   (rf2-ee38b.17 removed the duplicate `defonce` that used to live here)."
   [_args]
-  (let [payload {:substrates (vec (cljs-resolve/registered-substrates))}]
-    (result/text-result (result/pr-edn payload) payload)))
+  (result/edn-result {:substrates (vec (cljs-resolve/registered-substrates))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

@@ -67,11 +67,8 @@
                           :tags (vec (:tags body))
                           :variants (sort (get index sid #{}))})
                        sorted)]
-    (let [[res page meta] (cursor/page entries all-ids args "list-stories")]
-      (if (= res :err)
-        page
-        (let [payload (merge {:stories page} meta)]
-          (result/text-result (result/pr-edn payload) payload))))))
+    (cursor/paged-result entries all-ids args "list-stories"
+                         (fn [page] {:stories page}))))
 
 (defn tool-get-story
   "Docs: one story's full body.
@@ -85,7 +82,7 @@
       (if-let [sk (args/safe-keyword sid (story/ids :story))]
         (let [body (story/handler-meta :story sk)
               payload {:id sk :body body :variants (sort (story/variants-of sk))}]
-          (result/text-result (result/pr-edn payload) payload))
+          (result/edn-result payload))
         (result/error-result (str "Story not found: " (pr-str sid)))))))
 
 (defn tool-get-variant
@@ -93,8 +90,7 @@
   [args]
   (targs/with-variant args
     (fn [vk body]
-      (let [payload {:id vk :body body}]
-        (result/text-result (result/pr-edn payload) payload)))))
+      (result/edn-result {:id vk :body body}))))
 
 (defn tool-list-tags
   "Docs: canonical tags + custom tags.
@@ -111,19 +107,15 @@
         canonical  (vec (sort-by str (into story/canonical-tags
                                            story/canonical-state-tags)))
         custom-set (set/difference (set registered) (set canonical))
-        custom     (vec (sort-by str custom-set))
-        [res page meta] (cursor/page custom custom-set args "list-tags")]
-    (if (= res :err)
-      page
-      (let [;; :all is the union of :canonical + the (page-sliced) :custom.
-            ;; When no pagination kicks in (small registry) the result is
-            ;; byte-identical to the pre-rf2-76sf6 shape.
-            all-page (vec (sort-by str (into canonical page)))
-            payload  (merge {:canonical canonical
-                             :custom    page
-                             :all       all-page}
-                            meta)]
-        (result/text-result (result/pr-edn payload) payload)))))
+        custom     (vec (sort-by str custom-set))]
+    (cursor/paged-result custom custom-set args "list-tags"
+                         (fn [page]
+                           ;; :all is the union of :canonical + the (page-sliced)
+                           ;; :custom. When no pagination kicks in (small registry)
+                           ;; the result is byte-identical to the pre-rf2-76sf6 shape.
+                           {:canonical canonical
+                            :custom    page
+                            :all       (vec (sort-by str (into canonical page)))}))))
 
 (defn tool-list-modes
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
@@ -135,12 +127,9 @@
         sorted  (sort-by (comp str key) modes)
         all-ids (keys modes)
         entries (mapv (fn [[mid body]] {:id mid :doc (:doc body) :args (:args body)})
-                      sorted)
-        [res page meta] (cursor/page entries all-ids args "list-modes")]
-    (if (= res :err)
-      page
-      (let [payload (merge {:modes page} meta)]
-        (result/text-result (result/pr-edn payload) payload)))))
+                      sorted)]
+    (cursor/paged-result entries all-ids args "list-modes"
+                         (fn [page] {:modes page}))))
 
 (defn- decorator-summary
   "Project one decorator body to the EDN-safe shape — id, kind, doc,
@@ -196,12 +185,9 @@
                                                      (= kind-filter (:kind body))))))
         sorted      (sort-by (comp str key) filtered)
         all-ids     (keys filtered)
-        entries     (mapv (fn [[did body]] (decorator-summary did body)) sorted)
-        [res page meta] (cursor/page entries all-ids args "list-decorators")]
-    (if (= res :err)
-      page
-      (let [payload (merge {:decorators page} meta)]
-        (result/text-result (result/pr-edn payload) payload)))))
+        entries     (mapv (fn [[did body]] (decorator-summary did body)) sorted)]
+    (cursor/paged-result entries all-ids args "list-decorators"
+                         (fn [page] {:decorators page}))))
 
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the seven dispatched canonical
@@ -251,14 +237,10 @@
   exceeds `:limit`. Small registries see no pagination metadata."
   [args]
   (let [registered (sort-by str (story/canonical-assertion-ids))
-        reg-vec    (vec registered)
-        [res page meta] (cursor/page reg-vec (set reg-vec) args "list-assertions")]
-    (if (= res :err)
-      page
-      (let [payload (merge {:canonical  canonical-assertion-docs
-                            :registered page}
-                           meta)]
-        (result/text-result (result/pr-edn payload) payload)))))
+        reg-vec    (vec registered)]
+    (cursor/paged-result reg-vec (set reg-vec) args "list-assertions"
+                         (fn [page] {:canonical  canonical-assertion-docs
+                                     :registered page}))))
 
 (defn tool-explain-variant
   "Docs: the variant-plan `:explain` projection for a variant — the SAME
@@ -284,10 +266,8 @@
   [args]
   (targs/with-variant args
     (fn [vk _body]
-      (let [explain  (story/explain vk)
-            payload  {:variant-id vk
-                      :explain    explain}]
-        (result/text-result (result/pr-edn payload) payload)))))
+      (result/edn-result {:variant-id vk
+                          :explain    (story/explain vk)}))))
 
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
@@ -304,7 +284,7 @@
   [args]
   (targs/with-variant args
     (fn [_vk body]
-      (result/text-result (result/pr-edn body) body))))
+      (result/edn-result body))))
 
 (defn- md-h1 [s] (str "# " s "\n\n"))
 (defn- md-h2 [s] (str "\n## " s "\n\n"))
