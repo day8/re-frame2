@@ -10,12 +10,39 @@
   hit marker WITHOUT running the tool — saving both the wire bytes AND
   the full tool eval.
 
-  Eligibility (today): single-frame `snapshot` and `get-path`. Their
-  result is a function of `(frame, args, app-db@frame)`; same frame +
-  same args + same db-hash ⇒ same result. Multi-frame `snapshot`
+  Eligibility (today): single-frame `snapshot` whose resolved
+  `:include` is app-db-derived only, and `get-path`. Their result is a
+  function of `(frame, args, app-db@frame)`; same frame + same args +
+  same db-hash ⇒ same result. Multi-frame `snapshot`
   (`:frames :all` or a vector) is NOT eligible because we'd need to
   hash every frame's db separately and combine — out of scope; the
   legacy post-eval `apply-cache` path still catches those.
+
+  Snapshot's `:include` slices split by what the precheck hash sees
+  (rf2-3ljsa). The precheck hash is `(re-frame2-pair.runtime/app-db-hash
+  frame)` = `(hash app-db@frame)` only — it tracks `:db-after` at every
+  settled mutation. So a slice is precheck-sound IFF it is a pure
+  function of `app-db@frame`:
+
+    - `:app-db`   — IS the frame db. Sound.
+    - `:machines` — `:state` lives at `[:rf/runtime :machines :snapshots]`
+                    INSIDE app-db; `:ids` is the install-time registrar
+                    list (stable across event cascades). Sound.
+    - `:sub-cache`— reactive cache over external inputs; can move without
+                    an app-db write. NOT sound.
+    - `:epochs`   — the per-frame epoch ring; a record is appended on
+                    EVERY event cascade, including no-`:db` handlers, so
+                    it changes while `app-db-hash` stays constant. NOT
+                    sound.
+    - `:traces`   — the per-frame trace ring; same accrue-without-db-
+                    change behaviour as `:epochs`. NOT sound.
+
+  A default snapshot (no `:include`) resolves to ALL FIVE slices, which
+  contains the unsound three — so the default is NOT precheck-eligible
+  and falls through to the post-eval `apply-cache`, which hashes the
+  full result text and so cannot serve a stale `:epochs`/`:traces`/
+  `:sub-cache` payload. Precheck is taken only when the caller narrows
+  `:include` to the app-db-derived subset.
 
   Trace tools (`trace-window`, `watch-epochs`, `discover-app`) are not
   eligible — their result depends on the epoch ring / health surface,
@@ -26,6 +53,16 @@
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.args :as args]))
+
+(def app-db-derived-snapshot-slices
+  "Snapshot slices whose value is a pure function of `app-db@frame`
+  (rf2-3ljsa). Only these are precheck-sound under the
+  `(hash app-db@frame)` precheck hash; `:sub-cache`/`:epochs`/`:traces`
+  can change while that hash stays constant, so a snapshot whose
+  resolved `:include` is NOT a subset of this set is precheck-ineligible
+  and falls back to the post-eval result-hash cache. See the ns
+  docstring for the per-slice rationale."
+  #{:app-db :machines})
 
 (defn precheck-target
   "Resolve the precheck target for a single-frame precheck. Returns a
@@ -42,19 +79,32 @@
   not value-level. Future targets (e.g. multi-frame combined-hash)
   add a new tag without colliding with a reserved keyword.
 
-  `snapshot` is eligible only when `:frames` resolves to a single frame
-  (an explicit one-element vector or a single scalar). `:all` or a
-  multi-element vector returns nil — those callers fall back to the
-  post-eval cache.
+  `snapshot` is eligible only when BOTH (a) `:frames` resolves to a
+  single frame (an explicit one-element vector or a single scalar) AND
+  (b) the resolved `:include` is a subset of
+  `app-db-derived-snapshot-slices` (rf2-3ljsa). `:all` or a
+  multi-element vector — or an `:include` that retains
+  `:sub-cache`/`:epochs`/`:traces` (including the default all-five
+  include) — returns nil so the caller falls back to the post-eval
+  cache, which hashes the full result text and so cannot serve stale
+  non-app-db slices.
 
   `get-path` is always eligible (its `:frame` slot is single-valued by
-  contract; absent means \"operating frame\")."
+  contract; absent means \"operating frame\"; it reads an app-db
+  subtree, so any app-db change flips the precheck hash)."
   [tool raw-args]
   (case tool
     "snapshot"
     (let [raw-frames (when raw-args (j/get raw-args "frames"))
-          frames     (args/parse-frames-arg raw-frames)]
+          frames     (args/parse-frames-arg raw-frames)
+          include    (args/parse-include-arg (wire/arg raw-args :include))
+          app-db-derived? (every? app-db-derived-snapshot-slices include)]
       (cond
+        ;; an :include retaining a non-app-db-derived slice
+        ;; (:sub-cache/:epochs/:traces) — the precheck hash can't see
+        ;; those move, so NOT eligible (rf2-3ljsa).
+        (not app-db-derived?)
+        nil
         ;; explicit single-frame vector
         (and (vector? frames) (= 1 (count frames)))
         [:explicit (first frames)]

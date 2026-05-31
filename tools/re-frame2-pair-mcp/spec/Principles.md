@@ -855,6 +855,21 @@ Saving the round-trip too needs a server-side hash precheck
 first, only ship the body on miss) — out of scope for
 rf2-3rt1f, filed as a follow-on bead.
 
+**Precheck eligibility (rf2-36xod follow-on; rf2-3ljsa)**. The
+precheck landed: `(re-frame2-pair.runtime/app-db-hash frame)` is
+shipped first, and a match short-circuits the tool eval. Because
+that hash is `(hash app-db@frame)` ONLY, a tool is precheck-eligible
+solely when its result is a pure function of `app-db@frame`. For
+`snapshot` this constrains the resolved `:include` to the app-db-
+derived slices `{:app-db :machines}` — `:sub-cache`/`:epochs`/
+`:traces` accrue without an app-db write (every event cascade
+appends an epoch + trace record, even a no-`:db` handler), so a
+snapshot retaining any of those three (including the default all-
+five `:include`) is NOT precheck-eligible and falls back to the
+post-eval result-hash cache above, which hashes the full text and
+so never serves a stale non-app-db slice. `get-path` reads an
+app-db subtree and so is always eligible.
+
 **Why opt-in by default**. Agent hosts that haven't been
 taught the `:rf.mcp/cache-hit` marker shape would receive a
 sub-100-byte marker instead of the expected payload on the

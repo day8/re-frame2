@@ -378,3 +378,104 @@
                  (is (zero? (cache/size))
                      "unknown-tool errors do not touch the cache")
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3ljsa — snapshot precheck eligibility is gated on `:include`.
+;;
+;; The precheck hash is `(hash app-db@frame)` only. `:epochs`/`:traces`
+;; accrue a record on EVERY event cascade (incl. no-`:db` handlers) and
+;; `:sub-cache` can move over external inputs — all WITHOUT an app-db
+;; write, so the precheck hash stays constant while those slices change.
+;; A snapshot whose resolved `:include` keeps any of those three is
+;; therefore NOT precheck-eligible; it must fall back to the post-eval
+;; result-hash cache, which hashes the full text and so recomputes.
+;; ---------------------------------------------------------------------------
+
+;; The MCP wire passes `:frames` / `:include` as JS arrays of strings,
+;; not EDN strings — `parse-frames-arg` / `parse-include-arg` coerce
+;; arrays/sequentials. Build args with JS arrays to match the live shape.
+(deftest precheck-target-snapshot-eligibility-by-include
+  (testing "single-frame snapshot, app-db-only include → eligible"
+    (is (= [:explicit :rf/default]
+           (precheck/precheck-target
+             "snapshot" (args-js {:frames #js ["rf/default"] :include #js ["app-db"]})))
+        ":include [:app-db] is app-db-derived — precheck-eligible")
+    (is (= [:explicit :rf/default]
+           (precheck/precheck-target
+             "snapshot" (args-js {:frames #js ["rf/default"]
+                                  :include #js ["app-db" "machines"]})))
+        ":machines reads app-db only — still eligible"))
+  (testing "single-frame snapshot, default (all-five) include → ineligible"
+    (is (nil? (precheck/precheck-target
+                "snapshot" (args-js {:frames #js ["rf/default"]})))
+        "default include carries :epochs/:traces/:sub-cache — ineligible"))
+  (testing "single-frame snapshot retaining a non-app-db slice → ineligible"
+    (doseq [slice [#js ["app-db" "epochs"]
+                   #js ["app-db" "traces"]
+                   #js ["app-db" "sub-cache"]]]
+      (is (nil? (precheck/precheck-target
+                  "snapshot" (args-js {:frames #js ["rf/default"] :include slice})))
+          (str "include " (vec slice) " retains an unsound slice — ineligible"))))
+  (testing "multi-frame snapshot stays ineligible regardless of include"
+    (is (nil? (precheck/precheck-target
+                "snapshot" (args-js {:frames #js ["a" "b"] :include #js ["app-db"]}))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3ljsa — END-TO-END staleness guard. A single-frame DEFAULT-include
+;; snapshot is the precise bug shape: precheck would have served a hit
+;; while :epochs/:traces moved. With the fix it is precheck-ineligible,
+;; so the second call re-dispatches (and any change in the result text is
+;; caught by the post-eval cache instead of being silently hidden).
+;; ---------------------------------------------------------------------------
+
+(deftest single-frame-default-snapshot-does-not-precheck-hit
+  (async done
+    (let [args        (args-js {:cache "true" :frames #js ["rf/default"]})
+          fetch-count (atom 0)
+          call-count  (atom 0)]
+      (set-stubs!
+        {;; If precheck WERE consulted it would match and serve a stale
+         ;; hit — so this stub must never fire for the default snapshot.
+         :fetch-precheck-hash (fn [_conn _args _target]
+                                (swap! fetch-count inc)
+                                (js/Promise.resolve 7))
+         :snapshot-tool       (fn [_conn _args]
+                                (swap! call-count inc)
+                                ;; Distinct text per call models :epochs/
+                                ;; :traces accruing while app-db is fixed.
+                                (js/Promise.resolve
+                                  (mcp-result (str "{:epochs " @call-count "}"))))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [_first] (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (zero? @fetch-count)
+                       "precheck NEVER consulted — default include is ineligible (rf2-3ljsa)")
+                   (is (= 2 @call-count)
+                       "second call re-dispatches — no stale precheck hit")
+                   (is (not (cache-hit? second-result))
+                       "differing :epochs text ⇒ fresh result, not a hit")
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3ljsa — NO over-invalidation. A single-frame APP-DB-ONLY snapshot
+;; is still precheck-eligible: an unchanged app-db hash serves the
+;; precheck hit (the optimisation is preserved for the sound case).
+;; ---------------------------------------------------------------------------
+
+(deftest single-frame-appdb-only-snapshot-still-precheck-hits
+  (async done
+    (let [args (args-js {:cache "true" :frames #js ["rf/default"] :include #js ["app-db"]})]
+      (set-stubs!
+        {:fetch-precheck-hash (fn [_conn _args _target] (js/Promise.resolve 1234))
+         :snapshot-tool       (fn [_conn _args]
+                                (js/Promise.resolve (mcp-result "{:app-db {:k :v}}")))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [_first] (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (cache-hit? second-result)
+                       "unchanged app-db hash ⇒ precheck hit served")
+                   (is (= :precheck
+                          (get-in (extract-edn second-result)
+                                  [:rf.mcp/cache-hit :via]))
+                       "via :precheck — the sound short-circuit is preserved")
+                   (done)))))))
