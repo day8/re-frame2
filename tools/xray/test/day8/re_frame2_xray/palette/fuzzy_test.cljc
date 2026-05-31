@@ -96,6 +96,62 @@
     (is (true?  (fuzzy/match? "anything" ""))
         "empty query → match")))
 
+(deftest gap-penalty-anchored-at-index-0
+  ;; rf2-pwxhj — a prefix-anchored match (first matched char at
+  ;; candidate index 0) must STILL accrue the -1/char internal-gap
+  ;; penalty. Pre-fix the `(pos? last-match-idx)` guard let an
+  ;; index-0-anchored match escape every gap penalty entirely.
+  ;; Gap chars are plain letters (`x`), NOT separators — a separator
+  ;; ('_', '-', …) would hand the following matched char a word-start
+  ;; bonus and mask the gap penalty under test.
+  (testing "internal gaps after an index-0 match ARE penalised"
+    (let [tight  (fuzzy/score "ad"     "ad")   ;; a@0 prefix+word-start, d@1 run
+          gappy  (fuzzy/score "axxxd"  "ad")]  ;; a@0 prefix+word-start, 3 gaps, d@4
+      (is (> tight gappy)
+          "the gappy candidate must rank BELOW the tight one — the three
+           'x' chars between the index-0 match and the d each cost -1")
+      ;; tight = 1+12(prefix)+8(word-start) (a) + 1+4(run) (d) = 26
+      ;; gappy = 1+12+8 (a) - 3 (gaps) + 1 (d, no run) = 19
+      (is (= 26 tight))
+      (is (= 19 gappy)
+          "a@0 prefix+word-start (21), then -1 per 'x' (×3), then d non-run (+1)"))))
+
+(deftest gap-penalty-first-char-after-match-not-skipped
+  ;; rf2-pwxhj — the FIRST unmatched char immediately after a match
+  ;; must be penalised. Pre-fix the `gap-since-match?` latch was set one
+  ;; iteration too late, so the first gap char after any match escaped.
+  (testing "query 'bd' vs 'xbxxd' penalises BOTH gap chars after b@1"
+    (let [tight (fuzzy/score "xbd"    "bd")    ;; b@1, d@2 run — no gap
+          gappy (fuzzy/score "xbxxd"  "bd")]   ;; b@1, gaps at 2,3, d@4
+      (is (> tight gappy)
+          "both x's between b and d cost -1 each — neither escapes")
+      ;; tight = 1 (b, no bonus) + 1+4 (d, run) = 6
+      ;; gappy = 1 (b) - 2 (two gap x's) + 1 (d, no run) = 0
+      (is (= 6 tight))
+      (is (= 0 gappy)
+          "b (+1), two internal gaps (-2), d non-run (+1) → 0")))
+
+  (testing "leading gaps — before the first match — stay free"
+    ;; Chars before the first matched char must NOT be penalised; the
+    ;; gap penalty starts only once matching has begun. Both candidates
+    ;; match 'b' mid-string (so neither earns prefix/word-start), and
+    ;; the extra leading 'z's in the second must NOT lower its score.
+    (is (= (fuzzy/score "zb"   "b")
+           (fuzzy/score "zzzb" "b"))
+        "extra leading slack before the first match must not cost
+         anything — leading gaps are free")))
+
+(deftest gap-penalty-ranks-tight-over-spread
+  ;; The ranking the spec intends: an evenly-spread subsequence match
+  ;; ranks below a tighter one even when both start at the same place.
+  (testing "spread-out subsequence ranks below the tight run"
+    ;; Plain-letter gaps ('x') so the penalty isn't masked by a
+    ;; separator-driven word-start bonus on the following char.
+    (let [tight   (fuzzy/score "abc"     "abc")
+          spread  (fuzzy/score "axbxc"   "abc")]
+      (is (> tight spread)
+          "the two 'x' gaps each cost -1, so the tight run wins"))))
+
 (deftest representative-palette-queries
   (testing "representative shortcuts the user is likely to type"
     ;; 'evdt' → event-detail wins by a wide margin

@@ -98,10 +98,44 @@
   ;; Ctrl+Shift+C to seed Xray's app-db with the framework's existing
   ;; per-frame ring contents. `:rf.trace/no-emit? true` matches the
   ;; `epoch-recorded` rationale above.
+  ;;
+  ;; rf2-mdpfz — the sync ALSO focuses the LATEST seeded epoch. The
+  ;; sync seeds `:epoch-history` DIRECTLY, bypassing the normal trace-
+  ;; driven path (`:rf.xray/epoch-recorded` → a fresh cascade →
+  ;; `compose-focus` auto-following head), so nothing would otherwise
+  ;; select an epoch: every focus-keyed Dynamic panel renders its
+  ;; "nothing focused" state (App-db → "no user-domain keys yet";
+  ;; the Epoch / Reactive / Machines panels → their no-focus lines).
+  ;; The App-DB before-image specifically follows `[:focus :epoch-id]`
+  ;; with NO head-fallback (`app_db_diff_subs/app-db-current+diff` is
+  ;; deliberately fallback-free per rf2-yng0y), so seeding history is
+  ;; not enough — focus MUST carry the epoch-id.
+  ;;
+  ;; We stamp BOTH the spine `[:focus :epoch-id]` (what `compose-focus`
+  ;; surfaces as `:rf.xray/focus` `:epoch-id` when no cascade head is
+  ;; present — i.e. history-only seeds) AND the `:selected-epoch-id`
+  ;; shim slot, mirroring `:rf.xray/select-epoch`'s dual-write. The
+  ;; LATEST epoch is the HEAD of the oldest-first ring — `(peek hist)`
+  ;; — matching the natural "show the most recent unless the operator
+  ;; clicks an earlier row" debugging UX (the same head-bias the
+  ;; focus-resolver's rf2-h0120 head-fallback encodes). An empty
+  ;; history clears focus so a no-epoch seed renders its empty-state.
+  ;;
+  ;; When a live trace buffer IS also seeded (the chrome story seeds
+  ;; both via `:rf.xray/sync-trace-buffer`), `compose-focus`'s LIVE
+  ;; auto-follow re-derives `:epoch-id` from the head cascade — that
+  ;; path is unchanged; this stamp is the authoritative selection only
+  ;; for history-only seeds (the standalone panel-gallery stories).
   (rf/reg-event-db :rf.xray/sync-epoch-history
     {:rf.trace/no-emit? true}
     (fn [db [_ history]]
-      (assoc db :epoch-history (vec history))))
+      (let [history    (vec history)
+            latest-id  (:epoch-id (peek history))]
+        (cond-> (assoc db :epoch-history history)
+          (some? latest-id) (-> (assoc-in [:focus :epoch-id] latest-id)
+                                (assoc :selected-epoch-id latest-id))
+          (nil? latest-id)  (-> (update :focus (fnil dissoc {}) :epoch-id)
+                                (dissoc :selected-epoch-id))))))
 
   ;; `:rf.xray/select-epoch` — spine shim (rf2-adve5). Owns the
   ;; `:selected-epoch-id` slot that App-DB Diff's `selected-epoch-*`
