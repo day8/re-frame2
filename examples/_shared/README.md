@@ -24,7 +24,7 @@ The pairing nods to the rest of the project (Xray uses Inter + JBM,
 Story uses IBM Plex on a similarly light surface) so examples, dev
 tools, and docs all sit naturally next to one another.
 
-## Layout
+## Files
 
 - `css/style.css` — the shared design system. Linked by
   every `index.html`. Imports `structure.css`.
