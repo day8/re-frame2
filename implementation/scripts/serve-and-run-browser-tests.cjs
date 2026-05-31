@@ -321,7 +321,16 @@ async function waitForReady(port, expectedToken, deadline, state) {
     env: { ...process.env, BROWSER_TEST_URL: `http://127.0.0.1:${port}` },
   }));
 
-  const code = await new Promise((resolve) => runner.on('exit', resolve));
+  // Resolve on either 'exit' or 'error'. A spawn failure (e.g. the runner
+  // binary cannot be launched) emits 'error' and NOT 'exit'; without the
+  // 'error' arm this promise would hang until the whole run is killed.
+  const code = await new Promise((resolve) => {
+    runner.once('exit', (exitCode) => resolve(exitCode));
+    runner.once('error', (err) => {
+      console.error(`Failed to launch test runner: ${err && err.message ? err.message : err}`);
+      resolve(1);
+    });
+  });
 
   return code == null ? 1 : code;
 })().then(async (code) => {
