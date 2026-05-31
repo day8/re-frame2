@@ -51,21 +51,13 @@ PLACEHOLDERS = [
     ("xray", "07-hydration.png",       "Hydration debugger — server vs client trees"),
     ("xray", "09-app-db-modes.png",    "App-DB diff — three rendering modes"),
 
-    # Story tutorial captures:
-    ("story", "01-shell-overview.png",  "The Story shell — sidebar / canvas / inspectors"),
-    ("story", "01-variant-loaded.png",  "A registered variant rendered in the canvas"),
-    ("story", "02-mode-tabs.png",       "Mode-tab strip on a variant canvas"),
-    ("story", "02-docs-mode.png",       "Docs mode for a variant"),
-    # File is 02-test-mode.png so its filename matches the referring
-    # chapter (02-mode-tabs.md):
-    ("story", "02-test-mode.png",       "Test mode — every assertion in order"),
-    ("story", "04-workspace-grid.png",  "A 2×2 workspace mounting four variants"),
-    # Additional Story scenes:
-    ("story", "03-recorder-modal.png",  "Recorder modal — generated :play body (EDN)"),
-    # 05-qr-share.png retired per rf2-ymnfx Issue B (share button + QR
-    # popover replaced by the browser's live address-bar URL).
-    ("story", "06-time-travel-mini.png", "Per-cell mini-scrubbers across a workspace"),
-    ("story", "07-multi-substrate.png", "Same variant rendered under three substrates"),
+    # Story tutorial captures: the legacy non-prefixed placeholders
+    # (01-shell-overview, 01-variant-loaded, 02-mode-tabs, 02-docs-mode,
+    # 02-test-mode, 03-recorder-modal, 04-workspace-grid,
+    # 06-time-travel-mini, 07-multi-substrate) were retired with their
+    # orphaned PNGs (rf2-azqaq); the live Story tutorial ships the
+    # s00–s13 captures from examples/scripts/capture-story-screenshots.cjs
+    # instead, so no Story placeholders are generated here.
 ]
 
 SIZE = (1280, 800)

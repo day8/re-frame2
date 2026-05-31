@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 /*
- * Capture the 10 annotated screenshots for the Story tutorial
+ * Capture annotated screenshots for the Story tutorial
  * (`docs/story/*.md`).
+ *
+ * NOTE: the legacy non-prefixed shots were retired with their orphaned
+ * PNGs (rf2-azqaq); the live tutorial embeds the hand-captured s00–s13
+ * set. SHOTS is currently empty — the capture machinery below is kept
+ * for a refreshed s-prefixed pipeline. A no-arg run is therefore a
+ * no-op ("No shots selected.") until shots are re-declared.
  *
  * Each entry below describes one screenshot:
  *   - variant: URL `?variant=...` value (without the leading colon)
@@ -27,8 +33,8 @@
  *   STORY_BASE=http://127.0.0.1:9876 \
  *     node examples/scripts/capture-story-screenshots.cjs [shotName...]
  *
- * No-arg run captures all 10. Argument filters to the named shots
- * (e.g. `index-overview` `mode-tabs-strip`).
+ * A no-arg run captures every declared shot; an argument filters to the
+ * named shots (e.g. `index-overview` `mode-tabs-strip`).
  */
 
 'use strict';
@@ -50,235 +56,14 @@ const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] 
 // sensible order.
 // ---------------------------------------------------------------------------
 
-const SHOTS = [
-  // index.md — `01-shell-overview.png`
-  {
-    name: 'index-overview',
-    variant: 'story.counter/loaded',
-    save: '01-shell-overview.png',
-    callouts: [
-      // Sidebar tree on the LEFT
-      { selector: '[data-test="story-sidebar"]',                          label: '1', side: 'right' },
-      // Canvas in the centre — point from the BOTTOM up
-      { selector: '[data-test="story-canvas-frame"]',                     label: '2', side: 'bottom' },
-      // Right-pane inspectors (where Xray embeds)
-      { selector: '[data-test="story-inspectors"]',                       label: '3', side: 'left' },
-      // The mode-tab strip above the canvas
-      { selector: '[data-test="story-mode-tabs"]',                        label: '4', side: 'top' },
-      // The controls panel on the right rail — Xray's chip row
-      // accommodates the role; we point at the chip row.
-      { selector: '[data-test="story-xray-embed"]',                      label: '5', side: 'left' },
-    ],
-  },
-
-  // 01-first-story.md — `01-variant-loaded.png`
-  {
-    name: 'first-story-variant',
-    variant: 'story.counter/empty',
-    save: '01-variant-loaded.png',
-    callouts: [
-      // sidebar `:story.counter` story row
-      { selector: '[data-test="story-sidebar-story-row"][data-story=":story.counter"]', label: '1', side: 'right',
-        fallback: '[data-test="story-sidebar-story-row"]' },
-      // `:story.counter/empty` variant row (selected)
-      { selector: '[data-test="story-sidebar-variant-row"][data-variant=":story.counter/empty"]', label: '2', side: 'right',
-        fallback: '[data-test="story-sidebar-variant-row"]' },
-      // The counter rendered in the canvas — point at it from below
-      { selector: '[data-test="story-canvas-frame"]',                     label: '3', side: 'bottom' },
-      // The mode-tab strip
-      { selector: '[data-test="story-mode-tabs"]',                        label: '4', side: 'top' },
-    ],
-  },
-
-  // 02-mode-tabs.md — `02-mode-tabs.png`
-  {
-    name: 'mode-tabs-strip',
-    variant: 'story.counter/loaded',
-    save: '02-mode-tabs.png',
-    callouts: [
-      { selector: '[data-test="story-mode-tabs"]',                        label: '1', side: 'top' },
-      { selector: '[data-test="story-toolbar-viewport"]',                 label: '2', side: 'bottom' },
-      { selector: '[data-test="story-toolbar-backgrounds"]',              label: '3', side: 'bottom' },
-      // a11y panel lives in the inspectors right rail (Story's
-      // chrome-a11y panel renders into the `:right`-placement slot;
-      // the tutorial text describes it as the "a11y chip", but in
-      // this build the right-pane panel is the visible a11y surface).
-      { selector: '[data-test="story-chrome-a11y-panel"]',                label: '4', side: 'left' },
-      // The chapter mentions a locale switcher; Story doesn't ship one
-      // by default, so we point at the dispatch-console chip as the
-      // closest project-extensible toolbar slot.
-      { selector: '[data-test="story-toolbar-dispatch-console"]',         label: '5', side: 'bottom' },
-    ],
-  },
-
-  // 02-mode-tabs.md — `02-docs-mode.png`
-  {
-    name: 'docs-mode',
-    variant: 'story.counter/loaded',
-    mode: 'docs',
-    save: '02-docs-mode.png',
-    callouts: [
-      { selector: '[data-test="story-docs-doc-blurb"]',                   label: '1', side: 'right' },
-      { selector: '[data-test="story-docs-args-table"]',                  label: '2', side: 'right' },
-      { selector: '[data-test="story-docs-decorators-table"]',            label: '3', side: 'right' },
-      { selector: '[data-test="story-docs-header-tags"]',                 label: '4', side: 'top' },
-    ],
-  },
-
-  // 02-mode-tabs.md — `02-test-mode.png`
-  // The /loaded variant ships three passing :play assertions and the
-  // failing-play diagnostic ships one failing assertion. We pick the
-  // failing-play variant because it's the one place a single test
-  // pane carries both a status pill set to `fail` AND a `story-test-
-  // row[data-status=fail]` row — which is the most teaching-friendly
-  // surface for the chapter's callouts.
-  {
-    name: 'test-mode',
-    variant: 'story.counter-diagnostics/failing-play',
-    mode: 'test',
-    save: '02-test-mode.png',
-    callouts: [
-      // aggregate status pill at top
-      { selector: '[data-test="story-test-status-pill"]',                 label: '1', side: 'bottom' },
-      // The single :rf.assert/path-equals row — failing per the variant body
-      { selector: '[data-test="story-test-row"][data-status="fail"]',     label: '2', side: 'right',
-        fallback: '[data-test="story-test-row"]' },
-      // counts (passed/failed/skipped)
-      { selector: '[data-test="story-test-counts"]',                      label: '3', side: 'bottom' },
-      // expanded detail / summary section
-      { selector: '[data-test="story-test-summary-section"]',             label: '4', side: 'right' },
-      // re-run button
-      { selector: '[data-test="story-test-rerun"]',                       label: '5', side: 'left',
-        fallback: '[data-test="story-play-status-re-run"]' },
-    ],
-  },
-
-  // 03-recorder-codegen.md — `03-recorder-modal.png`
-  // The recorder is launched via the `[data-test="story-toolbar-rec"]`
-  // chip. We click it to enter recording, click the counter's +1
-  // button a few times, then stop the recorder via the overlay's stop
-  // button so the export dialog surfaces.
-  {
-    name: 'recorder-modal',
-    variant: 'story.counter/loaded',
-    save: '03-recorder-modal.png',
-    prep: async (page) => {
-      // Open recorder
-      await page.click('[data-test="story-toolbar-rec"]').catch(() => {});
-      await page.waitForTimeout(500);
-      // Increment the counter a few times via the `inc` button on the
-      // canvas (`counter-card` view exposes `[data-test="inc"]`).
-      for (let i = 0; i < 3; i++) {
-        await page.click('[data-test="inc"]').catch(() => {});
-        await page.waitForTimeout(150);
-      }
-      // Stop recording — opens the recorder save-dialog with the
-      // generated `(reg-variant ...)` EDN snippet.
-      await page.click('[data-test="story-recorder-stop"]').catch(() => {});
-      await page.waitForTimeout(500);
-      // Click "export as :play-script" to stack the export dialog on
-      // top of the save-dialog.
-      await page.click('[data-test="story-recorder-export"]').catch(() => {});
-      await page.waitForSelector('[data-test="story-recorder-export-dialog"]', { timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(400);
-    },
-    callouts: [
-      // export dialog wrapper (modal title)
-      { selector: '[data-test="story-recorder-export-dialog"]',            label: '1', side: 'top',
-        fallback: '[role="dialog"]' },
-      // generated EDN snippet
-      { selector: '[data-test="story-recorder-export-snippet"]',           label: '2', side: 'left',
-        fallback: 'textarea, pre' },
-      // live preview replay status
-      { selector: '[data-test="story-recorder-export-replay-status"]',     label: '3', side: 'right',
-        fallback: '[data-test="story-recorder-export-replay"]' },
-      // copy button
-      { selector: '[data-test="story-recorder-export-copy"]',              label: '4', side: 'bottom' },
-      // auto-assert toggle (`edit before pasting` stand-in — closest
-      // toggle the dialog ships).
-      { selector: '[data-test="story-recorder-export-auto-assert"]',       label: '5', side: 'bottom' },
-    ],
-  },
-
-  // 04-workspaces.md — `04-workspace-grid.png`
-  // The `:Workspace.counter/all-states` workspace is a 2x2 grid of four
-  // counter variants. We use the `?workspace=...` URL query the Story
-  // shell parses (per re-frame.story.share.parse-workspace-param).
-  {
-    name: 'workspace-grid',
-    workspace: ':Workspace.counter/all-states',
-    save: '04-workspace-grid.png',
-    callouts: [
-      // first workspace cell (top-left of the 2×2 grid)
-      { selector: '[data-test-variant]', nth: 1,                          label: '1', side: 'top' },
-      // second cell (top-right)
-      { selector: '[data-test-variant]', nth: 2,                          label: '2', side: 'top' },
-      // third cell (bottom-left)
-      { selector: '[data-test-variant]', nth: 3,                          label: '3', side: 'bottom' },
-      // fourth cell (bottom-right)
-      { selector: '[data-test-variant]', nth: 4,                          label: '4', side: 'bottom' },
-    ],
-  },
-
-  // 05-snapshot-identity.md — QR-share screenshot retired because the
-  // variant URL is already the browser's live address bar. The chapter
-  // narrative now anchors on the address-bar URL itself rather than a
-  // popover screenshot; no scripted capture is required.
-
-  // 06-time-travel.md — `06-time-travel.png`
-  // Xray-as-RHS embed mounts beneath the chip-row picker as soon as a
-  // panel is selected. By default the Event panel is open; we click
-  // through a counter increment first so the Xray spine has at least
-  // one epoch beyond the boot to scrub through.
-  {
-    name: 'time-travel',
-    variant: 'story.counter/loaded',
-    save: '06-time-travel.png',
-    prep: async (page) => {
-      // Fire a couple of counter clicks so the Xray epoch buffer has
-      // visible content.
-      for (let i = 0; i < 2; i++) {
-        await page.click('[data-test="inc"]').catch(() => {});
-        await page.waitForTimeout(150);
-      }
-      await page.waitForTimeout(400);
-    },
-    callouts: [
-      // Left half — the variant's canvas
-      { selector: '[data-test="story-canvas-frame"]',                     label: '1', side: 'top' },
-      // Right half — the Xray-as-RHS embed root
-      { selector: '[data-test="story-xray-embed"]',                      label: '2', side: 'left' },
-      // chip-row picker that swaps between Xray's panels
-      { selector: '[data-test="story-xray-panel-chip"]',                 label: '3', side: 'top' },
-      // Active Xray panel host (Event panel by default — carries the
-      // ribbon + event list inside)
-      { selector: '[data-test="story-xray-panel-host"]',                 label: '4', side: 'left' },
-      // Popout button — proves the embed can detach into a separate window
-      { selector: '[data-test="story-xray-popout"]',                     label: '5', side: 'left' },
-    ],
-  },
-
-  // 07-multi-substrate.md — `07-multi-substrate.png`
-  // Use a variant declared with `:substrates #{:reagent :uix}` so the
-  // multi-substrate side-by-side renders. Story's multi-substrate
-  // surface stamps each cell as `<div role="region" aria-label="<name>
-  // substrate cell">` per ui/multi_substrate.cljs:251-253.
-  {
-    name: 'multi-substrate',
-    variant: 'story.counter-matrix/multi-substrate',
-    save: '07-multi-substrate.png',
-    callouts: [
-      { selector: '[role="region"][aria-label*="reagent substrate cell"]', label: '1', side: 'top' },
-      { selector: '[role="region"][aria-label*="uix substrate cell"]',     label: '2', side: 'top' },
-      // The variant only declares :reagent + :uix substrates; the matrix
-      // variant doesn't include :helix. Point at the second cell's body
-      // again so the chapter's third numbered callout still has an
-      // arrow. (The chapter text describes a 3-cell ideal — we capture
-      // the actual variant.)
-      { selector: '[role="group"][aria-label*="Multi-substrate render"]',  label: '3', side: 'bottom' },
-    ],
-  },
-];
+// The legacy non-prefixed Story captures (01-shell-overview,
+// 01-variant-loaded, 02-mode-tabs, 02-docs-mode, 02-test-mode,
+// 03-recorder-modal, 04-workspace-grid, 06-time-travel,
+// 07-multi-substrate) were retired with their orphaned PNGs (rf2-azqaq):
+// the live Story tutorial now embeds the hand-captured s00–s13 set under
+// docs/images/story/, which no script regenerates. No shots are defined
+// here until a refreshed s-prefixed capture pipeline is authored.
+const SHOTS = [];
 
 // ---------------------------------------------------------------------------
 // Overlay injector. Renders red arrows + yellow numbered chips above
