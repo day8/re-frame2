@@ -95,12 +95,12 @@
     - flat form           `{:rf.mcp/overflow`
     - namespaced-map form `#:rf.mcp{:overflow`"
   [marker-key]
-  (let [flat (str "{" marker-key)
-        ns'  (namespace marker-key)
-        nm   (name marker-key)]
+  (let [flat     (str "{" marker-key)
+        key-ns   (namespace marker-key)
+        key-name (name marker-key)]
     [flat
-     (if ns'
-       (str "#:" ns' "{:" nm)
+     (if key-ns
+       (str "#:" key-ns "{:" key-name)
        flat)]))
 
 (def marker-prefixes

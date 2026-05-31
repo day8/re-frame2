@@ -132,8 +132,7 @@
   - Promote / classify: O(N) over clusters.
 
   All passes are linear in patch count — negligible vs the
-  walk that produced the patches. Pure data → data; `.cljc`."
-  (:require [clojure.string :as str]))
+  walk that produced the patches. Pure data → data; `.cljc`.")
 
 (def default-opts
   "Tunable knobs. Mirrors `tools/xray/.../section_grouping.cljc`'s
