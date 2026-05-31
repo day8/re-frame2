@@ -389,14 +389,14 @@
                                fallback-edges)
         edge-lines     (map render-edge edges)
         final-lines    (render-final-edges root-path states)
-        compound-lns   (render-compound-blocks root-path states 1)]
+        compound-lines (render-compound-blocks root-path states 1)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id [initial]))]
                (render-root-fallback-alias root-path on 1)
-               compound-lns
+               compound-lines
                edge-lines
                final-lines))))
 
