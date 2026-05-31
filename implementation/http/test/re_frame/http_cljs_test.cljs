@@ -10,8 +10,16 @@
   Also covers rf2-r40km — the CLJS-only `:rf.http/cors` classification
   branch of `re-frame.http-transport/classify-cljs-error`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.core :as rf]
             [re-frame.http :as rf.http]
-            [re-frame.http-transport :as transport]))
+            ;; rf2-wj8vv — drive the full `:rf.http/managed` pipeline (fx
+            ;; registration + in-flight registry) for the backoff-window
+            ;; cancellation test below.
+            [re-frame.http-managed :as http-managed]
+            [re-frame.http-registry :as registry]
+            [re-frame.http-transport :as transport]
+            [re-frame.test-support :as test-support]))
 
 ;; Reach the private classifier via #' so the test doesn't widen the
 ;; transport's public surface for one CLJS-only branch.
@@ -328,4 +336,107 @@
             (.catch (fn [e]
                       (is false (str "rf2-ee38b.7 regression — :timeout-ms 0 "
                                      "armed a near-instant abort and rejected: " e))
+                      (done))))))))
+
+;; ---- rf2-wj8vv — the retry backoff window is cancellable (CLJS) -----------
+;;
+;; The JVM suite (re-frame.http-backoff-cancellation-test) covers all three
+;; cancellation paths against a real server with real threads. This CLJS
+;; counterpart pins the same invariant on the `js/setTimeout`-backed backoff
+;; timer + `js/clearTimeout` cancellation primitive: an abort issued DURING
+;; the backoff window cancels the pending retry (no second fetch) and clears
+;; the in-flight registry. Pre-fix the request was invisible to the abort
+;; path for the whole backoff, so the retry fetched again regardless.
+
+(defn- with-counting-500-fetch
+  "Stub `js/fetch` to always resolve a 500 and increment `count-atom` on
+  every call. Returns a 0-arg restore fn."
+  [count-atom]
+  (let [orig (.-fetch js/globalThis)
+        resp (fake-response {:status 500 :content-type "application/json"
+                             :text-val "boom"})]
+    (set! (.-fetch js/globalThis)
+          (fn [_url _init]
+            (swap! count-atom inc)
+            (js/Promise.resolve resp)))
+    (fn [] (set! (.-fetch js/globalThis) orig))))
+
+(deftest cljs-abort-during-backoff-cancels-pending-retry
+  (testing "rf2-wj8vv — a :rf.http/managed-abort issued while the request sleeps in the `js/setTimeout` backoff window cancels the pending retry (no second fetch) and clears the registry"
+    (async done
+      ;; Self-contained runtime setup — this ns also carries `async`
+      ;; pure-transport tests, so cljs.test forbids a wrap-style
+      ;; `use-fixtures` reset here (it would tear down before the async
+      ;; body completes). Install the adapter + clear the registry inline.
+      (rf/init! reagent-adapter/adapter)
+      (http-managed/clear-all-in-flight!)
+      (let [fetch-count (atom 0)
+            replies     (atom [])
+            restore     (with-counting-500-fetch fetch-count)
+            ;; 80ms backoff — long enough to abort inside deterministically,
+            ;; short enough to keep the test fast.
+            backoff-ms  80]
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event-fx :issue
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/always-500"}
+                    :decode     :json
+                    :retry      {:on           #{:rf.http/http-5xx}
+                                 :max-attempts 5
+                                 :backoff      {:base-ms backoff-ms :factor 1
+                                                :max-ms  backoff-ms}}
+                    :request-id :race
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/reg-event-fx :do/abort
+          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
+        (rf/dispatch-sync [:issue])
+        ;; Poll (microtask-paced) until attempt #1 has fetched, failed 5xx,
+        ;; and the request is sleeping in the backoff window. The backoff
+        ;; handle is distinguishable from the in-flight-fetch handle by the
+        ;; ABSENCE of the `:finalised?` cell (the fetch handle carries it;
+        ;; the backoff handle does not) — gating on this ensures we abort
+        ;; the BACKOFF state, not a still-in-flight attempt #1. The defect
+        ;; emptied the registry entirely during this window.
+        (-> (test-support/poll-until
+              #(let [handle (get (registry/in-flight-snapshot) :race)]
+                 (and (= 1 @fetch-count)
+                      (some? handle)
+                      (nil? (:finalised? handle))))
+              {:timeout-ms 2000 :label "cljs backoff sleeping"})
+            (.then (fn [_]
+                     ;; Abort squarely inside the backoff window.
+                     (rf/dispatch-sync [:do/abort])
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the registry is cleared the instant the backoff is cancelled")
+                     ;; The aborted reply dispatches through the async router;
+                     ;; poll for it (it lands well before the backoff would
+                     ;; have elapsed).
+                     (test-support/poll-until
+                       #(seq @replies)
+                       {:timeout-ms 2000 :label "cljs abort reply"})))
+            (.then (fn [_]
+                     (let [reply (first @replies)]
+                       (is (= :failure (:kind reply)))
+                       (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+                           "abort during backoff dispatches the canonical :rf.http/aborted reply")
+                       (is (= :user (get-in reply [:failure :reason]))))
+                     ;; Wait past the original backoff deadline and assert the
+                     ;; retry never fetched again (proving the timer was
+                     ;; cancelled, not merely that the reply arrived first).
+                     (js/Promise.
+                       (fn [resolve _]
+                         (js/setTimeout resolve (+ backoff-ms 120))))))
+            (.then (fn [_]
+                     (is (= 1 @fetch-count)
+                         "the retry MUST NOT fetch after an abort issued during the backoff window")
+                     (is (= 1 (count @replies))
+                         "exactly one reply — the cancelled retry never produced a second outcome")
+                     (restore)
+                     (done)))
+            (.catch (fn [e]
+                      (restore)
+                      (is false (str "rf2-wj8vv — unexpected: " e))
                       (done))))))))
