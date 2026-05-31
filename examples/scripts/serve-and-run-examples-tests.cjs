@@ -14,9 +14,10 @@
  * 1. Compiles each surface's shadow-cljs build (one per smoke).
  * 2. Stages each surface's hand-written index.html into its
  *    out/examples/<name>/ directory next to main.js.
- * 3. Resolves a free port (default 8040 — outside the top-level
- *    :dev-http set 8765/8031/8030; see examples-port.cjs) and spawns
- *    http-server over out/examples on 127.0.0.1:<port>.
+ * 3. Resolves a free port (default 8040 — now OVERLAPPING the top-level
+ *    :dev-http band; the resolver pre-flights + scans forward so this is
+ *    harmless — see examples-port.cjs for the policy + rf2-xz4zn note) and
+ *    spawns http-server over out/examples on 127.0.0.1:<port>.
  * 4. Waits for it to be reachable, then runs the Playwright runner
  *    (run-examples-tests.cjs).
  * 5. Always tears the server down.
@@ -85,12 +86,13 @@ function parseFilterPatterns(raw) {
 }
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // Port resolution lives in examples-port.cjs (resolveExamplesPort, called
-// at the top of main()). Default is 8040 — outside the top-level
-// :dev-http set (8765/8031/8030) so a running `shadow-cljs watch` no
-// longer pre-claims the orchestrator's port. `EXAMPLES_PORT` overrides
-// the default; when unset the resolver scans forward from 8040 to the
-// next free port, and when set-but-busy it throws an actionable message
-// (no raw EACCES stack). No CLI surface is added.
+// at the top of main()). Default is 8040, which now OVERLAPS the top-level
+// :dev-http band (8040-8043 are the Story showcases; see examples-port.cjs
+// for the full set + rf2-xz4zn note). A running `shadow-cljs watch` can
+// therefore pre-claim it, but harmlessly: `EXAMPLES_PORT` overrides the
+// default; when unset the resolver scans forward from 8040 to the next
+// free port, and when set-but-busy it throws an actionable message (no raw
+// EACCES stack). No CLI surface is added.
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
