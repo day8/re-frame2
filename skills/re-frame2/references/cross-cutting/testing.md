@@ -74,8 +74,8 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
   (rf/dispatch-sync [:counter/inc])
   (ts/assert-path-equals [:n] 1))
 
-(rf/with-new-frame [f :stories]      ;; bind a symbol AND the dynamic var
-  (is (= :stories f))
+(rf/with-new-frame [f (rf/reg-frame :stories {})]  ;; new frame, symbol AND dynamic var
+  (is (= :stories f))                              ;; reg-frame returns the id
   (is (= :stories (rf/current-frame))))
 ```
 

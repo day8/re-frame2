@@ -2,7 +2,7 @@
 
 > The host-app contract for mounting Xray (re-frame2's devtools panel) into a dev build. Assumes you already know what a devtools panel is — this leaf covers the mount strategy, the launch modes, the host-CSS-variable resize contract, the popout entry, and the suppress-auto-open knob. The deep prose lives in `tools/xray/spec/011-Launch-Modes.md`; this leaf is the authoring-side cheat sheet.
 
-## When to load this leaf
+## When to load
 
 - Adding Xray to an app's dev build (`shadow-cljs.edn` `:devtools :preloads`).
 - Wiring the right-side `[data-rf-xray-host]` layout slot into an app shell.
