@@ -96,7 +96,7 @@
                         target-vid
                         (assoc body :play-script play-script :origin config/origin))
           payload     (assoc base :written-back? true :new-variant-id id)]
-      (result/text-result (result/pr-edn payload) payload))
+      (result/edn-result payload))
     (catch #?(:clj Throwable :cljs :default) e
       (result/error-result (str "Write-back failed: " (ex-message e))
                       (merge base
@@ -256,7 +256,7 @@
                                    :captured             events
                                    :written-back?        false}]
                   (if-not write-back?
-                    (result/text-result (result/pr-edn base) base)
+                    (result/edn-result base)
                     (write-back! base body events target-vid))))))))))
 
 (def descriptors

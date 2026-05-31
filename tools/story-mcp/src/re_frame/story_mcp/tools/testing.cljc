@@ -162,7 +162,7 @@
                        ;; attempt some expectation.
                        (contains? outcome :cannot-run)
                        (assoc :cannot-run (:cannot-run outcome)))]
-        (result/text-result (result/pr-edn payload) payload)))))
+        (result/edn-result payload)))))
 
 (defn tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
@@ -171,8 +171,7 @@
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
-      (let [payload (story/snapshot-identity vk (targs/read-run-opts arguments))]
-        (result/text-result (result/pr-edn payload) payload)))))
+      (result/edn-result (story/snapshot-identity vk (targs/read-run-opts arguments))))))
 
 ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
 ;; atom — resolved once at ns-load via `cljs-resolve/resolve-cljs-var`. JVM-
@@ -210,7 +209,7 @@
                      :violations (vec (or violations []))
                      :note       (when (nil? atomv)
                                    "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
-        (result/text-result (result/pr-edn payload) payload)))))
+        (result/edn-result payload)))))
 
 (defn tool-read-failures
   "Testing: the variant frame's current accumulated assertion records
@@ -261,7 +260,7 @@
                         :total      (count records)
                         :failures   failures
                         :assertions records}]
-        (result/text-result (result/pr-edn payload) payload)))))
+        (result/edn-result payload)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
