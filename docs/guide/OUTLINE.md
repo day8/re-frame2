@@ -12,6 +12,7 @@ The guide is not the spec and should not read like the spec. It should teach eno
 4. Do not add a generic "What's next" section to every page. Cross-link when useful; let the navigation do the rest.
 5. Prefer worked examples over abstract prose. Prefer runnable cells only when editing the code teaches more than reading it.
 6. Keep Story and Xray as linked tool-doc handoffs. The guide may explain the runtime evidence they read, but their APIs and full workflows belong in their own docs.
+7. Preserve the example spine. The counter carries the core architecture; login/forms/auth carry real app workflow; runtime/tooling examples carry operations. New examples should earn their place by teaching a concept those spines cannot teach cleanly.
 
 ## Chapter Set
 
@@ -67,3 +68,13 @@ A foundational chapter should usually include:
 - Links to API/spec/tool docs only after the chapter has taught the usable idea.
 
 If a chapter is under 100 lines and covers a foundational concept, assume it is probably too thin.
+
+## Flow Check
+
+Every chapter should answer three questions before it ships:
+
+- What problem did the previous chapters make visible?
+- What is the smallest example that teaches this chapter's new idea?
+- What question does this chapter leave the reader ready to ask next?
+
+Do not turn the third answer into a boilerplate "What's next" section. A good final paragraph is enough.

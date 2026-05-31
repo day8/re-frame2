@@ -14,7 +14,7 @@ re-frame v1 users should read the main guide, then [25 - From re-frame v1](25-fr
 
 ## How To Read It
 
-Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema.
+Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema. That sequence is deliberate. Each chapter answers the question the previous one creates.
 
 After that, jump by problem:
 
@@ -26,6 +26,16 @@ After that, jump by problem:
 - Debugging weird behavior? Read [16 - Observability](16-observability.md) and [17 - Tooling](17-tooling.md), then use the Xray docs.
 
 All code in the guide is ClojureScript. If you can read Clojure data structures, you are close enough to begin; if not, the [ClojureScript reading guide](../cljs/index.md) is the better first stop.
+
+## The Example Spine
+
+The guide uses a few small examples repeatedly instead of inventing a new toy for every chapter.
+
+- **The counter** teaches the architecture: one state value, events, subscriptions, views, the cascade, effects, tests, and eventually HTTP bolted onto something you already understand.
+- **The login/form flow** teaches real application shape: draft state, validation, submission, server failure, retry, and the point where a form starts wanting a state machine.
+- **The runtime/tooling examples** teach operations: trace events, epoch records, frames, SSR requests, privacy marks, adapters, and the tools that read those facts.
+
+This is a tutorial, so the examples are small on purpose. The claim is not that counters are interesting. The claim is that the shape that keeps a counter legible is the same shape that keeps a real application legible after the tenth feature and the third person on the team.
 
 ## What The Guide Believes
 

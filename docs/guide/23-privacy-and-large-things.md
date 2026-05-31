@@ -303,3 +303,5 @@ Everything in this chapter reduces to four moves, ranked by how often you'll use
 4. **A `safe-throw` convention** — for the exception-assembly gap the walker can't reach. The one place the contract asks you to participate.
 
 Not one of these is an interceptor you wire by hand, a registration you remember at every call site, or a per-consumer filter you ship to every tool. You declare the truth once where the truth lives; the platform carries it to every wire boundary it owns.
+
+Privacy is one half of operational safety. The other half is the set of knobs and hard guardrails that make the safe behaviour the default and the dangerous behaviour explicit.
