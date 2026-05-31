@@ -1,58 +1,53 @@
-# 8. Machine inspector
+# 8. Machine Inspector
 
-You have a login flow with six states — `:idle`, `:submitting`, `:error`, `:submitting-retry`, `:authenticated`, `:locked-out` — and the user reports they can't get back from `:error` to `:submitting-retry`. The retry button is wired; the click fires; nothing transitions. You squint at the machine spec; the guard looks fine.
+Your bug is not a value; it is a process. This chapter shows how Xray reads re-frame2 state machines: Dynamic mode explains what one epoch did to a machine, while Static mode lets you browse machine definitions and topology.
 
-You open Xray, click *Machines*, and there it is: the diagram paints the attempted edge in grey, with the `false` return from `:enough-attempts?` rendered inline. The guard you wrote last week checks `(< attempts 3)`, but the variant your test is running through has `:attempts 4` — and you can read it right there in the snapshot column without recompiling, because the machine's first-class on the same six-step pipeline as every other event ([Guide 09 — State machines](../guide/12-machines.md) is the narrative).
+## Dynamic Machine
 
-The panel renders each registered machine as a Stately-quality state-chart. Live.
+The Dynamic Machine tab is event-coupled. It is useful when the focused epoch touched a machine.
 
-![Machine inspector with state-chart](../images/xray/08-machines.png)
+It can show:
 
-## What you see
+- the affected machine;
+- the active state before and after;
+- the transition that fired;
+- guards and actions;
+- entry and exit activity;
+- spawned or destroyed actors;
+- `:after` timers and cancellation cascades where relevant.
 
-For every machine your app registers:
+If the focused epoch did not touch a machine, the tab should be quiet. That is not failure; it is honest scope.
 
-- A **state-chart** — nodes for states, edges for transitions, hierarchy nested, parallel regions side-by-side. Guards on edges, actions on entry/exit. The current state is highlighted.
-- An **event log** — every event the machine consumed, with the transition it took (or didn't), with `:guard` results, with `:tags`.
-- A **snapshot** — the current machine value, including any deep-state cursors and parallel-region states.
+![Machine activity for a focused epoch](../images/xray/xray-tutorial-machine.png)
 
-When the user clicks a button and an event fires, you see the transition arrow paint in real time. When a guard rejects an event, the diagram shows the attempted edge in grey and the guard's `false` return inline.
+## Static Machines
 
-## The two click-targets per node
+Static Machines answers a different question: "what machines are registered, and what shape do they have?"
 
-Every node and every edge has two distinct gestures:
+Use it before or during debugging when you need the map:
 
-- **Click on a state name** → jump to the `:states` entry in your machine spec.
-- **Click on a guard / action keyword** → jump to its definition. If the guard is `:form-valid?`, you land on `(rf/reg-machine-guard :form-valid? ...)`. If it's an inline `(fn [...] ...)`, you land at the line of the inline literal.
+- browse registered machine ids;
+- inspect topology;
+- read states and transitions;
+- simulate or inspect defined paths where the panel supports it;
+- compare definition shape to live snapshots.
 
-This is the [click-to-source contract](05-click-to-source.md) at machine resolution. The framework commits to the source-coord index shape; the panel renders it.
+Dynamic is the black box recorder for one transition. Static is the diagram on the wall.
 
-## Hierarchical, parallel, history
+## A Good Machine Debugging Loop
 
-Three shapes the diagram has to handle, all common in real machines:
+When a machine flow behaves wrongly:
 
-- **Hierarchical states.** A state can have substates. The diagram nests them; the current substate is highlighted within its parent.
-- **Parallel regions.** `:fsm/parallel` regions render side-by-side. Each region's current state is highlighted independently.
-- **History pseudo-states.** Where the machine declares `:fsm/history :shallow` or `:fsm/history :deep`, the diagram marks the slot and renders the remembered substate.
+1. Reproduce the action.
+2. Click the event row in the spine.
+3. Open Dynamic Machine and read the transition.
+4. If the transition is surprising, flip to Static Machines and inspect the definition.
+5. Return to Epoch or Trace for the exact guard/action records.
 
-re-frame2's machines support a strict superset of XState's surface (modulo XState's history states, which re-frame2 replaces with snapshot-as-value capture — every machine state is restorable through the same `restore-epoch` pathway as the rest of the runtime).
+That loop keeps you out of the most common machine-debugging trap: staring at the current state while forgetting the event that moved it there.
 
-## The Invokes column
+## Why Machines Are Especially Good In Xray
 
-Machines ca `:spawn` actors — HTTP requests, WebSocket lifecycles, child machines. The Invokes column on the right of the panel lists every active invoke for the current machine state: actor id, status (running / resolved / errored / aborted), elapsed time, the result value when settled.
+Machines have a small, named state space. Xray can exploit that. A generic logger can tell you "something updated a map"; Xray can tell you "this event moved `:door/main` from `:closed` to `:opening`, ran this guard, scheduled this timer, and cancelled that prior branch."
 
-When the machine transitions out of the state that owns an invoke, the runtime aborts the actor and emits a `:rf.machine/invoke-aborted` trace event; the column reflects the abort immediately.
-
-## Driving a machine from the panel
-
-There's no *send-event* affordance on the panel. Driving the machine is what your app does; Xray observes. If you want to drive a machine to test a transition path, that's `re-frame2-pair`'s job — open a pair session, dispatch the event, watch the diagram paint.
-
-This is a deliberate split: the panel is a *read* tool. The runtime exposes the state-chart query and the trace stream; the panel renders both. *Writing* — driving transitions, hot-swapping guards, resetting state — is the pair tool's domain because writes need allowlists, session context, and explicit gates.
-
-## What this panel doesn't show
-
-- **Implicit state machines.** A handler that walks `cond`/`case` over `app-db` slots isn't a registered machine; the panel doesn't see it. (The fix is to register it.)
-- **Machines in stopped frames.** If a frame has been destroyed, its machines are gone too. The panel only shows live frames.
-- **History across `restore-epoch`.** Rewinding the host frame rewinds the machine too — that's the snapshot-as-value contract. The diagram retargets at the historical state without "playing back" the transitions; if you want the played-back transitions, walk the trace stream around the rewind.
-
-Next: [the app-DB diff](09-app-db-diff.md).
+That is the difference between seeing state and seeing behavior.

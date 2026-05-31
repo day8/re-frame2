@@ -1,131 +1,69 @@
-# 5. Click-to-source
+# 5. Click-To-Source
 
-The hero feature.
+You found the bad row or the wrong DOM node. Now you want the source line, not a philosophical seminar. This chapter shows how Xray and re-frame2 source coordinates get you from runtime evidence back to code.
 
-In practice, this is the surface you reach for when a tester drops a screenshot on your desk and says "the wrong number is showing here." You don't grep. You don't binary-search the view tree. You point Xray at the rendered element, read the coord off the DOM node, and you're inside the function that produced it.
+## Source Coordinates Everywhere Useful
 
-## Every element knows where it came from
+In dev mode, re-frame2 stamps source coordinates onto registrations and rendered views. Xray consumes those coordinates in panels and turns them into editor links where possible.
 
-Open any re-frame2 app in dev mode and inspect any rendered element:
+You will see source chips on things like:
 
-![A counter button with data-rf2-source-coord highlighted](../images/xray/05-dom-attribute.png)
+- event handlers;
+- subscriptions;
+- views;
+- effects and coeffects;
+- machine definitions;
+- route registrations;
+- schema registrations;
+- trace rows with a known origin.
+
+The shape is the same idea everywhere: namespace, symbol or id, line, and column.
+
+## DOM Back To View
+
+Rendered elements can carry `data-rf2-source-coord` in dev mode. That attribute points at the view code that produced the DOM.
+
+In browser DevTools, inspect or copy an element and look for:
 
 ```html
-<button data-rf2-source-coord="counter.core:counter:48:5" ...>+</button>
+<button data-rf2-source-coord="standard_epochs.core:control-button:412:4">
+  ...
+</button>
 ```
 
-Four colon-separated segments: `<ns>:<sym>:<line>:<col>`. Public, parseable, forward-compatible. Tools split on the colon and recover the four pieces directly. Every `reg-view`-rendered DOM element has one. **Click any pixel in your app, walk back to the line of code that put it there.**
+That is not for production. It is a dev-only bridge from pixels back to the view function.
 
-This isn't a Xray feature. It's a framework feature. Xray is just one of several tools that consume the attribute — `re-frame2-pair` reads it through nREPL to scope a `dom/source-at` query; Playwright specs in test runs use it to assert "this rendered element came from view `:cart/total`"; future tools nobody's built yet can do the same.
+![A DOM node carrying a source coordinate](../images/xray/05-dom-attribute.png)
 
-## The Xray gesture
+## Xray Back To Editor
 
-Inside Xray, the gesture is one click. Three places it shows up:
-
-1. **In the Event-detail panel's *Renders* list** — every view that re-rendered in the cascade has a click-target.
-2. **In any panel that names a registered id** — Subscriptions, Effects, Machines, Flows, Routes. Click the id, jump to its registration.
-3. **From the host page directly** — switch Xray into *pick mode* (`Ctrl+Shift+S`), hover any DOM element, and the panel highlights the coord. Click to commit the gesture.
-
-The jump uses your editor's URL handler — VS Code (`vscode://`), IntelliJ (`idea://`), Emacs (`emacs://`), or a generic `file://` fallback. The default is VS Code; if you use something else, configure it once at boot:
+Xray's source chips use the configured editor protocol. The supported editor preferences live under the Xray config surface:
 
 ```clojure
-(xray-config/configure!
-  {:rf.xray/editor :cursor       ; or :idea, :windsurf, :zed, :vscode (default)
-   :rf.xray/project-root "C:/Users/me/code/my-app"})
+(require '[day8.re-frame2-xray.core :as xray])
+
+(xray/set-editor! :vscode)
+;; or :cursor, :windsurf, :zed, :idea
 ```
 
-Supported keywords: `:vscode`, `:cursor`, `:windsurf`, `:zed`, `:idea` (the JetBrains family — IDEA, WebStorm, PyCharm all answer to `idea://`).
+Custom URI templates are also supported through the lower-level config namespace when a team has its own editor bridge.
 
-For editors whose URI scheme we don't ship out of the box, pass a `{:custom "<uri-template>"}` form with `{file}` (alias `{path}`), `{line}`, `{column}` placeholders:
+For local testbeds and docs screenshots, the project root is seeded so Xray can turn a classpath-relative file into an absolute editor URI. In your app, configure that root when your build environment does not provide one.
 
-```clojure
-(xray-config/configure!
-  {:rf.xray/editor {:custom "myeditor://open?path={file}&row={line}&col={column}"}})
-```
+## A Practical Loop
 
-The chip refuses `http:` / `https:` / `javascript:` / `data:` / `vbscript:` regardless of what a custom template resolves to — launching the OS-side editor is the only thing this affordance does, anything else would be a surprise.
+When a view is wrong:
 
-`:project-root` is the on-disk root the chip prepends to the (typically classpath-relative) source-coord file before handing the URI to the OS — VS Code in particular silently fails on relative paths.
+1. Inspect the DOM node or open Xray's Views tab.
+2. Follow the view source coordinate.
+3. Check which subscriptions the view read.
+4. Jump to the subscription source coordinate.
+5. Open app-db or Trace for the focused epoch.
 
-## The contract — `data-rf2-source-coord`
+That loop is short because every hop is data-shaped. You are not searching the repository for a string you hope is unique; you are following the runtime's own registration facts.
 
-The four colon-separated segments are `<ns>:<sym>:<line>:<col>`:
+## Privacy And Production
 
-- `<ns>` — the registration's namespace (`counter.core`)
-- `<sym>` — the **registered handler-id** (the symbol passed to `reg-view`, here `counter`). Not a file path.
-- `<line>` — source line at `reg-view` macro-expansion time
-- `<col>` — source column
+Source coordinates are dev-only. Production HTML does not carry `data-rf2-source-coord`, and production bundles should not include Xray.
 
-The format is a **public, parseable contract**. Tools split on the colon and recover the four pieces directly.
-
-To recover the file path too, follow the parsed handler-id back to the registration metadata via `:rf/source-coord-meta`:
-
-```clojure
-(:rf/source-coord-meta (rf/handler-meta :view :counter.core/counter))
-;; → {:ns "counter.core", :file "counter/core.cljs", :line 48, :column 5}
-```
-
-The DOM attribute is the cheap-on-the-wire form; the registration metadata is the rich form.
-
-The annotation is **dev-only** — gated on the universal `re-frame.interop/debug-enabled?`. Production builds elide via DCE; the rendered HTML in production carries no `data-rf2-source-coord` bytes.
-
-Documented exemption: components whose outermost return is a React Fragment, a `:>` host-component head, or another non-DOM root are exempt. Pair tools fall back to `(rf/handler-meta :view id)` for those nodes.
-
-## Beyond views: state machines
-
-The same idea generalises to state machines. `reg-machine` is a macro that walks its literal spec form at expansion time and attaches a flat coord index under `:rf.machine/source-coords`, keyed by spec-path tuples:
-
-```clojure
-(:rf.machine/source-coords (rf/machine-meta :auth/login))
-;; {[:guards :form-valid?]                {:ns ... :line ... :column ... :file ...}
-;;  [:actions :commit]                    {...}
-;;  [:states :form :on :submit]           {...}}
-```
-
-A pair-tool or a state-diagram visualiser reads this index for two distinct gestures: **jump to definition** (a click on `:form-valid?` in the diagram reads `[:guards :form-valid?]`) and **jump to call site** (a click on a transition arrow reads `[:states :form :on :submit]`).
-
-The framework commits to **the index shape and the keyword-reference rule**:
-
-- **Definition-site stamping for keyword references.** A keyword reference (`{:guard :form-valid?}`) is stamped at its definition site (`[:guards :form-valid?]`), not at the call site — the call site is the keyword itself, which is identity-free.
-- **Reference-site stamping for inline-fn literals.** An inline `(fn [...] ...)` is stamped where it appears.
-
-The keyword-reference rule means call-site clicks on a keyword-named slot (`{:guard :form-valid?}`) fall back to the enclosing transition's coord, which IS stamped.
-
-Like `data-rf2-source-coord`, the stamping is gated on debug-enabled and elides under production build flags.
-
-## What re-frame2 does not ship
-
-The framework commits to the attribute format and the index shape — both are parseable public contracts. The framework does **not** ship `dom-source-at` / `find-by-src` / `fire-click-at-src` helpers; those depend on host-specific DOM access that re-frame2 the framework doesn't assume.
-
-Xray ships its own pick-mode helper, its own coord-to-editor handler, its own batch "highlight every node from this view" toggle. `re-frame2-pair` ships its own helpers over the same attribute. They could diverge in implementation; they can't diverge in contract — the attribute is the wire.
-
-## Two contracts to know
-
-Click-to-source rests on two locked contracts:
-
-- **Open-in-editor through an allowlist.** The panel's open-in-editor handler is gated by a host-configured allowlist of editor commands. The shipped tool *opens a file in your editor when you click* without prompting you for confirmation on every click. The allowlist is a security gate, not a UX gate; once configured, the gesture is friction-free.
-- **`data-rf2-source-coord` is part of the spec.** `<ns>:<sym>:<line>:<col>` is locked. Future tools can rely on it.
-
-Click-to-source is what closes the loop between "the framework knows where every line came from" and "the developer's first gesture in a debugging session is a *click*, not a grep."
-
-## Walking click-to-source on the parallel-frames testbed
-
-The tutorial's [index page](index.md#a-scenario-before-the-tour) opened with a five-step Xray loop on the parallel-frames testbed. The runnable version lives at [`tools/xray/testbeds/parallel_frames/`](https://github.com/day8/re-frame2/tree/main/tools/xray/testbeds/parallel_frames) — one app, two frames (`:above` and `:below`), each a fully isolated reactive context.
-
-Click-to-source is the gesture that gets you from a rendered pixel to its source line; on a multi-frame page that surface is doubly useful, because the same view source produces *two* live elements, one per frame, and the coord identifies both unambiguously.
-
-The five clicks:
-
-1. **Open the testbed.** Run `npm run test:examples` from `implementation/`, then visit `http://127.0.0.1:8040/parallel-frames/` (the harness serves on 8040 by default; override with `EXAMPLES_PORT`). Two stacked panels appear — `:above` and `:below` — each carrying its own counter, clock and title.
-
-2. **The coord on the wire.** Right-click the title text inside `:above`, *Copy element*. The HTML carries `data-rf2-source-coord="parallel-frames.core:title-view:198:4"`. The coord routes you to the `title-view` reg-view in `tools/xray/testbeds/parallel_frames/core.cljs`. Now right-click the same title text in `:below` — same coord. One source, two live mounts; the coord is the source identity.
-
-3. **Views panel, scoped by frame.** `Ctrl+Shift+C`, switch the L1 frame picker to `:above`, click *Views*, type `title`. Xray shows `::title-status` and `::title-text` as nodes scoped to `:above`'s sub-cache. Flip the picker to `:below`. The same node ids, the same dependency edges — but the cache rows are independent. Sub recomputes in `:above` don't show in `:below`'s panel.
-
-4. **Click-to-source from a panel row.** Click the registration coord chip next to `::title-status`. Your editor opens at the `reg-sub` form in `core.cljs`. Same gesture works on machines (`:title/flow`) and effect ids — every registered id carries its source coord through to the panel chrome.
-
-5. **Pick mode across frames.** Switch Xray into pick mode (`Ctrl+Shift+S`), hover the *Refresh* button in `:below`. The panel highlights `parallel-frames.core:title-controls:<line>:<col>`. Hover the same button in `:above` — same coord. The coord identifies the view's source; the frame identifies the live mount.
-
-The point: click-to-source is **frame-agnostic** on the wire. Two mounted instances of one view share one coord. The framework's frame plumbing handles isolation downstream; the source-coord contract stays clean.
-
-Next: [the schema-violation timeline](06-schema-timeline.md).
+Sensitive values are a separate concern. Xray follows the framework's redaction and elision rules when rendering runtime evidence. A source coordinate tells you where a value came from; it should not force the value itself to leak.

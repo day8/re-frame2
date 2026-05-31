@@ -2,13 +2,13 @@
 
 The complete symbol table for Xray's public surface, organised by namespace for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
 
-Surfaces fall into six namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries 12 surfaces; `runtime` carries 20; `keybinding` carries 2. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
+Surfaces fall into six namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries the common host-facing facade; `runtime` carries the tool read-and-mutate seam; `keybinding` carries the embed-host lifecycle pair. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
 
 For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md), [Configuration keys](config-keys.md), and [Runtime seam](runtime-seam.md). For the index of *what* this reference covers (and what it deliberately omits — the Xray-internal panel composers, the static-mode catalogues, the atom handles that mirror state the setters write to), see [the index](index.md#what-canonical-means-here).
 
 ## `day8.re-frame2-xray.core`
 
-The canonical facade. The day-to-day require for host integrations. Twelve surfaces total — the mount facade, the frame picker, the TBD theme stub, and four high-traffic config re-exports.
+The canonical facade. The day-to-day require for host integrations: mount control, frame selection, Story-to-Xray focus, theme override, and the high-traffic config re-exports.
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
@@ -21,7 +21,9 @@ The canonical facade. The day-to-day require for host integrations. Twelve surfa
 | `status` | `(status)` → map | Inspectable shell state. `{:mounted? :visible? :last-host-diagnostic ...}`. |
 | `target-frame` | `(target-frame)` → keyword | Read the currently-targeted host frame. One-shot read; not reactive. |
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the host frame Xray targets. `nil` resets to default. |
-| `load-theme` | `(load-theme css-string)` → nil | Programmatic theme swap. Stub — emits `:rf.warning/xray-load-theme-not-yet-implemented`. |
+| `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |
+| `valid-focus-panels` | set value | Canonical focusable panel ids: `#{:epoch :app-db :views :trace :machines :routes}`. |
+| `load-theme` | `(load-theme css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
 | `set-editor!` | `(set-editor! editor)` → nil | Re-exported from `config`. Sets the "Open in editor" preference. |
@@ -46,7 +48,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `set-filters-storage-key!` | `(set-filters-storage-key! key)` → nil | localStorage key the filter persistence layer uses. Default `"re-frame2.xray.filters.v1"`. |
 | `update-setting!` | `(update-setting! path value)` → nil | Set one Settings slot. `path` is a vector into the settings map. |
 | `reset-settings!` | `(reset-settings!)` → nil | Reset every Settings slot to its default. Wipes the localStorage slot. |
-| `reset-suppressed-count!` | `(reset-suppressed-count!)` → nil | Clear the `[● REDACTED N]` bottom-rail counter. |
+| `reset-suppressed-count!` | `(reset-suppressed-count!)` → nil | Clear the redaction/suppression counter. |
 
 ### Published constants
 
@@ -150,22 +152,22 @@ Once `core.cljs` has loaded, the same six fns are reachable under `window.day8.r
 
 ## Panel reg-views (composed by the shell)
 
-Seven `Panel` reg-views ship in `day8.re-frame2-xray.panels.*`. They are **not** a host-facing single-panel embed surface — hosts that want to mount Xray embed the full shell via the [embedding contract](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md). The panel exports are documented here for tool integrators (Story's chip-catalogue, the panel-gallery testbed) that compose against them.
+Six Dynamic tab panels ship in `day8.re-frame2-xray.panels.*`. Hosts normally mount the full shell through `open!`, `open-overlay!`, or `popout!`; advanced tool surfaces can mount a focused panel through the panel facade when they are deliberately composing Xray-owned diagnostics.
 
 | Panel | Namespace | Surface |
 |---|---|---|
-| Event Detail | `day8.re-frame2-xray.panels.event-detail` | `Panel` reg-view |
+| Epoch | `day8.re-frame2-xray.panels.epoch-panel` | `Panel` reg-view |
 | App-DB Diff | `day8.re-frame2-xray.panels.app-db-diff` | `Panel` reg-view |
 | Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` reg-view |
 | Trace | `day8.re-frame2-xray.panels.trace` | `Panel` reg-view |
 | Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` reg-view |
 | Routing | `day8.re-frame2-xray.panels.routing` | `Panel` reg-view |
-| Issues Ribbon | `day8.re-frame2-xray.panels.issues-ribbon` | `Panel` reg-view |
 
-Four parallel Static-mode panels browse the registrar rather than the event spine:
+Five parallel Static-mode panels browse the registrar rather than the event spine:
 
 | Panel | Namespace | Surface |
 |---|---|---|
+| Static Machines | `day8.re-frame2-xray.static.machines.panel` | `Panel` reg-view |
 | Static Flows | `day8.re-frame2-xray.static.flows.panel` | `Panel` reg-view |
 | Static Interceptors | `day8.re-frame2-xray.static.interceptors.panel` | `Panel` reg-view |
 | Static Routes | `day8.re-frame2-xray.static.routes.panel` | `Panel` reg-view |

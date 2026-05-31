@@ -154,7 +154,7 @@ The privacy cluster carries one cross-tool gate that Xray, Story, and any other 
   ```clojure
   (set-show-sensitive! bool) → nil
   ```
-- **Description**: The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Xray's trace collector drops `:sensitive? true` events and the bottom rail surfaces a `[● REDACTED N]` hint. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`.
+- **Description**: The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Xray's trace collector drops `:sensitive? true` events and the shell surfaces a redaction hint near the always-on issue/status signals. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`.
 
 The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../api/11-instrumentation.md#the-wire-boundary-walker)). Xray's gate just decides whether the redacted-out events reach the buffer at all.
 
@@ -184,7 +184,7 @@ The Settings popup carries the user-mutable knobs — theme, density, buffer dep
   ```clojure
   (reset-suppressed-count!) → nil
   ```
-- **Description**: Clear the `[● REDACTED N]` bottom-rail counter that surfaces when filters elide events. Reach for this when wiring a Settings-popup "Clear suppression counter" button or a test-harness fixture-reset.
+- **Description**: Clear the redaction/suppression counter that surfaces near Xray's shell status signals when filters elide events. Reach for this when wiring a Settings-popup "Clear suppression counter" button or a test-harness fixture-reset.
 
 The Settings shape (validated by Malli):
 

@@ -1,140 +1,92 @@
-# 2. Panel tour
+# 2. Panel Tour
 
-Two chromes, thirteen tabs. You'll live in three or four of them daily, reach for the rest the occasional Tuesday afternoon when something exotic breaks.
+You opened Xray and now you need orientation. This chapter teaches the shell as a working debugger: where the timeline lives, what the six Dynamic tabs answer, when Static mode is better, and which panel to open first.
 
-This chapter is the map. First the two chromes — **Dynamic** (the event-coupled spine) and **Static** (the registry browser) — then a one-paragraph "when you'd open this" answer for each tab. The chapters that follow take the hero surfaces — Event detail, time-travel, Trace, Click-to-source, App-DB, Machines — and unpack them depth-first.
+## The Shape Of The Shell
 
-![The Xray shell, opened over the live app — the four-layer Dynamic chrome](../images/xray/02-shell-opened.png)
+Xray's Dynamic shell has four layers:
 
-## The two chromes
-
-Xray is one tool with two reading postures, toggled with `Cmd-Shift-M`. The mode pill at ribbon-left says which you're in; the chrome silhouette tells you at a glance even if you don't look at the pill.
-
-**Dynamic** — four stacked layers:
-
-```
-┌───────────────────────────────────────────────────────┐
-│ L1  Top ribbon (56px)                                 │  scope controls
-├───────────────────────────────────────────────────────┤
-│ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
-├───────────────────────────────────────────────────────┤
-│ L3  Tab bar (40px) — 7 tabs                           │  projection selector
-├───────────────────────────────────────────────────────┤
-│ L4  Detail panel (fills remaining canvas)             │  per-tab content
-└───────────────────────────────────────────────────────┘
+```text
+L1  ribbon       mode, frame, filters, settings, close
+L2  event spine  recent epochs for the selected frame
+L3  tabs         Epoch, app-db, Views, Trace, Machine, Routes
+L4  detail       the selected tab's view of the focused epoch
 ```
 
-Every Dynamic surface orients around **one focused event** — the spine sub `:rf.xray/focus`. You pick an event in the L2 list; every tab below rebinds atomically. The tabs are *lenses on that one event*.
+The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the entire tool. Click an event row and every tab reads that same epoch.
 
-**Static** — three layers (no L2 spine, because Static is event-independent):
+![The event spine and Dynamic tabs](../images/xray/xray-tutorial-epoch.png)
 
-```
-┌───────────────────────────────────────────────────────┐
-│ L1  Top ribbon — mode pill · frame picker · icons     │
-├───────────────────────────────────────────────────────┤
-│ L3  Tab bar (40px) — 5 tabs                           │
-├───────────────────────────────────────────────────────┤
-│ L4  Detail panel (fills remaining canvas)             │
-└───────────────────────────────────────────────────────┘
-```
+## The Ribbon
 
-Static reuses Dynamic's full design language — same fonts, same palette, same 56px ribbon and 40px tab-bar. The differences are deliberate signals: a cyan left-edge stripe (violet in Dynamic), a dampened motion profile (continuous pulses dropped, tab swaps instant), and the missing L2 itself. Same surface, quieter key.
+The ribbon is for scope, not diagnosis.
 
----
+- **Mode** switches Dynamic and Static.
+- **Frame** chooses which re-frame2 frame you are observing.
+- **Filters** hide or show event rows by event id.
+- **Settings** controls theme, density, sensitive-value posture, and related shell behavior.
+- **Close** hides the panel without tearing down the mounted tree.
 
-## Dynamic mode — the seven tabs
+Frame selection matters in real apps. If your page has multiple isolated frames, the same event id can mean different state and different epoch history in each frame. Pick the frame first, then debug.
 
-### L1 — the ribbon
+## The Event Spine
 
-The scope band, fixed at the top in both modes. Four clusters, left to right:
+The spine lists recent epochs for the selected frame. New rows arrive while Xray is following the live head. Clicking an older row puts you into a historical focus: the app can keep running, but the detail panels remain pointed at the row you chose until you follow the head again.
 
-- **Nav** (`◀ ▶ ⏭`) — step focus back / forward through the spine, or `⏭` to snap to the live head.
-- **Frame picker** — single-select over the distinct frames in the cascade list. Every tab scopes to the picked frame; the `:rf/xray` frame is excluded by default.
-- **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills over the event list, plus a trailing `[+]` to add one. Click any pill to edit it.
-- **Right icons** — settings `⚙` and close `✕`. (Pop-out is a programmatic API, `(xray/popout!)` — no ribbon affordance yet.)
+Use the spine when you know the symptom just happened and you want to answer: "Which event caused it?"
 
-### L2 — the event list (the spine)
+## The Six Dynamic Tabs
 
-Single-line rows, latest-on-bottom, eight visible by default and vertically resizable (drag the L2/L3 boundary; min two rows). Each row carries a gutter glyph (`● ◉ x ▥`), the event-id, a right-aligned badge cluster (`⚠` exception · `🌐` managed-HTTP · `🤖` machine activity), and a trailing redaction marker when sensitive data was suppressed.
+### Epoch
 
-This *is* the timeline. Click a row → focus it (the spine flips to RETRO) and every tab rebinds in one frame. This is also where time-travel lives — there is no bottom rail; you scrub by walking the spine. See [chapter 3](03-time-travel.md).
+Open Epoch first. It is the readable version of the cascade: dispatch, coeffects, interceptors, handler, app-db change, effects, subscriptions, views, schema checks, and issues where they occurred.
 
-### L3 / L4 — the seven tabs
+This is the tab for "explain the whole thing to me without making me reconstruct it from raw rows."
 
-Selection lives on `:rf.xray/selected-tab` and drives the L4 detail panel. Mnemonic letters in brackets.
+### app-db
 
-#### Event (`e`) — the landing tab
+Open app-db when the question is state. The panel starts with changed slices for the focused epoch. It is read-only and path-oriented: good for seeing what changed, where it changed, and whether the state you expected is actually present.
 
-![Event tab showing the focused event's full six-domino story](../images/xray/02-event-detail.png)
+### Views
 
-Lands on every open and on every focus change. The whole story of one event: the event vector + arg-map + dispatch site, the coefficients and interceptor chain, the handler return, the `:db` writes, the `:fx` vector, and the fx-handlers that actually ran (with their results). If you're answering "what did this event *do*?", this is the tab. Effects are folded in here — the "effects handlers ran" block covers what a standalone Effects panel used to.
+Open Views when the page looks wrong or slow. It shows the reactive side of the cascade: subscriptions and renders, with enough structure to see whether a view changed because a subscription changed, because props changed, or because the view was mounted or unmounted.
 
-#### App DB (`a`) — slice-centric diff
+![The Views panel showing reactive activity](../images/xray/xray-tutorial-views.png)
 
-Not a full `app-db` tree dump. **The diff of `:db-before` vs `:db-after`** for the focused event — slice-first, with clickable path segments, path-origin chips, and a full-tree disclosure when you want the whole picture. Read-only; Xray never writes to `app-db` for you (use `re-frame2-pair` for that, or dispatch a real event). See [chapter 9](09-app-db-diff.md).
+### Trace
 
-#### View (`v`) — why these views rendered
+Open Trace when the friendly view is hiding too much. Trace is the flat, epoch-scoped feed of runtime records. It is excellent when you need exact ordering, exact operation names, source coordinates, durations, or a payload that was summarized elsewhere.
 
-Per-view rows — mounted / re-rendered / unmounted — each listing the subs it used and those subs' return values, isolation-scoped to the selected frame. Subscriptions are folded in here: they nest under each view row rather than living in a separate tab, because the question you actually have is "why did *this view* re-render?", and the answer is the sub-invalidation chain underneath it.
+### Machine
 
-#### Trace (`t`) — the raw stream
+Open Machine when the focused event touched a state machine. Dynamic Machine is event-coupled: it shows what this epoch did to the affected machine. If you want to browse all machine definitions, use Static mode.
 
-The raw multi-axis trace stream, filtered to the focused cascade (`:dispatch-id = <focus>`). A trace-type toggle row sits at the top with IN/OUT pills and sensible defaults. This tab is what you'd write yourself with `register-listener!` if Xray didn't exist — the bus's most direct rendering. See [chapter 4](04-trace-stream.md).
+### Routes
 
-#### Machines (`m`) — event-driven state-charts
+Open Routes when navigation is the problem. The Dynamic Routes tab explains the focused epoch's route activity; the Static Routes tab is for browsing the registered route table and simulating how URLs rank.
 
-The event-driven machine lens. **Blank when the focused event touched no machine.** When it did, one section per affected machine: topology with the transition highlighted, the guards and actions that ran, the cancellation cascade, and `:after` rings. This is the "what did *this event* do to my machines?" view — to browse a machine's full shape cold (spine-independent topology, picker, zoom / pan / fit), flip to **Static mode** and open its Machines tab. See [chapter 8](08-machine-inspector.md).
+## Static Mode
 
-#### Routing (`r`) — the focused-event route lens
+Static mode removes the event spine. That is the point. You are no longer asking what one event did; you are browsing the app's registered structure.
 
-A flat focused-event lens: the currently matched route with its params / query / fragment, plus a **Simulate-URL** input that ranks every registered route via the six-rule `:rf.route/rank` tuple with the rank explainer inline. Per-event glyphs (`◆ HERE` / `◆ FROM` / `◆ TO`) mark the route's role in the focused cascade. Silent when no routes are registered.
+Static tabs:
 
-#### Issues (`i`) — the unified feed
+- **Machines**: registered machines and their topology.
+- **Routes**: route catalogue and URL simulation.
+- **Schemas**: registered app-db, event, sub, and related schemas.
+- **Flows**: registered flows and their inputs.
+- **Interceptors**: registered event chains and shared interceptors.
 
-The catch-all health feed: JS exceptions, schema violations, sensitive-data warnings, hydration mismatches, perf-budget overruns, and app console errors/warns. One row per issue, with a severity gutter (`⚠`), source coord, and the underlying trace event one click away. This is where you check first when "something looks off" — and where the [schema timeline](06-schema-timeline.md) and [hydration debugger](07-hydration.md) surface their findings.
+Use Static mode before a debugging session when you want the map. Use Dynamic mode during the debugging session when you want the journey.
 
-**Three diagnostics folded away, not dropped.** Effects fold into Event, Subscriptions fold into View, and Performance is delegated to Chrome DevTools' Timings track — the framework emits `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*` User-Timing entries that DevTools renders natively. No separate Xray tab competes with the browser's own profiler.
+## The Daily Path
 
----
+Most debugging sessions are pleasantly boring:
 
-## Static mode — the five tabs
+1. Pick the frame.
+2. Click the event row.
+3. Read Epoch.
+4. Check app-db or Views depending on whether the symptom is state or rendering.
+5. Drop to Trace only if you need the raw record.
 
-Flip to Static (`Cmd-Shift-M`) to browse the registry cold. No spine, no focused event — these tabs answer questions about the *shape* of the app, not a particular cascade.
-
-#### Machines (`m`, default)
-
-The registered-machine browser plus topology and a sub-strip of browse modes. Lands here by default — it's the densest Static surface.
-
-#### Routes (`r`)
-
-The full registered-route table plus the Simulate-URL ranker. The cold counterpart to Dynamic's Routing tab: there you see the route a cascade matched; here you browse every route and test how an arbitrary URL would rank.
-
-#### Schemas (`c`)
-
-Every registered Malli schema — `app-db` slot, sub return, event payload, cofx — with sample data and jump-to-source. Lit up only if your app registers schemas; see [Guide 04a — Schemas](../guide/08-schemas.md).
-
-#### Flows (`l`)
-
-The registered [flows](../guide/25-from-re-frame-v1.md#on-changes-becomes-flows) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
-
-#### Interceptors (`i`)
-
-A pure-browse lens over the registered interceptor chains — useful when "an interceptor is mutating something I didn't expect" and you want to read the chain cold.
-
----
-
-## Resizing Xray
-
-Drag the left edge of the Xray panel to resize horizontally. Width persists across reloads (per-Xray-instance, stored in localStorage). Within Dynamic, drag the L2/L3 boundary handle to grow or shrink the event list; the detail panel takes the remainder.
-
-For full-screen inspection, change `Settings → General → Panel position` to `fullscreen`. For an out-of-window view, change it to `popout` — the browser's window controls then govern size.
-
-## How the tabs share state
-
-In Dynamic, every tab reads the same spine. Selecting an event in L2 pins the App DB diff to that epoch, filters Trace to that cascade, scopes View to that frame's renders, and lights up Machines / Routing / Issues with that event's activity — all in one frame. The two modes keep separate tab selections, so flipping to Static and back never clobbers where you were.
-
-The state is **one big sub-graph rooted at Xray's app-db** — a separate frame (`:rf/xray`) from your app's. That separation is what lets Xray survive `restore-epoch` on the host frame: the historical view is a projection over the rewound host, not a rewound Xray.
-
-You don't have to know any of this to use the tool. But it's how the tab composition is so cheap to extend — adding a tab is "register one slot with `reg-l4-tab!`, render one view"; the substrate is already there.
-
-Next: [time-travel scrubbing](03-time-travel.md) — walking the spine into RETRO.
+That is the whole tool in its everyday form.

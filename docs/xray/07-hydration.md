@@ -1,58 +1,47 @@
-# 7. Hydration debugger
+# 7. Hydration Debugger
 
-Your tester refreshes the page and the count flips from 12 to 0. Server-rendered HTML said one number; the client booted up and said another. They send you a screenshot of the half-second of flicker — the SSR'd value visible until the React reconciler stamps over it with the wrong one.
+You server-rendered a page and the client disagreed. This chapter explains how Xray helps with hydration mismatches: it treats them as runtime evidence, ties them to the relevant epoch, and helps you locate the first meaningful divergence.
 
-That's a hydration mismatch, and the Hydration panel is the focused view. The Issues ribbon will already have a `:rf.error/hydration-mismatch` row; click into it and the panel paints both render trees side-by-side with the offending node highlighted. The diagnosis isn't "the trees don't agree" — it's "the view at `cart.views:cart-total:73` rendered `$12.00` on the server and `$0.00` on the client, because the cofx that seeds `:cart/items` read `(js/Date.)` in a way the JVM-side renderer couldn't."
+## The Problem
 
-The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all. SSR ships at [Guide 11](../guide/20-server-side.md).
+SSR bugs are unpleasant because the symptom is visual but the cause can live in several places:
 
-![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/xray/07-hydration.png)
+- server app-db seed;
+- client hydration payload;
+- route params;
+- locale, time, random values, or browser-only coeffects;
+- a view that reads from the world during render;
+- a schema or data-classification mismatch across the wire.
 
-## What it shows
+Xray's job is not to make SSR magical. It gives you the evidence in the same place you already debug client cascades.
 
-Two columns side-by-side: the *server* render tree and the *client* render tree. The mismatch is highlighted — a node that exists on one side and not the other, an attribute that differs, a textual delta. Click any mismatched node to inspect the diff in detail.
+![Hydration mismatch evidence](../images/xray/xray-tutorial-hydration.png)
 
-Below, a *mismatch reason* chip — the runtime classifies hydration mismatches into a fixed taxonomy:
+## Where Hydration Appears
 
-| Reason | Meaning |
-|---|---|
-| `:rf.hydrate/missing-handler` | The server `app-db` references an id not registered on the client. |
-| `:rf.hydrate/schema-mismatch` | The hydrated `app-db` doesn't validate against a client-registered schema. |
-| `:rf.hydrate/dom-divergence` | The two render trees differ structurally. |
-| `:rf.hydrate/attribute-drift` | Same DOM, different attribute values (commonly `data-*`, `key`, dates). |
+Hydration diagnostics surface as issue evidence on the relevant epoch. Use the same loop:
 
-The classification is the wire-level signal that an APM bridge would also see. Xray is the human-friendly renderer of the same fact.
+1. Find the marked event row.
+2. Open Epoch for the high-level failure and recovery.
+3. Open Trace for the raw SSR or hydration record.
+4. Use source coordinates to jump to the view or route involved.
 
-## What hydration is, briefly
+If the mismatch has a render-tree diff, Xray shows the server and client sides around the divergent path rather than making you compare entire HTML strings.
 
-re-frame2's SSR adapter renders the same views to HTML on the JVM. Per request, the runtime allocates a frame, runs the cascade, serialises the resulting `app-db` into the response (transit, embedded in a `<script>`), and ships the HTML.
+## What To Look For
 
-In the browser, the client `init!` reads the embedded `app-db`, dispatches `:rf/hydrate`, and runs the same views. The expectation is that the two trees agree — same `app-db`, same handlers, same view code, same output.
+The common causes are boring, which is good news:
 
-When they don't, it's almost always one of:
+- A view used `js/Date`, random, or browser state during render.
+- Server and client seeded different app-db values.
+- The route matched differently on the client.
+- A subscription returned `nil` on the server and real data on the client.
+- A classified value was redacted or elided before one side expected it.
 
-- An event handler that read `(js/Date.)` or `(rand)` somewhere it shouldn't have.
-- A view that called `js/window` from inside the body (no SSR-shape guard).
-- A cofx that returned different data on the server (the request-id wasn't seeded the same way).
+Fix the source of nondeterminism. Do not patch the rendered HTML after the fact.
 
-The panel surfaces *which view* mismatched, *which attribute*, *with what values* — at the resolution of a single line of source. That's why the opener's diagnosis sentence reads as one specific call-out rather than the generic "the trees don't agree."
+## Xray And The SSR Rule
 
-## The fix loop
+The SSR rule is the same rule the guide teaches for client views: render is a function of state. If the server and client have the same state and the view is deterministic, hydration has a chance. If not, React is left trying to reconcile two different stories.
 
-1. Note the mismatch reason chip. Most chips name the diagnosis.
-2. Click the offending node — read the server value and the client value side-by-side.
-3. The click-to-source affordance applies; jump to the view's source.
-4. Fix the divergence (push the non-deterministic call out of the view body, into an event handler or a cofx).
-5. Reload. The panel goes green.
-
-The runtime emits a `:rf.error/hydration-mismatch` trace event for every detected mismatch, so the Issues ribbon also surfaces them — Hydration is the *focused* view; Issues is the *unified* view.
-
-## What this panel isn't
-
-It's not a server-side renderer profiler. SSR performance is JVM-side; Chrome DevTools can't see it. Use the JVM host's profilers for that.
-
-It's not a hydration *prevention* — re-frame2 doesn't try to stop you from writing a view that mismatches. The Boundary contract is "writers honour the schema; consumers validate." Xray is on the validation side.
-
-For when *not* to hydrate at all — view components that should opt out of SSR entirely — see the SSR chapter's coverage of the `:client-only?` view metadata. The panel respects that flag; opted-out views don't show up as mismatches.
-
-Next: [the machine inspector](08-machine-inspector.md).
+Xray helps by showing the story re-frame2 saw: the hydrate event, the payload shape, the route or view evidence, and the mismatch record.

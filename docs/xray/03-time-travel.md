@@ -1,93 +1,57 @@
-# 3. Time-travel scrubbing
+# 3. Time-Travel Scrubbing
 
-A user reports a bug. "I clicked three things and then the page went wrong." They can't reproduce it on demand. You can't either.
+You need to look backward without losing the live app. This chapter explains Xray's current time-travel model: the event spine is the scrubber, a focused past row is RETRO, and following the head returns you to LIVE.
 
-In a mutable-state app, this is the worst class of bug — you're chasing a sequence of writes you can't replay. In re-frame2, **every drain-to-empty is recorded**: the event that triggered it, the `:db-before`, the `:db-after`, the subs that recomputed, the renders, the fxs. That's an *epoch*. The runtime keeps a ring buffer of them — fifty per frame, configurable — and Xray renders the buffer as a scrubber.
+## There Is No Bottom Rail
 
-You walk backwards. Find the cascade that broke the invariant. Rewind to before it ran. The bug isn't a story you reconstruct from logs; it's a `:db-after` you can pprint.
+Older Xray drafts had a bottom time-travel rail. The shipped model is simpler: the event spine is the timeline.
 
-![Time-travel scrubber with epoch history](../images/xray/03-time-travel.png)
+Click an event row in the spine. Xray focuses that epoch. The detail panels now show the app-db diff, trace rows, views, machine transitions, and route activity for that selected epoch.
 
-## The rail
+The app can continue running while you inspect the past. Xray stays on the selected row until you move focus or follow the head.
 
-The scrubber sits at the bottom of every panel — it doesn't go away when you switch from *Event detail* to *Trace* to *Subscriptions*. That's deliberate: time-travel is *cross-cutting*. Whatever panel you're looking at, you can rewind the rest of the world out from under it.
+## LIVE And RETRO
 
-Three controls:
+Think of focus as having two postures:
 
-- **Drag the cursor backwards** — *passive scrub*. The other panels retarget at the historical epoch, but the live `app-db` is unchanged. You're previewing.
-- **Click *restore*** — *active rewind*. The runtime calls `restore-epoch`, the host frame's `app-db` swaps to the historical `:db-after`, and the live views re-render against it. The runtime emits a `:rf.epoch/restored` trace event so other tools (your own listeners, `re-frame2-pair`, an in-house APM bridge) see it land.
-- **Click *jump-to-event*** — when you know the *event* you want to rewind past, you don't have to find the epoch by index; you type the event-id and the scrubber positions to the most recent matching cascade.
+- **LIVE**: Xray follows the newest epoch for the selected frame.
+- **RETRO**: Xray is pinned to an older epoch.
 
-Passive scrub is the one you reach for most. It's read-only — you can run the entire investigation without ever mutating live state.
+You enter RETRO by clicking an older event row or stepping backward. You return to LIVE by following the head from the ribbon controls.
 
-## How the buffer fills
+The important detail is that this is panel focus, not a magical fork of your app. The focused epoch is the record every tab reads. If you choose an older row, app-db, Views, Trace, Machine, and Routes all agree on that older row.
 
-Every drain-to-empty produces one epoch record. The record carries:
+![Focused epoch in the spine](../images/xray/xray-tutorial-epoch.png)
 
-- `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`
-- `:db-before`, `:db-after`
-- `:sub-runs` — every sub recomputation in this cascade (cache-hit subs are absent)
-- `:renders` — every view that re-rendered, keyed `[<view-id> <instance-token>]`
-- `:effects` — every fx that fired, with `:outcome` ∈ `{:ok :error :skipped-on-platform}`
-- `:trace-events` — the raw trace slice, optionally
+## Inspecting A Past Event
 
-This is what tools route diagnostics off — Xray's epoch-grouping, `re-frame2-pair`'s "show me the last five cascades" command, the post-mortem path that captures a session for review. Same record, three consumers.
+On the standard-epochs testbed:
 
-The default buffer depth is 50 epochs per frame. To deepen:
+1. Click buttons 1, 2, and 3.
+2. Click the row for button 1 in Xray's event spine.
+3. Open app-db. You see the state delta for button 1, not button 3.
+4. Open Trace. You see the trace records for button 1's epoch.
+5. Follow the head. The panels jump back to the newest epoch.
 
-```clojure
-(rf/configure :epoch-history {:depth 1000})
-```
+This is the heart of Xray: one historical selection drives every lens.
 
-Two-million epoch slots and you've got a memory leak; fifty is a comfortable default for the "I just want to scrub backwards through the last few minutes" workflow.
+## Restore Versus Inspect
 
-## Redacted records
+Inspecting a past epoch is read-only. It changes Xray's focus, not your app.
 
-If you've installed an `:epoch-history` `:redact-fn` to keep secrets out of recorded `:db-before` / `:db-after` (`(rf/configure :epoch-history {:redact-fn (fn [record] …)})`), Xray renders the **redacted** shape. The runtime invokes your fn once per epoch *before* the ring buffer is appended, so every panel — App-DB Diff, Event detail, the scrubber preview — sees the same redacted record. Slots your fn rewrote appear as the `:rf/redacted` sentinel (or whatever shape you substituted); there is no separate raw copy to recover from. One consequence for time-travel: a confirmed rewind to a record whose `:db-after` was redacted will land `app-db` in the redacted state — the rewind structurally succeeds but the resulting state is not what the user observed at record time. Apps that need restore fidelity should leave `:db-before` / `:db-after` alone in the fn and redact only `:trace-events` / `:trigger-event`.
+Rewinding the app is a stronger operation. The runtime can restore an epoch's `:db-after` into the target frame, but Xray treats that as an explicit act because it changes the observed app. In day-to-day debugging, you usually inspect first. Restore only when you deliberately want to put the app back into that state.
 
-## The six failure modes of `restore-epoch`
+The restore operation is a runtime primitive, not an Xray trick. Xray gives you the context; re-frame2 owns the state transition.
 
-Active rewind can fail. Six modes, each with a structured error trace event:
+## Filters Keep The Spine Useful
 
-| Failure | When |
-|---|---|
-| **Unknown frame** | The frame-id doesn't name a registered frame. |
-| **Unknown epoch** | The epoch-id isn't in the frame's current history (aged out, or never recorded). |
-| **Schema mismatch** | The recorded `:db-after` doesn't validate against the currently-registered schemas (someone added a stricter schema since the snapshot). |
-| **Missing handler** | The recorded `app-db` references a registered id (a machine, a route) that's no longer in the registrar. |
-| **Version mismatch** | The frame's recorded `:rf/snapshot-version` is incompatible with the currently-loaded machine definition. |
-| **Concurrent-drain rejection** | Called while the frame's drain is still in flight; retry after settle. |
+Real apps produce noise. Xray's filter pills let you include or exclude event ids so the spine stays readable.
 
-`restore-epoch` returns `true` on success, `false` on any failure. Xray renders the failure mode inline at the scrubber — a red toast carrying the `:reason` (unknown / concurrent-drain), the `:explain` Malli output (schema mismatch), the `:missing-id` (missing handler), or the `:expected`/`:got` versions (version mismatch). You don't have to know what went wrong from a stack trace; the runtime told you.
+Good filter habits:
 
-## Effects already fired
+- Exclude high-volume housekeeping events when chasing a user action.
+- Include only one feature namespace when debugging a focused flow.
+- Clear filters before deciding an event did not happen.
+- Remember that errors and issue-marked rows are designed to remain visible enough to find.
 
-One caveat. `restore-epoch` rewinds the frame's `app-db` — *state*. It does **not** un-fire effects that already left the system. The HTTP request was sent. The navigation was pushed. The Sentry event landed. Rewinding to before those fxs ran rewinds the *record* of them; it doesn't un-send them.
-
-Xray surfaces this with an *Effects already fired* chip when you rewind past an epoch that contained non-`:skipped-on-platform` fxs. The chip is advisory — it doesn't block the rewind, just makes the asymmetry visible.
-
-In practice, most of the time the asymmetry doesn't bite: you rewind to investigate, you read the new state, you make a fix, you don't keep the rewound state around to ship from. But it matters when you're chasing "we got two confirmation emails for one order" — the rewind doesn't unsend the second email, and Xray is correct to remind you of that.
-
-## Reset to an arbitrary state
-
-Sometimes the state you want never existed: a bug repro arrives as serialised `app-db`, an agent has hot-swapped a handler that needs an evolved shape, a story-tool wants to render a specific snapshot. `reset-frame-db!` is the bypass:
-
-```clojure
-(rf/reset-frame-db! :app/main {:cart {:items [{:sku "abc" :qty 2}]}
-                                :checkout/state :ready})
-```
-
-It replaces the frame's `app-db` directly, **records a synthetic epoch** (so `restore-epoch` can later rewind past the injection), and emits a `:rf.epoch/db-replaced` trace event. The synthetic epoch carries empty `:sub-runs` / `:renders` / `:effects` projections — those are the visible signal that no cascade ran.
-
-Xray renders the synthetic epoch differently in the scrubber — a small star marker — so you can tell which entries came from real dispatches and which from direct injection.
-
-`reset-frame-db!` is not a substitute for `dispatch`. Use it only when bypass-the-cascade is required.
-
-## When the scrubber isn't the right tool
-
-Two cases where you'd reach for something else:
-
-1. **You want to debug the cascade *as it happens*, not after.** Time-travel rewinds; it doesn't pause. For pause-on-event behaviour, hot-swap the relevant handler with a `js/debugger` line via `re-frame2-pair` and replay the event.
-2. **You want to reproduce a bug a customer saw in production.** Time-travel works on the *current* runtime's epoch history. Customer sessions are off-box; you'd need their epoch record exported, then imported into a local frame via `reset-frame-db!`. That round-trip is the [Story](../story/index.md) playground's job — it can mount any `app-db` snapshot as a variant.
-
-Next: [the trace stream](04-trace-stream.md) — the raw bus underneath everything you've seen so far.
+The goal is not to hide complexity forever. It is to remove unrelated motion long enough to read the cascade you care about.
