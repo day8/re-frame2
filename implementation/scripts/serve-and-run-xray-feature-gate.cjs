@@ -11,14 +11,18 @@
  */
 
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const { isVerboseTests } = require('./lib/browser-test-report.cjs');
 const {
+  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  resolveServePort,
   spawnHarnessProcess,
   waitForHttpReady,
+  waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 const {
   SCENARIOS,
@@ -29,11 +33,40 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'xray-feature-gate');
 const ARTIFACT_ROOT = path.join(IMPL_ROOT, 'out', 'xray-feature-gate-artifacts');
-const PORT = Number(process.env.XRAY_FEATURE_GATE_PORT || 8037);
-const BASE_URL = process.env.XRAY_FEATURE_GATE_BASE_URL || `http://127.0.0.1:${PORT}`;
+// Preferred port; the gate falls back to an OS-chosen free port when this
+// is busy (rf2-84gzw). The resolved port is threaded into BASE_URL at
+// runtime, so a fixed override here no longer pins the run to a possibly
+// foreign listener. XRAY_FEATURE_GATE_BASE_URL still lets a caller point
+// at an external server entirely (in which case ownership-token
+// verification is skipped — see main()).
+const PREFERRED_PORT = Number(process.env.XRAY_FEATURE_GATE_PORT || 8037);
+const EXTERNAL_BASE_URL = process.env.XRAY_FEATURE_GATE_BASE_URL || null;
 const TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE_TESTS = isVerboseTests();
+
+// Per-run ownership token (rf2-84gzw / rf2-gkf9). Published as
+// `${OUT_ROOT}/.rf-harness-token` before http-server is spawned (OUT_ROOT
+// is a staging dir this script owns — cleanAndStageRoot() recreates it),
+// then verified by waitForOwnedHttpReady before any Playwright scenario
+// runs. Defeats a stale/foreign listener on the chosen port serving a
+// different (possibly stale-but-compatible → FALSE-GREEN) asset tree.
+const TOKEN_PATH = path.join(OUT_ROOT, TOKEN_FILE_BASENAME);
+
+function writeOwnershipToken() {
+  if (!fs.existsSync(OUT_ROOT)) return null;
+  const token = crypto.randomBytes(16).toString('hex');
+  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
+  return token;
+}
+
+function removeOwnershipToken() {
+  try {
+    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
+  } catch (_) {
+    // best-effort cleanup; never let teardown bookkeeping fail the run.
+  }
+}
 
 // rf2-wa3oo: PR-smoke vs nightly-full split. With `--smoke` (or
 // RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
@@ -85,6 +118,7 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
 const cleanup = createHarnessCleanup();
+cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 function relPath(parts) {
@@ -357,7 +391,7 @@ function formatDiagnostics(diag) {
   return lines.join('\n');
 }
 
-async function runScenarios() {
+async function runScenarios(baseUrl) {
   const browser = await chromium.launch({ headless: true });
   cleanup.addCleanup(async () => {
     try {
@@ -391,7 +425,7 @@ async function runScenarios() {
         browserState.requestFailures.push(`${request.method()} ${request.url()} ${failure ? failure.errorText : ''}`);
       });
 
-      const fullUrl = scenario.url.startsWith('http') ? scenario.url : BASE_URL + scenario.url;
+      const fullUrl = scenario.url.startsWith('http') ? scenario.url : baseUrl + scenario.url;
       let passed = false;
       let failure = null;
       let diagnostics = null;
@@ -472,7 +506,46 @@ async function main() {
   compileSurfaces();
   stageSurfaces();
 
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+  // Escape hatch: a caller may point the gate at a server it manages
+  // itself (XRAY_FEATURE_GATE_BASE_URL). We cannot publish/verify an
+  // ownership token there, so we only probe for reachability — the
+  // caller owns the asset tree it points us at. The default path below
+  // is the hardened one.
+  if (EXTERNAL_BASE_URL) {
+    const externalPort = portFromBaseUrl(EXTERNAL_BASE_URL);
+    console.log(`Using externally-managed server at ${EXTERNAL_BASE_URL}.`);
+    const reachable = await waitForHttpReady(externalPort, Date.now() + READY_TIMEOUT_MS);
+    if (!reachable) {
+      throw new Error(`External server at ${EXTERNAL_BASE_URL} did not become reachable within ${READY_TIMEOUT_MS}ms.`);
+    }
+    return await runScenarios(EXTERNAL_BASE_URL.replace(/\/+$/, ''));
+  }
+
+  // Publish the per-run ownership token BEFORE spawning http-server so
+  // the sentinel is visible the moment the server starts serving
+  // OUT_ROOT (rf2-84gzw). Cleaned up unconditionally via the registered
+  // cleanup fn.
+  const token = writeOwnershipToken();
+  if (!token) {
+    throw new Error(`Staging root missing: ${OUT_ROOT}. Did staging run?`);
+  }
+
+  // Resolve the port: prefer XRAY_FEATURE_GATE_PORT (default 8037) when
+  // free, else fall back to an OS-chosen free port (rf2-84gzw). This
+  // stops the gate from either failing to bind or — worse — silently
+  // running against a stale/foreign listener already on the fixed port.
+  const port = await resolveServePort(PREFERRED_PORT, {
+    onFallback: (preferred, fallback) => {
+      console.warn(
+        `Preferred port ${preferred} is busy; falling back to free port ${fallback}. ` +
+          `Set XRAY_FEATURE_GATE_PORT to pin a specific port.`,
+      );
+    },
+  });
+  const baseUrl = `http://127.0.0.1:${port}`;
+  console.log(`Serving ${OUT_ROOT} on ${baseUrl}`);
+
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
   }));
@@ -485,14 +558,51 @@ async function main() {
     }
   });
 
-  const ready = await waitForHttpReady(PORT, Date.now() + READY_TIMEOUT_MS, {
+  // Readiness WITH ownership-token verification: refuse to run scenarios
+  // against any server on `port` that does not serve this run's token
+  // (rf2-84gzw).
+  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
     isAborted: () => serverDown,
   });
-  if (!ready || serverDown) {
-    throw new Error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
+  if (!ready.ok) {
+    if (ready.reason === 'child-exited' || serverDown) {
+      throw new Error(
+        `http-server exited before becoming reachable on :${port}. ` +
+          `Likely cause: port already in use or http-server failed to start.`,
+      );
+    }
+    if (ready.reason === 'token-mismatch') {
+      throw new Error(
+        `A server is reachable on :${port}, but its /${TOKEN_FILE_BASENAME} ` +
+          `does not match this run's ownership token. Refusing to run the Xray ` +
+          `feature gate against a server this harness did not launch ` +
+          `(got "${ready.got}", expected "${token}"). ` +
+          `Set XRAY_FEATURE_GATE_PORT to pin a different port if this is intentional.`,
+      );
+    }
+    if (ready.reason === 'token-never-served') {
+      throw new Error(
+        `http-server on :${port} became reachable but never served ` +
+          `/${TOKEN_FILE_BASENAME} within ${READY_TIMEOUT_MS}ms. ` +
+          `Staging root may be inconsistent.`,
+      );
+    }
+    throw new Error(`http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`);
   }
 
-  return await runScenarios();
+  return await runScenarios(baseUrl);
+}
+
+// Extract the TCP port from a base URL, defaulting to 80 (the gate only
+// ever speaks http:// to a local server, so a missing port means 80).
+function portFromBaseUrl(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.port) return Number(parsed.port);
+    return parsed.protocol === 'https:' ? 443 : 80;
+  } catch (_) {
+    return PREFERRED_PORT;
+  }
 }
 
 main()
