@@ -53,6 +53,20 @@ const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs')
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
+// rf2-315cf: on a RED gate, persist the per-row run evidence the runner
+// already computed to a stable path so the browser-gate workflow can
+// upload it as a downloadable post-mortem (spec/017
+// §Failed-run artifacts in CI). The substrate guarantees the low-level
+// `:rf.test/run-artifact` (seed / event-program / epoch tape) EXISTS and
+// is canonicalizable, but the play-scripts CI hook surfaces only the
+// projected run-state (status + per-step results) — that projection is
+// the failure record this gate genuinely holds, and serialising the
+// full replayable artifact is a substrate change, not CI mechanics.
+const FAILURE_REPORT_DIR = path.join(IMPL_ROOT, 'out', 'story-play-scripts');
+const FAILURE_REPORT_PATH = path.join(
+  FAILURE_REPORT_DIR,
+  'failure-report.json',
+);
 const TESTBED_BUILD = 'examples/counter-with-stories';
 const TESTBED_DIR_NAME = 'counter-with-stories';
 const TESTBED_HTML = path.join(
@@ -337,6 +351,49 @@ function summariseResults(results) {
 }
 
 /**
+ * rf2-315cf — persist the run evidence for a RED gate to a stable path
+ * so the browser-gate workflow's `if: failure()` upload step can surface
+ * it as a downloadable post-mortem (spec/017 §Failed-run artifacts in CI).
+ *
+ * This is the projected run-state evidence the runner already computed:
+ * per-row expected/actual status plus the per-step diagnostics
+ * (idx / type / message / expected / actual). It is NOT the full
+ * low-level `:rf.test/run-artifact` (seed / event-program / epoch tape) —
+ * the play-scripts CI hook surfaces only the projected state, and
+ * serialising the replayable artifact is a substrate change, not CI
+ * mechanics. The play's `:script` (the event program) lives in the
+ * variant body, so a maintainer can pair this report with the named
+ * variant/play to reproduce off-CI.
+ *
+ * Best-effort: a write failure here must never mask the real gate verdict,
+ * so it is logged and swallowed.
+ */
+function writeFailureReport(failures, allResults, browserMessages) {
+  const report = {
+    gate: 'story-play-scripts',
+    bead: 'rf2-5x1wt.7 / rf2-315cf',
+    capturedAt: new Date().toISOString(),
+    totalRows: allResults.length,
+    unexpectedOutcomes: failures.length,
+    failures: failures.map((r) => ({
+      variantId: r.variantId,
+      playKey: r.playKey || null,
+      expected: r.expected,
+      actual: (r.runState && r.runState.status) || 'no-state',
+      steps: (r.runState && r.runState.results) || [],
+    })),
+    browserDiagnostics: browserMessages.slice(-40),
+  };
+  try {
+    fs.mkdirSync(FAILURE_REPORT_DIR, { recursive: true });
+    fs.writeFileSync(FAILURE_REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
+    log(`Wrote failed-run evidence to ${FAILURE_REPORT_PATH}`);
+  } catch (err) {
+    log(`(warning) could not write failure report: ${err.message}`);
+  }
+}
+
+/**
  * Group ci-rows by variant id so we navigate ONCE per variant and
  * then drive each row's play locally.
  */
@@ -444,6 +501,9 @@ async function runAllVariants(browser, baseUrl) {
     if (failures.length > 0 && browserMessages.length > 0) {
       log('--- browser diagnostics ---');
       for (const msg of browserMessages.slice(-40)) log(msg);
+    }
+    if (failures.length > 0) {
+      writeFailureReport(failures, results, browserMessages);
     }
     return failures.length === 0 ? 0 : 1;
   } finally {
