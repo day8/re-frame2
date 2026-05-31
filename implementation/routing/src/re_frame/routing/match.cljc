@@ -238,7 +238,7 @@
 ;;   depth  — optional-group nesting depth
 ;;   parts  — accumulating regex string fragments
 ;;   names  — captured param names left-to-right (regex-group order)
-;;   gstack — stack of open optional-group cursor indices; on '{'
+;;   group-stack — stack of open optional-group cursor indices; on '{'
 ;;       we push the group-open index, on '}' we pop and record the
 ;;       close-end position so route-url can skip past an elided group
 ;;   inner  — output {group-open-idx → {:inner-names [...] :close-end <pos>}}
@@ -252,13 +252,13 @@
   [pattern]
   (let [n  (count pattern)
         i0 (if (and (pos? n) (= \/ (.charAt ^String pattern 0))) 1 0)]
-    (loop [i       i0
-           depth   0
-           parts   ["^/?"]
-           names   []
-           inner   {}
-           gstack  ()
-           counts  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
+    (loop [i           i0
+           depth       0
+           parts       ["^/?"]
+           names       []
+           inner       {}
+           group-stack ()
+           counts      {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
       (if-not (< i n)
         (let [{:keys [static total splat optional named]} counts
               ;; Spec 012 §Route ranking algorithm rule 4: the catch-all
@@ -288,35 +288,35 @@
         (let [ch (.charAt ^String pattern i)]
           (cond
             (= ch \/)
-            (recur (inc i) depth (conj parts "/") names inner gstack counts)
+            (recur (inc i) depth (conj parts "/") names inner group-stack counts)
 
             (= ch \:)
             (let [start (inc i)
                   end   (segment-end pattern n start)
                   nm    (subs pattern start end)
-                  inner' (if (seq gstack)
-                           (update-in inner [(peek gstack) :inner-names]
+                  inner' (if (seq group-stack)
+                           (update-in inner [(peek group-stack) :inner-names]
                                       (fnil conj []) nm)
                            inner)
                   counts' (cond-> counts
                             (zero? depth) (-> (update :named inc)
                                               (update :total inc)))]
               (recur end depth (conj parts "([^/]+)") (conj names nm)
-                     inner' gstack counts'))
+                     inner' group-stack counts'))
 
             (= ch \*)
             (let [start (inc i)
                   end   (segment-end pattern n start)
                   nm    (subs pattern start end)
-                  inner' (if (seq gstack)
-                           (update-in inner [(peek gstack) :inner-names]
+                  inner' (if (seq group-stack)
+                           (update-in inner [(peek group-stack) :inner-names]
                                       (fnil conj []) nm)
                            inner)
                   counts' (cond-> counts
                             (zero? depth) (-> (update :splat inc)
                                               (update :total inc)))]
               (recur end depth (conj parts "(.+)") (conj names nm)
-                     inner' gstack counts'))
+                     inner' group-stack counts'))
 
             (= ch \{)
             ;; Open optional group: push group-open index for later
@@ -327,20 +327,20 @@
             (recur (inc i) (inc depth) (conj parts "(?:") names
                    (assoc-in inner [i :inner-names]
                              (get-in inner [i :inner-names] []))
-                   (conj gstack i)
+                   (conj group-stack i)
                    (update counts :optional inc))
 
             (= ch \})
             (let [i'        (inc i)
                   ?-suffix? (and (< i' n) (= \? (.charAt ^String pattern i')))
                   close-end (if ?-suffix? (inc i') i')
-                  inner'    (assoc-in inner [(peek gstack) :close-end] close-end)]
+                  inner'    (assoc-in inner [(peek group-stack) :close-end] close-end)]
               (recur close-end
                      (dec depth)
                      (cond-> (conj parts ")") ?-suffix? (conj "?"))
                      names
                      inner'
-                     (pop gstack)
+                     (pop group-stack)
                      counts))
 
             :else
@@ -350,7 +350,7 @@
                             (zero? depth) (-> (update :static inc)
                                               (update :total inc)))]
               (recur end depth (conj parts (regex-escape static-seg)) names
-                     inner gstack counts'))))))))
+                     inner group-stack counts'))))))))
 
 ;; ---- match-against --------------------------------------------------------
 

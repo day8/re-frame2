@@ -682,27 +682,30 @@
            (fn emit-group [i parts]
              (loop [i     i
                     parts parts]
-               (let [c2 (.charAt ^String pattern i)]
+               (let [ch (.charAt ^String pattern i)]
                  (cond
-                   (= c2 \})
-                   (let [k (inc i)]
-                     [(if (and (< k n) (= \? (.charAt ^String pattern k))) (inc k) k)
+                   (= ch \})
+                   (let [after-close (inc i)]
+                     [(if (and (< after-close n)
+                               (= \? (.charAt ^String pattern after-close)))
+                        (inc after-close)
+                        after-close)
                       parts])
 
-                   (= c2 \:)
+                   (= ch \:)
                    (let [start (inc i)
                          end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))]
                      (recur end (conj parts (url/url-encode (get path-params k)))))
 
-                   (= c2 \*)
+                   (= ch \*)
                    (let [start (inc i)
                          end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))]
                      (recur end (conj parts (url/url-encode-splat (get path-params k)))))
 
                    :else
-                   (recur (inc i) (conj parts (str c2)))))))
+                   (recur (inc i) (conj parts (str ch)))))))
            parts
            (loop [i     0
                   parts []]
