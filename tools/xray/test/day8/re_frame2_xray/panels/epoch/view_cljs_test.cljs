@@ -2543,3 +2543,136 @@
 ;; top-of-pipeline "This event failed" banner is gone; the failure
 ;; surfaces inline (the failing step's ✗ glyph + the 'Exception Thrown'
 ;; card). The panel root still stamps `data-rf-xray-outcome`.
+
+;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR + skipped ---
+
+(deftest coeffect-step-renders-exception-card-test
+  (testing "rf2-yz57h — a coeffect-injection exception renders the shared
+            'Exception Thrown' card UNDER the COEFFECT step (button-19)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-coeffect-step
+                   {:step :coeffect :badge :COEFFECT :step-number 2
+                    :id :button-deck/throwing-cofx :no-value? true :threw? true
+                    :status :error
+                    :errors [{:operation :rf.error/coeffect-exception
+                              :message "cofx threw on purpose"
+                              :failing-id :button-deck/throwing-cofx
+                              :recovery :no-recovery}]}))]
+      ;; the failed-injection body, NOT a `+ [id] value` diff line.
+      ;; (testids key off `(name id)` — the namespace is stripped.)
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-coeffect-failed-throwing-cofx"))
+          "renders the 'injection threw' body (no value)")
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-epoch-coeffect-value-throwing-cofx"))
+          "no `+ [id] value` diff line — the injector threw before resolving")
+      ;; the shared 'Exception Thrown' card (wnvid) is under the COEFFECT step
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-coeffect-0-title")
+            "Exception Thrown"))
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-coeffect-0-message")
+            "cofx threw on purpose"))
+      ;; header glyph is ✗ (error)
+      (let [status (th/find-by-testid tree "rf-xray-epoch-coeffect-throwing-cofx-status")]
+        (is (= "error" (:data-rf-xray-step-status (second status))))))))
+
+(deftest interceptor-step-renders-row-and-exception-card-test
+  (testing "rf2-yz57h — the INTERCEPTOR step renders the throwing
+            interceptor's id + phase chip + the shared 'Exception Thrown'
+            card (button-17 :before)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptor-step
+                   {:step :interceptor :badge :INTERCEPTOR :step-number 3
+                    :status :error
+                    :rows [{:interceptor-id :button-deck/throwing-interceptor
+                            :phase :before}]
+                    :errors [{:operation :rf.error/interceptor-exception
+                              :message "interceptor :before boom"
+                              :failing-id :button-deck/throwing-interceptor
+                              :phase :before
+                              :recovery :no-recovery}]}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-interceptor"))
+          "the INTERCEPTOR step renders")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptor-row-0")
+            "throwing-interceptor")
+          "the throwing interceptor id renders")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptor-phase-0")
+            "before")
+          "the :before phase chip renders")
+      ;; the shared card under the interceptor row
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-interceptor-row-0-0-title")
+            "Exception Thrown"))
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-error-interceptor-row-0-0-message")
+            "interceptor :before boom"))
+      (let [badge-pill (th/find-by-testid tree "rf-xray-epoch-badge-interceptor")]
+        (is (some? badge-pill) "the INTERCEPTOR badge pill renders")
+        (is (= "INTERCEPTOR" (badge/label :INTERCEPTOR))))))
+
+  (testing "rf2-yz57h — an :after interceptor row carries the :after chip"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptor-step
+                   {:step :interceptor :badge :INTERCEPTOR :step-number 3
+                    :status :error
+                    :rows [{:interceptor-id :app/auditor :phase :after}]
+                    :errors [{:operation :rf.error/interceptor-exception
+                              :message "after boom"
+                              :failing-id :app/auditor :phase :after}]}))]
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptor-phase-0")
+            "after")))))
+
+(deftest handler-skipped-renders-as-skipped-not-no-db-test
+  (testing "rf2-yz57h — a HANDLER marked :skipped (upstream :before-chain
+            threw) renders the SKIPPED body, NOT the misleading
+            'returned no :db' (buttons 17/19)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 4
+                    :flavour :reg-event-db :event-id :button-deck/throw-interceptor
+                    :db-diff [] :db-write? true :fx [] :machine nil
+                    :status :skipped}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-skipped"))
+          "the SKIPPED body renders")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
+          "the 'no :db (returned no :db)' placeholder does NOT render")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-full-with-diff"))
+          "no phantom :db block")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-handler-skipped")
+            "did not run")
+          "the body states the handler did not run")
+      (let [status (th/find-by-testid tree "rf-xray-epoch-handler-status")]
+        (is (= "skipped" (:data-rf-xray-step-status (second status)))
+            "the header glyph reads :skipped (⊘), not ✗/✓")))))
+
+(deftest side-effects-skipped-renders-as-skipped-test
+  (testing "rf2-yz57h — a SIDE EFFECTS step marked :skipped renders the
+            SKIPPED body, not the ledger"
+    (let [tree (view/render-side-effects-step
+                 {:step :side-effects :badge :SIDE-EFFECTS :step-number 5
+                  :rows [{:fx-id :db :status :ok}]
+                  :status :skipped})]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-side-effects-skipped"))
+          "the SKIPPED body renders")
+      (let [status (th/find-by-testid tree "rf-xray-epoch-side-effects-status")]
+        (is (= "skipped" (:data-rf-xray-step-status (second status))))))))
+
+(deftest step-status-glyph-skipped-test
+  (testing "rf2-yz57h — the badge primitive paints ⊘ (muted) for :skipped"
+    (is (= "⊘" (badge/step-status-glyph :skipped)))
+    (is (= "✓" (badge/step-status-glyph :ok)))
+    (is (= "✗" (badge/step-status-glyph :error)))
+    (is (badge/step-status? :skipped))))

@@ -1307,10 +1307,11 @@ is rendered iff its driving trace events surfaced in this epoch:
 | Step | Driving trace | Conditional |
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
-| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. |
-| **HANDLER** | every epoch settles through a handler | always |
+| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. A coeffect that THREW on injection (`:rf.error/coeffect-exception`) but produced no `:rf.cofx/run` gets a synthesised placeholder COEFFECT step (rf2-yz57h) so the exception card has a home. |
+| **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only. One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card. Sits between COEFFECTS and HANDLER (the chain's cascade position). |
+| **HANDLER** | every epoch settles through a handler | always (but rendered as **SKIPPED** — rf2-yz57h — when an upstream `:before`-chain throw aborted the cascade before the handler ran) |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |
-| **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired |
+| **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired (rendered as **SKIPPED** when an upstream `:before`-chain throw aborted the cascade) |
 | **SUBSCRIPTIONS** | `:rf.sub/run` / `:rf.sub/skip` | only when subs recomputed |
 | **VIEWS** | `:rf.view/render` | only when views re-rendered |
 
@@ -1320,7 +1321,7 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 8-badge inventory)
+### §9.1.4 Badge taxonomy (the 9-badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
@@ -1328,6 +1329,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 |-------|-------|------------|
 | `:DISPATCH`           | `:text-tertiary` | muted grey |
 | `:COEFFECT`           | `:magenta`       | purple |
+| `:INTERCEPTOR`        | `:accent`        | blue (rf2-yz57h — the chain WRAPS the handler; one identity family) |
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
 | `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
 | `:SIDE-EFFECTS`       | `:orange`        | functional amber (post-commit irreversible; the pre-rf2-kt6js `:FX` step) |
@@ -1343,7 +1345,8 @@ Each step renders a uppercase badge pill at its numbered circle:
 > in commit `ee9def224`) is redundant with the HANDLER step's `:db`
 > sub-section (§9.1.5.1, FULL+DIFF single rendering post-rf2-vv3m6),
 > which surfaces the same data in-context. The projection's `badge-
-> set` enforces the 8-entry inventory.
+> set` enforces the inventory (9 entries with rf2-yz57h's
+> conditional `:INTERCEPTOR`).
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
@@ -2352,11 +2355,23 @@ primitive, not a one-off.**
 to its owning step via `attach-exceptions` (a sibling of
 `attach-violations`, run immediately after it). Each touched step
 gains the attached record under `:errors` (step-level) or its
-matching row's `:errors` (FX row-level) AND `:status :error`.
+matching row's `:errors` (FX / interceptor row-level) AND
+`:status :error`.
+
+**Per-step placement (rf2-yz57h + framework attribution rf2-mszrz).**
+rf2-mszrz split the pre-mszrz blanket `:rf.error/handler-exception`
+(which the router used to emit for EVERY interceptor-chain throw —
+handler, user interceptor, coeffect injector alike) into THREE
+component-attributed ops via `classify-pipeline-exception`. rf2-yz57h
+places each exception **under the step where it actually occurred**
+rather than collapsing them all onto HANDLER (the pre-rf2-yz57h
+mis-render):
 
 | Trace op | Owning step | Granularity |
 |----------|-------------|-------------|
-| `:rf.error/handler-exception` | HANDLER | step-level (handler / interceptor / coeffect throw — the chain is the unit that threw) |
+| `:rf.error/coeffect-exception` | COEFFECT, the step whose `:id` = `:failing-id` (cofx id) | step-level; falls back to the first COEFFECT step. When the throwing cofx produced no `:rf.cofx/run` (it threw on injection), `project` synthesises a placeholder COEFFECT step (`:no-value? true`) so the card has a home |
+| `:rf.error/interceptor-exception` | INTERCEPTOR (NEW) | step-level; the row matching `:failing-id` to `:interceptor-id` carries the card |
+| `:rf.error/handler-exception` | HANDLER | step-level (only the event handler itself now) |
 | `:rf.error/fx-handler-exception` | SIDE EFFECTS, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
 | `:rf.error/no-such-fx` | SIDE EFFECTS | step-level (fallback) |
 | `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
@@ -2370,6 +2385,43 @@ failing handler's SOURCE-COORD rides the hoisted top-level
 Issues panel's `short-description` / `source-coord` read — the bead's
 original probe checked `:message` / `:source` / `:error-id`, which
 the substrate does not stamp (the empty-tags symptom).
+
+**INTERCEPTOR step (NEW, rf2-yz57h).** The pipeline had no distinct
+interceptor step before rf2-yz57h — interceptors WRAP the handler chain
+rather than appearing as their own cascade entry, so a user-interceptor
+`:before` / `:after` throw had no home. The INTERCEPTOR step
+(`projection/interceptor-step` → `view/render-interceptor-step`) sits
+between COEFFECTS and HANDLER (the cascade position of the chain:
+`:before` runs after coeffects, before the handler). It is
+**CONDITIONAL** — the substrate emits no per-interceptor "ran" trace
+(the chain runs as one unit; only a throw surfaces a trace), so the
+step renders ONLY when an interceptor threw this cascade. Each row is a
+throwing interceptor: the interceptor `:id` (click-to-source via
+`handler-meta`, degrading to plain text since interceptors are plain
+`->interceptor` records and carry no registered coord) + a `:before` /
+`:after` phase chip + the shared "Exception Thrown" card. Badge:
+`:INTERCEPTOR` pulls the `:accent` token (the chain WRAPS the handler;
+they read as one identity family). A `:before` throw skips the handler;
+an `:after` throw runs the handler first, then throws on the way out.
+
+**SKIPPED steps (rf2-yz57h).** When an UPSTREAM `:before`-chain throw
+aborts the cascade — a coeffect injector (`:rf.error/coeffect-exception`)
+or a user interceptor `:before` (`:rf.error/interceptor-exception` +
+`:phase :before`) — the event HANDLER never runs. Pre-rf2-yz57h the
+HANDLER step still rendered its body and the `:db` sub-section read
+"— no :db (handler returned no :db)" — WRONG: the handler's body returns
+a `:db` (e.g. via `bump`), it simply never executed (verified bug,
+buttons 17 / coeffect throw). `projection/mark-skipped-handler` now
+stamps the HANDLER + SIDE EFFECTS steps `:status :skipped` (the
+`handler-skipped-by-upstream?` discriminator). The view renders a SKIPPED
+placeholder body ("The handler did not run — an upstream step threw
+before this step could execute.") instead of the normal body. An
+interceptor `:after` throw is NOT a skip — the handler ran first; the
+throw fired on the way out. `step-status` gains a third value `:skipped`
+(distinct from `:ok` / `:error`); the header glyph is a muted `⊘`
+(`badge/step-status-glyph :skipped`, `:text-tertiary` tone) — a skip is
+NEUTRAL, not a failure, so it does NOT inflate the epoch outcome (the
+failing COEFFECT / INTERCEPTOR step is the load-bearing `:error` signal).
 
 **Inline error card (rf2-ahhgn · refined rf2-wnvid).** `view/error-block`
 renders a red-edged card (sibling to the amber schema-violation card;
@@ -2385,16 +2437,16 @@ carrying:
    keying the chip off recovery alone painted a **spurious** "Rolled
    back" on button-15 — the handler threw before producing any `:db`,
    so nothing committed and nothing reverted (rf2-wnvid fix);
-2. a one-line human headline derived from the OP, **not** the
-   interceptor `:phase` ("The event handler threw." / "The :http/post
-   effect threw." / "A flow's computation threw."). The substrate
-   routes a handler / interceptor / injected-coeffect throw ALL through
-   `:rf.error/handler-exception` with `:reason "Event handler threw."`
-   and `:phase :before` (the handler is the terminal `:before`
-   interceptor), so the pre-rf2-wnvid `:phase`-keyed wording mislabelled
-   a plain handler throw as "An interceptor / coeffect threw (:before)."
-   — the headline now reads off the op and matches the substrate's own
-   `:reason` (rf2-wnvid fix);
+2. a one-line human headline derived from the OP (`error-block-label`),
+   naming the TRUE failing component (rf2-mszrz attribution): "The
+   :button-deck/throwing-cofx coeffect threw during injection." / "The
+   :app/auth interceptor threw on the way in (:before)." / "The event
+   handler threw." / "The :http/post effect threw." / "A flow's
+   computation threw." Pre-mszrz the router routed handler / interceptor /
+   coeffect throws ALL through `:rf.error/handler-exception`, so the
+   headline could only ever read "The event handler threw."; with the
+   rf2-mszrz split the headline reads off the component-attributed op and
+   `:phase`;
 3. the verbatim `ex-info` message (monospace); and
 4. a **collapsible** `<details>` disclosure ("Details", collapsed by
    default) carrying the exception's `ex-data` (via `ei/edn-inspector`)
@@ -2404,10 +2456,12 @@ carrying:
 The pre-rf2-wnvid always-expanded **jump-to-source link is DROPPED**:
 it duplicated the HANDLER step's verb link (the canonical
 jump-to-source) and, on a handler throw where the trace carried no
-coord, degraded to a useless "source unavailable" (rf2-wnvid). HANDLER /
-FLOW inject `(error-blocks step-key errors)` under their body; the SIDE
-EFFECTS step injects per-row cards via `fx-row-with-violations` plus a
-step-level `(error-blocks :side-effects errors)` for unmatched fx ids.
+coord, degraded to a useless "source unavailable" (rf2-wnvid). COEFFECT /
+INTERCEPTOR / HANDLER / FLOW inject `(error-blocks step-key errors)` under
+their body (rf2-yz57h routes coeffect / interceptor throws to their own
+steps); the SIDE EFFECTS step injects per-row cards via
+`fx-row-with-violations` plus a step-level
+`(error-blocks :side-effects errors)` for unmatched fx ids.
 
 **HANDLER `:db` — no phantom `:db` (rf2-wnvid).** The HANDLER step's
 `:db` sub-section (`view/handler-db-diff-block`) renders a

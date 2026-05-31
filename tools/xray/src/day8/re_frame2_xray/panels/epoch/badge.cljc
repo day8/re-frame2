@@ -85,9 +85,13 @@
   rf2-yx1ae — CHILD-DISPATCHES pulls `:text-tertiary` (the same muted
   grey as DISPATCH — same hue family, same cascade-link semantics).
   rf2-rrykz — APP-DB-DIFF pulls `:accent` (the same blue as HANDLER /
-  FLOW — same state-mutation lens semantics)."
+  FLOW — same state-mutation lens semantics).
+  rf2-yz57h — INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
+  the interceptor chain WRAPS the handler; they read as one identity
+  family in the cascade, the chain around the handler body)."
   {:DISPATCH          :text-tertiary
    :COEFFECT          :magenta
+   :INTERCEPTOR       :accent
    :HANDLER           :accent
    :FLOW              :accent
    :SIDE-EFFECTS      :orange
@@ -102,6 +106,7 @@
   pill. Pure data."
   {:DISPATCH          "DISPATCH"
    :COEFFECT          "COEFFECT"
+   :INTERCEPTOR       "INTERCEPTOR"
    :HANDLER           "HANDLER"
    :FLOW              "FLOW"
    :SIDE-EFFECTS      "SIDE EFFECTS"
@@ -364,9 +369,14 @@
 ;; ✗ red); a step with no failure reads `:ok` and paints the quiet ✓.
 
 (def step-status-set
-  "Closed set of per-step statuses (rf2-ahhgn). Tests + the view's
-  glyph-resolver bail-out read this set."
-  #{:ok :error})
+  "Closed set of per-step statuses (rf2-ahhgn · rf2-yz57h). Tests + the
+  view's glyph-resolver bail-out read this set.
+
+  rf2-yz57h adds `:skipped` — a step that never RAN because an upstream
+  `:before`-chain throw aborted the cascade (the handler is skipped when a
+  coeffect injector or a `:before` interceptor throws). Distinct from `:ok`
+  (the step ran cleanly) and `:error` (the step ran + failed)."
+  #{:ok :error :skipped})
 
 (defn step-status?
   "Predicate — `status` keyword is a member of `step-status-set`."
@@ -374,14 +384,18 @@
   (contains? step-status-set status))
 
 (defn step-status-token-key
-  "Theme-token keyword for a per-step status glyph colour (rf2-ahhgn):
-    :ok    → :success  (✓ green)
-    :error → :error    (✗ red)
+  "Theme-token keyword for a per-step status glyph colour (rf2-ahhgn ·
+  rf2-yz57h):
+    :ok      → :success         (✓ green)
+    :error   → :error           (✗ red)
+    :skipped → :text-tertiary   (⊘ muted — neutral; the step didn't run,
+                                  it is NOT a failure)
   Falls back to `:success` for unknown statuses so a never-failed step
   paints the quiet success tick."
   [status]
   (case status
-    :error :error
+    :error   :error
+    :skipped :text-tertiary
     :success))
 
 (defn step-status-colour
@@ -391,13 +405,15 @@
        (get tokens/tokens :success)))
 
 (defn step-status-glyph
-  "Single-char glyph for a per-step status (rf2-ahhgn):
-    :ok    → \"✓\"
-    :error → \"✗\"
+  "Single-char glyph for a per-step status (rf2-ahhgn · rf2-yz57h):
+    :ok      → \"✓\"
+    :error   → \"✗\"
+    :skipped → \"⊘\"  (circled-slash — 'did not run', muted/neutral)
   Defaults to the success tick for unknown statuses."
   [status]
   (case status
-    :error "✗"
+    :error   "✗"
+    :skipped "⊘"
     "✓"))
 
 ;; ---- Flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------

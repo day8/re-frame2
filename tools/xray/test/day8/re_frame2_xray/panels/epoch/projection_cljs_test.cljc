@@ -71,6 +71,8 @@
 (def ^:private schema-hot-reload-ev    teb/schema-hot-reload-ev)
 (def ^:private handler-exception-ev    teb/handler-exception-ev)
 (def ^:private fx-handler-exception-ev teb/fx-handler-exception-ev)
+(def ^:private coeffect-exception-ev   teb/coeffect-exception-ev)
+(def ^:private interceptor-exception-ev teb/interceptor-exception-ev)
 
 (defn- record
   "Build a synthetic `:rf/epoch-record` for projection."
@@ -1781,9 +1783,9 @@
                          (view-render-ev ::v [:s])])
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
-      (is (= 10 (count proj/badge-set))
+      (is (= 11 (count proj/badge-set))
           "rf2-sc3r1 7 + rf2-yx1ae + rf2-rrykz + rf2-xgeag (SCHEMA-HOT-RELOAD,
-           renamed from SCHEMA-VIOLATIONS) = 10 badges"))))
+           renamed from SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 11 badges"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 
@@ -2436,3 +2438,206 @@
       (is (= :ok (proj/epoch-outcome steps)))
       (is (every? #(nil? (:errors %)) steps))
       (is (every? #(= :ok (proj/step-status %)) steps)))))
+
+;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR step --------
+;;
+;; rf2-mszrz split the blanket `:rf.error/handler-exception` into three
+;; component-attributed ops; rf2-yz57h places each under the step where it
+;; actually occurred (coeffect → COEFFECT, interceptor → INTERCEPTOR,
+;; handler → HANDLER) and renders an upstream-skipped HANDLER / SIDE
+;; EFFECTS step as SKIPPED rather than 'ran, returned no :db'.
+
+(deftest exception-op->step-covers-new-ops-test
+  (testing "rf2-yz57h — the new component-attributed ops are in the
+            exception set"
+    (is (contains? proj/cascade-exception-ops :rf.error/coeffect-exception))
+    (is (contains? proj/cascade-exception-ops :rf.error/interceptor-exception))
+    (is (contains? proj/cascade-exception-ops :rf.error/handler-exception))))
+
+;; -- COEFFECT placement (button-19) --------------------------------------
+
+(deftest attach-coeffect-exception-to-matching-step-test
+  (testing "rf2-yz57h — a `:rf.error/coeffect-exception` attaches to the
+            COEFFECT step whose :id matches :failing-id (not HANDLER)"
+    (let [steps [{:step :coeffect :badge :COEFFECT :id :other/cofx}
+                 {:step :coeffect :badge :COEFFECT :id :app/session}
+                 {:step :handler  :badge :HANDLER}]
+          rows  [(proj/exception-row
+                   (coeffect-exception-ev :app/session "cofx boom"))]
+          out   (proj/attach-exceptions steps rows)]
+      (is (nil? (:errors (nth out 0))) "non-matching COEFFECT untouched")
+      (is (= 1 (count (:errors (nth out 1)))) "matching COEFFECT carries it")
+      (is (= :error (:status (nth out 1))) "matching COEFFECT stamped :error")
+      (is (nil? (:errors (nth out 2))) "HANDLER does NOT carry it")))
+
+  (testing "rf2-yz57h — falls back to the FIRST COEFFECT step when no :id
+            matches (e.g. the throwing cofx produced no :rf.cofx/run)"
+    (let [steps [{:step :coeffect :badge :COEFFECT :id :app/session}
+                 {:step :handler  :badge :HANDLER}]
+          rows  [(proj/exception-row
+                   (coeffect-exception-ev :app/missing "cofx boom"))]
+          out   (proj/attach-exceptions steps rows)]
+      (is (= 1 (count (:errors (nth out 0)))))
+      (is (nil? (:errors (nth out 1)))))))
+
+(deftest project-synthesises-coeffect-placeholder-on-throwing-cofx-test
+  (testing "rf2-yz57h — a coeffect-exception with NO matching :rf.cofx/run
+            synthesises a placeholder COEFFECT step (no value), carries the
+            exception, and marks the HANDLER + SIDE EFFECTS skipped"
+    (let [rec   (record [(dispatched-ev [:button-deck/throw-cofx] :ui nil)
+                         (coeffect-exception-ev :button-deck/throwing-cofx
+                                                "cofx boom")]
+                        :button-deck/throw-cofx)
+          steps (proj/project rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (some? cofx) "a COEFFECT step exists for the throwing cofx")
+      (is (= :button-deck/throwing-cofx (:id cofx)))
+      (is (true? (:no-value? cofx)) "placeholder carries :no-value? (no resolved value)")
+      (is (= 1 (count (:errors cofx))) "the exception lands under COEFFECT")
+      (is (= :error (proj/step-status cofx)) "COEFFECT reads :error")
+      (is (some? h) "HANDLER step still present")
+      (is (= :skipped (proj/step-status h))
+          "HANDLER reads :skipped (it never ran — upstream cofx threw)")
+      (is (empty? (:errors h)) "HANDLER carries NO exception (it's under COEFFECT)")
+      (is (= :error (proj/epoch-outcome steps))
+          "epoch outcome reflects the coeffect exception"))))
+
+;; -- INTERCEPTOR step (button-17 :before / button-18 :after) -------------
+
+(deftest interceptor-step-projection-test
+  (testing "rf2-yz57h — `interceptor-step` is nil when no interceptor threw"
+    (is (nil? (proj/interceptor-step [(dispatched-ev [:x] :ui nil)
+                                      (run-end-ev 1)]))))
+
+  (testing "rf2-yz57h — `interceptor-step` projects one row per throwing
+            interceptor, carrying :interceptor-id + :phase"
+    (let [events [(interceptor-exception-ev :app/auth :before "intc boom")]
+          step   (proj/interceptor-step events)]
+      (is (= :interceptor (:step step)))
+      (is (= :INTERCEPTOR (:badge step)))
+      (is (= 1 (count (:rows step))))
+      (is (= :app/auth (:interceptor-id (first (:rows step)))))
+      (is (= :before   (:phase (first (:rows step))))))))
+
+(deftest attach-interceptor-exception-to-interceptor-step-test
+  (testing "rf2-yz57h — a `:rf.error/interceptor-exception` attaches to the
+            INTERCEPTOR step (not HANDLER)"
+    (let [steps [{:step :interceptor :badge :INTERCEPTOR
+                  :rows [{:interceptor-id :app/auth :phase :before}]}
+                 {:step :handler :badge :HANDLER}]
+          rows  [(proj/exception-row
+                   (interceptor-exception-ev :app/auth :before "intc boom"))]
+          out   (proj/attach-exceptions steps rows)]
+      (is (= 1 (count (:errors (nth out 0)))) "INTERCEPTOR carries the exception")
+      (is (= :error (:status (nth out 0))) "INTERCEPTOR stamped :error")
+      (is (nil? (:errors (nth out 1))) "HANDLER untouched"))))
+
+(deftest project-interceptor-before-end-to-end-test
+  (testing "rf2-yz57h — button-17 live scenario: a `:before` interceptor
+            threw → INTERCEPTOR step present, carries the exception, HANDLER
+            skipped"
+    (let [rec   (record [(dispatched-ev [:button-deck/throw-interceptor] :ui nil)
+                         (interceptor-exception-ev
+                           :button-deck/throwing-interceptor :before
+                           "interceptor :before boom")]
+                        :button-deck/throw-interceptor)
+          steps (proj/project rec)
+          intc  (some #(when (= :interceptor (:step %)) %) steps)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (some? intc) "INTERCEPTOR step present")
+      (is (= 1 (count (:errors intc))) "exception under INTERCEPTOR")
+      (is (= :error (proj/step-status intc)))
+      (is (= :skipped (proj/step-status h))
+          "HANDLER skipped — a :before interceptor threw on the way in")
+      (is (empty? (:errors h)) "HANDLER carries no exception")
+      ;; cascade-position: INTERCEPTOR sits BEFORE HANDLER
+      (let [step-kws (mapv :step steps)
+            i-idx    (.indexOf step-kws :interceptor)
+            h-idx    (.indexOf step-kws :handler)]
+        (is (< i-idx h-idx) "INTERCEPTOR renders before HANDLER"))
+      (is (= :error (proj/epoch-outcome steps))))))
+
+(deftest project-interceptor-after-end-to-end-test
+  (testing "rf2-yz57h — button-18 live scenario: an `:after` interceptor
+            threw → INTERCEPTOR step present, HANDLER NOT skipped (it ran
+            first; the throw fired on the way out)"
+    (let [rec   (record [(dispatched-ev [:button-deck/throw-interceptor-after] :ui nil)
+                         ;; the handler ran + committed a :db on the way in
+                         (db-pending-ev {:n 1})
+                         (db-changed-ev [[[:n] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (interceptor-exception-ev
+                           :button-deck/throwing-interceptor-after :after
+                           "interceptor :after boom")]
+                        :button-deck/throw-interceptor-after)
+          steps (proj/project rec)
+          intc  (some #(when (= :interceptor (:step %)) %) steps)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (some? intc) "INTERCEPTOR step present")
+      (is (= :after (:phase (first (:rows intc)))) "the row records the :after phase")
+      (is (= 1 (count (:errors intc))) "exception under INTERCEPTOR")
+      (is (not= :skipped (proj/step-status h))
+          "HANDLER NOT skipped — it ran before the :after interceptor threw")
+      (is (true? (:db-write? h)) "the handler DID write a :db (it ran)")
+      (is (= :error (proj/epoch-outcome steps))))))
+
+;; -- SKIPPED-step marking -------------------------------------------------
+
+(deftest mark-skipped-handler-test
+  (testing "rf2-yz57h — a coeffect throw marks HANDLER + SIDE EFFECTS skipped"
+    (let [steps  [{:step :handler} {:step :side-effects} {:step :subscriptions}]
+          events [(coeffect-exception-ev :app/session "boom")]
+          out    (proj/mark-skipped-handler steps events)]
+      (is (= :skipped (:status (nth out 0))) "HANDLER skipped")
+      (is (= :skipped (:status (nth out 1))) "SIDE EFFECTS skipped")
+      (is (nil? (:status (nth out 2))) "SUBSCRIPTIONS not stamped here")))
+
+  (testing "rf2-yz57h — a :before interceptor throw marks the handler skipped"
+    (let [out (proj/mark-skipped-handler
+                [{:step :handler}]
+                [(interceptor-exception-ev :app/auth :before "boom")])]
+      (is (= :skipped (:status (first out))))))
+
+  (testing "rf2-yz57h — an :after interceptor throw does NOT mark skipped
+            (the handler ran)"
+    (let [out (proj/mark-skipped-handler
+                [{:step :handler}]
+                [(interceptor-exception-ev :app/auth :after "boom")])]
+      (is (nil? (:status (first out))))))
+
+  (testing "rf2-yz57h — a plain handler throw does NOT mark skipped (the
+            handler ran, then threw)"
+    (let [out (proj/mark-skipped-handler
+                [{:step :handler}]
+                [(handler-exception-ev :e "boom")])]
+      (is (nil? (:status (first out))))))
+
+  (testing "rf2-yz57h — a clean cascade leaves steps untouched"
+    (let [steps [{:step :handler} {:step :side-effects}]]
+      (is (= steps (proj/mark-skipped-handler steps [(run-end-ev 1)]))))))
+
+(deftest step-status-skipped-test
+  (testing "rf2-yz57h — `:skipped` status reads through `step-status`"
+    (is (= :skipped (proj/step-status {:step :handler :status :skipped})))
+    (is (= :ok (proj/step-status {:step :handler})))
+    ;; a step both skipped AND carrying an error reads :error (error wins)
+    (is (= :error (proj/step-status {:step :handler :status :skipped
+                                     :errors [{:message "x"}]})))))
+
+(deftest skipped-handler-not-flagged-error-test
+  (testing "rf2-yz57h — the SKIPPED handler does NOT inflate the epoch
+            outcome (the failing COEFFECT/INTERCEPTOR step is the :error
+            signal; a skip is neutral)"
+    (let [;; clean handler step that was skipped + no real exception on it
+          steps [{:step :coeffect :badge :COEFFECT :id :c :status :error
+                  :errors [{:message "boom"}]}
+                 {:step :handler :status :skipped}]
+          out   (proj/epoch-outcome steps)]
+      (is (= :error out) "the coeffect error drives the outcome")
+      (is (= :skipped (proj/step-status (second steps)))
+          "the skipped handler reads :skipped, not :error"))))
+
+(deftest interceptor-badge-in-badge-set-test
+  (testing "rf2-yz57h — :INTERCEPTOR is a valid badge"
+    (is (proj/valid-badge? :INTERCEPTOR))))
