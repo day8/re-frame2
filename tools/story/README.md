@@ -110,6 +110,30 @@ The substantive implementation contract is decomposed into
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision was made. |
 | [`spec/findings/`](./spec/findings/) | The Phase-1 and Phase-2 research that informed the design (committed audit trail). |
 
+## Running the Story examples
+
+Four Story-enabled builds are wired into the top-level `:dev-http` map
+(`implementation/shadow-cljs.edn`) on the `804x` band, so each runs
+one-command — `npx shadow-cljs watch <build-id>` then open the URL. Each is
+hash-routed: `/#/` is the live app, `/#/stories` mounts the Story shell (the
+Xray preload is wired — press `Ctrl+Shift+C`).
+
+| Build id | Port | Story shell | What it shows |
+|---|---|---|---|
+| `:examples/nine-states-with-stories` | 8040 | http://localhost:8040/#/stories | nine-states showcase (rf2-rgyia) |
+| `:examples/login-with-stories` | 8041 | http://localhost:8041/#/stories | login showcase (rf2-p8v0q) |
+| `:examples/counter-with-stories` | 8042 | http://localhost:8042/#/stories | canonical minimal testbed |
+| `:examples/login-form` | 8043 | http://localhost:8043/#/stories | five-state login-form testbed |
+
+A single watch brings all four up at once:
+
+```bash
+# from implementation/
+npx shadow-cljs watch :examples/nine-states-with-stories \
+  :examples/login-with-stories \
+  :examples/counter-with-stories :examples/login-form
+```
+
 ## Browser testbed guardrails
 
 Story browser tests run in developer worktrees and CI jobs that may overlap.
