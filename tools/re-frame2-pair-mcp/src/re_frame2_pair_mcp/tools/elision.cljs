@@ -31,6 +31,16 @@
     (rf2-vflrg).
   - `get-path` tool: the value at the requested path is run through
     the walker before pr-str.
+  - `list-subscriptions :include-values` tool: each sub-cache entry's
+    `:value` is run through the walker server-side (rf2-f1ose), mirroring
+    `snapshot`'s `:sub-cache` slice — the two read the same reactive
+    cache source, so both MUST redact alike off-box.
+
+  The pull-mode epoch tools (`trace-window` / `watch-epochs`) egress
+  whole `:rf/epoch-record`s, not bare app-db slices — they route
+  through `re-frame.core/projected-record` (the framework's single
+  normative off-box-egress emission site for epoch records; see
+  `re-frame2-pair-mcp.tools.epoch-egress`), NOT this per-slot walker.
 
   ## `:elision` MCP arg
 
@@ -92,3 +102,27 @@
   ([include-large? include-sensitive?]
    (pr-str {base-vocab/include-large-opt     (boolean include-large?)
             base-vocab/include-sensitive-opt (boolean include-sensitive?)})))
+
+(defn elide-sub-value-src
+  "CLJS source for a fn that walks ONE sub-cache entry's `:value` slot
+  through `re-frame.core/elide-wire-value` (rf2-f1ose).
+
+  Returns a source string for an anonymous fn `(fn [entry] ...)` that
+  runs `entry`'s `:value` (the subscription's current deref) through the
+  walker, leaving `:query-v` / `:ref-count` untouched. A subscription
+  whose value derives from a declared-sensitive app-db slot redacts to
+  `:rf/redacted`; a declared-large value elides to
+  `:rf.size/large-elided` — parity with `snapshot`'s `:sub-cache` slice,
+  which reads the SAME reactive cache source (so both redact alike).
+
+  `frame-edn` is the source for the `:frame` opt (a quoted keyword or a
+  runtime `current-frame` call) so the walker resolves the right
+  `[:rf/runtime :elision]` registry; `elision-opts` is the rendered
+  `elision-opts-edn` map threading the `--allow-sensitive-reads` gate
+  through `:rf.size/include-sensitive?`."
+  [frame-edn elision-opts]
+  (str "(fn [entry]"
+       "  (if (contains? entry :value)"
+       "    (let [opts (merge {:frame " frame-edn "} " elision-opts ")]"
+       "      (update entry :value (fn [v] (re-frame.core/elide-wire-value v opts))))"
+       "    entry))"))

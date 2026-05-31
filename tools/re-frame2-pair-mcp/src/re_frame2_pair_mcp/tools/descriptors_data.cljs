@@ -518,7 +518,7 @@
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/projected-record` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build {:type "string"}}
                  :additionalProperties false}})
 
@@ -565,7 +565,7 @@
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/projected-record` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build    {:type "string"}}
                  :additionalProperties false}})
 
@@ -1061,7 +1061,10 @@
                  :properties {:frame          {:type "string"
                                                :description "Frame to read. Accepts bare names (\"rf/default\") or EDN-shaped strings (\":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection -> :reason :ambiguous-frame."}
                               :include-values {:type "boolean"
-                                               :description "When true, each entry carries :value (current deref) and :ref-count alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read)."}
+                                               :description "When true, each entry carries :value (current deref) and :ref-count alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress (rf2-f1ose): a value over a declared-sensitive app-db slot redacts to :rf/redacted, a declared-large value elides to :rf.size/large-elided, when the --allow-sensitive-reads gate is OFF."}
+                              :elision        knobs/elision-property
+                              :include-sensitive {:type "boolean"
+                                                   :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.size/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}
                               :build          {:type "string"}}
                  :additionalProperties false}})
 

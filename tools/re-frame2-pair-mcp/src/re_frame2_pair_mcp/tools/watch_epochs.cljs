@@ -34,6 +34,7 @@
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.cursor :as cursor]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn watch-epochs-tool [conn raw-args]
@@ -44,10 +45,19 @@
         ;; Same fix rf2-ldfnx applied to dispatch.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         since-id  (wire/arg raw-args :since-id)
-        ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
-        ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:
-        ;; single intention-naming predicate `raw-state-allowed?`
+        ;; rf2-c2dtu / rf2-p1qli — the `--allow-sensitive-reads` boot gate
+        ;; forces `:include-sensitive false` when OFF (the default), via
+        ;; the single intention-naming predicate `raw-state-allowed?`
         ;; (positive sense — true when operator opted in at launch).
+        ;; rf2-6wvh5 — Pull-mode
+        ;; `watch-epochs` egresses full epoch records carrying
+        ;; `:db-before` / `:db-after` (and `:trigger-event` /
+        ;; `:trace-events`) app-db snapshots; before rf2-6wvh5 they rode
+        ;; the wire verbatim. The fix routes each egressed record through
+        ;; `re-frame.core/projected-record` — the framework's single
+        ;; normative off-box-egress emission site (Security.md §Epoch
+        ;; privacy posture). When `incl?` is true (gate-ON + explicit
+        ;; opt-in) the records ship raw, mirroring subscribe's bare-drain.
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
@@ -75,11 +85,17 @@
             history-call (if sticky-frame
                            (ef/rt-call 'epoch-history sticky-frame)
                            (ef/rt-call 'epoch-history))
+            ;; rf2-6wvh5 — the `:pred` filter runs on the RAW records
+            ;; server-side (never egressed); the capped `:page` is the
+            ;; egress slice, projected via `projected-record` for off-box
+            ;; egress unless the operator opted in to raw (`incl?`).
+            project?       (not incl?)
+            page-src       (str "(vec (take " limit " matches))")
             form (ef/emit
                    (ef/rt-let
                      ['r             epochs-since-call
                       'matches       (ef/rt-raw matches-form)
-                      'page          (ef/rt-raw (str "(vec (take " limit " matches))"))
+                      'page          (ef/rt-raw (egress/project-page-src page-src project?))
                       'next-id       (ef/rt-raw
                                        "(when (< (count page) (count matches)) (:epoch-id (last page)))")
                       ;; rf2-fb4hn: history-count surfaces the

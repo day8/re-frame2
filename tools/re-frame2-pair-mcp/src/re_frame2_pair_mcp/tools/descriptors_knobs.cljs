@@ -62,14 +62,18 @@
 
 (def elision-property
   "Per-tool descriptor slot for the `:elision` opt-out (rf2-urjnc).
-  Applied to surfaces that surface `:app-db` slots (`snapshot` and
-  `get-path`) — the surfaces where a declared-`:large?` slot or an
-  over-threshold leaf can blow the wire cap on its own. Default
-  `true`."
+  Applied to the direct-read app-db surfaces: the `:app-db` slot readers
+  (`snapshot`, `get-path`) and `list-subscriptions :include-values`'
+  per-sub `:value` (rf2-f1ose) — surfaces where a declared-`:large?`
+  slot or a declared-`:sensitive?` leaf would otherwise ride off-box
+  verbatim. Default `true`. (The pull-mode epoch tools egress whole
+  records via `projected-record`, not this per-slot walker — they have
+  no `:elision` knob; their `:include-sensitive` arg governs projection
+  there.)"
   {:type        "boolean"
    :description (str "Apply the size-elision walker "
                      "(`re-frame.core/elide-wire-value`, rf2-v9tw2) "
-                     "to the `:app-db` slot server-side, before the "
+                     "to the egressed app-db value server-side, before the "
                      "EDN crosses the wire. Default true. "
                      "Schema-driven `:large? true` slots get "
                      "substituted with a "
