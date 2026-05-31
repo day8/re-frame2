@@ -26,46 +26,54 @@ Owner: tools/xray.
 
 ## §1 Purpose & scope
 
-The Trace panel renders the **complete trace arc of a single epoch** — every trace operation the substrate emits during the epoch, in fire order, organised by the epoch's phase shape. It is the comprehensive lens on what happened, complementing:
+The Trace panel renders the **complete trace of a single epoch** — every trace operation the substrate emits during the epoch, in fire order, as a **single flat list of rows** (rf2-aqusw). It is the comprehensive lens on what happened, complementing:
 - the **Epoch panel** (curated handling-pipeline narrative — [`021`](./021-Dynamic-Panel-Designs.md) §9.1), and
 - the **Views panel** (the reactive subgraph as a graph — [`021`](./021-Dynamic-Panel-Designs.md) §3).
 
 The Trace panel's contract is **completeness**: it must surface *every* op-family in the Spec-009 trace vocabulary, including lifecycle ops other panels omit (view unmounted, sub disposed, coeffect run, view mounted).
 
-## §2 Layout
+## §2 Layout (flat list — rf2-aqusw)
 
-- **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the arc.
-- **Arc envelope.** An `EPOCH OPEN` row and an `EPOCH CLOSE` row bracket the arc and carry the epoch-lifecycle ops (`:rf.epoch/*`): open shows epoch id · event · frame · `snapshotted` (from `:rf.epoch/snapshotted`); close shows `:rf.epoch/outcome` (the consumer-facing summary `:ok` / `:blocked` / `:error` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad). Restore/replay/db-replaced lifecycle ops, when they occur, render in the envelope.
-- **Four phase bands** (collapsible), in arc order:
-  - **① DISPATCH** — the event dispatched (trigger + origin).
-  - **② EVENT HANDLING** — coeffects (injected inputs) → handler ran → **flows** (transform the pending `:db`, right after the handler per rf2-u0zz5) → db changed (net, at install). (Interceptors are not separately traced; before-interceptor injection surfaces as COEFFECT rows, after-interceptor effects as the FX/DB rows they produce.)
-  - **③ EFFECTS / FX** — fx handlers (db install + fx execution; flows are NOT here — they run in ② after the handler).
-  - **④ REACTIVE RENDERING** — the reactive flush: subscriptions → views.
-- **Chronological within and across bands** — every row carries a Δt from epoch open; ordering is strict fire order.
+- **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the list.
+- **A single flat list — no hierarchy.** Every op the focused epoch emitted is one row, in strict fire order (oldest-first). There is **no envelope** and **no phase-band nesting** — the 4-band hierarchy was replaced (rf2-aqusw) because it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*` — snapshotted / outcome / restore / replay / db-replaced) render as **ordinary rows** in the flat list (no longer bracketed in an envelope); `:rf.epoch/outcome` carries the consumer-facing summary `:ok` / `:blocked` / `:error` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) (rf2-18g1w / rf2-jppad).
+- **Stage recovers the phase shape flatly (§3a).** The phase information the bands conveyed is recovered per-row by a **stage column** + a **colour-coded left edge** — each row names the Epoch-panel pipeline step it belongs to.
+- **Chronological** — every row carries a Δt from the epoch's first op; ordering is strict fire order.
 - **Show every op** — no default filtering or collapse (completeness-first).
 
 ## §3 Row anatomy
 
-Columns: **Δt · area badge · what-happened · target/detail · duration**.
+Columns: **Δt · stage · area badge · what-happened · target/detail · duration**.
 
-- **Δt** — ms offset from `EPOCH OPEN`.
+- **Δt** — ms offset from the epoch's first op.
+- **stage** — the Epoch-panel pipeline step this op belongs to (§3a): `DISPATCH` · `COEFFECT` · `HANDLER` · `FLOW` · `SIDE EFFECTS` · `SUBSCRIPTIONS` · `VIEWS`. The label rides the step's own colour.
 - **area badge** — a neutral text badge (no per-family colour): `EVENT` · `COEFFECT` · `DB` · `FX` · `FLOW` · `SUB` · `VIEW` · `MACHINE` · `ROUTING` · `EPOCH` · `ERROR` · `WARNING`.
 - **what-happened** — the per-area verb (§5).
 - **target/detail** — the op's subject: event vector, `fx-id → arg`, `sub-id  old→new`, `view-id ← cause-sub`, route id, path, etc.
 - **duration** — a number in **ms**, or `—` when the substrate supplies no timing (§6).
-- **Row click → expand** the full raw trace-event EDN inline (`:op-type` · `:operation` · `:tags` · timing · `:rf.trace/dispatch-id` …) via the first-class edn-inspector widget — the canonical CLJS-value renderer (the shared widget contract — [`021`](./021-Dynamic-Panel-Designs.md) §10, in particular §10.0 + §10.0.2 acceptance properties). The trace panel calls `[ei/edn-inspector value {:panel-id :rf.xray.trace/row-<id> …}]` directly (no facade hop); each row independently collapsible (the per-row `panel-id` qualifier scopes expansion state to that row, on top of the widget's own per-mount UUID).
+- **Colour-coded left edge** — a 3px left border in the row's **stage** colour (§3a). Error / warning rows override the stage colour with their severity colour so a failure stands out (§7).
+- **Row click → open the edn-inspector on the raw trace MAP** inline (`:op-type` · `:operation` · `:tags` · timing · `:rf.trace/dispatch-id` …) via the first-class edn-inspector widget — the canonical CLJS-value renderer (the shared widget contract — [`021`](./021-Dynamic-Panel-Designs.md) §10, in particular §10.0 + §10.0.2 acceptance properties). The trace panel calls `[ei/edn-inspector value {:panel-id :rf.xray.trace/row-<id> …}]` directly (no facade hop); each row independently collapsible (the per-row `panel-id` qualifier scopes expansion state to that row, on top of the widget's own per-mount UUID).
 
-## §4 Phase → op-family placement
+## §3a Stage column + colour-coded left edge (rf2-aqusw)
 
-| Phase | Op-families |
+The flat list recovers the phase information the removed bands conveyed by mapping each op to one of the **7 Epoch-panel pipeline steps** and surfacing it as both an explicit **stage column** (the label) and a **colour-coded left edge** (the at-a-glance colour). The label and colour are reused from the Epoch panel's own badge taxonomy (`panels.epoch.badge`) — **not** a parallel palette — so the Trace stage column + edge match the Epoch numbered cascade exactly. One step model, DRY.
+
+The op → stage mapping (the coarse projection of the §3 area badge onto the 7 Epoch steps):
+
+| Op (area / operation) | Epoch stage |
 |---|---|
-| envelope | `:rf.epoch/*` (open/close/restore/replay/db-replaced) |
-| ① DISPATCH | `:rf.event/dispatched` |
-| ② EVENT HANDLING | `:rf.cofx/*` · `:rf.event/run-start`·`run-end` · **`:rf.flow/*`** (right after handler) · `:rf.event/db-changed` · machine-as-handler transitions (`:rf.machine/*`, `:rf.machine.microstep/*`). Interceptors not separately traced. |
-| ③ EFFECTS / FX | `:rf.fx/*` (one row per fx-id) · machine `:after`/spawn/timer effects (`:rf.machine.timer/*`, `:rf.machine.spawn*/*`, lifecycle) · routing nav (`:rf.route/*`) |
-| ④ REACTIVE RENDERING | `:rf.sub/*` · `:rf.view/*` |
+| `:rf.event/dispatched` | DISPATCH |
+| `:rf.event/run-start` · `run-end` (handler body) | HANDLER |
+| `:rf.cofx/*` (COEFFECT) | COEFFECT |
+| `:rf.flow/*` (FLOW) | FLOW |
+| `:rf.machine/*` (machine-as-handler) | HANDLER |
+| `:rf.event/db-changed` (DB) | SIDE EFFECTS |
+| `:rf.fx/*` (FX) | SIDE EFFECTS |
+| `:rf.route/*` (ROUTING) | SIDE EFFECTS |
+| `:rf.sub/*` (SUB) | SUBSCRIPTIONS |
+| `:rf.view/*` (VIEW) | VIEWS |
+| `:rf.epoch/*` (EPOCH lifecycle) | DISPATCH (muted grey) |
 
-Errors & warnings are cross-cutting — see §7. Child epochs spawned by a `:dispatch` fx link/nest from their originating fx row (§12).
+Errors / warnings are cross-cutting (§7): the stage column still labels the step where the op chronologically occurred, but the left edge rides the severity colour.
 
 ## §5 What-happened verb taxonomy
 
@@ -92,40 +100,38 @@ Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flo
 
 ## §7 Errors & warnings
 
-Cross-cutting, **not a phase**. An `:rf.error/*` / `:rf.warning/*` op renders **inline at its chronological point** within whatever band it occurred in, visually emphasised so failures stand out while scanning (and error vs warning distinguishable) — exact treatment delegated to Figma (§8). It carries the failing op's context (the `:rf.error/*` operation id + ex-data). The same diagnostics also populate the Issues panel ([`021`](./021-Dynamic-Panel-Designs.md) §8).
+Cross-cutting, **not a stage**. An `:rf.error/*` / `:rf.warning/*` op renders **inline at its chronological point** in the flat list, visually emphasised so failures stand out while scanning (and error vs warning distinguishable) — the row's left edge rides the severity colour over the stage colour; exact treatment delegated to Figma (§8). It carries the failing op's context (the `:rf.error/*` operation id + ex-data). The same diagnostics also populate the Issues panel ([`021`](./021-Dynamic-Panel-Designs.md) §8).
 
 ## §8 Visual encoding (delegated to Figma)
 
 Colour and visual styling are intentionally **not specified here** — to be designed in Figma. The design must, however, make these dimensions visually distinguishable:
 
-- **Phase band** — each of the 4 bands (plus the epoch envelope) reads as a distinct segment of the arc (e.g. a band header + left rail).
+- **Stage** — each row names its Epoch pipeline step (§3a) in the **stage column** and a **colour-coded left edge** reusing the Epoch step palette (`panels.epoch.badge`). The stage column + edge must read together at a glance.
 - **Op-family** — the area badge identifies the family (EVENT · COEFFECT · DB · FX · FLOW · SUB · VIEW · MACHINE · ROUTING · EPOCH).
 - **Outcome** — the what-happened state is legible at a glance, with at least these tiers distinguished: created/changed/recalculated/mounted · cache-hit/ran-unchanged/skipped · disposed/unmounted · queued/pending.
-- **Errors / warnings** — clearly emphasised, distinct from normal ops and from each other.
+- **Errors / warnings** — clearly emphasised, distinct from normal ops and from each other (the edge rides the severity colour).
 
-## §9 Canonical layout
+## §9 Canonical layout (flat list — rf2-aqusw)
 
 ```
-○ EPOCH OPEN   #42 :counter-inc · frame :rf/default · snapshotted
-▾ ① DISPATCH
-    +0.0  EVENT     dispatched      [:counter-inc] from view↗           —
-▾ ② EVENT HANDLING
-    +0.0  COEFFECT  run             :now → #inst…                      0.1 ms
-    +0.1  EVENT     handler ran     reg-event-db                       0.2 ms
-    +0.3  FLOW      computed        :totals → [:totals]                1.5 ms
-    +1.8  DB        changed         [:counter] 1 → 2 · [:totals] 42      —
-▾ ③ EFFECTS / FX
-    +1.9  FX        :http-xhrio     GET /api/data (queued)              —
-    !2.5  ERROR     fx-handler-exc  :bad-fx "No such fx"               —
-▾ ④ REACTIVE RENDERING
-    +2.6  SUB       recalculated    :counter/value 1→2                 0.3 ms
-    +2.9  SUB       ran · unchanged :counter/parity                    0.1 ms
-    +3.0  SUB       disposed        :cart/preview (no readers)          —
-    +3.1  VIEW      re-rendered     counter-display ← :counter/value   1.8 ms
-    +4.9  VIEW      unmounted       old-tooltip                         —
-    +4.9  VIEW      mounted         new-tooltip                        0.4 ms
-● EPOCH CLOSE  outcome :ok
++0.0  DISPATCH       EVENT     dispatched      [:counter-inc] from view↗       —
++0.0  EPOCH          EPOCH     snapshotted     #42 · frame :rf/default          —
++0.0  COEFFECT       COEFFECT  run             :now → #inst…                   0.1 ms
++0.1  HANDLER        EVENT     handler ran     reg-event-db                    0.2 ms
++0.3  FLOW           FLOW      computed        :totals → [:totals]             1.5 ms
++1.8  SIDE EFFECTS   DB        changed         [:counter] 1 → 2 · [:totals] 42  —
++1.9  SIDE EFFECTS   FX        :http-xhrio     GET /api/data (queued)           —
+!2.5  SIDE EFFECTS   ERROR     fx-handler-exc  :bad-fx "No such fx"             —
++2.6  SUBSCRIPTIONS  SUB       recalculated    :counter/value 1→2              0.3 ms
++2.9  SUBSCRIPTIONS  SUB       ran · unchanged :counter/parity                 0.1 ms
++3.0  SUBSCRIPTIONS  SUB       disposed        :cart/preview (no readers)       —
++3.1  VIEWS          VIEW      re-rendered     counter-display ← :counter/value 1.8 ms
++4.9  VIEWS          VIEW      unmounted       old-tooltip                      —
++4.9  VIEWS          VIEW      mounted         new-tooltip                     0.4 ms
++5.0  DISPATCH       EPOCH     outcome :ok     #42                              —
 ```
+
+The stage column (DISPATCH / COEFFECT / HANDLER / FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS) + the colour-coded left edge recover, flatly, the phase shape the removed bands carried.
 
 ## §10 Data sources (grounding)
 
@@ -147,25 +153,24 @@ The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no
 
 ## §12 Child & nested epochs
 
-The panel renders **one** epoch's arc; work that produces *other* epochs is shown by relationship, never absorbed:
-- **Same-epoch work renders inline** — machine microsteps (`:always` / `:raise` cascades) and any synchronous sub-steps that share this epoch's `dispatch-id` are ordinary rows in their phase.
-- **Separate epochs render as a `↗` link** on the originating op row — `:dispatch` / `:dispatch-later` fx, async responses (`:http-xhrio` → on-success/on-failure), routing `:rf.route/handle-url-change`, and machine `:after` / spawn / timer-fired. The row shows the spawning op + the child epoch id; clicking jumps the panel to that epoch. The child's own arc is **not** inlined (it has its own envelope).
-- **Parent breadcrumb** — EPOCH OPEN shows `◂ from #N :parent-event` when this epoch was spawned by another, so causality is traceable both directions.
+The panel renders **one** epoch's trace; work that produces *other* epochs is shown by relationship, never absorbed:
+- **Same-epoch work renders inline** — machine microsteps (`:always` / `:raise` cascades) and any synchronous sub-steps that share this epoch's `dispatch-id` are ordinary rows at their fire-order position (their stage column labels the step).
+- **Separate epochs render as a `↗` link** on the originating op row — `:dispatch` / `:dispatch-later` fx, async responses (`:http-xhrio` → on-success/on-failure), routing `:rf.route/handle-url-change`, and machine `:after` / spawn / timer-fired. The row shows the spawning op + the child epoch id; clicking jumps the panel to that epoch. The child's own trace is **not** inlined (it has its own focused-epoch scope).
+- **Parent breadcrumb** — the `:rf.epoch/snapshotted` row shows `◂ from #N :parent-event` when this epoch was spawned by another, so causality is traceable both directions.
 
-## §13 Empty bands, outcomes & short-circuit
+## §13 Outcomes & short-circuit
 
-- **Empty phase bands** render their header dimmed with `(none)` — never hidden — so the 4-phase shape is always legible and the absence is itself information (a no-op event has empty ③④; a blocked navigation has empty ④).
-- **Outcome** — EPOCH CLOSE reads the `:outcome` tag off the `:rf.epoch/outcome` trace op (the consumer-facing summary the runtime emits paired with `:rf.epoch/snapshotted` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, frame destroyed mid-drain) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
-- **Short-circuit** — on a throw (`:rf.error/*`) the arc stops at the failing op (inline error row); later phases simply have no ops; outcome `:error`. No fabricated rows.
+- **No empty-band scaffolding (rf2-aqusw).** With the bands removed, there is no dimmed `(none)` placeholder — an op simply has a row or it does not. A no-op event renders only the ops it produced (its absence of SIDE EFFECTS / SUBSCRIPTIONS / VIEWS rows is itself information). The stage column makes "which steps ran" legible without empty scaffolding.
+- **Outcome** — the `:rf.epoch/outcome` op renders as an ordinary row carrying the `:outcome` tag (the consumer-facing summary the runtime emits paired with `:rf.epoch/snapshotted` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, frame destroyed mid-drain) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
+- **Short-circuit** — on a throw (`:rf.error/*`) the list stops at the failing op (inline error row); later steps simply have no rows; outcome `:error`. No fabricated rows.
 
 ## §14 States & responsive
 
 - **No epoch selected** — "Select an event to see its trace arc."
-- **Collapsed band** — header + per-band op count.
-- **Expanded row** — inline EDN block (data-inspector) between the row and the next.
-- **Long arc** — panel scrolls; **band headers are sticky** so the current phase stays labelled (show-all can be 100+ rows).
+- **Expanded row** — inline EDN block (the edn-inspector on the raw trace map) between the row and the next.
+- **Long list** — panel scrolls (show-all can be 100+ rows); the stage column on every row keeps the pipeline step labelled without sticky headers.
 - **Truncation** — long target/detail values truncate with ellipsis in the row; full value via row-expand (EDN) or hover.
-- **Responsive / docked width** — must stay usable at Xray's narrow docked width (≈420px). Δt + area-badge + verb columns are fixed/compact; the **target/detail column is the flexible one and truncates first**; duration right-aligns and may hide under a width threshold. No horizontal scroll of the row grid, no wrapping that breaks the band rhythm.
+- **Responsive / docked width** — must stay usable at Xray's narrow docked width (≈420px). Δt + stage + area-badge + verb columns are fixed/compact; the **target/detail column is the flexible one and truncates first**; duration right-aligns and may hide under a width threshold. No horizontal scroll of the row grid, no wrapping that breaks the row rhythm.
 
 ## §15 Cross-panel navigation (v1 map)
 
@@ -183,6 +188,13 @@ Linkable rows carry a `↗` jump affordance to the relevant panel (restoring/ext
 This is **interaction wiring, not visual** — Figma need only render a generic `↗` affordance on linkable rows; the destination map above is the behavioral spec and each target panel must accept a "focus on X" anchor (App-db scroll-to-path, Machine focus-at-state, …). The exact wiring is an implementation concern that can refine post-Figma without affecting the visual design.
 
 ## §16 Worked epoch shapes (so the design isn't over-fit to the counter)
+
+> The band groupings (`▾ ② EVENT HANDLING …`) below are **illustrative
+> only** — they show *which ops a given epoch produces*, not the layout.
+> Post-rf2-aqusw the panel renders these ops as one flat list; the stage
+> column on each row carries the step (EVENT HANDLING ops split across the
+> HANDLER / COEFFECT / FLOW stages, EFFECTS ops onto SIDE EFFECTS, etc.
+> per §3a).
 
 **Routing** `[:rf.route/navigate :app/settings]`:
 ```
@@ -210,7 +222,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 ▾ ④ REACTIVE  VIEW rendered-to-string (one-shot — no re-render cascade)
 ● EPOCH CLOSE outcome :ok   (platform :server)
 ```
-**Async** — `:http-xhrio` shows `queued`; the response lands as a separate epoch (`↗`). **Throw** — `ERROR handler-exception` inline in ②, arc short-circuits, outcome `:error`. **No-op** — only ② populated; ③④ dimmed `(none)`.
+**Async** — `:http-xhrio` shows `queued`; the response lands as a separate epoch (`↗`). **Throw** — `ERROR handler-exception` inline at its fire-order point, list short-circuits, outcome `:error`. **No-op** — only DISPATCH + HANDLER rows; no SIDE EFFECTS / SUBSCRIPTIONS / VIEWS rows (their absence is the signal — no empty-band scaffolding post-rf2-aqusw).
 
 ## §17 Design-system conformance
 
@@ -218,53 +230,53 @@ Type scale, spacing, density, iconography, base surfaces/borders MUST conform to
 
 ## Appendix A — Op-handling matrix (the "covers ALL trace" checklist)
 
-Every Spec-009 trace operation → its row. `dur?` = number once timing instrumentation lands (§6), else `—`. Errors/warnings collapse to one generic rule each; registration/boot ops are out of scope.
+Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pipeline step each op maps to (§3a — the flat panel's stage column + colour-coded edge). `dur?` = number once timing instrumentation lands (§6), else `—`. Errors/warnings collapse to one generic rule each; registration/boot ops are out of scope.
 
-| Operation | Phase | Area | Row label | Target / detail | Dur |
+| Operation | Stage (§3a) | Area | Row label | Target / detail | Dur |
 |---|---|---|---|---|---|
-| `:rf.epoch/snapshotted` | envelope | EPOCH | snapshotted | frame · snapshot | — |
-| `:rf.epoch/outcome` | envelope | EPOCH | outcome `:ok/:blocked/:error` | outcome (+platform) | — |
-| `:rf.epoch/restored` · `db-replaced` · `replay-conflict` · `reset-*` | envelope | EPOCH | restored / db-replaced / replay-conflict / reset | reason | — |
-| `:rf.event/dispatched` | ① | EVENT | dispatched | event-vector + origin | — |
-| `:rf.cofx` (inject) | ② | COEFFECT | run | cofx-id → value | dur? |
-| `:rf.cofx/skipped-on-platform` | ② | COEFFECT | skipped-on-platform | cofx-id | — |
-| `:rf.event/run-start`+`run-end` | ② | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
-| `:rf.event/db-changed` | ② | DB | changed | path old → new | — |
-| `:rf.machine/event-received` | ② | MACHINE | event-received | event | — |
-| `:rf.machine/guard-evaluated` | ② | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
-| `:rf.machine.microstep/transition` · `:rf.machine/transition` | ② | MACHINE | transition (×microsteps) | from → to | — |
-| `:rf.machine/action-ran` | ② | MACHINE | action-ran | action-id | dur? |
-| `:rf.machine.lifecycle/created` | ② | MACHINE | created | machine-id | — |
-| `:rf.machine/system-id-bound` · `system-id-released` | ② | MACHINE | system-id-bound/released | system-id | — |
-| `:rf.machine/snapshot-updated` | ② | MACHINE | snapshot-updated | (or fold into DB) | — |
-| `:rf.fx/handled` (per fx-id) | ③ | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
-| `:rf.fx/do-fx` | ③ | FX | (fx batch; usually elided to per-fx rows) | — | — |
-| `:rf.fx/override-applied` | ③ | FX | override-applied | fx-id | — |
-| `:rf.fx/skipped-on-platform` | ③ | FX | skipped-on-platform | fx-id | — |
-| `:rf.flow/computed` | ② | FLOW | computed | flow-id → path | dur? |
-| `:rf.flow/cleared` · `failed` · `skip` | ② | FLOW | cleared / failed / skipped | flow-id | — |
-| `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | ③ | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
-| `:rf.route/navigation-blocked` | ② / ③ | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
-| `:rf.warning/no-not-found-route` | inline (its phase) | WARNING | no-not-found-route | url (unmatched, no `:rf.route/not-found` route registered) | — |
-| `:rf.event/dispatched [:rf.route/handle-url-change …]` | ① | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
-| `:rf.machine.timer/scheduled` | ③ | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
-| `:rf.machine.timer/fired` | own epoch | MACHINE | timer-fired | delay · state | — |
-| `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | ③ | MACHINE | timer-stale / timer-cancelled | state | — |
-| `:rf.machine.timer/skipped-on-server` | ③ | MACHINE | timer-skipped-on-server | state | — |
-| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | ③ | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
-| `:rf.machine/after` · `done` · `finished` | ② / ③ | MACHINE | after / done / finished | delay / output | — |
-| `:rf.sub/create` | ④ | SUB | created | sub-id | — |
-| `:rf.sub/run`+`computed` (value-changed? ✓) | ④ | SUB | recalculated | sub-id  old → new | dur? |
-| `:rf.sub/run`+`computed` (value-changed? ✗) | ④ | SUB | ran-unchanged | sub-id | dur? |
-| `:rf.sub/skip` · `skipped` | ④ | SUB | cache-hit | sub-id | — |
-| `:rf.sub/dispose` | ④ | SUB | disposed | sub-id · query-v · `:reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`) · frame | — |
-| `:rf.view/render`+`rendered` (mount? ✗) | ④ | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
-| `:rf.view/render` (mount? ✓) | ④ | VIEW | mounted | view-id | `elapsed-ms` |
-| `:rf.view/skip` | ④ | VIEW | skipped | view-id | — |
-| `:rf.view/unmounted` | ④ | VIEW | unmounted | view-id | — |
-| `:rf.view/dropped-after` · `rendered-cap-reached` | ④ | VIEW | dropped / cap-reached | view-id | — |
-| **`:rf.error/*`** (any) | inline (its phase) | ERROR | the `operation` id | ex-data | — |
-| **`:rf.warning/*`** (any) | inline (its phase) | WARNING | the `operation` id | context | — |
+| `:rf.epoch/snapshotted` | DISPATCH | EPOCH | snapshotted | frame · snapshot | — |
+| `:rf.epoch/outcome` | DISPATCH | EPOCH | outcome `:ok/:blocked/:error` | outcome (+platform) | — |
+| `:rf.epoch/restored` · `db-replaced` · `replay-conflict` · `reset-*` | DISPATCH | EPOCH | restored / db-replaced / replay-conflict / reset | reason | — |
+| `:rf.event/dispatched` | DISPATCH | EVENT | dispatched | event-vector + origin | — |
+| `:rf.cofx` (inject) | COEFFECT | COEFFECT | run | cofx-id → value | dur? |
+| `:rf.cofx/skipped-on-platform` | COEFFECT | COEFFECT | skipped-on-platform | cofx-id | — |
+| `:rf.event/run-start`+`run-end` | HANDLER | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
+| `:rf.event/db-changed` | SIDE EFFECTS | DB | changed | path old → new | — |
+| `:rf.machine/event-received` | HANDLER | MACHINE | event-received | event | — |
+| `:rf.machine/guard-evaluated` | HANDLER | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
+| `:rf.machine.microstep/transition` · `:rf.machine/transition` | HANDLER | MACHINE | transition (×microsteps) | from → to | — |
+| `:rf.machine/action-ran` | HANDLER | MACHINE | action-ran | action-id | dur? |
+| `:rf.machine.lifecycle/created` | HANDLER | MACHINE | created | machine-id | — |
+| `:rf.machine/system-id-bound` · `system-id-released` | HANDLER | MACHINE | system-id-bound/released | system-id | — |
+| `:rf.machine/snapshot-updated` | HANDLER | MACHINE | snapshot-updated | (or fold into DB) | — |
+| `:rf.fx/handled` (per fx-id) | SIDE EFFECTS | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
+| `:rf.fx/do-fx` | SIDE EFFECTS | FX | (fx batch; usually elided to per-fx rows) | — | — |
+| `:rf.fx/override-applied` | SIDE EFFECTS | FX | override-applied | fx-id | — |
+| `:rf.fx/skipped-on-platform` | SIDE EFFECTS | FX | skipped-on-platform | fx-id | — |
+| `:rf.flow/computed` | FLOW | FLOW | computed | flow-id → path | dur? |
+| `:rf.flow/cleared` · `failed` · `skip` | FLOW | FLOW | cleared / failed / skipped | flow-id | — |
+| `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | SIDE EFFECTS | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
+| `:rf.route/navigation-blocked` | SIDE EFFECTS | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
+| `:rf.warning/no-not-found-route` | inline (its stage) | WARNING | no-not-found-route | url (unmatched, no `:rf.route/not-found` route registered) | — |
+| `:rf.event/dispatched [:rf.route/handle-url-change …]` | DISPATCH | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
+| `:rf.machine.timer/scheduled` | SIDE EFFECTS | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
+| `:rf.machine.timer/fired` | SIDE EFFECTS | MACHINE | timer-fired | delay · state | — |
+| `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | SIDE EFFECTS | MACHINE | timer-stale / timer-cancelled | state | — |
+| `:rf.machine.timer/skipped-on-server` | SIDE EFFECTS | MACHINE | timer-skipped-on-server | state | — |
+| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | SIDE EFFECTS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
+| `:rf.machine/after` · `done` · `finished` | SIDE EFFECTS | MACHINE | after / done / finished | delay / output | — |
+| `:rf.sub/create` | SUBSCRIPTIONS | SUB | created | sub-id | — |
+| `:rf.sub/run`+`computed` (value-changed? ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
+| `:rf.sub/run`+`computed` (value-changed? ✗) | SUBSCRIPTIONS | SUB | ran-unchanged | sub-id | dur? |
+| `:rf.sub/skip` · `skipped` | SUBSCRIPTIONS | SUB | cache-hit | sub-id | — |
+| `:rf.sub/dispose` | SUBSCRIPTIONS | SUB | disposed | sub-id · query-v · `:reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`) · frame | — |
+| `:rf.view/render`+`rendered` (mount? ✗) | VIEWS | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
+| `:rf.view/render` (mount? ✓) | VIEWS | VIEW | mounted | view-id | `elapsed-ms` |
+| `:rf.view/skip` | VIEWS | VIEW | skipped | view-id | — |
+| `:rf.view/unmounted` | VIEWS | VIEW | unmounted | view-id | — |
+| `:rf.view/dropped-after` · `rendered-cap-reached` | VIEWS | VIEW | dropped / cap-reached | view-id | — |
+| **`:rf.error/*`** (any) | inline (its stage) | ERROR | the `operation` id | ex-data | — |
+| **`:rf.warning/*`** (any) | inline (its stage) | WARNING | the `operation` id | context | — |
 | **Registration/boot** — `:rf.fx/reg-flow` · `:rf.fx/registered-platforms` · `:rf.cofx/registered-platforms` · `:rf.flow/registered` · `:rf.route/registered` · `:rf.machine.registrar/*` | — | — | OUT OF SCOPE (boot-time, not per-epoch) | — | — |
 
 > Generic rules: any `:rf.error/*` → ERROR row (emphasised, inline, → Issues panel); any `:rf.warning/*` → WARNING row (inline, → Issues). The implementer cross-checks this matrix against the live trace-emit sites; new ops get a row before shipping (the completeness contract, §1).
