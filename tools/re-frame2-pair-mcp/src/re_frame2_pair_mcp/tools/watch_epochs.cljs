@@ -39,7 +39,11 @@
 
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build conn raw-args)
-        frame     (wire/arg-keyword raw-args :frame)
+        ;; rf2-lbm21 — colon-tolerant `:frame` coercion (the shared
+        ;; `fresh-keyword` path) so a `:rf/default`-with-colon frame-id
+        ;; resolves instead of minting the malformed `::rf/default`.
+        ;; Same fix rf2-ldfnx applied to dispatch.
+        frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         since-id  (wire/arg raw-args :since-id)
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:

@@ -238,6 +238,13 @@
   _meta.progressToken) for streaming tools. Non-streaming tools ignore
   it."
   [conn name args extra]
+  ;; rf2-lbm21 — session-sticky operating build. An explicit `:build` on
+  ;; any tool call (except `discover-app`, which owns its success-gated
+  ;; cache lifecycle) becomes the sticky default for subsequent
+  ;; no-`:build` calls. `arg-build` stays a pure read; the write lives
+  ;; here at the single dispatch chokepoint.
+  (when (not= name "discover-app")
+    (wire/stick-build! conn args))
   (let [enabled? (args/parse-bool-arg args :cache)
         ctx      {:conn       conn
                   :name       name

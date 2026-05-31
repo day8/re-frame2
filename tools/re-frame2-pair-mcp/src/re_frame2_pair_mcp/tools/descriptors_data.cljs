@@ -691,6 +691,11 @@
                      "when the path doesn't resolve. The deepest-valid-prefix lets the agent re-aim "
                      "without a binary search. Use this when `snapshot`'s summary mode (default) "
                      "tells you which key carries the answer. "
+                     "Batch read (rf2-lbm21): pass `paths` (plural) — a vector of path vectors — to "
+                     "read N app-db subtrees in ONE round-trip instead of N calls. Returns "
+                     "`{:ok? true :results {<path> {:exists? bool :value <subtree>}}}`; each value is "
+                     "elided exactly like the singular surface. `path` and `paths` are mutually "
+                     "exclusive (supplying both -> :reason :path-and-paths-both-supplied). "
                      "Size-elision (rf2-urjnc): the resolved value is run through "
                      "`re-frame.core/elide-wire-value` server-side — a declared / schema-`:large?` "
                      "slot or an over-threshold leaf returns a `{:rf.size/large-elided ...}` marker "
@@ -703,7 +708,8 @@
                      "Examples: "
                      "1. Hit: {:path \"[:cart :items 0 :sku]\"} -> {:ok? true :exists? true :path [:cart :items 0 :sku] :value \"sku-abc\"}. "
                      "2. Path-not-found: {:path \"[:cart :items 99]\"} -> {:ok? false :reason :path-not-found :path [:cart :items 99] :deepest-valid-prefix [:cart :items]}. "
-                     "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :schema :handle [:rf.elision/at [:big :payload]]}}}.")
+                     "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :schema :handle [:rf.elision/at [:big :payload]]}}}. "
+                     "4. Batch read: {:paths \"[[:cart :total] [:user :id] [:missing :k]]\"} -> {:ok? true :results {[:cart :total] {:exists? true :value 42} [:user :id] {:exists? true :value \"u-1\"} [:missing :k] {:exists? false :value nil}}}.")
    :typicalTokens 500
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
@@ -711,9 +717,19 @@
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
                                                         "(e.g. \"[:cart :items 0 :sku]\") or a JSON array "
                                                         "of segment strings (each parsed as EDN — bare "
-                                                        "strings stay as map-key strings).")
+                                                        "strings stay as map-key strings). Mutually "
+                                                        "exclusive with `paths`.")
                                       :oneOf [{:type "string"}
                                               {:type "array" :items {:type "string"}}]}
+                              :paths {:description (str "Batch read (rf2-lbm21): a vector of paths, each itself "
+                                                        "a path vector — reads N subtrees in one round-trip. "
+                                                        "EDN-encoded (e.g. \"[[:cart :total] [:user :id]]\") or a "
+                                                        "JSON array whose entries are EDN path strings / segment "
+                                                        "arrays. Returns `:results` keyed by each path. Mutually "
+                                                        "exclusive with `path`.")
+                                      :oneOf [{:type "string"}
+                                              {:type "array" :items {:oneOf [{:type "string"}
+                                                                             {:type "array" :items {:type "string"}}]}}]}
                               :frame   {:type "string"
                                         :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
                               :elision knobs/elision-property
@@ -723,7 +739,6 @@
                                                                      "Default false ⇒ sensitive paths return the `:rf/redacted` "
                                                                      "sentinel.")}
                               :build   {:type "string"}}
-                 :required ["path"]
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------

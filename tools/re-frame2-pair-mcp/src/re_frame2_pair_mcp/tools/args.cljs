@@ -151,6 +151,56 @@
             [trimmed]))))
     :else nil))
 
+(defn parse-paths-arg
+  "Normalise the plural `paths` MCP arg into a vector of path vectors —
+  the batch-read shape `get-path` consumes (rf2-lbm21). Each element is
+  itself a path (run through `parse-path-arg`), so a caller can read N
+  app-db subtrees in ONE round-trip instead of N `get-path` calls.
+
+  Accepted shapes from the MCP host:
+
+    - EDN-encoded string  ⇒ `read-string`, then each element is a path.
+                            `\"[[:a :b] [:c 0]]\"` ⇒ `[[:a :b] [:c 0]]`.
+    - JS array            ⇒ each entry parsed as a path. Entries may be
+                            EDN-string paths (`\"[:a :b]\"`) or JS arrays
+                            of segment strings (`[\":a\" \":b\"]`).
+    - CLJS sequential     ⇒ each entry parsed as a path.
+    - nil / missing       ⇒ nil (no batch read; caller falls back to the
+                            singular `:path` arg).
+
+  Each path is coerced with the shared `parse-path-arg` so the segment
+  vocabulary (EDN literals, bare-string map keys, integer indices) is
+  identical to the singular surface — agents learn the shape once.
+  Returns `nil` when the arg is absent / blank / not a collection so
+  the caller can discriminate \"no batch requested\" from \"empty batch\"."
+  [raw]
+  (let [as-seq (cond
+                 (nil? raw)        nil
+                 ;; A JS array's entries may themselves be JS arrays of
+                 ;; segment strings. `(vec raw)` is a SHALLOW conversion —
+                 ;; the outer array becomes a CLJS vector while each inner
+                 ;; element stays a raw JS array, so it reaches
+                 ;; `parse-path-arg` in its raw shape and that fn's
+                 ;; `(array? raw)` arm coerces the segments
+                 ;; (`\":cart\"` ⇒ `:cart`). A deep `js->clj` here would
+                 ;; pre-collapse the inner arrays to vectors-of-STRINGS,
+                 ;; which `parse-path-arg`'s `(vector? raw)` pass-through
+                 ;; arm would NOT coerce. `(vec #js [])` ⇒ `[]` (the
+                 ;; explicit empty batch).
+                 (array? raw)      (vec raw)
+                 (sequential? raw) raw
+                 (string? raw)
+                 (let [trimmed (str/trim raw)]
+                   (when-not (str/blank? trimmed)
+                     (let [parsed (try (cljs.reader/read-string trimmed)
+                                       (catch :default _ ::reader-fail))]
+                       (when (and (not= ::reader-fail parsed)
+                                  (sequential? parsed))
+                         parsed))))
+                 :else nil)]
+    (when (some? as-seq)
+      (mapv parse-path-arg as-seq))))
+
 (defn parse-frames-arg
   "Normalise the `frames` MCP arg into the form the runtime expects.
    Accepts `:all`, the string \"all\", a JS array of strings, or a CLJS

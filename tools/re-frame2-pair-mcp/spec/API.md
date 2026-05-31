@@ -91,12 +91,20 @@ impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools
    before interning. A bare `keyword` on the colon form would mint the
    malformed `::examples/step-deck` and probe a build that doesn't
    exist; that footgun is closed.
-2. **Session-scoped `:resolved-build-id` cache on the conn-atom.**
-   Populated by `discover-app` after a successful preload probe
-   (`wire/mark-resolved-build-id!`, `src/.../tools/wire.cljs` line 108;
-   call sites at `src/.../tools/discover_app.cljs` lines 32 / 42 / 57).
-   Removes the friction of repeating `build: foo` on every tool call
-   after a successful discover-app.
+2. **Session-scoped `:resolved-build-id` cache on the conn-atom — the
+   sticky operating build.** Populated two ways:
+   - by `discover-app` after a successful preload probe
+     (`wire/mark-resolved-build-id!`; call sites at
+     `src/.../tools/discover_app.cljs`), and
+   - by an explicit `:build` arg on **any other** tool call, written
+     back at the `invoke` boundary via `wire/stick-build!` (rf2-lbm21).
+     The first call that names a build sets the session-sticky default;
+     every subsequent call may omit `:build`. `arg-build` itself stays a
+     pure read — the write lives at the single dispatch chokepoint so
+     `discover-app` (which calls `arg-build` to *probe* a build, and
+     caches only on a passing health check) is never forced to cache a
+     build that turned out unusable.
+   Removes the friction of repeating `build: foo` on every op.
 3. **`SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.** The
    final fallback when neither (1) nor (2) is available.
 
@@ -105,12 +113,14 @@ impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools
 (line 416) — the operator may relaunch shadow-cljs against a different
 build id, so the next reconnect starts with no cached resolution.
 
-**Consequence for callers.** After a successful `discover-app {build:
-"my-app"}` (or a discover-app against the default build), subsequent
-tool calls in the same session may omit the `:build` arg even when
-`SHADOW_CLJS_BUILD_ID` is unset and would otherwise default to `:app`.
-The cached resolution carries through. Multi-build workspaces should
-discover-app once per build they intend to target.
+**Consequence for callers.** After **any** call that names a build —
+`discover-app {build: "my-app"}`, or a first `snapshot {build:
+"my-app"}` — subsequent tool calls in the same session may omit the
+`:build` arg even when `SHADOW_CLJS_BUILD_ID` is unset and would
+otherwise default to `:app`. The sticky build carries through; a later
+explicit `:build` both routes that call and re-points the sticky
+default. Multi-build workspaces re-specify `:build` when switching the
+target.
 
 Distinct from the per-session **response** cache (rf2-3rt1f, see
 [`Principles.md`](./Principles.md) § Per-session response cache) —

@@ -35,7 +35,13 @@
 (defn trace-window-tool [conn raw-args]
   (let [ms        (or (wire/arg raw-args :ms) 1000)
         build-id  (wire/arg-build conn raw-args)
-        frame     (wire/arg-keyword raw-args :frame)
+        ;; rf2-lbm21 — coerce `:frame` via the colon-tolerant
+        ;; `->frame-keyword` (the shared `fresh-keyword` path), not the
+        ;; raw `(keyword ...)` of `arg-keyword`. A documented `:rf/default`
+        ;; / `:foo` frame-id passed with its leading colon used to mint
+        ;; the malformed `::rf/default`, matching no frame. Same fix
+        ;; rf2-ldfnx applied to dispatch.
+        frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:
         ;; single intention-naming predicate `raw-state-allowed?`

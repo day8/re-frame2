@@ -129,11 +129,19 @@
     1. Explicit `:build` MCP arg — operator override always wins
        (no surprise from the cache).
     2. Session-scoped resolved-build-id cache on the conn-atom — populated
-       by `discover-app` after a successful preload probe (rf2-l9ixp).
-       Removes the friction of repeating `build: foo` on every tool call
-       after a successful discover-app. Cache resets on nREPL reconnect
+       by `discover-app` after a successful preload probe (rf2-l9ixp) AND
+       by `stick-build!` after an explicit `:build` on any non-discover
+       tool call (rf2-lbm21). Removes the friction of repeating
+       `build: foo` on every tool call. Cache resets on nREPL reconnect
        (same lifecycle as `:probed-builds`).
     3. `SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
+
+  `arg-build` is a PURE READ — it never writes the cache. The
+  session-sticky write happens at the `invoke` boundary via
+  `stick-build!` (rf2-lbm21), deliberately separated so `discover-app`
+  (which resolves a build via `arg-build` to PROBE it, and caches only
+  on a successful health check) is never forced to cache a build that
+  turned out unusable.
 
   The explicit `:build` arg is coerced via
   `re-frame.mcp-base.args/fresh-keyword` (rf2-8ohwv), which strips a
@@ -156,6 +164,26 @@
    (or (base-args/fresh-keyword (arg args :build))
        (conn-resolved-build-id conn)
        (default-build-id))))
+
+(defn stick-build!
+  "Session-sticky operating build (rf2-lbm21). When `args` carries an
+  explicit `:build`, write it into the `:resolved-build-id` cache on the
+  conn-atom so subsequent no-`:build` tool calls inherit it. No-op when
+  no explicit `:build` arg is present (an omitted build must not clobber
+  a previously-stuck one) or when `conn` isn't an atom (test stubs).
+
+  Called from `invoke` for every tool EXCEPT `discover-app` — that tool
+  owns its own success-gated cache lifecycle (it caches via
+  `mark-resolved-build-id!` only after a passing health probe, and must
+  NOT cache a build whose precondition check failed). Here the explicit
+  `:build` is the operator's deliberate operating choice; the tool runs
+  against it regardless, so sticking it eagerly is the right default.
+
+  Returns the conn unchanged for threading convenience."
+  [conn args]
+  (when-let [explicit (base-args/fresh-keyword (arg args :build))]
+    (mark-resolved-build-id! conn explicit))
+  conn)
 
 (defn arg-build-explicit?
   "True iff a deliberate build-id is available without falling back to
