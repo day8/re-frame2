@@ -33,8 +33,17 @@
     another matched char. Rewards tight typing (`evdet` → matches
     `event-detail` with a run on `ev` and `det`).
   - Prefix bonus: +12 when the very first char matches at index 0.
-  - Gap penalty: -1 per unmatched candidate char that sits BETWEEN
-    matched chars (trailing/leading non-matches are free).
+  - Gap penalty: -1 per unmatched candidate char that sits AFTER the
+    first match (rf2-pwxhj). Leading non-matches — before the first
+    matched char — are free; every unmatched char once matching has
+    begun is penalised, including the char immediately after a match
+    and gaps anchored at candidate index 0 (a prefix-anchored match no
+    longer earns a free pass on its internal gaps). Note that a query
+    is only a match when EVERY query char is consumed, so the final
+    matched char is at-or-before the last penalised gap only when the
+    candidate carries trailing chars after the full query is satisfied;
+    those trailing chars are NOT walked (the loop returns on
+    `(= qi q-len)`), so genuine trailing slack stays free.
 
   ## Tie-break
 
@@ -120,7 +129,6 @@
              score 0
              last-match-idx -2
              first-match nil
-             gap-since-match? false
              indices (transient [])]
         (cond
           (= qi q-len)
@@ -152,16 +160,26 @@
                        (+ score bonus)
                        ci
                        (or first-match ci)
-                       false
                        (conj! indices ci)))
+              ;; Gap penalty (rf2-pwxhj): -1 per UNMATCHED candidate
+              ;; char that sits AFTER the first match. The condition is
+              ;; `(>= last-match-idx 0)` — a match has occurred — NOT
+              ;; `(pos? last-match-idx)`. The prior `(pos? ...)` test let
+              ;; a prefix-anchored match (first match at candidate index
+              ;; 0 → last-match-idx 0) escape every internal-gap penalty,
+              ;; and the now-deleted `gap-since-match?` latch (set one
+              ;; iteration too late) let the FIRST unmatched char after
+              ;; any match escape too. Penalising every post-match
+              ;; unmatched char uniformly closes both off-by-ones; leading
+              ;; gaps (before the first match) stay free because
+              ;; last-match-idx is still its -2 sentinel.
               (recur (inc ci)
                      qi
-                     (if (and gap-since-match? (pos? last-match-idx))
+                     (if (>= last-match-idx 0)
                        (dec score)
                        score)
                      last-match-idx
                      first-match
-                     (pos? last-match-idx)
                      indices))))))))
 
 (defn score
