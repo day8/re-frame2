@@ -140,7 +140,7 @@
 
 (deftest registry-installs-trace-handlers
   (testing "register-xray-handlers! installs the epoch-scoped composite
-            sub + the row-expand + band-collapse events"
+            sub + the row-expand event"
     (registry/register-xray-handlers!)
     (is (some? (registrar/handler :sub :rf.xray/trace-feed))
         ":rf.xray/trace-feed sub registered")
@@ -148,12 +148,17 @@
         ":rf.xray.trace/focused-cascade layer-3 sub registered (rf2-wcfsy)")
     (is (some? (registrar/handler :sub :rf.xray/trace-expanded-row-ids))
         ":rf.xray/trace-expanded-row-ids sub registered")
-    (is (some? (registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
-        ":rf.xray/trace-collapsed-band-ids sub registered")
     (is (some? (registrar/handler :event :rf.xray/toggle-trace-row-expand))
-        ":rf.xray/toggle-trace-row-expand event registered")
-    (is (some? (registrar/handler :event :rf.xray/toggle-trace-band-collapse))
-        ":rf.xray/toggle-trace-band-collapse event registered")))
+        ":rf.xray/toggle-trace-row-expand event registered")))
+
+(deftest band-collapse-handlers-are-gone
+  (testing "rf2-aqusw — the flat list lost the phase-band hierarchy, so
+            the band-collapse sub + event MUST NOT register"
+    (registry/register-xray-handlers!)
+    (is (nil? (registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
+        ":rf.xray/trace-collapsed-band-ids sub removed with the bands")
+    (is (nil? (registrar/handler :event :rf.xray/toggle-trace-band-collapse))
+        ":rf.xray/toggle-trace-band-collapse event removed with the bands")))
 
 (deftest filter-handlers-are-gone
   (testing "the chip-filter subs + events MUST NOT register"
@@ -219,10 +224,10 @@
         (is (nil? (find-by-testid tree "rf-xray-trace-axis-row-op-type")))
         (is (nil? (find-by-testid tree "rf-xray-trace-clear-filters")))))))
 
-(deftest arc-renders-envelope-bands-and-rows
-  (testing "spec/023 §2: a focused epoch renders the EPOCH OPEN/CLOSE
-            envelope, the four phase bands in arc order, and the op rows
-            in their bands"
+(deftest flat-list-renders-every-op-as-a-row
+  (testing "rf2-aqusw: a focused epoch renders ALL its ops as a single
+            flat list of rows — no envelope, no phase bands. The
+            epoch-lifecycle ops surface as ordinary rows."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -238,29 +243,28 @@
                                :time 121 :tags {:rf.epoch/outcome :ok}})])])
       (focus! 1)
       (let [tree (trace/Panel)]
-        (is (some? (find-by-testid tree "rf-xray-trace-feed")) "arc container present")
-        (is (some? (find-by-testid tree "rf-xray-trace-envelope-open"))
-            "EPOCH OPEN envelope present")
-        (is (some? (find-by-testid tree "rf-xray-trace-envelope-close"))
-            "EPOCH CLOSE envelope present")
-        (is (some? (find-by-testid tree "rf-xray-trace-outcome-ok"))
-            "the :ok outcome renders on the close envelope")
-        (testing "all four phase bands render"
-          (is (some? (find-by-testid tree "rf-xray-trace-band-dispatch")))
-          (is (some? (find-by-testid tree "rf-xray-trace-band-event-handling")))
-          (is (some? (find-by-testid tree "rf-xray-trace-band-effects")))
-          (is (some? (find-by-testid tree "rf-xray-trace-band-reactive")))
-          (is (some? (find-by-testid tree "rf-xray-trace-band-header-dispatch"))))
-        (testing "the op rows land in their bands"
-          (is (some? (find-by-testid tree "rf-xray-trace-row-1"))
-              "the dispatch row renders")
-          (is (some? (find-by-testid tree "rf-xray-trace-row-2"))
-              "the fx row renders")
-          (is (some? (find-by-testid tree "rf-xray-trace-row-3"))
-              "the reactive sub row renders"))))))
+        (is (some? (find-by-testid tree "rf-xray-trace-feed")) "feed container present")
+        (is (some? (find-by-testid tree "rf-xray-trace-rows"))
+            "the flat row list container renders")
+        (testing "the hierarchy chrome is GONE (rf2-aqusw)"
+          (is (nil? (find-by-testid tree "rf-xray-trace-envelope-open")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-envelope-close")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-band-dispatch")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-band-event-handling")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-band-reactive")))
+          (is (nil? (find-by-testid tree "rf-xray-trace-band-header-dispatch"))))
+        (testing "every op — including the epoch-lifecycle ops — is a flat row"
+          (is (some? (find-by-testid tree "rf-xray-trace-row-0"))
+              "the EPOCH snapshotted lifecycle op is an ordinary row")
+          (is (some? (find-by-testid tree "rf-xray-trace-row-1")) "dispatch row")
+          (is (some? (find-by-testid tree "rf-xray-trace-row-2")) "fx row")
+          (is (some? (find-by-testid tree "rf-xray-trace-row-3")) "sub row")
+          (is (some? (find-by-testid tree "rf-xray-trace-row-8"))
+              "the EPOCH outcome lifecycle op is an ordinary row"))))))
 
-(deftest op-row-renders-the-five-columns
-  (testing "spec/023 §3: each op row carries Δt · area badge ·
+(deftest op-row-renders-the-six-columns
+  (testing "rf2-aqusw: each op row carries Δt · stage · area badge ·
             what-happened · target/detail · duration"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -276,6 +280,10 @@
       (let [tree (trace/Panel)]
         (is (= "+0.0" (last (find-by-testid tree "rf-xray-trace-row-1-time")))
             "Δt column reads +0.0 relative to the epoch origin")
+        (is (= "DISPATCH" (last (find-by-testid tree "rf-xray-trace-row-1-stage")))
+            "stage column reads the Epoch DISPATCH step (dispatched op)")
+        (is (= "VIEWS" (last (find-by-testid tree "rf-xray-trace-row-2-stage")))
+            "stage column reads the Epoch VIEWS step (view render op)")
         (is (= "EVENT" (last (find-by-testid tree "rf-xray-trace-row-1-badge")))
             "area badge column reads the neutral EVENT badge")
         (is (= "dispatched" (last (find-by-testid tree "rf-xray-trace-row-1-verb")))
@@ -287,9 +295,9 @@
         (is (= "—" (last (find-by-testid tree "rf-xray-trace-row-1-duration")))
             "an untimed op renders an em-dash duration")))))
 
-(deftest op-row-carries-op-family-left-border-and-area-attr
-  (testing "spec/023 §3: rows band by op-family 3px left-border + carry
-            data attrs for area + op-family"
+(deftest op-row-carries-colour-coded-stage-edge-and-attrs
+  (testing "rf2-aqusw: rows carry a 3px colour-coded left edge keyed to
+            the Epoch pipeline stage + data attrs for area + stage"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -299,18 +307,28 @@
                     (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                                :dispatch-id 1})
                     (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
-                               :dispatch-id 1})])])
+                               :dispatch-id 1})
+                    (mk-trace {:id 4 :op-type :rf.sub :operation :rf.sub/run})])])
       (focus! 1)
       (let [tree (trace/Panel)]
         (is (= "event" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-1"))))
         (is (= "db" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-2"))))
         (is (= "fx" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-3"))))
-        (is (= "dispatch" (:data-rf-xray-op-family
-                            (node-attrs tree "rf-xray-trace-row-1"))))
+        (testing "the stage data-attr names the Epoch pipeline step"
+          (is (= "DISPATCH" (:data-rf-xray-stage
+                              (node-attrs tree "rf-xray-trace-row-1"))))
+          (is (= "SIDE-EFFECTS" (:data-rf-xray-stage
+                                 (node-attrs tree "rf-xray-trace-row-2")))
+              "the :db commit maps to the Epoch SIDE-EFFECTS step")
+          (is (= "SIDE-EFFECTS" (:data-rf-xray-stage
+                                 (node-attrs tree "rf-xray-trace-row-3")))
+              "the fx op maps to the Epoch SIDE-EFFECTS step")
+          (is (= "SUBSCRIPTIONS" (:data-rf-xray-stage
+                                  (node-attrs tree "rf-xray-trace-row-4")))))
         (let [border (get-in (node-attrs tree "rf-xray-trace-row-1")
                              [:style :border-left])]
           (is (and (string? border) (re-find #"^3px solid " border))
-              "the op-family band is a 3px left-border on the row"))))))
+              "the colour-coded stage band is a 3px left-border on the row"))))))
 
 (deftest error-rows-are-emphasised-inline
   (testing "spec/023 §7: an error op renders inline at its chronological
@@ -784,83 +802,41 @@
             ":rf.xray/open-in-editor fired with the projected coord")
         (is @stop-evt "stopPropagation was called")))))
 
-;; ---- (6) phase bands — spec/023 §13 / §14 -----------------------------
+;; ---- (6) flat list, no hierarchy — rf2-aqusw --------------------------
 
-(deftest empty-band-renders-dimmed-none
-  (testing "spec/023 §13: a no-op event keeps ③④ present with a `(none)`
-            count, never hidden"
+(deftest flat-list-preserves-fire-order-across-stages
+  (testing "rf2-aqusw: ops from different pipeline stages render in ONE
+            flat list, in fire order (oldest-first) — not regrouped into
+            bands. A no-op event no longer renders empty phase bands."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
         [(mk-epoch 1 1
                    [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :time 100 :dispatch-id 1})])])
+                               :time 100 :dispatch-id 1})
+                    (mk-trace {:id 2 :op-type :rf.sub :operation :rf.sub/run :time 110})
+                    (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
+                               :time 120 :dispatch-id 1})])])
       (focus! 1)
       (let [tree (trace/Panel)]
-        (is (some? (find-by-testid tree "rf-xray-trace-band-effects"))
-            "③ EFFECTS band present even when empty")
-        (is (= "(none)" (last (find-by-testid tree "rf-xray-trace-band-count-effects")))
-            "an empty band's count reads (none)")
-        (is (true? (:data-rf-xray-empty
-                     (node-attrs tree "rf-xray-trace-band-header-effects")))
-            "the empty band header carries the empty attr")))))
-
-(deftest collapsing-a-band-hides-its-rows
-  (testing "spec/023 §2 / §14: collapsing a band hides its rows; the
-            header stays"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 1
-                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :time 100 :dispatch-id 1})])])
-      (focus! 1)
-      ;; expanded by default — the dispatch row + its band rows ul render
-      (let [tree (trace/Panel)]
-        (is (some? (find-by-testid tree "rf-xray-trace-band-rows-dispatch")))
-        (is (some? (find-by-testid tree "rf-xray-trace-row-1"))))
-      ;; collapse the dispatch band → rows hidden, header remains
-      (rf/dispatch-sync [:rf.xray/toggle-trace-band-collapse :dispatch])
-      (let [tree (trace/Panel)]
-        (is (nil? (find-by-testid tree "rf-xray-trace-band-rows-dispatch"))
-            "collapsed band hides its rows ul")
-        (is (nil? (find-by-testid tree "rf-xray-trace-row-1"))
-            "the band's row is hidden when collapsed")
-        (is (some? (find-by-testid tree "rf-xray-trace-band-header-dispatch"))
-            "the band header stays so the phase is still labelled")))))
-
-(deftest band-header-click-fires-toggle-event
-  (testing "spec/023 §2: clicking a non-empty band header dispatches
-            :rf.xray/toggle-trace-band-collapse with the band id"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 1
-                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :time 100 :dispatch-id 1})])])
-      (focus! 1)
-      (let [dispatches (atom [])]
-        (with-redefs [rf/dispatch* (fn
-                                     ([ev]    (swap! dispatches conj ev) nil)
-                                     ([ev _o] (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/Panel)
-                header  (find-by-testid tree "rf-xray-trace-band-header-dispatch")
-                handler (:on-click (second header))]
-            (is (some? header))
-            (is (some? handler) "non-empty band header carries on-click")
-            (when handler (handler))))
-        (is (some #(= [:rf.xray/toggle-trace-band-collapse :dispatch] %)
-                  @dispatches)
-            "band header click fires the toggle with the band id")))))
-
-(deftest toggle-trace-band-collapse-event-mutates-set
-  (testing ":rf.xray/toggle-trace-band-collapse toggles membership"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/toggle-trace-band-collapse :effects])
-      (is (= #{:effects} @(rf/subscribe [:rf.xray/trace-collapsed-band-ids])))
-      (rf/dispatch-sync [:rf.xray/toggle-trace-band-collapse :effects])
-      (is (= #{} @(rf/subscribe [:rf.xray/trace-collapsed-band-ids]))))))
+        ;; no band chrome at all (rf2-aqusw)
+        (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
+        (is (nil? (find-by-testid tree "rf-xray-trace-band-count-effects")))
+        (is (nil? (find-by-testid tree "rf-xray-trace-band-rows-dispatch")))
+        ;; the rows render in seeded fire order — the reactive SUB op
+        ;; lands BETWEEN the dispatch and the fx, not regrouped to the end
+        (let [rows-container (find-by-testid tree "rf-xray-trace-rows")
+              row-ids (->> (hiccup-seq rows-container)
+                           (keep (fn [n]
+                                   (when (and (vector? n) (map? (second n)))
+                                     (let [tid (:data-testid (second n))]
+                                       (when (and (string? tid)
+                                                  (re-find #"^rf-xray-trace-row-\d+$" tid))
+                                         (subs tid (count "rf-xray-trace-row-")))))))
+                           (distinct)
+                           (vec))]
+          (is (= ["1" "2" "3"] row-ids)
+              "rows are flat + in fire order, not regrouped into bands"))))))
 
 ;; ---- (7) frame isolation ------------------------------------------------
 

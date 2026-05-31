@@ -369,10 +369,9 @@
    ;; rf2-l2f2g — per-row inline raw-EDN payload expansion state
    ;; (spec/023-Trace-Panel.md §3 — row click → raw EDN).
    :rf.xray/trace-expanded-row-ids
-   ;; rf2-l2f2g — per-band collapse state (spec/023 §2 / §14 —
-   ;; collapsible phase bands; default all-expanded, this set tracks the
-   ;; COLLAPSED bands).
-   :rf.xray/trace-collapsed-band-ids
+   ;; rf2-aqusw — the per-band collapse state sub
+   ;; (`:rf.xray/trace-collapsed-band-ids`) was REMOVED with the phase-band
+   ;; hierarchy; the flat Trace panel has no collapsible bands.
    ;; rf2-td380 — epoch-scoped feed (reads the focused epoch record's
    ;; `:trace-events` directly). The `:rf.xray/trace-feed-state`
    ;; buffer snapshot + `:rf.xray/trace-filters` chip-filter slot were
@@ -693,9 +692,9 @@
    ;; rf2-l2f2g — toggle the inline raw-EDN payload expansion for one
    ;; trace row (spec/023-Trace-Panel.md §3 — Row click → raw EDN).
    :rf.xray/toggle-trace-row-expand
-   ;; rf2-l2f2g — toggle one phase band's collapse state (spec/023 §2 /
-   ;; §14 — the four phase bands are collapsible).
-   :rf.xray/toggle-trace-band-collapse
+   ;; rf2-aqusw — the per-band collapse-toggle event
+   ;; (`:rf.xray/toggle-trace-band-collapse`) was REMOVED with the
+   ;; phase-band hierarchy; the flat Trace panel has no collapsible bands.
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.xray/reactive-set-unchanged

@@ -56,6 +56,7 @@
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
             [day8.re-frame2-xray.panels.common-helpers :as common]
+            [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- area-badge classification (spec/023 §3 · §5) -----------------------
@@ -315,6 +316,96 @@
   [row-or-ev]
   (get tokens/tokens
        (get outcome-tier->token (outcome-tier row-or-ev) :text-primary)))
+
+;; ---- pipeline stage (flat list · rf2-aqusw) -----------------------------
+;;
+;; The flat Trace panel (rf2-aqusw) loses the 4-band hierarchy in favour
+;; of a single list of rows, each carrying a STAGE column + a colour-coded
+;; left edge. The stage is the Epoch panel's pipeline step — DISPATCH /
+;; COEFFECT / HANDLER / FLOW / SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS — so
+;; the Trace stage column + edge match the Epoch panel's numbered cascade
+;; exactly. ONE mental model, DRY: the label + colour are resolved
+;; through `panels.epoch.badge` (the Epoch panel's own badge taxonomy),
+;; never a parallel palette.
+;;
+;; Mapping a trace op to its Epoch stage is a coarse projection of the
+;; 12-area badge onto the 7 Epoch steps:
+;;
+;;   :event (dispatched)         → :DISPATCH       (the trigger)
+;;   :event (run-start/run-end)  → :HANDLER        (the handler body ran)
+;;   :coeffect                   → :COEFFECT       (injected inputs)
+;;   :flow                       → :FLOW           (db transform after handler)
+;;   :machine                    → :HANDLER        (machine-as-handler)
+;;   :db                         → :SIDE-EFFECTS   (the :db commit — Epoch's
+;;                                                  SIDE EFFECTS :db sub-step)
+;;   :fx                         → :SIDE-EFFECTS   (effect execution)
+;;   :routing                    → :SIDE-EFFECTS   (routing nav effect)
+;;   :sub                        → :SUBSCRIPTIONS  (the reactive recompute)
+;;   :view                       → :VIEWS          (the reactive render)
+;;   :epoch                      → :DISPATCH       (envelope lifecycle —
+;;                                                  rides DISPATCH's muted
+;;                                                  grey, the same hue the
+;;                                                  Epoch panel gives the
+;;                                                  dispatch-link family)
+;;
+;; Errors / warnings are cross-cutting (spec/023 §7) — the STAGE is the
+;; step where the op chronologically occurred (so the column still labels
+;; its phase), but the row's left EDGE rides the severity colour in the
+;; view so a failure stands out (the view layers `:error` / `:warning`
+;; over `stage-colour` exactly as it did over `op-family-colour`).
+
+(def area->stage
+  "Map a trace AREA keyword to its Epoch-panel pipeline STAGE keyword
+  (one of the 7 `epoch.badge` step badges). Pure data. `:event` is
+  resolved by operation in `stage` (dispatched → :DISPATCH, otherwise
+  the handler body → :HANDLER), so it is intentionally absent here."
+  {:coeffect :COEFFECT
+   :flow     :FLOW
+   :machine  :HANDLER
+   :db       :SIDE-EFFECTS
+   :fx       :SIDE-EFFECTS
+   :routing  :SIDE-EFFECTS
+   :sub      :SUBSCRIPTIONS
+   :view     :VIEWS
+   :epoch    :DISPATCH})
+
+(defn stage
+  "Classify a projected row (or raw event) into its Epoch-panel pipeline
+  STAGE — one of the 7 `epoch.badge` step badges (`:DISPATCH` ·
+  `:COEFFECT` · `:HANDLER` · `:FLOW` · `:SIDE-EFFECTS` · `:SUBSCRIPTIONS`
+  · `:VIEWS`). The flat Trace panel (rf2-aqusw) reads this for both the
+  stage column and the colour-coded left edge so the two panels share one
+  step model. Pure data → keyword; JVM-testable.
+
+  `:event` is resolved by operation: `:rf.event/dispatched` is the
+  DISPATCH trigger, every other event op (run-start / run-end) is the
+  HANDLER body. Errors / warnings classify by the stage where they
+  occurred (their area's mapping), defaulting to HANDLER — the view
+  rides the severity colour on the edge regardless (spec/023 §7)."
+  [{:keys [operation] :as row-or-ev}]
+  (let [a (area row-or-ev)]
+    (case a
+      :event   (if (= operation :rf.event/dispatched) :DISPATCH :HANDLER)
+      :error   :HANDLER
+      :warning :HANDLER
+      (get area->stage a :HANDLER))))
+
+(defn stage-label
+  "The uppercase stage label for a row's STAGE — the Epoch panel's own
+  badge label (`DISPATCH`, `SIDE EFFECTS`, `SUBSCRIPTIONS`, …) resolved
+  through `epoch.badge/label` so the Trace stage column reads identically
+  to the Epoch cascade. Pure data → string; JVM-testable."
+  [row-or-ev]
+  (epoch-badge/label (stage row-or-ev)))
+
+(defn stage-colour
+  "Resolve the colour-coded left-edge CSS-var string for a row's STAGE —
+  the Epoch panel's own badge colour resolved through
+  `epoch.badge/colour` so the Trace left edge matches the Epoch step
+  pills exactly (one palette, no parallel scheme — rf2-aqusw). Pure data
+  → CSS-var string; JVM-testable."
+  [row-or-ev]
+  (epoch-badge/colour (stage row-or-ev)))
 
 ;; ---- what-happened verb (spec/023 §5) -----------------------------------
 ;;
@@ -648,6 +739,10 @@
                           :machine/:routing/:epoch/:error/:warning>
        :area-badge      <string>            ;; the uppercase neutral badge
        :phase           <:envelope/:dispatch/:event-handling/:effects/:reactive>
+       :stage           <:DISPATCH/:COEFFECT/:HANDLER/:FLOW/:SIDE-EFFECTS/
+                          :SUBSCRIPTIONS/:VIEWS>  ;; the Epoch pipeline step
+       :stage-label     <string>            ;; the Epoch step label (DRY)
+       :stage-colour    <string>            ;; the Epoch step colour (left edge)
        :op-family       <:dispatch/:db/:fx/:reactive/:machine/:error/:warning>
        :outcome-tier    <:active/:inert/:gone/:pending/:error/:warning>
        :verb            <string>            ;; the what-happened verb
@@ -666,11 +761,15 @@
        :tags            <map>               ;; full tags for the detail view
        :raw             <trace-event>}
 
-  The 5-column row (spec/023 §3) reads `:rel-time` (stamped by
-  `with-rel-times`) · `:area-badge` · `:verb` · `:target` ·
-  `:duration-ms`. `:phase` drives band placement; `:op-family` drives
-  the 3px left-border band; `:outcome-tier` drives the verb's colour
-  tint (spec/023 §8). Pure data → data; JVM-testable."
+  The flat row (rf2-aqusw) reads `:rel-time` (stamped by
+  `with-rel-times`) · `:stage-label` · `:area-badge` · `:verb` ·
+  `:target` · `:duration-ms`, with `:stage-colour` painting the
+  colour-coded left edge. `:phase` is retained for cross-panel
+  consumers + the band-projection helpers; `:stage` drives the flat
+  panel's stage column + edge (the Epoch pipeline step, DRY);
+  `:op-family` is retained for cross-panel consumers; `:outcome-tier`
+  drives the verb's colour tint (spec/023 §8). Pure data → data;
+  JVM-testable."
   [{:keys [id time op-type operation source tags] :as ev}]
   {:id              id
    :time            time
@@ -679,6 +778,9 @@
    :area            (area ev)
    :area-badge      (area-badge ev)
    :phase           (phase ev)
+   :stage           (stage ev)
+   :stage-label     (stage-label ev)
+   :stage-colour    (stage-colour ev)
    :op-family       (op-family ev)
    :outcome-tier    (outcome-tier ev)
    :verb            (what-happened ev)

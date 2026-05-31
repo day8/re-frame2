@@ -27,6 +27,7 @@
        (spec/018 §6)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -290,6 +291,81 @@
          (h/outcome-colour {:operation :rf.sub/dispose})))
   (is (= (:red tokens/tokens)
          (h/outcome-colour {:op-type :error :operation :rf.error/x}))))
+
+;; ---- (7b) pipeline stage — flat list (rf2-aqusw) ----------------------
+
+(deftest stage-maps-ops-to-the-epoch-pipeline-steps
+  (testing "rf2-aqusw: each trace op classifies to one of the 7 Epoch
+            pipeline steps — DISPATCH / COEFFECT / HANDLER / FLOW /
+            SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS"
+    (is (= :DISPATCH (h/stage {:op-type :rf.event :operation :rf.event/dispatched}))
+        "the dispatched event is the DISPATCH trigger")
+    (is (= :HANDLER (h/stage {:op-type :rf.event :operation :rf.event/run-end}))
+        "a non-dispatched event op (the handler body) is HANDLER")
+    (is (= :COEFFECT (h/stage {:op-type :rf.event :operation :rf.cofx/run})))
+    (is (= :FLOW (h/stage {:op-type :rf.event :operation :rf.flow/computed})))
+    (is (= :HANDLER (h/stage {:op-type :rf.machine :operation :rf.machine/transition}))
+        "a machine-as-handler op is HANDLER")
+    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.event/db-changed}))
+        "the :db commit is a SIDE EFFECT (the Epoch SIDE-EFFECTS :db sub-step)")
+    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.fx :operation :rf.fx/handled})))
+    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.route/activated})))
+    (is (= :SUBSCRIPTIONS (h/stage {:op-type :rf.sub :operation :rf.sub/run})))
+    (is (= :VIEWS (h/stage {:op-type :rf.view :operation :rf.view/render})))
+    (is (= :DISPATCH (h/stage {:op-type :rf.epoch :operation :rf.epoch/snapshotted}))
+        "epoch-lifecycle ops ride the DISPATCH step's muted grey")))
+
+(deftest stage-cross-cutting-error-warning-classify-by-occurrence
+  (testing "rf2-aqusw: error / warning ops still classify to a stage so
+            the column labels their phase; the view rides the severity
+            colour on the edge (spec/023 §7)"
+    (is (= :HANDLER (h/stage {:op-type :error :operation :rf.error/x})))
+    (is (= :HANDLER (h/stage {:op-type :warning :operation :rf.warning/x})))))
+
+(deftest stage-label-reuses-the-epoch-badge-label
+  (testing "rf2-aqusw: the stage column label IS the Epoch panel's own
+            badge label (DRY via panels.epoch.badge)"
+    (is (= "DISPATCH"
+           (h/stage-label {:op-type :rf.event :operation :rf.event/dispatched})))
+    (is (= "SIDE EFFECTS"
+           (h/stage-label {:op-type :rf.fx :operation :rf.fx/handled}))
+        "SIDE-EFFECTS renders the Epoch label 'SIDE EFFECTS' (spaced)")
+    (is (= "SUBSCRIPTIONS"
+           (h/stage-label {:op-type :rf.sub :operation :rf.sub/run})))
+    (is (= "VIEWS"
+           (h/stage-label {:op-type :rf.view :operation :rf.view/render})))))
+
+(deftest stage-colour-reuses-the-epoch-badge-colour
+  (testing "rf2-aqusw: the colour-coded left edge IS the Epoch step's
+            badge colour (reused, not a parallel palette)"
+    (is (= (epoch-badge/colour :DISPATCH)
+           (h/stage-colour {:op-type :rf.event :operation :rf.event/dispatched})))
+    (is (= (epoch-badge/colour :SIDE-EFFECTS)
+           (h/stage-colour {:op-type :rf.fx :operation :rf.fx/handled})))
+    (is (= (epoch-badge/colour :SUBSCRIPTIONS)
+           (h/stage-colour {:op-type :rf.sub :operation :rf.sub/run})))
+    (is (= (epoch-badge/colour :VIEWS)
+           (h/stage-colour {:op-type :rf.view :operation :rf.view/render})))
+    (testing "the 7 stage colours match the Epoch step palette exactly"
+      (doseq [[ot op stage] [[:rf.event :rf.event/dispatched :DISPATCH]
+                             [:rf.event :rf.cofx/run :COEFFECT]
+                             [:rf.event :rf.event/run-end :HANDLER]
+                             [:rf.event :rf.flow/computed :FLOW]
+                             [:rf.fx :rf.fx/handled :SIDE-EFFECTS]
+                             [:rf.sub :rf.sub/run :SUBSCRIPTIONS]
+                             [:rf.view :rf.view/render :VIEWS]]]
+        (is (= (epoch-badge/colour stage)
+               (h/stage-colour {:op-type ot :operation op})))))))
+
+(deftest project-row-carries-stage-label-and-colour
+  (testing "rf2-aqusw: project-row stamps :stage / :stage-label /
+            :stage-colour for the flat list's stage column + edge"
+    (let [row (h/project-row (ev {:id 1 :op-type :rf.fx
+                                  :operation :rf.fx/handled
+                                  :tags {:rf.fx/id :http-xhrio}}))]
+      (is (= :SIDE-EFFECTS (:stage row)))
+      (is (= "SIDE EFFECTS" (:stage-label row)))
+      (is (= (epoch-badge/colour :SIDE-EFFECTS) (:stage-colour row))))))
 
 ;; ---- (8) band projection — spec/023 §2 / §13 --------------------------
 

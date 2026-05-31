@@ -1,55 +1,57 @@
 (ns day8.re-frame2-xray.panels.trace
-  "Trace panel — the whole-epoch trace ARC (spec/023-Trace-Panel.md).
+  "Trace panel — the whole-epoch trace as a FLAT list (spec/023-Trace-Panel.md).
 
   ## What this panel shows
 
-  The complete trace arc of a single epoch — every trace operation the
-  substrate emits during the focused epoch, in fire order, organised by
-  the epoch's phase shape (spec/023 §1). Its contract is COMPLETENESS:
-  every op-family in the Spec-009 vocabulary surfaces.
+  Every trace operation the substrate emits during the focused epoch, in
+  fire order, as a SINGLE FLAT LIST of rows (rf2-aqusw — the 4-band
+  hierarchy is gone). Its contract is COMPLETENESS: every op-family in
+  the Spec-009 vocabulary surfaces.
 
-  The arc reads top-down:
+  The list reads top-down, oldest-first:
 
-      ○ EPOCH OPEN   #N :event · frame · snapshotted    (the envelope)
-      ▾ ① DISPATCH
-          +0.0  EVENT     dispatched   [:counter-inc] from view↗   —
-      ▾ ② EVENT HANDLING
-          +0.1  COEFFECT  run          :now → #inst…              0.1 ms
-          +0.2  EVENT     handler ran  reg-event-db               0.2 ms
-          +0.3  FLOW      computed     :totals → [:totals]        1.5 ms
-          +1.8  DB        changed      [:counter] 1 → 2             —
-      ▾ ③ EFFECTS / FX
-          +1.9  FX        :http-xhrio  GET /api/data (queued)      —
-      ▾ ④ REACTIVE RENDERING
-          +2.6  SUB       recalculated :counter/value 1→2         0.3 ms
-          +3.1  VIEW      re-rendered  counter-display            1.8 ms
-      ● EPOCH CLOSE  outcome :ok
+      +0.0  DISPATCH       EVENT     dispatched   [:counter-inc]      —
+      +0.1  COEFFECT       COEFFECT  run          :now -> #inst      0.1 ms
+      +0.2  HANDLER        EVENT     handler ran  reg-event-db       0.2 ms
+      +0.3  FLOW           FLOW      computed     :totals            1.5 ms
+      +1.8  SIDE EFFECTS   DB        changed      [:counter] 1 -> 2   —
+      +1.9  SIDE EFFECTS   FX        :http-xhrio  GET /api/data       —
+      +2.6  SUBSCRIPTIONS  SUB       recalculated :counter/value     0.3 ms
+      +3.1  VIEWS          VIEW      re-rendered  counter-display    1.8 ms
 
-  Each op is a row of five columns (spec/023 §3):
+  Each op is a row of six columns (rf2-aqusw):
 
-      Δt · area badge · what-happened · target/detail · duration
+      Δt · stage · area badge · what-happened · target/detail · duration
+
+  ## Stage column + colour-coded left edge (rf2-aqusw)
+
+  The STAGE column names the Epoch-panel pipeline step each op belongs
+  to — DISPATCH · COEFFECT · HANDLER · FLOW · SIDE EFFECTS ·
+  SUBSCRIPTIONS · VIEWS — and the row's left EDGE is colour-coded with
+  that step's colour. Both the label and the colour resolve through the
+  Epoch panel's own `panels.epoch.badge` taxonomy (NOT a parallel
+  palette) so the Trace stage column + edge match the Epoch numbered
+  cascade exactly — one step model, DRY. The flat list recovers, at a
+  glance, the phase information the removed hierarchy conveyed.
 
   The area badge is a NEUTRAL text badge (EVENT · COEFFECT · DB · FX ·
   FLOW · SUB · VIEW · MACHINE · ROUTING · EPOCH · ERROR · WARNING) — no
-  per-family colour; the family identity rides a 3px left-border band
-  instead. The four phase bands are COLLAPSIBLE with sticky headers
-  (spec/023 §2 / §14); empty bands render dimmed with `(none)` so the
-  4-phase shape is always legible (spec/023 §13).
+  per-family colour.
 
   Errors / warnings are cross-cutting (spec/023 §7) — they render inline
-  at their chronological point within whatever band they occurred,
-  emphasised so failures stand out. Clicking any row expands its raw
-  trace-event EDN inline (spec/023 §3) via the first-class edn-inspector
+  at their chronological point in the flat list, emphasised so failures
+  stand out (the left edge rides the severity colour over the stage
+  colour). Clicking any row opens the edn-inspector on its raw
+  trace-event MAP inline (spec/023 §3) via the first-class edn-inspector
   widget (spec/021 §10 / `views.edn-inspector`).
 
   ## Design system (PR #2089 · Handler panel idiom)
 
-  The arc is rendered in the established Xray devtools design language —
+  The list is rendered in the established Xray devtools design language —
   the `--devtools-*` dark tokens via `theme/tokens`, the 13/12/11/10
-  type scale, mono font for the data columns, the numbered uppercase
-  band headers + thin left rail (mirroring the Handler panel's numbered
-  step-circle pipeline in `panels/event_detail.cljs`), and the
-  `+`/`~`/`-` diff idiom for DB rows.
+  type scale, mono font for the data columns, and the `+`/`~`/`-` diff
+  idiom for DB rows. The stage column + colour-coded left edge reuse the
+  Epoch panel's `panels.epoch.badge` step taxonomy (rf2-aqusw).
 
   ## Epoch-scoped feed (spec/018 §6)
 
@@ -63,9 +65,9 @@
 
   ## Empty states
 
-    :no-events     → 'No events.' (focused epoch carries no trace events)
-    :no-focus      → 'Select an event to see its trace arc.' (spec/023 §14)
-    :epoch-evicted → the focused epoch aged out of the ring buffer.
+    :no-events     -> 'No events.' (focused epoch carries no trace events)
+    :no-focus      -> 'Select an event to see its trace arc.' (spec/023 §14)
+    :epoch-evicted -> the focused epoch aged out of the ring buffer.
 
   ## Pure hiccup
 
@@ -75,10 +77,12 @@
 
   ## Helpers
 
-  All pure-data logic — row projection, area / phase / verb / target
-  classification, band projection, epoch-scoped feed, empty-state
-  classification — lives in `trace_helpers.cljc` so the algebra runs
-  under the JVM unit-test target."
+  All pure-data logic — row projection, area / stage / verb / target
+  classification, the stage column + edge colour (via
+  `panels.epoch.badge`), epoch-scoped feed, empty-state classification —
+  lives in `trace_helpers.cljc` so the algebra runs under the JVM
+  unit-test target. (The band-projection helpers are retained there for
+  cross-panel consumers + tests; the flat panel no longer renders them.)"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -95,42 +99,37 @@
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
-;; ---- row grid template (spec/023 §3 · §14) -----------------------------
+;; ---- resizable-table columns (rf2-jnxfj · rf2-aqusw) --------------------
 ;;
-;; Δt · area badge · what-happened · target/detail · duration. Δt +
-;; badge + verb columns are fixed/compact; the target/detail column is
-;; the flexible one and truncates first (spec/023 §14 — usable at the
-;; ≈420px docked width, no horizontal scroll); duration right-aligns.
-
-(def ^:private row-grid-columns
-  "The 5-column grid template for an op row (spec/023 §3)."
-  "56px 64px 92px minmax(0, 1fr) auto")
-
-;; ---- resizable-table columns (rf2-jnxfj) --------------------------------
+;; The op-row's 6-column grid — Δt · stage · area badge · what-happened ·
+;; target/detail · duration — is driven by the shared `rt/resizable-table`
+;; view. Δt + stage + badge + verb columns are fixed/compact; the
+;; target/detail column is the flexible one and truncates first (spec/023
+;; §14 — usable at the ≈420px docked width, no horizontal scroll);
+;; duration right-aligns. The STAGE column (rf2-aqusw) names the Epoch
+;; pipeline step each op belongs to — DISPATCH / COEFFECT / HANDLER /
+;; FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS — recovering flatly the
+;; phase information the (now-removed) hierarchy conveyed.
 ;;
-;; The op-row's 5-column grid is now driven by the shared
-;; `rt/resizable-table` view. One `:table-id :rf.xray.trace/ops` is
-;; shared between the single header bar at the top of the panel and
-;; every phase band's rows, so a drag in the header live-resizes every
-;; row in the arc. Column widths persist via the rf2-xzg1y
-;; localStorage round-trip.
-;;
-;; Defaults mirror the pre-conversion `row-grid-columns` template so
-;; the first paint reads identically. The `minmax(0, 1fr)` on the
-;; target column survives the resolver because `build-template` passes
-;; the `:default-flex` string through verbatim when no px override is
-;; in the slot.
+;; One `:table-id :rf.xray.trace/ops` is shared between the single header
+;; bar at the top of the panel and the flat row list, so a drag in the
+;; header live-resizes every row. Column widths persist via the rf2-xzg1y
+;; localStorage round-trip. The `minmax(0, 1fr)` on the target column
+;; survives the resolver because `build-template` passes the
+;; `:default-flex` string through verbatim when no px override is in the
+;; slot.
 
 (def ^:private trace-op-columns
   [{:id :time     :label "Δt"       :default-flex "56px"}
+   {:id :stage    :label "stage"    :default-flex "104px"}
    {:id :badge    :label "area"     :default-flex "64px"}
    {:id :verb     :label "what"     :default-flex "92px"}
    {:id :target   :label "target"   :default-flex "minmax(0, 1fr)"}
    {:id :duration :label "duration" :default-flex "70px"}])
 
 (def trace-ops-table-id
-  "Shared table-id every band reads against so a drag updates one slot
-  that the header + every row reads."
+  "Shared table-id the header + the flat row list read against so a drag
+  updates one slot that both read."
   :rf.xray.trace/ops)
 
 (def ^:private trace-header-cell-style
@@ -227,13 +226,6 @@
    :font-size     "12px"
    :line-height   1.35})
 
-(def ^:private op-row-summary-grid-style
-  {:display               "grid"
-   :grid-template-columns row-grid-columns
-   :gap                   "10px"
-   :align-items           "baseline"
-   :padding               "5px 16px 5px 8px"})
-
 (def ^:private op-row-time-base-style
   {:font-size   "11px"
    :white-space "nowrap"
@@ -244,6 +236,22 @@
 ;; `assoc` over the base.
 (def ^:private op-row-time-default-style
   (assoc op-row-time-base-style :color (:text-tertiary tokens)))
+
+;; ---- stage column (rf2-aqusw) -------------------------------------------
+;;
+;; The flat list's STAGE column names the Epoch pipeline step (DISPATCH /
+;; COEFFECT / HANDLER / FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS). The
+;; label rides the step's own colour (from `panels.epoch.badge`, the same
+;; hue the colour-coded left edge paints) so the column reads as a tinted
+;; pill-less label that ties to the edge at a glance.
+
+(def ^:private op-row-stage-base-style
+  {:font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.4px"
+   :white-space    "nowrap"
+   :overflow       "hidden"
+   :text-overflow  "ellipsis"})
 
 (def ^:private op-row-badge-base-style
   {:font-size      "10px"
@@ -310,74 +318,15 @@
 (def ^:private op-row-bg-warning
   "color-mix(in srgb, var(--rf-xray-yellow) 9%, transparent)")
 
-;; ---- band-header (spec/023 §13 · §14) -----------------------------------
+;; ---- flat row list (rf2-aqusw) ------------------------------------------
+;;
+;; The flat list (rf2-aqusw) renders every row in one container — no band
+;; rails, no envelope chrome. The list reads top-down oldest-first; the
+;; per-row STAGE column + colour-coded left edge recover the phase shape
+;; the removed bands carried.
 
-(def ^:private band-header-base-style
-  {:position       "sticky"
-   :top            0
-   :z-index        1
-   :display        "flex"
-   :align-items    "center"
-   :gap            "8px"
-   :padding        "6px 16px 6px 8px"
-   :background     (:bg-2 tokens)
-   :border-bottom  (str "1px solid " (:border-subtle tokens))
-   :user-select    "none"
-   :font-family    sans-stack
-   :font-size      "11px"
-   :font-weight    600
-   :letter-spacing "0.6px"
-   :text-transform "uppercase"})
-
-(def ^:private band-header-chevron-style
-  {:color (:text-tertiary tokens) :font-size "10px"})
-
-(def ^:private band-header-count-style
-  {:color          (:text-tertiary tokens)
-   :font-weight    400
-   :font-size      "10px"
-   :letter-spacing "0"
-   :text-transform "none"})
-
-;; ---- phase-band (spec/023 §8 · §13) -------------------------------------
-
-(def ^:private phase-band-container-style
-  {:margin-bottom "4px"})
-
-(def ^:private phase-band-rows-style
-  {:list-style  "none"
-   :margin      0
-   :padding     "4px 8px 4px 8px"
-   :border-left (str "1px solid " (:border-subtle tokens))
-   :margin-left "8px"})
-
-;; ---- envelope-row (spec/023 §2) -----------------------------------------
-
-(def ^:private envelope-container-style
-  {:display        "flex"
-   :align-items    "center"
-   :gap            "10px"
-   :padding        "8px 16px 8px 8px"
-   :font-family    sans-stack
-   :font-size      "12px"
-   :font-weight    600
-   :letter-spacing "0.4px"
-   :color          (:text-primary tokens)})
-
-(def ^:private envelope-marker-base-style
-  {:font-size "14px"})
-
-(def ^:private envelope-label-style
-  {:text-transform "uppercase" :font-size "11px"})
-
-(def ^:private envelope-outcome-base-style
-  {:font-family    mono-stack
-   :font-size      "11px"
-   :font-weight    600
-   :letter-spacing "0"})
-
-(def ^:private envelope-rows-list-style
-  {:list-style "none" :margin 0 :padding 0 :flex 1 :min-width 0})
+(def ^:private flat-rows-container-style
+  {:list-style "none" :margin 0 :padding 0})
 
 ;; ---- empty-state-message (spec/023 §14) ---------------------------------
 
@@ -573,8 +522,8 @@
 
 (defn- op-row-attrs
   "Per-row attrs for the resizable-table — preserves the click /
-  context-menu handlers + the op-family colour band + severity /
-  expansion backgrounds.
+  context-menu handlers + the colour-coded STAGE left edge (rf2-aqusw)
+  + severity / expansion backgrounds.
 
   Stamps `:key` into the attrs map alongside the meta-key
   resizable-table emits, so the rf2-l2f2g React-key contract surface
@@ -582,14 +531,13 @@
   is observable in the rendered hiccup — the test corpus reads
   `:key` from the row attrs map because the framework hiccup walker
   rebuilds inner vectors via `mapv` and drops their metadata."
-  [{:keys [id operation area dispatch-id] :as row} expanded?]
+  [{:keys [id operation area stage stage-colour dispatch-id] :as row} expanded?]
   ;; rf2-nesy9 — capture the surrounding instance frame at render time
   ;; so the deferred row handlers dispatch into it, not a `:rf/xray`
   ;; literal. op-row-attrs is invoked during the Trace Panel reg-view's
   ;; render, so `current-frame` resolves through the React-context tier.
   (let [frame       (rf/current-frame)
         row-test-id (str "rf-xray-trace-row-" id)
-        band-colour (h/op-family-colour row)
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
                       (get tokens (if (= area :error) :red :yellow)))
@@ -598,7 +546,8 @@
      :data-testid           row-test-id
      :data-rf-xray-expanded (boolean expanded?)
      :data-rf-xray-area     (some-> area name)
-     :data-rf-xray-op-family (some-> (h/op-family row) name)
+     ;; rf2-aqusw — the Epoch pipeline STAGE drives the column + edge.
+     :data-rf-xray-stage    (some-> stage name)
      :data-rf-xray-severity (when severity? (name area))
      :on-click              (fn []
                               (rf/dispatch [:rf.xray/toggle-trace-row-expand id]
@@ -611,14 +560,16 @@
                                   [:rf.xray/cancellation-cascade-open
                                    {:kind :dispatch-id :id dispatch-id}]
                                   {:frame frame})))
-     ;; op-family colour band — 3px LEFT-BORDER (error / warning
-     ;; override the band so a failure stands out · spec/023 §7).
-     ;; Severity rows carry a faint tinted fill (spec/023 §7);
-     ;; expanded rows show a bg-1 backdrop.
+     ;; rf2-aqusw — colour-coded STAGE left edge: a 3px LEFT-BORDER in
+     ;; the Epoch pipeline step's colour (reused via `panels.epoch.badge`
+     ;; through `h/stage-colour`). Error / warning override the stage
+     ;; colour so a failure stands out (spec/023 §7). Severity rows carry
+     ;; a faint tinted fill (spec/023 §7); expanded rows show a bg-1
+     ;; backdrop.
      :style                 (cond-> (assoc op-row-container-base-style
                                            :border-left
                                            (str "3px solid "
-                                                (or sev-colour band-colour)))
+                                                (or sev-colour stage-colour)))
                               expanded?
                               (assoc :background (:bg-1 tokens))
                               (and (not expanded?) (= area :error))
@@ -627,13 +578,14 @@
                               (assoc :background op-row-bg-warning))}))
 
 (defn- op-row-cells
-  "Per-row cells — the 5 hiccup nodes resizable-table interleaves into
-  the grid template. Each carries `data-rf-xray-resizable-col` so the
+  "Per-row cells — the 6 hiccup nodes resizable-table interleaves into
+  the grid template (rf2-aqusw — Δt · stage · badge · verb · target ·
+  duration). Each carries `data-rf-xray-resizable-col` so the
   pointer-down handler can locate the adjacent cell off the live DOM,
   AND keeps the original `data-testid` so the trace_view tests resolve
   unchanged."
-  [{:keys [id operation rel-time time area area-badge verb target
-           duration-ms source-coord dispatch-id]
+  [{:keys [id operation rel-time time area area-badge stage-label
+           stage-colour verb target duration-ms source-coord dispatch-id]
     :as row}]
   ;; rf2-nesy9 — render-time frame capture for the deferred cell handlers.
   (let [frame       (rf/current-frame)
@@ -643,7 +595,7 @@
         sev-colour  (when severity?
                       (get tokens (if (= area :error) :red :yellow)))
         destroy?    (cancellation-cascade-helpers/destroy-event? {:operation operation})]
-    [;; ① Δt — ms offset from EPOCH OPEN; `!` lead for severity rows.
+    [;; ① Δt — ms offset from the epoch origin; `!` lead for severity rows.
      [:span {:data-rf-xray-resizable-col "time"
              :data-testid (str row-test-id "-time")
              :title       (or (h/format-time time) "")
@@ -656,7 +608,16 @@
         (and severity? rel-time) (str "!" (subs rel-time 1))
         rel-time                 rel-time
         :else                    "—")]
-     ;; ② area badge — neutral uppercase text badge (spec/023 §3); the
+     ;; ② stage — the Epoch pipeline step (DISPATCH / COEFFECT / HANDLER /
+     ;; FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS) the op belongs to,
+     ;; tinted with the step's own colour (rf2-aqusw — same hue the
+     ;; colour-coded left edge paints, both via `panels.epoch.badge`).
+     [:span {:data-rf-xray-resizable-col "stage"
+             :data-testid (str row-test-id "-stage")
+             :title       stage-label
+             :style       (assoc op-row-stage-base-style :color stage-colour)}
+      stage-label]
+     ;; ③ area badge — neutral uppercase text badge (spec/023 §3); the
      ;; severity tiers ride their semantic colour so a failure's family
      ;; is unmistakeable (spec/023 §7 / §8).
      [:span {:data-rf-xray-resizable-col "badge"
@@ -665,14 +626,14 @@
                             (assoc op-row-badge-base-style :color sev-colour)
                             op-row-badge-default-style)}
       area-badge]
-     ;; ③ what-happened — the per-area verb, tinted by outcome tier.
+     ;; ④ what-happened — the per-area verb, tinted by outcome tier.
      [:span {:data-rf-xray-resizable-col "verb"
              :data-testid (str row-test-id "-verb")
              :style       (assoc op-row-verb-base-style
                                  :color (if severity? sev-colour verb-colour))
              :title       verb}
       verb]
-     ;; ④ target / detail — the op's subject; the flexible column that
+     ;; ⑤ target / detail — the op's subject; the flexible column that
      ;; truncates first (spec/023 §14). Source-coord ↗ rides at its end.
      [:span {:data-rf-xray-resizable-col "target"
              :data-testid (str row-test-id "-target")
@@ -706,7 +667,7 @@
                                    {:frame frame}))
                   :style       op-row-cancellation-button-style}
          "⟲"])]
-     ;; ⑤ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
+     ;; ⑥ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
      [:span {:data-rf-xray-resizable-col "duration"
              :data-testid (str row-test-id "-duration")
              :style       op-row-duration-style}
@@ -728,126 +689,42 @@
       payload              payload
       :else                nil)))
 
-;; ---- phase band (spec/023 §2 · §13 · §14) -------------------------------
+;; ---- flat row list (rf2-aqusw) ------------------------------------------
+;;
+;; The 4-band hierarchy + EPOCH OPEN / CLOSE envelope are GONE (rf2-aqusw).
+;; Every op the focused epoch emitted — including the `:rf.epoch/*`
+;; lifecycle ops (snapshotted / outcome / restored / …) that used to live
+;; in the envelope — renders as an ORDINARY row in one flat list, in fire
+;; order (oldest-first), exactly as the feed's `:rows` are ordered. The
+;; epoch-lifecycle ops classify to the DISPATCH stage (their muted grey
+;; edge), so the open/close lifecycle still surfaces, flatly. The phase
+;; information the bands conveyed is recovered by each row's STAGE column
+;; + colour-coded left edge.
 
-(defn- band-header
-  "A collapsible phase-band header — the numbered uppercase label
-  (`① DISPATCH`, …) with a chevron + per-band op count, STICKY so the
-  current phase stays labelled while a long arc scrolls (spec/023 §14).
-  An empty band's header is dimmed (spec/023 §13)."
-  [{:keys [id label count empty?]} expanded?]
-  ;; rf2-nesy9 — render-time frame capture for the deferred collapse click.
-  (let [frame (rf/current-frame)]
-   [:div {:data-testid (str "rf-xray-trace-band-header-" (name id))
-         :data-rf-xray-band id
-         :data-rf-xray-empty (boolean empty?)
-         :on-click    (when-not empty?
-                        (fn []
-                          (rf/dispatch [:rf.xray/toggle-trace-band-collapse id]
-                                       {:frame frame})))
-         :style       (assoc band-header-base-style
-                             :cursor (if empty? "default" "pointer")
-                             :color  (if empty?
-                                       (:text-tertiary tokens)
-                                       (:text-secondary tokens)))}
-   (when-not empty?
-     [:span {:aria-hidden "true"
-             :style band-header-chevron-style}
-      (if expanded? "▾" "▸")])
-   [:span label]
-   [:span {:data-testid (str "rf-xray-trace-band-count-" (name id))
-           :style band-header-count-style}
-    (if empty? "(none)" (str count))]]))
-
-(defn- phase-band
-  "Render one phase band — its sticky numbered header + its op rows in
-  fire order (oldest-first). Empty bands render their dimmed header with
-  `(none)` and no rows (spec/023 §13); collapsed bands render the header
-  alone. A thin left rail (mirroring the Handler panel's pipeline rail)
-  runs down the band's rows so the phase reads as a distinct segment of
-  the arc (spec/023 §8).
-
-  rf2-jnxfj — rows mount through `rt/resizable-table` with `:header?
-  false` (the header lives once at the top of the panel) so every band
-  shares the same `:rf.xray.trace/ops` column-widths slot — a drag on
-  the panel header re-aligns every band's rows live."
-  [{:keys [id rows empty?] :as band} {:keys [expanded? expanded-row-ids]}]
-  [:section {:data-testid (str "rf-xray-trace-band-" (name id))
-             :data-rf-xray-band id
-             :style phase-band-container-style}
-   (band-header band expanded?)
-   (when (and expanded? (not empty?))
-     [rt/resizable-table
-      {:table-id        trace-ops-table-id
-       :header?         false
-       :columns         trace-op-columns
-       :container-attrs {:data-testid (str "rf-xray-trace-band-rows-" (name id))
-                         :style       phase-band-rows-style}
-       :rows            rows
-       :row-key         (fn [row _i] (h/row-key row))
-       :row-attrs       (fn [row _i]
-                          (op-row-attrs row
-                                        (contains? (or expanded-row-ids #{})
-                                                   (:id row))))
-       :row-cells       (fn [row _i] (op-row-cells row))
-       :row-extras      (fn [row _i]
-                          (op-row-extras row
-                                         (contains? (or expanded-row-ids #{})
-                                                    (:id row))))}])])
-
-;; ---- epoch envelope (spec/023 §2) ---------------------------------------
-
-(defn- envelope-row
-  "Render the EPOCH OPEN / CLOSE envelope band that brackets the arc
-  (spec/023 §2). EPOCH OPEN carries the epoch id · event · frame ·
-  `snapshotted`; EPOCH CLOSE shows the `:rf.epoch/outcome`. The marker
-  glyph (`○` open · `●` close) + the outcome tag distinguish them. The
-  envelope's `:rf.epoch/*` ops render as ordinary rows beneath the
-  marker so restore/replay lifecycle ops surface (spec/023 §2)."
-  [{:keys [kind label outcome rows expanded-row-ids]}]
-  (let [open?       (= kind :open)
-        outcome-kw  outcome
-        outcome-hex (case outcome-kw
-                      :ok      (:success tokens)
-                      :blocked (:warning tokens)
-                      :error   (:error tokens)
-                      (:text-tertiary tokens))]
-    [:div {:data-testid (str "rf-xray-trace-envelope-" (name kind))
-           :data-rf-xray-envelope kind
-           :style envelope-container-style}
-     [:span {:aria-hidden "true"
-             :style (assoc envelope-marker-base-style
-                           :color (if open? (:accent tokens) outcome-hex))}
-      (if open? "○" "●")]
-     [:span {:style envelope-label-style}
-      label]
-     (when (and (not open?) outcome-kw)
-       [:span {:data-testid (str "rf-xray-trace-outcome-" (name outcome-kw))
-               :data-rf-xray-outcome outcome-kw
-               :style (assoc envelope-outcome-base-style :color outcome-hex)}
-        (str "outcome " outcome-kw)])
-     (when (seq rows)
-       ;; rf2-jnxfj — envelope rows mount through the shared resizable-
-       ;; table view (same `:rf.xray.trace/ops` table-id every band reads)
-       ;; so a single drag on the panel header re-aligns the OPEN/CLOSE
-       ;; envelope rows alongside every phase band.
-       [rt/resizable-table
-        {:table-id        trace-ops-table-id
-         :header?         false
-         :columns         trace-op-columns
-         :container-attrs {:data-testid (str "rf-xray-trace-envelope-rows-" (name kind))
-                           :style       envelope-rows-list-style}
-         :rows            rows
-         :row-key         (fn [row _i] (h/row-key row))
-         :row-attrs       (fn [row _i]
-                            (op-row-attrs row
-                                          (contains? (or expanded-row-ids #{})
-                                                     (:id row))))
-         :row-cells       (fn [row _i] (op-row-cells row))
-         :row-extras      (fn [row _i]
-                            (op-row-extras row
-                                           (contains? (or expanded-row-ids #{})
-                                                      (:id row))))}])]))
+(defn- flat-row-list
+  "Render the focused epoch's whole trace as a SINGLE flat list of op
+  rows (rf2-aqusw). Rows mount through `rt/resizable-table` with
+  `:header? false` (the header lives once at the top of the panel) so
+  the list shares the `:rf.xray.trace/ops` column-widths slot — a drag
+  on the panel header re-aligns every row live."
+  [rows expanded-row-ids]
+  [rt/resizable-table
+   {:table-id        trace-ops-table-id
+    :header?         false
+    :columns         trace-op-columns
+    :container-attrs {:data-testid "rf-xray-trace-rows"
+                      :style       flat-rows-container-style}
+    :rows            rows
+    :row-key         (fn [row _i] (h/row-key row))
+    :row-attrs       (fn [row _i]
+                       (op-row-attrs row
+                                     (contains? (or expanded-row-ids #{})
+                                                (:id row))))
+    :row-cells       (fn [row _i] (op-row-cells row))
+    :row-extras      (fn [row _i]
+                       (op-row-extras row
+                                      (contains? (or expanded-row-ids #{})
+                                                 (:id row))))}])
 
 ;; ---- empty states (spec/023 §14) ----------------------------------------
 
@@ -897,15 +774,16 @@
 ;; ---- public view --------------------------------------------------------
 
 (rf/reg-view Panel
-  "The Trace panel's root view — the whole-epoch trace arc
-  (spec/023-Trace-Panel.md). Subscribes to `:rf.xray/trace-feed` (the
-  epoch-scoped feed) and renders the focused epoch's arc: the EPOCH OPEN
-  envelope, the four collapsible phase bands (① DISPATCH · ② EVENT
-  HANDLING · ③ EFFECTS / FX · ④ REACTIVE RENDERING) in arc order, and
-  the EPOCH CLOSE outcome. Empty bands render dimmed `(none)`
-  (spec/023 §13). No mock data — fed by real trace data throughout."
+  "The Trace panel's root view — the focused epoch's whole trace as a
+  FLAT list (spec/023-Trace-Panel.md · rf2-aqusw). Subscribes to
+  `:rf.xray/trace-feed` (the epoch-scoped feed) and renders the focused
+  epoch's `:rows` as a single oldest-first list of op rows: each row
+  carries a STAGE column + colour-coded left edge (the Epoch pipeline
+  step, via `panels.epoch.badge`). Clicking a row opens the edn-inspector
+  on its raw trace MAP inline. No bands, no envelope, no hierarchy. No
+  mock data — fed by real trace data throughout."
   []
-  (let [{:keys [envelope outcome bands empty-kind] :as _data}
+  (let [{:keys [rows empty-kind] :as _data}
         @(rf/subscribe [:rf.xray/trace-feed])
         ;; rf2-wcfsy — focused-cascade is a layer-3 composite over
         ;; `:rf.xray/cascades` + `:rf.xray/focus`, NOT an inline scan in
@@ -914,8 +792,7 @@
         ;; actually change (rather than every Panel render).
         focus           @(rf/subscribe [:rf.xray/focus])
         focused-cascade @(rf/subscribe [:rf.xray.trace/focused-cascade])
-        expanded-ids    @(rf/subscribe [:rf.xray/trace-expanded-row-ids])
-        collapsed-bands @(rf/subscribe [:rf.xray/trace-collapsed-band-ids])]
+        expanded-ids    @(rf/subscribe [:rf.xray/trace-expanded-row-ids])]
     [:section {:data-testid "rf-xray-trace"
                :style       panel-root-style}
      (when focused-cascade
@@ -926,54 +803,30 @@
         :no-focus      (empty-state-no-focus)
         :epoch-evicted (empty-state-epoch-evicted)
         nil
-        ;; The arc container keeps the `rf-xray-trace-feed` testid as the
-        ;; external "the arc rendered rows" contract surface. Every arc
-        ;; child carries an explicit React key (the column-widths
-        ;; header · envelope-open · the four bands · envelope-close) so
-        ;; the reconciler keys the whole sibling list uniformly.
-        (into
-          [:div {:data-testid "rf-xray-trace-feed"
-                 :style panel-feed-container-style}
-           ;; rf2-jnxfj — column-widths drag-handle bar. One header
-           ;; bar at the top of the arc carries the gutter handles for
-           ;; the shared `:rf.xray.trace/ops` table-id; every band's
-           ;; rows render their own resizable-tables with `:header?
-           ;; false` reading the SAME slot, so a drag here re-aligns
-           ;; every row in the arc.
-           ^{:key "ops-header"}
-           [rt/resizable-table
-            {:table-id        trace-ops-table-id
-             :columns         trace-op-columns
-             :rows            []
-             :row-key         (fn [_ _] "")
-             :row-cells       (fn [_ _] [])
-             :header-attrs    trace-header-attrs
-             :header-cell-style trace-header-cell-style}]
-           ;; ○ EPOCH OPEN — the arc's opening bracket (spec/023 §2).
-           ^{:key "envelope-open"}
-           (envelope-row {:kind            :open
-                          :label           "Epoch open"
-                          :rows            (filterv #(not= :rf.epoch/outcome
-                                                           (:operation %))
-                                                    envelope)
-                          :expanded-row-ids expanded-ids})]
-          ;; ①–④ the four phase bands, in arc order (spec/023 §2 / §4),
-          ;; then the EPOCH CLOSE outcome (spec/023 §13).
-          (conj
-            (mapv (fn [{:keys [id] :as band}]
-                    ^{:key (name id)}
-                    (phase-band band
-                                {:expanded?        (not (contains?
-                                                          (or collapsed-bands #{})
-                                                          id))
-                                 :expanded-row-ids expanded-ids}))
-                  bands)
-            ^{:key "envelope-close"}
-            (envelope-row {:kind    :close
-                           :label   "Epoch close"
-                           :outcome outcome
-                           :rows    []
-                           :expanded-row-ids expanded-ids}))))]]))
+        ;; The feed container keeps the `rf-xray-trace-feed` testid as the
+        ;; external "the rows rendered" contract surface. Two children,
+        ;; each explicitly keyed: the column-widths header bar + the flat
+        ;; row list.
+        [:div {:data-testid "rf-xray-trace-feed"
+               :style panel-feed-container-style}
+         ;; rf2-jnxfj — column-widths drag-handle bar. One header bar at
+         ;; the top carries the gutter handles for the shared
+         ;; `:rf.xray.trace/ops` table-id; the flat row list renders its
+         ;; own resizable-table with `:header? false` reading the SAME
+         ;; slot, so a drag here re-aligns every row.
+         ^{:key "ops-header"}
+         [rt/resizable-table
+          {:table-id        trace-ops-table-id
+           :columns         trace-op-columns
+           :rows            []
+           :row-key         (fn [_ _] "")
+           :row-cells       (fn [_ _] [])
+           :header-attrs    trace-header-attrs
+           :header-cell-style trace-header-cell-style}]
+         ;; rf2-aqusw — the flat list of every op the focused epoch
+         ;; emitted, in fire order (oldest-first). No bands, no envelope.
+         ^{:key "rows"}
+         (flat-row-list rows expanded-ids)])]]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -993,14 +846,18 @@
   ;; `panels.shared.focus-resolver` — which classifies the focus status
   ;; (`:no-focus` / `:focused` / `:epoch-evicted`) and looks up the
   ;; record. `h/project-feed-from-epoch` projects that record's
-  ;; `:trace-events` into the arc shape (envelope + 4 phase bands).
+  ;; `:trace-events` into the feed shape. The flat panel (rf2-aqusw)
+  ;; reads only `:rows` + `:empty-kind`; the `:envelope` / `:bands` /
+  ;; `:outcome` slots are RETAINED for cross-panel consumers + the
+  ;; band-projection helper tests, but the view no longer renders them.
   ;;
   ;; Shape of `:rf.xray/trace-feed`:
   ;;
   ;;     {:rows       [<row> ...]   ;; the epoch's domino trail, oldest-first
-  ;;      :envelope   [<row> ...]   ;; the EPOCH OPEN / CLOSE :rf.epoch/* ops
-  ;;      :outcome    <:ok/:blocked/:error-or-nil>
-  ;;      :bands      [{:id :label :rows :count :empty?} ...]  ;; 4 phase bands
+  ;;                                ;; (the flat list the panel renders)
+  ;;      :envelope   [<row> ...]   ;; the :rf.epoch/* ops (retained — not rendered)
+  ;;      :outcome    <:ok/:blocked/:error-or-nil>  ;; (retained — not rendered)
+  ;;      :bands      [{:id :label :rows :count :empty?} ...]  ;; (retained — not rendered)
   ;;      :total      <int>         ;; the epoch's trace-event count
   ;;      :rendered   <int>         ;; same as :total (no filtering)
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id
@@ -1062,33 +919,14 @@
                  (disj current row-id)
                  (conj current row-id))))))
 
+  ;; rf2-aqusw — the flat list lost the collapsible phase bands; the
+  ;; expand set is the only per-row UI state left to clear.
   (rf/reg-event-db :rf.xray/clear-trace-expand
     (fn [db _event]
-      (dissoc db :trace-expanded-row-ids :trace-collapsed-band-ids)))
-
-  ;; ---- collapsible phase bands (spec/023 §2 · §14) -------------------
-  ;;
-  ;; The four phase bands are collapsible (default: all expanded). The
-  ;; COLLAPSED set lives in app-db (keyed by the band id) so a band stays
-  ;; collapsed across sub-recomputes. An empty band's header is inert —
-  ;; the view only dispatches the toggle for a non-empty band.
-
-  (rf/reg-sub :rf.xray/trace-collapsed-band-ids
-    (fn [db _query]
-      (get db :trace-collapsed-band-ids #{})))
-
-  (rf/reg-event-db :rf.xray/toggle-trace-band-collapse
-    (fn [db [_ band-id]]
-      (let [current (get db :trace-collapsed-band-ids #{})]
-        (assoc db :trace-collapsed-band-ids
-               (if (contains? current band-id)
-                 (disj current band-id)
-                 (conj current band-id))))))
+      (dissoc db :trace-expanded-row-ids)))
 
   ;; rf2-2moh1 — register the Dynamic Trace tab with the internal L4
-  ;; tab registry. Flows render right after the handler (spec/023 §2 —
-  ;; the FLOW rows live in ② EVENT HANDLING), and the tab keeps its
-  ;; `t` mnemonic + order-3 placement.
+  ;; tab registry. The tab keeps its `t` mnemonic + order-3 placement.
   (panel-registry/reg-l4-tab!
     {:id    :trace
      :label "Trace"
