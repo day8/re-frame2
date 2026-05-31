@@ -15,7 +15,7 @@ implementation lives in `re-frame2-pair.runtime/subscribe!` /
 - [Termination](#termination)
 - [Privacy posture](#privacy-posture)
 - [Worked invocation](#worked-invocation)
-- [Diagnostics — what's currently registered?](#diagnostics--whats-currently-registered)
+- [Diagnostics — what streams are currently registered?](#diagnostics--what-streams-are-currently-registered)
 
 ## When to use this vs. `watch-epochs`
 
