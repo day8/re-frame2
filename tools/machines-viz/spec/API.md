@@ -769,10 +769,12 @@ treat the event as a dev-and-debug-build surface — production
 deployments expose no machines-viz trace at all (the chart itself
 is bundle-isolated from production builds per [§Installation](#installation)).
 
-**Consumers.** Xray's Issues panel
-([Xray 016 §Issues panel](../../xray/spec/016-Auxiliary-Panels.md#issues-panel))
-already subscribes to `:rf.error/*` and renders this event with its
-machine-id attribution and ELK error message; off-box monitors that
+**Consumers.** Xray's inline issue surfaces
+([Xray 016 §Issues](../../xray/spec/016-Auxiliary-Panels.md#issues--the-dedicated-tab-was-removed-rf2-gbz39-option-c))
+pick this event up via the `:rf.xray/issues-ribbon` projection and
+render it with its machine-id attribution and ELK error message — in
+the Epoch panel's exception block, the L2 event-row pink-wash, and the
+always-on issues ribbon signal; off-box monitors that
 forward `:rf.error/*` via the framework's error-emit listener (per
 [Spec 009 §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production))
 see the same record under the dev-and-debug-build gate.
