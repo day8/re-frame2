@@ -235,19 +235,17 @@
       (= :text resolved)
       body-text
 
-      ;; rf2-5zj6t — binary decode modes return the native Fetch body
-      ;; the transport already read via `.blob()` / `.arrayBuffer()` /
-      ;; `.formData()`. On hosts that have no binary body (the JVM
-      ;; transport reads `.body` as a String) `body-binary` is absent and
-      ;; we fall back to the raw `body-text` so the value is at least the
-      ;; payload, not nil.
-      (= :blob resolved)
-      (if (some? body-binary) body-binary body-text)
-
-      (= :array-buffer resolved)
-      (if (some? body-binary) body-binary body-text)
-
-      (= :form-data resolved)
+      ;; rf2-5zj6t — binary decode modes (`:blob` / `:array-buffer` /
+      ;; `:form-data`, the `binary-decode-kinds` set) return the native
+      ;; Fetch body the transport already read via `.blob()` /
+      ;; `.arrayBuffer()` / `.formData()`. On hosts that have no binary
+      ;; body (the JVM transport reads `.body` as a String) `body-binary`
+      ;; is absent and we fall back to the raw `body-text` so the value
+      ;; is at least the payload, not nil. rf2-jkake.9 — the three modes
+      ;; collapse onto the shared `binary-decode-kinds` set (the same set
+      ;; `binary-read-kind` consults) rather than three identical cond
+      ;; arms.
+      (contains? binary-decode-kinds resolved)
       (if (some? body-binary) body-binary body-text)
 
       ;; Malli schema (or anything keyword-like that isn't recognised above).
