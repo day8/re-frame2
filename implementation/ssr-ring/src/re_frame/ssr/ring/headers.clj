@@ -14,15 +14,23 @@
 
 (defn merge-pair-into-header-map
   "Fold a `[name value]` header pair into the accumulating Ring headers
-  map. The accumulator only ever carries `nil`, `string`, or `vector`
-  values per the contract upstream — no other shapes flow in — so the
-  three arms here are exhaustive."
+  map. The accumulator normally carries `nil`, `string`, or `vector`
+  values — the SSR runtime's `set-header`/`append-header` fxs gate
+  header NAMES (RFC 7230 token grammar) and VALUES (CR/LF/NUL) but do
+  NOT coerce a value to a string, so a non-string scalar (number,
+  keyword, boolean) can reach this fold verbatim. The first occurrence
+  `assoc`s that scalar in; a repeated name must still collapse it into
+  a multi-value vector. The `:else` arm handles that case the same way
+  the `string?` arm does (existing scalar → `[existing v]`); without it
+  the `cond` would return `nil`, silently wiping the ENTIRE accumulated
+  header map mid-fold (Content-Type, Set-Cookie, everything folded so
+  far) — a silent-failure header-loss bug."
   [m [k v]]
   (let [existing (get m k)]
     (cond
       (nil? existing)        (assoc m k v)
-      (string? existing)     (assoc m k [existing v])
-      (vector? existing)     (assoc m k (conj existing v)))))
+      (vector? existing)     (assoc m k (conj existing v))
+      :else                  (assoc m k [existing v]))))
 
 (defn append-set-cookies
   "For every cookie map in the response's :cookies vector, append one
