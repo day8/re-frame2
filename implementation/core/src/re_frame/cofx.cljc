@@ -60,15 +60,16 @@
 (def ^:private cofx-runs-on-platform? fx/runs-on-platform?)
 
 (defn- active-platform-for-frame
-  "Resolve the active platform for a cofx injection. Mirrors the resolution
-  in `router/run-fx-effects!`: the frame's `:config :platform` override (set
-  by the `:ssr-server` preset, or any user-supplied frame config) takes
-  precedence over the host-wide platform marker (`interop/active-platform`,
-  toggled via `re-frame.core/init-platform`)."
+  "Resolve the active platform for a cofx injection from a frame-id.
+  Resolves the frame record, then defers to the shared per-frame
+  platform resolution `fx/platform-for-frame-record` (the same kernel
+  `router/run-fx-effects!` uses on its already-resolved record): the
+  frame's `:config :platform` override (set by the `:ssr-server` preset,
+  or any user-supplied frame config) takes precedence over the host-wide
+  platform marker (`interop/active-platform`, toggled via
+  `re-frame.core/init-platform`)."
   [frame-id]
-  (or (when frame-id
-        (-> (frame/frame frame-id) :config :platform))
-      (interop/active-platform)))
+  (fx/platform-for-frame-record (when frame-id (frame/frame frame-id))))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx

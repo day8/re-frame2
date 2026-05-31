@@ -894,8 +894,7 @@
   set of optionals."
   [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
-    (let [active-platform (or (-> frame-record :config :platform)
-                              (interop/active-platform))
+    (let [active-platform (fx/platform-for-frame-record frame-record)
           event           (:event envelope)]
       (fx/do-fx frame fx-vec active-platform
                 {:overrides       fx-overrides
