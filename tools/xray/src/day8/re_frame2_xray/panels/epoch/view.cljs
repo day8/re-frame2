@@ -2463,16 +2463,23 @@
   auto-collapse keeps unchanged subtrees folded so the density matches
   what the prior `:diff` lens used to provide.
 
-  rf2-4wywy — the rendered `:db` is the POST-HANDLER, PRE-FLOW value
-  (the projection's `:db-post-handler`, t1 · `:rf.event/db-pending`),
-  NOT the epoch record's `:db-after`. `:db-after` is the FINAL
-  post-flow / post-commit state — reading it conflated the handler's
-  change with any flow recompute that followed (flows write app-db
-  AFTER the handler). With t1 the HANDLER step shows ONLY what the
-  handler returned; the FLOW step shows the flow's OWN `:db` diff
-  (the t1→t2 reshape). Graceful fallback: when no t1 fired (handler
-  returned no `:db`, or a pre-rf2-ta0y7 runtime) the block falls back
-  to the record's `:db-after` so older epochs still render.
+  rf2-4wywy / rf2-48oc4 — the rendered `:db` is the EFFECTIVE
+  POST-HANDLER db (the projection's `:db-post-handler`), NOT the epoch
+  record's `:db-after`. `:db-after` is the FINAL post-flow / post-commit
+  state — reading it conflated the handler's change with any flow
+  recompute that followed (flows write app-db AFTER the handler). The
+  HANDLER step shows ONLY what the handler returned; the FLOW step shows
+  the flow's OWN `:db` diff (the pre→post reshape).
+
+  The projection resolves `:db-post-handler` without assuming the
+  handler returned a `:db` (`projection/effective-post-handler-db`):
+  the t1 snapshot (`:rf.event/db-pending`) when the handler returned
+  `:db`; `db-before` when the handler returned NO `:db` yet a flow
+  fired (rf2-48oc4 — the HANDLER step then shows NO `:db` change, since
+  the post-handler db equals db-before); nil otherwise. Graceful
+  fallback: when the projection left the slot nil (no flow + no `:db`,
+  or a pre-rf2-ta0y7 runtime) the block falls back to the record's
+  `:db-after` so older epochs still render.
 
   The `:db-diff` arg is unused under the single rendering but stays in
   the parent's `handler-body` signature for projection compatibility.
@@ -2621,22 +2628,30 @@
   The projection emits N flow step maps for a cascade with N flow
   recomputes.
 
-  rf2-4wywy — the body renders the flow's OWN contribution as a `:db`
-  DIFF rather than the prior `[path] before → after` scalar line. A
-  flow's contribution IS an app-db mutation (it writes `:output` into
-  `:path` AFTER the handler returned); rendering it as a `:db` diff
-  via the shared edn-inspector diff renderer (parity with the HANDLER
-  step's `:db` sub-section + the App-DB Diff panel) reads as 'what the
-  flow changed in app-db', and — crucially — keeps it SEPARATE from
-  the HANDLER step's `:db` (which now shows only the t1 / post-handler
-  state). The diff is scoped to the flow's `:path` so each FLOW step
-  shows only its own slot's reshape (the projection threads the shared
-  t1/t2 db snapshots onto every flow step; `assoc-in` at the flow's
-  path against t1 / t2 isolates this flow's contribution).
+  rf2-4wywy / rf2-48oc4 — the body renders the flow's OWN contribution
+  as a `:db` DIFF rather than the prior `[path] before → after` scalar
+  line. A flow's contribution IS an app-db mutation (it writes
+  `:output` into `:path` AFTER the handler returned); rendering it as a
+  `:db` diff via the shared edn-inspector diff renderer (parity with the
+  HANDLER step's `:db` sub-section + the App-DB Diff panel) reads as
+  'what the flow changed in app-db', and — crucially — keeps it SEPARATE
+  from the HANDLER step's `:db` (which shows only the post-handler
+  state). The diff endpoints are the projection's `:db-pre-flow` (the
+  EFFECTIVE post-handler db) and `:db-post-flow` (t2 · what the flow
+  returned). Scoped to the flow's `:path` so each FLOW step shows only
+  its own slot's reshape (the projection threads the shared snapshots
+  onto every flow step; `assoc-in` at the flow's path against pre / post
+  isolates this flow's contribution).
 
-  Graceful fallback: when the projection carried no t1/t2 snapshots
-  (handler returned no `:db`, or a pre-rf2-ta0y7 runtime) the body
-  falls back to the per-path `[path] before → after` scalar line."
+  rf2-48oc4 — `:db-pre-flow` is the effective post-handler db, so the
+  diff renders correctly EVEN WHEN the handler returned no `:db`: in
+  that case the projection threads `db-before` (the actual post-handler
+  db) as `:db-pre-flow`, NOT nil, so this branch renders a real diff
+  rather than the scalar fallback.
+
+  Graceful fallback: when the projection carried no pre/post snapshots
+  (a pre-rf2-ta0y7 runtime, or neither t1 nor t2 on the stream) the
+  body falls back to the per-path `[path] before → after` scalar line."
   [{:keys [flow-id path before after duration-ms step-number
            db-pre-flow db-post-flow]}]
   (let [flow-meta  (when (keyword? flow-id)
@@ -2645,11 +2660,12 @@
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
         label      (proj/ns-keyword flow-id)
-        ;; rf2-4wywy — render a `:db` diff scoped to this flow's path.
-        ;; t1 (db-pre-flow) lacks this flow's write; t2 (db-post-flow)
-        ;; carries it. Scoping to the path isolates THIS flow's slot
-        ;; even when several flows rode the same t1→t2 transition. When
-        ;; either snapshot is absent we render the scalar fallback.
+        ;; rf2-4wywy / rf2-48oc4 — render a `:db` diff scoped to this
+        ;; flow's path. db-pre-flow (effective post-handler db) lacks this
+        ;; flow's write; db-post-flow (t2) carries it. Scoping to the path
+        ;; isolates THIS flow's slot even when several flows rode the same
+        ;; pre→post transition. When either endpoint is absent (pre-
+        ;; rf2-ta0y7 / no snapshots) we render the scalar fallback.
         db-diff?   (boolean
                      (and (some? db-pre-flow) (some? db-post-flow)
                           (sequential? path) (seq path)))

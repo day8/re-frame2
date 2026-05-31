@@ -1091,6 +1091,108 @@
       (is (= 5 (:before f)))
       (is (= 6 (:after f))))))
 
+;; ---- no-`:db`-effect-but-has-flow edge case (rf2-48oc4) -----------------
+;;
+;; A handler can return NO `:db` effect yet still trigger a flow. The
+;; substrate then stamps NO t1 (`:rf.event/db-pending` fires only
+;; `(when has-db?)` — router `flows-after-interceptor`, rf2-ta0y7) but
+;; DOES stamp t2 (`:rf.event/db-pending-post-flow`) with the flow-augmented
+;; db (a flow synthesised one from app-db and changed it). The post-handler
+;; db here equals `db-before` (the handler wrote nothing). The HANDLER step
+;; must show NO `:db` change; the FLOW step must diff the flow's
+;; contribution against `db-before` — NOT fall back to the scalar line, and
+;; NOT attribute the flow's change to the handler.
+
+(deftest no-db-effect-with-flow-discriminator-test
+  (testing "rf2-48oc4 — `no-db-effect-with-flow?` is true iff no t1 but a
+            t2 fired (handler wrote no `:db`, a flow synthesised + changed
+            one)"
+    (is (true? (proj/no-db-effect-with-flow?
+                 [(db-pending-post-flow-ev {:a 1 :derived 2})]))
+        "no t1 + t2 present → true")
+    (is (false? (proj/no-db-effect-with-flow?
+                  [(db-pending-ev {:a 1})
+                   (db-pending-post-flow-ev {:a 1 :derived 2})]))
+        "t1 present → false (handler DID return :db; standard case)")
+    (is (false? (proj/no-db-effect-with-flow? []))
+        "neither t1 nor t2 → false (no flow / pre-rf2-ta0y7)")))
+
+(deftest effective-post-handler-db-resolution-test
+  (testing "rf2-48oc4 — `effective-post-handler-db` resolution order"
+    (is (= {:a 1} (proj/effective-post-handler-db
+                    [(db-pending-ev {:a 1})] {:a 0}))
+        "t1 present → t1 (handler-supplied db), regardless of db-before")
+    (is (= {:a 0} (proj/effective-post-handler-db
+                    [(db-pending-post-flow-ev {:a 0 :derived 9})] {:a 0}))
+        "no t1 + t2 (no-:db-with-flow) → db-before (the actual
+         post-handler db; handler wrote nothing)")
+    (is (nil? (proj/effective-post-handler-db [] {:a 0}))
+        "neither t1 nor t2 → nil (caller falls back to record :db-after);
+         the pre-rf2-ta0y7 / no-flow path is left to the legacy fallback")))
+
+(deftest handler-step-shows-no-db-change-when-handler-wrote-no-db-test
+  (testing "rf2-48oc4 ACCEPTANCE (b) — when the handler returned NO `:db`
+            but a flow fired, the HANDLER step shows NO `:db` change: the
+            effective post-handler db equals `db-before`, so the `:db-diff`
+            is EMPTY and `:db-post-handler` carries db-before (NOT the
+            flow-augmented post-flow state)."
+    (let [db-before {:base 1 :derived 2}
+          ;; handler wrote no :db → t1 absent. The flow recomputes
+          ;; :derived from :base into app-db → t2 fires with the augmented db.
+          t2        {:base 1 :derived 4}
+          record    {:event-id     :synthetic/flow-only
+                     :db-before    db-before
+                     :db-after     t2
+                     :trace-events [(dispatched-ev [:synthetic/flow-only])
+                                    ;; NO db-pending-ev — the handler
+                                    ;; returned no :db effect.
+                                    (flow-recomputed-ev :synthetic/derived [:derived] 2 4)
+                                    (db-pending-post-flow-ev t2)
+                                    (run-end-ev 0.2)]}
+          steps     (proj/project record)
+          h         (first (filter #(= :handler (:step %)) steps))]
+      (is (some? h) "HANDLER step present")
+      (is (= db-before (:db-post-handler h))
+          "the HANDLER step's effective post-handler db = db-before (the
+           handler wrote nothing); NOT the post-flow t2")
+      (is (= [] (:db-diff h))
+          "HANDLER `:db-diff` is EMPTY — the handler made no :db change;
+           the flow's :derived recompute must NOT surface here")
+      (is (not (contains? (set (map first (:db-diff h))) [:derived]))
+          "the flow's :derived change does NOT leak into the HANDLER step"))))
+
+(deftest flow-step-diffs-against-db-before-when-handler-wrote-no-db-test
+  (testing "rf2-48oc4 ACCEPTANCE (a) — when the handler returned NO `:db`
+            but a flow fired, the FLOW step's diff baseline is the ACTUAL
+            post-handler db (= db-before), threaded as `:db-pre-flow`; the
+            POST endpoint is t2 (`:db-post-flow`). The step renders a real
+            `:db` diff rather than the scalar fallback."
+    (let [db-before {:base 1 :derived 2}
+          t2        {:base 1 :derived 4}
+          record    {:event-id     :synthetic/flow-only
+                     :db-before    db-before
+                     :db-after     t2
+                     :trace-events [(dispatched-ev [:synthetic/flow-only])
+                                    (flow-recomputed-ev :synthetic/derived [:derived] 2 4)
+                                    (db-pending-post-flow-ev t2)
+                                    (run-end-ev 0.2)]}
+          steps     (proj/project record)
+          f         (first (filter #(= :flow (:step %)) steps))]
+      (is (some? f) "FLOW step present")
+      (is (= :synthetic/derived (:flow-id f)))
+      (is (= [:derived] (:path f)))
+      (is (= db-before (:db-pre-flow f))
+          "FLOW diff PRE endpoint = the actual post-handler db (db-before)
+           — NOT nil, so the view renders a real :db diff, not the scalar
+           fallback")
+      (is (= t2 (:db-post-flow f))
+          "FLOW diff POST endpoint = t2 (what the flow returned)")
+      ;; The t1(=db-before)→t2 reshape IS the flow's contribution.
+      (is (= 2 (:derived (:db-pre-flow f)))
+          "pre-flow :derived = its value before the flow recomputed it")
+      (is (= 4 (:derived (:db-post-flow f)))
+          "post-flow :derived = the flow's recomputed value"))))
+
 ;; ---- FX -----------------------------------------------------------------
 
 (deftest fx-step-conditional-test
