@@ -20,11 +20,18 @@
                                               instead of boolean-discriminator
                                               subs.
    - Open-map idiom                        — every shape on the wire is an open map
-   - Headless test                         — browserless smoke test (no DOM
-                                               required; runs in any CLJS host
-                                               that boots re-frame2. To run on
-                                               the JVM, port the testable parts
-                                               to .cljc.)
+
+   Test-free per the examples policy (no inline test fn, no sibling
+   `test/` tree): the login flow this file wires is the same
+   `:auth.login/flow` machine the sibling `state_machine_walkthrough`
+   example exercises headlessly — its `test/state_machine_walkthrough/
+   core_test.cljc` drives the happy-path / retry-then-lockout / pure
+   machine-transition scenarios, gated by the
+   `state-machine-walkthrough-runs-headless` deftest in
+   `implementation/core/test/re_frame/examples_test.clj`. Broader login
+   contract coverage lives in the substrate contract suite
+   (`npm run test:cljs`) and the framework gates (see
+   `examples/README.md`).
 
    In a real codebase, this single file would be split per CP-6 conventions:
      login/schema.cljc | events.cljs | subs.cljs | views.cljs |
