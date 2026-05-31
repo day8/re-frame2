@@ -1339,6 +1339,33 @@ jobs:
       - name: Run Story :play-script CI-as-test gate
         run: npm run test:story-play-scripts
 
+      # rf2-315cf (Option B) — on a RED browser gate, upload the failed-run
+      # evidence so the failure is a downloadable, off-CI post-mortem
+      # (spec/017 §Failed-run artifacts in CI). Two paths are surfaced:
+      #   - implementation/out/story-play-scripts/ — the play-script run
+      #     evidence (per-row expected/actual + per-step diagnostics) the
+      #     runner persists ONLY when a play deviates from its expected
+      #     status (rf2-5x1wt.7 run-evidence projection).
+      #   - implementation/out/xray-feature-gate-artifacts/ — the Xray
+      #     feature-gate failure screenshots + diagnostics the gate already
+      #     writes on a failing scenario.
+      # `if: failure()` scopes the upload to a red run; `if-no-files-found:
+      # ignore` keeps a partial failure (e.g. the xray step failed before
+      # the play-scripts step ran, or vice versa) from turning the upload
+      # itself red. The dedicated capability-routed (:pixels / :a11y-engine)
+      # browser-tier gate is DEFERRED per Mike's 2026-05-31 ruling — this
+      # bead wires ONLY the failed-run artifact upload on the existing gate.
+      - name: Upload failed browser-gate run evidence (rf2-315cf)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: story-xray-browser-failed-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            implementation/out/story-play-scripts/
+            implementation/out/xray-feature-gate-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
   cljs-reagent-slim-bundle-isolation:
     name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)
     needs: detect_changed_surfaces
