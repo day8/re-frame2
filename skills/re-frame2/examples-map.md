@@ -13,7 +13,7 @@ The full catalogue (with maturity, build ids, and end-to-end Playwright coverage
 
 The smallest possible re-frame2 app. One `reg-event-db`, one `reg-sub`, one `reg-view` Var, an `:initial-fx` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event-db`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames and 004 Views. The pedagogical "hello world" — its shape sets the bar for every other example.
 
-## counter_slim_and_fast — `examples/reagent/counter_slim_and_fast/`
+## counter_slim_and_fast — `examples/reagent-slim/counter_slim_and_fast/`
 
 The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim epic.
 
