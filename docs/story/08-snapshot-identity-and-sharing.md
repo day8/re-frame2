@@ -1,6 +1,6 @@
 # 8. Snapshot identity and sharing
 
-> **What you'll build.** An understanding of the content-hashed `snapshot-identity` that survives renames; how it keys visual-regression; and how to share a reproduction safely, with honest redaction. This chapter delivers the *share* face.
+> **What you'll build.** An understanding of the content-hashed `snapshot-identity` that survives renames; how it keys visual-regression; and how to share a reproduction with honest *reproducibility* labelling — every shared artifact says whether the recipient can fully reproduce it. This chapter delivers the *share* face.
 
 ## The rename that doesn't break your diffs
 
@@ -17,7 +17,7 @@ Two hashes matter, and they answer two different questions:
 - **`:plan-hash`** — the identity of the *plan*. Computed over `[:story/id :world :script :expect :required-runner :tags]`. Answers "is this the same variant?" Two variants with the same plan hash are the same variant, whatever they're named.
 - **`:run-hash`** — the identity of the *run's behaviour*. Computed over the behavioural run-slice (`:status`, final `:app-db`, the epoch tape, assertions, checks, effects, schema violations, warnings, sub-overrides, fidelity). Answers "did this variant *behave* the same way this time?"
 
-One precision detail with real consequences: the hash computes over the **real values, before any redaction sentinel is substituted.** That's what keeps visual-regression keying stable even for variants carrying sensitive data — the key is computed from the true content. The hash itself never leaves the process unredacted; only the *key* (a hash, not the data) travels.
+One precision detail with real consequences: the hash computes over the variant's **real values**. That's what keeps visual-regression keying stable — the key is a content-address of the true content, so the same content always lands on the same key. And because the key *is* a hash, not the data, only the digest travels into a downstream baseline service — never the underlying state.
 
 ## Visual-regression keying
 
@@ -34,37 +34,43 @@ Two rigour features built on the same `canonicalize` primitive, kept light here:
 
 Both exist so that "this variant changed behaviour" is a precise, named statement, not a vibe.
 
-## Sharing a reproduction — honest redaction
+## Sharing a reproduction — honest reproducibility
 
-<!-- SCREENSHOT S11: a share/copy affordance on a selected variant, with a visible redaction warning ("partial reproduction: 1 sensitive value removed") so the recipient knows the repro is incomplete. NOTE (floor-state): share/export redaction across all egress is BLOCKED on a common egress seam (018 §6); the copy-share-URL command is gated on it. Confirm the affordance renders before leaning this shot on it. -->
+<!-- SCREENSHOT S11: the "Share & export" dialog open on a selected variant — the four egress commands (Share URL · Copy EDN · Screenshot · Static build), each carrying a reproducibility badge ("fully reproducible" / "partially reproducible" / "view-only"). For a partial/view-only cell the badge lists the reason (e.g. "the `:on-click` override pins a function value that cannot be serialised"). -->
 
-Now the *share* face proper. You've got a variant in an interesting state and you want to hand it to a colleague. Story lets you share a selected state as a URL, an inline plan, or a run artifact:
+Now the *share* face proper. You've got a variant in an interesting state and you want to hand it to a colleague. Open **Share & export** from the toolbar and Story gives you four ways to hand the cell off, each labelled with how reproducible it is:
+
+- **Share URL** — the live address-bar URL. The browser's own URL *is* the share URL (`Cmd-L`, `Cmd-C`); the dialog is a one-click copy of it, not a second artifact. Paste it to land on the exact same cell.
+- **Copy EDN** — a `(story/reg-variant …)` snippet of the cell's effective state, ready to paste into your stories namespace.
+- **Screenshot** — a PNG of the variant canvas copied to the clipboard.
+- **Static build** — the `npm run story:build` command that emits a self-contained static site carrying the registered variants as data.
+
+The same share URL is available programmatically — pure data → data, encoding the active modes, cell-overrides, and substrate so the cell reproduces:
 
 ```clojure
 (story/variant-share-url variant-id base-url opts)
-;; -> a shareable URL encoding the selected variant + state
+;; -> a shareable URL encoding the variant + its active modes, overrides, and substrate
 ```
 
-But sharing application state is exactly where privacy bites, so the rule (the spec's T4 tension) is firm: **redaction must be visible and must explain what was removed.** A shared artifact may be only *partially* reproducible — and when redaction has stripped data the reproduction needs, the artifact must *say so*. No silent half-broken repros.
+The honest part is **reproducibility labelling**, not redaction. A shared artifact may be only *partially* reproducible — and when something the reproduction needs cannot survive the round-trip, the artifact *says so*. No silent half-broken repros. Every command carries a badge with one of three statuses:
 
-There are two independent gates, and conflating them is a mistake:
+- **fully reproducible** — every input that drives the cell survives the URL / EDN round-trip; paste it and you land exactly here.
+- **partially reproducible** — most state carries, but something is dropped or does not serialise (a cell-override value that is not readable EDN, a network stub that replies via a function, share-URL overrides that no longer apply after the variant's args were refactored). The recipient reproduces a degraded-but-usable approximation.
+- **view-only** — the cell fundamentally cannot be replayed from the artifact (a function pinned as an arg value the view calls; a screenshot is *always* view-only — a static image is a view, not a replay). The recipient gets a view-only snapshot.
 
-- **`show-sensitive?`** — the *on-box* toggle: whether the local devtool reveals a sensitive value to *you*, sitting at your own machine.
-- **`include-sensitive?`** — the *off-box* egress gate: whether a sensitive value is allowed to leave the process at all in a shared/exported artifact.
+When the status is downgraded the badge lists *which* slot caused it — "the `:on-click` override pins a function value that cannot be serialised", "2 overrides from this URL no longer apply to the variant" — so the recipient reads exactly what makes the artifact less than fully replayable. This is *"can the recipient reproduce this?"*, never *"is this sensitive?"*.
 
-They're separate because "I can see my own secrets locally" and "this secret is allowed to cross the wire" are genuinely different decisions. A `:sensitive?`-marked slot shares as `:rf/redacted`, with the redaction *visible* in the shared artifact — the recipient sees that something was removed and that the repro is partial, rather than receiving a quietly-incomplete artifact that fails mysteriously.
+!!! note "Why there is no redaction here"
 
-This is the same redaction machinery the recorder used ([chapter 5](05-recorder-and-cannot-run.md#redaction-at-the-recorder-boundary)) and the same boundary an agent reads across ([chapter 9](09-multi-substrate-and-agent-loop.md)) — one egress posture, applied consistently to every face that lets state leave the box.
-
-!!! note "Floor-state, honestly"
-
-    Per the north-star spec ([`018`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/018-Story-UI-North-Star.md)
-    §6), *share/export redaction across all egress* is blocked on a common egress
-    seam beyond epoch redaction, and the share-URL copy command is gated on it. The
-    `snapshot-identity` content-hash and the `canonicalize` primitive ship today;
-    the full safe-sharing affordance is converging. Treat the share-URL flow here as
-    the target the redaction posture is building toward — the keying and the
-    redaction *contract* are real now; the polished egress UI is landing.
+    Sharing the URL, EDN, a screenshot, or a static build of **your own running
+    app** is not a privacy concern: you, the local developer, already have
+    programmatic access to your own state and secrets, so redacting the artifacts
+    you emit of your own app would be futile. So these human-egress commands ship
+    freely — enabled, not gated. The genuine egress-privacy boundaries live
+    elsewhere, where state leaves *your* box for someone — or something — else: the
+    AI / MCP surface an agent reads across ([chapter 9](09-multi-substrate-and-agent-loop.md))
+    and the logs. The recorder's own boundary is covered in
+    [chapter 5](05-recorder-and-cannot-run.md#redaction-at-the-recorder-boundary).
 
 ## Where we go next
 
