@@ -1,6 +1,7 @@
 (ns panel-gallery.gallery-filters
   "Story coverage for the **Auto-filter pill cluster + edit popup**
-  (rf2-kbrkx follow-on to rf2-ak4ms + rf2-sszlr chrome gallery).
+  (rf2-durls redo of the rf2-kbrkx gallery against the de-singletoned
+  shell + four-bucket Story model).
 
   The auto-filter feature spans two visual surfaces:
 
@@ -12,23 +13,43 @@
        pre-populated with the row's event-id).
 
   Each variant renders the full Xray 4-layer chrome via
-  `:panel-gallery.chrome/Shell` and seeds `:rf/xray` to drive the
-  ribbon + (optionally) open the edit popup against the expected
-  trigger shape.
+  `:panel-gallery.chrome/Shell` and seeds the ribbon + (optionally)
+  opens the edit popup against the expected trigger shape.
 
-  ## Frame discipline (same caveat as gallery-chrome)
+  ## Frame discipline (de-singletoned shell — rf2-1w07r)
 
-  The chrome's `shell-view` body wraps itself in `[rf/frame-provider
-  {:frame :rf/xray}]`. All seed events route through the testbed's
-  `:panel-gallery.chrome/seed!` `:after-seeds` lane so the writes
-  land on `:rf/xray` (where the chrome + modal read), not on the
-  variant frame Story pre-allocated."
+  The chrome's `shell-view` takes a `:frame-id` opt; the `chrome-shell`
+  wrapper threads the Story per-variant frame (`(rf/current-frame)`)
+  into it, so the ribbon + the modal it mounts read from THIS variant's
+  frame. Story's runtime dispatches every `:setup` step into that same
+  variant frame, so a variant seeds its pills + opens the popup with the
+  CANONICAL Xray events directly — no `:rf/xray` literal, no re-dispatch
+  indirection. Cells in the grid are fully isolated."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
 (defn register-gallery-view! []
   (panel-views/register!))
+
+(defn- filters-setup
+  "Build the `:setup` event vector for an auto-filter variant. Seeds the
+  trace buffer + active tab, adds the declared ribbon pills (each cell
+  starts with empty `:active-filters`), then runs any popup-trigger
+  events — all dispatched into the variant frame the chrome cell reads.
+
+    :trace-buffer — vector → `:rf.xray/sync-trace-buffer`
+    :selected-tab — kw     → `:rf.xray/select-tab`
+    :filters      — {:in [pill …] :out [pill …]} → one add-filter per pill
+    :triggers     — extra event vectors (e.g. `:rf.xray/open-edit-popup`)"
+  [{:keys [trace-buffer selected-tab filters triggers]}]
+  (let [{:keys [in out]} filters]
+    (cond-> []
+      (some? trace-buffer) (conj [:rf.xray/sync-trace-buffer trace-buffer])
+      selected-tab         (conj [:rf.xray/select-tab selected-tab])
+      (some? filters)      (into (concat (for [pill in]  [:rf.xray/add-filter :in pill])
+                                         (for [pill out] [:rf.xray/add-filter :out pill])))
+      (seq triggers)       (into (vec triggers)))))
 
 (defn register-all!
   "Register the auto-filter Story surface. Idempotent under
@@ -49,7 +70,7 @@
                  a mixed-loaded ribbon, the edit popup in :add /
                  :pill / :context trigger shapes, and the right-
                  click context-menu shortcut to the OUT-filter
-                 draft."
+                 draft — each in its own isolated frame."
      :component  :panel-gallery.chrome/Shell
      :tags       #{:dev :feature/xray-filters}
      :substrates #{:reagent}})
@@ -63,10 +84,10 @@
                  trailing `[ + ]` add affordance is visible
                  alongside the nav cluster + frame picker + mode
                  pill + right icons."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (filters-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :filters      {:in [] :out []}}]]
+                    :selected-tab :epoch
+                    :filters      {:in [] :out []}})
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -80,9 +101,9 @@
                  pill cluster's visual contract under a realistic
                  mixed load — green IN tint vs magenta OUT tint,
                  with `✎` edit affordances on each."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (filters-setup
                    {:trace-buffer (fixtures/n-cascades 4)
-                    :selected-tab :event
+                    :selected-tab :epoch
                     :filters
                     {:in  [{:pattern :cart/add}
                            {:pattern ":auth/*"}
@@ -91,7 +112,7 @@
                            {:pattern :anim-frame}
                            {:pattern ":telemetry/*"}
                            {:pattern "presence"}
-                           {:pattern ":heartbeat"}]}}]]
+                           {:pattern ":heartbeat"}]}})
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
@@ -102,13 +123,12 @@
     {:doc        "Edit popup open via the trailing `[ + ]` add
                  affordance. Trigger `{:source :add :mode :in}` —
                  popup arrives empty + IN default; no `[Delete]`."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (filters-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
+                    :selected-tab :epoch
                     :filters      {:in [] :out []}
-                    :after-seeds
-                    [[:rf.xray/open-edit-popup
-                      {:source :add :mode :in}]]}]]
+                    :triggers
+                    [[:rf.xray/open-edit-popup {:source :add :mode :in}]]})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -119,17 +139,17 @@
                  Trigger `{:source :pill :mode :in :idx 0 :pill
                  {:pattern :auth/*}}` — popup pre-populated with
                  `:auth/*`, IN selected, `[Delete]` visible."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (filters-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
+                    :selected-tab :epoch
                     :filters      {:in  [{:pattern :auth/*}]
                                    :out []}
-                    :after-seeds
+                    :triggers
                     [[:rf.xray/open-edit-popup
                       {:source :pill
                        :mode   :in
                        :idx    0
-                       :pill   {:pattern :auth/*}}]]}]]
+                       :pill   {:pattern :auth/*}}]]})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -143,22 +163,21 @@
                  :pill {:pattern :mouse-move}}` — popup pre-
                  populated with the row's event-id + OUT default;
                  no `[Delete]` (it's an Add)."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (filters-setup
                    {:trace-buffer (fixtures/n-cascades 4)
-                    :selected-tab :event
+                    :selected-tab :epoch
                     :filters      {:in [] :out []}
-                    :after-seeds
-                    [[:rf.xray/hide-event-type :mouse-move]]}]]
+                    :triggers
+                    [[:rf.xray/hide-event-type :mouse-move]]})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.filters/all
-    {:doc      "All five auto-filter variants. The chrome
-                internally wraps :rf/xray via a hardcoded frame-
-                provider, so workspace cells share interior state —
-                see canvas-mode (sidebar pick) for per-variant
-                fidelity."
+    {:doc      "All five auto-filter variants in one grid, each
+                mounting the shell in its own isolated frame — the
+                pill cluster + edit-popup states render side-by-side
+                with no shared-state bleed."
      :layout   :variants-grid
      :story    :story.xray.filters
      :columns  1

@@ -1,43 +1,59 @@
 (ns panel-gallery.gallery-chrome
   "Story coverage for the **full 4-layer Xray chrome**
-  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
+  (rf2-durls — redo against the de-singletoned shell + the four-bucket
+  Story authoring model; supersedes the rf2-sszlr / rf2-1w07r gallery).
 
-  The variants mount `shell/shell-view` — the entire ribbon + event-
-  list + tab-bar + detail-panel stack. Per spec/018 §2 the chrome is
-  four stacked layers.
+  The variants mount `:panel-gallery.chrome/Shell` — the entire ribbon
+  + event-list + tab-bar + detail-panel stack (`shell/shell-view`). Per
+  spec/018-Event-Spine §2 the chrome is four stacked layers.
 
-  ## A note on shared :rf/xray state
+  ## Per-cell frame isolation (de-singletoned shell — rf2-1w07r)
 
-  `shell/shell-view`'s body explicitly wraps itself in
-  `[rf/frame-provider {:frame :rf/xray}]`, so EVERY subscribe inside
-  the chrome resolves to the global `:rf/xray` frame regardless of
-  the variant frame the Story canvas pre-allocated for each variant.
-  Variant `:events` dispatched into the variant frame therefore
-  DON'T flow into the chrome's reads.
+  `shell/shell-view` now takes a `:frame-id` opt (default
+  `defaults/default-frame-id` = `:rf/xray`). The `chrome-shell` wrapper
+  (`panel_views.cljs`) is `reg-view*`-registered, so its render runs
+  under the Story per-variant `frame-provider` and `(rf/current-frame)`
+  resolves to the variant frame the canvas allocated for THIS cell. We
+  thread that frame into `[shell/shell-view {:frame-id …}]`, so each
+  chrome cell's app-db (focused epoch, selected tab, theme, modal
+  open-state, filters) lives in its OWN variant frame.
 
-  To exercise distinct chrome states per variant, this gallery
-  registers a testbed-local seed event
-  `:panel-gallery.chrome/seed!` that re-dispatches its payload into
-  `:rf/xray` directly. The handler is registered in `core.cljs`
-  alongside the gallery boot. Variants here invoke that seed event
-  via Story `:events`.
+  Story's runtime dispatches every `:setup` step into the SAME variant
+  frame (`runtime/dispatch-sync ev {:frame variant-id}`). So a variant
+  seeds its chrome state with the CANONICAL Xray events directly — no
+  re-dispatch indirection, no `:rf/xray` literal, no shared-state
+  serialisation. N chrome cells render simultaneously in a
+  `:variants-grid` and stay fully isolated: driving one does not move
+  the others.
 
-  Because of the shared `:rf/xray` state, the workspace uses
-  `:layout :tabs` (not `:variants-grid`) — one variant rendered at a
-  time, each one re-seeding `:rf/xray` on tab activation. A grid
-  would mount all chrome cells simultaneously, and the last-seeded
-  variant's state would bleed into all cells.
+  Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
+  so every cell's subscribes collided on the single global `:rf/xray`
+  app-db; the gallery had to serialise rendering and re-dispatch its
+  seeds into `:rf/xray` through a testbed-local `:panel-gallery.chrome/
+  seed!` event. The parameterized shell retires all of that.
+
+  ## Seed events
+
+  Each variant's `:setup` fires the same real Xray events the shell
+  itself dispatches at runtime, against the variant frame:
+
+    - `:rf.xray/sync-trace-buffer`  — the LIVE trace buffer (drives the
+                                      event-list L2 + every tab body).
+    - `:rf.xray/sync-epoch-history` — the epoch ring (drives App-db +
+                                      Views tabs).
+    - `:rf.xray/select-tab`         — the active L4 tab.
+    - `:rf.xray/add-filter`         — one ribbon pill (IN / OUT). Each
+                                      cell starts with empty
+                                      `:active-filters`, so the variant
+                                      simply adds its declared pills.
+    - `:rf.xray/toggle-live-pause`  — flip the LIVE feed to paused.
 
   ## Feature-detect notes
 
     - Auto-filter pills (rf2-ak4ms) — basic ribbon pill round-trip is
-      in main; rich filter popup hasn't landed. The
-      `ribbon-filters-loaded` variant exercises the basic
-      add-filter dispatch.
-    - Settings popup (rf2-9poxq) — `:rf.xray/open-settings` is a
-      stub event in registry.cljs. No Settings modal renders yet;
-      gallery variants for the modal wait on the Settings impl
-      landing."
+      in main; the rich filter popup gallery lives in `gallery_filters`.
+    - Settings popup (rf2-9poxq / rf2-ttnst) — its variants live in
+      `gallery_settings`."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.fixtures-app-db :as fixtures-app-db]
@@ -46,6 +62,40 @@
 
 (defn register-gallery-view! []
   (panel-views/register!))
+
+;; ---- setup builders ------------------------------------------------------
+;;
+;; Each chrome variant seeds its own variant frame with the canonical
+;; Xray events. These helpers keep the `:setup` vectors declarative —
+;; the variant passes the state it wants and the helper lowers it to the
+;; event sequence Story dispatch-syncs into the variant frame.
+
+(defn- seed-filters
+  "Lower a `{:in [pill …] :out [pill …]}` filter map into a sequence of
+  `[:rf.xray/add-filter mode pill]` events. Each variant frame starts
+  with empty `:active-filters`, so adding the declared pills is the
+  whole story — no remove-all needed."
+  [{:keys [in out]}]
+  (concat (for [pill in]  [:rf.xray/add-filter :in pill])
+          (for [pill out] [:rf.xray/add-filter :out pill])))
+
+(defn- chrome-setup
+  "Build the `:setup` event vector for a chrome variant from a
+  declarative state map. Order matters only in that filters add after
+  the buffer seed; the shell reads each slot reactively.
+
+    :trace-buffer  — vector → `:rf.xray/sync-trace-buffer`
+    :epoch-history — vector → `:rf.xray/sync-epoch-history`
+    :selected-tab  — kw     → `:rf.xray/select-tab`
+    :filters       — {:in … :out …} → one `:rf.xray/add-filter` per pill
+    :paused?       — true   → `:rf.xray/toggle-live-pause`"
+  [{:keys [trace-buffer epoch-history selected-tab filters paused?]}]
+  (cond-> []
+    (some? trace-buffer)  (conj [:rf.xray/sync-trace-buffer trace-buffer])
+    (some? epoch-history) (conj [:rf.xray/sync-epoch-history epoch-history])
+    selected-tab          (conj [:rf.xray/select-tab selected-tab])
+    (some? filters)       (into (seed-filters filters))
+    paused?               (conj [:rf.xray/toggle-live-pause])))
 
 (defn register-all!
   "Register the chrome Story surface. Idempotent under
@@ -61,11 +111,12 @@
             detail per spec/018 §2."})
 
   (story/reg-story :story.xray.chrome
-    {:doc        "Visual gallery of the full Xray 4-layer chrome.
-                 Each variant re-seeds the global :rf/xray frame via
-                 `:panel-gallery.chrome/seed!`; the chrome reads its
-                 hardcoded :rf/xray frame; the :tabs workspace
-                 layout serialises rendering so state never bleeds."
+    {:doc        "Visual gallery of the full Xray 4-layer chrome. Each
+                 variant mounts the shell in its OWN isolated frame
+                 (the de-singletoned shell threads the Story per-variant
+                 frame) and seeds that frame with the canonical Xray
+                 events. Cells in the grid are fully isolated — driving
+                 one does not move the others."
      :component  :panel-gallery.chrome/Shell
      :tags       #{:dev :feature/xray-chrome}
      :substrates #{:reagent}})
@@ -78,9 +129,9 @@
                  Trace buffer has six cascades; the event-list (L2)
                  surfaces them; the detail panel (L4) renders the
                  epoch panel with the head cascade focused."
-     :events     [[:panel-gallery.chrome/seed!
-                   {:trace-buffer  (fixtures/n-cascades 6)
-                    :selected-tab  :epoch}]]
+     :setup      (chrome-setup
+                   {:trace-buffer (fixtures/n-cascades 6)
+                    :selected-tab :epoch})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -89,10 +140,10 @@
     {:doc        "Chrome with the App-db tab pre-selected. Trace
                  buffer has cascades; epoch-history has the five-key-
                  change buffer; the detail panel renders app-db-diff."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer  (fixtures/n-cascades 3)
                     :epoch-history (fixtures-app-db/five-key-changes-buffer)
-                    :selected-tab  :app-db}]]
+                    :selected-tab  :app-db})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -103,10 +154,10 @@
                  epoch-history; the epoch lacks render rows so the
                  panel surfaces the no-renders branch — a real
                  production state worth pinning."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer  (fixtures/n-cascades 2)
                     :epoch-history (fixtures-app-db/single-key-change-buffer)
-                    :selected-tab  :views}]]
+                    :selected-tab  :views})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -115,9 +166,9 @@
     {:doc        "Chrome with the Trace tab pre-selected. Trace
                  buffer carries 10 events spanning every op-type;
                  the detail panel renders the raw-event feed."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures-trace/ten-events-buffer)
-                    :selected-tab :trace}]]
+                    :selected-tab :trace})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -127,9 +178,9 @@
                  machine-registry overrides; the panel surfaces the
                  :no-machines empty-state — a real production state
                  worth pinning in the gallery."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures/n-cascades 2)
-                    :selected-tab :machines}]]
+                    :selected-tab :machines})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -139,9 +190,9 @@
                  buffer carries an issue mix (errors / warnings /
                  info); the panel projection surfaces the issue
                  feed."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures-trace/error-buffer)
-                    :selected-tab :issues}]]
+                    :selected-tab :issues})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -150,9 +201,9 @@
     {:doc        "Mode pill in LIVE mode (default). Trace buffer has
                  cascades; spine auto-focuses on head; mode pill
                  renders as `● LIVE`."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures/n-cascades 4)
-                    :selected-tab :event}]]
+                    :selected-tab :epoch})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -162,10 +213,10 @@
                  `:paused?` flag is set; the LIVE buffer continues
                  collecting but auto-scrolling stops. Mode pill
                  renders as `● LIVE (paused)`."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures/n-cascades 4)
                     :paused?      true
-                    :selected-tab :event}]]
+                    :selected-tab :epoch})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -175,10 +226,10 @@
                  Only the `[+]` add-pill is visible alongside the
                  nav cluster + frame picker + mode pill + right
                  icons."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :filters      {:in [] :out []}}]]
+                    :selected-tab :epoch
+                    :filters      {:in [] :out []}})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -189,46 +240,28 @@
                  visual contract per spec/018 §7 — IN pills tint
                  green, OUT pills tint magenta; each carries an `✎`
                  edit affordance."
-     :events     [[:panel-gallery.chrome/seed!
+     :setup      (chrome-setup
                    {:trace-buffer (fixtures/n-cascades 4)
-                    :selected-tab :event
+                    :selected-tab :epoch
                     :filters      {:in  [{:pattern ":cart/*"}
                                          {:pattern ":auth/*"}]
-                                   :out [{:pattern ":mouse-move"}]}}]]
+                                   :out [{:pattern ":mouse-move"}]}})
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
   ;;
-  ;; ## :variants-grid with the shared-state caveat
-  ;;
-  ;; All cells render simultaneously, but the chrome internally
-  ;; hardcodes `[rf/frame-provider {:frame :rf/xray}]` inside
-  ;; `shell-view`'s body — so every chrome cell reads the SAME
-  ;; `:rf/xray` app-db. Each variant's `:events` seed writes that
-  ;; one shared db; the LAST variant to run's seed wins in the grid.
-  ;;
-  ;; That's a real limitation. The grid still proves the chrome
-  ;; mounts + renders under each declared state shape (the cell
-  ;; mounts the shell against the seed), and clicking a single
-  ;; variant in the canvas (side panel selection) re-runs its seed
-  ;; against `:rf/xray` deterministically. The workspace cell view
-  ;; is the secondary surface; the canvas-mode single-variant view
-  ;; (sidebar pick) is where per-variant chrome state is fully
-  ;; observable.
-  ;;
-  ;; A `:tabs` layout would in principle render one variant at a
-  ;; time, but Story v1 wires `:tabs` through the same
-  ;; simultaneously-rendered cell path as `:variants-grid`
-  ;; (`tools/story/src/re_frame/story/ui/workspace.cljc` §workspace-
-  ;; view: the `:else` branch handles both). Genuine one-at-a-time
-  ;; tab rendering is a follow-on Story enhancement; until then the
-  ;; grid is the workspace surface.
+  ;; `:variants-grid` — all ten cells render simultaneously. Each cell's
+  ;; `chrome-shell` threads ITS variant frame into the de-singletoned
+  ;; shell (rf2-1w07r), and Story seeds each cell's frame independently,
+  ;; so the cells are fully isolated: every cell paints its own declared
+  ;; state with no last-seed-wins bleed. Single-column so the four-layer
+  ;; chrome has room to breathe.
   (story/reg-workspace :Workspace.xray.chrome/all
-    {:doc      "All ten chrome variants. The chrome internally
-                wraps :rf/xray via a hardcoded frame-provider, so
-                workspace cells share interior state — see canvas-
-                mode (sidebar pick) for per-variant chrome state."
+    {:doc      "All ten chrome variants in one auto-grid. Each cell
+                mounts the shell in its own isolated frame and paints
+                its declared state independently — driving one cell
+                does not move the others."
      :layout   :variants-grid
      :story    :story.xray.chrome
      :columns  1
