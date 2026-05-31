@@ -399,3 +399,75 @@
   (case status
     :error "✗"
     "✓"))
+
+;; ---- Flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------
+;;
+;; The flat per-effect ledger (rf2-j630b, supersedes the kt6js 3-tier
+;; presentation) leads each row with a status glyph. The closed set
+;; extends the rf2-ahhgn `:ok` / `:error` pair with the three fx-outcome
+;; statuses the projection produces (`fx-outcome-op->status`):
+;;
+;;   :ok         → ✓ (success)   — fx handler ran ok / :db committed
+;;   :error      → ✗ (error)     — fx handler threw / no-such-fx
+;;   :rollback   → ✗ (error)     — :db schema-fail rollback (red, same as
+;;                                 :error; the row's reason box carries the
+;;                                 "rolled back" detail)
+;;   :overridden → ↺ (accent)    — fx override applied
+;;   :skipped    → – (tertiary)  — :skipped-on-platform (gated, didn't run
+;;                                 here) OR a dropped `other` effect. A
+;;                                 distinct MUTED en-dash "n/a" — NEUTRAL,
+;;                                 never trips the badge to cross. The
+;;                                 en-dash avoids the middle-dot (= the
+;;                                 `:cancelled` cascade glyph above) and the
+;;                                 circled-slash (reads error-ish).
+
+(def skipped-glyph
+  "The muted en-dash glyph for a SKIPPED ledger row (rf2-j630b) —
+  `:skipped-on-platform` (gated, didn't run here) or a dropped `other`
+  effect. Distinct from the `:cancelled` middle-dot; reads NEUTRAL."
+  "–")
+
+(def skipped-hover
+  "Hover/title text for a `:skipped-on-platform` ledger row (rf2-j630b)."
+  "skipped on this platform — gated, didn't run here")
+
+(defn fx-row-status-glyph
+  "Single-char leading glyph for a flat SIDE EFFECTS ledger row
+  (rf2-j630b). Closed set over the `fx-outcome-op->status` outcomes plus
+  the synthesised `:db` row's `:ok` / `:rollback`:
+    :ok / :db-commit → ✓
+    :error / :rollback → ✗
+    :overridden      → ↺
+    :skipped         → – (muted en-dash, NEUTRAL)
+  Defaults to the success tick for unknown statuses."
+  [status]
+  (case status
+    :error      "✗"
+    :rollback   "✗"
+    :overridden "↺"
+    :skipped    skipped-glyph
+    "✓"))
+
+(defn fx-row-status-token-key
+  "Theme-token keyword for a flat SIDE EFFECTS ledger row's glyph colour
+  (rf2-j630b):
+    :ok         → :success
+    :error      → :error
+    :rollback   → :error
+    :overridden → :accent
+    :skipped    → :text-tertiary  (muted/tertiary — NEUTRAL)
+  Falls back to `:success` for unknown statuses (the quiet tick)."
+  [status]
+  (case status
+    :error      :error
+    :rollback   :error
+    :overridden :accent
+    :skipped    :text-tertiary
+    :success))
+
+(defn fx-row-status-colour
+  "CSS-variable string for a flat SIDE EFFECTS ledger row's glyph
+  (rf2-j630b)."
+  [status]
+  (get tokens/tokens (fx-row-status-token-key status)
+       (get tokens/tokens :success)))

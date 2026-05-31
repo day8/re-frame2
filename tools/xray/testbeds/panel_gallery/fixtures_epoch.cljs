@@ -466,18 +466,26 @@
 ;; its own per-effect ✓/✗ tick (the shared rf2-ahhgn `:status`
 ;; primitive) AND a sub-step ✓/✗ rollup in its header:
 ;;
-;;   :db    — the handler's app-db write. ✓ committed (no rollback this
-;;            variant — the schema-fail rollback rides VARIANT 4b).
-;;   :fx    — the handler's `:fx` vector entries, one row each, exercising
-;;            the full per-effect tick set the projection's
+;; rf2-j630b — the SIDE EFFECTS step renders these as a FLAT ledger (one
+;; row per effect in execution order; no group headers):
+;;
+;;   :db    — the handler's app-db write, FIRST in the ledger. ✓ committed
+;;            (no rollback this variant — the schema-fail rollback rides
+;;            VARIANT 4b). Its args slot is the clickable `→ app-db`
+;;            destination marker (the diff lives in the App-db panel).
+;;   :fx    — the handler's `:fx` vector entries, one row each in order,
+;;            exercising the full per-effect glyph set the projection's
 ;;            `fx-outcome-op->status` maps:
 ;;              ✓ ran        (`:rf.fx/handled`)
 ;;              ↺ overridden (`:rf.fx/override-applied`)
-;;              · skipped    (`:rf.fx/skipped-on-platform`)
+;;              – skipped    (`:rf.fx/skipped-on-platform`; NEUTRAL)
 ;;   other  — a TOP-LEVEL effect key beyond `:db` / `:fx` on the returned
-;;            map. re-frame2's effect map is the closed `{:db :fx}` shape;
-;;            the runtime DROPS any other key, so the row renders the `·`
-;;            not-run diagnostic (the operator sees the dropped effect).
+;;            map, LAST in the ledger. re-frame2's effect map is the closed
+;;            `{:db :fx}` shape; the runtime DROPS any other key, so the
+;;            row renders the muted `–` not-run diagnostic (NEUTRAL).
+;;
+;; The single SIDE EFFECTS badge is the AND-of-rows: this all-actioned
+;; ledger (the skipped + dropped rows are neutral) reads ✓.
 ;;
 ;; rf2-4wywy — db snapshots + t1 so the HANDLER `:db` FULL+DIFF block
 ;; renders alongside the SIDE EFFECTS `:db` ✓ row.
@@ -486,8 +494,9 @@
   "`reg-event-fx` cascade that returns `:db` + a three-entry `:fx`
   vector (a ran effect, an overridden effect, a platform-skipped
   effect) + a stray top-level `:analytics` effect the runtime drops.
-  Exercises the SIDE EFFECTS step's `:db` / `:fx` / other sub-steps,
-  each per-effect tick variant, and the `other` not-run diagnostic."
+  Exercises the SIDE EFFECTS flat ledger (rf2-j630b) — the `:db` →
+  app-db row, each per-effect glyph variant, and the `other` not-run
+  diagnostic — under one ✓/✗ badge."
   []
   (single-epoch-history
     {:epoch-id  2
