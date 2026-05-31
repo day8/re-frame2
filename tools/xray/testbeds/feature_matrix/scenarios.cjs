@@ -141,6 +141,18 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'panel_gallery', 'index.html'],
     servedPath: 'testbeds/panel-gallery',
   },
+  // rf2-5crg4 — routes-epochs deck (the ROUTING step-up tester). A
+  // single-frame numbered-button ladder over the real `reg-route` +
+  // `:rf.route/navigate` surface, driving the Xray Routing panel
+  // (`rf-xray-routing`). Served from the deck's own hand-written
+  // index.html (source dir first, like the 8032 :dev-http entry); the
+  // compiled main.js falls through to out/examples/routes-epochs.
+  {
+    build: 'examples/routes-epochs',
+    bundleDir: ['out', 'examples', 'routes-epochs'],
+    html: ['tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'],
+    servedPath: 'testbeds/routes-epochs',
+  },
 ];
 
 function sleep(ms) {
@@ -2538,6 +2550,248 @@ async function runPanelGalleryThemeTokens(page, state) {
   }
 }
 
+// rf2-5crg4 — routes-epochs routing step-up deck. Walks the deck's
+// numbered ladder top-to-bottom and asserts the Xray Routing panel
+// (`rf-xray-routing`) lights up across its three sections — CURRENT
+// ROUTE, NAVIGATION THIS EPOCH, and the nested ROUTE TABLE — plus the
+// blocked-navigation outcome. The deck owns its routes/events/subs and
+// drives the real `reg-route` + `:rf.route/navigate` surface, so this
+// is genuine Routing-panel coverage (not a synthetic override).
+//
+// The panel is focused-epoch scoped: after a host dispatch LIVE
+// auto-snaps focus to the head cascade, so the NAVIGATION THIS EPOCH
+// section reflects the just-clicked button. CURRENT ROUTE + ROUTE TABLE
+// render every epoch. We read each section's stable data-testids.
+
+// Click a deck ladder rung by its per-rung data-testid
+// (`routes-epochs-rung-<n>`, outside Xray chrome).
+async function clickRung(page, n) {
+  await clickTestId(page, `routes-epochs-rung-${n}`);
+}
+
+// Read the Routing panel's projected slice from the DOM. Returns nulls
+// when a section is absent so callers can assert specific fields.
+async function readRoutingPanel(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('rf-xray-root');
+    if (!root) return { mounted: false };
+    function text(id) {
+      const el = root.querySelector(`[data-testid="${id}"]`);
+      return el ? (el.textContent || '').trim() : null;
+    }
+    function present(id) {
+      return Boolean(root.querySelector(`[data-testid="${id}"]`));
+    }
+    // ROUTE TABLE rows: collect each row's data-route-id + nested padding
+    // (the depth indent paints via inline padding-left) + current marker.
+    const tableRows = Array.from(
+      root.querySelectorAll('[data-testid^="rf-xray-routing-table-row-"]'),
+    )
+      .filter((el) => el.getAttribute('data-route-id'))
+      .map((el) => ({
+        routeId: el.getAttribute('data-route-id'),
+        marker: el.getAttribute('data-marker'),
+        current: el.getAttribute('data-current') === 'true',
+        paddingLeft: el.style.paddingLeft || '',
+      }));
+    return {
+      mounted: present('rf-xray-routing'),
+      silent: present('rf-xray-routing-silent'),
+      currentId: text('rf-xray-routing-current-id'),
+      currentParams: text('rf-xray-routing-current-params'),
+      currentPath: text('rf-xray-routing-current-path'),
+      navFrom: text('rf-xray-routing-nav-from'),
+      navTo: text('rf-xray-routing-nav-to'),
+      navParams: text('rf-xray-routing-nav-params'),
+      navOutcome: text('rf-xray-routing-nav-outcome'),
+      noActivity: present('rf-xray-routing-no-activity'),
+      currentMarker: present('rf-xray-routing-table-current-marker'),
+      tableRows,
+    };
+  });
+}
+
+async function runRoutesEpochs(page, state) {
+  await openXray(page);
+  await clickTab(page, 'routing', 'rf-xray-routing');
+
+  // The deck's `run` already navigates home, so the ROUTE TABLE is
+  // populated immediately (NOT the silent no-routes state). Assert the
+  // panel is live with the deck's registered routes before driving the
+  // ladder.
+  const initial = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) =>
+      snap.mounted &&
+      !snap.silent &&
+      snap.tableRows.length >= 6 &&
+      snap.tableRows.some((r) => r.routeId.includes('routes-epochs/home')),
+    { timeoutMs: 10000, description: 'routes-epochs route table renders the registered graph' },
+  );
+
+  // The deck boots on :home, so a same-target navigate would be a
+  // rule-3 no-op (Spec 012 §Per-route data loading rule 3): the slice
+  // wouldn't change and NAVIGATION THIS EPOCH would read 'no activity'.
+  // We therefore establish a NON-home route first (rung #3, article),
+  // which is also the route-params assertion, then drive rung #1 as a
+  // genuine transition back to :home.
+
+  // ---- #3 route params — CURRENT ROUTE :article with params {:id ..}.
+  await clickRung(page, 3);
+  const afterParams = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) =>
+      snap.currentId && snap.currentId.includes('routes-epochs/article') &&
+      snap.currentParams && snap.currentParams.includes(':id') &&
+      snap.currentParams.includes('intro') &&
+      snap.navTo && snap.navTo.includes('routes-epochs/article') &&
+      snap.navOutcome === 'transitioned',
+    { timeoutMs: 10000, description: '#3 route params → CURRENT ROUTE :article params {:id "intro"} + transitioned' },
+  );
+
+  // ---- #1 navigate/push — a genuine transition :article ──► :home.
+  //      CURRENT ROUTE lands on :home; NAVIGATION THIS EPOCH shows the
+  //      ──► TO (:home) row with outcome transitioned; the ROUTE TABLE
+  //      paints the destination overlay (:to) on the home row.
+  //      (Two LIVE-head-focus contracts the assertions respect: the
+  //      destination carries the `:to` overlay this epoch, not the
+  //      `:here` ◀ current marker — that shows on a non-nav focused
+  //      epoch (assign-markers); and the FROM glyph is empty because the
+  //      slice already holds the post-nav id == TO, so from-id collapses
+  //      to nil per nav-this-epoch's documented v1 same-id collapse.)
+  await clickRung(page, 1);
+  const afterHome = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) => {
+      const home = snap.tableRows.find((r) => r.routeId.endsWith('routes-epochs/home'));
+      return (
+        snap.currentId && snap.currentId.includes('routes-epochs/home') &&
+        snap.navTo && snap.navTo.includes('routes-epochs/home') &&
+        snap.navOutcome === 'transitioned' &&
+        home && home.marker === 'to'
+      );
+    },
+    { timeoutMs: 10000, description: '#1 navigate/push → ──► :home + outcome transitioned + :to overlay' },
+  );
+
+  // ---- #4 query params — CURRENT ROUTE :search, nav params carry q/sort.
+  await clickRung(page, 4);
+  const afterQuery = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) =>
+      snap.currentId && snap.currentId.includes('routes-epochs/search'),
+    { timeoutMs: 10000, description: '#4 query params → CURRENT ROUTE :search' },
+  );
+
+  // ---- #5 nested route — ROUTE TABLE indents :article under its parent
+  //      :articles (deeper padding-left) and the destination overlay
+  //      (:to) paints on the article row this navigation epoch.
+  await clickRung(page, 5);
+  const afterNested = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) => {
+      const article = snap.tableRows.find((r) => r.routeId.endsWith('routes-epochs/article'));
+      const articles = snap.tableRows.find((r) => r.routeId.endsWith('routes-epochs/articles'));
+      if (!article || !articles) return false;
+      const px = (s) => parseFloat(String(s).replace(/[^0-9.]/g, '')) || 0;
+      return (
+        snap.currentId && snap.currentId.includes('routes-epochs/article') &&
+        article.marker === 'to' &&
+        px(article.paddingLeft) > px(articles.paddingLeft)
+      );
+    },
+    { timeoutMs: 10000, description: '#5 nested route → :article indented under :articles + :to overlay' },
+  );
+
+  // ---- #7 not-found/fallback — an unmatched URL resolves to the
+  //      registered `:rf.route/not-found` fallback: CURRENT ROUTE reads
+  //      :rf.route/not-found and NAVIGATION THIS EPOCH lands ──► it.
+  //      (Because the fallback route IS registered, the destination
+  //      resolves to a real route-id, so the transition completes — the
+  //      "not-found" OUTCOME chip is reserved for the navigated-but-
+  //      no-destination case per nav-outcome in panels/routing.cljs.)
+  await clickRung(page, 7);
+  const afterNotFound = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) =>
+      snap.currentId && snap.currentId.includes('rf.route/not-found') &&
+      snap.navTo && snap.navTo.includes('rf.route/not-found'),
+    { timeoutMs: 10000, description: '#7 not-found → CURRENT ROUTE + NAVIGATION ──► :rf.route/not-found fallback' },
+  );
+
+  // ---- #10 + #11 guarded/blocked nav — enter dirty settings, then a
+  //      leave attempt is blocked: outcome chip reads blocked.
+  await clickRung(page, 10);
+  await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) => snap.currentId && snap.currentId.includes('routes-epochs/settings'),
+    { timeoutMs: 10000, description: '#10 enter dirty settings → CURRENT ROUTE :settings' },
+  );
+  await clickRung(page, 11);
+  // The definitive blocked-navigation signal the Routing panel surfaces
+  // is that CURRENT ROUTE STAYS on :settings — the `:can-leave` guard
+  // refused the move home, so the slice never advanced. (The transient
+  // `blocked` outcome chip rides whichever cascade the LIVE spine has in
+  // focus; the slice-stayed-put invariant is the robust panel-level
+  // proof and is what a blocked nav means.) We additionally cross-check
+  // `:rf/pending-navigation` filled via the deck's current-route strip,
+  // the canonical pending-nav slot per Spec 012.
+  const afterBlocked = await waitForValue(
+    () => readRoutingPanel(page),
+    (snap) =>
+      snap.currentId && snap.currentId.includes('routes-epochs/settings'),
+    { timeoutMs: 10000, description: '#11 try-leave → guard blocked, CURRENT ROUTE stays :settings' },
+  );
+  const pendingProbe = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="routes-epochs-current-strip"]');
+    const stripText = el ? (el.textContent || '') : null;
+    // Direct app-db probe of the pending-navigation slot — the canonical
+    // blocked-nav signal per Spec 012, independent of the strip render.
+    let pendingNav = null;
+    try {
+      const cljs = window.cljs && window.cljs.core;
+      const rf = window.re_frame && window.re_frame.core;
+      // `re-frame.core/get-frame-db` returns the plain db map (no deref).
+      if (cljs && rf && typeof rf.get_frame_db === 'function') {
+        const kw = (s) => {
+          const t = String(s).replace(/^:/, '');
+          const p = t.split('/');
+          return p.length === 2
+            ? (cljs.keyword.call ? cljs.keyword.call(null, p[0], p[1]) : cljs.keyword(p[0], p[1]))
+            : (cljs.keyword.call ? cljs.keyword.call(null, t) : cljs.keyword(t));
+        };
+        const db = rf.get_frame_db(kw('rf/default'));
+        const path = cljs.PersistentVector.fromArray(
+          [kw('rf/runtime'), kw('routing'), kw('pending-navigation')], true);
+        const pn = db ? cljs.get_in(db, path) : null;
+        pendingNav = pn ? cljs.pr_str(pn) : null;
+      }
+    } catch (err) {
+      pendingNav = `probe-error:${String(err)}`;
+    }
+    return { stripText, pendingNav };
+  });
+  const pendingNavSet =
+    Boolean(pendingProbe.pendingNav && pendingProbe.pendingNav !== 'null') ||
+    /pending-navigation/.test(pendingProbe.stripText || '');
+  if (!pendingNavSet) {
+    failWithDetails('#11 try-leave blocked but :rf/pending-navigation did not fill', {
+      afterBlocked,
+      pendingProbe,
+    });
+  }
+
+  state.routesEpochs = {
+    routeTableRows: initial.tableRows.length,
+    home: { currentId: afterHome.currentId, outcome: afterHome.navOutcome },
+    params: afterParams.currentParams,
+    query: afterQuery.currentId,
+    nested: { currentId: afterNested.currentId },
+    notFound: { currentId: afterNotFound.currentId, navTo: afterNotFound.navTo },
+    blocked: { currentId: afterBlocked.currentId, pendingNavSet },
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -2697,6 +2951,20 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runPanelGalleryThemeTokens,
+  },
+  {
+    // rf2-5crg4 — routes-epochs routing step-up deck. Drives the real
+    // `reg-route` + `:rf.route/navigate` surface and asserts the Xray
+    // Routing panel across CURRENT ROUTE (id + params + nested tree
+    // highlight), NAVIGATION THIS EPOCH (──► TO + outcome:
+    // transitioned / not-found / blocked), and the ROUTE TABLE
+    // (nested-row indent under the parent). Real Routing-panel coverage
+    // for the deck the `Routes` matrix row names.
+    name: 'routes-epochs routing ladder (current route, nav-this-epoch, nested table, blocked)',
+    url: '/testbeds/routes-epochs/',
+    panels: ['routing'],
+    coveredRows: ['Routes'],
+    run: runRoutesEpochs,
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //

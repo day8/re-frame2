@@ -250,7 +250,17 @@
             ;; entries above. Port 8031 is the trio anchor: routes_epochs
             ;; takes 8032, machine_epochs 8033.
             8031 ["../tools/xray/testbeds/standard_epochs"
-                  "out/examples/standard-epochs"]}
+                  "out/examples/standard-epochs"]
+            ;; Single-frame routes-epochs testbed (rf2-5crg4) — the ROUTING
+            ;; sibling of standard-epochs: a tall column of numbered buttons,
+            ;; each bumping a shared baseline counter + exercising one more
+            ;; routing feature, so clicking top-to-bottom completely
+            ;; exercises the Xray Routing panel. Same source-dir-first
+            ;; cascade as 8031; compiled main.js falls through to
+            ;; out/examples/routes-epochs. Port 8032 is the trio's routing
+            ;; slot (machine_epochs takes 8033).
+            8032 ["../tools/xray/testbeds/routes_epochs"
+                  "out/examples/routes-epochs"]}
 
  :builds
  {:node-test
@@ -657,6 +667,37 @@
                       {re-frame.testbed.config/repo-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn standard-epochs.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
+
+  ;; Single-frame routes-epochs testbed (rf2-5crg4) — the ROUTING sibling
+  ;; of standard-epochs. Same shape (a tall column of numbered buttons in
+  ;; ONE plainly-mounted frame, each button bumping a shared baseline
+  ;; counter + exercising one more feature), aimed squarely at the Xray
+  ;; ROUTING panel (rf-xray-routing): click top-to-bottom and the panel's
+  ;; three sections (Current route · Navigation this epoch · Route table)
+  ;; are completely exercised. A TEST surface — no deliberate bugs, no
+  ;; teaching layers (feedback_testbeds_are_test_surfaces).
+  ;;
+  ;; The routes / events / subs / views are OWNED in routes_epochs/core.cljs
+  ;; — it boots the routing artefact (`[re-frame.routing]`) and uses the
+  ;; real `reg-route` + `:rf.route/navigate` surface; it does NOT reuse the
+  ;; shared testdeck.* modules. Sources live under
+  ;; tools/xray/testbeds/routes_epochs/; the Xray preload auto-mounts
+  ;; inline so every lens reads the single frame. Served at
+  ;; http://localhost:8032 via the top-level `:dev-http` map (the routing
+  ;; slot of the _epochs trio — standard-epochs 8031, machine_epochs 8033
+  ;; mirror this build-id scheme).
+  :examples/routes-epochs
+  {:target           :browser
+   :output-dir       "out/examples/routes-epochs"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn routes-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
