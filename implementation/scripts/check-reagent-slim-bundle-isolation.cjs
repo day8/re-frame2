@@ -41,9 +41,9 @@
 
 'use strict';
 
-const fs   = require('fs');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
+const { readReleaseBlob, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -116,49 +116,15 @@ const REACT_DOM_SERVER_SENTINELS = [
 ];
 
 // ----- helpers ---------------------------------------------------------------
-
-function readAllJs(dir) {
-  // Concatenate every top-level *.js file in dir into a single blob.
-  // For shadow-cljs :browser :release builds the closure-compiled
-  // output lives in top-level files (main.js, plus any sibling module
-  // files like cljs_base.js); the only subdirectory that appears in
-  // the output dir is `cljs-runtime/`, which is dev-build debug source
-  // left behind by a prior `shadow-cljs compile` and NOT cleaned by a
-  // subsequent `shadow-cljs release` (rf2-z9a06).
-  //
-  // Walking recursively (as the sibling readAllJs in
-  // check-bundle-isolation.cjs does) means a stale `cljs-runtime/`
-  // dir gets grepped alongside the release main.js — producing false
-  // FAILs on sentinels that only appear in the unoptimised dev
-  // sources (e.g. cljsLegacyRender, react-dom/server). CI is unaffected
-  // because every CI run is on a clean dir, but local repros after a
-  // dev `compile` trip the trap; the contract should measure the
-  // release artefact regardless.
-  //
-  // The release artefact IS exactly the top-level *.js — that's what a
-  // consumer ships. Filtering to it makes the contract robust against
-  // dev-build leftovers in the output dir.
-  if (!fs.existsSync(dir)) {
-    return null;
-  }
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith('.js')) {
-      out.push(fs.readFileSync(path.join(dir, entry.name), 'utf8'));
-    }
-  }
-  return out.join('\n');
-}
-
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function countSubstring(blob, needle) {
-  const re = new RegExp(escapeRe(needle), 'g');
-  const m  = blob.match(re);
-  return m ? m.length : 0;
-}
+//
+// Bundle reading + the countSubstring grep primitive are shared with the
+// sibling check-* scripts via scripts/lib/read-release-bundle.cjs
+// (rf2-jkake.15). `readReleaseBlob` reads only top-level *.js — the
+// release artefact — so a stale dev-build `cljs-runtime/` subdir from a
+// prior `shadow-cljs compile` doesn't get grep-ed alongside (rf2-z9a06):
+// that trap, first documented inline here, was the reason the reader was
+// factored out (rf2-qlk4w) and is now the shared default for the whole
+// check-*-bundle family.
 
 // ----- the three contract checks --------------------------------------------
 
@@ -207,8 +173,8 @@ function main() {
 
   const slimDir  = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
   const stockDir = path.join(ROOT, 'out', 'examples', 'counter');
-  const slim  = readAllJs(slimDir);
-  const stock = readAllJs(stockDir);
+  const slim  = readReleaseBlob(slimDir);
+  const stock = readReleaseBlob(stockDir);
 
   if (slim == null) {
     report.flushDetails();

@@ -36,7 +36,7 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
+const { readReleaseBlob, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -66,16 +66,10 @@ const REAGENT_SENTINELS = [
 ];
 
 // ----- helpers ---------------------------------------------------------------
-
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function countSubstring(blob, needle) {
-  const re = new RegExp(escapeRe(needle), 'g');
-  const m  = blob.match(re);
-  return m ? m.length : 0;
-}
+//
+// Bundle reading + the countSubstring grep primitive are shared with the
+// sibling check-* scripts via scripts/lib/read-release-bundle.cjs
+// (rf2-jkake.15).
 
 function checkBundle(label, bundlePath, mustContain) {
   const blob = readReleaseBlob(bundlePath);
