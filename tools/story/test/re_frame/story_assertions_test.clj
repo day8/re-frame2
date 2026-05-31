@@ -562,6 +562,117 @@
           "an event never dispatched does not appear on the tape → fail"))
     (story/destroy-variant! :story.ssot/dispatched)))
 
+;; ===========================================================================
+;; rf2-ynjts.21 — `dispatched-events` projection: the PRIVACY filter +
+;; the assertion-event exclusion (the two branches the behavioural
+;; `dispatched?-projects-from-tape-trigger-events` test above does not reach).
+;;
+;; `dispatched-events` is the SSOT for `:rf.assert/dispatched?` and the
+;; loaders' vector-form `:loaders-complete-when`. Its docstring (Spec 009
+;; §Privacy) makes two correctness promises beyond "project the trigger
+;; events in tape order":
+;;
+;;   1. PRIVACY: the `:trigger-event` of an epoch flagged
+;;      `:rf.epoch/sensitive?` is DROPPED while `:rf.privacy/show-sensitive?`
+;;      is off, so a sensitive event vector never lands raw on an assertion
+;;      record's `:actual` (which serialises into the test-mode pane, MCP
+;;      `read-assertions`, and JSON-log egress). With the flag ON, sensitive
+;;      trigger-events pass through.
+;;   2. ASSERTION-EVENT EXCLUSION: an `[:assert …]` checkpoint dispatches its
+;;      wrapped `:rf.assert/*` atom, committing an epoch whose `:trigger-event`
+;;      is that verdict — NOT behaviour-under-test. Those are excluded so a
+;;      `[:rf.assert/dispatched? :rf.assert/path-equals]` can never falsely
+;;      pass on a verdict the runner itself dispatched.
+;;
+;; Both are PURE projection branches over the tape, so the tests inject a
+;; synthetic tape through the private `frame-tape` var (the established
+;; `@#'` / `with-redefs` idiom in this file) — deterministic, host-free, no
+;; live dispatch needed. `set-show-sensitive!` is restored in a `finally`
+;; so the flag cannot poison a sibling test (the fixture does not reset it).
+;; ===========================================================================
+
+(defn- with-show-sensitive
+  "Run `thunk` with the `:rf.privacy/show-sensitive?` flag bound to `flag`,
+  restoring the prior value afterwards (the assertions fixture does not
+  reset the flag, so a `set-show-sensitive!` must be unwound by hand)."
+  [flag thunk]
+  (let [prev (config/get-show-sensitive)]
+    (config/set-show-sensitive! flag)
+    (try (thunk)
+         (finally (config/set-show-sensitive! prev)))))
+
+(defn- with-tape
+  "Run `thunk` with the private `frame-tape` projection redefed to return
+  `tape` for any frame (`with-redefs-fn` takes the `#'`-var directly, so a
+  private fn in another ns is redefable without importing it)."
+  [tape thunk]
+  (with-redefs-fn {#'assertions/frame-tape (constantly tape)} thunk))
+
+(deftest dispatched-events-drops-sensitive-trigger-when-flag-off
+  (testing "an epoch flagged :rf.epoch/sensitive? has its :trigger-event
+            DROPPED while show-sensitive? is off (Spec 009 §Privacy) — a
+            sensitive event vector must not reach an assertion record's
+            :actual"
+    ;; A two-epoch tape: one ordinary, one carrying a sensitive payload.
+    (let [tape [{:trigger-event [:auth/login]}
+                {:trigger-event [:auth/submit {:password "hunter2"}]
+                 :rf.epoch/sensitive? true}]]
+      (with-tape tape
+        (fn []
+          (with-show-sensitive false
+            (fn []
+              (let [events (assertions/dispatched-events :any-frame)]
+                (is (= [[:auth/login]] events)
+                    "the sensitive epoch's trigger-event is filtered out — only
+                     the non-sensitive event projects")
+                (is (not-any? #(= :auth/submit (first %)) events)
+                    "the sensitive payload [:auth/submit {:password …}] never
+                     appears in the projection")))))))))
+
+(deftest dispatched-events-keeps-sensitive-trigger-when-flag-on
+  (testing "with show-sensitive? ON the sensitive epoch's :trigger-event
+            PASSES THROUGH — the operator opted in (Spec 009 §Privacy)"
+    (let [tape [{:trigger-event [:auth/login]}
+                {:trigger-event [:auth/submit {:password "hunter2"}]
+                 :rf.epoch/sensitive? true}]]
+      (with-tape tape
+        (fn []
+          (with-show-sensitive true
+            (fn []
+              (let [events (assertions/dispatched-events :any-frame)]
+                (is (= [[:auth/login] [:auth/submit {:password "hunter2"}]] events)
+                    "both trigger-events project when the flag is on — the drop
+                     is gated on the flag, not unconditional")))))))))
+
+(deftest dispatched-events-excludes-assertion-trigger-events
+  (testing "an :rf.assert/* trigger-event is EXCLUDED — a verdict the runner
+            dispatched is not behaviour-under-test, so [:rf.assert/dispatched?
+            <an-assertion-id>] can never falsely pass on it"
+    ;; A tape mixing real behaviour with the assertion-checkpoint epochs the
+    ;; runner commits when it dispatches each [:assert …] atom.
+    (let [tape [{:trigger-event [:cart/add-item {:sku "A"}]}
+                {:trigger-event [:rf.assert/path-equals [:cart] {}]}
+                {:trigger-event [:cart/checkout]}
+                {:trigger-event [:rf.assert/dispatched? [:cart/add-item]]}]]
+      (with-tape tape
+        (fn []
+          (with-show-sensitive false
+            (fn []
+              (let [events (assertions/dispatched-events :any-frame)]
+                (is (= [[:cart/add-item {:sku "A"}] [:cart/checkout]] events)
+                    "only the two real events project; both :rf.assert/* verdict
+                     trigger-events are dropped")
+                (is (not-any? #(= "rf.assert" (namespace (first %))) events)
+                    "no :rf.assert/* head survives the projection")))))))))
+
+(deftest dispatched-events-empty-on-host-free-tape
+  (testing "an empty tape (a production Story jar / host without the epoch
+            artefact, where the late-bound facade degrades to []) projects
+            no events — the host-free floor, not a throw"
+    (with-tape []
+      (fn []
+        (is (= [] (assertions/dispatched-events :any-frame)))))))
+
 (deftest effect-emitted-projects-from-tape-effects
   (testing ":rf.assert/effect-emitted reads the epoch-tape :effects projection
             (the SSOT) for a real (non-stubbed) user fx"
