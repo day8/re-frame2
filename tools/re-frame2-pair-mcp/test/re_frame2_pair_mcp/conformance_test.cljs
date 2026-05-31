@@ -557,6 +557,43 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch :frame :rf/xray}}}
 
+   ;; rf2-gfu33 — render-settle. `:await-render true` wraps the settle
+   ;; Promise in the await mailbox; the wrap-form eval returns the
+   ;; mailbox sentinel and the poll read resolves to the dispatch
+   ;; envelope with `:settled? true`. The emitted settle form MUST route
+   ;; the flush through the substrate-agnostic adapter primitive
+   ;; (`re-frame.interop/after-render`) + the paint boundary
+   ;; (`requestAnimationFrame`) and force synchronous dispatch.
+   {:fixture/id    :dispatch/await-render-settles
+    :fixture/doc   "dispatch :await-render true resolves to the dispatch envelope with :settled? true after the render flush, routed through the adapter contract (rf2-gfu33)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:counter/inc]" :await-render true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; The wrap form (contains the await-mailbox sentinel literal)
+     ;; returns the mailbox sentinel; first-match-wins orders it before
+     ;; the read form.
+     [":rf.mcp/await-mailbox"     {:rf.mcp/await-mailbox "settle-mbx"}]
+     ;; The poll read resolves immediately to the settled dispatch
+     ;; envelope.
+     ["cljs.reader/read-string"   {:status :resolved
+                                   :value {:ok? true :epoch-id 9
+                                           :frame :rf/default
+                                           :settled? true
+                                           :cascade-summary {:event-id :counter/inc
+                                                             :renders 1}}}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.interop/after-render"
+     "requestAnimationFrame"
+     "pair-dispatch-sync!"
+     ":settled? true"]
+    :fixture/eval-form-must-not-contain
+    ["reagent" "setTimeout"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :mode :sync :settled? true :epoch-id 9}}}
+
    ;; ---------- dispatch-dry-run (rf2-17hvp) ------------------------------
    ;; Dry-run is NOT --allow-writes-gated: the override-set ensures no
    ;; observable effect escapes, and restore-epoch rewinds the would-be

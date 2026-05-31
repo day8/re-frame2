@@ -311,10 +311,20 @@
                      "additionally carries `:cascade-summary-pending? true` when the cascade hasn't drained "
                      "yet — poll `watch-epochs` for the eventual settlement. See the §Cascade Summary "
                      "subsection in spec/003-Tool-Catalogue.md for the full shape. "
+                     "Render-settle (rf2-gfu33): set `await-render true` and the tool resolves only AFTER the "
+                     "substrate has flushed the new state to the DOM and the next paint is scheduled — `dispatch -> "
+                     "observe the DOM` becomes one deterministic step (no manual requestAnimationFrame dance in "
+                     "eval-cljs). The flush is substrate-agnostic: it routes through the framework's "
+                     "`re-frame.interop/after-render` (the `:adapter/after-render` adapter hook, Spec 006) — Reagent's "
+                     "post-commit `r/after-render`, the UIx/Helix spine's React.useLayoutEffect drain, etc. "
+                     "`await-render` forces synchronous dispatch (the cascade must commit before the render can "
+                     "settle) and merges `:settled? true` into the result. A settle that doesn't complete within "
+                     "`timeout-ms` (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`. "
                      "Examples: "
                      "1. Fire-and-forget (drained synchronously): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :queued :epoch-id 7 :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
                      "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
-                     "3. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
+                     "3. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
+                     "4. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -322,6 +332,22 @@
                  :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
                               :sync  {:type "boolean"}
                               :trace {:type "boolean"}
+                              :await-render {:type "boolean"
+                                             :description (str "Render-settle (rf2-gfu33): when true, resolve only AFTER the "
+                                                               "substrate has flushed the new state to the DOM and the next "
+                                                               "paint is scheduled, so `dispatch -> observe` is one "
+                                                               "deterministic step. The flush routes through the "
+                                                               "substrate-agnostic `re-frame.interop/after-render` adapter hook "
+                                                               "(Spec 006), then one requestAnimationFrame pins resolution to "
+                                                               "the paint boundary. Forces synchronous dispatch (the cascade "
+                                                               "must commit before the render can settle); merges :settled? true "
+                                                               "into the result. Default false. A settle exceeding :timeout-ms "
+                                                               "returns :rf.error/dispatch-await-render-timeout.")}
+                              :timeout-ms {:type "integer"
+                                           :description (str "Maximum ms to wait for the render-settle promise when "
+                                                             ":await-render is true. Default 5000. Ignored when "
+                                                             ":await-render is false. Raise it for substrates with a slow "
+                                                             "render path; lower it to fail fast when no root is mounted.")}
                               :frame {:type "string" :description "Operating frame (e.g. :stories)"}
                               :fx-overrides {:type "object"
                                              :description "Per-call fx redirects, e.g. {:http :stub-http}"}

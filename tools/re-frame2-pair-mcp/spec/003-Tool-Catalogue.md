@@ -699,8 +699,10 @@ Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
 | any     | true     | trace (synchronous, returns the assembled `:rf/epoch-record`) |
 
 **Args**: `event` (string, required — EDN-encoded event vector),
-`sync` (bool), `trace` (bool), `frame` (string, e.g. `":foo"`),
-`fx-overrides` (object, e.g. `{:http :stub-http}`), `build` (string).
+`sync` (bool), `trace` (bool), `await-render` (bool, rf2-gfu33),
+`timeout-ms` (integer, default `5000` — render-settle deadline),
+`frame` (string, e.g. `":foo"`), `fx-overrides` (object, e.g.
+`{:http :stub-http}`), `build` (string).
 
 The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
 colon-prefixed id (`":rf/xray"` — the form discover-app surfaces, §Id
@@ -730,6 +732,48 @@ ambiguous (`:reason :ambiguous-frame`) — the tool surfaces a structured
 ERROR envelope (`:isError true`) carrying the runtime's verbatim
 `:ok? false` / `:reason` / `:hint`, with NO `:mode` slot. It never
 reports `{:mode …}` over a no-op.
+
+### Render-settle — `:await-render` (rf2-gfu33)
+
+`dispatch-sync` returns once the handler has committed app-db, but the
+substrate (Reagent / the React spine) re-renders on a LATER tick — so
+"dispatch then observe the DOM" previously needed a manual
+`requestAnimationFrame` dance inside `eval-cljs`. The `:await-render`
+option collapses `dispatch → observe` into one deterministic step: the
+tool resolves only AFTER the substrate has flushed the new state to the
+DOM and the next paint is scheduled.
+
+**Substrate-agnostic flush via the adapter contract.** The flush is NOT
+a Reagent API call. The generated runtime form calls
+`re-frame.interop/after-render` — the framework's render-settle
+primitive, which routes through the `:adapter/after-render` late-bind
+hook (Spec 006 §Substrate adapter contract). Each adapter publishes its
+substrate-native impl: Reagent maps it to `r/after-render` (post-commit),
+the UIx / Helix spine to a `React.useLayoutEffect`-backed queue drain
+(post-commit / pre-paint, rf2-334d9), plain-atom / SSR to `next-tick`.
+`after-render` fires once the DOM reflects the new state; the form then
+chains ONE `requestAnimationFrame` so resolution lands at the paint
+boundary (environments without rAF — headless / SSR — resolve straight
+off the after-render callback). The MCP server therefore never names
+Reagent, UIx, or Helix.
+
+**Wire shape.** `:await-render` forces synchronous dispatch (the cascade
+must commit before the render can settle against the new state), so the
+result is the `pair-dispatch-sync!` envelope (`:cascade-summary`,
+`:epoch-id`, …) with `:mode :sync :settled? true` merged in. The runtime
+form's synchronous return is a browser-side Promise; the server awaits
+it through the shared await mailbox (the same plumbing `eval-cljs :await`
+uses — `re-frame2-pair-mcp.tools.await-promise`). The rf2-ldfnx
+success-vs-error contract holds through the settle path: a runtime
+`:ok? false` (frame untargetable) still surfaces as an `:isError`
+envelope with no `:mode` slot. A render-settle that doesn't complete
+within `:timeout-ms` (default `5000`) returns
+`:reason :rf.error/dispatch-await-render-timeout`.
+
+| `await-render`? | dispatch fn | resolves after |
+|-----------------|-------------|----------------|
+| false (default) | per `sync`/`trace` mode | handler commit (today's semantics) |
+| true            | `pair-dispatch-sync!` (forced; `trace` still wins for the assembled epoch) | substrate flush (`after-render`) + next paint (`requestAnimationFrame`) |
 
 ## dispatch-dry-run
 

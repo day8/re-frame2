@@ -16,6 +16,7 @@
                               the security gate (rf2-vflrg)"
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]))
@@ -391,4 +392,193 @@
                      (is (= :queued (:mode edn)))
                      (is (true? (:cascade-summary-pending? edn)))
                      (is (= 12 (:before-epoch-id edn))))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Render-settle — `:await-render` (rf2-gfu33).
+;;
+;; `dispatch :await-render true` resolves only AFTER the substrate has
+;; flushed the new state to the DOM and the next paint is scheduled, so
+;; `dispatch -> observe` is one deterministic step. Two invariants we
+;; pin here WITHOUT a sleep:
+;;
+;;   1. SHAPE: the emitted settle form routes the flush through the
+;;      substrate-agnostic adapter primitive `re-frame.interop/after-render`
+;;      and the paint boundary `js/requestAnimationFrame` — NOT a Reagent
+;;      API and NOT a `setTimeout` sleep. (form-substring assertions)
+;;   2. TIMING: the server awaits the render-settle Promise via the
+;;      shared mailbox — it POLLS until the mailbox flips off `:pending`,
+;;      so a settle that takes N polls resolves only once the flush has
+;;      reported done. We drive a stub mailbox that stays `:pending` for
+;;      the first few polls, then flips to `:resolved`, and assert the
+;;      tool waited (multiple poll reads) before resolving.
+;; ---------------------------------------------------------------------------
+
+(defn- await-wrap-form?
+  "True when the emitted form is the await-promise wrapper (the settle
+  Promise wrapped for the mailbox dance)."
+  [form-str]
+  (and (string? form-str)
+       (str/includes? form-str "__rf2pair_await__")
+       (str/includes? form-str ":rf.mcp/await-mailbox")))
+
+(defn- mailbox-read-form?
+  "True when the emitted form is the mailbox-read poll form."
+  [form-str]
+  (and (string? form-str)
+       (str/includes? form-str "__rf2pair_await__")
+       (str/includes? form-str "cljs.reader/read-string")))
+
+(defn- with-staged-mailbox-eval!
+  "Install a stub `cljs-eval-value` that plays the browser:
+
+    - the wrap-form eval records the form into `wrap-form*` and returns
+      the mailbox sentinel `{:rf.mcp/await-mailbox <id>}`;
+    - the mailbox-read polls return `{:status :pending}` for the first
+      `pending-polls` reads, then `{:status :resolved :value resolved}`.
+
+  `read-count*` records how many poll reads happened — the deterministic
+  proof the server waited for the flush rather than resolving eagerly."
+  [{:keys [wrap-form* read-count* pending-polls resolved]} body-fn]
+  (let [orig nrepl/cljs-eval-value
+        respond (fn [form-str]
+                  (cond
+                    (await-wrap-form? form-str)
+                    (do (reset! wrap-form* form-str)
+                        (js/Promise.resolve {:rf.mcp/await-mailbox "settle-mbx"}))
+
+                    (mailbox-read-form? form-str)
+                    (let [n (swap! read-count* inc)]
+                      (js/Promise.resolve
+                        (if (<= n pending-polls)
+                          {:status :pending}
+                          {:status :resolved :value resolved})))
+
+                    :else
+                    (js/Promise.resolve nil)))
+        stub (fn
+               ([_conn _build-id form-str] (respond form-str))
+               ([_conn _build-id form-str _opts] (respond form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(deftest await-render-emits-substrate-agnostic-flush-form
+  ;; SHAPE invariant: the settle form must flush via the adapter
+  ;; primitive `re-frame.interop/after-render` and pin resolution to the
+  ;; paint boundary with `js/requestAnimationFrame`. It must NOT name a
+  ;; substrate API (reagent/*) and must NOT sleep via setTimeout.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? true :epoch-id 9 :frame :rf/default :settled? true
+                        :cascade-summary {:renders 1}}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :await-render true})))
+          (.then (fn [_]
+                   (let [form @wrap-form*]
+                     (is (string? form))
+                     (is (str/includes? form "re-frame.interop/after-render")
+                         "flush routes through the substrate-agnostic adapter primitive")
+                     (is (str/includes? form "requestAnimationFrame")
+                         "resolution pinned to the paint boundary")
+                     (is (not (str/includes? form "reagent"))
+                         "no hardcoded Reagent API — substrate-agnostic")
+                     (is (not (str/includes? form "setTimeout"))
+                         "no sleep — deterministic settle, not a timer")
+                     ;; await-render forces sync dispatch (cascade must
+                     ;; commit before the render can settle).
+                     (is (str/includes? form "pair-dispatch-sync!")
+                         "await-render forces synchronous dispatch")
+                     (is (str/includes? form ":settled? true")
+                         "settle form merges :settled? true into the result"))
+                   (done)))))))
+
+(deftest await-render-waits-for-flush-then-resolves
+  ;; TIMING invariant: the server polls the mailbox until the flush
+  ;; reports done. We hold the mailbox `:pending` for 3 polls; the tool
+  ;; must NOT resolve until the flush flips it to `:resolved`. The proof
+  ;; the wait was real (not a sleep): >= 4 poll reads occurred and the
+  ;; final envelope carries the post-settle value with :settled? true.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 3
+             :resolved {:ok? true :epoch-id 9 :frame :rf/default :settled? true
+                        :cascade-summary {:renders 1 :event-id :counter/inc}}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :await-render true})))
+          (.then (fn [r]
+                   (is (not (err? r)) "settle resolves to a success envelope")
+                   (is (>= @read-count* 4)
+                       "server polled past the pending phase — waited for the flush")
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (= :sync (:mode edn))
+                         "await-render reports :sync mode (forced)")
+                     (is (true? (:settled? edn))
+                         "result confirms the render settled")
+                     (is (= :counter/inc (get-in edn [:cascade-summary :event-id]))
+                         "the dispatch cascade-summary rides through after settle"))
+                   (done)))))))
+
+(deftest await-render-runtime-failure-surfaces-as-error
+  ;; If the dispatch itself no-op'd (frame untargetable), the settle form
+  ;; still resolves — but to the runtime's {:ok? false ...} envelope. The
+  ;; tool MUST surface that as an :isError (the rf2-ldfnx invariant holds
+  ;; through the settle path), never a {:mode :sync :settled? true}
+  ;; success.
+  (async done
+    (let [read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* (atom nil) :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? false :reason :no-new-epoch :settled? true
+                        :frame :rf/gone
+                        :hint "head did not advance."}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"
+                                           :frame ":rf/gone"
+                                           :await-render true})))
+          (.then (fn [r]
+                   (is (err? r) "runtime :ok? false ⇒ :isError even on the settle path")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :no-new-epoch (:reason edn)))
+                     (is (not (contains? edn :mode))
+                         "NO :mode slot — the dispatch did not land"))
+                   (done)))))))
+
+(deftest await-render-timeout-surfaces-structured-error
+  ;; If the mailbox never flips off :pending within timeout-ms, the tool
+  ;; returns a structured :rf.error/dispatch-await-render-timeout — not a
+  ;; hang, not a false success. We use a tiny timeout-ms so the test is
+  ;; fast and deterministic (the mailbox stays pending forever).
+  (async done
+    (let [read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* (atom nil) :read-count* read-count*
+             ;; never resolves — pending-polls larger than any poll count
+             ;; reachable inside the short timeout window
+             :pending-polls 1000000
+             :resolved {:ok? true}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"
+                                           :await-render true
+                                           :timeout-ms 60})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :rf.error/dispatch-await-render-timeout (:reason edn)))
+                     (is (= 60 (:timeout-ms edn))))
                    (done)))))))
