@@ -1,10 +1,9 @@
 # `tools/xray/testbeds/two_frame_isolation/`
 
-Two-frame isolation testbed (rf2-6qgbs.1) — **THE** canonical
-multi-frame isolation surface for Xray. One app, mounted in **two**
-frames on **one** page (`:above` and `:below`) on the left, with a
-**Xray** instance on the right. Replaces the parallel-frames
-prototype.
+Two-frame isolation testbed (rf2-6qgbs.1; repointed under rf2-wa8my) —
+**THE** canonical multi-frame isolation surface for Xray. One app,
+mounted in **two** frames on **one** page (`:above` and `:below`) on the
+left, with a **Xray** instance on the right.
 
 ## The shape
 
@@ -13,48 +12,50 @@ prototype.
 │  Two-frame isolation             │                  │
 │  ┌────────────────────────────┐  │   Xray          │
 │  │ ABOVE frame  (:above)      │  │   (inline)       │
-│  │ [Counter][Machine][Routing]│  │                  │
-│  │ [Async & errors]           │  │   frame picker   │
-│  └────────────────────────────┘  │   switches every │
-│  ┌────────────────────────────┐  │   L2 / L4 panel  │
-│  │ BELOW frame  (:below)      │  │   between        │
-│  │ [Counter][Machine][Routing]│  │   :above /       │
-│  │ [Async & errors]           │  │   :below         │
-│  └────────────────────────────┘  │                  │
+│  │ standard-epochs ladder     │  │                  │
+│  └────────────────────────────┘  │   frame picker   │
+│  ┌────────────────────────────┐  │   switches every │
+│  │ BELOW frame  (:below)      │  │   L2 / L4 panel  │
+│  │ standard-epochs ladder     │  │   between        │
+│  └────────────────────────────┘  │   :above /:below │
 └──────────────────────────────────┴──────────────────┘
 ```
 
 Two `frame-provider` subtrees, each rooted on a separate frame id. Each
 is a **fully isolated reactive context**: its own `app-db`, its own
-router queue + route slot, its own sub-cache, its own machine snapshot.
-Handlers and subs are registered once globally; the `reg-view`-injected
-`dispatch` / `subscribe` resolve via React context to the surrounding
-`frame-provider`'s frame id, so the same view source produces two
-independent reactive contexts.
+sub-cache, its own epoch history. Handlers and subs are registered once
+globally; the `reg-view`-injected `dispatch` / `subscribe` resolve via
+React context to the surrounding `frame-provider`'s frame id, so the
+same view source produces two independent reactive contexts.
 
 The exercise IS observing the two frames diverge as the user interacts
 with each independently. No deliberate bug, no teaching layer, no
 anti-pattern demonstration — just clean feature exercise across two
 isolated frames.
 
-## Shared testdeck modules
+## The shared app code path — `standard_epochs` ×2
 
-The app code path is the **shared testdeck** (`testdeck.*`, under
-`tools/xray/testbeds/testdeck/`). The single-frame step-deck testbed
-(rf2-6qgbs.2) mounts these SAME modules — they are deliberately
-reusable:
+The app both frames mount is the **standard-epochs button ladder**
+(`standard-epochs.core/root`, under
+`tools/xray/testbeds/standard_epochs/`). This testbed
+(`two-frame-isolation.core`) supplies only the two-frame harness: it
+requires `standard-epochs.core` (which installs every event / sub /
+view / cofx / fx / flow / schema **once globally** at namespace load),
+then mounts that namespace's `root` view **twice**, in two
+frame-providers — plus the Xray host.
 
-| Namespace          | Owns                                                                       |
-|--------------------|----------------------------------------------------------------------------|
-| `testdeck.routes`  | Route table + tab inventory. Tabs ARE routes; nav is `:rf.route/navigate`. |
-| `testdeck.counter` | Counter: L2 sub create/destroy, changeable-arg `show-greater-than-N` view, `now` cofx, clean handler-exception path. |
-| `testdeck.machine` | Interactive websocket connection state machine (connect / disconnect / send) with nested states + guards + actions. |
-| `testdeck.async`   | Async fx (~600ms slow request) + error surfacing.                          |
-| `testdeck.panel`   | The reusable tabbed app shell + per-frame `:on-create` boot event.         |
+It does **not** call `standard-epochs.core/run` (which would mount the
+deck once into `#app` on the default frame). It reuses only the
+registrations + the `root` Var.
 
-This testbed (`two-frame-isolation.core`) supplies only the two-frame
-harness: it mounts `testdeck.panel/panel` twice, in two non-URL-bound
-frame-providers, plus the Xray host.
+> **Why `standard_epochs` ×2 (rf2-wa8my)?** The earlier shape mounted a
+> bespoke `testdeck.*` tabs-as-routes panel. That coupled this testbed
+> to a multi-module app whose tabs-as-routes machinery doubled as a
+> manual multi-frame *routing* demo. rf2-wa8my deleted the testdeck
+> modules and repointed this testbed to the cleanest possible per-frame
+> **isolation** proof: mount the same simple deck twice and watch the
+> two reactive contexts stay independent. See *Coverage shift* below for
+> where the routing surface went.
 
 ## Frame isolation — the load-bearing rule
 
@@ -63,91 +64,72 @@ container: **subs are per-frame**. A sub registered globally runs
 against whichever frame's `app-db` the dispatch envelope targets; it
 **must not** reach into another frame's `app-db`. Every sub here reads
 the current frame's `app-db` only. There is no cross-frame projection
-helper, no "route data home" pattern, no shared root state. The
-cross-frame anti-pattern is structurally impossible — the
-`reg-view`-injected accessors only ever see the current frame.
+helper, no shared root state. The cross-frame anti-pattern is
+structurally impossible — the `reg-view`-injected accessors only ever
+see the current frame.
 
 See the saved Mike-feedback memories:
 
 - `feedback_frames_are_isolated_contexts.md`
 - `feedback_testbeds_are_test_surfaces.md`
 
-## Tabs are routes (per frame)
+## Coverage shift (rf2-wa8my)
 
-Each tab is a registered route (`testdeck.routes`). Switching tabs is
-`:rf.route/navigate`, dispatched through the clicked frame's injected
-`dispatch` — so the ABOVE frame can sit on Counter while BELOW sits on
-Machine. The active route id lives in each frame's own
-`[:rf/runtime :routing :current]` slice (read through the
-`:rf.route/id` sub).
+The old two-frame testbed mounted testdeck **tabs as routes**, so it
+doubled as a manual multi-frame *routing* surface. That routing surface
+now has explicit, owned homes:
 
-### URL ownership across two frames
+- **Per-frame routing** lives in `tools/xray/testbeds/routes_epochs/`
+  (the single-frame ROUTING deck driving the Xray Routing panel).
+- **Multi-frame isolation** is the gate assertion on the framework
+  `testbeds/multi_frame/` surface (the feature-matrix gate's
+  `multi-frame isolation substrate` scenario — `runMultiFrame`), which
+  asserts per-frame app-db / epoch / trace isolation across the
+  `:counter/a` · `:counter/b` · `:log` frames.
 
-A browser has one address bar but this page has two routed frames. Per
-`spec/012-Routing.md` §Multi-frame routing only one frame may own the
-URL. Both frames are registered **non-url-bound**
-(`:url-bound? false`), so each frame's `[:rf/runtime :routing :current]`
-slice updates on tab nav while the browser-history push no-ops (no
-two-frame URL race). The route slice — the isolation point — stays
-per-frame; only the shared browser-URL sync is suppressed. (The
-single-frame step-deck, rf2-6qgbs.2, uses the default URL-bound frame,
-so its tab nav syncs the address bar.)
-
-## Issues source — the slow fetch is intentional
-
-The async fx in `testdeck.async` (`SLOW-MS` ~600ms) is **not a bug**.
-The delay is calibrated to exceed Xray's slow-effect threshold so the
-Issues panel surfaces every fetch as a legitimate `slow effect` Issue.
-The clean handler-exception path on the Counter tab (`:counter/throw`)
-is likewise a FEATURE being exercised — the supported way to light up
-the Issues lens — not a buggy demo.
+No **automated** multi-frame-routing assertion was dropped: the old
+two-frame testbed carried no `spec.cjs` and was referenced by no gate
+scenario — its tabs-as-routes was a manual dev/inspection affordance,
+not a regression assertion. The closest gate routing coverage
+(single-frame `routes_epochs`) plus the multi-frame isolation gate
+scenario together cover what the old surface demonstrated.
 
 ## What to try in Xray
 
 Open the page; Xray auto-mounts inline on the right. The frame picker
 in the L1 ribbon switches every L2 (Events) and L4 (App-db, Views,
-Machines, Routing, Issues, Trace) panel between observing `:above` and
-`:below`.
+Trace, …) panel between observing `:above` and `:below`.
 
-1. **Frame divergence on the counters.** Click `+` three times on
-   `:above`'s Counter tab. Switch the Xray frame picker to `:below`.
-   The Events list is empty for `:below`; the App-db diff shows no
-   `:counter` movement.
+1. **Frame divergence on the baseline.** Click button **1
+   (Increment)** three times on `:above`. Switch the Xray frame picker
+   to `:below`: the Events list is empty for `:below`; the App-db diff
+   shows no `:baseline` movement.
 
-2. **Per-frame routing.** Navigate `:above` to the Machine tab and
-   `:below` to the Routing tab. Each frame's
-   `[:rf/runtime :routing :current]` slice differs; the Xray routing
-   lens shows each frame's active route independently.
+2. **Per-frame Views.** Mount Child A (button **10**) on `:above` only.
+   Switch the picker to `:below`: the Views lens shows no Child-A node
+   and none of its sub-cache entries — A's whole reactive subtree lives
+   only in `:above`'s context.
 
-3. **Per-frame machine state.** Click Connect on `:below`'s Machine
-   tab. Open the Machines lens — `:ws/connection` walks `:connecting →
-   :authenticating → :connected`. Switch the picker to `:above`: the
-   same machine reads `:disconnected`.
+3. **Per-frame Issues.** Press button **16 (throw in the handler)** on
+   `:below`. The handler-exception surfaces scoped to `:below`; the
+   `:above` frame shows no exception.
 
-4. **L2 sub create/destroy.** On the Counter tab, toggle "show parity"
-   off then on. Xray's Views lens shows the `:counter/parity` L2 node
-   disappear and reappear.
-
-5. **Changeable-arg view.** Change the show-greater-than threshold. The
-   `[:counter/greater-than? N]` dynamic sub backs a fresh cache entry
-   per threshold.
-
-6. **Issues per request, per frame.** Click Fetch on `:above`'s
-   Async & errors tab (~600ms slow effect → one Issue, scoped to
-   `:above`). Or click "throw" on the Counter tab → a clean
-   `:rf.error/handler-exception` Issue, scoped to the frame it fired in.
+4. **Per-frame epoch history.** Drive several buttons on `:above`, a
+   different few on `:below`. The Epoch panel's history differs per
+   frame — each frame accumulated only its own dispatches.
 
 ## Files
 
-- `core.cljs` — the two-frame harness + mount. Mounts the shared
-  `testdeck.panel` twice in non-url-bound frame-providers.
+- `core.cljs` — the two-frame harness + mount. Requires
+  `standard-epochs.core` for its registrations + `root` view, then
+  mounts that view twice in two frame-providers.
 - `index.html` — minimal static host with the standard
   `[data-rf-xray-host]` aside so the Xray preload auto-mounts inline.
 
-This testbed is test-free (rf2-8cevm). Regression coverage lives in the
-substrate contract tests (`npm run test:cljs`), the Xray
-feature-matrix gate, and the multi-frame e2e tests under
-`tools/xray/test/.../panels_e2e/`.
+This testbed is test-free (rf2-8cevm). Regression coverage for
+multi-frame isolation lives in the substrate contract tests
+(`npm run test:cljs`) and the Xray feature-matrix gate's
+`multi-frame isolation substrate` scenario.
 
 ## Running
 
@@ -174,9 +156,5 @@ load.
   statement of per-frame isolation. This testbed is the canonical demo.
 - [`spec/002-Frames.md`](../../../../spec/002-Frames.md) — frame
   lifecycle, `reg-frame`, `:on-create`, frame-provider context.
-- [`spec/005-StateMachines.md`](../../../../spec/005-StateMachines.md)
-  — the machine substrate the `:ws/connection` machine exercises.
-- [`spec/012-Routing.md`](../../../../spec/012-Routing.md) §Multi-frame
-  routing — the `:url-bound?` ownership rule.
-- [`spec/009-Instrumentation.md`](../../../../spec/009-Instrumentation.md)
-  — the slow-effect Issue surface the async fx exercises.
+- The shared deck: `tools/xray/testbeds/standard_epochs/` (the same
+  `root` ladder, mounted once on its own dev surface at port 8031).
