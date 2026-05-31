@@ -267,11 +267,23 @@ on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
 
 The inbound + outbound edges carry the structural / styling state
 that used to live on the single state→state edge: `:active`,
-`:focused`, `:fired`, `:crossHierarchy`, elk-routed `:points` on the
-outbound edge. The `:eventLabel` slot on these edges is empty (the
-event-node holds the visible text). Edge ids: `<spec-edge-id>__in` /
-`<spec-edge-id>__out`. Event-node ids: `event__<spec-edge-id>` via
-`chart.projection/event-node-id`.
+`:focused`, `:fired`, `:crossHierarchy`, and elk-routed `:points`. Edge
+ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
+`event__<spec-edge-id>` via `chart.projection/event-node-id`. The
+`:eventLabel` slot on these edges is empty (the event-node holds the
+visible text).
+
+elk routes each of those two segments independently, so the
+`:edge-points` map `chart.cljs/elk-result->positions` produces is keyed
+by the **elk edge id** — `<spec-edge-id>__in` and `<spec-edge-id>__out`
+— and the projector looks up each xyflow edge under its OWN id: the
+inbound edge draws the `__in` route (source-state → event-node) and the
+outbound edge draws the `__out` route (event-node → target-state)
+(rf2-r636q). Each edge with no matching route entry (or a self-loop)
+falls back to the bezier. *(Before rf2-r636q the consumer looked up the
+bare `<spec-edge-id>`, which the producer never emits post-rf2-qo5xy, so
+G2 routing was silently dead — every edge fell back to a straight
+bezier.)*
 
 elkjs lays out event-nodes as siblings of their source state's
 parent container: an event declared inside a compound substate nests

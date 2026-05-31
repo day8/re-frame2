@@ -247,21 +247,37 @@
                            `:always`) carry the callback too but a nil
                            `:eventId`; the host filters those out. nil
                            omits the wiring entirely (no-op edge labels).
-    :edge-points         — rf2-cz8v6 (closes parity gap G2). A map
-                           `{edge-id [{:x :y} …]}` of elk's routed
-                           bend-points (absolute / flow coordinates;
-                           `chart`'s `compute-layout!` sets
-                           `elk.json.edgeCoords ROOT` so they share
-                           xyflow's frame). When an edge has an entry,
-                           its route is attached to the edge `:data` as
-                           `:points`, and `chart.edges/transition-edge`
-                           draws a smooth poly-path THROUGH those points
-                           — routing AROUND nested/parallel containers
-                           rather than cutting across them (§1.7 of
+    :edge-points         — rf2-cz8v6 (closes parity gap G2); rf2-r636q
+                           (key-scheme fix). A map `{elk-edge-id
+                           [{:x :y} …]}` of elk's routed bend-points
+                           (absolute / flow coordinates; `chart`'s
+                           `compute-layout!` sets `elk.json.edgeCoords
+                           ROOT` so they share xyflow's frame). The KEYS
+                           are the elk edge ids `chart.cljs/->elk-input`
+                           emits — `<spec-edge-id>__in` (source-state →
+                           event-node) and `<spec-edge-id>__out`
+                           (event-node → target-state) — under the
+                           events-as-nodes paradigm (rf2-qo5xy). The
+                           inbound xyflow edge (`<spec-edge-id>__in`)
+                           looks up the `__in` route and the outbound
+                           (`<spec-edge-id>__out`) looks up the `__out`
+                           route, so each edge draws exactly the segment
+                           it represents; the route attaches to that
+                           edge's `:data {:points}` and
+                           `chart.edges/transition-edge` draws a smooth
+                           poly-path THROUGH those points — routing
+                           AROUND nested/parallel containers rather than
+                           cutting across them (§1.7 of
                            `001-Topology-Parity.md`). An edge with no
                            entry (or a self-loop, which keeps its
                            dedicated loop path) falls back to the bezier
                            between handles. Defaults to `{}`.
+
+                           (Before rf2-r636q the lookup used the BARE
+                           `<spec-edge-id>`, which the producer never
+                           emits post-rf2-qo5xy, so every lookup missed
+                           and the whole feature silently fell back to
+                           beziers — a dead G2.)
     :fired-edge-ids      — rf2-qeemm (closes parity gap G3). A SET of
                            canonical edge-ids (the EXACT `:id` scheme
                            `chart.layout` mints) that fired THIS epoch.
@@ -482,7 +498,24 @@
                       ;; rest. Top-level states leave `:parent-id` nil.
                       parent-id    (get parent-of src)
                       cross-hier?  (cross-hierarchy?-of src tgt)
-                      points       (get edge-points (:id e))]
+                      ;; rf2-r636q — reconcile the producer/consumer
+                      ;; key scheme. `chart.cljs/->elk-input` splits each
+                      ;; parsed transition into TWO elk edges with ids
+                      ;; `<spec-edge-id>__in` (source-state → event-node)
+                      ;; and `<spec-edge-id>__out` (event-node → target),
+                      ;; and `elk-result->positions` keys `:edge-points`
+                      ;; by those elk edge ids. The xyflow edges this
+                      ;; projector emits carry the SAME `__in` / `__out`
+                      ;; ids, so each edge looks up ITS OWN elk route and
+                      ;; draws exactly the segment it represents — the
+                      ;; inbound edge gets the source→event-node route,
+                      ;; the outbound edge gets the event-node→target
+                      ;; route. (Previously the lookup used the bare
+                      ;; canonical id, which the producer never emits, so
+                      ;; every lookup missed and the feature fell back to
+                      ;; beziers — silently dead post-rf2-qo5xy.)
+                      in-points    (get edge-points (str (:id e) "__in"))
+                      out-points   (get edge-points (str (:id e) "__out"))]
                   {:edge      e
                    :event-id  event-id
                    :variant   variant
@@ -494,7 +527,8 @@
                    :self-loop? self-loop?
                    :internal? internal?
                    :cross-hier? cross-hier?
-                   :points    points}))
+                   :in-points  in-points
+                   :out-points out-points}))
               edges)
         ;; Event-nodes — one per parsed transition. The xyflow node
         ;; renderer (`chart.nodes.event-node`) paints the event header
@@ -546,7 +580,7 @@
         ;; "this state handles this event".
         inbound-edges
         (mapv (fn [{:keys [edge ev-node-id from-active? focused? fired?
-                           cross-hier?]}]
+                           cross-hier? in-points]}]
                 {:id        (str (:id edge) "__in")
                  :source    (:source edge)
                  :target    ev-node-id
@@ -572,7 +606,14 @@
                              :siblingIndex 0
                              :siblingCount 1
                              :crossHierarchy cross-hier?
-                             :points     nil
+                             ;; rf2-r636q — the elk `__in` route
+                             ;; (source-state → event-node). Was
+                             ;; hardcoded nil, which (with the broken
+                             ;; bare-id lookup) meant the inbound segment
+                             ;; never routed around an intervening
+                             ;; container. nil when elk emitted no route
+                             ;; (bezier fallback).
+                             :points     in-points
                              :internal   false
                              :machineLevel (boolean (:machine-level? edge))
                              :eventId    nil
@@ -593,7 +634,7 @@
         (->> edge-descriptors
              (remove (fn [{:keys [internal?]}] internal?))
              (mapv (fn [{:keys [edge ev-node-id focused? fired? from-active?
-                                cross-hier? points]}]
+                                cross-hier? out-points]}]
                      {:id        (str (:id edge) "__out")
                       :source    ev-node-id
                       :target    (:target edge)
@@ -619,7 +660,12 @@
                                   :siblingIndex 0
                                   :siblingCount 1
                                   :crossHierarchy cross-hier?
-                                  :points     points
+                                  ;; rf2-r636q — the elk `__out` route
+                                  ;; (event-node → target-state). Keyed by
+                                  ;; the `<spec-edge-id>__out` elk edge id
+                                  ;; the producer actually emits (was the
+                                  ;; bare canonical id → always missed).
+                                  :points     out-points
                                   :internal   false
                                   :machineLevel (boolean (:machine-level? edge))
                                   :eventId    nil

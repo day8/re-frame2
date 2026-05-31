@@ -1156,13 +1156,40 @@
 ;; across a container (§1.7 of `001-Topology-Parity.md`). These pins
 ;; guard the projection half at the cheap JVM layer.
 
-(deftest xyflow-graph-attaches-edge-points-to-outbound-edge
-  (testing "rf2-cz8v6 + rf2-qo5xy — a parsed-edge's elk-routed bend-
-            points attach to the OUTBOUND edge (event-node → target
-            state). The visible curve `transition-edge` paints is the
-            event-node-to-state segment; the structurally-short
-            source-state-to-event-node segment keeps the bezier
-            fallback (a single straight handoff to the event-node)."
+(deftest xyflow-graph-attaches-edge-points-by-elk-edge-id
+  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-r636q — `:edge-points` is keyed
+            by the elk edge ids `chart.cljs/->elk-input` emits
+            (`<spec-edge-id>__in` / `<spec-edge-id>__out`), and each
+            xyflow edge looks up ITS OWN id: the inbound edge gets the
+            `__in` route (source-state → event-node), the outbound edge
+            gets the `__out` route (event-node → target-state). Each
+            edge draws exactly the segment it represents."
+    (let [parsed     (layout/parse-definition idle-loading)
+          start      (->> (:edges parsed)
+                          (filter #(= (:source %) (layout/node-id [:idle])))
+                          first)
+          in-route   [{:x 0 :y 0} {:x 0 :y 25} {:x 40 :y 25} {:x 40 :y 50}]
+          out-route  [{:x 40 :y 50} {:x 40 :y 75} {:x 80 :y 75} {:x 80 :y 100}]
+          graph      (projection/xyflow-graph
+                       parsed {} {:edge-points
+                                  {(str (:id start) "__in")  in-route
+                                   (str (:id start) "__out") out-route}})
+          in-edge    (inbound-edge-for  graph (:id start))
+          out-edge   (outbound-edge-for graph (:id start))]
+      (is (some? in-edge))
+      (is (some? out-edge))
+      (is (= in-route (:points (:data in-edge)))
+          "elk's `__in` route rides on the inbound edge")
+      (is (= out-route (:points (:data out-edge)))
+          "elk's `__out` route rides on the outbound edge"))))
+
+(deftest xyflow-graph-bare-canonical-key-does-not-route
+  (testing "rf2-r636q — a `:edge-points` entry keyed by the BARE
+            canonical edge-id (the pre-fix mis-key the producer never
+            emits) routes NOTHING: neither the inbound nor the outbound
+            edge picks it up, since the contract keys on the elk
+            `__in` / `__out` ids. This is the failing-before/passing-
+            after guard for the dead-G2 bug."
     (let [parsed   (layout/parse-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
@@ -1170,30 +1197,35 @@
           route    [{:x 0 :y 0} {:x 0 :y 50} {:x 80 :y 50} {:x 80 :y 100}]
           graph    (projection/xyflow-graph
                      parsed {} {:edge-points {(:id start) route}})
+          in-edge  (inbound-edge-for  graph (:id start))
           out-edge (outbound-edge-for graph (:id start))]
-      (is (some? out-edge))
-      (is (= route (:points (:data out-edge)))
-          "elk's routed bend-points ride on the outbound edge"))))
+      (is (nil? (:points (:data in-edge)))
+          "a bare-canonical-keyed entry does not reach the inbound edge")
+      (is (nil? (:points (:data out-edge)))
+          "a bare-canonical-keyed entry does not reach the outbound edge"))))
 
 (deftest xyflow-graph-edge-without-route-falls-back-to-nil-points
-  (testing "rf2-cz8v6 + rf2-qo5xy — outbound edges with no :edge-points
-            entry carry `:points nil` (bezier fallback). Inbound edges
-            never carry points (they are short handoffs into the
-            event-node)."
+  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-r636q — edges with no matching
+            `__in` / `__out` `:edge-points` entry carry `:points nil`
+            (bezier fallback) on BOTH the inbound and the outbound edge."
     (let [parsed (layout/parse-definition idle-loading)
           start  (->> (:edges parsed)
                       (filter #(= (:source %) (layout/node-id [:idle])))
                       first)
           graph  (projection/xyflow-graph
-                   parsed {} {:edge-points {(:id start) [{:x 0 :y 0} {:x 9 :y 9}]}})
-          out-edges    (filter #(:outbound (:data %)) (:edges graph))
+                   parsed {} {:edge-points
+                              {(str (:id start) "__out") [{:x 0 :y 0} {:x 9 :y 9}]}})
+          out-edges     (filter #(:outbound (:data %)) (:edges graph))
           inbound-edges (filter #(:inbound  (:data %)) (:edges graph))
-          other-outs   (remove #(= (:id %) (str (:id start) "__out")) out-edges)]
+          other-outs    (remove #(= (:id %) (str (:id start) "__out")) out-edges)
+          other-ins     (remove #(= (:id %) (str (:id start) "__in")) inbound-edges)]
       (is (seq other-outs) "fixture has additional outbound edges")
       (is (every? #(nil? (:points (:data %))) other-outs)
           "outbound edges with no route entry carry nil points")
-      (is (every? #(nil? (:points (:data %))) inbound-edges)
-          "inbound edges never carry routed points"))))
+      (is (every? #(nil? (:points (:data %))) other-ins)
+          "inbound edges with no route entry carry nil points")
+      (is (nil? (:points (:data (inbound-edge-for graph (:id start)))))
+          "the routed transition's inbound edge has no `__in` entry → nil"))))
 
 (deftest xyflow-graph-no-edge-points-leaves-all-points-nil
   (testing "rf2-cz8v6 — omitting :edge-points entirely (the pre-layout
@@ -1216,8 +1248,9 @@
                       (filter #(= (:source %) (:target %)))
                       first)
           graph  (projection/xyflow-graph
-                   parsed {} {:edge-points {(:id self)
-                                            [{:x 0 :y 0} {:x 5 :y 5} {:x 10 :y 0}]}})
+                   parsed {} {:edge-points
+                              {(str (:id self) "__out")
+                               [{:x 0 :y 0} {:x 5 :y 5} {:x 10 :y 0}]}})
           out-edge (outbound-edge-for graph (:id self))]
       (is (some? self) "fixture has a self-transition")
       (is (some? out-edge) "outbound edge survives projection")
@@ -1239,7 +1272,7 @@
           route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
           graph   (projection/xyflow-graph
                     parsed {} {:highlight-id hi
-                               :edge-points  {(:id start) route}})
+                               :edge-points  {(str (:id start) "__out") route}})
           out-edge (outbound-edge-for graph (:id start))]
       (is (true? (:active (:data out-edge))))
       (is (= route (:points (:data out-edge)))))))
@@ -1341,7 +1374,7 @@
           route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
           graph   (projection/xyflow-graph
                     parsed {} {:highlight-id   hi
-                               :edge-points    {(:id start) route}
+                               :edge-points    {(str (:id start) "__out") route}
                                :fired-edge-ids #{(:id start)}})
           out-edge (outbound-edge-for graph (:id start))]
       (is (true? (:fired  (:data out-edge))))
