@@ -31,6 +31,7 @@
   (:require [clojure.string :as str]
             [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
@@ -196,10 +197,12 @@
 ;; to an empty-payload success — enough for the app shell + main feed
 ;; to render.
 ;;
-;; The override uses :rf.http/managed-canned-success directly with a
-;; per-URL :value payload. This is the same shape Spec 014 §Testing
-;; documents — just routed by URL inspection in a wrapper fx so the
-;; demo doesn't have to know one URL ahead of time.
+;; The override delegates straight to :rf.http/managed-canned-success
+;; with a per-URL :value payload and an `:after-ms` delay (rf2-j1mo4) so
+;; the framework defers the reply via `:dispatch-later` — observable in
+;; the tape, time-travel-safe, NOT raw `js/setTimeout`. This is the same
+;; shape Spec 014 §Testing documents — just routed by URL inspection in a
+;; wrapper fx so the demo doesn't have to know one URL ahead of time.
 ;; ----------------------------------------------------------------------------
 
 (def ^:private demo-articles
@@ -308,47 +311,25 @@
 
       :else {})))
 
-(rf/reg-event-fx :realworld.demo/schedule-reply
-  {:doc "Private — entered via dispatch from :realworld.demo/http-stub.
-         Uses `:dispatch-later` so framework time controls (Tool-Pair
-         time-travel, the documented `:dispatch-later` nil-override
-         seam) apply to the demo latency. No user dispatches this
-         directly."}
-  (fn handler-conduit-demo-schedule-reply [_ [_ args-map payload]]
-    {:fx [[:dispatch-later
-           {:ms    20
-            :event [:realworld.demo/deliver-reply args-map payload]}]]}))
-
-(rf/reg-event-fx :realworld.demo/deliver-reply
-  {:doc "Private — fired by the :dispatch-later scheduled in
-         :realworld.demo/schedule-reply. Delegates to the
-         framework-shipped `:rf.http/managed-canned-success` with the
-         per-URL canned Conduit payload."}
-  (fn handler-conduit-demo-deliver-reply [_ [_ args-map payload]]
-    {:fx [[:rf.http/managed-canned-success (assoc args-map :value payload)]]}))
-
 (rf/reg-fx :realworld.demo/http-stub
   {:doc       "Demo override for :rf.http/managed: routes by URL to
                canned Conduit-shaped responses so the example runs
                standalone without a backend.
 
-               Dispatches into the private :realworld.demo/schedule-reply
-               event so the deferred reply rides framework
-               `:dispatch-later` (20 ms) rather than raw
-               `js/setTimeout`. The delay lets the `:loading` UI state
-               be observable in the demo; the reply itself lands via
-               the framework-shipped `:rf.http/managed-canned-success`
-               (Spec 014 §Testing).
-
-               Framework time controls (Tool-Pair time-travel, the
-               documented `:dispatch-later` nil-override seam) apply
-               automatically."
+               Delegates straight to the framework-shipped
+               `:rf.http/managed-canned-success` (Spec 014 §Testing) with
+               the per-URL canned payload and `:after-ms` (rf2-j1mo4): the
+               framework defers the reply via `:dispatch-later` (20 ms) —
+               observable in the tape, time-travel-safe, NOT raw
+               `js/setTimeout`. The delay lets the `:loading` UI state be
+               observable; `:after-ms` collapses the former schedule-reply
+               → `:dispatch-later` → deliver-reply chain into one
+               parameter of the same canned effect."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [payload (demo-payload-for-args args-map)
-          frame   (:frame frame-ctx)]
-      (rf/dispatch [:realworld.demo/schedule-reply args-map payload]
-                   {:frame frame}))))
+          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
+      (stub frame-ctx (assoc args-map :after-ms 20 :value payload)))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
 ;; the `root-view` reg-view above. Held in an atom and populated lazily

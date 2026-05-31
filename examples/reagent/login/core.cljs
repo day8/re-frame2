@@ -42,6 +42,7 @@
   ;; slim.)
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             ;; The Spec 010 schema-attachment ns lives in
             ;; the day8/re-frame2-schemas artefact. The require here
             ;; loads the ns so its late-bind hooks register before
@@ -136,41 +137,6 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
-(rf/reg-event-fx :auth.login.demo/schedule-reply
-  {:doc "Private — entered via dispatch from :auth.login.demo/managed-stub.
-         Uses `:dispatch-later` so framework time controls (Tool-Pair
-         time-travel, the documented `:dispatch-later` nil-override
-         seam) apply to the demo latency. No user dispatches this
-         directly."}
-  (fn handler-auth-login-demo-schedule-reply [_ [_ outcome args-map]]
-    {:fx [[:dispatch-later
-           {:ms    50
-            :event [:auth.login.demo/deliver-reply outcome args-map]}]]}))
-
-(rf/reg-event-fx :auth.login.demo/deliver-reply
-  {:doc "Private — fired by the :dispatch-later scheduled in
-         :auth.login.demo/schedule-reply. Delegates to the framework-
-         shipped `:rf.http/managed-canned-success` /
-         `:rf.http/managed-canned-failure` (Spec 014 §Testing)."}
-  (fn handler-auth-login-demo-deliver-reply [_ [_ outcome args-map]]
-    (case outcome
-      :success
-      {:fx [[:rf.http/managed-canned-success
-             (assoc args-map
-                    :value {:user  {:id    (random-uuid)
-                                    :email (-> args-map :request :body :email)}
-                            :token "demo-token-123"})]]}
-
-      :failure-401
-      {:fx [[:rf.http/managed-canned-failure
-             (assoc args-map
-                    :kind :rf.http/http-4xx
-                    :tags {:status  401
-                           :message "Invalid credentials."})]]}
-
-      :empty-success
-      {:fx [[:rf.http/managed-canned-success (assoc args-map :value {})]]})))
-
 (rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Demo override for `:rf.http/managed`: routes by URL +
                request body to canned login responses so the example
@@ -181,32 +147,43 @@
                POST /api/login otherwise → 401 failure.
                Anything else (e.g. /api/auth/lock) → empty success.
 
-               Dispatches into the private
-               :auth.login.demo/schedule-reply event so the deferred
-               reply rides framework `:dispatch-later` (50 ms) rather
-               than raw `js/setTimeout`. The delay lets the
-               `:submitting` UI state be observable; the reply itself
-               lands via the framework-shipped canned-success /
-               canned-failure fxs so the reply shape
+               Delegates straight to the framework-shipped canned-success
+               / canned-failure fxs (Spec 014 §Testing) with `:after-ms`
+               (rf2-j1mo4): the framework defers the reply via
+               `:dispatch-later` (50 ms) — observable in the tape,
+               time-travel-safe, NOT raw `js/setTimeout`. The delay lets
+               the `:submitting` UI state be observable; the reply shape
                (`{:kind :success :value ...}` / `{:kind :failure
-               :failure ...}`) reaches the inner `:auth.login/success`
-               / `:auth.login/failure` sub-events via the explicit
-               `:on-success` / `:on-failure` form.
-
-               Framework time controls (Tool-Pair time-travel, the
-               documented `:dispatch-later` nil-override seam) apply
-               automatically."
+               :failure ...}`) reaches the inner `:auth.login/success` /
+               `:auth.login/failure` sub-events via the explicit
+               `:on-success` / `:on-failure` form. Collapses the former
+               schedule-reply → `:dispatch-later` → deliver-reply chain
+               into one `:after-ms` parameter (the delay is a parameter
+               of the same canned effect, not a new fx)."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
-          login?  (= "/api/login" url)
-          outcome (cond
-                    (and login? (= good-password (:password body))) :success
-                    login?                                          :failure-401
-                    :else                                           :empty-success)
-          frame   (:frame frame-ctx)]
-      (rf/dispatch [:auth.login.demo/schedule-reply outcome args-map]
-                   {:frame frame}))))
+          login? (= "/api/login" url)]
+      (cond
+        (and login? (= good-password (:password body)))
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx (assoc args-map
+                                 :after-ms 50
+                                 :value {:user  {:id    (random-uuid)
+                                                 :email (:email body)}
+                                         :token "demo-token-123"})))
+
+        login?
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+          (stub frame-ctx (assoc args-map
+                                 :after-ms 50
+                                 :kind :rf.http/http-4xx
+                                 :tags {:status  401
+                                        :message "Invalid credentials."})))
+
+        :else
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx (assoc args-map :after-ms 50 :value {})))))))
 
 ;; ============================================================================
 ;; STATE MACHINE  (CP-5)

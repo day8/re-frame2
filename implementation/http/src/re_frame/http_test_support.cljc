@@ -77,13 +77,98 @@
   Plus the four stub macros / fns listed above (and the matching late-bind
   hook publications under `:http/install-managed-request-stubs!`,
   `:http/uninstall-managed-request-stubs!`, `:http/with-managed-request-stubs*`)."
-  (:require [re-frame.fx                   :as fx]
+  (:require [re-frame.events               :as events]
+            [re-frame.fx                   :as fx]
             [re-frame.http-encoding        :as encoding]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware      :as middleware]
             [re-frame.late-bind            :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; ---- optional `:after-ms` delay (rf2-j1mo4) ------------------------------
+;;
+;; Per Mike's ruling (B, 2026-05-30): a delay is a PARAMETER of the same
+;; effect, not a new effect — so rather than minting `-later` fx ids the
+;; existing canned-stub fxs take an optional `:after-ms` arg.
+;;
+;;   - absent / 0 / non-positive → reply lands immediately (current
+;;     behaviour, unchanged);
+;;   - positive N               → reply lands after an N-ms
+;;     `:dispatch-later` tick.
+;;
+;; The timer is the framework-native `:dispatch-later` (NOT raw
+;; `interop/set-timeout!`), so the deferred reply is observable in the
+;; tape and time-travel-safe — Tool-Pair time-travel and the documented
+;; `:dispatch-later` nil-override seam apply automatically. This is the
+;; single framework-owned home for what the example demo stubs previously
+;; open-coded as a per-app three-hop chain (stub-fx → schedule-reply →
+;; `:dispatch-later` → deliver-reply → canned-success).
+;;
+;; The deliverer is one self-recursive framework event. First entry (with
+;; a positive `:after-ms`) schedules the `:dispatch-later` re-dispatching
+;; itself with `:after-ms` stripped; the deferred entry (no `:after-ms`)
+;; re-fires the named canned fx, which synthesises the reply through the
+;; ordinary immediate path. Routing the re-fire back through the fx id
+;; (rather than calling the handler body directly) keeps the canned fx
+;; visible in the tape on the deferred tick exactly as it is on the
+;; immediate path.
+
+(def ^:private deliver-canned-reply-id :rf.http/deliver-canned-reply)
+
+(events/reg-event-fx deliver-canned-reply-id
+  {:doc "Framework-private (rf2-j1mo4). Delivers a canned HTTP reply, optionally
+         after an `:after-ms` delay. Dispatched by the `:rf.http/managed-canned-*`
+         fxs when their args-map carries a positive `:after-ms`; self-recurses
+         once through `:dispatch-later` to honour the delay, then re-fires the
+         named canned fx for immediate synthesis. No user dispatches this
+         directly."}
+  (fn deliver-canned-reply [_ [_ fx-id args-map]]
+    (let [after-ms (:after-ms args-map)]
+      (if (and after-ms (pos? after-ms))
+        ;; Schedule the (now-immediate) re-fire after the delay. Stripping
+        ;; `:after-ms` is what makes the deferred entry take the immediate
+        ;; branch below — exactly one timer tick, never a loop.
+        {:fx [[:dispatch-later
+               {:ms    after-ms
+                :event [deliver-canned-reply-id fx-id (dissoc args-map :after-ms)]}]]}
+        ;; No (remaining) delay — re-fire the canned fx for immediate synthesis.
+        {:fx [[fx-id args-map]]}))))
+
+(defn- with-after-ms
+  "Decorate a canned-stub fx handler body so a positive `:after-ms` on the
+  args-map defers the reply via the framework `:dispatch-later` timer
+  (rf2-j1mo4). Absent / 0 / non-positive `:after-ms` runs `body-fn`
+  immediately — byte-for-byte the pre-rf2-j1mo4 behaviour. `fx-id` is the
+  canned fx's own id, threaded so the deferred re-fire targets the same fx.
+
+  On the deferred path the re-fire runs inside a DIFFERENT event context
+  (the framework deliverer), so the originating event is no longer
+  reachable through `(:event frame-ctx)`. We resolve it eagerly on the
+  immediate dispatch and pin it onto the args-map as `:rf.http/origin-
+  event` BEFORE deferring; on the deferred re-entry the wrapper threads
+  that pinned origin back onto `frame-ctx` as `:event` so the body's
+  `encoding/resolve-origin-event` addresses the caller's originating
+  handler — not the framework deliverer event."
+  [fx-id body-fn]
+  (fn after-ms-aware-handler [frame-ctx args-map]
+    (let [after-ms (:after-ms args-map)]
+      (if (and after-ms (pos? after-ms))
+        ;; Deferred path — pin the origin, then hand off to the deliverer
+        ;; event which schedules the `:dispatch-later`.
+        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+          (let [pinned (assoc args-map :rf.http/origin-event
+                              (encoding/resolve-origin-event frame-ctx args-map))]
+            (dispatch! [deliver-canned-reply-id fx-id pinned]
+                       (cond-> {} (:frame frame-ctx) (assoc :frame (:frame frame-ctx))))))
+        ;; Immediate path. On the deferred re-entry the ambient `:event`
+        ;; is the framework deliverer; restore the caller's pinned origin
+        ;; so reply addressing is identical to the synchronous path.
+        (let [ctx (if-let [origin (:rf.http/origin-event args-map)]
+                    (assoc frame-ctx :event origin)
+                    frame-ctx)]
+          (body-fn ctx args-map))))
+    nil))
 
 ;; ---- canned-stub fx registrations ----------------------------------------
 ;;
@@ -93,19 +178,25 @@
 ;; code must not. The handler bodies live in `re-frame.http-machine-wrapper`
 ;; (rf2-3i9b) so the `with-managed-request-stubs*` helper — which composes
 ;; against `canned-success-handler` / `canned-failure-handler` directly —
-;; still reaches them without circular requires.
+;; still reaches them without circular requires. The `with-after-ms`
+;; decorator (rf2-j1mo4) adds the optional `:after-ms` delay around those
+;; same bodies without changing their contract.
 
 (fx/reg-fx :rf.http/managed-canned-success
            {:doc "Spec 014 — synthesised success reply (test stub).
                   Registration gated on explicit `re-frame.http-test-support`
-                  require per rf2-cdmle."}
-           machine-wrapper/canned-success-handler)
+                  require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
+                  defers the reply via `:dispatch-later`."}
+           (with-after-ms :rf.http/managed-canned-success
+                          machine-wrapper/canned-success-handler))
 
 (fx/reg-fx :rf.http/managed-canned-failure
            {:doc "Spec 014 — synthesised failure reply (test stub).
                   Registration gated on explicit `re-frame.http-test-support`
-                  require per rf2-cdmle."}
-           machine-wrapper/canned-failure-handler)
+                  require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
+                  defers the reply via `:dispatch-later`."}
+           (with-after-ms :rf.http/managed-canned-failure
+                          machine-wrapper/canned-failure-handler))
 
 ;; ---- with-managed-request-stubs ------------------------------------------
 ;;

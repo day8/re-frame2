@@ -161,6 +161,102 @@
       ;; Only the initial dispatch fired :ping; no reply.
       (is (= 1 @seen)))))
 
+;; ---- 3b. :after-ms delay on the canned-stub fxs (rf2-j1mo4) ----------------
+;;
+;; Mike-ruled (B): a delay is a PARAMETER of the existing canned fx, not a
+;; new `-later` fx id. Absent / 0 `:after-ms` = the immediate behaviour the
+;; tests above already pin; a positive `:after-ms` defers the reply via the
+;; framework-native `:dispatch-later` (observable in the tape, time-travel-
+;; safe — NOT raw `set-timeout!`).
+
+(defn- canned-success-reply-event
+  "Register :j1mo4/load whose reply branch records the success value, and
+  dispatch it through the canned-success stub with the given extra args
+  merged onto the managed args-map. Returns immediately; callers poll
+  `await-reply!` for the landed reply."
+  [extra-args]
+  (rf/reg-event-fx :j1mo4/load
+    (fn [{:keys [db]} [_ msg]]
+      (if-let [reply (:rf/reply msg)]
+        {:db (assoc-in db [:j1mo4 :value] (:value reply))}
+        {:fx [[:rf.http/managed
+               (merge {:request {:method :get :url "/j1mo4"}
+                       :decode  :json}
+                      extra-args)]]})))
+  (rf/dispatch-sync [:j1mo4/load {}]
+                    {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))
+
+(deftest after-ms-absent-is-immediate
+  (testing "no :after-ms — the canned-success reply lands immediately, exactly
+            as the pre-rf2-j1mo4 behaviour (sync dispatch-sync drain delivers
+            the reply with no timer tick)"
+    (canned-success-reply-event {:value {:n 1}})
+    ;; Immediate path runs inside the dispatch-sync drain — the reply is
+    ;; already present without polling a timer.
+    (is (= {:n 1} (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+        "reply landed synchronously")))
+
+(deftest after-ms-zero-is-immediate
+  (testing ":after-ms 0 (and any non-positive value) is treated as immediate —
+            absent/0 must preserve current behaviour"
+    (canned-success-reply-event {:value {:n 2} :after-ms 0})
+    (is (= {:n 2} (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+        "reply landed synchronously with :after-ms 0")))
+
+(deftest after-ms-positive-defers-via-dispatch-later
+  (testing ":after-ms N defers the canned reply by one :dispatch-later tick —
+            the reply is NOT present synchronously, lands after the timer, and
+            the deferred dispatch is observable in the tape with
+            :source :fx-dispatch-later (NOT raw set-timeout!)"
+    (let [traces      (atom [])
+          listener-id ::j1mo4-after-ms]
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (canned-success-reply-event {:value {:n 3} :after-ms 30})
+        ;; The reply must NOT be present synchronously — the dispatch-sync
+        ;; drain only schedules the :dispatch-later; nothing has delivered yet.
+        (is (nil? (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+            "reply deferred — not present immediately after dispatch-sync")
+        ;; After the timer tick the reply lands.
+        (let [db (await-reply! #(some? (get-in % [:j1mo4 :value])))]
+          (is (= {:n 3} (get-in db [:j1mo4 :value]))
+              "deferred reply landed after the :dispatch-later tick"))
+        ;; Tape observability: the deferred re-dispatch of the framework
+        ;; deliverer event rode :dispatch-later, so its :rf.event/dispatched
+        ;; trace carries :source :fx-dispatch-later. This is the load-bearing
+        ;; "observable in the tape, not raw set-timeout!" assertion.
+        (let [later (filter #(and (= :rf.event/dispatched (:operation %))
+                                  (= :fx-dispatch-later (:source %)))
+                            @traces)]
+          (is (seq later)
+              "a :dispatch-later-sourced dispatch appears in the tape")
+          (is (some #(= :rf.http/deliver-canned-reply
+                        (first (:rf.event/v (:tags %))))
+                    later)
+              "the deferred dispatch is the framework canned-reply deliverer"))
+        (finally
+          (trace/unregister-listener! listener-id))))))
+
+(deftest after-ms-positive-on-failure-defers
+  (testing ":after-ms N also defers the canned-FAILURE reply by a
+            :dispatch-later tick (symmetric with the success path)"
+    (rf/reg-event-fx :j1mo4/fail-delayed
+      (fn [_ _]
+        {:fx [[:rf.http/managed
+               {:request    {:method :get :url "/j1mo4/fail"}
+                :after-ms   30
+                :on-failure [:j1mo4/failed]}]]}))
+    (rf/reg-event-db :j1mo4/failed
+      (fn [db [_ payload]] (assoc db :j1mo4-error payload)))
+    (rf/dispatch-sync [:j1mo4/fail-delayed]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+    ;; Deferred — not present synchronously after the dispatch-sync drain.
+    (is (nil? (:j1mo4-error (rf/get-frame-db :rf/default)))
+        "failure reply deferred — not present immediately")
+    (let [db (await-reply! #(some? (:j1mo4-error %)))]
+      (is (= :rf.http/transport (get-in db [:j1mo4-error :failure :kind]))
+          "deferred failure reply landed after the :dispatch-later tick"))))
+
 ;; ---- 4. real JVM transport: GET success -----------------------------------
 
 (deftest jvm-real-get-success
