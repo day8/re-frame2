@@ -78,6 +78,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy :as privacy]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.walker :as walker]
@@ -85,12 +86,12 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private redacted-sentinel
-  "The `:rf/redacted` privacy sentinel emitted by validation traces
-  for slots matching the `:sensitive?` predicate. Per Spec 009
-  §Privacy — the framework-reserved keyword that cannot
-  collide with an app-defined value."
-  :rf/redacted)
+;; The `:rf/redacted` privacy sentinel emitted by validation traces for
+;; slots matching the `:sensitive?` predicate. Per Spec 009 §Privacy —
+;; the framework-reserved keyword that cannot collide with an app-defined
+;; value. rf2-qe237 — refer to the canonical core def rather than a local
+;; copy so the keyword can never drift across artefacts.
+(def ^:private redacted-sentinel privacy/redacted-sentinel)
 
 ;; NOTE: the handler-meta `:sensitive?` annotation has been removed.
 ;; Sensitivity is now path-marked at the schema slot — `walk-schema?`

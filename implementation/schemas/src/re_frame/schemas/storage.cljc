@@ -25,6 +25,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy :as privacy]
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.walker :as walker]
             [re-frame.source-coords :as source-coords]))
@@ -225,12 +226,13 @@
 ;; value fails the new schema. A no-op re-eval with the same schema does
 ;; nothing; a re-eval that the live value still satisfies does nothing.
 
-(def ^:private redacted-sentinel
-  "The `:rf/redacted` privacy sentinel — Spec 009 §Privacy. Stamped in
-  place of `:mismatching-value` when the new schema declares the slot
-  sensitive, mirroring the `:rf.error/schema-validation-failure`
-  redaction posture so the hot-reload trace never re-leaks a credential."
-  :rf/redacted)
+;; The `:rf/redacted` privacy sentinel — Spec 009 §Privacy. Stamped in
+;; place of `:mismatching-value` when the new schema declares the slot
+;; sensitive, mirroring the `:rf.error/schema-validation-failure`
+;; redaction posture so the hot-reload trace never re-leaks a credential.
+;; rf2-qe237 — refer to the canonical core def rather than a local copy so
+;; the keyword can never drift across artefacts.
+(def ^:private redacted-sentinel privacy/redacted-sentinel)
 
 (defn- maybe-emit-schema-violation!
   "Emit `:rf.schema/violation` when a re-registration changes the schema
