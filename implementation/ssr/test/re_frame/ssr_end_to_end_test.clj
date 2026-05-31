@@ -732,6 +732,105 @@
       (is (= :internal-error (:code public)))
       (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)))))
 
+;; ===========================================================================
+;; rf2-ynjts.13 — default-error-projector-fn pure-unit case-arm coverage.
+;; The end-to-end tests above drive :no-such-handler → 404 and
+;; :handler-exception → 500 through the live cascade, but the default
+;; projector fn's OTHER two enumerated arms — :no-such-route → 404 and
+;; :schema-validation-failure → 400 (documented in error_projector.cljc) —
+;; had no direct assertion. These are pure (trace-event → public-error),
+;; so unit-test the fn directly: deterministic, no frame/drain machinery.
+;; ===========================================================================
+
+(deftest default-error-projector-fn-maps-all-enumerated-categories
+  (testing "rf2-ynjts.13 — the default projector's full case table per
+            Spec 011 §Default projector. Exercises the fn directly (it is a
+            public re-export: ssr/default-error-projector-fn)."
+    (testing ":rf.error/no-such-handler → 404 :not-found"
+      (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
+             (ssr/default-error-projector-fn {:operation :rf.error/no-such-handler}))))
+    (testing ":rf.error/no-such-route → 404 :not-found (the second 404 arm —
+              previously untested)"
+      (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
+             (ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
+          "no-such-route shares the 404 :not-found mapping with no-such-handler"))
+    (testing ":rf.error/schema-validation-failure → 400 :bad-request
+              (previously untested)"
+      (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
+             (ssr/default-error-projector-fn {:operation :rf.error/schema-validation-failure}))
+          "schema-validation-failure is the only 400 arm"))
+    (testing "any other category → the locked generic-500 fallback"
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn {:operation :rf.error/handler-exception}))
+          "handler-exception falls through to the 500 default")
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn {:operation :totally/unknown-future-category}))
+          "an unenumerated future category also falls through — no case arm needed")
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn {}))
+          "an event with no :operation falls through to 500 too"))))
+
+;; ===========================================================================
+;; rf2-ynjts.13 — peek-response (pure) vs flush-response! / get-response
+;; (drain) read-surface contract. error_listener.cljc documents three reads:
+;; peek-response does NOT drain pending error projections; flush-response!
+;; and get-response DO. The drain-on-read is covered by the projector e2e
+;; tests; the pure-read-does-NOT-drain invariant (and the bookkeeping-key
+;; stripping on both) had no direct assertion.
+;; ===========================================================================
+
+(deftest peek-response-does-not-drain-flush-does
+  (testing "rf2-ynjts.13 — a buffered error trace is left intact by
+            peek-response (pure read) and only stamps :status when
+            flush-response! / get-response drains it."
+    (rf/reg-route :route/home {:path "/"})
+    (let [f (rf/make-frame
+              {:platform :server
+               :ssr {:public-error-id   :rf.ssr/default-error-projector
+                     :dev-error-detail? false}})]
+      ;; Fire a :rf.error/no-such-handler so a trace buffers against f.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
+
+      (testing "peek-response reads the un-projected response (still 200) and
+                does NOT consume the buffered trace"
+        (is (= 200 (:status (ssr/peek-response f)))
+            "peek leaves :status at the default 200 — the projector buffer
+             is NOT drained by a pure read"))
+
+      (testing "a SECOND peek still sees 200 — peek is idempotent + side-effect-free"
+        (is (= 200 (:status (ssr/peek-response f)))
+            "the pending trace survived the first peek, so the second peek
+             still reads the un-projected status"))
+
+      (testing "flush-response! drains the buffer and stamps the projector's status"
+        (is (= 404 (:status (ssr/flush-response! f)))
+            "flush projects the buffered :no-such-handler → 404 onto :status"))
+
+      (testing "after the drain the buffer is empty — a subsequent peek reads 404
+                (the stamped value persists; nothing left to re-project)"
+        (is (= 404 (:status (ssr/peek-response f)))
+            "the stamped 404 persists on the accumulator post-drain")))))
+
+(deftest peek-and-get-response-strip-bookkeeping-keys
+  (testing "rf2-ynjts.13 — both read surfaces strip the internal
+            `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
+            bookkeeping keys, so a host adapter never sees them on the wire
+            shape."
+    (rf/reg-event-fx :resp/multi-status
+      (fn [_ _]
+        {:fx [[:rf.server/set-status 201]
+              [:rf.server/set-status 202]]}))
+    (let [f (rf/make-frame {:platform :server})]
+      (rf/dispatch-sync [:resp/multi-status] {:frame f})
+      (doseq [[label resp] [["peek-response"  (ssr/peek-response f)]
+                            ["get-response"   (ssr/get-response f)]]]
+        (is (= 202 (:status resp))
+            (str label ": last-write-wins status surfaces"))
+        (is (not (contains? resp :rf.server/_status-writes))
+            (str label ": the internal status-writes bookkeeping key is stripped"))
+        (is (not (contains? resp :rf.server/_redirect-writes))
+            (str label ": the internal redirect-writes bookkeeping key is stripped"))))))
+
 (deftest ssr-error-projection-skips-client-frames
   (testing "client-platform frames don't have their :rf/response stamped on errors"
     ;; A :rf.error/no-such-handler trace inside a CLIENT frame should not
