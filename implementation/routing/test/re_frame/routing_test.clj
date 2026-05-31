@@ -1049,6 +1049,202 @@
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
+;; ============================================================================
+;; rf2-ynjts.11 — coverage & rigour pass: genuine gaps in the navigate /
+;; pending-nav / scroll-strategy / route-url surfaces. Each test below pins a
+;; documented branch the existing suite exercises only obliquely (or not at
+;; all). Behaviour-asserting + deterministic; no src behaviour changed.
+;; ============================================================================
+
+;; ---- navigate URL-string target that matches NO route --------------------
+;;
+;; navigate.cljc's `{:url ...}` target branch resolves an unmatched URL to
+;; `(or (:route-id match) :rf.route/not-found)` with `:params {:url url}`.
+;; `navigate-url-form-preserves-fragment` (above) only covers the MATCHING
+;; URL-string case; the not-found fallback through the programmatic
+;; URL-string entry point (distinct from the URL-driven
+;; `:rf.route/transitioned` path that `url-changed-unmatched-url-routes-to-
+;; not-found` covers) was unpinned.
+
+(deftest navigate-url-form-unmatched-routes-to-not-found
+  (testing ":rf.route/navigate with an unmatched {:url ...} target lands on
+            :rf.route/not-found carrying {:url url} in :params, and pushes
+            the not-found route's URL"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+      (let [slice (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "unmatched URL-string target → :rf.route/not-found slice")
+        (is (= {:url "/no/such/path"} (:params slice))
+            ":params carries the unmatched URL under :url")
+        (is (some? (:nav-token slice))
+            "a fresh nav-token is allocated for the not-found navigation"))
+      (is (= ["/404"] @pushed)
+          ":rf.nav/push-url pushed the not-found route's own URL"))))
+
+(deftest navigate-url-form-unmatched-without-not-found-route-rejects
+  (testing "unmatched {:url ...} target with NO :rf.route/not-found route
+            registered REJECTS — route-url throws :no-such-route for the
+            unregistered :rf.route/not-found id, the navigate handler catches
+            it and emits :rf.error/schema-validation-failure (:where :event),
+            leaving the slice unchanged and pushing nothing"
+    ;; NB: kept a SEPARATE deftest from the registered-not-found case above
+    ;; — the per-deftest fixture gives this a clean registrar with NO
+    ;; :rf.route/not-found, which is exactly the condition under test.
+    (rf/reg-route :route/home {:path "/"})
+    (let [pushed (atom [])
+          traces (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Land on home so we have a slice to prove untouched.
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (reset! pushed [])
+      (let [before (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current])]
+        (rf/register-listener! ::nav-nf-reject (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+        (rf/unregister-listener! ::nav-nf-reject)
+        (is (= before (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current]))
+            "slice unchanged — no :rf.route/not-found route means route-url
+             throws :no-such-route, the navigate handler rejects")
+        (is (empty? @pushed)
+            "rejected navigation pushes no URL")
+        (let [err (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                 @traces))]
+          (is (some? err)
+              "the caught route-url throw surfaces as :rf.error/schema-validation-failure")
+          (is (= :event (-> err :tags :where))
+              "the error tags :where :event (event-boundary path)"))))))
+
+;; ---- pending-nav protocol: continue / cancel with NO pending slot --------
+;;
+;; `pending-nav-continue-and-cancel-require-matching-id` covers a WRONG id
+;; while a pending nav EXISTS. The complementary case — dispatching continue
+;; / cancel when the slot is empty (a stray event, a double-cancel) — must be
+;; a clean no-op: continue's `(and pending ...)` guard and cancel's
+;; `(= pn-id <nil id>)` both fall through to `{}`.
+
+(deftest continue-and-cancel-no-op-when-no-pending-nav
+  (testing ":rf.route/cancel and :rf.route/continue are safe no-ops when
+            :rf/pending-navigation is empty (no slot to resolve)"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Land on home; no navigation is pending.
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation]))
+        "no pending navigation to begin with")
+    (let [before (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current])]
+      ;; Stray cancel — nothing to clear.
+      (rf/dispatch-sync [:rf.route/cancel "phantom-id"])
+      (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation]))
+          "cancel with no pending slot leaves the slot nil")
+      (is (= before (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current]))
+          "cancel with no pending slot does not perturb the route slice")
+      ;; Stray continue — no original event to re-issue.
+      (rf/dispatch-sync [:rf.route/continue "phantom-id"])
+      (is (= before (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current]))
+          "continue with no pending slot does not navigate")
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
+          "the active route stays put"))))
+
+;; ---- scroll-strategy resolution precedence (resolve-scroll-strategy) -----
+;;
+;; `routing-scroll-fx-emitted-on-navigate` covers opts `:scroll :preserve`
+;; winning over meta `:restore`, and meta `:scroll false` suppressing. The
+;; UNcovered precedence edge is the asymmetric pair: an opts `:scroll` value
+;; must win over a route whose meta declares `:scroll false`
+;; (`(some? from-opts)` short-circuits BEFORE the `(false? from-meta)`
+;; suppression branch), AND an opts `:scroll false` must suppress even when
+;; the route's meta declares a concrete strategy. Map-form (host-extensible)
+;; strategies must pass through verbatim.
+
+(deftest scroll-strategy-opts-override-precedence
+  (testing "opts :scroll value WINS over a route's :scroll false (the
+            per-call override short-circuits before the meta-false
+            suppression branch)"
+    ;; Two distinct :scroll false routes so each assertion navigates to a
+    ;; FRESH target — a second navigate to the same id/params would be a
+    ;; Spec 012 rule-3 no-op (no scroll fx) and mask the precedence result.
+    (rf/reg-route :route/silent  {:path   "/silent"
+                                  :scroll false})
+    (rf/reg-route :route/silent2 {:path   "/silent2"
+                                  :scroll false})
+    (let [calls (atom [])]
+      (rf/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      ;; Without an opts override the route's :scroll false suppresses.
+      (rf/dispatch-sync [:rf.route/navigate :route/silent])
+      (is (empty? @calls)
+          "baseline: route :scroll false suppresses the fx")
+      ;; A per-call :scroll :top opt resurrects the fx on a fresh target
+      ;; (override wins over the route's :scroll false).
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/navigate :route/silent2 {} {:scroll :top}])
+      (is (= :top (-> @calls first :strategy))
+          "opts :scroll :top overrides the route's :scroll false → fx emits")))
+
+  (testing "opts :scroll false suppresses even when the route declares a
+            concrete :scroll strategy"
+    (rf/reg-route :route/loud {:path   "/loud"
+                               :scroll :restore})
+    (let [calls (atom [])]
+      (rf/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/navigate :route/loud {} {:scroll false}])
+      (is (empty? @calls)
+          "opts :scroll false suppresses despite the route's :scroll :restore")))
+
+  (testing "map-form (host-extensible) scroll strategies pass through to the
+            fx args verbatim — the resolver does not coerce or drop them"
+    (rf/reg-route :route/custom {:path   "/custom"
+                                 :scroll {:behavior :smooth :block :center}})
+    (let [calls (atom [])]
+      (rf/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/navigate :route/custom])
+      (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
+          "a map-form :scroll strategy flows into :rf.nav/scroll's :strategy arg unchanged"))))
+
+;; ---- route-url ignores path-params not named by the pattern --------------
+;;
+;; route-url's emitter consumes only the `:`/`*` segments it walks in the
+;; pattern. Extra keys in path-params (a common call-site over-supply, e.g.
+;; passing the whole slice's :params back through) must be silently ignored,
+;; not leaked into the URL. Pinned here so a future emitter refactor can't
+;; start round-tripping stray keys into the path.
+
+(deftest route-url-ignores-extra-path-params
+  (testing "path-params keys not named by the route pattern are ignored"
+    (rf/reg-route :route/article {:path "/articles/:id"})
+    (is (= "/articles/intro"
+           (routing/route-url :route/article {:id "intro" :stray "ignored" :extra 99}))
+        "only the pattern's :id segment is emitted; :stray / :extra are dropped"))
+
+  (testing "a route with no path params ignores any supplied path-params"
+    (rf/reg-route :route/home {:path "/"})
+    (is (= "/"
+           (routing/route-url :route/home {:anything "here"}))
+        "a param-less pattern emits its literal path regardless of supplied params")))
+
 ;; ---- rf2-ug2m1: schema validation in match-url + route-url ---------------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params and §Param validation at the
