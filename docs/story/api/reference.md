@@ -4,7 +4,7 @@ The complete symbol table for Story's public surface, organised by namespace and
 
 Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
 
-For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Play scripts](play-script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it deliberately omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
+For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it deliberately omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
 
 ## `re-frame.story`
 
@@ -15,7 +15,7 @@ The canonical facade. Every user-callable surface lives here.
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
 | `reg-story` | `(reg-story id metadata)` | Register a story (a cluster of variants). |
-| `reg-variant` | `(reg-variant id metadata)` | Register one variant — view, args, setup events, decorators, `:play-script`. |
+| `reg-variant` | `(reg-variant id metadata)` | Register one variant — view, `:args`, `:setup` events, decorators, `:script`. |
 | `reg-workspace` | `(reg-workspace id metadata)` | Register a workspace — a curated grid of variants. |
 | `reg-decorator` | `(reg-decorator id metadata)` | Register a decorator. Three kinds: `:hiccup` / `:frame-setup` / `:fx-override`. |
 | `reg-story-panel` | `(reg-story-panel id metadata)` | Register a custom panel in the Story chrome. Five placement slots. |
@@ -150,7 +150,7 @@ The canonical facade. Every user-callable surface lives here.
 
 ## `re-frame.story.recorder.play-export`
 
-The rich DOM-capture-aware `:play-script` translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection.
+The rich DOM-capture-aware recorder translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection. (The fn names below carry the recorder's transitional `play-script` spelling, which the registrar lowers to `:script`.)
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ If you find yourself reading source for a Story-internal symbol because the chap
 
 - [Index](index.md) — the navigation map for the four chapters in this folder.
 - [Registration](registration.md) — the seven `reg-*` macros + `*`-fn partners.
-- [Play scripts](play-script.md) — the `:play-script` grammar + the canonical seven `:rf.assert/*` events.
+- [Scripts](script.md) — the `:script` grammar + the canonical seven `:rf.assert/*` events.
 - [Runtime](runtime.md) — `configure!`, `run-variant`, `mount-shell!`, the registry-query family.
 - [MCP surface](mcp-surface.md) — the Story-MCP boundary, wire-elision discipline, write-surface gating.
 - [Normative spec — `tools/story/spec/API.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) — the developer-internal source of truth.

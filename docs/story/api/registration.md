@@ -31,12 +31,12 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-variant id metadata)
   ```
-- **Description**: Register one variant — view, args, setup events, decorators, `:play-script`. The single most-called macro in a typical stories namespace.
+- **Description**: Register one variant — view, `:args`, `:setup` events, decorators, `:script`. The single most-called macro in a typical stories namespace.
 - **Example**:
   ```clojure
   (story/reg-variant :story.counter/at-five
     {:component :app.ui/counter
-     :events    [[:counter/initialise 5]]})
+     :setup     [[:counter/initialise 5]]})
   ```
 
 ### `reg-workspace`
@@ -94,9 +94,9 @@ The combined form `(reg-story id {:variants {...} ...})` desugars at macro-expan
 (story/reg-story :story.counter
   {:component :app.ui/counter
    :args      {:label "Count" :max 100}
-   :variants  {:empty      {:events [[:counter/initialise 0]]}
-               :at-five    {:events [[:counter/initialise 5]]}
-               :at-max     {:events [[:counter/initialise 100]]}}})
+   :variants  {:empty      {:setup [[:counter/initialise 0]]}
+               :at-five    {:setup [[:counter/initialise 5]]}
+               :at-max     {:setup [[:counter/initialise 100]]}}})
 ```
 
 The expansion produces three `reg-variant` calls — `:story.counter/empty`, `:story.counter/at-five`, `:story.counter/at-max` — plus the parent `:story.counter` itself. The variant ids are namespaced under the story's id; the parent's args and component flow into each variant's resolved args via the standard precedence chain.
@@ -296,9 +296,9 @@ Worked example:
 ```clojure
 ;; Stub :http for a login-pending variant.
 (story/reg-variant :story.auth/login-pending
-  {:decorators  [[story/force-fx-stub-id :http {:status :pending}]]
-   :play-script [[:dispatch [:auth/login]]
-                 [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
+  {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
+   :script     [[:dispatch [:auth/login]]
+                [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
 
 ;; Layout debug a button variant.
 (story/reg-variant :story.button/pressed
@@ -330,10 +330,10 @@ A `marks-map` is `{path mark, ...}` where `path` is a `get-in`-shaped vector and
 
 ## See also
 
-- [Play scripts](play-script.md) — the `:play-script` grammar a `reg-variant`'s `:play-script` slot accepts. The canonical seven `:rf.assert/*` events that drive the variant's assertion accumulator.
+- [Scripts](script.md) — the `:script` grammar a `reg-variant`'s `:script` slot accepts. The canonical seven `:rf.assert/*` events that drive the variant's assertion accumulator.
 - [Runtime](runtime.md) — `configure!`'s full key surface, the four-phase variant lifecycle, `run-variant` / `reset-variant` / `watch-variant` / `destroy-variant!`, the registry-query family, the shell-mount surface.
 - [MCP surface](mcp-surface.md) — the public read primitives Story exposes for the MCP jar to consume; the public write primitives behind the gated agent-write surface; the late-bind `reg-story-panel` contract.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
-- [Story tutorial — Your first story](../01-first-story.md) — the chapter-1 worked walkthrough.
-- [Story tutorial — Workspaces + args editor](../04-workspaces.md) — workspaces, modes, the args editor.
+- [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
+- [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
 - [Framework API — Schemas and data classification](../../api/08-schemas.md) — `add-marks` / `set-marks` framework definitions.
