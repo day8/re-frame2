@@ -98,25 +98,25 @@ function main() {
   const sizes = {};
   let bundlesOk = true;
 
-  for (const b of BUNDLES) {
-    const total = sumGzippedBytes(b.bundleDir);
+  for (const bundle of BUNDLES) {
+    const total = sumGzippedBytes(bundle.bundleDir);
     if (total == null) {
-      console.error(`[schemas-bundle] ${b.name}: bundle dir missing — ${b.bundleDir}`);
+      console.error(`[schemas-bundle] ${bundle.name}: bundle dir missing — ${bundle.bundleDir}`);
       console.error('              Did you run "shadow-cljs release ' +
-                    `${b.name}"?`);
+                    `${bundle.name}"?`);
       bundlesOk = false;
       continue;
     }
-    sizes[b.name] = total;
-    const ok = total <= b.gzippedMaxBytes;
+    sizes[bundle.name] = total;
+    const ok = total <= bundle.gzippedMaxBytes;
     const tag = ok ? 'OK' : 'FAIL';
-    report.detail(`  [${tag}] ${b.name}`);
-    report.detail(`        spec:      ${b.specRow}`);
+    report.detail(`  [${tag}] ${bundle.name}`);
+    report.detail(`        spec:      ${bundle.specRow}`);
     report.detail(`        bundle:    ${fmtKb(total)} gzipped (${total} bytes)`);
-    report.detail(`        threshold: ${fmtKb(b.gzippedMaxBytes)} (${b.gzippedMaxBytes} bytes)`);
+    report.detail(`        threshold: ${fmtKb(bundle.gzippedMaxBytes)} (${bundle.gzippedMaxBytes} bytes)`);
     if (!ok) {
       bundlesOk = false;
-      report.detail(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - b.gzippedMaxBytes)}`);
+      report.detail(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - bundle.gzippedMaxBytes)}`);
     }
   }
 
