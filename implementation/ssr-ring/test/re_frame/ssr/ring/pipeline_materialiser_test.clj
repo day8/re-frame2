@@ -212,6 +212,30 @@
                (headers/merge-pair-into-header-map ["Link" "b"])
                (headers/merge-pair-into-header-map ["Link" "c"]))))))
 
+(deftest repeated-non-string-value-does-not-wipe-header-map
+  (testing "rf2-5t8mr.14: a repeated header name whose value is a
+            non-string scalar (the runtime's set/append-header fxs gate
+            CR/LF/NUL but do NOT coerce to string) must collapse into a
+            2-vector via the :else arm — NOT fall through the cond and
+            return nil, which silently wiped the ENTIRE accumulated
+            header map (Content-Type, Set-Cookie, everything)"
+    (is (= {"X-Count" [5 6]}
+           (-> {}
+               (headers/merge-pair-into-header-map ["X-Count" 5])
+               (headers/merge-pair-into-header-map ["X-Count" 6])))
+        "two non-string values under one name collapse to a vector")
+    (let [result (headers/headers->ring-map+default-content-type
+                   [["X-Count" 5]
+                    ["X-Count" 6]
+                    ["X-Other" "keep"]]
+                   "text/html")]
+      (is (= [5 6] (get result "X-Count"))
+          "the repeated non-string header survives as a 2-vector")
+      (is (= "keep" (get result "X-Other"))
+          "headers folded AFTER the repeat are NOT wiped (no nil-map)")
+      (is (= "text/html" (get result "Content-Type"))
+          "the defaulted Content-Type survives — the map was never nulled"))))
+
 (deftest header-fold-collapses-repeated-names-through-full-fold
   (testing "rf2-ynjts.14: the full fold collapses repeated names into a
             vector AND keeps singletons scalar in one pass — the contract
