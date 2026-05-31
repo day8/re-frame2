@@ -110,7 +110,12 @@
             [panel-gallery.gallery-trace]
             [panel-gallery.gallery-machines]
             [panel-gallery.gallery-routing]
-            [panel-gallery.gallery-issues]
+            ;; (rf2-gbz39 — `gallery-issues` removed alongside the
+            ;; Issues tab; Option (c) folds issue surfacing into the
+            ;; Epoch panel + L2 event-row pink-wash + the always-on
+            ;; issues ribbon signal — no standalone Issues panel to
+            ;; gallery. Chrome-under-issue-load coverage lives in
+            ;; `gallery-chrome` `:story.xray.chrome/issue-load`.)
             [panel-gallery.gallery-chrome]
             ;; Chrome follow-on galleries — rf2-mpn8m settings popup,
             ;; rf2-kbrkx auto-filter pill / edit-popup.

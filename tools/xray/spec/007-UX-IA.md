@@ -66,7 +66,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (4-col table; 6 rows default; resize via L2/L3 seam)│  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -89,7 +89,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
-│ [Epoch]  app-db   Views   Trace   Machine   Routes   Issues              │              L3 — 7 tabs
+│ [Epoch]  app-db   Views   Trace   Machine   Routing                      │              L3 — 6 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -1584,16 +1584,19 @@ under their owning panel. The 4-tier split is:
   geometry-coupled to `machine-inspector/Panel` (after-rings
   overlay, sim side-rail).
 
-Tiers 1 + 2 + 3 sum to the **11 independently mountable** surfaces;
-adding Tier 4's 2 internal sub-components reaches the **13-panel**
+Tiers 1 + 2 + 3 sum to the **10 independently mountable** surfaces;
+adding Tier 4's 2 internal sub-components reaches the **12-panel**
 total. Modal overlays managed by the shell (Settings dialog,
 command palette, share modal) are NOT counted here — they are shell
 chrome, not panel content.
 
-**Tier 1 — L3 tab panels (7):** one per `:rf.xray/selected-tab`
+**Tier 1 — L3 tab panels (6):** one per `:rf.xray/selected-tab`
 value. (Post rf2-5gl5r the Event/Handler tab was retired in favour
-of the Epoch tab; the Epoch panel renders the focused epoch's full
-computational timeline as a numbered vertical cascade per
+of the Epoch tab; post rf2-gbz39 the Issues tab was removed per Mike's
+Option (c) ruling — issues surface inline in the Epoch panel + the L2
+event-row pink-wash + the always-on issues ribbon signal. The Epoch
+panel renders the focused epoch's full computational timeline as a
+numbered vertical cascade per
 [`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1).)
 
 | Panel | View | Mount fn |
@@ -1604,7 +1607,8 @@ computational timeline as a numbered vertical cascade per
 | Trace tab    | `trace/Panel`            | `mount-trace!` |
 | Machines tab | `machine-inspector/Panel`| `mount-machine-inspector!` |
 | Routing tab  | `routing/Panel`          | `mount-routing!` |
-| Issues tab   | `issues-ribbon/Panel`    | `mount-issues-ribbon!` |
+
+(rf2-gbz39 — the Issues tab + its `issues-ribbon/Panel` + `mount-issues-ribbon!` were removed per Mike's Option (c) ruling; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal. The `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source.)
 
 **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces the
 shell composes at its root, each self-gating on a `:rf.xray/*-open?`
@@ -1684,7 +1688,6 @@ history + spine focus:
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
 | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
 | **routing**        | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
-| **issues-ribbon**  | `:rf.xray/issues-ribbon` (composite over focused epoch's `:trace-events`, rf2-jio48 + spec/021 §8) | `:rf.xray.issues/toggle-severity` · `:rf.xray.issues/toggle-prefix` · `:rf.xray.issues/clear-filters` |
 | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
 | **cancellation-cascade** | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
 | **managed-fx**     | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
@@ -1882,10 +1885,13 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.xray/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 7 tabs (Epoch / App DB / Views / Trace / Machines /
-Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+Dynamic ships 6 tabs (Epoch / App DB / Views / Trace / Machines /
+Routing — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs; the Event/Handler tab was retired
-by rf2-5gl5r when the Epoch panel reached parity). Static ships 5 tabs (Machines /
+by rf2-5gl5r when the Epoch panel reached parity; the Issues tab was
+removed by rf2-gbz39 per Mike's Option (c) ruling — issues surface
+inline in the Epoch panel + the L2 event-row pink-wash + the always-on
+issues ribbon signal). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id
 keyword collisions across modes (`:machines`) are deliberate and

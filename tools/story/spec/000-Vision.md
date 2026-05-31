@@ -181,8 +181,9 @@ The posture is normative across Story's surfaces:
    canvas itself never observes raw `app-db` (the variant view does);
    but the diagnostic surfaces Story embeds — the docs / test mode
    panes, the Xray-RHS chip-row panels (`:app-db`, `:epoch`,
-   `:trace`, `:machines`, `:views`, `:routing`, `:issues` — `:epoch`
-   supersedes the retired `:event-detail` per rf2-5gl5r), the
+   `:trace`, `:machines`, `:views`, `:routing` — `:epoch`
+   supersedes the retired `:event-detail` per rf2-5gl5r; rf2-gbz39
+   dropped `:issues` with the Xray Issues tab), the
    schema-validation pane — render `:rf/redacted` per spec/015
    §Display contract. Xray is the in-tree consumer; the contract is
    "render the sentinel; do NOT offer a click-to-expand affordance

@@ -458,7 +458,7 @@ and reject with `:rf.error/variant-shape` on miss.
 The optional `:xray-panel` slot declares which Xray panel renders
 by default in the RHS Xray embed (per
 [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane). The
-slot's value is one of the seven canonical Xray panel ids:
+slot's value is one of the six canonical Xray panel ids:
 
 | `:xray-panel` value | Xray panel rendered (chip label)             | Typical use case                                  |
 |----------------------|-----------------------------------------------|---------------------------------------------------|
@@ -468,7 +468,12 @@ slot's value is one of the seven canonical Xray panel ids:
 | `:trace`             | Trace — trace-buffer feed for the cascade     | Side-effect / fx-heavy stories                    |
 | `:machines`          | Machines — chart + arc/ring overlays          | Statechart-driven UIs                             |
 | `:routing`           | Routing — registered routes + simulate-URL    | Routing demos, deep-link stories                  |
-| `:issues`            | Issues — cascade-scoped issues feed           | Stories that exercise issue / warning surfaces    |
+
+(rf2-gbz39 — `:issues` was removed alongside the Xray Issues tab per
+Mike's Option (c) ruling; issues surface inline in the Epoch panel +
+the L2 event-row pink-wash + the always-on issues ribbon signal, so
+there is no standalone Issues panel to embed. Stories that exercise
+issue / warning surfaces use the `:epoch` panel.)
 
 The slot resolves variant-first, then story-level, then the framework
 default `:epoch` (post rf2-5gl5r — the prior default `:event-detail`

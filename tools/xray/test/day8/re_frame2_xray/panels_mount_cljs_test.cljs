@@ -41,7 +41,6 @@
             [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.trace :as trace]
@@ -153,11 +152,11 @@
       (panels/mount-routing! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) routing/Panel)))))
 
-(deftest mount-issues-ribbon-wraps-in-frame-provider
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
-      (panels/mount-issues-ribbon! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) issues-ribbon/Panel)))))
+;; (rf2-gbz39 — `mount-issues-ribbon-wraps-in-frame-provider` removed
+;; alongside the Issues tab + its `mount-issues-ribbon!` entry. Option
+;; (c): issues surface inline in the Epoch panel + the L2 event-row
+;; pink-wash + the always-on issues ribbon signal — no standalone
+;; Issues panel mount fn to cover.)
 
 ;; ---- overlay / popup surfaces (3) --------------------------------------
 
@@ -249,7 +248,7 @@
       (with-redefs [substrate-adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-1)
         (panels/mount-app-db-diff! :mount-2)
-        (panels/mount-issues-ribbon! :mount-3)
+        (panels/mount-trace! :mount-3)
         (is (= 3 (count @capture))
             "every mount call delegates to substrate-adapter/render")
         ;; Handlers landed exactly once — :rf.xray/cascades is a
@@ -361,16 +360,17 @@
 ;; ---- contract — every public mount fn exists --------------------------
 
 (deftest every-panel-mount-fn-is-public-and-callable
-  (testing "rf2-crhr8 — the eleven per-panel mount fns + the full-
+  (testing "rf2-crhr8 — the ten per-panel mount fns + the full-
             shell mount fn are all present + ifn? — defensive guard
-            against accidental removal during refactor."
+            against accidental removal during refactor. (rf2-gbz39 —
+            `mount-issues-ribbon!` dropped alongside the removed Issues
+            tab; Option (c).)"
     (let [fns [["mount-epoch-panel!"                        panels/mount-epoch-panel!]
                ["mount-app-db-diff!"                        panels/mount-app-db-diff!]
                ["mount-reactive-panel!"                     panels/mount-reactive-panel!]
                ["mount-trace!"                              panels/mount-trace!]
                ["mount-machine-inspector!"                  panels/mount-machine-inspector!]
                ["mount-routing!"                            panels/mount-routing!]
-               ["mount-issues-ribbon!"                      panels/mount-issues-ribbon!]
                ["mount-segment-inspector!"                  panels/mount-segment-inspector!]
                ["mount-cancellation-cascade-side-panel!"    panels/mount-cancellation-cascade-side-panel!]
                ["mount-cancellation-cascade-popover!"       panels/mount-cancellation-cascade-popover!]

@@ -13,7 +13,7 @@
       ├───────────────────────────────────────────────────────┤
       │ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
       ├───────────────────────────────────────────────────────┤
-      │ L3  Tab bar (40px) — 8 tabs                           │  projection selector
+      │ L3  Tab bar (40px) — 6 tabs                           │  projection selector
       ├───────────────────────────────────────────────────────┤
       │ L4  Detail panel (fills remaining canvas)             │  per-tab content
       └───────────────────────────────────────────────────────┘
@@ -57,9 +57,9 @@
 
   ## Tab bar (L3)
 
-  Seven tabs, mnemonic letters per spec/018 §11:
+  Six tabs, mnemonic letters per spec/018 §11:
 
-      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Routing (r) · Issues (i)
+      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Routing (r)
 
   Selection lives on `:rf.xray/selected-tab` and drives the L4
   detail panel's case switch. Routing was promoted to its own tab
@@ -67,19 +67,29 @@
   cohesive-sub-domain rule (sub-domains earn their own lens tab
   rather than overloading the parent tab).
 
+  The Issues tab was REMOVED per rf2-gbz39 (Mike RULED Option (c),
+  2026-05-31). Issues no longer have a dedicated aggregate tab — they
+  surface inline in the Epoch panel (per-step pass/fail + exception
+  block, rf2-ahhgn; `:db` schema-fail in the SIDE EFFECTS step,
+  rf2-kt6js; slow-fx amber), via the L2 event-row pink-wash
+  (rf2-b8guz — rows whose epoch has an issue), and via the always-on
+  issues ribbon signal (the auto-open-on-error watcher reading the
+  surviving `:rf.xray/issues-ribbon` composite). The session-wide
+  aggregate / triage list the tab used to provide was consciously
+  dropped under (c).
+
   ## Detail panel (L4)
 
   Renders the active tab's projection of the focused event. The L4
   panel is registry-driven (rf2-2moh1): each tab registers its
   `:panel` via `panel-registry/reg-l4-tab!` and the shell mounts the
-  active tab through `panel-registry/tab-by-id`. Post rf2-5gl5r the
-  seven Dynamic tabs all mount real panels — Epoch →
+  active tab through `panel-registry/tab-by-id`. Post rf2-5gl5r +
+  rf2-gbz39 the six Dynamic tabs all mount real panels — Epoch →
   `epoch-panel/Panel` (the canonical numbered cascade per 021 §9.1;
   supersedes the retired Event/Handler panel), App-db →
   `app-db-diff/Panel`, Views → `reactive-panel/Panel` (the 021 §3
   three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
-  Machines → `machine-inspector/Panel`, Routing → `routing/Panel`,
-  Issues → `issues-ribbon/Panel`.
+  Machines → `machine-inspector/Panel`, Routing → `routing/Panel`.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
@@ -2181,10 +2191,11 @@
 (rf/reg-view detail-panel
   "L4 detail panel — mounts the active `:rf.xray/selected-tab`'s panel
   via the registry-driven `panel-registry/tab-by-id :dynamic` lookup
-  (rf2-2moh1). All seven Dynamic tabs mount real panels (Event /
-  App-db / Views / Trace / Machines / Routing / Issues); the former
-  literal case-switch is gone. An unrecognised tab falls back to
-  `unknown-tab-stub`.
+  (rf2-2moh1). All six Dynamic tabs mount real panels (Event /
+  App-db / Views / Trace / Machines / Routing); the former
+  literal case-switch is gone, and the Issues tab was removed per
+  rf2-gbz39 (Option (c) — issues surface inline + event-row + ribbon).
+  An unrecognised tab falls back to `unknown-tab-stub`.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/xray`. The wrapping `<div>` paints `bg-2` as a contrast
@@ -2248,8 +2259,8 @@
       ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
       ;; `install!` declares `:panel <view-fn>` via
       ;; `panel-registry/reg-l4-tab!`; the previous case-switch over
-      ;; `{:event :app-db :views :trace :machines :routing :issues}` is
-      ;; replaced by a lookup against `tab-by-id :dynamic`. The seven
+      ;; `{:event :app-db :views :trace :machines :routing}` is
+      ;; replaced by a lookup against `tab-by-id :dynamic`. The six
       ;; tabs and their per-panel view fns each live colocated with
       ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
       ;; rather than the panel-cum-shell coupling the literal case-

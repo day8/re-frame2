@@ -20,7 +20,6 @@
       (mount-trace!            mount-point opts) → unmount-fn
       (mount-machine-inspector! mount-point opts) → unmount-fn
       (mount-routing!          mount-point opts) → unmount-fn
-      (mount-issues-ribbon!    mount-point opts) → unmount-fn
 
       ;; Overlay / popup surfaces — same contract.
       (mount-segment-inspector! mount-point opts) → unmount-fn
@@ -74,7 +73,6 @@
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into the whole-epoch arc: envelope + 4 phase bands, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/toggle-trace-band-collapse` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
-  | **issues-ribbon** | `:rf.xray/issues-ribbon` (composite over focused epoch's `:trace-events` — pure rows, no filtering, per spec/021 §8) | `:rf.xray/select-tab` · `:rf.xray/open-in-editor` |
   | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
   | **cancellation-cascade** (side-panel + popover) | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
   | **managed-fx** | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
@@ -118,7 +116,6 @@
             [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-template :as managed-fx]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -237,11 +234,12 @@
   ([mount-point]      (mount-routing! mount-point nil))
   ([mount-point opts] (render-panel! routing/Panel mount-point opts)))
 
-(defn mount-issues-ribbon!
-  "Mount Xray's Issues tab in isolation at `mount-point`. Renders
-  the focused-epoch issue feed per spec/021 §8 (rf2-jio48)."
-  ([mount-point]      (mount-issues-ribbon! mount-point nil))
-  ([mount-point opts] (render-panel! issues-ribbon/Panel mount-point opts)))
+;; (rf2-gbz39 — `mount-issues-ribbon!` removed alongside the retired
+;; Issues tab. Mike RULED Option (c): the dedicated Issues tab + its
+;; aggregate panel are gone; issues surface inline in the Epoch panel,
+;; via the L2 event-row pink-wash, and via the always-on issues ribbon
+;; signal — the `:rf.xray/issues-ribbon` composite (now registered in
+;; `registry.cljs`) survives as the auto-open-on-error signal source.)
 
 (defn mount-segment-inspector!
   "Mount the App-DB segment-inspector popup in isolation at

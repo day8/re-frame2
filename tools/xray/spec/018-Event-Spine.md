@@ -1,8 +1,10 @@
 # 018-Event-Spine
 
-The architectural core of Xray: the **4-layer chrome** + the **7-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
+The architectural core of Xray: the **4-layer chrome** + the **6-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
 
-This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 7-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
+This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 6-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
+
+> **The Issues tab was removed per rf2-gbz39 (Mike RULED Option (c), 2026-05-31).** The 7th tab carried a session-wide aggregate / triage list of every issue (errors · warnings · schema · hydration · advisories). That aggregate was consciously dropped. Issues now surface **inline in the Epoch panel** (per-step pass/fail + the "Exception Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the SIDE EFFECTS step — rf2-kt6js; slow-fx amber), via the **L2 event-row pink-wash** (rows whose epoch has an issue — rf2-b8guz), and via the **always-on issues ribbon signal** (the auto-open-on-error watcher reading the surviving `:rf.xray/issues-ribbon` projection — the cross-epoch "something is wrong" cue Mike kept). The §5.4 content contract below is retained as a record of WHAT now surfaces inline + where.
 
 ---
 
@@ -14,7 +16,7 @@ Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exi
 
 1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
-3. A **tab bar** of 6 surfaces (Event / App-db / Views / Trace / Machines / Issues).
+3. A **tab bar** of 6 surfaces (Event / App-db / Views / Trace / Machines / Routing — the Issues tab was removed per rf2-gbz39 Option (c)).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
 
 Every selection event passes through a single spine sub — `:rf.xray/focus` — so every panel reading the spine rebinds atomically. No panel reads `(peek history)`; no panel carries its own `:selected-*-id` slot.
@@ -38,7 +40,7 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -60,7 +62,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routes ⚠Issues 1         │   L3 — 7 tabs
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                  │   L3 — 6 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch panel content for the focused event —                           │   L4 — fills the rest
 │   numbered cascade: DISPATCH · COEFFECTS · HANDLER · FLOW · FX · …      │
@@ -356,8 +358,9 @@ The per-row gutter glyph (`● ◉ x ▥ ↺`), the three activity badges
 (`[● REDACTED N]` / `[● ELIDED N]`) were retired from the L2 row per
 rf2-pjjwh — the Figma EventList carries none of them. Error / HTTP /
 machine / redaction context still lives in the cascade record and surfaces
-in the L4 Event + Issues + Trace panels (the panels read the cascade's
-`:other` / `:errors` slots directly). The REDACTED count remains as a
+inline in the L4 Epoch + Trace panels + the L2 event-row pink-wash (the
+panels read the cascade's `:other` / `:errors` slots directly; the Issues
+tab was removed per rf2-gbz39 Option (c)). The REDACTED count remains as a
 silent-by-default indicator on the chrome ribbon; see §12 for the full
 data-classification rendering contract.
 
@@ -365,16 +368,18 @@ data-classification rendering contract.
 
 A row whose epoch **contains an issue** carries a **light-pink row
 background wash** — the per-event "something went wrong here" signal at the
-spine, surfaced where the operator is already looking rather than gated
-behind the Issues tab. This is the chosen visual for the event-row issue
+spine, surfaced where the operator is already looking. (Under rf2-gbz39
+Option (c) the dedicated Issues tab was removed; this wash + the inline
+Epoch surfacing + the always-on issues ribbon signal are the kept issue
+surfaces.) This is the chosen visual for the event-row issue
 signal (it **supersedes** the earlier "warning indicator / icon" idea
 rf2-tszij — a wash, not a glyph, because the L2 row is intentionally
 glyph-free post-rf2-pjjwh).
 
-- **"contains an issue"** is the SAME set the Issues ribbon/feed aggregates
+- **"contains an issue"** is the SAME set the issues ribbon signal keys off
   — errors + warnings + schema violations + hydration mismatches +
   perf-budget overruns + app console errors. The renderer reuses the
-  canonical Issues predicate (`issues-ribbon-helpers/issue-event?`, applied
+  canonical issue predicate (`issues-ribbon-helpers/issue-event?`, applied
   over the cascade's `:other` bucket via
   `l2-timeline/cascade-has-issue?`) rather than re-enumerating what counts
   as an issue, so the wash stays in lockstep with the ribbon/feed by
@@ -467,13 +472,15 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 7 tabs
+### The 6 tabs
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │   L3
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                                   │   L3
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> The Issues tab (`i`) was removed per rf2-gbz39 (Mike RULED Option (c)). Its session-wide aggregate triage list was consciously dropped; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see the doc-intro note + §5.4 below).
 
 | # | Tab | Mnem | What it shows for the focused event | Spec |
 |---|---|---|---|---|
@@ -483,7 +490,8 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
 | 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
-| 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
+
+(rf2-gbz39 — the **Issues** tab (`i`) was removed per Mike's Option (c) ruling. It carried JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns. Those classes now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; the §5.4 content contract below records WHAT surfaces + where. The underlying `:rf.xray/issues-ribbon` projection survives as the ribbon signal's data source.)
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
 dogfooding is properly Story's domain, where it already ships as the
@@ -502,14 +510,14 @@ noise that flagged the Xray events-list as a problem.)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                                   │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Active:** `◉` gutter + 2px violet underline + `text-primary`.
 - **Inactive:** `○` gutter + `text-secondary`.
 - **Count badge:** `<tab> <N>` (`Views 8` = views that rendered this cascade; `Trace 47` = filtered trace count). The number IS the badge — no extra dot.
-- **Issues weight:** `⚠` gutter (red) replaces `○`; stays visible even when active.
+- (The Issues-tab `⚠` weight was removed with the tab per rf2-gbz39 Option (c); the cross-epoch issue signal now lives on the L2 event-row pink-wash + the always-on issues ribbon.)
 - **Dormant tab:** `text-disabled` + `○`; clickable → empty state.
 - **Count flash on LIVE update:** count flashes violet 200ms then settles. No continuous spinner.
 
@@ -676,7 +684,7 @@ read top-to-bottom as the developer scans.
    since flows ran before the db committed). When the focused event is
    `:rf.ssr/hydrated`, an additional `:rf.ssr/hydration-outcome` row
    renders with the `{:duration-ms :subs-ran :mismatches}` payload +
-   (when mismatches > 0) a `→ jump to Issues bisector` affordance.
+   (when mismatches > 0) a hydration-bisector affordance. (Pre rf2-gbz39 this jumped to the Issues tab; that tab was removed under Option (c), so the bisector surfaces inline / via the Routing + Epoch lenses.)
 8. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
    row per `:rf.fx/handled` (or override / skipped / exception) trace:
    fx-id chip + perf-tier dot + status caption. For `:dispatch` the
@@ -702,16 +710,20 @@ read top-to-bottom as the developer scans.
 - **Handler threw** — §6 + §7 + §8 are all absent (handler never
   returned, so the flow transform never ran, the db never committed,
   and the fx walk never started — every post-handler stage is omitted);
-  a small footer caption renders: `Handler threw — see Issues tab ⚠
-  for the exception detail.` This is the ONE inline cross-reference
-  to another tab.
+  the exception surfaces INLINE as the Epoch panel's "Exception Thrown"
+  block (rf2-ahhgn / rf2-wnvid) carrying the message + stack + source
+  coord. (Pre rf2-gbz39 a footer caption cross-referenced the Issues
+  tab; that tab was removed under Option (c) precisely so the exception
+  reads inline at the failing step rather than behind a separate tab.)
 
 #### What's dropped from the Epoch panel
 
 - **subs ran** → Views tab.
 - **renders** → Views tab.
-- **`:other` errors / warnings / machine transitions** → Issues tab
-  (errors), Machines tab (transitions), Trace tab (firehose).
+- **`:other` errors / warnings / machine transitions** → errors surface
+  inline in the Epoch panel's "Exception Thrown" block + the L2 event-row
+  pink-wash + the issues ribbon signal (the Issues tab was removed per
+  rf2-gbz39 Option (c)); Machines tab (transitions); Trace tab (firehose).
 - **db writes diff** → App-db tab. §5 carries only the `:db` presence
   marker; the actual diff is the App-db tab's job.
 
@@ -828,22 +840,28 @@ x 16:42:14.713.501  fx:result        :http/post failed: 500                    8
 
 Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer.md) for the underlying trace-bus contract.
 
-### §5.4 Issues tab content
+### §5.4 Issue surfacing (the former Issues tab — REMOVED per rf2-gbz39 Option (c))
 
-**Purpose:** the "what's wrong?" rollup. One tab to scan for problems; click a row to seek the spine to the offending cascade.
+**The dedicated Issues tab was removed (Mike RULED Option (c), 2026-05-31).** It used to be the "what's wrong?" rollup — one tab carrying a session-wide aggregate / triage list of every issue, click a row to seek the spine to the offending cascade. That session-wide aggregate / triage list was **consciously dropped** under (c).
 
-**IN the Issues tab:**
+Issues now surface through three kept surfaces:
 
-| Category | Source | Default | Row treatment |
-|---|---|---|---|
-| **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | ON | red gutter; full stack-trace in detail expand |
-| **Schema violations** | Malli registration on app-db / event-args / sub-output | ON | yellow gutter; offending path + expected vs actual via `inspect-diff` |
-| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (an `add-marks` / `set-marks` path pointing to nothing — typo detection) | ON | magenta gutter; marker-aware so the warning itself doesn't leak the value |
-| **Hydration mismatches** | SSR-only; mismatched server/client tree | ON | yellow gutter; node path + server vs client text |
-| **Perf-budget overruns** | cascades exceeding configured perf budget | ON | orange gutter; actual vs budget + cascade-id |
-| **App console errors/warns** | host app's `console.error` / `console.warn` calls (captured via hook) | ON | dim grey gutter (advisory); raw text |
+- **Inline in the Epoch panel** — per-step pass/fail + the "Exception Thrown" block (rf2-ahhgn / rf2-wnvid); `:db` schema-fail in the SIDE EFFECTS step (rf2-kt6js); slow-fx duration + amber (pre-existing). The cascade that produced the issue shows it inline at the right step.
+- **The L2 event-row pink-wash** (rf2-b8guz) — rows whose epoch contains an issue paint a light-pink wash, the spine-level "this event had a problem" cue.
+- **The always-on issues ribbon signal** — the auto-open-on-error watcher reads the surviving `:rf.xray/issues-ribbon` projection (now registered in `registry.cljs`) and pops Xray open on the first empty→non-empty transition. This is the cross-epoch "something is wrong" cue Mike kept.
 
-**OUT of the Issues tab** (deliberately excluded):
+The category table below is retained as the canonical **"what counts as an issue"** contract — the same set the inline surfacing, the event-row wash predicate (`issues-ribbon-helpers/issue-event?`), and the ribbon signal all key off:
+
+| Category | Source | Row treatment (inline / ribbon) |
+|---|---|---|
+| **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | red; full stack-trace in the Epoch panel's "Exception Thrown" block |
+| **Schema violations** | Malli registration on app-db / event-args / sub-output | yellow; offending path + expected vs actual in the Epoch SIDE EFFECTS step |
+| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (an `add-marks` / `set-marks` path pointing to nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
+| **Hydration mismatches** | SSR-only; mismatched server/client tree | yellow; node path + server vs client text |
+| **Perf-budget overruns** | cascades exceeding configured perf budget | orange; actual vs budget + cascade-id |
+| **App console errors/warns** | host app's `console.error` / `console.warn` calls (captured via hook) | dim grey (advisory); raw text |
+
+**Not issues** (deliberately excluded from the issue set):
 
 | Category | Lives in |
 |---|---|
@@ -852,35 +870,13 @@ Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer
 | Recoverable HTTP retries (recovered = not an issue) | Trace tab (visible when `fx` chip ON) |
 | Filtered-OUT events that errored (already surfaced via row error-override) | Event list with `⚠` + `▽` filter-bypass gutter |
 
-**Layout:**
-
-```
-┌─ Issues tab content ────────────────────────────────────────────────────────────────────┐
-│ All issues this session ◉   Spine cascade only ○                                         │
-│                                                                                          │
-│ ⚠ EXCEPTION    16:42:15.244   cascade #349 :checkout/finalize                            │
-│   exception: cart-id missing                                                             │
-│   src/cart/events.cljs:340 ↗   [Seek to cascade]                                         │
-│                                                                                          │
-│ ▥ SENSITIVE    16:42:14.103   cascade #346 :auth/login                                   │
-│   sensitive path [:auth :password] logged via console.error before mark applied          │
-│   src/auth.cljs:88 ↗   [Seek to cascade]   (value redacted — no reveal)                  │
-│                                                                                          │
-│ ◐ PERF         16:42:13.991   cascade #347 :order/submit                                 │
-│   handler took 142ms (budget 100ms)                                                      │
-│   src/cart/events.cljs:213 ↗   [Seek to cascade]                                         │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-Default scope = "All issues this session." Toggle to "Spine cascade only" to filter to focused cascade's issues.
-
 ### §5.5 Machines tab — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
 
 Briefly (rf2-y9xmf): the Dynamic panel is **event-driven only**. It is BLANK when the focused event triggered no machine transitions; it renders one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when the focused event did trigger transitions. Per-machine prev/next nav walks the spine's epoch history to the prior/next event that ALSO touched the focused machine. The UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao) at `:rf.xray.static.machines/sim-*` (view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); it does NOT render in the Dynamic tab. UC2 Mode A/B/C dynamic-instance UI remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP.
 
 ### §5.6 Routing tab — parallel to Machines (rf2-nrbs9)
 
-The 7th tab — promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
+Promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18) — the 6th tab (it was the 7th before the Issues tab was removed per rf2-gbz39 Option (c)). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
 
 **FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route against the entered URL using the 6-rule `:rf.route/rank` tuple, with the **rank explainer** surfaced inline (which rule decided each rank position). The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan, and `Simulate-URL` + the 6-rule rank explainer together answer the *"what would this URL match?"* orientation question better than a static tree ever did.
 
@@ -992,7 +988,7 @@ The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky
 
 **Single-tier filtering.** The ONLY filtering surface is the
 events-ribbon IN/OUT pills (+ the L2-row mute affordance) — they scope
-the L2 event list, the scrubber nav, the Issues counter, and palette
+the L2 event list, the scrubber nav, the issues ribbon signal, and palette
 verbs at the data layer (`:rf.xray/filtered-cascades`). The earlier
 "Trace tab filter toolbar" was **removed** (rf2-gkczt): the Trace L4
 panel is scoped to the focused epoch's `:trace-events` and carries no
@@ -1221,7 +1217,7 @@ Filter applied at DATA layer (`:rf.xray/filtered-cascades` sub), not render. See
        …]}
 ```
 
-Every consumer (event list, scrubber, Issues badge counter, palette verbs) reads `:rf.xray/filtered-cascades`. Raw `:rf.xray/cascades` stays as primitive for unfiltered totals.
+Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads `:rf.xray/filtered-cascades`. Raw `:rf.xray/cascades` stays as primitive for unfiltered totals.
 
 ---
 
@@ -1234,7 +1230,7 @@ Every consumer (event list, scrubber, Issues badge counter, palette verbs) reads
 | # | Invariant | Enforcement |
 |---|---|---|
 | **I1** | **Frame picker excludes `:rf/xray`** from the inspectable-frame list by default. Internal frames (`:rf/xray`, future `:rf/re-frame2-pair`) are filtered out at the available-frames consumer in `frame_switcher.cljs` (the chrome-ribbon frame dropdown). | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Xray itself). |
-| **I2** | **No Xray UI view reads from `:rf/xray` for data purposes.** Subscribes inside a Xray view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.xray/focus.frame))` form). Subscribes targeting Xray's own state (selection, mode, filters, settings) are fine but never appear in the inspected-data panels (Event/App-db/Views/Trace/Machines/Issues). | Code review + dev-time lint: a predicate added to `tools/xray/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Xray-namespaced sub feeds an Event/App-db/Views/Trace/Machines/Issues render path. Throws useful error during dev mount; no-op in production. |
+| **I2** | **No Xray UI view reads from `:rf/xray` for data purposes.** Subscribes inside a Xray view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.xray/focus.frame))` form). Subscribes targeting Xray's own state (selection, mode, filters, settings) are fine but never appear in the inspected-data panels (Event/App-db/Views/Trace/Machines/Routing). | Code review + dev-time lint: a predicate added to `tools/xray/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Xray-namespaced sub feeds an Event/App-db/Views/Trace/Machines/Routing render path. Throws useful error during dev mount; no-op in production. |
 | **I3** | **Views panel render-attribution is scoped to the selected frame ONLY.** The frame's per-cascade render projection must filter component-render entries to those whose owning frame matches `:rf.xray/focus.frame`. Xray's own React subtrees must not bleed in even when both frames mount under the same `react-dom` root. | Implementation: render tracker tags each component-render with `:owning-frame` at capture time; Views panel reads `(filter #(= (:owning-frame %) frame) renders)`. |
 | **I4** | **Test gate — Xray-self-observation is disallowed by CI.** Browser feature test: open Xray; select `:rf/default`; trigger a Xray-internal hover (a Xray-side hover-render); assert Views panel for `:rf/default` does NOT include any Xray-namespaced component. | Lives in `tools/xray/test/day8/re_frame2_xray/isolation_test.cljs` (new). Runs in `npm run test:browser`. **Failure blocks merge.** |
 
@@ -1272,7 +1268,7 @@ landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
 | `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db diff's `:selected-epoch-diff` and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
 
 **Invariant P (Panel follows focus):** every per-frame panel
-composite (App-db diff, Views, Machines, Issues, Trace) MUST refresh
+composite (App-db diff, Views, Machines, Routing, Trace) MUST refresh
 its data axis on every `:rf.xray/set-frame` write within the same
 dispatch. No panel may persist a frame-binding that survives a picker
 selection. The picker is the single seam that re-routes every
@@ -1406,7 +1402,7 @@ Complete map for the spine + chrome:
 |---|---|
 | **Ribbon nav cluster** | `j` back-one-event · `k` forward-one-event · `G` fast-forward-to-latest (= `⏭`, snap LIVE) |
 | **Event list (L2)** | `j` / `k` next/prev (alias of ribbon nav) · `J` / `K` cascade-root skip · `g g` / `G` top/bottom · `Enter` activate · `Space` pause auto-scroll · `[` / `]` (10x parity = `j`/`k`) · `*` pin · `r` rewind · `R` re-dispatch · `o` open source · `/` focus filter add-pill |
-| **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
+| **Tab bar (L3)** | `1`–`6` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing. (`i` Issues was removed per rf2-gbz39 Option (c); `i` is released to the global namespace.) |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest. (The dedicated Mode pill widget was dropped — the L2 spine itself indicates LIVE / LIVE-paused / RETRO; only the widget is gone.) |
 | **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Dynamic** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Dispatches `:rf.xray/toggle-mode` against the `:rf/xray` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
@@ -1420,10 +1416,11 @@ Complete map for the spine + chrome:
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
 - `w` (Flows) — Flows folded into Views; `w` unused.
 - ~~`r` (Routes panel) — Routes folded into App-db~~. **Restored** (rf2-nrbs9): Routing got promoted back to its own L3 tab (cohesive sub-domains earn their own lens tab). `r` is now the **Routing tab** mnemonic; the event-list `r` rewind binding stays on the L2 event list scope (the L2 list's key handler wins when focus is in the list; the tab-bar's letter mnemonic wins when focus is elsewhere).
-- `S` (Schemas) — schema violations live in Issues; `S` unused.
-- `h` (Hydration) — hydration mismatches live in Issues; `h` unused.
+- `S` (Schemas) — schema violations surface inline in the Epoch panel's SIDE EFFECTS step (rf2-kt6js); `S` unused.
+- `h` (Hydration) — hydration mismatches surface via the L2 event-row signal + the issues ribbon; `h` unused.
+- `i` (Issues) — the Issues tab was removed per rf2-gbz39 (Option (c)); issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; `i` unused.
 
-`f`, `p`, `w`, `S`, `h` are released to the global namespace for future use.
+`f`, `p`, `w`, `S`, `h`, `i` are released to the global namespace for future use. (`i` freed by the rf2-gbz39 Issues-tab removal, Option (c).)
 
 ---
 
@@ -1468,7 +1465,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 | L4 Epoch panel "EFFECTS HANDLERS RAN" | Per-fx `:fx-args` payload + return | Via `inspect`; e.g. `:http/post` request body shows `{:password :rf/redacted}` |
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
-| L4 Issues tab | Exception `:data` payload; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |
+| L4 Epoch panel — inline issue surfacing (rf2-gbz39; the Issues tab was removed per Option (c)) | Exception `:data` payload in the "Exception Thrown" block; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |
 | Settings → Diagnostics panel | Per-session totals | `[● REDACTED N · ● ELIDED M]` aggregate (the Mode pill widget that earlier drafts surfaced this on was dropped; per-row markers + Settings carry the totals now) |
 
 ### Combination semantics
@@ -1614,7 +1611,7 @@ not Xray.
 ## §14 Cross-references
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — Lock #14 (Two modes — Dynamic + Static) is the direction-setting decision behind §2.5 Static surface above.
-- [`000-Vision.md`](000-Vision.md) — 7-tab inventory; philosophy shift to human-only surface.
+- [`000-Vision.md`](000-Vision.md) — 6-tab inventory; philosophy shift to human-only surface.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Dynamic Machines panel (rf2-y9xmf) + §Static Machines surface (the shipped Static-mode Machines surface — 4-mode sub-strip with Topology / Sim body (rf2-r4nao — landed) / Instances JUMP / Cascade dimmed-with-tooltip). The UC1 Sim engine and UC2 Mode A/B/C historical prose remain below as Sim re-host reference (rf2-r4nao — landed).
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
@@ -1622,7 +1619,7 @@ not Xray.
 - [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — trace ring buffer Trace tab filters from.
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.xray/*` registry surface (spine sub, focus events, filter slot, active-tab slot).
 - [`015-Configuration.md`](015-Configuration.md) — `configure!` API surface for filters, view, keybindings, buffer, popout, factory-reset.
-- [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — per-tab content contracts (Event detail · Issues ribbon · etc.); Performance section dropped.
+- [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — per-tab content contracts (Event detail · Routing tab · etc.); the Issues tab + Performance section were dropped (Issues per rf2-gbz39 Option (c)).
 - [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — test rows for chrome + spine + filters + classification rendering + isolation invariants + settings.
 - [spec/015-Data-Classification](../../../spec/015-Data-Classification.md) — framework contract Xray consumes (7 marking sites + 3 display sentinels).
 - [spec/009-Instrumentation](../../../spec/009-Instrumentation.md) — trace bus contract; framework emits `rf:event:*` / `rf:sub:*` / `rf:fx:*` / `rf:render:*` / `rf:cascade:*` User-Timing entries (which the dropped Performance panel's role is now served by Chrome DevTools).

@@ -213,8 +213,8 @@ authoritative list.
 | Namespace | Source | Public surfaces |
 |---|---|---|
 | `day8.re-frame2-xray.core` | `core.cljs` | The canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `focus!` + `valid-focus-panels` (the Story→Xray focus entry point, rf2-crtmq), `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
-| `day8.re-frame2-xray.focus` | `focus.cljc` | The host-facing **focus command** API (rf2-crtmq): `focus!` (the entry point, re-exported through `core`), `focus-command->dispatches` (pure command→`:rf.xray/*`-events translation; JVM-runnable), and `valid-panels` (the 7-tab vocabulary). The channel Story uses to focus an embedded Xray panel/epoch/path from a beat or assertion. Full contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Host-facing focus API. |
-| `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
+| `day8.re-frame2-xray.focus` | `focus.cljc` | The host-facing **focus command** API (rf2-crtmq): `focus!` (the entry point, re-exported through `core`), `focus-command->dispatches` (pure command→`:rf.xray/*`-events translation; JVM-runnable), and `valid-panels` (the 6-tab vocabulary; rf2-gbz39 removed `:issues` with the Issues tab per Option (c)). The channel Story uses to focus an embedded Xray panel/epoch/path from a beat or assertion. Full contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Host-facing focus API. |
+| `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 6 `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 6 tabs). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Xray's preload and wants to take the chord back. |
 | `day8.re-frame2-xray.runtime` | `runtime.cljs` | The Xray ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
@@ -263,16 +263,20 @@ day8.re-frame2-xray.panels.reactive-panel/Panel
 day8.re-frame2-xray.panels.trace/Panel
 day8.re-frame2-xray.panels.machine-inspector/Panel
 day8.re-frame2-xray.panels.routing/Panel
-day8.re-frame2-xray.panels.issues-ribbon/Panel
+;; (rf2-gbz39 — issues-ribbon/Panel removed with the Issues tab per
+;; Mike's Option (c) ruling; issues surface inline in the Epoch panel +
+;; the L2 event-row pink-wash + the always-on issues ribbon signal.)
 ```
 
 (rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,
 `time-travel`, `effects`, `flows`, `routes`, `performance`, `schema-
 violation-timeline`, `hydration-debugger`, and `mcp-server`.
 rf2-5gl5r removed the `event-detail` panel — the Epoch panel
-supersedes it. The 4-layer shell switches over the L3 tab ids in
-[`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs — these
-seven are the surviving `Panel` exports. The L4 display label for
+supersedes it. rf2-gbz39 removed `issues-ribbon/Panel` with the Issues
+tab per Mike's Option (c) ruling. The 4-layer shell switches over the
+L3 tab ids in
+[`018-Event-Spine.md`](./018-Event-Spine.md) §The 6 tabs — these
+six are the surviving `Panel` exports. The L4 display label for
 `reactive-panel/Panel` is **Reactive** (per `spec/021 §11.5`); the
 panel-registry key stays `:views` for the smaller diff — the
 namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
@@ -280,10 +284,10 @@ namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
 `routing/Panel` is the **Dynamic** routing tab — the topology-plus-
 overlay verb per `spec/021 §7`; the Static-mode browse-all +
 Simulate-URL verb lives at `static.routes.panel/Panel` (not part of
-the Dynamic canonical seven — Static-mode L4 sub-tabs live under
+the Dynamic canonical six — Static-mode L4 sub-tabs live under
 `day8.re-frame2-xray.static.*` and are enumerated separately in
-§Static-mode Panel reg-views below per the canonical 7 framing of
-`spec/018-Event-Spine.md` §The 7 tabs).
+§Static-mode Panel reg-views below per the canonical 6 framing of
+`spec/018-Event-Spine.md` §The 6 tabs).
 (rf2-4v67l — `chrome-a11y.panel/Panel` was removed. A11y dogfooding
 is properly Story's domain, where it already lives as
 `re-frame.story.ui.chrome-a11y` (rf2-18t6p) — a sibling to the
@@ -302,7 +306,7 @@ one `opts` key — `:frame` — defaulting to `:rf/xray`.
 
 ### Static-mode Panel reg-views
 
-The canonical seven above are the **Dynamic-mode** L4 tabs (the
+The canonical six above are the **Dynamic-mode** L4 tabs (the
 event-coupled spine — every panel narrates against the focused
 event). Xray's Static mode (per §Static mode above and
 [`007-UX-IA.md`](./007-UX-IA.md) §Static mode) ships a parallel set
@@ -321,11 +325,11 @@ day8.re-frame2-xray.static.schemas.panel/Panel
 ```
 
 These four Static-mode `Panel` exports are a **sibling inventory** to
-the canonical seven — they do NOT extend the Dynamic list. rf2-b2fif
+the canonical six — they do NOT extend the Dynamic list. rf2-b2fif
 dropped the Static Events + Views sub-tabs (the info those tabs
 surfaced is already in the source code; the tabs were not pulling
 their weight). The Dynamic panel-registry (per
-[`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs) and the
+[`018-Event-Spine.md`](./018-Event-Spine.md) §The 6 tabs) and the
 Static panel-registry are disjoint dispatch tables keyed by L3 tab
 id; the surface composer renders one or the other under the mode
 flag (`:rf.xray/mode` — `:dynamic` / `:static`). Naming convention

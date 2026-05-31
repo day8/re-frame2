@@ -74,7 +74,12 @@
   matches the rough debugging-frequency rubric: epoch first (the
   default — post rf2-5gl5r supersedes the prior event-detail
   default), state-shape lenses next (app-db / views), trace next,
-  then the specialised lenses (machines / routing / issues).
+  then the specialised lenses (machines / routing).
+
+  (rf2-gbz39 — the `:issues` panel was removed alongside the Xray
+  Issues tab per Mike's Option (c) ruling; issues surface inline in
+  the Epoch panel + the L2 event-row pink-wash + the always-on issues
+  ribbon signal, so there is no standalone Issues panel to embed.)
 
   Pure data — JVM-portable. Tests assert ordering + completeness
   against the rf2-crhr8 panel set."
@@ -83,8 +88,7 @@
    {:panel :views        :label "Views"    :title "Per-view sub-invalidation surface for the focused cascade"}
    {:panel :trace        :label "Trace"    :title "Trace-buffer feed for the focused cascade"}
    {:panel :machines     :label "Machines" :title "State-machine chart + arcs/rings for the focused machine"}
-   {:panel :routing      :label "Routing"  :title "Registered-routes lens + simulate-URL surface"}
-   {:panel :issues       :label "Issues"   :title "Cascade-scoped issues feed + ungrouped escape-hatch lane"}])
+   {:panel :routing      :label "Routing"  :title "Registered-routes lens + simulate-URL surface"}])
 
 (def default-panel
   "Default panel when neither story nor variant declares one. Post
@@ -146,7 +150,8 @@
   "Return the Xray `mount-<panel>!` fn for `panel-id`, or nil when
   `panel-id` is unknown. Compile-time symbol resolution via the
   `case` dispatch — no runtime namespace walk. (rf2-5gl5r retired
-  `:event-detail` in favour of `:epoch`.)"
+  `:event-detail` in favour of `:epoch`; rf2-gbz39 removed `:issues`
+  alongside the Xray Issues tab per Mike's Option (c) ruling.)"
   [panel-id]
   (case panel-id
     :epoch        xray-panels/mount-epoch-panel!
@@ -155,7 +160,6 @@
     :trace        xray-panels/mount-trace!
     :machines     xray-panels/mount-machine-inspector!
     :routing      xray-panels/mount-routing!
-    :issues       xray-panels/mount-issues-ribbon!
     nil))
 
 ;; ---- popout escape hatch -------------------------------------------------

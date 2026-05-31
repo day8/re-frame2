@@ -55,7 +55,6 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
@@ -665,25 +664,30 @@
           ":rf.xray/follow-head dispatched on ⏭ click"))))
 
 ;; -------------------------------------------------------------------------
-;; (3) L3 tab bar — seven tabs, mnemonics, selection
+;; (3) L3 tab bar — six tabs, mnemonics, selection
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-tab-ids
-  "Authoritative tab inventory per spec/018 §5 The 7 tabs (Routing
+  "Authoritative tab inventory per spec/018 §5 The 6 tabs (Routing
   promoted to its own L3 tab per rf2-nrbs9). rf2-5gl5r retired the
   Event/Handler tab in favour of the Epoch panel — `:epoch` now
   occupies the leftmost position (the same default-landing slot the
-  prior `:event` tab held). (rf2-4v67l — Chrome A11y was removed in
-  favour of Story's already-shipped chrome-a11y dogfood per rf2-18t6p;
-  a11y dogfooding is properly Story's domain. rf2-ga16q — the
-  Machines Canvas tab was removed; its spine-INDEPENDENT browse-all
-  canvas relocated to the Static Machines sub-tab.)"
-  [:epoch :app-db :views :trace :machines :routing :issues])
+  prior `:event` tab held). rf2-gbz39 removed the Issues tab (Mike
+  RULED Option (c) — issues surface inline in the Epoch + the L2
+  event-row pink-wash + the always-on issues ribbon signal; the
+  session-wide aggregate triage list was consciously dropped).
+  (rf2-4v67l — Chrome A11y was removed in favour of Story's already-
+  shipped chrome-a11y dogfood per rf2-18t6p; a11y dogfooding is
+  properly Story's domain. rf2-ga16q — the Machines Canvas tab was
+  removed; its spine-INDEPENDENT browse-all canvas relocated to the
+  Static Machines sub-tab.)"
+  [:epoch :app-db :views :trace :machines :routing])
 
-(deftest tab-bar-renders-seven-tabs
-  (testing "spec/018 §5 — seven tabs (Epoch / App-db / Views / Trace /
-            Machines / Routing / Issues — Epoch supersedes the retired
-            Event/Handler tab per rf2-5gl5r). rf2-4v67l removed the
+(deftest tab-bar-renders-six-tabs
+  (testing "spec/018 §5 — six tabs (Epoch / App-db / Views / Trace /
+            Machines / Routing — Epoch supersedes the retired
+            Event/Handler tab per rf2-5gl5r; rf2-gbz39 removed the
+            Issues tab per Option (c)). rf2-4v67l removed the
             Chrome A11y dogfood in favour of Story's shipped panel;
             rf2-ga16q removed the Machines Canvas tab (relocated to
             Static)."
@@ -692,12 +696,12 @@
       (let [tree (shell/shell-view)
             tabs (find-all-by-testid-prefix tree "rf-xray-tab-")]
         ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 7 (count (filter (fn [n]
+        (is (= 6 (count (filter (fn [n]
                                   (let [t (:data-testid (second n))]
                                     (some #(= t (str "rf-xray-tab-" (name %)))
                                           expected-tab-ids)))
                                 tabs)))
-            "7 tab buttons render")
+            "6 tab buttons render")
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-xray-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
@@ -848,12 +852,13 @@
             "detail panel rebinds to :app-db after select-tab")
         (is (nil? (find-by-testid tree "rf-xray-detail-panel-epoch"))
             "previous panel testid is gone")))
-    ;; flip to :issues
-    (select-tab! :issues)
+    ;; flip to :machines (rf2-gbz39 — the Issues tab was removed under
+    ;; Option (c); flip to another real tab to pin the rebind)
+    (select-tab! :machines)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
-        (is (some? (find-by-testid tree "rf-xray-detail-panel-issues"))
-            "detail panel rebinds to :issues")))))
+        (is (some? (find-by-testid tree "rf-xray-detail-panel-machines"))
+            "detail panel rebinds to :machines")))))
 
 (deftest detail-panel-cross-fade-wrapper-carries-fade-in-animation
   (testing "rf2-5kfxe.3 — the inner wrapper around the case-switch
@@ -889,8 +894,7 @@
    :views           reactive-panel/Panel
    :trace           trace/Panel
    :machines        machine-inspector/Panel
-   :routing         routing/Panel
-   :issues          issues-ribbon/Panel})
+   :routing         routing/Panel})
 
 (deftest detail-panel-routes-each-tab-to-its-view-fn
   (testing "spec/018 §5 — each tab routes to the expected Panel fn.

@@ -134,8 +134,10 @@
   (is (= [[:rf.xray/focus-slice-path [:user :profile :name]]]
          (focus/focus-command->dispatches {:path [:user :profile :name]}))))
 
-(deftest valid-panels-is-the-seven-tab-inventory
-  (is (= #{:epoch :app-db :views :trace :machines :routes :issues}
+(deftest valid-panels-is-the-six-tab-inventory
+  ;; rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
+  ;; `:issues` is no longer a focusable panel.
+  (is (= #{:epoch :app-db :views :trace :machines :routes}
          focus/valid-panels)))
 
 ;; =========================================================================
@@ -196,10 +198,13 @@
             focuses identically"
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
-    (let [result (focus/focus! {:frame :checkout :panel :issues :sync? true})]
+    ;; rf2-gbz39 — uses :trace (the Issues panel was removed under
+    ;; Option (c)); the point of this test is host-agnostic + no-source
+    ;; focusing, independent of which panel is targeted.
+    (let [result (focus/focus! {:frame :checkout :panel :trace :sync? true})]
       (is (:ok? result))
       (is (nil? (:source result)) ":source is optional — absent is fine")
-      (is (= :issues (selected-tab))))))
+      (is (= :trace (selected-tab))))))
 
 (deftest unknown-panel-is-rejected
   (testing "a typo'd panel selector is the one rejected case — would

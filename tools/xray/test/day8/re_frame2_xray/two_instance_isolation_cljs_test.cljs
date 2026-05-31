@@ -151,8 +151,9 @@
             axes leaves the other's three axes untouched. The EPIC's
             acceptance criterion in a single end-to-end flow."
     (setup-two-shells!)
-    ;; Seed cell B with a full, distinct state.
-    (dispatch! cell-b [:rf.xray/select-tab :issues])
+    ;; Seed cell B with a full, distinct state. (rf2-gbz39 — uses
+    ;; :trace; the Issues tab was removed under Option (c).)
+    (dispatch! cell-b [:rf.xray/select-tab :trace])
     (dispatch! cell-b [:rf.xray/set-mode :static])
     (dispatch! cell-b [:rf.xray/focus-cascade :b-cascade :rf/default])
     ;; Now drive cell A across all three axes.
@@ -164,7 +165,7 @@
     (is (= :dynamic (read-sub cell-a :rf.xray/mode)))
     (is (= :a-cascade (:dispatch-id (read-sub cell-a :rf.xray/focus))))
     ;; Cell B is wholly untouched on all three axes.
-    (is (= :issues (read-sub cell-b :rf.xray/selected-tab))
+    (is (= :trace (read-sub cell-b :rf.xray/selected-tab))
         "cell B tab untouched")
     (is (= :static (read-sub cell-b :rf.xray/mode))
         "cell B mode untouched")

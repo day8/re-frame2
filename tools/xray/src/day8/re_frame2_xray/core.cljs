@@ -224,9 +224,11 @@
 
 (def valid-focus-panels
   "The canonical host-facing Xray panel ids a focus command may target
-  — `#{:epoch :app-db :views :trace :machines :routes :issues}`. A host
+  — `#{:epoch :app-db :views :trace :machines :routes}`. A host
   validates a panel selector against this set before sending a focus
-  command. See `day8.re-frame2-xray.focus/valid-panels`."
+  command. The Issues tab was removed per rf2-gbz39 (Option (c)), so
+  `:issues` is no longer focusable. See
+  `day8.re-frame2-xray.focus/valid-panels`."
   focus/valid-panels)
 
 ;; ---- runtime theme override ---------------------------------------------

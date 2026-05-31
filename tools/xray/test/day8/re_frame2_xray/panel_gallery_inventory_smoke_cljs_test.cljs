@@ -45,14 +45,17 @@
             ;; in one gallery (e.g. lowercase `:workspace.*` id, or an
             ;; unregistered `:feature/*` tag) silently bricks that
             ;; gallery's contribution while the aggregate inventory
-            ;; stays non-empty from the other twelve galleries.
+            ;; stays non-empty from the other galleries.
             [panel-gallery.gallery-app-db          :as gallery-app-db]
             [panel-gallery.gallery-chrome          :as gallery-chrome]
             [panel-gallery.gallery-diff-mode-3     :as gallery-diff-mode-3]
             [panel-gallery.gallery-edn-inspector   :as gallery-edn-inspector]
             [panel-gallery.gallery-epoch           :as gallery-epoch]
             [panel-gallery.gallery-filters         :as gallery-filters]
-            [panel-gallery.gallery-issues          :as gallery-issues]
+            ;; (rf2-gbz39 — `gallery-issues` removed alongside the
+            ;; Issues tab; Option (c) folds issue surfacing into the
+            ;; Epoch panel + L2 event-row pink-wash + the always-on
+            ;; issues ribbon signal.)
             [panel-gallery.gallery-machines        :as gallery-machines]
             [panel-gallery.gallery-routing         :as gallery-routing]
             [panel-gallery.gallery-settings        :as gallery-settings]
@@ -145,7 +148,6 @@
    ["gallery-edn-inspector"         gallery-edn-inspector/register-all!]
    ["gallery-epoch"                 gallery-epoch/register-all!]
    ["gallery-filters"               gallery-filters/register-all!]
-   ["gallery-issues"                gallery-issues/register-all!]
    ["gallery-machines"              gallery-machines/register-all!]
    ["gallery-routing"               gallery-routing/register-all!]
    ["gallery-settings"              gallery-settings/register-all!]

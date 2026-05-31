@@ -19,7 +19,7 @@
 
   ## The L4 tabs
 
-  Per spec/018-Event-Spine.md §5 the chrome surfaces seven tabs whose
+  Per spec/018-Event-Spine.md §5 the chrome surfaces six tabs whose
   bodies are existing per-panel Panel views:
 
     - **Epoch**           → `epoch-panel/Panel` (rf2-sc3r1; supersedes
@@ -29,7 +29,11 @@
     - **Trace**           → `trace/Panel`
     - **Machines**        → `machine-inspector/Panel`
     - **Routing**         → `routing/Panel` (rf2-nrbs9)
-    - **Issues**          → `issues-ribbon/Panel`
+
+  (rf2-gbz39 — the Issues tab + its `issues-ribbon/Panel` were removed
+  per Mike's Option (c) ruling; issues surface inline in the Epoch
+  panel + the L2 event-row pink-wash + the always-on issues ribbon
+  signal, so there is no dedicated Issues panel to gallery.)
 
   ## The chrome (rf2-xy4yb / spec/018)
 
@@ -56,7 +60,6 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.trace :as trace]
@@ -147,12 +150,10 @@
          :data-testid "panel-gallery-routing-card"}
    [routing/Panel]])
 
-(defn- issues-tab-panel
-  "Embedded mount of the Issues tab body — the issues-ribbon panel."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-issues-card"}
-   [issues-ribbon/Panel]])
+;; (rf2-gbz39 — `issues-tab-panel` removed alongside the Issues tab.
+;; Option (c): issues surface inline in the Epoch panel + the L2
+;; event-row pink-wash + the always-on issues ribbon signal, so there
+;; is no standalone Issues panel to embed here.)
 
 ;; ---- widget gallery (rf2-hp4ow) -----------------------------------------
 ;;
@@ -247,7 +248,6 @@
   (rf/reg-view* :panel-gallery.trace/Panel    trace-tab-panel)
   (rf/reg-view* :panel-gallery.machines/Panel machines-tab-panel)
   (rf/reg-view* :panel-gallery.routing/Panel  routing-tab-panel)
-  (rf/reg-view* :panel-gallery.issues/Panel   issues-tab-panel)
   (rf/reg-view* :panel-gallery.edn-inspector/Panel edn-inspector-tab-panel)
   (rf/reg-view* :panel-gallery.chrome/Shell   chrome-shell)
   nil)

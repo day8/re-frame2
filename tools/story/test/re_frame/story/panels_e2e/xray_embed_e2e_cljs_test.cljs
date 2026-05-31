@@ -37,7 +37,7 @@
     1. `gotoStory` → click variant in sidebar
     2. Wait for `data-test=\"story-xray-embed\"` to be visible
     3. Assert `data-active-panel` = `event-detail`
-    4. Assert at least 7 chips render
+    4. Assert all 6 chips render (rf2-gbz39 dropped :issues)
     5. Click App-db chip, assert `data-active-panel` = `app-db`
     6. Click counter inc to prove dispatch sanity
 
@@ -97,15 +97,16 @@
 ;; ---- panel-catalog completeness -----------------------------------------
 
 (deftest panel-catalog-shape-matches-rf2-v1ach
-  (testing "the chip-row catalog exposes the 7 canonical Xray panels"
-    ;; rf2-v1ach lists 7 panels in the chip-row (event / app-db / views /
-    ;; trace / machines / routing / issues). Catch the regression where
-    ;; one is dropped (the chip-row would silently lose an affordance)
-    ;; or a new panel sneaks into the catalog without a deliberate
-    ;; design decision.
-    (is (= 7 (count xray-embed/panel-catalog))
-        "7 panels in the chip-row catalog (rf2-v1ach)")
-    (is (= #{:epoch :app-db :views :trace :machines :routing :issues}
+  (testing "the chip-row catalog exposes the 6 canonical Xray panels"
+    ;; rf2-v1ach lists the chip-row panels (event / app-db / views /
+    ;; trace / machines / routing). rf2-gbz39 removed `:issues` alongside
+    ;; the Xray Issues tab (Mike's Option (c) ruling). Catch the
+    ;; regression where one is dropped (the chip-row would silently lose
+    ;; an affordance) or a new panel sneaks into the catalog without a
+    ;; deliberate design decision.
+    (is (= 6 (count xray-embed/panel-catalog))
+        "6 panels in the chip-row catalog (rf2-v1ach; rf2-gbz39 dropped :issues)")
+    (is (= #{:epoch :app-db :views :trace :machines :routing}
            xray-embed/panel-ids)
         "panel-ids set matches the catalog")
     (is (= :epoch xray-embed/default-panel)
@@ -148,8 +149,8 @@
               "data-active-panel carries the resolved default
                (rf2-v1ach + rf2-senbl class — would be blank if
                effective-panel returned nil)")
-          (is (= 7 (count chips))
-              "one chip per catalogued panel (rf2-v1ach)")
+          (is (= 6 (count chips))
+              "one chip per catalogued panel (rf2-v1ach; rf2-gbz39 dropped :issues)")
           (is (vector? panel-host-slot)
               "panel-host slot is a hiccup vector in the wrapper's
                children — the mount target the panel-host-component
@@ -258,8 +259,8 @@
               "data-xray-embed-collapsed reflects the collapsed state")
           ;; The chip-row picker still paints while collapsed (cheap; no Xray
           ;; symbol) so the author's lens choice survives a collapse.
-          (is (= 7 (count (e2e/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
-              "chip-row picker survives a collapse (no compute, just data)"))
+          (is (= 6 (count (e2e/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
+              "chip-row picker survives a collapse (no compute, just data; rf2-gbz39 dropped :issues)"))
         ;; Expand again → panel-host slot returns (mount resumes on next commit).
         (ui-state/swap-state! ui-state/set-xray-embed-collapsed false)
         (let [reexpanded-tree (xray-embed/xray-embed-panel)]

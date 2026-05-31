@@ -160,7 +160,11 @@ The Xray embed MUST preserve the locked Story panel list:
 - `:trace`
 - `:machines`
 - `:routing`
-- `:issues`
+
+(rf2-gbz39 — `:issues` was removed from the panel list alongside the
+Xray Issues tab per Mike's Option (c) ruling; issues surface inline in
+the Epoch panel + the L2 event-row pink-wash + the always-on issues
+ribbon signal.)
 
 The embed MUST:
 

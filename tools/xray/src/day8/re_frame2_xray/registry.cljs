@@ -79,7 +79,7 @@
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
+            [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-helpers]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -454,7 +454,7 @@
     ;; rf2-5gl5r) ----------------------------------------------------
     ;;
     ;; `:rf.xray/select-dispatch-id` is the legacy entry point used by
-    ;; machine-inspector / issues-ribbon / trace / cancellation-cascade
+    ;; machine-inspector / trace / cancellation-cascade
     ;; / mcp-server / the cross-site event-status-colour e2e harness.
     ;; It writes through the spine via the same reducer the spec-018
     ;; `:rf.xray/focus-cascade` event uses. Relocated from the retired
@@ -512,13 +512,50 @@
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
-    ;; L3 tab bar — flip the active tab. Seven valid ids post rf2-5gl5r
-    ;; (Event/Handler tab retired; Epoch supersedes):
-    ;; :epoch :app-db :views :trace :machines :routing :issues
+    ;; L3 tab bar — flip the active tab. Six valid ids post rf2-gbz39
+    ;; (Issues tab removed; Option (c) — issues now surface inline in
+    ;; the Epoch + the L2 event-row pink-wash + the auto-open-on-error
+    ;; signal; rf2-5gl5r had retired the Event/Handler tab; Epoch
+    ;; supersedes):
+    ;; :epoch :app-db :views :trace :machines :routing
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
     (rf/reg-event-db :rf.xray/select-tab
       (fn [db [_ tab-id]]
         (assoc db :selected-tab tab-id)))
+
+    ;; ---- Issues feed composite (rf2-gbz39) ------------------------
+    ;;
+    ;; `:rf.xray/issues-ribbon` projects the focused epoch's
+    ;; `:trace-events` into the issue subset (errors + warnings +
+    ;; advisories per Spec 009 §Error event catalogue). Mike RULED
+    ;; Option (c) — the dedicated Issues TAB + its aggregate panel were
+    ;; removed (the session-wide triage list was consciously dropped).
+    ;; Issues now surface inline in the Epoch panel, via the L2
+    ;; event-row pink-wash, and via the always-on issues ribbon signal
+    ;; (the auto-open-on-error watcher). This composite SURVIVES the
+    ;; tab removal because it remains the canonical projection the
+    ;; auto-open watcher reads (settings/effects.cljs/
+    ;; install-auto-open-watcher!) — the cross-epoch "something is
+    ;; wrong" signal Mike kept under (c). The pure-data projection lives
+    ;; in `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
+    ;; predicate via `panels/l2-timeline/cascade-has-issue?`), so the
+    ;; algebra runs under the JVM test target.
+    ;;
+    ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
+    ;; joins `:rf.xray/focus`'s `:epoch-id` against the per-frame
+    ;; `:rf.xray/epoch-history`, classifies focus status (no-focus /
+    ;; focused / evicted; rf2-h0120 head-fallback), looks up the epoch
+    ;; record, and threads it through `project-feed`.
+    (rf/reg-sub :rf.xray/issues-ribbon
+      :<- [:rf.xray/focus]
+      :<- [:rf.xray/epoch-history]
+      (fn [[focus epoch-history] _query]
+        (let [focus-epoch-id (:epoch-id focus)
+              focus-status   (issues-helpers/resolve-focus-status focus-epoch-id
+                                                                   epoch-history)
+              record         (issues-helpers/find-epoch-record focus-epoch-id
+                                                               epoch-history)]
+          (issues-helpers/project-feed record focus-status))))
 
     ;; ---- Static-mode chrome (rf2-o5f5f.1) -------------------------
     ;;
@@ -726,7 +763,7 @@
     ;;
     ;; The open-in-editor install is cross-panel — its
     ;; `:rf.xray/open-in-editor` event-fx + `:rf.editor/open` fx are
-    ;; dispatched from trace, issues-ribbon, mcp-server, and the
+    ;; dispatched from trace, mcp-server, and the
     ;; hydration debugger (rf2-g5q8d). Installed alongside the
     ;; per-panel installs so the registration order matches the
     ;; per-panel pattern.
@@ -822,7 +859,6 @@
     ;; `:rf.xray/select-dispatch-id`, `:rf.xray/clear-selected-
     ;; dispatch-id` — were relocated to the cross-panel block above.
     (epoch-panel/install!)
-    (issues-ribbon/install!)
     (machine-inspector/install!)
     ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
     ;; machine + Topology + JUMP-to-Dynamic + Cascade-dimmed surfaces.
