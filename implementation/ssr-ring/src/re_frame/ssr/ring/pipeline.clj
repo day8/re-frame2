@@ -185,7 +185,7 @@
   appropriate escaping and the app's own styling/shell, instead of the
   hardcoded minimal `render-error-body`:
 
-    - a keyword → resolved as a registered view: `[error-view public]`
+    - a keyword → resolved as a registered view: `[error-view public-error]`
       (the view receives the public-error map as its single prop),
     - a 1-arity fn → called with the public-error map, returning hiccup.
 
@@ -197,13 +197,13 @@
   projector-throws-→-locked-500 fallback (Spec 011 §Where sanitisation
   happens). When no `:error-view` is supplied, the default template is
   used directly."
-  [frame-id error-view public]
+  [frame-id error-view public-error]
   (if (nil? error-view)
-    (render-error-body public)
+    (render-error-body public-error)
     (try
       (let [hiccup (cond
-                     (keyword? error-view) [error-view public]
-                     (fn? error-view)      (error-view public)
+                     (keyword? error-view) [error-view public-error]
+                     (fn? error-view)      (error-view public-error)
                      :else
                      (throw (ex-info ":rf.error/ssr-ring-invalid-error-view"
                                      {:rf.error/id :rf.error/ssr-ring-invalid-error-view
@@ -222,7 +222,7 @@
                             :exception (.getMessage t)
                             :ex-class  (.getName (class t))
                             :recovery  :fell-back-to-default-error-template})
-        (render-error-body public)))))
+        (render-error-body public-error)))))
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -352,7 +352,7 @@
   (try
     (build-full-response* frame-id resp opts)
     (catch Throwable t
-      (let [public        (ssr/project-render-exception! frame-id t)
+      (let [public-error  (ssr/project-render-exception! frame-id t)
             ;; The projector stamped :status onto the response
             ;; accumulator inside `project-render-exception!`;
             ;; peek-response returns the resolved snapshot without
@@ -363,13 +363,13 @@
             ;; locked-500 generic shape, so the wire still carries
             ;; a well-formed body.
             resp*         (ssr/peek-response frame-id)
-            public*       (or public
+            public-error* (or public-error
                               {:status 500 :code :internal-error
                                :message "Something went wrong"
                                :retryable? false})
             ;; Spec 011 §Server error projection step 5: render a
             ;; caller-registered `:error-view` (receiving the public-
             ;; error map) when present, else the host default template.
-            body-html     (resolve-error-body frame-id (:error-view opts) public*)
+            body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
             content-type  (:content-type opts)]
         (ssr-response->ring-response resp* body-html content-type)))))

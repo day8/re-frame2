@@ -118,7 +118,7 @@
 ;; structure (open tags balanced by what was emitted) and the server
 ;; logs the trace via the standard error-projection path.
 
-(defn- ^bytes ->utf8 ^bytes [^String s]
+(defn- ->utf8 ^bytes [^String s]
   (.getBytes s StandardCharsets/UTF_8))
 
 (defn- write-chunk! [^OutputStream out ^String s]
