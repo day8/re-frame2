@@ -702,12 +702,34 @@ Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
 `sync` (bool), `trace` (bool), `frame` (string, e.g. `":foo"`),
 `fx-overrides` (object, e.g. `{:http :stub-http}`), `build` (string).
 
+The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
+colon-prefixed id (`":rf/xray"` — the form discover-app surfaces, §Id
+representation) and the bare-name form (`"rf/xray"`) coerce to the same
+`:rf/xray`. It routes through the shared `fresh-keyword` coercion, the
+SAME path `eval-cljs` / `snapshot` / `get-path` / `reset-frame-db` use,
+so a frame-targeted dispatch lands on the named frame in a multi-frame
+app. (The pre-rf2-ldfnx shape used raw `(keyword …)`, which minted the
+malformed `::rf/xray` from the colon-prefixed form — a frame that
+matched no registered frame, so the dispatch silently no-op'd while the
+tool reported `{:mode :sync}`. That silent wrong-success is fixed.)
+
 **Returns**: the runtime's response, merged with `:mode`. Per rf2-6yqdl
 every successful dispatch surfaces a `:cascade-summary` slot — see
 §Universal: cascade summary on state-mutating tools above for the
 shape and the `:cascade-summary-pending?` behaviour on queued mode.
 Trace mode additionally carries the full `:epoch` (the verbatim
 assembled record) alongside the compact summary.
+
+**Success-vs-error contract (rf2-ldfnx).** The `:mode` slot is the
+caller's signal that the dispatch took effect, so it appears ONLY on a
+genuine landing. When the runtime reports the dispatch did NOT land —
+the named frame could not be targeted (head did not advance:
+`:reason :no-new-epoch`), epoch-history was empty (frame destroyed /
+recording disabled: `:reason :no-epoch-recorded`), or the frame was
+ambiguous (`:reason :ambiguous-frame`) — the tool surfaces a structured
+ERROR envelope (`:isError true`) carrying the runtime's verbatim
+`:ok? false` / `:reason` / `:hint`, with NO `:mode` slot. It never
+reports `{:mode …}` over a no-op.
 
 ## dispatch-dry-run
 

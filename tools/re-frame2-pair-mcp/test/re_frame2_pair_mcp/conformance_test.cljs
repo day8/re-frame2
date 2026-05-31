@@ -514,6 +514,49 @@
     :fixture/expect
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
+   ;; rf2-ldfnx — frame-targeted dispatch routes to the named frame. The
+   ;; documented `frame` arg is the colon-prefixed id (":rf/xray";
+   ;; Tool-Catalogue §Id representation). The emitted runtime call MUST
+   ;; carry the well-formed `:frame :rf/xray` opt and MUST NOT mint the
+   ;; malformed `::rf/xray` (namespace ":rf") that raw `(keyword ...)`
+   ;; produced — the silent-no-op the bead targets.
+   {:fixture/id    :dispatch/frame-targeted-routes
+    :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["pair-dispatch-sync!"       {:ok? true :epoch-id 7 :frame :rf/xray}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["pair-dispatch-sync!" ":frame :rf/xray"]
+    :fixture/eval-form-must-not-contain
+    ["::rf/xray"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:mode :sync :ok? true :frame :rf/xray}}}
+
+   ;; rf2-ldfnx — when the named frame cannot be targeted (head did not
+   ;; advance), the runtime returns {:ok? false :reason :no-new-epoch}.
+   ;; The tool MUST surface a structured ERROR envelope, never a
+   ;; {:mode :sync} success. The pre-fix shape merged {:mode :sync} over
+   ;; the failure and emitted a non-isError envelope — the silent
+   ;; wrong-success this bead fixes.
+   {:fixture/id    :dispatch/frame-untargetable-error
+    :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot (rf2-ldfnx)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["pair-dispatch-sync!"       {:ok? false :reason :no-new-epoch
+                                   :event [:rf.xray/focus-cascade 85]
+                                   :frame :rf/xray
+                                   :hint "dispatch-sync returned, but epoch-history head did not advance."}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :no-new-epoch :frame :rf/xray}}}
+
    ;; ---------- dispatch-dry-run (rf2-17hvp) ------------------------------
    ;; Dry-run is NOT --allow-writes-gated: the override-set ensures no
    ;; observable effect escapes, and restore-epoch rewinds the would-be

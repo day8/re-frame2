@@ -23,6 +23,7 @@
   (:require [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
@@ -71,12 +72,52 @@
           :else
           [:ok parsed])))))
 
+(defn- runtime-envelope->result
+  "Translate the runtime dispatch fn's return into the wire envelope.
+
+  rf2-ldfnx — the runtime (`pair-dispatch!` / `pair-dispatch-sync!` /
+  `dispatch-and-collect`) returns a structured envelope. On real
+  success it carries `:ok? true` (sync/trace) or `:queued? true`
+  (queued) plus the cascade slots. On a frame-targeting failure it
+  carries `:ok? false` with a `:reason` (`:no-new-epoch`,
+  `:no-epoch-recorded`, …) — the dispatch did NOT land.
+
+  The pre-fix shape merged `{:mode <m>}` over whatever the runtime
+  returned and ALWAYS emitted a success (`ok-text`) envelope. A
+  frame-targeted dispatch that no-op'd (the runtime reporting
+  `:ok? false`) therefore rode back as `{:mode :sync}` with no
+  `:isError` flag — a silent wrong-success. The `:mode` slot is the
+  caller's signal that the dispatch took effect, so it MUST appear
+  only on a genuine landing.
+
+  Contract:
+    - runtime `:ok? false`  ⇒ `err-text` (`:isError true`), NO `:mode`
+      slot. The failure rides through verbatim so the caller sees the
+      structured `:reason`/`:hint`.
+    - otherwise (success / queued / non-map degraded runtime) ⇒
+      `ok-text` with `{:mode <m>}` merged in."
+  [mode v]
+  (if (and (map? v) (false? (:ok? v)))
+    (wire/err-text v)
+    (wire/ok-text (merge {:mode mode} (when (map? v) v)))))
+
 (defn dispatch-tool [conn args]
   (let [event-str    (wire/arg args :event)
         build-id     (wire/arg-build conn args)
         sync?        (boolean (wire/arg args :sync))
         trace?       (boolean (wire/arg args :trace))
-        frame        (wire/arg-keyword args :frame)
+        ;; rf2-ldfnx — coerce `frame` via the colon-tolerant
+        ;; `->frame-keyword` (the shared `fresh-keyword` path), NOT the
+        ;; raw `(keyword ...)` of `wire/arg-keyword`. The documented
+        ;; `frame` arg is the colon-prefixed id (`":rf/xray"`, `":foo"`
+        ;; — Tool-Catalogue §Id representation, rf2-cg37y). Raw
+        ;; `(keyword ":rf/xray")` mints the MALFORMED `::rf/xray`
+        ;; (namespace literally `":rf"`), which matches no registered
+        ;; frame — the runtime then no-op'd while the tool reported
+        ;; `{:mode :sync}`. `->frame-keyword` strips the leading colon
+        ;; so the frame routes the same way `eval-cljs` / `snapshot` /
+        ;; `reset-frame-db` already route it.
+        frame        (some-> (wire/arg args :frame) args/->frame-keyword)
         fx-overrides (when-let [o (wire/arg args :fx-overrides)] (js->clj o :keywordize-keys true))
         [tag payload] (parse-event-edn event-str)]
     (case tag
@@ -99,5 +140,5 @@
             mode (cond trace? :trace sync? :sync :else :queued)]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [v] (wire/ok-text (merge {:mode mode} (when (map? v) v)))))
+            (.then (fn [v] (runtime-envelope->result mode v)))
             (.catch (fn [err] (probe/err->result :dispatch-failed err))))))))
