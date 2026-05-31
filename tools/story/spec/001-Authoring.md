@@ -178,8 +178,8 @@ map.
 
 ;; 4. Variant override
 (story/reg-variant :story.counter/at-five
-  {:events [[:counter/initialise 5]]
-   :args   {:label "Count from 5"}})
+  {:setup [[:counter/initialise 5]]
+   :args  {:label "Count from 5"}})
 
 ;; 5. The reader edits :max in the controls panel → cell-override.
 ;;    Effective args at that moment:
@@ -226,10 +226,10 @@ variant.
 ;; Three independent stateful cells, one declaration:
 (story/reg-story :story.counter
   {:component :app.ui/counter
-   :variants  {:empty   {:events [[:counter/initialise 0]]}
-               :at-five {:events [[:counter/initialise 5]]}
-               :driven  {:events [[:counter/initialise 0]]
-                         :play-script
+   :variants  {:empty   {:setup [[:counter/initialise 0]]}
+               :at-five {:setup [[:counter/initialise 5]]}
+               :driven  {:setup [[:counter/initialise 0]]
+                         :script
                          [[:dispatch-sync [:counter/increment]]
                           [:dispatch-sync [:counter/increment]]
                           [:dispatch-sync [:counter/increment]]
@@ -240,7 +240,7 @@ variant.
 ;; Three cells render side-by-side, each in its own frame:
 ;;   - cell A has :count 0 in its app-db
 ;;   - cell B has :count 5 in its app-db
-;;   - cell C has :count 3 in its app-db (after :play-script settles)
+;;   - cell C has :count 3 in its app-db (after :script settles)
 ;; Incrementing cell A does not affect B or C. No opt-in needed.
 ```
 
@@ -409,7 +409,10 @@ Per [`017-Testing-Story.md`](017-Testing-Story.md) §Public vocabulary,
 slots until the runtime is routed through the variant-plan compiler
 (rf2-5x1wt.17 / .22). A variant declares ONE play surface from
 `:script` / `:play-script` / `:plays` (mutually exclusive at the
-schema layer).
+schema layer). The worked examples throughout this doc therefore use
+the target `:setup` / `:script` spellings exclusively; the recorder
+(§Source-coord stamping) still EMITS the shipping `:play-script`
+spelling, which the registrar accepts unchanged.
 
 Pre-alpha posture: the legacy `:play` event-vector slot has been
 removed — no transitional dual-acceptance (rf2-0wrud, 2026-05-20).
@@ -492,14 +495,14 @@ Two equivalent forms are accepted on the variant (or story) body:
 ```clojure
 ;; Top-level form — recommended when there's no other :xray preset.
 (story/reg-variant :story.counter/at-five
-  {:events       [[:counter/initialise 5]]
+  {:setup       [[:counter/initialise 5]]
    :xray-panel  :app-db})              ; "state-shape story → app-db lens"
 
 ;; Nested form — recommended when the variant also carries other
 ;; :xray preset slots (`:open?` / `:filters` / `:focus`). Lets the
 ;; author group all Xray-side configuration in one map.
 (story/reg-variant :story.routing/deep-link
-  {:events [[:router/navigate "/checkout/42"]]
+  {:setup [[:router/navigate "/checkout/42"]]
    :xray  {:panel   :routing
             :filters {:out [:router/url-change]}}})
 ```
@@ -1019,8 +1022,8 @@ in its own isolated re-frame frame**, so there is no shared mutable
 state between variants and no hooks-inside-stories problem.
 
 This means "stateful variants" in Story is not a separate authoring
-mode — it's the default. You drive state with `:events` (setup) and
-`:play-script` (post-render), and you read it with subs (the canvas
+mode — it's the default. You drive state with `:setup` (preconditions)
+and `:script` (post-render), and you read it with subs (the canvas
 renders against the variant's frame) or assertions (which read through
 `:rf.assert/sub-equals` etc.).
 
@@ -1050,11 +1053,11 @@ renders against the variant's frame) or assertions (which read through
 
 (story/reg-story :story.counter
   {:component :app.ui/counter
-   :variants {:empty    {:events [[:counter/initialise]]}
-              :at-five  {:events [[:counter/initialise]
-                                  [:counter/set 5]]}
-              :driven   {:events [[:counter/initialise]]
-                         :play-script
+   :variants {:empty    {:setup [[:counter/initialise]]}
+              :at-five  {:setup [[:counter/initialise]
+                                 [:counter/set 5]]}
+              :driven   {:setup [[:counter/initialise]]
+                         :script
                          [[:dispatch-sync [:counter/increment]]
                           [:dispatch-sync [:counter/increment]]
                           [:dispatch-sync [:counter/increment]]
@@ -1070,7 +1073,7 @@ side-by-side, each cell starting fresh.
 
 | Storybook pattern | Story counterpart |
 |---|---|
-| `render: (args) => { const [a, setA] = useArgs(); ... }` | `:play-script` body dispatching events into the variant's frame |
+| `render: (args) => { const [a, setA] = useArgs(); ... }` | `:script` body dispatching events into the variant's frame |
 | `useState(...)` inside the render fn | The view's subs read from the per-variant frame's `app-db` |
 | Hooks-inside-stories re-render gotcha | None — there is no render fn |
 | One global app instance, decorator-wrapped per story | Per-variant frame; no global shared state |
@@ -1169,7 +1172,7 @@ discussion.
                 [:mock-auth]]
    :args       {:logged-in? true}
    :args->events {:logged-in? :story.auth/set-logged-in}
-   :events     [[:dashboard/initialise]]
+   :setup      [[:dashboard/initialise]]
    :tags       #{:dev :docs :test}})
 ```
 
@@ -1177,17 +1180,17 @@ discussion.
 
 ```clojure
 (story/reg-variant :story.auth.login-form/happy-path
-  {:doc         "Full login flow."
-   :events      [[:auth/initialise]]
-   :play-script [[:dispatch-sync [:auth/email-changed "alice@example.com"]]
-                 [:dispatch-sync [:auth/password-changed "hunter2"]]
-                 [:dispatch-sync [:auth/login-pressed]]
-                 [:dispatch-sync [:rf.assert/path-equals  [:auth :status] :authenticated]]
-                 [:dispatch-sync [:rf.assert/sub-equals   [:auth/current-user] {:id 42 :name "Alice"}]]
-                 [:dispatch-sync [:rf.assert/state-is     :auth/login :authenticated]]
-                 [:dispatch-sync [:rf.assert/no-warnings]]
-                 [:dispatch-sync [:rf.assert/effect-emitted :navigate]]]
-   :tags        #{:dev :docs :test}})
+  {:doc    "Full login flow."
+   :setup  [[:auth/initialise]]
+   :script [[:dispatch-sync [:auth/email-changed "alice@example.com"]]
+            [:dispatch-sync [:auth/password-changed "hunter2"]]
+            [:dispatch-sync [:auth/login-pressed]]
+            [:dispatch-sync [:rf.assert/path-equals  [:auth :status] :authenticated]]
+            [:dispatch-sync [:rf.assert/sub-equals   [:auth/current-user] {:id 42 :name "Alice"}]]
+            [:dispatch-sync [:rf.assert/state-is     :auth/login :authenticated]]
+            [:dispatch-sync [:rf.assert/no-warnings]]
+            [:dispatch-sync [:rf.assert/effect-emitted :navigate]]]
+   :tags   #{:dev :docs :test}})
 ```
 
 ### Loaders with `:loaders-complete-when`
@@ -1202,7 +1205,7 @@ discussion.
   {:doc     "Renders against a live websocket fixture."
    :loaders [[:charts.heatmap/subscribe]]
    :loaders-complete-when [[:rf.assert/dispatched? [:charts/heatmap-tick]]]
-   :events  []
+   :setup   []
    :tags    #{:dev}})
 ```
 
@@ -1238,7 +1241,7 @@ the frame's `:frame-setup` decorator `:teardown` walk. Per
    :loaders          [[:charts.heatmap/subscribe]]
    :loaders-teardown [[:charts.heatmap/unsubscribe]]
    :loaders-complete-when [[:rf.assert/dispatched? [:charts/heatmap-tick]]]
-   :events           []
+   :setup            []
    :tags             #{:dev}})
 ```
 
@@ -1263,14 +1266,14 @@ fits in a single event, `:loaders-teardown` is the lightweight option.
 
 ```clojure
 (story/reg-variant :story.auth.login-form/loading
-  {:events     [[:auth/initialise]
+  {:setup      [[:auth/initialise]
                 [:auth/email-changed "alice@example.com"]
                 [:auth/login-pressed]]
    :decorators [[:force-fx-stub :http {:status :pending}]]})
 
 (story/reg-variant :story.auth.login-form/loading-with-prefill
   {:extends :story.auth.login-form/loading
-   :events  [[:auth/initialise]
+   :setup   [[:auth/initialise]
              [:auth/email-changed "alice@example.com"]
              [:auth/password-changed "hunter2"]    ; prefill password
              [:auth/login-pressed]]
@@ -1319,20 +1322,20 @@ side-by-side. Substrate-specific failures render inline; see
   {:doc       "..."
    :component login-form
    :args      {:placeholder "you@example.com"}
-   :variants  {:empty            {:events [[:auth/initialise]]}
-               :validation-error {:events [[:auth/initialise]
-                                           [:auth/email-changed "x"]
-                                           [:auth/login-pressed]]
-                                  :tags   #{:dev :docs :test}}}})
+   :variants  {:empty            {:setup [[:auth/initialise]]}
+               :validation-error {:setup [[:auth/initialise]
+                                          [:auth/email-changed "x"]
+                                          [:auth/login-pressed]]
+                                  :tags  #{:dev :docs :test}}}})
 
 ;; The macro expands to three independent calls (story + N variants):
 (do
   (story/reg-story* :story.auth.login-form
     {:doc "..." :component login-form :args {...}})
   (story/reg-variant* :story.auth.login-form/empty
-    {:events [[:auth/initialise]]})
+    {:setup [[:auth/initialise]]})
   (story/reg-variant* :story.auth.login-form/validation-error
-    {:events [...] :tags #{...}}))
+    {:setup [...] :tags #{...}}))
 ```
 
 The macro emits one top-level form per variant, preserving
