@@ -611,26 +611,26 @@
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn counter.core/run}}}
 
-  ;; Two-frame isolation testbed (rf2-6qgbs.1) — THE canonical multi-
-  ;; frame isolation surface for Xray. Replaces the parallel-frames
-  ;; prototype (rf2-m00rw). One app, mounted in TWO frames (:above +
-  ;; :below) on the LEFT, with a Xray instance on the RIGHT, on ONE
-  ;; page, with zero cross-frame coupling. Each frame is a fully
-  ;; isolated reactive context (own app-db, own router queue + route
-  ;; slot, own sub-cache, own machine snapshot); handlers and subs are
-  ;; registered once globally and resolve against whichever frame the
-  ;; dispatch envelope targets via the frame-provider React context.
+  ;; Two-frame isolation testbed (rf2-6qgbs.1; repointed under rf2-wa8my)
+  ;; — THE canonical multi-frame isolation surface for Xray. Replaces the
+  ;; parallel-frames prototype (rf2-m00rw). One app, mounted in TWO frames
+  ;; (:above + :below) on the LEFT, with a Xray instance on the RIGHT, on
+  ;; ONE page, with zero cross-frame coupling. Each frame is a fully
+  ;; isolated reactive context (own app-db, own sub-cache, own epoch
+  ;; history); handlers and subs are registered once globally and resolve
+  ;; against whichever frame the dispatch envelope targets via the
+  ;; frame-provider React context.
   ;;
-  ;; The app code path is the SHARED testdeck (tools/xray/testbeds/
-  ;; testdeck/) — Counter / Machine / Routing / Async&errors tabs
-  ;; navigated AS ROUTES. This testbed is now the sole consumer of the
-  ;; shared testdeck.* modules; it covers the multi-frame isolation +
-  ;; routing surface the deliberately-simple single-frame standard-epochs
-  ;; (rf2-gsr6z) intentionally drops. Both frames are registered
-  ;; :url-bound? false (Spec 012 §Multi-frame routing) so per-frame tab
-  ;; nav does not fight over the single browser URL. No deliberate bugs,
-  ;; no teaching layers, no anti-pattern demonstrations — per Mike's
-  ;; saved-memory rules (feedback_frames_are_isolated_contexts +
+  ;; The app code path is the SHARED standard-epochs button ladder
+  ;; (standard-epochs.core/root, tools/xray/testbeds/standard_epochs/).
+  ;; rf2-wa8my deleted the bespoke testdeck tabs-as-routes panel and
+  ;; repointed this testbed to mount the standard-epochs deck TWICE: the
+  ;; cleanest possible per-frame ISOLATION proof. The routing surface the
+  ;; old testdeck tabs doubled as now lives in routes_epochs; the
+  ;; multi-frame isolation gate assertion rides the framework
+  ;; testbeds/multi_frame surface. No deliberate bugs, no teaching layers,
+  ;; no anti-pattern demonstrations — per Mike's saved-memory rules
+  ;; (feedback_frames_are_isolated_contexts +
   ;; feedback_testbeds_are_test_surfaces), testbeds are TEST surfaces.
   ;;
   ;; Sources live under tools/xray/testbeds/two_frame_isolation/; the
@@ -663,8 +663,10 @@
   ;; (feedback_testbeds_are_test_surfaces).
   ;;
   ;; The events / subs / views are OWNED in standard_epochs/core.cljs — it
-  ;; does NOT reuse the shared testdeck.* modules (those still back the
-  ;; two-frame-isolation testbed for the multi-frame + routing surface).
+  ;; is fully self-contained (the testdeck.* modules it once stood beside
+  ;; were deleted under rf2-wa8my). Its `root` ladder view is ALSO the
+  ;; shared app code path the two-frame-isolation testbed mounts twice to
+  ;; prove per-frame isolation.
   ;; Sources live under tools/xray/testbeds/standard_epochs/; the Xray
   ;; preload auto-mounts inline so every lens reads the single frame.
   ;; Served at http://localhost:8031 via the top-level `:dev-http` map.
