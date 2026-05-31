@@ -65,7 +65,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -471,37 +471,46 @@
    "Unmute all"])
 
 (defn dialog
-  "The mute manager dialog body. Pure hiccup.
+  "The mute manager modal — backdrop + dialog scaffold (rf2-7oxvd)
+  around the manager body. Pure hiccup.
+
+  Returns the full `[:div backdrop [:div dialog …]]` tree (the
+  `modals-aria-cljs-test` renders this fn directly and walks for the
+  dialog node). `spine-filters/Modal` gates on
+  `:rf.xray/mute-manager-open?` and calls this fn.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
   `Modal` `reg-view` body — threaded to header / rows / clear-all so
   unmute actions land on the surrounding instance frame, not a
   `{:frame :rf/xray}` literal."
   [dispatch]
-  (let [muted @(rf/subscribe [:rf.xray/muted-event-ids])]
-    [:div (merge
-            ;; rf2-7389r — WAI-ARIA dialog contract. `:ref`
-            ;; (a11y/dialog-ref) lands focus inside on open, traps
-            ;; Tab/Shift+Tab within the dialog (the empty-state body
-            ;; has no focusable child, so the trap pins focus on the
-            ;; tab-index=-1 root), and restores focus to the opener on
-            ;; close (audit finding #3 + #8).
-            (a11y/dialog-attrs {:labelled-by "rf-xray-mute-manager-title"})
-            {:data-testid "rf-xray-mute-manager-dialog"
-             :ref         (a11y/dialog-ref)
-             :tab-index   "-1"
-             :on-click    (fn [^js e] (.stopPropagation e))
-             :on-key-down (fn [^js e]
-                            (when (= "Escape" (.-key e))
-                              (dispatch [:rf.xray/close-mute-manager])))
-             :style       (dialog-style)})
+  (let [muted       @(rf/subscribe [:rf.xray/muted-event-ids])
+        positioning @(rf/subscribe [:rf.xray/modal-positioning])]
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+    ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
+    ;; root (the empty-state body has no focusable child, so the trap
+    ;; pins focus on the root), and its dialog-level Esc handler.
+    ;; `modal-chrome` owns the positioning attribute, the click-outside
+    ;; dismiss, `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
+    (modal-chrome/modal-chrome
+      {:positioning        positioning
+       :backdrop-style     (backdrop-style positioning)
+       :dialog-style       (dialog-style)
+       :on-dismiss         #(dispatch [:rf.xray/close-mute-manager])
+       :labelled-by        "rf-xray-mute-manager-title"
+       :backdrop-testid    "rf-xray-mute-manager-backdrop"
+       :dialog-testid      "rf-xray-mute-manager-dialog"
+       :dialog-tab-index   "-1"
+       :on-dialog-key-down (fn [^js e]
+                             (when (= "Escape" (.-key e))
+                               (dispatch [:rf.xray/close-mute-manager])))}
      (header dispatch)
      (if (empty? muted)
        (empty-state)
        [:<>
         (list-section dispatch muted)
         [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-         (clear-all-button dispatch)]])]))
+         (clear-all-button dispatch)]]))))
 
 (rf/reg-view Modal
   "The mute manager modal. Renders only when
@@ -510,12 +519,7 @@
   body's subscribes resolve through React-context to `:rf/xray`."
   []
   (when @(rf/subscribe [:rf.xray/mute-manager-open?])
-    (let [positioning @(rf/subscribe [:rf.xray/modal-positioning])]
-      [:div {:data-testid "rf-xray-mute-manager-backdrop"
-             :data-rf-xray-modal-positioning (name (or positioning :fixed))
-             :on-click    #(dispatch [:rf.xray/close-mute-manager])
-             :style       (backdrop-style positioning)}
-       (dialog dispatch)])))
+    (dialog dispatch)))
 
 ;; ---- ribbon indicator (mounted from shell.cljs) -------------------------
 

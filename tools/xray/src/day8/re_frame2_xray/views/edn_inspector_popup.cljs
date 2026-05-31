@@ -85,7 +85,7 @@
   popups within this surface use sequential z-indexes derived from
   the stack position, so the topmost popup wins click + focus."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]
             [day8.re-frame2-xray.views.edn-inspector :as ei]))
@@ -410,27 +410,29 @@
         ;; The shared backdrop owns z-index for position 0; dialogs
         ;; ride on top of their own backdrop tier.
         dialog-z      (z-index-for (inc (or stack-pos 0)))]
-    [:div {:data-testid (str "rf-xray-edn-inspector-popup-backdrop-" mount-id)
-           :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :data-rf-mount-id mount-id
-           :on-click    (fn [^js e]
-                          (.stopPropagation e)
-                          (close-handler))
-           :on-key-down keydown
-           :tab-index   -1
-           :style       (assoc (backdrop-style positioning)
-                               :z-index dialog-z)}
-     [:div (merge
-             (a11y/dialog-attrs
-               {:labelled-by (str "rf-xray-edn-inspector-popup-title-"
-                                  mount-id)})
-             {:data-testid (str "rf-xray-edn-inspector-popup-dialog-" mount-id)
-              :data-rf-mount-id mount-id
-              :ref         (a11y/dialog-ref)
-              :on-click    #(.stopPropagation %)
-              :on-key-down keydown
-              :tab-index   0
-              :style       (dialog-style)})
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popup keeps
+    ;; its own (public) `backdrop-style` / `dialog-style`, its
+    ;; stack-position z-index OVERRIDE (folded onto the backdrop style),
+    ;; its `data-rf-mount-id` markers (via the `:*-extra` slots), the
+    ;; backdrop -1 / dialog 0 tab-index split and the Esc-closes-top
+    ;; `keydown` on both. `modal-chrome` owns the positioning attribute,
+    ;; the click-outside dismiss (it `stopPropagation`s on the backdrop
+    ;; so a stacked popup's backdrop click does not bubble to the popup
+    ;; beneath), `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
+    (modal-chrome/modal-chrome
+      {:positioning          positioning
+       :backdrop-style       (assoc (backdrop-style positioning) :z-index dialog-z)
+       :dialog-style         (dialog-style)
+       :on-dismiss           close-handler
+       :labelled-by          (str "rf-xray-edn-inspector-popup-title-" mount-id)
+       :backdrop-testid      (str "rf-xray-edn-inspector-popup-backdrop-" mount-id)
+       :dialog-testid        (str "rf-xray-edn-inspector-popup-dialog-" mount-id)
+       :on-backdrop-key-down keydown
+       :on-dialog-key-down   keydown
+       :backdrop-tab-index   -1
+       :dialog-tab-index     0
+       :backdrop-extra       {:data-rf-mount-id mount-id}
+       :dialog-extra         {:data-rf-mount-id mount-id}}
       [:div {:style (header-style)}
        (header-title mount-id title)
        [:button {:data-testid (str "rf-xray-edn-inspector-popup-close-" mount-id)
@@ -454,7 +456,7 @@
                             (str (name panel-id) "-" mount-id))
          :default-expanded-depth default-expanded-depth
          :max-inline-width       max-inline-width
-         :max-depth              max-depth}]]]]))
+         :max-depth              max-depth}]])))
 
 ;; =========================================================================
 ;; public component — `edn-inspector-popup`

@@ -49,7 +49,7 @@
   Xray's frame regardless of click-time React context."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
-            [day8.re-frame2-xray.theme.a11y :as a11y]
+            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
@@ -209,28 +209,28 @@
         value       @(rf/subscribe [:rf.xray/segment-inspector-value])
         positioning @(rf/subscribe [:rf.xray/modal-positioning])
         on-keydown  (handle-keydown dispatch)]
-    [:div {:data-testid "rf-xray-segment-inspector-backdrop"
-           :data-rf-xray-modal-positioning (name (or positioning :fixed))
-           :on-click    #(dispatch [:rf.xray/close-segment-inspector])
-           :on-key-down on-keydown
-           :tab-index   -1
-           :style       (backdrop-style positioning)}
-     [:div (merge
-             ;; rf2-7389r — WAI-ARIA dialog contract on the inspector
-             ;; popover. The previous tab-index 0 marker hinted at
-             ;; focus-trap intent but lacked role/aria-modal; `:ref`
-             ;; (a11y/dialog-ref) finishes the contract — focus lands
-             ;; inside on open, Tab/Shift+Tab cycle within the dialog,
-             ;; and focus restores to the opener on close (audit
-             ;; findings #3 + #8 + #19).
-             (a11y/dialog-attrs {:labelled-by "rf-xray-segment-inspector-title"})
-             {:data-testid "rf-xray-segment-inspector-dialog"
-              :data-rf-xray-mode "segment-inspector"
-              :ref         (a11y/dialog-ref)
-              :on-click    #(.stopPropagation %)
-              :on-key-down on-keydown
-              :tab-index   0
-              :style       (dialog-style)})
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popover keeps
+    ;; its own `backdrop-style` / `dialog-style` (the dim/blur/size
+    ;; diverge from the other modals) + its own Esc handler on BOTH the
+    ;; backdrop and the dialog, and the historical backdrop -1 / dialog 0
+    ;; tab-index split. The `data-rf-xray-mode` marker rides in via
+    ;; `:dialog-extra`. `modal-chrome` owns the positioning attribute,
+    ;; the click-outside dismiss, the `a11y/dialog-attrs` (rf2-7389r
+    ;; role/aria-modal/accessible name from the title id) and the
+    ;; `a11y/dialog-ref` focus trap.
+    (modal-chrome/modal-chrome
+      {:positioning          positioning
+       :backdrop-style       (backdrop-style positioning)
+       :dialog-style         (dialog-style)
+       :on-dismiss           #(dispatch [:rf.xray/close-segment-inspector])
+       :labelled-by          "rf-xray-segment-inspector-title"
+       :backdrop-testid      "rf-xray-segment-inspector-backdrop"
+       :dialog-testid        "rf-xray-segment-inspector-dialog"
+       :on-backdrop-key-down on-keydown
+       :on-dialog-key-down   on-keydown
+       :backdrop-tab-index   -1
+       :dialog-tab-index     0
+       :dialog-extra         {:data-rf-xray-mode "segment-inspector"}}
       ;; Header
       [:div {:style (header-style)}
        (header-title path)
@@ -250,7 +250,7 @@
       [:div {:data-testid "rf-xray-segment-inspector-body"
              :style       (body-style)}
        (edn/inspect (f/display-value value)
-                          (str "segment-inspector/" (pr-str (vec path))))]]]))
+                          (str "segment-inspector/" (pr-str (vec path))))])))
 
 (rf/reg-view Popup
   "The App-DB segment inspector popup. Renders only when
