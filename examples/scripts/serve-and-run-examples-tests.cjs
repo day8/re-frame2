@@ -14,7 +14,9 @@
  * 1. Compiles each surface's shadow-cljs build (one per smoke).
  * 2. Stages each surface's hand-written index.html into its
  *    out/examples/<name>/ directory next to main.js.
- * 3. Spawns http-server over out/examples on port 8030.
+ * 3. Resolves a free port (default 8040 — outside the top-level
+ *    :dev-http set 8765/8031/8030; see examples-port.cjs) and spawns
+ *    http-server over out/examples on 127.0.0.1:<port>.
  * 4. Waits for it to be reachable, then runs the Playwright runner
  *    (run-examples-tests.cjs).
  * 5. Always tears the server down.
@@ -31,6 +33,7 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { resolveExamplesPort } = require('./examples-port.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -81,12 +84,13 @@ function parseFilterPatterns(raw) {
   return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
 }
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
-// `EXAMPLES_PORT` env-var override defaults to 8030. Lets parallel
-// workers / contended dev sessions (e.g. a long-running `shadow-cljs
-// watch` on the two-frame-isolation testbed at 8030) retarget this
-// orchestrator to a free port without editing the script. No CLI
-// surface is added.
-const PORT = Number(process.env.EXAMPLES_PORT || 8030);
+// Port resolution lives in examples-port.cjs (resolveExamplesPort, called
+// at the top of main()). Default is 8040 — outside the top-level
+// :dev-http set (8765/8031/8030) so a running `shadow-cljs watch` no
+// longer pre-claims the orchestrator's port. `EXAMPLES_PORT` overrides
+// the default; when unset the resolver scans forward from 8040 to the
+// next free port, and when set-but-busy it throws an actionable message
+// (no raw EACCES stack). No CLI surface is added.
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -257,10 +261,21 @@ function stageHtml() {
 }
 
 async function main() {
+  // Pre-flight the port before any compile work: the resolver binds-and-
+  // releases on 127.0.0.1, picks the next free port from 8040 when
+  // EXAMPLES_PORT is unset, and throws an actionable message (caught by
+  // the bottom .catch, which prints err.message + exits 1) when an
+  // explicit EXAMPLES_PORT is busy. Resolving first means a port clash
+  // fails fast with a clear message instead of after a slow shadow build.
+  const PORT = await resolveExamplesPort({ env: process.env });
+
   compileAll();
   stageHtml();
 
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+  // Bind 127.0.0.1 (not 0.0.0.0): the Playwright specs only ever hit
+  // localhost, and the loopback-only bind sidesteps the Windows
+  // dual-stack EACCES surprise that made the old 8030 clash cryptic.
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(PORT), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
   }));
@@ -303,7 +318,14 @@ main().then(async (code) => {
   await cleanup.cleanup();
   process.exit(code);
 }).catch(async (err) => {
-  console.error(err);
+  // Actionable errors (e.g. a port clash from resolveExamplesPort) carry
+  // a fully-formed user-facing message — print just that, no raw stack.
+  // Everything else prints in full for debugging.
+  if (err && err.actionable) {
+    console.error(err.message);
+  } else {
+    console.error(err);
+  }
   await cleanup.cleanup();
   process.exit(1);
 });

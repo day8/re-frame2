@@ -58,13 +58,13 @@ The example is wired into the canonical examples harness. From `implementation/`
 npm run test:examples
 ```
 
-That compiles every example (this one builds under shadow-cljs id `examples/websocket`), stages its `index.html` into `out/examples/websocket/`, and serves the lot on port 8030.
+That compiles every example (this one builds under shadow-cljs id `examples/websocket`), stages its `index.html` into `out/examples/websocket/`, and serves the lot on `127.0.0.1:8040` (override with `EXAMPLES_PORT`).
 
 To iterate on the source alone, watch the build directly from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/websocket
-# then visit http://127.0.0.1:8030/websocket/ once the harness is running
+# then visit http://127.0.0.1:8040/websocket/ once the harness is running
 ```
 
 ## Headless tests

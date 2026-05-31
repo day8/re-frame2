@@ -8,7 +8,9 @@
  *
  * Pipeline:
  *   1. The orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
- *      builds + serves every example bundle on http://127.0.0.1:8030.
+ *      builds + serves every example bundle on http://127.0.0.1:8040
+ *      (its default port; override with EXAMPLES_PORT, and point this
+ *      script at the same port via SCREENSHOT_BASE_URL).
  *      We assume the same orchestrator has already been run (or we invoke
  *      `npm run test:examples -- --serve-only` in a future iteration).
  *   2. For each declared scene, we navigate to the testbed URL, drive
@@ -32,7 +34,7 @@
  *
  * How to run (from repo root):
  *
- *   # one-time, builds the example bundles and serves them on :8030
+ *   # one-time, builds the example bundles and serves them on :8040
  *   cd implementation && npm run test:examples:serve-only &
  *
  *   # then, from repo root:
@@ -62,7 +64,7 @@ const ANNOTATION_SPEC = path.join(__dirname, 'tutorial-annotation-spec.json');
 
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
-const BASE_URL = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:8030';
+const BASE_URL = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:8040';
 const VIEWPORT = { width: 1280, height: 800 };
 
 // ---------------------------------------------------------------------------

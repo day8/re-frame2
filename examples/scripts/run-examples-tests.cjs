@@ -58,7 +58,12 @@ const fs = require('fs');
 const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
-const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
+// EXAMPLES_BASE_URL is always set by the orchestrator
+// (serve-and-run-examples-tests.cjs) to the port it actually resolved.
+// The fallback below only applies when this runner is invoked
+// standalone; it tracks the orchestrator's default port (8040 — outside
+// the top-level :dev-http set 8765/8031/8030; see examples-port.cjs).
+const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8040';
 // `EXAMPLES_FILTER` narrows the spec set. When set, only spec files whose
 // path includes the substring are loaded. Composes with the
 // orchestrator's compile/stage filter so a narrow run only exercises

@@ -40,7 +40,7 @@ From `implementation/`:
 npm run test:examples
 ```
 
-That compiles every Reagent build under `out/examples/<name>/`, stages the hand-written `index.html` next to `main.js`, and serves the output on port 8030 so you can open each example in a browser. Examples are test-free — real-regression coverage lives in the substrate contract tests and framework gates, not under `examples/`. See [examples/README.md §End-to-end verification](../README.md#end-to-end-verification) for orchestrator details.
+That compiles every Reagent build under `out/examples/<name>/`, stages the hand-written `index.html` next to `main.js`, and serves the output on `127.0.0.1:8040` (override with `EXAMPLES_PORT`; the harness scans forward if 8040 is taken) so you can open each example in a browser. Examples are test-free — real-regression coverage lives in the substrate contract tests and framework gates, not under `examples/`. See [examples/README.md §End-to-end verification](../README.md#end-to-end-verification) for orchestrator details.
 
 To iterate on one example interactively, watch its build directly from `implementation/`:
 
