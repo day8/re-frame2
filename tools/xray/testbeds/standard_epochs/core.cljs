@@ -56,6 +56,9 @@
               exception · #20 effect exception (post-commit, best-effort) ·
               #21 slow fx flagged · #22 event-args schema violation · #23
               app-db schema violation (survives rollback).
+    Reactive— #24 diamond probe (c ← a,b ← root): the join sub's recompute
+              count surfaces whether the substrate double-computes an
+              intermediate sub per single root change (rf2-kt5nx).
 
   ## Test surface, not tutorial
 
@@ -125,7 +128,8 @@
               :b-mounted?  false
               :threshold   5
               :chain-input 1
-              :b-prop      "alpha"}})
+              :b-prop      "alpha"
+              :diamond-root 0}})
 
 (rf/reg-event-db :standard-epochs/reset
   {:doc "Button 0 — re-seed app-db and unmount both child views. Start clean."}
@@ -466,6 +470,16 @@
   (fn handler-bad-app-db-write [db _ev]
     (-> db bump (assoc-in [:auth :token] 42))))
 
+;; -- 24. diamond probe — bump the join-sub root once -------------------------
+(rf/reg-event-db :standard-epochs/bump-diamond
+  {:doc "Button 24 — bump :views/diamond-root once. The join sub
+         :standard-epochs/diamond-c (c ← a,b ← root) increments a recompute
+         counter each time its compute fn runs. Press once: the counter should
+         rise by 1 (clean); a rise of 2 means the diamond double-computes the
+         intermediate sub. The count is shown by the diamond-display view."}
+  (fn handler-bump-diamond [db _ev]
+    (-> db bump (update-in [:views :diamond-root] (fnil inc 0)))))
+
 ;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
@@ -500,6 +514,50 @@
 (rf/reg-sub :standard-epochs/greater-than?
   :<- [:standard-epochs/chain-root]
   (fn [root [_ threshold]] (> root threshold)))
+
+;; ============================================================================
+;; DIAMOND — redundant-recompute probe (rf2-kt5nx)
+;; ============================================================================
+;;
+;; A classic reactive DIAMOND:
+;;
+;;        :diamond-root          (L1 — reads :views/diamond-root)
+;;          /        \
+;;   :diamond-a    :diamond-b    (L2 — each :<- root)
+;;          \        /
+;;        :diamond-c             (the JOINING sub :<- a,b)
+;;
+;; Button #24 bumps the root ONCE. The join sub `:diamond-c` increments a
+;; counter each time its compute fn RUNS. Press once: the counter should rise
+;; by exactly 1; a rise of 2 means the substrate recomputes the intermediate
+;; join sub TWICE per single root change (the push-based diamond redundant-
+;; recompute). The count is shown by the `diamond-display` view below and is
+;; cross-checkable against Xray's Reactive / Trace lens.
+;;
+;; Side-effecting in a sub compute fn is deliberate HERE — this is a
+;; diagnostic instrument, not app code, and the raw reaction-run count is the
+;; thing we want to observe. `diamond-c-runs` is a plain atom (not a ratom)
+;; and is NOT an input to any sub, so the swap! cannot feed back into the graph.
+
+(defonce diamond-c-runs (atom 0))
+
+(rf/reg-sub :standard-epochs/diamond-root          ;; L1
+  (fn [db _] (get-in db [:views :diamond-root])))
+
+(rf/reg-sub :standard-epochs/diamond-a             ;; L2 — left arm
+  :<- [:standard-epochs/diamond-root]
+  (fn [root _] (* 10 (or root 0))))
+
+(rf/reg-sub :standard-epochs/diamond-b             ;; L2 — right arm
+  :<- [:standard-epochs/diamond-root]
+  (fn [root _] (inc (or root 0))))
+
+(rf/reg-sub :standard-epochs/diamond-c             ;; join — c = a + b
+  :<- [:standard-epochs/diamond-a]
+  :<- [:standard-epochs/diamond-b]
+  (fn [[a b] _]
+    (swap! diamond-c-runs inc)
+    (+ a b)))
 
 ;; ============================================================================
 ;; CHILD VIEWS — two children, separable re-render causes
@@ -548,6 +606,31 @@
                   :text-transform "uppercase" :letter-spacing "0.04em"}}
     "Child B — props-driven (no subs)"]
    [:div "prop: " [:strong prop]]])
+
+;; --- Diamond display — always mounted so the join reaction is live ----------
+;;
+;; Derefs `:diamond-root` (changes on every press) so the view re-renders each
+;; bump, then reads the plain `diamond-c-runs` counter at render time. Derefing
+;; `:diamond-c` keeps the join sub subscribed (and forces its recompute). The
+;; counter delta per press is the answer: 1 = clean, 2 = the intermediate
+;; recomputed twice.
+
+(reg-view diamond-display []
+  (let [root @(subscribe [:standard-epochs/diamond-root])
+        c    @(subscribe [:standard-epochs/diamond-c])
+        runs @diamond-c-runs]
+    [:div {:data-testid "standard-epochs-diamond"
+           :style {:border "1px solid #ffd8a8" :border-radius "6px"
+                   :padding "0.5em 0.75em" :margin "0.5em 0"
+                   :background "#fffaf3"}}
+     [:div {:style {:font-size "11px" :color "#e8590c" :font-weight "bold"
+                    :text-transform "uppercase" :letter-spacing "0.04em"}}
+      "Diamond probe — c ← a,b ← root"]
+     [:div "root: " [:strong root] " · c (= a + b): " [:strong c]]
+     [:div "c recompute count: "
+      [:strong {:data-testid "diamond-c-runs"} runs]
+      [:span {:style {:color "#888" :font-size "11px" :margin-left "0.5em"}}
+       "(press #24 once → +1 clean, +2 double-compute)"]]]))
 
 ;; ============================================================================
 ;; THE BUTTON LADDER
@@ -605,7 +688,10 @@
    [22 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
     [:standard-epochs/bad-event-args "not-a-number"]]
    [23 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
-    [:standard-epochs/bad-app-db-write]]])
+    [:standard-epochs/bad-app-db-write]]
+   [:section "Reactive substrate — diamond recompute probe"]
+   [24 "Bump diamond root"            "Diamond c ← a,b ← root: press once; c-recompute count should rise by 1 (clean), 2 = double-compute"
+    [:standard-epochs/bump-diamond]]])
 
 (defn- testid-for [event]
   (-> (first event) name (str "-button")))
@@ -669,7 +755,10 @@
    (when @(subscribe [:standard-epochs/a-mounted?])
      [child-a @(subscribe [:standard-epochs/threshold])])
    (when @(subscribe [:standard-epochs/b-mounted?])
-     [child-b @(subscribe [:standard-epochs/b-prop])])])
+     [child-b @(subscribe [:standard-epochs/b-prop])])
+   ;; Diamond probe — always mounted so the c ← a,b ← root reaction is live;
+   ;; button #24 bumps the root and the display shows c's recompute count.
+   [diamond-display]])
 
 ;; ============================================================================
 ;; MOUNT
