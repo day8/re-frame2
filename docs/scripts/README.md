@@ -4,9 +4,14 @@ Build-time and content-generation helpers for the docs site.
 
 ## `generate-tutorial-screenshots.cjs`
 
-Drives Playwright through the Xray and Story testbeds and captures the
-annotated screenshots embedded in the [Xray](../xray/index.md) and
-[Story](../story/index.md) tutorials.
+Drives Playwright through the Xray testbed and captures the annotated
+screenshots embedded in the [Xray](../xray/index.md) tutorial.
+
+The [Story](../story/index.md) tutorial's `s00`–`s13` captures are *not*
+produced here — they are hand-committed (see
+[`examples/scripts/capture-story-screenshots.cjs`](../../examples/scripts/capture-story-screenshots.cjs),
+whose shot list is currently empty), so this generator never writes under
+`docs/images/story/`.
 
 ### When to re-run
 
@@ -44,17 +49,13 @@ The script writes:
 
 ```
 docs/images/xray/*.png
-docs/images/story/*.png
 ```
 
 ### Determinism notes
 
 - Viewport pinned to **1280×800**.
-- The Story shell's first-visit help dialog is dismissed via
-  `localStorage` seeding (`re-frame.story/seen-help-v1`).
 - Xray's first paint is gated by waiting for
   `[data-testid="rf-xray-shell"]`.
-- The counter testbed seeds `:count` to a fixed value at boot.
 
 ### Annotations (data-driven)
 
