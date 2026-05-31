@@ -68,6 +68,21 @@
          (when el
            (rect->map (.getBoundingClientRect el)))))))
 
+#?(:cljs
+   (defn measure-anchor
+     "Walk `root`'s subtree for `node-id`'s bearing node, then turn its
+     viewport rect + `root`'s own rect into an overlay-local anchor by
+     applying the pure `anchor-fn` (`anchor-below` / `anchor-right-of`).
+     Returns nil when `root` / `node-id` is missing or the node isn't
+     in the DOM. CLJS-only (DOM interop); the shared measurement seam
+     the card overlays (cancellation-cascade, spawn-all-join) share so
+     each ns keeps only its anchor-fn choice (rf2-jkake.16)."
+     [anchor-fn ^js root node-id]
+     (when (and root node-id)
+       (let [container (rect->map (.getBoundingClientRect root))
+             node      (query-node-rect-by-testid root (node->testid node-id))]
+         (anchor-fn node container)))))
+
 (defn anchor-right-of
   "Anchor a card to the RIGHT of a bearing node. Takes the node's
   viewport rect + the overlay container's rect; returns

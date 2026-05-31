@@ -49,18 +49,12 @@
   region container is SILENTLY DROPPED from the DOM. The same
   mechanic the compound-node fix uses; the region-node mirrors it for
   consistency."
-  (:require ["@xyflow/react" :as xyflow]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
+             :refer [Handle pos-top pos-right pos-bottom pos-left]]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
              :refer [sans-stack]]))
-
-(def ^:private Handle (.-Handle xyflow))
-(def ^:private Position (.-Position xyflow))
-(def ^:private pos-top    (.-Top Position))
-(def ^:private pos-right  (.-Right Position))
-(def ^:private pos-bottom (.-Bottom Position))
-(def ^:private pos-left   (.-Left Position))
 
 ;; ---- region boundary palette --------------------------------------------
 

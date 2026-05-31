@@ -42,18 +42,10 @@
              :as anchor]))
 
 ;; ---- DOM measurement ----------------------------------------------------
-
-(defn- measure-anchor
-  "Walk the DOM under `root` for the cascade-spec's parent node and
-  return the overlay-local waterfall anchor (or nil when the node
-  isn't in the DOM). Uses the shared `overlay-anchor` DOM seam + the
-  pure `overlay-anchor/anchor-below`."
-  [^js root node-id]
-  (when (and root node-id)
-    (let [container (anchor/rect->map (.getBoundingClientRect root))
-          node      (anchor/query-node-rect-by-testid
-                      root (anchor/node->testid node-id))]
-      (anchor/anchor-below node container))))
+;;
+;; The waterfall anchors BELOW the parent state; the DOM walk + container
+;; re-base is the shared `anchor/measure-anchor` seam (rf2-jkake.16) — this
+;; overlay supplies only the `anchor-below` placement.
 
 ;; ---- cascade-step glyph -------------------------------------------------
 
@@ -164,7 +156,8 @@
                      (when-let [root @root-ref]
                        (when-let [spec @latest]
                          (reset! anchored
-                                 (measure-anchor root (:node-id spec))))))
+                                 (anchor/measure-anchor
+                                   anchor/anchor-below root (:node-id spec))))))
         resize-fn  (fn [_] (remeasure!))]
     (r/create-class
       {:display-name "MachinesViz.CancellationCascadeOverlay"

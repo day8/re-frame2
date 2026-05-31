@@ -41,18 +41,11 @@
              :as anchor]))
 
 ;; ---- DOM measurement ----------------------------------------------------
-
-(defn- measure-anchor
-  "Walk the DOM under `root` for the join-spec's bearing node and
-  return the overlay-local card anchor (or nil when the node isn't in
-  the DOM). Uses the shared `overlay-anchor` DOM seam + the pure
-  `overlay-anchor/anchor-right-of`."
-  [^js root node-id]
-  (when (and root node-id)
-    (let [container (anchor/rect->map (.getBoundingClientRect root))
-          node      (anchor/query-node-rect-by-testid
-                      root (anchor/node->testid node-id))]
-      (anchor/anchor-right-of node container))))
+;;
+;; The join card anchors to the RIGHT of the bearing state; the DOM walk +
+;; container re-base is the shared `anchor/measure-anchor` seam
+;; (rf2-jkake.16) — this overlay supplies only the `anchor-right-of`
+;; placement.
 
 ;; ---- child-row glyph ----------------------------------------------------
 
@@ -200,7 +193,8 @@
                      (when-let [root @root-ref]
                        (when-let [spec @latest]
                          (reset! anchored
-                                 (measure-anchor root (:node-id spec))))))
+                                 (anchor/measure-anchor
+                                   anchor/anchor-right-of root (:node-id spec))))))
         resize-fn  (fn [_] (remeasure!))]
     (r/create-class
       {:display-name "MachinesViz.SpawnAllJoinOverlay"
