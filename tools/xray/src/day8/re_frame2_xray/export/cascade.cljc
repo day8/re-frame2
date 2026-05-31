@@ -178,20 +178,33 @@
   (cond
     (and (nil? before) (nil? after)) []
     (and (map? before) (map? after))
-    (let [ks-b   (set (keys before))
-          ks-a   (set (keys after))
+    ;; rf2-5t8mr.24 — sort keys by `pr-str`, NOT raw `clojure.core/sort`.
+    ;; The host app-db is arbitrary user data: a top-level map with
+    ;; MIXED-TYPE keys (e.g. `{:user 1 "session" 2 42 3}` — legal
+    ;; Clojure) makes `(sort #{:user "session" 42})` throw a
+    ;; ClassCastException (the default comparator can't order a keyword
+    ;; against a string against a number). That throw escapes the
+    ;; `:rf.xray/cascade-export` sub and crashes the export surface.
+    ;; `pr-str`-keyed ordering is total over every Clojure value — the
+    ;; SAME mixed-type-safe approach the canonical engines already use
+    ;; (`app-db-diff-helpers/diff-paths` `::sort-key`; `diff.engine/
+    ;; compare-path`). Behaviour-preserving for the homogeneous-keyword
+    ;; common case (keyword pr-str ordering matches natural ordering).
+    (let [ks-b      (set (keys before))
+          ks-a      (set (keys after))
+          sort-keys (fn [ks] (sort-by pr-str ks))
           added  (mapv (fn [k] {:op :added :path [k] :before nil :after (get after k)})
-                       (sort (set/difference ks-a ks-b)))
+                       (sort-keys (set/difference ks-a ks-b)))
           removed (mapv (fn [k] {:op :removed :path [k] :before (get before k) :after nil})
-                        (sort (set/difference ks-b ks-a)))
+                        (sort-keys (set/difference ks-b ks-a)))
           changed (mapv (fn [k] {:op :modified :path [k]
                                  :before (get before k)
                                  :after  (get after k)})
-                        (sort (filter (fn [k]
-                                        (and (contains? ks-b k)
-                                             (contains? ks-a k)
-                                             (not= (get before k) (get after k))))
-                                      ks-a)))]
+                        (sort-keys (filter (fn [k]
+                                             (and (contains? ks-b k)
+                                                  (contains? ks-a k)
+                                                  (not= (get before k) (get after k))))
+                                           ks-a)))]
       (into [] cat [added changed removed]))
     (not= before after)
     [{:op :modified :path [] :before before :after after}]

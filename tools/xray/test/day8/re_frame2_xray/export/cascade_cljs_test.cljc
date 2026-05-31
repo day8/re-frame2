@@ -197,6 +197,23 @@
     (is (some #(= [:c] (:path %)) (:removed by-op))  ":c removed")
     (is (some #(= [:d] (:path %)) (:added by-op))    ":d added")))
 
+(deftest app-db-diff-mixed-type-top-level-keys-no-crash
+  ;; rf2-5t8mr.24 — the host app-db is arbitrary user data; a top-level
+  ;; map with MIXED-TYPE keys (keyword + string + number) must not throw
+  ;; a ClassCastException out of the export diff's key sort (which would
+  ;; escape the `:rf.xray/cascade-export` sub and crash the export
+  ;; surface). The diff must still classify every changed key correctly.
+  (let [epoch {:epoch-id :e1
+               :db-before {:user 1 "session" :tok-a 42 :old}
+               :db-after  {:user 9 "session" :tok-b 7 :new}}
+        out (export/project-cascade {:dispatch-id 1} {:epoch epoch})
+        diff (get-in out [:app-db :diff])
+        by-op (group-by :op diff)]
+    (is (some #(= [:user] (:path %)) (:modified by-op))     ":user modified")
+    (is (some #(= [42] (:path %)) (:removed by-op))         "42 removed")
+    (is (some #(= [7] (:path %)) (:added by-op))            "7 added")
+    (is (some #(= ["session"] (:path %)) (:modified by-op)) "\"session\" modified")))
+
 (deftest app-db-diff-empty-when-before-equals-after
   (let [epoch {:epoch-id :e1
                :db-before {:a 1}
