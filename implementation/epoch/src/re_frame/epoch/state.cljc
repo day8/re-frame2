@@ -189,10 +189,10 @@
   [history keep]
   (let [n (count history)]
     (if (and (some? keep) (nat-int? keep) (> n keep))
-      (let [idx (- n keep 1)
-            r   (nth history idx)]
-        (if (contains? r :trace-events)
-          (assoc history idx (dissoc r :trace-events))
+      (let [idx    (- n keep 1)
+            record (nth history idx)]
+        (if (contains? record :trace-events)
+          (assoc history idx (dissoc record :trace-events))
           history))
       history)))
 
