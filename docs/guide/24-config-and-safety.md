@@ -156,5 +156,3 @@ The full catalogue (every `:rf.<spec-area>/*` sub-namespace, fixed-and-additive)
 To check yourself: run your lint pass (the framework ships a rule that flags any registration under `:rf*`), let the migration agent's first pass flag collisions if you're coming from v1, or ask the REPL — `(filter #(re-find #"^:rf" (str %)) (rf/handler-ids))` returns everything framework-owned, and your name showing up there when you didn't intend it means you've collided.
 
 That's the configuration surface and the safety surface, end to end. The knobs are a small fixed set with conservative defaults; the guardrails are non-negotiable and fail loudly at the source. Both follow the same framework instinct — make the safe thing the default and the dangerous thing structurally hard — which is the instinct the rest of this guide has been earning your trust in, one chapter at a time.
-
-If you are arriving from re-frame v1, this is the point where the new surfaces stop looking like isolated features and start looking like one migration story. The architecture survived; the global assumptions did not.

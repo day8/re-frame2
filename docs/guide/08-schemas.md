@@ -219,5 +219,3 @@ Schemas are deliberately a warmup chapter — you meet the vocabulary here, alon
 - [Malli's README](https://github.com/metosin/malli) is the full vocabulary — registries, custom schemas, generators — for when the seven shapes run out.
 
 The thing to carry forward isn't the syntax; it's the posture. A schema is a small piece of data you write down once, next to the slice it describes, that turns a class of silent, time-displaced, afternoon-eating bugs into loud, located, immediate ones in dev — and disappears completely in production. The whole architecture is "everything is data"; schemas are what happens when you point that idea back at the data itself and ask it to describe its own shape.
-
-The moment you have validation, logging, tracing, and repeated setup around handlers, you want one more abstraction: a way to wrap the event pipeline without hiding it. That is the interceptor chain.

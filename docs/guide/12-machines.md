@@ -387,5 +387,3 @@ The complete login flow from this chapter, with its runnable smoke tests, lives 
 ## The deeper claim
 
 State machines are a small instance of the broader thesis [chapter 21 on the dynamic model](21-dynamic-model.md) makes in full: **constrained execution models are easier to reason about than free-form ones.** A finite state machine has, by construction, a small enumerable set of reachable states — you can list them, prove things about transitions, render the whole flow as a diagram. A pile of `if` / `cond` spread across handlers has none of those properties: reachable states are implicit, transitions are scattered, and "from here, what can happen?" requires reading every handler that touches the state field. The choice isn't a matter of style. It's a matter of which dynamic model you can hold in your head. When the flow has the shape of a machine, write a machine.
-
-That shape also changes how you test. A machine transition is a pure function, an event handler is a pure function, a subscription is a pure function over a value, and a view returns data. The next chapter cashes that out into tests that do not need a browser to prove most of the app.

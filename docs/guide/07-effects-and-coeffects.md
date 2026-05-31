@@ -327,5 +327,3 @@ Effects-as-data costs you verbosity, and there's no point pretending otherwise �
 **The whole state is one value.** State lives in one place and updates atomically, so the app's entire state at any instant is a single value you can capture, compare, and restore as a pointer swap. Undo is a thin interceptor. Time-travel records values, not events. AI experimentation tries a change, observes, reverts — no registry pollution. Every one of those is a downstream consequence of "the handler describes; the runtime does."
 
 That's the deal. You gave up the freedom to do whatever you want wherever you want, and in exchange you got an app whose every impure act is named, addressable, swappable, recordable, and replayable. Less freedom, more inspectability. It's the same trade [chapter 01](01-introduction.md) called the whole game — and effects and coeffects are where you actually sign for it.
-
-Once the world is entering and leaving through named data, the next obvious question is: what shape is that data allowed to have? Schemas are the answer, and they work precisely because the architecture keeps the boundary visible.

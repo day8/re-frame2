@@ -373,5 +373,3 @@ A few performance topics that *aren't* re-frame2 stories, named so you don't go 
 - **Sub-graph topology** — `(rf/sub-topology)`, surfaced in [Xray](../xray/index.md) (the tooling tour is [chapter 17](17-tooling.md)) — is the lever for finding dead subs and visualising dependencies. The performance angle is "every redundant edge is a potential cache miss"; the tooling covers the rest.
 
 The throughline, if you take nothing else: four shapes account for nearly every slowdown, the cures compose and stack in order of cost, and most apps never climb past thin-props-and-keys. The framework hands you fast by default; this chapter is just the map for the day you accidentally gave it back.
-
-Performance is the first chapter where the raw runtime evidence starts to feel indispensable. You can reason about keys and thin props in prose, but the moment a real app gets weird you want the trace, the epoch, the timing mark, and the panel that puts them together. That is observability.

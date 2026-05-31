@@ -14,9 +14,9 @@ re-frame v1 users should read the main guide, then [25 - From re-frame v1](25-fr
 
 ## How To Read It
 
-Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema. That sequence is deliberate. Each chapter answers the question the previous one creates.
+Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema.
 
-After that, jump by problem:
+After that, use the guide by problem:
 
 - Building real forms? Read [11 - Forms](11-forms.md).
 - Talking to a server? Read [10 - HTTP](10-http.md).

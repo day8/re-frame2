@@ -140,5 +140,3 @@ Both production listener substrates pass every record through the elision pass f
 A belt-and-braces note worth burning into muscle memory: gate your production-listener *registration* on `(not ^boolean re-frame.interop/debug-enabled?)` alongside your own config flag. It costs nothing and it catches the nasty bug class where a dev bundle gets deployed with production config baked in — instead of leaking dev-verbose data to your APM at 3am, the listener simply refuses to register and you notice the silence on the dashboard.
 
 So: dev gets the firehose — every sub recompute, every render, time-travel, the works — because dev can afford it and you need it. Production gets two narrow, always-on, privacy-scrubbed wires for the questions that survive into the real world. The line between them is one compile-time flag, and the safe default is on the safe side of it.
-
-Once you understand the wire, the tools stop feeling magical. Xray, Story, MCP, and production shippers are not private back doors into the framework. They are different readers over the same structured evidence.
