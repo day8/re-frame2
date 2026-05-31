@@ -12,6 +12,8 @@
     "list-streams",
     "list-subscriptions",
     "read-dom",
+    "read-recording",
+    "record",
     "reset-frame-db",
     "restore-epoch",
     "snapshot",
@@ -19,6 +21,7 @@
     "tail-build",
     "trace-window",
     "unsubscribe",
-    "watch-epochs"
+    "watch-epochs",
+    "watch-until"
   ]
 }

@@ -1,0 +1,160 @@
+(ns re-frame2-pair-mcp.tools.watch-until
+  "Tool: watch-until — block until a predicate over a signal holds (rf2-zo4b9).
+
+  ## Why a blocking watch primitive
+
+  `record` is the non-blocking half of the recorder: install an observer,
+  let the human interact, read back the change-log later. `watch-until` is
+  the blocking half — the answer to \"wait until the focus lands on the
+  modal\" / \"wait until app-db's `[:upload :status]` flips to `:done`\".
+  Pre-rf2-zo4b9 this was a hand-rolled `setTimeout` poll inside `eval-cljs`,
+  with the same timing/teardown footguns the recorder exists to kill.
+
+  ## How it blocks
+
+  Like `tail-build`, the server polls a cheap runtime read on a fixed
+  cadence until the condition trips or `timeout-ms` elapses — no rAF loop,
+  no browser-side mailbox. Each poll evals one form that (a) samples the
+  signal-set via the runtime's `sample-signals` and (b) applies the
+  compiled predicate to the positional sample map server-side, returning
+  `{:held? bool :sample {...} :t <ms>}`. The first poll where `:held?` is
+  true resolves the tool with that sample. On timeout the LAST sample
+  rides back so the operator sees how close the condition got.
+
+  ## Predicate vocabulary — DATA, not host source
+
+  The `pred` arg is an EDN data predicate (same injection-closing posture
+  as `dispatch` / `reset-frame-db`, rf2-vflrg). It is compiled into a pure
+  value-comparison fn by `record/pred-source` — shared with `record`'s
+  `:stop {:pred ...}` so the two surfaces read identically. Recognised
+  shapes (matched against the positional sample map `{<signal-index>
+  <value>}`):
+
+    {:signal 0 :equals <v>}              — sample 0 equals <v>
+    {:signal 0 :changed true}            — sample 0 is non-nil
+    {:signal 0 :path [...] :equals <v>}  — (get-in (sample 0) path) = <v>
+    {:signal 0 :contains <substr>}       — (str (sample 0)) includes <substr>
+    {:signal 0}                          — sample 0 took any non-nil value
+
+  ## Read-only by construction
+
+  The runtime sampler only reads; `watch-until` never dispatches or
+  mutates. The descriptor carries the read-only annotation."
+  (:require [cljs.reader]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.wire :as wire]
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.record :as record]))
+
+(def ^:private default-timeout-ms
+  "Default deadline for the predicate to hold. 30 s matches the
+  recorder's default window — a generous \"interact while I watch\"
+  budget. Pathologically long human-in-the-loop sessions raise it via
+  the `:timeout-ms` arg."
+  30000)
+
+(def ^:private poll-ms
+  "Cadence at which the server re-samples + re-tests the predicate.
+  100ms = ~10 polls/sec — lands within ~100ms of the condition tripping,
+  cheap on the nREPL socket. Matches `tail-build`'s probe cadence."
+  100)
+
+(defn watch-form
+  "Build the per-poll eval form: sample the signal-set against the frame,
+  then apply the compiled predicate to the positional sample map. Returns
+  `{:held? bool :sample {...} :t <ms>}`. `pred-src` is the predicate fn
+  source (from `record/pred-source`); when nil the form reports
+  `:held? false` every tick (a no-predicate watch can only time out — the
+  refusal is enforced at the tool boundary, so this is defensive)."
+  [signals frame pred-src]
+  (let [sample-call (if frame
+                      (ef/rt-call 'sample-signals signals frame)
+                      (ef/rt-call 'sample-signals signals))]
+    (ef/emit
+      (ef/rt-let
+        ['r       sample-call
+         'sample  (ef/rt-raw "(:sample r)")
+         'held?   (ef/rt-raw (if pred-src
+                               (str "(boolean ((" pred-src ") sample))")
+                               "false"))]
+        (ef/rt-raw "{:held? held? :sample sample :t (:t r)}")))))
+
+(defn watch-until-tool
+  "MCP `watch-until` handler. Polls the signal-set until the compiled
+  predicate holds or `timeout-ms` elapses. See the ns docstring for the
+  wire contract."
+  [conn raw-args]
+  (let [build-id   (wire/arg-build conn raw-args)
+        frame      (some-> (wire/arg raw-args :frame) args/->frame-keyword)
+        signals    (record/parse-signals-arg (wire/arg raw-args :signals))
+        pred       (let [p (wire/arg raw-args :pred)]
+                     (cond
+                       (map? p) p
+                       (string? p) (try (let [v (cljs.reader/read-string p)]
+                                          (when (map? v) v))
+                                        (catch :default _ nil))
+                       (object? p) (try (js->clj p :keywordize-keys true)
+                                        (catch :default _ nil))
+                       :else nil))
+        timeout-ms (let [t (wire/arg raw-args :timeout-ms)]
+                     (if (and (number? t) (pos? t)) (long t) default-timeout-ms))
+        pred-src   (record/pred-source pred)]
+    (cond
+      (or (nil? signals) (empty? signals))
+      (js/Promise.resolve
+        (wire/err-text
+          {:ok? false :reason :no-signals
+           :hint (str "usage: watch-until {signals '[{:app-db [:upload :status]}]' "
+                      "pred {:signal 0 :equals :done} [timeout-ms 30000] [frame :rf/default]}")}))
+
+      (nil? pred-src)
+      (js/Promise.resolve
+        (wire/err-text
+          {:ok? false :reason :missing-pred
+           :hint (str "watch-until needs a `pred` data map, e.g. {:signal 0 :equals :done} "
+                      "or {:signal 0 :changed true}. Without one it can only time out.")}))
+
+      :else
+      (let [form (watch-form signals frame pred-src)]
+        (-> (probe/ensure-runtime! conn build-id)
+            (.then
+              (fn [_]
+                (js/Promise.
+                  (fn [resolve _reject]
+                    (let [start  (js/Date.now)
+                          latest (volatile! nil)]
+                      (letfn [(poll []
+                                (let [elapsed (- (js/Date.now) start)]
+                                  (if (>= elapsed timeout-ms)
+                                    (resolve
+                                      (wire/ok-text
+                                        {:ok?         false
+                                         :reason      :watch-timeout
+                                         :timed-out?  true
+                                         :timeout-ms  timeout-ms
+                                         :last-sample (:sample @latest)
+                                         :hint        (str "predicate did not hold within timeout-ms. "
+                                                           ":last-sample shows the final reading — compare "
+                                                           "it against the predicate to see how close it got.")}))
+                                    (-> (nrepl/cljs-eval-value conn build-id form)
+                                        (.then
+                                          (fn [resp]
+                                            (vreset! latest resp)
+                                            (if (and (map? resp) (:held? resp))
+                                              (resolve
+                                                (wire/ok-text
+                                                  {:ok?       true
+                                                   :held?     true
+                                                   :elapsed-ms (- (js/Date.now) start)
+                                                   :sample    (:sample resp)
+                                                   :t         (:t resp)}))
+                                              (js/setTimeout poll poll-ms))))
+                                        (.catch
+                                          (fn [_]
+                                            ;; nREPL hiccup — keep polling
+                                            ;; rather than collapsing the watch.
+                                            (js/setTimeout poll poll-ms)))))))]
+                        (poll)))))))
+            (.catch (fn [err] (probe/err->result :watch-until-failed err))))))))

@@ -201,9 +201,9 @@ node out/server.js
 
 ## Tool surface
 
-The eighteen tools, in the order a typical session uses them. Argument
-schemas and result shapes are specified in
-[`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
+The full tool surface, in the order a typical session uses them
+(canonical count: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md)).
+Argument schemas and result shapes are specified there.
 
 | Tool | Purpose |
 |---|---|
@@ -218,6 +218,9 @@ schemas and result shapes are specified in
 | `snapshot`   | Coarse-grained per-frame state read in one round-trip. Returns `:app-db` + `:sub-cache` + `:machines` + `:epochs` + `:traces` slices for every (or a subset of) frame(s). Mega-op for investigate-X workflows. |
 | `get-path` | Direct slice read at a path inside `app-db`. The deep-read peer of `snapshot`; agents drill in once a `:rf.mcp/summary` or elision marker names the path of interest. |
 | `read-dom` | View-plane read — query the **rendered DOM** by CSS selector; returns matched count + per-node `{:tag :text :attrs}` as EDN (rf2-nfjil). Read-only; per-node text + matched-node count capped browser-side (over-cap text → `:rf.size/large-elided` marker). Optional `sub-selector` scopes to descendants of each match; `attrs` picks attributes (default: structural set + `data-*` / `aria-*` sweep). Answers "did the UI update?" / "what does the rendered node say?". Pairs with `dispatch {:await-render true}` for deterministic `dispatch → settle → read`. |
+| `record` | First-class **signal recorder** (rf2-zo4b9) — install a read-only observer over a signal-set (`:app-db [path]` / `:sub [query-v]` / `:dom "sel"` / `:focus true`) with a stop condition (`:ms` / `:changes` / `:pred`), let the human interact, then read the change-log back. Returns immediately with a `:recording-id`; the runtime samples each signal per animation frame, records each change with a timestamp, dedups, and tears itself down at the stop condition — the rAF/dedup/teardown footguns solved once. The canonical move for intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing race). |
+| `read-recording` | Read back a recording's change-log (rf2-zo4b9) — paired with `record`. `drain true` consumes the buffered entries (the live-watch poll→consume→repeat idiom); `stop true` reads-and-closes. Returns `:status` + per-change `:entries` with `:t` timestamps + rAF `:frame` counters. |
+| `watch-until` | Block until a **predicate over a signal holds** (rf2-zo4b9) — the blocking counterpart to `record` ("wait until `[:upload :status]` flips to `:done`"). Server-polls (~100 ms, like `tail-build`) until the data predicate (`{:signal 0 :equals <v>}` / `:changed` / `:path` / `:contains`) holds or `timeout-ms` elapses. Returns the satisfying `:sample`, or `:reason :watch-timeout` with the final `:last-sample`. |
 | `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
 | `list-subscriptions` | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `include-values` adds value + ref-count. |

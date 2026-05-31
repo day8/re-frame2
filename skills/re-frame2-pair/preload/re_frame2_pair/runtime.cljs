@@ -2251,6 +2251,348 @@
     {:ok? false :reason :no-element :selector selector}))
 
 ;; ---------------------------------------------------------------------------
+;; Signal recorder (rf2-zo4b9)
+;; ---------------------------------------------------------------------------
+;;
+;; Intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing
+;; race, only reproducible under real mouse input) need a recorder:
+;; install an observer, let the human interact, read back a change-log.
+;; That move used to be hand-built each session — a `requestAnimationFrame`
+;; loop pushing focus-slot + DOM snapshots into `window.__zoombug`. It was
+;; decisive, but bespoke and footgun-prone: rAF timing, change-dedup,
+;; teardown. This first-classes it.
+;;
+;; A SIGNAL is a read-only sample of one observable: an app-db path, a
+;; subscription value, a DOM text/attribute read, or the currently-focused
+;; element. A RECORDING samples its signal-set every animation frame,
+;; records each CHANGE (per signal, structural `=` against the last value)
+;; with a timestamp + frame counter, and tears itself down at a STOP
+;; condition (after N ms, after N changes, or when a predicate over the
+;; current sample holds). The change-log is read back via `read-recording`.
+;;
+;; Footguns handled once, here:
+;;   - rAF timing      — the sampler runs inside the rAF callback, so it
+;;                       reads post-layout state once per paint and never
+;;                       busy-loops; environments without rAF fall back to
+;;                       `next-tick`.
+;;   - change-dedup    — only a structural change against the per-signal
+;;                       last value appends an entry. A signal that holds
+;;                       steady across 10,000 frames yields ONE baseline
+;;                       entry, not 10,000.
+;;   - teardown        — the rAF loop cancels itself the instant the stop
+;;                       condition trips, and `stop-recording!` is an
+;;                       idempotent manual escape hatch. A capped ring
+;;                       (`max-entries`, drop-oldest) bounds memory even if
+;;                       a recording is forgotten.
+;;
+;; Read-only by construction: every signal sampler only READS (get-in /
+;; subscribe-deref / querySelector text+attr / activeElement). A recording
+;; never dispatches, never mutates app-db, never writes the DOM.
+
+(defonce ^:private recordings
+  ;; recording-id -> recording map (see start-recording! for the shape)
+  (atom {}))
+
+(def ^:private default-recording-max-entries
+  ;; Drop-oldest ring cap on a single recording's change-log. Sized so a
+  ;; busy multi-signal session (focus + a handful of DOM/app-db signals,
+  ;; each flipping a few times a second over a minute) fits comfortably,
+  ;; while a forgotten recording can't accumulate unboundedly.
+  2000)
+
+(def ^:private default-recording-stop-ms
+  ;; Default wall-clock stop when the caller names no stop condition.
+  ;; 30 s is a generous "let me interact while you watch" window.
+  30000)
+
+(defn- sample-one-signal
+  "Read ONE signal's current value. Pure READ — never mutates. `signal`
+   is a map naming exactly one observable; the recognised shapes:
+
+     {:app-db <path-vector>}     — `(get-in app-db path)` for the frame.
+     {:sub <query-vector>}       — current deref of the subscription.
+     {:dom <css-selector>}       — the first matching node's textContent
+       [:attr <name>]              (string), or, with `:attr`, that
+                                    attribute's value. nil when no match.
+     {:focus true}               — a stable descriptor of
+                                    `document.activeElement` (tag + id +
+                                    a short data-/aria- attr digest) — the
+                                    focus-slot the hand-built recorder
+                                    tracked.
+
+   `frame-id` resolves the operating frame for :app-db / :sub signals.
+   Returns the sampled value (any EDN-able shape) or nil. Errors degrade
+   to `{:rf.recording/error <message>}` so one bad signal never collapses
+   the whole sampler tick."
+  [signal frame-id]
+  (try
+    (cond
+      (contains? signal :app-db)
+      (get-in (rf/get-frame-db frame-id) (vec (:app-db signal)))
+
+      (contains? signal :sub)
+      (when frame-id @(rf/subscribe frame-id (vec (:sub signal))))
+
+      (contains? signal :dom)
+      (when-let [el (.querySelector js/document (:dom signal))]
+        (if-let [a (:attr signal)]
+          (.getAttribute el (name a))
+          (let [t (.-textContent el)]
+            (when (string? t) t))))
+
+      (contains? signal :focus)
+      (when-let [el (and (exists? js/document) (.-activeElement js/document))]
+        ;; A stable, EDN-able descriptor — comparing whole DOM nodes by
+        ;; `=` is meaningless, so we project to the identity fields that
+        ;; actually change as focus moves.
+        {:tag   (some-> (.-tagName el) str/lower-case)
+         :id    (not-empty (.-id el))
+         :class (not-empty (.-className el))
+         :name  (not-empty (.getAttribute el "name"))
+         :rf2-src (some-> (.getAttribute el "data-rf2-source-coord"))})
+
+      :else
+      {:rf.recording/error "unrecognised signal shape — expected one of :app-db :sub :dom :focus"})
+    (catch :default e
+      {:rf.recording/error (.-message e)})))
+
+(defn sample-signals
+  "One-shot read of a signal-set against the operating frame — the pure,
+   non-installing counterpart to a recording tick. `signals` is a vector
+   of signal maps (see `sample-one-signal`). Returns
+   `{:ok? true :t <ms> :sample {<signal-index> <value>}}`. The MCP
+   `watch-until` op polls this server-side (like `tail-build`) so it can
+   block on a predicate without installing a rAF loop. The keys of
+   `:sample` are the signals' positional indices so the predicate can
+   address `(get sample 0)` regardless of signal shape."
+  ([signals] (sample-signals signals (current-frame)))
+  ([signals frame-id]
+   {:ok?    true
+    :t      (js/Date.now)
+    :sample (into {}
+                  (map-indexed (fn [i s] [i (sample-one-signal s frame-id)]))
+                  (vec signals))}))
+
+(defn- recording-sampler-tick!
+  "Run one sampler tick for recording `rid`: read every signal, append a
+   change entry for any signal whose value differs structurally from its
+   last-seen value, advance the frame counter, then evaluate the stop
+   condition. Returns true when the recording should KEEP running, false
+   when it should stop (the rAF driver reads this to self-cancel)."
+  [rid]
+  (let [rec (get @recordings rid)]
+    (if (or (nil? rec) (not= :recording (:status rec)))
+      false
+      (let [{:keys [signals frame-id last-values frame-count started-at
+                    stop max-entries]} rec
+            now      (js/Date.now)
+            samples  (mapv #(sample-one-signal % frame-id) signals)
+            ;; Per-signal change detection — structural `=` against the
+            ;; last recorded value. The first tick records every signal
+            ;; as a baseline (last-values starts empty for each index).
+            changes  (keep-indexed
+                       (fn [i v]
+                         (when (not= v (get last-values i ::unset))
+                           {:i i :signal (nth signals i) :value v
+                            :t now :frame frame-count}))
+                       samples)
+            new-last (reduce (fn [m {:keys [i value]}] (assoc m i value))
+                             last-values changes)
+            ;; Stop predicates evaluate against the positional sample map
+            ;; (same shape `sample-signals` returns) so a recording's stop
+            ;; predicate and a watch-until predicate read identically.
+            sample-map (into {} (map-indexed vector samples))
+            elapsed    (- now started-at)
+            n-changes  (+ (count (:entries rec)) (count changes))
+            pred-fn    (:pred-fn stop)
+            stop-hit?  (cond
+                         (and (:ms stop) (>= elapsed (:ms stop)))         :ms
+                         (and (:changes stop) (>= n-changes (:changes stop))) :changes
+                         (and pred-fn (try (pred-fn sample-map)
+                                           (catch :default _ false)))    :predicate
+                         :else nil)]
+        (swap! recordings update rid
+               (fn [r]
+                 (when r
+                   (let [entries' (into (:entries r) changes)
+                         ;; Drop-oldest ring cap — bounds memory on a
+                         ;; forgotten recording. Trims from the FRONT.
+                         capped   (let [n (count entries')]
+                                    (if (> n max-entries)
+                                      (subvec entries' (- n max-entries))
+                                      entries'))]
+                     (cond-> (assoc r
+                                    :entries     capped
+                                    :last-values new-last
+                                    :frame-count (inc frame-count)
+                                    :last-tick-at now)
+                       stop-hit? (assoc :status :stopped
+                                        :stopped-reason stop-hit?
+                                        :stopped-at now))))))
+        (not stop-hit?)))))
+
+(defn- drive-recording!
+  "Install the self-cancelling rAF (or next-tick) loop that runs the
+   sampler each frame until the stop condition trips. Stores the cancel
+   handle on the recording so `stop-recording!` can pre-empt it. The loop
+   reads `recording-sampler-tick!`'s boolean to decide whether to
+   reschedule — teardown is automatic and single-sourced."
+  [rid]
+  (let [raf?   (exists? js/requestAnimationFrame)
+        schedule (fn [f]
+                   (if raf?
+                     (js/requestAnimationFrame f)
+                     (interop/next-tick f)))]
+    (letfn [(step [_]
+              (when (recording-sampler-tick! rid)
+                (let [h (schedule step)]
+                  (swap! recordings update rid
+                         (fn [r] (when r (assoc r :raf-handle h)))))))]
+      (let [h (schedule step)]
+        (swap! recordings update rid
+               (fn [r] (when r (assoc r :raf-handle h))))))))
+
+(defn start-recording!
+  "Install a read-only observer over `signals` and begin recording each
+   CHANGE with a timestamp. Returns `{:ok? true :recording-id <uuid>
+   :signals [...] :stop {...} :frame <frame-id>}` immediately — the
+   recording runs in the background while the human interacts; read the
+   change-log back via `read-recording`.
+
+   Opts:
+     :signals  vector of signal maps (REQUIRED, non-empty). Each names
+               one observable — see `sample-one-signal` for the shapes
+               (:app-db / :sub / :dom / :focus).
+     :stop     stop condition map. Recognised keys (first to trip wins):
+                 :ms       wall-clock milliseconds (default 30000 when no
+                           stop key is supplied at all).
+                 :changes  total recorded change-entry count.
+                 :pred-fn  a 1-arg fn over the positional sample map
+                           `{<signal-index> <value>}`; truthy ⇒ stop. The
+                           MCP layer compiles a data predicate into this.
+     :frame    operating frame for :app-db / :sub signals. Defaults to the
+               session's operating frame.
+     :max-entries  drop-oldest ring cap on the change-log (default 2000).
+
+   Refuses with `{:ok? false :reason :no-signals}` when `signals` is
+   empty, and `{:ok? false :reason :ambiguous-frame}` when an :app-db /
+   :sub signal is present but no frame can be resolved (multi-frame
+   session, no selection) — read ops must not silently fall back to
+   :rf/default."
+  [{:keys [signals stop frame max-entries]}]
+  (let [signals  (vec signals)
+        needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)) signals)
+        frame-id (current-frame frame)]
+    (cond
+      (empty? signals)
+      {:ok? false :reason :no-signals
+       :hint "pass a non-empty :signals vector, e.g. [{:focus true} {:dom \"#count\"} {:app-db [:cart :items]}]"}
+
+      (and needs-frame? (nil? frame-id))
+      {:ok? false :reason :ambiguous-frame
+       :hint "an :app-db / :sub signal needs a frame — pass :frame or call select-frame! first."}
+
+      :else
+      (let [rid (str "rec-" (random-uuid))
+            ;; Default the stop to a wall-clock window when the caller
+            ;; named nothing — a recording with no stop is the forgotten-
+            ;; observer footgun this op exists to kill.
+            stop' (if (and (nil? (:ms stop)) (nil? (:changes stop)) (nil? (:pred-fn stop)))
+                    (assoc stop :ms default-recording-stop-ms)
+                    stop)
+            rec  {:id          rid
+                  :signals     signals
+                  :frame-id    frame-id
+                  :stop        stop'
+                  :max-entries (or max-entries default-recording-max-entries)
+                  :status      :recording
+                  :entries     []
+                  :last-values {}
+                  :frame-count 0
+                  :started-at  (js/Date.now)
+                  :raf-handle  nil}]
+        (swap! recordings assoc rid rec)
+        (drive-recording! rid)
+        {:ok?          true
+         :recording-id rid
+         :signals      signals
+         :frame        frame-id
+         :stop         (dissoc stop' :pred-fn)}))))
+
+(defn read-recording
+  "Read back a recording's change-log. Returns
+   `{:ok? true :recording-id <id> :status :recording|:stopped
+     :stopped-reason <kw|nil> :frames-sampled <n> :count <n>
+     :entries [{:i <signal-index> :signal {...} :value <v> :t <ms>
+                :frame <frame-counter>} ...]}`.
+
+   Each entry is one CHANGE: the moment signal `:i` took a new value.
+   `:t` is the wall clock (ms); `:frame` is the rAF frame counter at the
+   sample, so two signals that changed on the same paint share a `:frame`.
+
+   Opts:
+     :drain   when true, returns the buffered entries AND clears them from
+              the recording (so the next read sees only subsequent
+              changes) — the live-watch idiom: poll, consume, repeat. The
+              recording keeps running (or stays stopped) either way.
+     :stop    when true, tears the recording down after reading (a
+              read-and-close in one round-trip).
+
+   Unknown id ⇒ `{:ok? false :reason :no-such-recording}`."
+  ([recording-id] (read-recording recording-id {}))
+  ([recording-id {:keys [drain stop]}]
+   (if-let [rec (get @recordings recording-id)]
+     (let [entries (:entries rec)
+           result  {:ok?            true
+                    :recording-id   recording-id
+                    :status         (:status rec)
+                    :stopped-reason (:stopped-reason rec)
+                    :frames-sampled (:frame-count rec)
+                    :count          (count entries)
+                    :entries        entries}]
+       (when drain
+         (swap! recordings update recording-id
+                (fn [r] (when r (assoc r :entries [])))))
+       (when stop
+         (some-> (get @recordings recording-id) :raf-handle
+                 (#(when (exists? js/cancelAnimationFrame)
+                     (js/cancelAnimationFrame %))))
+         (swap! recordings dissoc recording-id))
+       result)
+     {:ok? false :reason :no-such-recording :recording-id recording-id})))
+
+(defn stop-recording!
+  "Tear down recording `recording-id` — cancel its rAF loop and drop it
+   from the registry. Idempotent: an unknown / already-stopped id returns
+   `{:ok? true :existed? false}`. The recording's change-log is discarded;
+   read it with `read-recording` BEFORE stopping if you still need it."
+  [recording-id]
+  (let [rec (get @recordings recording-id)]
+    (when-let [h (:raf-handle rec)]
+      (when (exists? js/cancelAnimationFrame)
+        (js/cancelAnimationFrame h)))
+    (swap! recordings dissoc recording-id)
+    {:ok? true :recording-id recording-id :existed? (some? rec)}))
+
+(defn recording-info
+  "List active / stopped recordings — diagnostic counterpart to
+   `subscription-info`. Returns `{:ok? true :recordings [{:id :status
+   :signals :count :frames-sampled :frame :started-at :stopped-reason}]}`.
+   Does not drain or stop."
+  []
+  {:ok? true
+   :recordings (mapv (fn [[rid rec]]
+                       {:id             rid
+                        :status         (:status rec)
+                        :signals        (:signals rec)
+                        :count          (count (:entries rec))
+                        :frames-sampled (:frame-count rec)
+                        :frame          (:frame-id rec)
+                        :started-at     (:started-at rec)
+                        :stopped-reason (:stopped-reason rec)})
+                     @recordings)})
+
+;; ---------------------------------------------------------------------------
 ;; Watch predicate matching
 ;; ---------------------------------------------------------------------------
 ;;

@@ -68,7 +68,13 @@
    ;; rf2-qicji — list-subscriptions toggles its per-entry shape.
    ;; Default false: only the query-vectors ride the wire (the cheap
    ;; "what's subscribed" read); true also ships :value + :ref-count.
-   :include-values    {:default false}})
+   :include-values    {:default false}
+   ;; rf2-zo4b9 — read-recording's two toggles. :drain consumes the
+   ;; buffered change-entries (the live-watch poll→consume→repeat idiom);
+   ;; :stop tears the recording down after reading (read-and-close).
+   ;; Both default false: a bare read is non-destructive.
+   :drain             {:default false}
+   :stop              {:default false}})
 
 (defn parse-bool-arg
   "Resolve a boolean MCP arg by name. Returns the per-arg default from

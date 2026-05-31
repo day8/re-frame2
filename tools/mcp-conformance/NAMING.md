@@ -47,7 +47,8 @@ covers the catalogue surface.
 | **`record-as-<thing>`** | Capture user / agent activity for a bounded duration; emit as an artefact (variant snippet, etc.). | `record-as-variant` | The bridge between live dispatches and the persisted registry. Story-mcp only today. |
 | **`subscribe` / `unsubscribe`** | Streaming pair. Bare verbs, used by re-frame2-pair-mcp. `subscribe` returns one `notifications/progress` per matching batch; `unsubscribe` closes out-of-band. | `subscribe`, `unsubscribe` | Topic vocabulary is per-server (re-frame2-pair ships `:trace` / `:epoch` / `:fx` / `:error`). Story-mcp does not ship streaming. |
 | **`tail-<thing>`** | Wait for an external state change to land. Polls until a probe condition flips or `wait-ms` expires. | `tail-build` | Today only `tail-build` exists (await hot-reload). Future variants (`tail-test`, `tail-deploy`) take the same shape: integer wait, probe form, structured timeout. |
-| **Mega-op bare verbs** | Reserved for derived projections / multi-registry reads that don't fit `get-<thing>`. Bare names, no prefix. | `snapshot`, `trace-window`, `watch-epochs` | These are re-frame2-pair-mcp's coarse-grained reads that span multiple registry kinds (`snapshot` covers app-db + sub-cache + machines + epochs + traces in one round-trip; `trace-window` and `watch-epochs` page over the trace bus). Adding a new bare verb requires a Lock entry in the relevant server's `DESIGN-RATIONALE.md`. |
+| **`watch-<thing>`** | Block until a predicate over a live signal holds, or time out. Distinct from `tail-` (which awaits an EXTERNAL state change via a probe-value delta) — `watch-` blocks on a PREDICATE over an in-runtime signal-set (app-db / sub / DOM / focus). | `watch-until` | Added by rf2-zo4b9 (re-frame2-pair). `watch-epochs` predates the prefix and stays on the bare-verb list (its semantics are pull-mode pagination, not blocking-until). The server-side poll cadence mirrors `tail-build`. |
+| **Mega-op bare verbs** | Reserved for derived projections / multi-registry reads that don't fit `get-<thing>`. Bare names, no prefix. | `snapshot`, `trace-window`, `watch-epochs`, `record` | These are re-frame2-pair-mcp's coarse-grained reads / recorders that span multiple registry kinds (`snapshot` covers app-db + sub-cache + machines + epochs + traces in one round-trip; `trace-window` and `watch-epochs` page over the trace bus; `record` (rf2-zo4b9) installs a read-only change-log observer over a heterogeneous signal-set — app-db / sub / DOM / focus). Adding a new bare verb requires a Lock entry in the relevant server's `DESIGN-RATIONALE.md`. NOTE the contrast with the `record-as-<thing>` PREFIX (story-mcp's `record-as-variant`, capture-as-artefact): bare `record` is the live recorder, `record-as-` persists a captured artefact. |
 
 ## What's NOT a locked verb
 
@@ -65,8 +66,11 @@ out in PR review and pick from the table above instead.
   escape hatch; bare-name dispatch is the catalogued event-fire. Don't
   bypass them.
 - **`stream-`, `observe-`, `tail-trace`** — `subscribe` / `unsubscribe`
-  is the catalogued streaming pair. `tail-` is reserved for state-
-  change-await semantics (one-shot, returns when condition trips).
+  is the catalogued streaming pair. `tail-` is reserved for external-
+  state-change-await semantics (one-shot, returns when a probe-value
+  delta trips); `watch-` (rf2-zo4b9) is reserved for blocking on a
+  PREDICATE over an in-runtime signal-set. Continuous change-logging of
+  a signal-set is `record` (rf2-zo4b9), not `observe-`.
 
 ## Server alignment today
 
@@ -102,6 +106,10 @@ counts" below.)
 | `get-re-frame2-pair-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
 | `restore-epoch` | `restore-` | Conformant — time-travel state restore. Gated behind `--allow-writes` (default OFF). Added by rf2-ee38b.18. |
 | `reset-frame-db` | `reset-` | Conformant — state injection, bypassing the normal cascade. Gated behind `--allow-writes` (default OFF). Added by rf2-ee38b.18. |
+| `read-dom` | `read-` | Conformant — diagnostic re-read of rendered DOM content (no recompute; the render already happened). Added by rf2-nfjil. |
+| `record` | bare (mega-op) | Conformant — bare-verb signal recorder spanning app-db / sub / DOM / focus. Lock entry in `DESIGN-RATIONALE.md`. Distinct from the `record-as-` prefix (capture-as-artefact). Added by rf2-zo4b9. |
+| `read-recording` | `read-` | Conformant — diagnostic re-read of a recording's change-log (paired with `record`). Added by rf2-zo4b9. |
+| `watch-until` | `watch-` | Conformant — blocks until a predicate over a signal holds. New `watch-` prefix; Lock entry in `DESIGN-RATIONALE.md`. Added by rf2-zo4b9. |
 
 ### Story-mcp
 
