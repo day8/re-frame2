@@ -542,12 +542,12 @@ function countPattern(blob, re) {
   return m ? m.length : 0;
 }
 
-function checkArtefact(blob, art) {
-  report.detail(`  ${art.name}:`);
+function checkArtefact(blob, artefact) {
+  report.detail(`  ${artefact.name}:`);
 
   let internalOk = true;
   let internalFailures = 0;
-  for (const { source, sentinel } of art.internalSentinels) {
+  for (const { source, sentinel } of artefact.internalSentinels) {
     const hits = countSubstring(blob, sentinel);
     const ok   = hits === 0;
     const tag  = ok ? 'OK' : 'FAIL';
@@ -561,13 +561,13 @@ function checkArtefact(blob, art) {
 
   let allowListOk = true;
   let allowListHits = 0;
-  const allowListChecked = art.consumerAllowList ? 1 : 0;
-  if (art.consumerAllowList) {
-    allowListHits = countPattern(blob, art.consumerAllowList);
-    allowListOk   = allowListHits <= art.expectedAllowListHits;
+  const allowListChecked = artefact.consumerAllowList ? 1 : 0;
+  if (artefact.consumerAllowList) {
+    allowListHits = countPattern(blob, artefact.consumerAllowList);
+    allowListOk   = allowListHits <= artefact.expectedAllowListHits;
     const tag     = allowListOk ? 'OK' : 'FAIL';
-    report.detail(`    [${tag}] consumer allow-list ${art.consumerAllowList}: ` +
-                  `${allowListHits} hit(s), expected <= ${art.expectedAllowListHits}`);
+    report.detail(`    [${tag}] consumer allow-list ${artefact.consumerAllowList}: ` +
+                  `${allowListHits} hit(s), expected <= ${artefact.expectedAllowListHits}`);
   }
 
   return {
@@ -575,7 +575,7 @@ function checkArtefact(blob, art) {
     internalOk,
     allowListOk,
     allowListHits,
-    internalChecked: art.internalSentinels.length,
+    internalChecked: artefact.internalSentinels.length,
     internalFailures,
     allowListChecked,
   };
@@ -604,13 +604,13 @@ function main() {
   const failures = [];
   let internalChecked = 0;
   let allowListChecked = 0;
-  for (const art of ARTEFACTS) {
-    const res = checkArtefact(blob, art);
+  for (const artefact of ARTEFACTS) {
+    const res = checkArtefact(blob, artefact);
     internalChecked += res.internalChecked;
     allowListChecked += res.allowListChecked;
     if (!res.ok) {
       allOk = false;
-      failures.push({ name: art.name, ...res });
+      failures.push({ name: artefact.name, ...res });
     }
   }
 
