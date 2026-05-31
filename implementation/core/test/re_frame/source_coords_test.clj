@@ -25,6 +25,10 @@
     reg-error-projector"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-quir9 — exercise the view-macro expander directly to
+            ;; assert the reader's symbol-position meta is stripped before
+            ;; it can clobber the absolutised *pending-coords*.
+            [re-frame.core-reg-view-macro :as rvm]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -279,3 +283,80 @@
       ;; resource.
       (is (.endsWith ^String f "re_frame/source_coords_test.clj")
           ":file should end with the classpath-relative tail"))))
+
+;; ---- rf2-quir9: reg-view PUBLIC meta carries the absolutised coord --------
+;;
+;; The asymmetry being fixed: `reg-event-*` ships an ABSOLUTE `:file` in its
+;; public `(rf/handler-meta :event id)` (above), but `reg-view` was shipping
+;; a CLASSPATH-RELATIVE `:file`. Root cause: the CLJS analyzer's indexing
+;; reader stamps `:file` / `:line` / `:column` (+ `:source` / `:end-*`) onto
+;; the view SYMBOL with a classpath-relative `:file`; the macro treated that
+;; as user slot-meta and passed it to `reg-view*`, where
+;; `source-coords/merge-coords` lets user-meta WIN over `*pending-coords*` —
+;; so the relative reader `:file` clobbered the rf2-wvsxg-absolutised value.
+;; The fix strips the reader's position keys from the slot-meta so
+;; `*pending-coords*` is the single source of source-coords for the view's
+;; public meta, symmetric with `reg-event-*`.
+
+(deftest reg-view-emits-absolute-file-symmetric-with-reg-event
+  (testing "rf2-quir9: reg-view fired against a real classpath-resident file
+  (this test ns) ships an ABSOLUTE :file in its PUBLIC handler-meta, matching
+  the always-on error-coord registry — symmetric with reg-event-db (so Xray /
+  IDE open-in-editor resolves the path the same way for views)."
+    (rf/reg-view ^{:rf/id :rf2-quir9/absolute-view-sample} quir9-view []
+      [:div "hi"])
+    (let [pub  (rf/handler-meta :view :rf2-quir9/absolute-view-sample)
+          errc (sc/error-coords-for :view :rf2-quir9/absolute-view-sample)
+          f    (:file pub)]
+      (is (string? f) "public :file should be present")
+      ;; The public :file must equal the error-coord registry's absolutised
+      ;; value — the two source-coord sinks now agree (they previously
+      ;; diverged: error-coord absolute, public relative).
+      (is (= f (:file errc))
+          "public handler-meta :file == error-coord :file (single source of truth)")
+      ;; And it must look absolute to the URI builder (no project-root
+      ;; prepend), exactly like the reg-event-db case above.
+      (let [uri (eu/editor-uri :vscode pub {:project-root "/wrong/project/root"})]
+        (is (.contains ^String uri f)
+            "view :file should appear absolute in the URI")
+        (is (not (.contains ^String uri "/wrong/project/root"))
+            "view :file must be absolute (URI builder doesn't prepend project-root)"))
+      (is (.endsWith ^String f "re_frame/source_coords_test.clj")
+          "view :file should end with this test ns's classpath-relative tail"))))
+
+(deftest reg-view-strips-reader-symbol-position-meta
+  (testing "rf2-quir9: the reader's symbol-position meta (relative :file /
+  :line / :column / :source / :end-*) must NOT leak into the registry slot —
+  if it did, merge-coords would let the RELATIVE reader :file override the
+  absolutised *pending-coords*. The expander is exercised directly with a
+  view symbol carrying the exact reader-stamped shape the CLJS analyzer's
+  indexing reader produces."
+    (let [reader-sym (with-meta 'child-view
+                       {:source 'child-view
+                        :file   "button_deck/core.cljs"   ;; RELATIVE — the trap
+                        :line   1 :column 11
+                        :end-line 1 :end-column 21
+                        :doc    "a real slot-meta key — must survive"})
+          exp        (rvm/expand-reg-view {:line 1 :column 1 :file "button_deck/core.cljs"}
+                                          'button-deck.core "button_deck/core.cljs"
+                                          reader-sym '([] [:div]))
+          ;; expansion: (do (binding [...] (reg-view* id slot-meta fn)) (def ...) id)
+          binding-form (nth exp 1)
+          regview-call (nth binding-form 2)        ;; (reg-view* id slot-meta fn)
+          slot-meta    (nth regview-call 2)]
+      (is (not (contains? slot-meta :file))
+          ":file (relative reader key) must be stripped from slot-meta")
+      (is (not (contains? slot-meta :line))
+          ":line (reader key) must be stripped from slot-meta")
+      (is (not (contains? slot-meta :column))
+          ":column (reader key) must be stripped from slot-meta")
+      (is (not (contains? slot-meta :source))
+          ":source (reader whole-form-text key) must be stripped from slot-meta")
+      (is (not (contains? slot-meta :end-line))
+          ":end-line (reader key) must be stripped from slot-meta")
+      (is (not (contains? slot-meta :end-column))
+          ":end-column (reader key) must be stripped from slot-meta")
+      ;; A genuine user slot-meta key (e.g. :doc on the symbol) survives —
+      ;; the strip targets only the reader's position keys, not user meta.
+      (is (= "a real slot-meta key — must survive" (:doc slot-meta))
+          "genuine user slot-meta (:doc) must be preserved"))))
