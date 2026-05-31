@@ -937,7 +937,7 @@ The per-event interceptor chain runs `:before` stages in declaration order, then
 
 This pair is pattern contract — a conformant port MUST mirror both rules. Rule 1 keeps the chain from running the handler against a half-assembled context (a `:before` that was meant to inject a cofx has already thrown; the handler would observe a corrupt context); rule 2 keeps user-installed interceptors safe to allocate resources in `:before` and release them in `:after` (a chain that skipped `:after` on a `:before` failure would leak whatever the surviving `:before` stages allocated). The most common case is an interceptor that mutates host state in `:before` and restores it in `:after` (e.g. a debug `pp` interceptor, or a Story snapshot capturer) — the always-runs rule means the restoration fires regardless of where in the chain a failure occurred.
 
-Trace emission tracks the singleton: the trace stream emits exactly one `:rf.error/handler-exception` per chain execution, keyed off `:rf/interceptor-error`. Tools wanting every failure (Xray, Story) read `:rf/interceptor-errors` from the post-drain context directly.
+Trace emission tracks the singleton: the trace stream emits exactly one error event per chain execution, keyed off `:rf/interceptor-error` and **attributed to the true failing component** (per rf2-mszrz). The captured singleton's identity drives the category — `:rf.error/handler-exception` when the event handler itself threw (the terminal `:before`), `:rf.error/coeffect-exception` when an `inject-cofx` injection threw, and `:rf.error/interceptor-exception` when a user interceptor's `:before`/`:after` threw (the `:phase` tag discriminates the two). The `:failing-id` carries the true component (event id / cofx id / interceptor id). Tools wanting every failure (Xray, Story) read `:rf/interceptor-errors` from the post-drain context directly. See [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) for the per-category shapes.
 
 ### Drain-loop pseudocode
 
@@ -1040,8 +1040,11 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     ;;    (singleton, the FIRST throw) and `:rf/interceptor-errors` (vector,
     ;;    ALL throws in order). The :after pass always runs in full so
     ;;    cleanup-on-:after interceptors fire even after a :before failure.
-    ;;    Trace stream emits one `:rf.error/handler-exception` per chain
-    ;;    execution, keyed off the singleton. See
+    ;;    Trace stream emits one error event per chain execution, keyed off
+    ;;    the singleton and attributed to the true failing component (per
+    ;;    rf2-mszrz): `:rf.error/handler-exception` (the handler),
+    ;;    `:rf.error/coeffect-exception` (a cofx injection), or
+    ;;    `:rf.error/interceptor-exception` (a user interceptor). See
     ;;    [Spec-Schemas §InterceptorContextErrorKeys](Spec-Schemas.md#interceptorcontexterrorkeys--post-chain-interceptor-context-error-contract).
     (let [effects (run-interceptor-chain      ;; flow-transform is outermost :after
                     frame envelope handler-meta)]

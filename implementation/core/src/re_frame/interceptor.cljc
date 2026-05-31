@@ -117,6 +117,25 @@
     (cond-> (update context :rf/interceptor-errors (fnil conj []) err)
       (nil? existing-first) (assoc :rf/interceptor-error err))))
 
+(defn- error-record
+  "Build the per-stage error record stamped into the context by
+  `record-error`. Carries `:phase` (`:before` / `:after`), `:id` (the
+  interceptor's `:id`), and the raw `:exception`. Per rf2-mszrz the
+  record ALSO carries `:rf/cofx-id` when the throwing interceptor is an
+  `inject-cofx` injector (it stamps `:rf/cofx-id` on itself, per
+  `re-frame.cofx/inject-cofx`): the injector's own `:id` collapses to
+  `(name cofx-id)` (losing the namespace), so the fully-qualified cofx
+  id rides this slot. The router's `emit-pipeline-exception!`
+  classification reads `:rf/cofx-id` to (a) recognise a coeffect-
+  injection throw and (b) attribute it to the true cofx id rather than
+  the bare interceptor `:id`. The slot is absent for non-cofx
+  interceptors so the singleton-vs-vector equality invariant
+  (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) is
+  preserved for the common case."
+  [phase interceptor exception]
+  (cond-> {:phase phase :id (:id interceptor) :exception exception}
+    (:rf/cofx-id interceptor) (assoc :rf/cofx-id (:rf/cofx-id interceptor))))
+
 (defn- invoke-before [context interceptor]
   ;; Short-circuit: once any :before has failed, skip downstream :before
   ;; stages. This mirrors the :rf/skip-handler? pattern (events.cljc /
@@ -129,8 +148,7 @@
       (try
         (or (f context) context)
         (catch #?(:clj Throwable :cljs :default) e
-          (record-error context
-                        {:phase :before :id (:id interceptor) :exception e})))
+          (record-error context (error-record :before interceptor e))))
       context)))
 
 (def ^:private ctx-delta-segments
@@ -227,8 +245,7 @@
               after)
             after))
         (catch #?(:clj Throwable :cljs :default) e
-          (record-error context
-                        {:phase :after :id (:id interceptor) :exception e}))))
+          (record-error context (error-record :after interceptor e)))))
     context))
 
 (defn execute-chain
