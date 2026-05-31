@@ -116,7 +116,7 @@ Click-to-source is the gesture that gets you from a rendered pixel to its source
 
 The five clicks:
 
-1. **Open the testbed.** Run `npm run test:examples` from `implementation/`, then visit `http://127.0.0.1:8030/parallel-frames/`. Two stacked panels appear — `:above` and `:below` — each carrying its own counter, clock and title.
+1. **Open the testbed.** Run `npm run test:examples` from `implementation/`, then visit `http://127.0.0.1:8040/parallel-frames/` (the harness serves on 8040 by default; override with `EXAMPLES_PORT`). Two stacked panels appear — `:above` and `:below` — each carrying its own counter, clock and title.
 
 2. **The coord on the wire.** Right-click the title text inside `:above`, *Copy element*. The HTML carries `data-rf2-source-coord="parallel-frames.core:title-view:198:4"`. The coord routes you to the `title-view` reg-view in `tools/xray/testbeds/parallel_frames/core.cljs`. Now right-click the same title text in `:below` — same coord. One source, two live mounts; the coord is the source identity.
 
