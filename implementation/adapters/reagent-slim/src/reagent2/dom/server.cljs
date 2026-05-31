@@ -179,11 +179,104 @@
         (symbol? x))      (name x)
     :else                 (str x)))
 
+;; ---------------------------------------------------------------------------
+;; Inline-style serialisation (rf2-9nyg6)
+;;
+;; `react-dom/server.renderToStaticMarkup` serialises a `style` object via
+;; its internal `pushStyleAttribute`. Two behaviours of that path are NOT
+;; captured by a naive `(str k ":" v)` join, and the divergence produces
+;; invalid CSS:
+;;
+;;   1. NUMERIC px SUFFIX. React appends `px` to a *numeric* value unless
+;;      the value is `0` or the property is in its `unitlessNumber` set
+;;      (`flex`, `z-index`, `opacity`, `line-height`, `font-weight`,
+;;      `order`, …). So `{:width 10}` → `width:10px`, but `{:flex-grow 1}`
+;;      → `flex-grow:1` (no `px`). A bare `width:10` is invalid/ignored CSS.
+;;
+;;   2. NIL / BOOLEAN / EMPTY ENTRIES OMITTED. React skips an entry whose
+;;      value is `null`, a boolean, or `""`. The naive join instead emits
+;;      an empty declaration `color:` for `{:color nil}`.
+;;
+;; The unitless-property set below mirrors React 19.2.0's `unitlessNumber`
+;; Set *exactly* (vendor-prefixed entries included). React keys that set on
+;; the *camelCase* style name (`flexGrow`, `zIndex`, `MozBoxFlex`, …) — the
+;; same form the React-element path hands React via `kv-conv`/
+;; `cached-prop-name`. So we camelCase the hiccup key through
+;; `template/cached-prop-name` (the in-artefact transform that path uses)
+;; before the unitless lookup, then convert that camelCase name to the
+;; kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case,
+;; `^ms- → -ms-`). Custom properties (`--foo`) are passed through verbatim
+;; with no `px` logic, matching React.
+;; ---------------------------------------------------------------------------
+
+(def ^:private unitless-style-props
+  "camelCase style-property names that take a bare numeric value (no
+  `px` suffix). Mirrors React 19.2.0's `unitlessNumber` Set verbatim,
+  including vendor-prefixed entries."
+  #{"animationIterationCount" "aspectRatio" "borderImageOutset"
+    "borderImageSlice" "borderImageWidth" "boxFlex" "boxFlexGroup"
+    "boxOrdinalGroup" "columnCount" "columns" "flex" "flexGrow"
+    "flexPositive" "flexShrink" "flexNegative" "flexOrder" "gridArea"
+    "gridRow" "gridRowEnd" "gridRowSpan" "gridRowStart" "gridColumn"
+    "gridColumnEnd" "gridColumnSpan" "gridColumnStart" "fontWeight"
+    "lineClamp" "lineHeight" "opacity" "order" "orphans" "scale"
+    "tabSize" "widows" "zIndex" "zoom" "fillOpacity" "floodOpacity"
+    "stopOpacity" "strokeDasharray" "strokeDashoffset" "strokeMiterlimit"
+    "strokeOpacity" "strokeWidth" "MozAnimationIterationCount" "MozBoxFlex"
+    "MozBoxFlexGroup" "MozLineClamp" "msAnimationIterationCount" "msFlex"
+    "msZoom" "msFlexGrow" "msFlexNegative" "msFlexOrder" "msFlexPositive"
+    "msFlexShrink" "msGridColumn" "msGridColumnSpan" "msGridRow"
+    "msGridRowSpan" "WebkitAnimationIterationCount" "WebkitBoxFlex"
+    "WebKitBoxFlexGroup" "WebkitBoxOrdinalGroup" "WebkitColumnCount"
+    "WebkitColumns" "WebkitFlex" "WebkitFlexGrow" "WebkitFlexPositive"
+    "WebkitFlexShrink" "WebkitLineClamp"})
+
+(def ^:private camel-boundary
+  "Match an upper-case char to insert a `-` before — React's
+  `uppercasePattern` (`/([A-Z])/g`)."
+  (js/RegExp. "([A-Z])" "g"))
+
+(defn- camel->css-name
+  "camelCase style-property name → kebab CSS name, matching React's
+  `pushStyleAttribute` conversion: insert `-` before each upper-case
+  char, lower-case, then `^ms- → -ms-` (so `msFlex` → `-ms-flex`)."
+  [camel]
+  (-> camel
+      (str/replace camel-boundary "-$1")
+      (str/lower-case)
+      (str/replace #"^ms-" "-ms-")))
+
+(defn- style-value->str
+  "Serialise one style value to its CSS string, applying React's `px`
+  rule for numbers. `camel` is the camelCase property name (the
+  unitless-lookup key). Numeric values get a `px` suffix unless the
+  value is `0` or the property is unitless."
+  [camel v]
+  (if (number? v)
+    (if (or (zero? v) (contains? unitless-style-props camel))
+      (str v)
+      (str v "px"))
+    (named->str v)))
+
 (defn- style-string
-  "Serialise a style map to an HTML inline-style string."
+  "Serialise a style map to an HTML inline-style string, matching
+  `react-dom/server.renderToStaticMarkup`'s `pushStyleAttribute`:
+  numeric values of non-unitless properties get a `px` suffix; entries
+  whose value is nil / boolean / empty-string are omitted; custom
+  properties (`--foo`) pass through verbatim."
   [m]
   (->> m
-       (map (fn [[k v]] (str (named->str k) ":" (named->str v))))
+       (keep (fn [[k v]]
+               (when (and (some? v)
+                          (not (boolean? v))
+                          (not= "" v))
+                 (let [raw (named->str k)]
+                   (if (str/starts-with? raw "--")
+                     ;; CSS custom property: name + value verbatim, no px.
+                     (str raw ":" (named->str v))
+                     (let [camel    (template/cached-prop-name k)
+                           css-name (camel->css-name camel)]
+                       (str css-name ":" (style-value->str camel v))))))))
        (str/join ";")))
 
 (defn- attr-value-string

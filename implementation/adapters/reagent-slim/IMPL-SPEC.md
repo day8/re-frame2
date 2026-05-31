@@ -839,6 +839,14 @@ Lift the existing implementation from `re-frame.ssr/escape-html` (`ssr.cljc:50-5
 
 The same narrowed `convert-prop-value` rules apply (per S3-005): the static-markup path stringifies keyword values only for HTML-attribute names. (Inside an HTML attribute serialisation, every prop name IS by definition an HTML attribute name — this layer doesn't see React-component props, only DOM-element attrs.)
 
+**Inline-style value serialisation (`emit-style-attr` / `style-string`)** must match `react-dom/server.renderToStaticMarkup`'s `pushStyleAttribute` (rf2-9nyg6):
+
+- A *numeric* value gets a `px` suffix unless the value is `0` or the property is in React's `unitlessNumber` set (`flex`, `flex-grow`, `z-index`, `opacity`, `line-height`, `font-weight`, `order`, the vendor-prefixed entries, …). `{:width 10}` → `width:10px`; `{:flex-grow 1}` → `flex-grow:1`. The `unitless-style-props` set in `reagent2.dom.server` mirrors React 19.2.0's set verbatim — keyed on the *camelCase* property name (the same form the React-element path hands React via `cached-prop-name`), so the hiccup key is camelCased before the lookup, then converted to the kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case, `^ms- → -ms-`).
+- An entry whose value is `nil`, a boolean, or `""` is **omitted entirely** (no empty `prop:` declaration).
+- CSS custom properties (`--foo`) are emitted name-and-value verbatim with no `px` logic. (The React-element path's `kv-conv` camelCases all style keys, so it does not itself round-trip `--foo`; the static-markup path handles them directly.)
+
+These rules are pinned by `parity_cljs_test.cljs` against `react-dom/server` (numeric→px, unitless→bare, zero→bare, nil→omitted, string→untouched) per §8.7.
+
 ### §8.4 Boolean attributes + void-tag handling
 
 Boolean attributes (`disabled`, `checked`, `selected`, `readOnly`, `required`, etc.): if `true`, emit just the name (HTML5 short form). If `false`, omit entirely. The list of recognised boolean attributes is a static set:
