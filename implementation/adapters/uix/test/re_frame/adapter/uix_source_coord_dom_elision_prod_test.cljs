@@ -32,21 +32,15 @@
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter}))
 
-(defn- react-element-source-coord
-  "Pull `data-rf2-source-coord` off a React element's `.-props`, or nil.
-  Defensively returns nil on every branch so the test assertions can
-  use `nil?`."
-  [el]
+(defn- react-element-attr
+  "Pull `attr` (a string prop name) off a React element's `.-props`, or
+  nil. Defensively returns nil on every branch so the test assertions
+  can use `nil?`. Both elision attributes (`data-rf2-source-coord` and
+  `data-rf-view`) ride the same `interop/debug-enabled?` gate, so the
+  one accessor covers both."
+  [el attr]
   (when (and el (.-props el))
-    (aget (.-props el) "data-rf2-source-coord")))
-
-(defn- react-element-view-attr
-  "Pull `data-rf-view` off a React element's `.-props`, or nil.
-  Defensively returns nil on every branch so the test assertions can
-  use `nil?`."
-  [el]
-  (when (and el (.-props el))
-    (aget (.-props el) "data-rf-view")))
+    (aget (.-props el) attr)))
 
 ;; ---- annotation elides under :advanced + goog.DEBUG=false ----------------
 
@@ -65,9 +59,9 @@
         (is (some? out))
         (is (= "span" (.-type out))
             "root element's type preserved")
-        (is (nil? (react-element-source-coord out))
+        (is (nil? (react-element-attr out "data-rf2-source-coord"))
             "NO data-rf2-source-coord on the rendered root — elision contract holds")
-        (is (nil? (react-element-view-attr out))
+        (is (nil? (react-element-attr out "data-rf-view"))
             "NO data-rf-view on the rendered root — view-id tagging rides the
              same interop/debug-enabled? gate and elides too (rf2-ihcib)")))))
 
