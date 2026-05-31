@@ -88,6 +88,7 @@
                                     reg-http-interceptor
                                     reg-view reg-machine
                                     dispatch dispatch-sync subscribe inject-cofx
+                                    ->interceptor
                                     with-frame with-new-frame bound-fn
                                     with-fx-overrides
                                     with-managed-request-stubs]])))
@@ -1135,10 +1136,42 @@
 
 ;; ---- interceptors --------------------------------------------------------
 
-(def ^{:doc "Build an interceptor map from kwargs — the primitive entry
-  point for custom interceptors. Accepts `:id`, `:before`, `:after`,
-  `:comment`. Per spec/API.md §Interceptors."}
-  ->interceptor   interceptor/->interceptor)
+(def ^{:doc "Fn-form of `->interceptor` (HoF / programmatic / REPL
+  callers) — no definition-site source-coord capture. Build an
+  interceptor map from kwargs: `:id`, `:before`, `:after`, and an
+  optional `:source-coord` (the `->interceptor` macro supplies it from
+  `(meta &form)`). Per Conventions §`*`-suffix naming and
+  spec/API.md §Interceptors."}
+  ->interceptor*  interceptor/->interceptor*)
+
+#?(:clj
+   (defmacro ->interceptor
+     "Build a custom interceptor map from kwargs — the ergonomic surface
+     for `:before` / `:after` work not covered by the std interceptors.
+     Captures the definition-site `:source-coord` from `(meta &form)`
+     (Spec 001 §Source-coordinate capture; rides the rf2-wvsxg
+     absolutise path) and bakes it into the interceptor map so the Xray
+     Epoch INTERCEPTOR row can jump to source when the interceptor throws
+     (parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS). For HoF /
+     programmatic / REPL use call `->interceptor*` (no coord capture).
+
+     Kwargs: `:id` (keyword name; default `:unnamed`), `:before`
+     (`(fn [ctx] ctx)` — runs before the handler), `:after`
+     (`(fn [ctx] ctx)` — runs after, in reverse order).
+
+         (def log-event
+           (rf/->interceptor
+             :id     :log-event
+             :before (fn [ctx]
+                       (println \"event:\" (rf/get-coeffect ctx :event))
+                       ctx)))
+
+     The captured coord DCEs under `:advanced` + `goog.DEBUG=false` (the
+     macro's prod branch omits the `:source-coord` kwarg entirely). Per
+     spec/API.md §Interceptors and rf2-siheh."
+     [& kwargs]
+     (csm/build-interceptor-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+                                 kwargs)))
 
 (def ^{:doc "Read from the context's `:coeffects` map. Used inside
   interceptor `:before` / `:after` fns and handler bodies that receive

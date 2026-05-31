@@ -453,9 +453,18 @@
   The router emits this from `emit-pipeline-exception!` after
   `classify-pipeline-exception` finds a captured `:id` that is neither a
   handler-wrapper nor a cofx injector. Drives the INTERCEPTOR step's inline
-  'Exception Thrown' card (rf2-yz57h)."
-  ([intc-id phase message] (interceptor-exception-ev intc-id phase message nil))
-  ([intc-id phase message exception]
+  'Exception Thrown' card (rf2-yz57h).
+
+  rf2-siheh — the optional `coord` map (`{:ns :file :line}`) rides
+  `[:tags :source-coord]`, mirroring what the router threads from a
+  `->interceptor`-macro-built interceptor's captured `:source-coord`. The
+  projection lifts it onto the INTERCEPTOR row's `:coord` so the view can
+  render a jump-to-source chip (parity with EVENT HANDLER / SUBSCRIPTIONS /
+  VIEWS). Absent → no chip (the `->interceptor*` fn / framework-interceptor
+  path)."
+  ([intc-id phase message] (interceptor-exception-ev intc-id phase message nil nil))
+  ([intc-id phase message exception] (interceptor-exception-ev intc-id phase message exception nil))
+  ([intc-id phase message exception coord]
    (cond-> (ev :error :rf.error/interceptor-exception
                (cond-> {:failing-id        intc-id
                         :phase             phase
@@ -463,5 +472,6 @@
                         :reason            (str "Interceptor `" intc-id
                                                 "` threw in its `" (name phase)
                                                 "` phase.")}
-                 exception (assoc :exception exception)))
+                 exception (assoc :exception exception)
+                 coord     (assoc :source-coord coord)))
      true (assoc :recovery :no-recovery))))

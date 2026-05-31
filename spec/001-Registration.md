@@ -148,6 +148,8 @@ This is a CLJS-implementation choice. Other in-scope JS-cross-compile language p
 
 Source coords are valuable for navigation (jump-to-source from a tool, navigate-from-error, AI-source-cite) but their absence does not violate conformance. Per [Principles.md §Optional capabilities](Principles.md), source-coord capture is opt-in.
 
+The same compile-time `(meta &form)` capture extends beyond `reg-*` registrations to the **`->interceptor` macro** (rf2-siheh): it stamps the definition-site coord onto the interceptor map's `:source-coord` slot (`:rf/source-coord-meta` shape), riding the identical absolutise path. An interceptor is not a registry kind — the coord travels ON the interceptor map and, when the interceptor throws, onto the `:rf.error/interceptor-exception` trace's `:source-coord` tag (per [009 §Error catalogue](009-Instrumentation.md)), so tools jump to the throwing interceptor's source rather than resolving through `handler-meta`. The plain-fn form `->interceptor*` captures no coord (no syntactic call site) — the macro / fn split follows [Conventions §`*`-suffix naming](Conventions.md#-suffix-naming-for-fn-versions-of-macros). Production-elided alongside the `reg-*` coords (the macro's prod branch omits the `:source-coord` kwarg, so the literal DCEs under `:advanced` + `goog.DEBUG=false`).
+
 ### Production elision contract
 
 Source-coord capture has TWO sinks; each obeys a different production-elision policy. The split lets dev tooling (Xray Open-in-editor, re-frame-pair, IDE jump-to-source) read coords from `(rf/handler-meta ...)` in dev while keeping the public registry-meta surface cheap in production AND retaining source-line info on the always-on error-emit substrate for off-box observability (Sentry, Honeybadger, Rollbar).

@@ -111,3 +111,44 @@
                      `(re-frame.core/inject-cofx* ~cofx-id ~value-form)
                      `(re-frame.core/inject-cofx* ~cofx-id))]
        (gate stamped plain))))
+
+;; ---- ->interceptor (definition-site coord capture, rf2-siheh) ------------
+;;
+;; `->interceptor` is the only interceptor constructor with a USER
+;; definition site to jump to (the std interceptors `path` / `unwrap` and
+;; the cofx injector are framework-built; the reg-event handler-wrappers
+;; carry the event's own coord). Before rf2-siheh it was a plain fn, so an
+;; interceptor map carried NO source-coord and the Xray Epoch INTERCEPTOR
+;; row could render no jump-to-source chip (yz57h assumed a coord that
+;; didn't exist — `handler-meta :interceptor` resolves nothing, interceptors
+;; not being a registrar kind).
+;;
+;; The fix mirrors the `inject-cofx` (macro) / `inject-cofx*` (fn) pair:
+;; `->interceptor` becomes a macro that captures `(meta &form)` →
+;; `:source-coord` (riding the SAME `coords-form` / `prod-coords-form`
+;; absolutise path — rf2-wvsxg — as every other reg-* / call-site coord)
+;; and bakes it into the `:source-coord` kwarg of `->interceptor*`. The
+;; coord then rides the interceptor map, the chain runner's error-record,
+;; and the `:rf.error/interceptor-exception` trace, so the Epoch row gets
+;; parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS. Unlike a registrar
+;; lookup, the coord stays bound to the exact interceptor instance that
+;; threw.
+;;
+;; The gate is OUTERMOST so the whole `:source-coord` literal DCEs under
+;; `:advanced` + `goog.DEBUG=false`: the prod branch omits the kwarg
+;; entirely, expanding to the identical fn call the bare fn-path produces.
+
+#?(:clj
+   (defn build-interceptor-form
+     "Build the expansion for the `->interceptor` macro. `kwargs` is the
+     verbatim `& {:keys [id before after]}` arg-seq the user wrote;
+     `form-meta` / `ns-sym` / `file` come from the call site. Emits a
+     gated `(if interop/debug-enabled? <with-coord> <plain>)` around
+     `re-frame.core/->interceptor*` — the dev branch splices the
+     captured `:source-coord` kwarg in, the prod branch is the bare
+     fn-call so the coord literal DCEs. Per rf2-siheh."
+     [form-meta ns-sym file kwargs]
+     (let [cs-form (call-site-form form-meta ns-sym file)
+           stamped `(re-frame.core/->interceptor* ~@kwargs :source-coord ~cs-form)
+           plain   `(re-frame.core/->interceptor* ~@kwargs)]
+       (gate stamped plain))))

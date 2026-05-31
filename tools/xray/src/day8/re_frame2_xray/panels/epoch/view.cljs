@@ -2068,15 +2068,19 @@
 
 (defn- interceptor-row-view
   "Render one INTERCEPTOR-step row (rf2-yz57h) — the throwing interceptor's
-  id (click-to-source when `handler-meta` carries a coord) + a `:before` /
-  `:after` phase chip + the shared inline 'Exception Thrown' card."
-  [idx {:keys [interceptor-id phase errors]}]
-  (let [intc-meta (when (keyword? interceptor-id)
-                    (try (rf/handler-meta :interceptor interceptor-id)
-                         (catch :default _ nil)))
-        coord     (when (and intc-meta (string? (:file intc-meta)))
-                    {:file (:file intc-meta) :line (:line intc-meta)})
-        label     (proj/ns-keyword interceptor-id)]
+  id + a `:before` / `:after` phase chip + the shared inline 'Exception
+  Thrown' card.
+
+  rf2-siheh — the jump-to-source coord rides the projection row's
+  `:coord` slot (captured by the `->interceptor` macro from `(meta &form)`
+  and threaded onto the trace by the router). The label hyperlinks via
+  `coord-link` when a coord is present AND a shared `coord-chip` glyph
+  is appended (exact parity with the EVENT HANDLER / SUBSCRIPTIONS / VIEWS
+  rows); both drop out cleanly to plain text + no chip when the
+  interceptor was built via the `->interceptor*` fn, is a framework
+  interceptor, or the bundle elided the coord in production."
+  [idx {:keys [interceptor-id phase errors coord]}]
+  (let [label (proj/ns-keyword interceptor-id)]
     [:div {:key (str "interceptor-row-" idx)
            :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
            :data-interceptor-phase (when phase (name phase))}
@@ -2085,6 +2089,11 @@
                              (str "rf-xray-epoch-interceptor-id-" idx)
                              {:style       coeffect-verb-link-button-style
                               :plain-style coeffect-verb-plain-style})
+      ;; rf2-siheh — shared open-in-editor glyph (parity with the
+      ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows). Drops out when
+      ;; `coord` is nil (no `:file`).
+      (coord-chip/coord-chip coord
+                             (str "rf-xray-epoch-interceptor-row-coord-" idx))
       (when-let [pl (interceptor-phase-label phase)]
         [:span {:data-testid (str "rf-xray-epoch-interceptor-phase-" idx)
                 :style interceptor-phase-chip-style}

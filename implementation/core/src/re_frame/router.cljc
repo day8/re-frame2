@@ -462,6 +462,15 @@
         {:keys [operation failing-id reason]}
         (classify-pipeline-exception error event-id)
         handler-throw? (= operation :rf.error/handler-exception)
+        ;; rf2-siheh — the throwing user interceptor's definition-site
+        ;; coord (captured by the `->interceptor` macro and carried on
+        ;; the interceptor map → error-record). Threaded onto the
+        ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
+        ;; INTERCEPTOR row renders a jump-to-source chip (parity with
+        ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). Absent for the fn-path
+        ;; / framework interceptors (`path` / `unwrap` / cofx injector) —
+        ;; nothing to jump to.
+        icpt-coord (:source-coord error)
         tags       (cond-> {:event-id          event-id
                             :event             emit-event
                             :frame             frame
@@ -476,7 +485,8 @@
                      ;; failure has no handler-id to carry (the handler
                      ;; never ran). Stamping the event-id regardless
                      ;; (the pre-rf2-mszrz behaviour) mis-fed consumers.
-                     handler-throw? (assoc :handler-id event-id))]
+                     handler-throw? (assoc :handler-id event-id)
+                     icpt-coord     (assoc :source-coord icpt-coord))]
     ;; Always-on per rf2-hqbeh / rf2-bacs4: the `:on-error` policy fn
     ;; fires through the always-on substrate so production builds with
     ;; the trace surface elided still observe the error; in parallel,
@@ -703,7 +713,7 @@
   An aborted-by-flow-throw event (the catch arm) does NOT emit t2:
   the partial-cascade `:db` was discarded along with all flow side
   effects (no `:rf.event/db-changed` will fire either)."
-  (interceptor/->interceptor
+  (interceptor/->interceptor*
     :id          :rf/flows
     :rf/default? true
     :after

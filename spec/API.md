@@ -627,7 +627,8 @@ The v2 std-interceptor surface is **three specific helpers** plus the `->interce
 | `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | Fn form for HoF / programmatic interceptor construction — no call-site stamping. |
 | `path` | Fn | `(path & path)` | Focus a handler on an `app-db` sub-slice. Specific work — `:before` focuses, `:after` splices the result back into parent db. |
 | `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
-| `->interceptor` | Fn | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. |
+| `->interceptor` | M | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. Macro per — captures the definition-site `:source-coord` from `(meta &form)` (rf2-siheh) so tools jump to the interceptor's source when it throws (Xray Epoch INTERCEPTOR row). |
+| `->interceptor*` | Fn | `(->interceptor* & {:keys [id before after source-coord]})` | Fn form for HoF / programmatic / REPL interceptor construction — no definition-site coord capture (pass `:source-coord` explicitly if you have one). |
 
 Removed in v2 (see [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)):
 

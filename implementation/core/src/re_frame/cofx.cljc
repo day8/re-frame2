@@ -223,7 +223,7 @@
   ([cofx-id value call-site]
    (let [valued?      (not (identical? value no-value))
          captured-cs  (when interop/debug-enabled? call-site)]
-     (interceptor/->interceptor
+     (interceptor/->interceptor*
        :id (keyword (str "cofx-" (name cofx-id)))
        ;; Per rf2-9dk9y: tag this interceptor with `:rf/cofx-id` so
        ;; tooling (Xray's Event lens) classifies it as a cofx injector

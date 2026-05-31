@@ -43,7 +43,7 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- logger-interceptor [log id]
-  (interceptor/->interceptor
+  (interceptor/->interceptor*
     :id     id
     :before (fn [ctx] (swap! log conj [id :before]) ctx)
     :after  (fn [ctx] (swap! log conj [id :after]) ctx)))
@@ -70,7 +70,7 @@
   (testing "per-call {:icpt <new>} replaces the interceptor"
     (let [log (atom [])
           original-icpt (logger-interceptor log ::log-x)
-          stub-icpt     (interceptor/->interceptor
+          stub-icpt     (interceptor/->interceptor*
                           :id     ::log-x
                           :before (fn [ctx] (swap! log conj [::stub :fired]) ctx))]
       (rf/reg-event-db :test/run
@@ -107,10 +107,10 @@
 (deftest per-call-overrides-per-frame-on-key-conflict
   (testing "when the same :id appears in per-call AND per-frame overrides, per-call wins"
     (let [log (atom [])
-          frame-stub (interceptor/->interceptor
+          frame-stub (interceptor/->interceptor*
                        :id     ::log
                        :before (fn [ctx] (swap! log conj :frame-stub) ctx))
-          call-stub  (interceptor/->interceptor
+          call-stub  (interceptor/->interceptor*
                        :id     ::log
                        :before (fn [ctx] (swap! log conj :call-stub) ctx))]
       (rf/reg-frame :test/scoped
