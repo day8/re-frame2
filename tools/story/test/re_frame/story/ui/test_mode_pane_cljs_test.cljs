@@ -32,7 +32,6 @@
             [re-frame.registrar        :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async-lib]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.ui.state   :as state]
@@ -52,7 +51,6 @@
                 (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/trace-accumulators {})
   (reset! tm-state/results-atom {})
   (state/reset-shell-state!)
   (story/install-canonical-vocabulary!)

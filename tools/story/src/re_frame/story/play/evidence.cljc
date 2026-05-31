@@ -11,10 +11,11 @@
   storage / source of truth is ONE tape so Story UI, CI, docs, agents, and
   the future golden/diff tools cannot disagree about what happened. Before
   this ns, schema failures, warnings, and effects were captured into a
-  parallel per-frame accumulator (`re-frame.story.assertions`'
-  `trace-accumulators`), which can drift from the trace evidence the Xray
-  UI already reads — a second capture path that could report green while
-  the tape shows a failure (the documented \"false GREEN\").
+  parallel per-frame accumulator (the former `re-frame.story.assertions`
+  `trace-accumulators` side-table, removed in rf2-luzky), which could drift
+  from the trace evidence the Xray UI already reads — a second capture path
+  that could report green while the tape showed a failure (the documented
+  \"false GREEN\").
 
   This ns makes the epoch tape the evidence boundary. Given the vector of
   `:rf/epoch-record` maps the framework retains for a frame
@@ -186,11 +187,11 @@
 ;;
 ;; A warning is any trace event whose `:op-type` is `:warning` (Spec 009
 ;; §Trace event shape / §Op-type vocabulary — `:warning`, NOT `:warn`; the
-;; same stream `re-frame.story.assertions`' `record-warning!` accumulator
-;; used to siphon — that siphon keys off `:op-type :warning`
-;; (`re-frame.story.play.cljc`), and every framework emit site uses
-;; `(trace/emit! :warning …)`, now projected from the retained tape
-;; instead). `:rf.assert/no-warnings` reads this projection.
+;; same stream the former `re-frame.story.assertions` `record-warning!`
+;; side-table feed used to siphon — that siphon keyed off `:op-type
+;; :warning`, and every framework emit site uses `(trace/emit! :warning …)`.
+;; rf2-luzky removed the side-table; this is now the only projection, read
+;; by `:rf.assert/no-warnings`).
 
 (def warning-operation
   "The trace `:op-type` that marks a warning severity. Spec 009 §Trace event

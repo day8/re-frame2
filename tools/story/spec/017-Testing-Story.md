@@ -1875,8 +1875,9 @@ the runner reads the retained tape via `re-frame.core/epoch-history` and
 merges the projection into the run-result. There is exactly one source of
 truth — Story UI, CI, docs, agents, and the golden/diff tools cannot
 disagree about what happened, and no parallel accumulator can drift from
-the tape evidence (the shipping per-frame `trace-accumulators` siphon for
-warnings/effects is superseded by this projection).
+the tape evidence (the former per-frame `trace-accumulators` siphon for
+warnings/effects was superseded by this projection and fully removed in
+rf2-luzky).
 
 `(story/project-evidence epoch-tape {:script coerced-script})` is pure —
 `:rf/epoch-record` vector in, evidence map out — so it runs under

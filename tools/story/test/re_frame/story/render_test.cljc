@@ -21,7 +21,7 @@
 ;; ---- fixtures ------------------------------------------------------------
 ;;
 ;; The host-render hook is a process-global late-bind slot shared with the
-;; canonical-vocabulary shims (`:tap-stub-event`, `:drop-assertion-
+;; canonical-vocabulary shims (`:stub-observed-fx-ids`, `:drop-assertion-
 ;; accumulators`). We MUST NOT `late-bind/clear!` (that wipes those shims +
 ;; breaks every sibling test ns). Instead we snapshot the hooks map before
 ;; each test (so a stray `:render-host` from a prior test is gone) and

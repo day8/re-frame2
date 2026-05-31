@@ -28,7 +28,6 @@
             [re-frame.registrar         :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story             :as story]
-            [re-frame.story.assertions  :as assertions]
             [re-frame.story.plan        :as plan]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.runner-events :as re]
@@ -205,7 +204,6 @@
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (reset! assertions/trace-accumulators {})
   (reset! re/run-state {})
   ;; The canonical `:rf.assert/*` handlers must be installed so an
   ;; `[:assert …]` checkpoint's dispatched atom records onto the slot.

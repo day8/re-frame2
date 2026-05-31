@@ -482,9 +482,10 @@ threads the variant frame's epoch history (per
 `:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch`s
 against the new head, then decrements the cursor. Rewind restores
 against the bottom-of-stack epoch (the pre-play state) and resets
-the cursor to 0 plus clears the assertion accumulator (via
-`assertions/reset-trace-accumulators!`) so a fresh forward run
-doesn't pile new records on top of the old ones.
+the cursor to 0. That epoch-restore alone rewinds the frame's
+`[:rf.story/assertions]` slot (rf2-luzky — the assertions live in the
+frame's app-db, so a fresh forward run starts clean without a separate
+accumulator reset).
 
 Step-back never re-dispatches the popped event — that would create a
 fresh epoch and break the deterministic 1-to-1 cursor↔epoch mapping.

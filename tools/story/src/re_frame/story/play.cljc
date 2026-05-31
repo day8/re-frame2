@@ -8,15 +8,19 @@
   execution itself lives in `re-frame.story.play.runner-events`.
 
   rf2-q651r: `:rf.assert/dispatched?` / `:rf.assert/effect-emitted` /
-  `:rf.assert/no-warnings` no longer read the trace side-table this
-  listener feeds — they PROJECT their fact from the epoch tape (the
+  `:rf.assert/no-warnings` PROJECT their fact from the epoch tape (the
   SSOT, `re-frame.story.assertions/dispatched-events` / `warnings` /
-  `emitted-fx`), the same source the run-result evidence slots read. The
-  listener is retained because it is the load-bearing PRIVACY-suppression
-  seam (Spec 009 §Privacy — default-dropping `:sensitive?` events + the
-  UI redaction counter) and the synchronous handler-exception capture
-  (`pending-exceptions`). The `trace-accumulators` side-table it still
-  writes is a privacy-gated DEV surface, decoupled from the verdict.
+  `emitted-fx`), the same source the run-result evidence slots read.
+
+  rf2-luzky: the per-frame listener's `trace-accumulators` dev-mirror feed
+  (the `record-warning!` / `record-emitted-fx!` / `record-dispatched!`
+  calls) is REMOVED along with the side-table itself — those facts are
+  answerable from the tape + stub-call log, so the mirror carried nothing
+  the SSOT does not. The listener is retained PURELY as the egress seam:
+  the load-bearing PRIVACY-suppression gate (Spec 009 §Privacy —
+  default-dropping `:sensitive?` events + the `config/note-suppressed!`
+  redaction counter) and the synchronous handler-exception capture
+  (`pending-exceptions`). It no longer touches any assertions accumulator.
 
   ## What this module does
 
@@ -29,23 +33,21 @@
   §2.3 the assertion never throws; the play sequence runs to completion
   regardless of which assertions fail.
 
-  ## Trace-bus side-table (privacy seam + dev surface)
+  ## Privacy egress seam (the per-frame trace listener)
 
   We register a per-frame trace listener at the start of the play
-  sequence. Its two LOAD-BEARING jobs:
+  sequence. Its two — and only — LOAD-BEARING jobs:
 
   - PRIVACY (Spec 009 §Privacy): default-drop `:sensitive? true` events
-    and bump the UI redaction counter (`config/note-suppressed!`);
+    BEFORE anything else and bump the UI redaction counter
+    (`config/note-suppressed!`);
   - synchronous handler-exception capture into `pending-exceptions`
     (drained into the assertions list between dispatches).
 
-  It ALSO mirrors `:warning` / `:rf.event/dispatched` / fx events into
-  the assertion module's `trace-accumulators` side-table for dev-tool
-  surfacing. rf2-q651r — that side-table is NO LONGER the evidence source
-  for `:rf.assert/no-warnings` / `:rf.assert/effect-emitted` /
-  `:rf.assert/dispatched?`: those project from the epoch tape (the SSOT).
-  The side-table clears at play-start and lives until frame teardown
-  (per `assertions/drop-trace-accumulators!`).
+  rf2-luzky removed this listener's former `trace-accumulators` dev-mirror
+  feed: `:rf.assert/no-warnings` / `:rf.assert/effect-emitted` /
+  `:rf.assert/dispatched?` project from the epoch tape + stub-call log (the
+  SSOT), so the parallel mirror was redundant.
 
   ## Async surface
 
@@ -80,11 +82,14 @@
             [re-frame.story.registrar  :as registrar]))
 
 ;; ---------------------------------------------------------------------------
-;; Per-frame trace listener
+;; Per-frame trace listener — the Spec 009 §Privacy egress seam
 ;;
 ;; One listener per variant frame. Filters trace events by `:frame`
-;; (per spec/009 §Dispatch correlation) and routes them into the
-;; assertion module's per-frame accumulators. Idempotent.
+;; (per spec/009 §Dispatch correlation) and (a) drops `:sensitive?`
+;; events + bumps the redaction counter, (b) captures synchronous
+;; handler-exceptions into `pending-exceptions`. Idempotent. It does NOT
+;; feed any assertions accumulator (rf2-luzky — the dev-mirror is gone;
+;; assertions project from the epoch tape + stub-call log).
 ;; ---------------------------------------------------------------------------
 
 (defn- listener-id [frame-id]
@@ -95,21 +100,6 @@
   ;; Per Spec 009 §Per-frame routing: the canonical tag key is :frame
   ;; (rf2-shaa1 dropped the :frame-id alias from impl emit sites).
   (get-in ev [:tags :frame]))
-
-;; rf2-ee38b.3: `:db` (and `:fx`) are framework fx-ids that nearly every
-;; handler emits — including the assertion handlers themselves. Recording
-;; them into the per-frame `:emitted-fx` accumulator made
-;; `[:rf.assert/effect-emitted :db]` vacuously always-true. We exclude
-;; the framework fx-ids so `:rf.assert/effect-emitted` reflects USER fx
-;; only. (`:fx`, the effect-vector aggregator, is similarly ubiquitous +
-;; not a meaningful assertion target.)
-(def ^:private framework-fx-ids
-  "Framework fx-ids excluded from the `:emitted-fx` accumulator."
-  #{:db :fx})
-
-(defn- framework-fx-id?
-  [fx-id]
-  (contains? framework-fx-ids fx-id))
 
 ;; Per-frame pending-exception accumulator. The listener captures
 ;; `:rf.error/handler-exception` synchronously (from inside the running
@@ -128,20 +118,32 @@
   (swap! pending-exceptions update frame-id (fnil conj []) ev))
 
 (defn- listener-for-frame
-  "Build the trace-event listener for `frame-id`. Routes each event
-  into the right accumulator. Skips events that don't target the
+  "Build the trace-event listener for `frame-id` — the Spec 009 §Privacy
+  egress seam for the play-runner. Skips events that don't target the
   frame so cross-frame traffic (e.g. the default frame's lifecycle
-  events) stays out of the variant's accumulators.
+  events) stays out of this frame's egress path.
 
   Listener executes INSIDE the running dispatch drain, so it never
   re-enters dispatch-sync — it stores side-effects in atoms and lets
   the play-runner drain them between events.
 
-  Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
-  is true are dropped before any accumulator updates when the global
-  `:rf.privacy/show-sensitive?` flag is false (the default). The
-  suppressed-events counter bumps for the targeted frame so the UI
-  can surface a `[● REDACTED]` hint."
+  Two LOAD-BEARING jobs (rf2-luzky — the `trace-accumulators` dev mirror
+  this listener once also fed is removed; warnings / fx / dispatched are
+  answered from the epoch tape + stub-call log, the SSOT):
+
+  1. PRIVACY (Spec 009 §Privacy + rf2-bclgj): events whose `:sensitive?`
+     flag is true are DROPPED here when the global
+     `:rf.privacy/show-sensitive?` flag is false (the default). The
+     suppressed-events counter bumps (`config/note-suppressed!`) for the
+     targeted frame so the UI can surface a `[● REDACTED]` hint. This is
+     the egress gate — it runs BEFORE the listener does anything else, so
+     a sensitive event never reaches the exception capture below.
+
+  2. Synchronous handler-exception capture: a non-suppressed
+     `:rf.error/handler-exception` event is stashed into
+     `pending-exceptions`, which the play-runner drains AFTER each
+     dispatch-sync settles (so it can record an assertion via
+     dispatch-sync without re-entering the in-flight drain)."
   [frame-id]
   (fn [ev]
     (when (= frame-id (frame-of ev))
@@ -149,27 +151,11 @@
         (config/suppress-sensitive? ev)
         (config/note-suppressed! frame-id)
 
-        :else
-        (case (:op-type ev)
-          :warning      (assertions/record-warning! frame-id ev)
-          :error        (do (assertions/record-warning! frame-id ev)
-                            (when (= :rf.error/handler-exception (:operation ev))
-                              (record-pending-exception! frame-id ev)))
-          :rf.event     (when (= :rf.event/dispatched (:operation ev))
-                          (let [event-vec (get-in ev [:tags :rf.event/v])]
-                            (when (and event-vec
-                                       (not (assertions/assertion-event? event-vec)))
-                              (assertions/record-dispatched! frame-id event-vec))))
-          :rf.fx        (case (:operation ev)
-                          :rf.fx/do-fx (let [fx-map (get-in ev [:tags :rf.event/fx])]
-                                         (when (map? fx-map)
-                                           (doseq [fx-id (keys fx-map)
-                                                   :when (not (framework-fx-id? fx-id))]
-                                             (assertions/record-emitted-fx! frame-id fx-id))))
-                          (let [fx-id (get-in ev [:tags :rf.fx/id])]
-                            (when (and fx-id (not (framework-fx-id? fx-id)))
-                              (assertions/record-emitted-fx! frame-id fx-id))))
-          nil)))))
+        (and (= :error (:op-type ev))
+             (= :rf.error/handler-exception (:operation ev)))
+        (record-pending-exception! frame-id ev)
+
+        :else nil))))
 
 (defn drain-pending-exceptions!
   "Append any pending exception trace events from `frame-id` as
@@ -206,9 +192,9 @@
       (swap! pending-exceptions assoc frame-id []))))
 
 (defn install-trace-listener!
-  "Register a per-frame trace listener that feeds the assertion module's
-  accumulators. Idempotent — re-registering replaces. Returns the
-  listener id."
+  "Register the per-frame privacy egress seam (the trace listener that
+  default-drops `:sensitive?` events + captures handler-exceptions).
+  Idempotent — re-registering replaces. Returns the listener id."
   [frame-id]
   (when config/enabled?
     (let [id (listener-id frame-id)]
@@ -305,7 +291,6 @@
      (async/promise
        (fn [resolve]
          (try
-           (assertions/reset-trace-accumulators! variant-id)
            (swap! pending-exceptions assoc variant-id [])
            (when install-listener?
              (install-trace-listener! variant-id))
@@ -388,7 +373,7 @@
   the dispatch-bearing events."
   [frame-id]
   (when config/enabled?
-    (assertions/reset-trace-accumulators! frame-id)
+    (swap! pending-exceptions assoc frame-id [])
     (install-trace-listener! frame-id)
     (swap! stepper-state assoc frame-id
            {:remaining (variant-play-steps frame-id)

@@ -31,7 +31,6 @@
                 (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/trace-accumulators {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!))
 

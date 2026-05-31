@@ -30,7 +30,6 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.late-bind  :as late-bind]))
 
 (defn- reset-rf! [test-fn]
@@ -39,7 +38,6 @@
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (reset! assertions/trace-accumulators {})
   ;; Drop any stray :render-hiccup host from a prior test (the run-path
   ;; a11y-structural tier-proof seam) so the no-host :cannot-run case is clean.
   (swap! late-bind/hooks dissoc :render-hiccup)

@@ -42,7 +42,6 @@
             [re-frame.registrar        :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.plan       :as plan]
             [re-frame.story.render     :as render]
@@ -64,7 +63,6 @@
                 (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/trace-accumulators {})
   (state/reset-shell-state!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!))

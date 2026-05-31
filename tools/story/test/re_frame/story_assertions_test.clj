@@ -50,7 +50,6 @@
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
-  (reset! assertions/trace-accumulators {})
   ;; rf2-q651r — clear the epoch tape + listeners between tests so the
   ;; tape-projected assertions read only their own freshly-captured tape.
   (epoch/clear-history!)
@@ -586,3 +585,43 @@
       (is (false? (get by-need :ssot.fx/never))
           "an fx never emitted → fail"))
     (story/destroy-variant! :story.ssot/effect)))
+
+;; ===========================================================================
+;; rf2-luzky — fold coverage: a STUBBED fx is answerable from the stub-call
+;; log SSOT, not the removed `trace-accumulators` side-table / dropped
+;; `tap-stub-event!` mirror.
+;;
+;; A stubbed fx lands on the epoch tape under its REWRITTEN stub id
+;; (`:rf.story.fx-stub/<dec>+<fx>`), not its original id — so the tape
+;; :effects projection alone can't answer `[:rf.assert/effect-emitted
+;; <original-fx>]`. `emitted-fx` unions the tape effects with
+;; `fx-stubs/observed-fx-ids` (the stub-call log, read via the
+;; `:stub-observed-fx-ids` late-bind hook). This proves dropping the
+;; `tap-stub-event!` dev-mirror lost no coverage: the original-fx fact is
+;; still answerable from the canonical stub-call log.
+;; ===========================================================================
+
+(deftest effect-emitted-projects-stubbed-fx-from-stub-log
+  (testing ":rf.assert/effect-emitted sees a force-fx-stub'd fx via the
+            stub-call log SSOT (the original fx-id, not the rewritten stub id)"
+    (rf/reg-fx :ssot.fx/http {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-event-fx :ssot/login (fn [_ _] {:fx [[:ssot.fx/http {:url "/login"}]]}))
+    (story/reg-variant :story.ssot/stubbed
+      {:decorators  [[:rf.story/force-fx-stub :ssot.fx/http {:status :ok}]]
+       :events      []
+       :play-script [[:dispatch-sync [:ssot/login]]
+                     [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/http]]
+                     [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/never]]]})
+    (let [r       (async/deref-blocking
+                    (story/run-variant :story.ssot/stubbed) 5000)
+          by-need (->> (:assertions r)
+                       (filter #(= :rf.assert/effect-emitted (:assertion %)))
+                       (map (juxt :expected :passed?))
+                       (into {}))]
+      (is (contains? (assertions/emitted-fx :story.ssot/stubbed) :ssot.fx/http)
+          "emitted-fx answers the ORIGINAL fx-id from the stub-call log union")
+      (is (true?  (get by-need :ssot.fx/http))
+          "effect-emitted PASSES for the stubbed fx's original id")
+      (is (false? (get by-need :ssot.fx/never))
+          "an fx never emitted (stubbed or otherwise) → fail"))
+    (story/destroy-variant! :story.ssot/stubbed)))

@@ -61,20 +61,16 @@
 ;; ---- fx-override-stub registration ---------------------------------------
 ;;
 ;; Cross-namespace forward references go through the
-;; `re-frame.story.late-bind` hub rather than per-shim atoms. Two hooks:
+;; `re-frame.story.late-bind` hub rather than per-shim atoms. One hook:
 ;;
-;;   :tap-stub-event              — fx-stubs binds this; the stub-event
-;;                                  handler calls it with `(frame-id
-;;                                  fx-id)` so the assertion module's
-;;                                  per-frame emitted-fx accumulator
-;;                                  records the call. Stage 3-only
-;;                                  builds leave it unset and the call
-;;                                  no-ops.
+;;   :drop-assertion-accumulators — play binds this; the frame-teardown
+;;                                  path calls it with `(frame-id)` so the
+;;                                  per-frame `pending-exceptions` slot
+;;                                  evicts its entry.
 ;;
-;;   :drop-assertion-accumulators — assertions+play bind this; the
-;;                                  frame-teardown path calls it with
-;;                                  `(frame-id)` so per-frame
-;;                                  accumulators evict their entries.
+;; (rf2-luzky removed the `:tap-stub-event` hook — the stub-call log below
+;; is already the SSOT for stub-redirected fx-ids, so the dev-mirror tap it
+;; drove is gone.)
 ;;
 ;; `re-frame.story/install-canonical-vocabulary!` is the producer side.
 
@@ -110,13 +106,11 @@
 
   Per spec/002 §Per-frame and per-call overrides the `:fx-overrides`
   map redirects `fx-id → fx-id`. So the stub MUST be a registered
-  `:fx` handler, not an event handler. The stub:
-
-  1. Taps `late-bind/get-fn :tap-stub-event` with `(frame fx-id)` so the assertion
-     module's emitted-fx accumulator records the call (so
-     `:rf.assert/effect-emitted` can observe it).
-  2. Appends the call to the per-frame `stub-call-log` atom for
-     inspection / dev-tool surfacing.
+  `:fx` handler, not an event handler. The stub appends the call to the
+  per-frame `stub-call-log` atom — the SSOT `observed-fx-ids` reads so
+  `:rf.assert/effect-emitted` can observe the original fx-id was emitted
+  (a stubbed fx lands on the epoch tape under its rewritten stub id, not
+  its original id).
 
   The fx handler runs synchronously inside re-frame's `do-fx` walk
   with signature `(ctx args)` per Spec 002 §Effect handlers; `ctx`
@@ -127,8 +121,6 @@
   (rf/reg-fx
     stub-id
     (fn [{:keys [frame] :as _ctx} fx-payload]
-      (when-let [tap (late-bind/get-fn :tap-stub-event)]
-        (try (tap frame fx-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
       (swap! stub-call-log update frame (fnil conj [])
              {:stub-id  stub-id
               :fx-id    fx-id

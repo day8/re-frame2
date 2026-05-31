@@ -136,8 +136,7 @@
   (testing "rewind! restores against the bottom-of-stack epoch and zeros
             cursor"
     (let [vid      :story.unit/rewind
-          restored (atom [])
-          cleared  (atom [])]
+          restored (atom [])]
       (seed-slot! vid [[:e/a] [:e/b]])
       (swap! st/results-atom update vid
              (fn [s] (-> s
@@ -148,15 +147,12 @@
       (with-redefs [rf/restore-epoch (fn [v eid]
                                        (swap! restored conj [v eid]))
                     rf/epoch-history (fn [_] [{:epoch-id :x}])
-                    assertions/reset-trace-accumulators!
-                                        (fn [v] (swap! cleared conj v))
                     assertions/read-assertions (fn [_] [])]
         (st/rewind! vid)
         (is (= [[vid :epoch/seed]] @restored)
-            "restored against the SEED epoch-id (bottom of stack)")
-        (is (= [vid] @cleared)
-            "assertion accumulator is cleared so a fresh forward run
-             doesn't pile new records on top of the old ones")
+            "restored against the SEED epoch-id (bottom of stack) — rf2-luzky:
+             that epoch-restore alone rewinds [:rf.story/assertions]; there is
+             no longer a side-table accumulator to clear separately")
         (let [s (get @st/results-atom vid)]
           (is (= 0 (:cursor s)))
           (is (= [:epoch/seed] (:epoch-stack s))))))))
@@ -172,7 +168,6 @@
                          (assoc :interval-id 999))))
       (with-redefs [rf/restore-epoch (fn [_ _] nil)
                     rf/epoch-history (fn [_] [])
-                    assertions/reset-trace-accumulators! (fn [_] nil)
                     assertions/read-assertions (fn [_] [])
                     js/clearInterval (fn [_] nil)]
         (st/rewind! vid)

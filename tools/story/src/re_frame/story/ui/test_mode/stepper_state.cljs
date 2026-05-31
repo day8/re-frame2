@@ -53,7 +53,6 @@
             [re-frame.core                                :as rf]
             [re-frame.story.play                          :as play]
             [re-frame.story.runtime                       :as runtime]
-            [re-frame.story.assertions                    :as assertions]
             [re-frame.story.ui.test-mode.stepper-pure     :as stepper-pure]))
 
 ;; ---- ratom ---------------------------------------------------------------
@@ -204,9 +203,10 @@
             seed  (first stack)]
         (when seed
           (rf/restore-epoch variant-id seed))
-        ;; Also reset the assertion accumulator so a fresh forward run
-        ;; doesn't pile new records on top of the old ones.
-        (assertions/reset-trace-accumulators! variant-id)
+        ;; rf2-luzky — the assertions side-table is gone; restoring the
+        ;; pre-play epoch above already rewinds `[:rf.story/assertions]`
+        ;; (it lives in the frame's app-db), so a fresh forward run starts
+        ;; clean without an explicit accumulator reset.
         ;; Reset the substrate's run cursor (every step back to pending)
         ;; so the rewound stepper re-runs the whole script cleanly.
         (play/stepper-rewind! variant-id)

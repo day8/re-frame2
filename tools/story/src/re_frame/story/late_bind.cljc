@@ -16,13 +16,6 @@
 
   ## Hook keys
 
-  - `:tap-stub-event`              — fx-stubs → frames. Called on
-                                     every stub-event firing so the
-                                     assertion module's per-frame
-                                     emitted-fx side-table records
-                                     the call. Signature: `(f frame-id
-                                     fx-id) → nil`.
-
   - `:stub-observed-fx-ids`        — fx-stubs → assertions. Returns the
                                      set of ORIGINAL fx-ids a frame's
                                      `force-fx-stub` decorators redirected
@@ -35,10 +28,11 @@
                                      original). Signature: `(f frame-id) →
                                      #{fx-id …}`.
 
-  - `:drop-assertion-accumulators` — assertions+play → frames. Called
-                                     on frame teardown so per-frame
-                                     accumulators evict their entries.
-                                     Signature: `(f frame-id) → nil`.
+  - `:drop-assertion-accumulators` — play → frames. Called on frame
+                                     teardown so the play module's
+                                     per-frame `pending-exceptions` slot
+                                     evicts its entry. Signature:
+                                     `(f frame-id) → nil`.
 
   - `:render-host`                 — story (via the canonical
                                      `install-render-host!`) → render. The
