@@ -2106,7 +2106,19 @@
    :checks         []
    :rendered-hiccup [:input {:type "password" :value "TOPSECRET"}]
    :effective-args {:label "Save" :token "TOPSECRET"}
-   :snapshot       {:db {:token "TOPSECRET"}}})
+   :snapshot       {:db {:token "TOPSECRET"}}
+   ;; rf2-j90sb — the three evidence slots that previously egressed RAW.
+   ;; :narrative is a two-level evidence tree whose inner beats carry
+   ;; full :db-before / :db-after app-db snapshots (evidence.cljc
+   ;; epoch-beat) — the secret rides those verbatim. :warnings are
+   ;; trace-event records (here one carrying the secret in its data).
+   ;; :sub-runs carry the subscription :value.
+   :narrative      [{:span :epoch
+                     :epochs [{:db-before {:token "TOPSECRET" :public "ok"}
+                               :db-after  {:token "TOPSECRET" :public "ok"}
+                               :trigger-event [:set-token "TOPSECRET"]}]}]
+   :warnings       [{:event :rf.trace/warn :data {:token "TOPSECRET"}}]
+   :sub-runs       [{:sub [:auth/token] :value "TOPSECRET"}]})
 
 (deftest preview-variant-rendered-hiccup-redacts-sensitive-by-default
   (testing "the secret MUST NOT leak through preview-variant's derived trees"
@@ -2160,6 +2172,61 @@
           (is (success? r))
           (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
               "opt-in surfaces the raw value in rendered-hiccup"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-j90sb (headline P1, privacy egress) — run-variant's :narrative /
+;; :warnings / :sub-runs evidence slots egressed RAW. :narrative is a
+;; two-level evidence tree whose inner beats carry FULL :db-before /
+;; :db-after app-db snapshots (evidence.cljc epoch-beat), so a declared-
+;; sensitive value — correctly redacted in the top-level :app-db slot —
+;; escaped the MCP wire verbatim inside the narrative tree. :warnings
+;; (trace-event records) and :sub-runs (sub :value) carry the same leak
+;; class. These pin that all three are now value-redacted at egress, with
+;; the same `:include-sensitive` opt-out as the sibling derived slots.
+;; Sibling of pair-mcp's rf2-6wvh5.
+;; ---------------------------------------------------------------------------
+
+(deftest run-variant-narrative-redacts-sensitive-by-default
+  (testing "the secret MUST NOT leak through run-variant's :narrative / :warnings / :sub-runs"
+    (with-clean-frame [vid :story.button/primary]
+      (declare-sensitive! vid [:token])
+      (with-redefs [story/run-variant
+                    (fn [_vk _opts]
+                      (java.util.concurrent.CompletableFuture/completedFuture
+                        (secret-bearing-run-result vid)))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :rf/redacted (get-in s [:app-db :token]))
+              "app-db path-redaction still holds")
+          (is (not (tree-contains? (:narrative s) "TOPSECRET"))
+              ":narrative beats' :db-before/:db-after MUST NOT carry the secret at egress")
+          (is (tree-contains? (:narrative s) :rf/redacted)
+              "the secret in :narrative is replaced by the :rf/redacted sentinel")
+          (is (not (tree-contains? (:warnings s) "TOPSECRET"))
+              ":warnings trace-event data MUST NOT carry the secret at egress")
+          (is (not (tree-contains? (:sub-runs s) "TOPSECRET"))
+              ":sub-runs subscription :value MUST NOT carry the secret at egress"))))))
+
+(deftest run-variant-narrative-forwards-secret-when-opted-in
+  (testing ":include-sensitive true forwards the raw value through :narrative / :warnings / :sub-runs"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (declare-sensitive! vid [:token])
+      (with-redefs [story/run-variant
+                    (fn [_vk _opts]
+                      (java.util.concurrent.CompletableFuture/completedFuture
+                        (secret-bearing-run-result vid)))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                       :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (tree-contains? (:narrative s) "TOPSECRET")
+              "opt-in surfaces the raw value in :narrative beats")
+          (is (tree-contains? (:warnings s) "TOPSECRET")
+              "opt-in surfaces the raw value in :warnings")
+          (is (tree-contains? (:sub-runs s) "TOPSECRET")
+              "opt-in surfaces the raw value in :sub-runs"))))))
 
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"
