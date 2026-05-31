@@ -117,9 +117,9 @@ per-worktree git dir has no marker. Install with
 the marker pattern, permitted/refused surfaces, and the
 `--no-verify`/disable escape hatches. This is a commit-time
 complement to the edit-time guard at
-`scripts/assert-worker-worktree.ps1` — if a worker's edit guard is
-bypassed (e.g. PowerShell cwd leak), the commit guard catches the
-attempt from the other side.
+`scripts/assert-worker-worktree.sh` (POSIX primary) / `.ps1` (Windows) —
+if a worker's edit guard is bypassed (e.g. PowerShell cwd leak), the
+commit guard catches the attempt from the other side.
 
 **TODO (leak-mitigation escalation).** If this strengthened reminder proves
 insufficient and the leak continues to happen, escalate to one of:
