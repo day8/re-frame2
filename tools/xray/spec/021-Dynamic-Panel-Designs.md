@@ -2321,7 +2321,7 @@ when no violation attached to that step. Hot-reload drift no
 longer rides any pipeline step (rf2-7gf7v); it surfaces in the
 Issues panel only.
 
-### §9.1.10.4 Inline EXCEPTION attachment + per-step ✓/✗ status (rf2-ahhgn)
+### §9.1.10.4 Inline EXCEPTION attachment + per-step status (rf2-ahhgn)
 
 > **Motivation.** A handler / interceptor / coeffect / fx / flow
 > EXCEPTION (distinct from a schema VIOLATION) leaves a
@@ -2330,24 +2330,35 @@ Issues panel only.
 > clean. Clicking button-15 (`:standard-epochs/throw-handler`) showed
 > nothing explaining the failure, and the framework epoch
 > `:outcome` read `:ok`. This section adds inline per-step error
-> cards + a per-step pass/fail glyph + a tool-side outcome so a
-> failed event is visible where the operator is already looking.
+> cards + a tool-side outcome so a failed event is visible where the
+> operator is already looking.
 
-**Per-step ✓/✗ status primitive.** Every pipeline step carries a
-`:status` of `:ok` / `:error` (`projection/step-status`). The view
-paints a glyph immediately after the step's badge pill —
-`badge/step-status-glyph` (✓ / ✗) coloured by
-`badge/step-status-colour` (`:success` green / `:error` red). A
-clean step paints the quiet green ✓; a failed step paints the bold
-red ✗ so the operator eye-scans the cascade for the failing step
-without reading every label. `step-status` reads the step's
-stamped `:status` slot first, then falls back to scanning the
-step-level + row-level `:errors` / `:violations` vecs (so a step
-that gained a schema violation via `attach-violations` — which does
-not stamp `:status` — still reads `:error`). **rf2-kt6js reuses
-this exact `:status` shape + the `badge/step-status-*` resolver for
-its SIDE-EFFECTS sub-steps' per-effect ticks — it is a shared
-primitive, not a one-off.**
+**Per-step status (no per-stage glyph — rf2-9wq0v).** Every pipeline
+step carries a `:status` of `:ok` / `:error` / `:skipped`
+(`projection/step-status`). `step-status` reads the step's stamped
+`:status` slot first, then falls back to scanning the step-level +
+row-level `:errors` / `:violations` vecs (so a step that gained a
+schema violation via `attach-violations` — which does not stamp
+`:status` — still reads `:error`).
+
+rf2-ahhgn originally painted a per-stage ✓/✗/⊘ glyph immediately after
+each step's badge pill (off a `badge/step-status-glyph` /
+`badge/step-status-colour` resolver). **rf2-9wq0v RETIRED that
+per-stage glyph** (and the `badge/step-status-set` / `step-status?` /
+`step-status-glyph` / `step-status-token-key` / `step-status-colour`
+resolver primitive it rendered through): a clean run painted a quiet ✓
+on every stage — no information — and a failure is already shown by the
+inline exception card UNDER the failing stage (below; rf2-yz57h /
+rf2-wnvid), so the per-stage ✗ was redundant. The pipeline reads
+quieter without it.
+
+`projection/step-status` SURVIVES — it still drives (a) the SKIPPED-body
+branch (`:skipped` → the "did not run" placeholder, below) and (b) the
+overall cascade-outcome banner (`cascade-outcome` / `epoch-outcome`,
+which scan the step vector for any `:error`). The per-EFFECT SIDE-EFFECTS
+ledger glyphs (`badge/fx-row-status-glyph`, §9.1.10.x SIDE EFFECTS) and
+the machine cascade-outcome glyph (`badge/cascade-outcome-glyph`) are
+distinct per-row / per-cascade signals and are UNAFFECTED.
 
 **Exception harvesting + attachment.** The projection harvests the
 `cascade-exception-ops` subset into per-step error records
@@ -2418,10 +2429,11 @@ placeholder body ("The handler did not run — an upstream step threw
 before this step could execute.") instead of the normal body. An
 interceptor `:after` throw is NOT a skip — the handler ran first; the
 throw fired on the way out. `step-status` gains a third value `:skipped`
-(distinct from `:ok` / `:error`); the header glyph is a muted `⊘`
-(`badge/step-status-glyph :skipped`, `:text-tertiary` tone) — a skip is
-NEUTRAL, not a failure, so it does NOT inflate the epoch outcome (the
-failing COEFFECT / INTERCEPTOR step is the load-bearing `:error` signal).
+(distinct from `:ok` / `:error`) which drives the SKIPPED placeholder
+body; the SKIPPED body itself ("did not run") carries the signal (the
+per-stage `⊘` glyph retired in rf2-9wq0v). A skip is NEUTRAL, not a
+failure, so it does NOT inflate the epoch outcome (the failing COEFFECT /
+INTERCEPTOR step is the load-bearing `:error` signal).
 
 **Inline error card (rf2-ahhgn · refined rf2-wnvid).** `view/error-block`
 renders a red-edged card (sibling to the amber schema-violation card;
@@ -2610,12 +2622,16 @@ PRESENTATION over already-recorded data — implemented tool-side in
 reshapes that presentation (3-tier → flat ledger); the data source is
 unchanged.
 
-**Header chrome** — badge `:SIDE-EFFECTS` + the single overall `✓ / ✗`
-badge glyph (rf2-j630b). No verb, no `(post-commit)` caption, no
-threw-count chip — the per-row glyphs carry per-effect outcome and the
-single badge carries the at-a-glance overall outcome (the rf2-m8ac9
-"count summary is noise" rationale carries through; rf2-j630b extends it
-to drop the post-commit labels too).
+**Header chrome** — badge `:SIDE-EFFECTS` only. No verb, no
+`(post-commit)` caption, no threw-count chip — the per-row glyphs
+(`badge/fx-row-status-glyph`) carry per-effect outcome and are the whole
+signal (the rf2-m8ac9 "count summary is noise" rationale carries through;
+rf2-j630b extended it to drop the post-commit labels too). rf2-j630b's
+single overall `✓ / ✗` badge glyph was **RETIRED in rf2-9wq0v** along
+with the other per-stage glyphs — it duplicated what the per-row ledger
+already shows. The `:rows`-level AND-of-rows outcome stays queryable via
+`projection/side-effects-badge-status` (tests + the cascade-outcome
+banner).
 
 **Per-action attribution** — when the cascade was driven by a machine
 handler, each `:fx` ledger row that maps to a fx-id emitted by an

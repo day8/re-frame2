@@ -203,19 +203,6 @@
    :font-size   "10px"
    :margin-left "4px"})
 
-;; rf2-ahhgn — per-step pass/fail status glyph. Rides immediately after
-;; the badge pill so the ✓/✗ reads as a property OF the step. Quiet ✓
-;; on success (green, low weight — not alarmist); bold ✗ on failure
-;; (red) so a failing step jumps out of an otherwise-clean cascade. The
-;; colour resolves off `badge/step-status-colour` at render time
-;; (per-step), so it is NOT folded into this hoisted base.
-(def ^:private step-header-status-glyph-base-style
-  {:font-family mono-stack
-   :font-size   "12px"
-   :font-weight 700
-   :line-height 1
-   :flex        "0 0 auto"})
-
 ;; -- sub-header -----------------------------------------------------------
 
 (def ^:private sub-header-style
@@ -722,10 +709,11 @@
   {:color text-tertiary-colour})
 
 ;; The flat SIDE EFFECTS ledger (rf2-j630b) carries NO header verb /
-;; caption — the single badge ✓/✗ + the per-row glyphs are the whole
-;; signal. The pre-rf2-j630b `(post-commit)` caption + `N threw` chip
-;; styles (`fx-verb-style` / `fx-caption-style` / `fx-threw-style`)
-;; retired with the 3-tier presentation.
+;; caption — the per-row glyphs (`fx-row-status-glyph`) are the whole
+;; signal (the per-stage badge glyph retired in rf2-9wq0v). The
+;; pre-rf2-j630b `(post-commit)` caption + `N threw` chip styles
+;; (`fx-verb-style` / `fx-caption-style` / `fx-threw-style`) retired with
+;; the 3-tier presentation.
 
 (def ^:private margin-top-5-style
   {:margin-top "5px"})
@@ -1282,8 +1270,9 @@
 ;; placeholder body — a muted italic line stating the step did not run —
 ;; instead of the normal body (whose `:db` sub-section would otherwise read
 ;; the misleading "— no :db (handler returned no :db)" even though the
-;; handler's body DOES return a :db; it simply never executed). The header
-;; glyph is the muted ⊘ (`badge/step-status-glyph :skipped`).
+;; handler's body DOES return a :db; it simply never executed). The
+;; SKIPPED placeholder body itself carries the "did not run" signal
+;; (the per-stage header glyph retired in rf2-9wq0v).
 (def ^:private skipped-body-style
   {:margin-top  "5px"
    :padding     "6px 8px"
@@ -1405,10 +1394,10 @@
 
 ;; rf2-ahhgn epoch outcome banner — RETIRED (rf2-wnvid). The top-of-
 ;; pipeline "This event failed — see the ✗ step below." banner restated
-;; what the cascade now shows inline (the failing step's red ✗ glyph +
-;; the 'Exception Thrown' card). `outcome-banner-error-style` +
-;; `outcome-banner` are gone; the panel root keeps `data-rf-xray-outcome`
-;; for tools / e2e.
+;; what the cascade now shows inline (the failing step's 'Exception
+;; Thrown' card; the per-stage ✗ glyph itself retired in rf2-9wq0v).
+;; `outcome-banner-error-style` + `outcome-banner` are gone; the panel
+;; root keeps `data-rf-xray-outcome` for tools / e2e.
 
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
@@ -1546,41 +1535,20 @@
 ;; with the default `:color "inherit"` + `:margin-left "4px"` knobs,
 ;; which match this panel's prior shape exactly.
 
-(defn- step-status-glyph
-  "Render the per-step ✓/✗/⊘ status glyph (rf2-ahhgn · rf2-yz57h).
-  `status` is the `:ok` / `:error` / `:skipped` keyword from
-  `projection/step-status`; the colour + glyph resolve off the shared
-  `badge/step-status-*` primitive (the same one rf2-kt6js's SIDE-EFFECTS
-  sub-steps reuse). `:skipped` (rf2-yz57h) is the step that never RAN
-  because an upstream `:before`-chain throw aborted the cascade — a muted
-  ⊘ that reads as 'did not run', NOT a failure. `testid` keys the
-  `-status` suffix + the `data-rf-xray-step-status` attribute tests +
-  the issues-ribbon eye-scan read."
-  [status testid]
-  (let [[aria title] (case status
-                       :error   ["step failed"  "this step failed"]
-                       :skipped ["step skipped" "this step was skipped — an upstream step threw before it could run"]
-                       ["step ok" "this step ran cleanly"])]
-    [:span {:data-testid (str testid "-status")
-            :data-rf-xray-step-status (name (or status :ok))
-            :aria-label aria
-            :title title
-            :style (assoc step-header-status-glyph-base-style
-                          :color (badge/step-status-colour status))}
-     (badge/step-status-glyph status)]))
-
 (defn- step-header
-  "Render a step's header row — badge pill + per-step ✓/✗ status glyph
-  (rf2-ahhgn) + verb/label + optional duration. The flex layout keeps
-  the duration right-aligned via `margin-left: auto`. The whole header
-  is wrapped in an interactive `<div>` so clicking anywhere on the row
-  toggles `expanded?` when the step carries expandable content
-  (`expandable?` true).
+  "Render a step's header row — badge pill + verb/label + optional
+  duration. The flex layout keeps the duration right-aligned via
+  `margin-left: auto`. The whole header is wrapped in an interactive
+  `<div>` so clicking anywhere on the row toggles `expanded?` when the
+  step carries expandable content (`expandable?` true).
 
-  `:status` is the step's `:ok` / `:error` pass-fail (rf2-ahhgn) — the
-  glyph is omitted when no status is supplied so test callers + non-step
-  headers (none today) stay unchanged."
-  [{:keys [badge verb expandable? expanded? testid duration-ms status]} on-toggle]
+  rf2-9wq0v retired the per-stage ✓/✗/⊘ status glyph that used to ride
+  immediately after the badge pill — a clean run painted a tick on every
+  stage (no information), and a failure is already shown by the inline
+  exception card UNDER the failing stage (rf2-yz57h / rf2-wnvid). The
+  overall cascade-outcome banner + the per-EFFECT SIDE-EFFECTS ledger
+  glyphs carry the surviving signals."
+  [{:keys [badge verb expandable? expanded? testid duration-ms]} on-toggle]
   [:div {:data-testid (str testid "-header")
          :on-click    (when (and expandable? on-toggle)
                         (fn [e]
@@ -1590,8 +1558,6 @@
                   step-header-pointer-style
                   step-header-default-cursor-style)}
    (badge-pill badge)
-   (when status
-     (step-status-glyph status testid))
    [:span {:data-testid (str testid "-verb")
            :style step-header-verb-style}
     verb]
@@ -1935,7 +1901,6 @@
                   (dispatch-source-label source coord)]))
        :expandable? false
        :testid "rf-xray-epoch-dispatch"
-       :status (proj/step-status step)
        :duration-ms duration-ms}
       nil)
     (dispatch-body step)
@@ -1996,7 +1961,7 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value no-value? step-number violations errors] :as step}]
+  [{:keys [id value no-value? step-number violations errors]}]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta :cofx id)
                           (catch :default _ nil)))
@@ -2019,8 +1984,7 @@
                                      {:style       coeffect-verb-link-button-style
                                       :plain-style coeffect-verb-plain-style})
         :expandable? false
-        :testid (str "rf-xray-epoch-coeffect-" (name id))
-        :status (proj/step-status step)}
+        :testid (str "rf-xray-epoch-coeffect-" (name id))}
        nil)
      ;; Body — `+ [:cofx-id] <value>` diff-style line. Per pair-debug
      ;; 2026-05-26 the body sits left-aligned with the badge (no
@@ -2137,7 +2101,7 @@
   phase chip + the shared 'Exception Thrown' card. The step's `:errors`
   slot (attached by `attach-exceptions`) is rendered per-row by matching
   the exception's `:failing-id` to the row's `:interceptor-id`."
-  [{:keys [rows step-number errors] :as step}]
+  [{:keys [rows step-number errors]}]
   ;; The step-level `:errors` (from `attach-exceptions`) carry the exception
   ;; records; thread each onto its matching row by `:failing-id`.
   (let [rows* (mapv (fn [row]
@@ -2154,8 +2118,7 @@
         :verb (str (count rows) " interceptor"
                    (when (not= 1 (count rows)) "s") " threw")
         :expandable? false
-        :testid "rf-xray-epoch-interceptor"
-        :status (proj/step-status step)}
+        :testid "rf-xray-epoch-interceptor"}
        nil)
      [:div {:style margin-top-5-style}
       (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]]))
@@ -2933,7 +2896,6 @@
         :verb (handler-verb-link flavour event-id)
         :expandable? false
         :testid "rf-xray-epoch-handler"
-        :status status
         ;; rf2-yz57h — a skipped handler has no real duration (it never
         ;; ran); elide the chip.
         :duration-ms (when-not skipped? duration-ms)}
@@ -2992,8 +2954,7 @@
   (a pre-rf2-ta0y7 runtime, or neither t1 nor t2 on the stream) the
   body falls back to the per-path `[path] before → after` scalar line."
   [{:keys [flow-id path before after duration-ms step-number
-           db-pre-flow db-post-flow errors]
-    :as step}]
+           db-pre-flow db-post-flow errors]}]
   (let [flow-meta  (when (keyword? flow-id)
                      (try (rf/handler-meta :flow flow-id)
                           (catch :default _ nil)))
@@ -3028,7 +2989,6 @@
                                       :plain-style coeffect-verb-plain-style})
         :expandable? false
         :testid (str "rf-xray-epoch-flow-" (name flow-id))
-        :status (proj/step-status step)
         :duration-ms duration-ms}
        nil)
      (if db-diff?
@@ -3215,10 +3175,12 @@
   a bare reg-event-db that returns only `:db` (`db-commit?` keys off
   `:rf.event/db-changed`).
 
-  After the 'SIDE EFFECTS' badge the header paints ONE overall glyph —
-  TICK when every present row succeeded, CROSS when one or more FAILED
-  (`proj/side-effects-badge-status` is the AND of the flat `:rows`;
-  SKIPPED rows are NEUTRAL).
+  The SIDE EFFECTS badge carries NO overall stage glyph (the per-stage
+  ✓/✗ retired in rf2-9wq0v — a clean run was an all-tick row of no
+  information, and a failure already shows on its own row + exception
+  card). The per-EFFECT row glyphs are the whole signal. `:rows`-level
+  outcome is still queryable via `proj/side-effects-badge-status` for the
+  cascade-outcome banner + tests.
   There are NO post-commit / best-effort labels and NO group headers: the
   body is one row per effect, in EXECUTION order, each via
   `fx-row-with-violations`:
@@ -3239,7 +3201,7 @@
   exception-under-step rendering. `:fx-args` / fx exception attachments
   that didn't match a row attach to the step level (rf2-xgeag /
   rf2-ahhgn) and render at the foot. `:db` schema-fail (pre-commit) →
-  just the `:db` CROSS row + badge cross, no fx rows (atomicity)."
+  just the `:db` CROSS row, no fx rows (atomicity)."
   [{:keys [rows step-number threw violations errors] :as step}]
   (let [skipped? (= :skipped (proj/step-status step))]
     [:div {:data-testid "rf-xray-epoch-step-side-effects"
@@ -3250,19 +3212,7 @@
        {:step :side-effects
         :badge :SIDE-EFFECTS
         :expandable? false
-        :testid "rf-xray-epoch-side-effects"
-        ;; rf2-yz57h — when the step was skipped (an upstream `:before`-chain
-        ;; throw aborted the cascade before any side effect ran) the header
-        ;; glyph is the muted ⊘ via the generic `step-status`. Otherwise the
-        ;; single overall badge glyph is the AND of the present ledger rows
-        ;; (`side-effects-badge-status`, rf2-j630b): cross iff a row is a real
-        ;; failure (its `:status` is `:error` / `:rollback`, or it carries an
-        ;; attached exception / violation); SKIPPED-on-platform rows are
-        ;; neutral. The row-level AND is distinct from the generic
-        ;; `step-status` (which keys off the step's own `:status` +
-        ;; attachments only) because a row's `:status :error` / `:rollback`
-        ;; must trip the badge too.
-        :status (if skipped? :skipped (proj/side-effects-badge-status rows))}
+        :testid "rf-xray-epoch-side-effects"}
        nil)
      (if skipped?
        ;; rf2-yz57h — side effects never ran (upstream `:before`-chain throw).
@@ -3677,7 +3627,7 @@
   bar's click dispatches into that same captured frame — so toggle
   writes + reads hit THIS instance's Xray app-db (N isolated shells
   stay independent), not the `:rf/xray` singleton."
-  [{:keys [rows disposed-rows step-number violations] :as step}]
+  [{:keys [rows disposed-rows step-number violations]}]
   (let [frame         (rf/current-frame)
         mode          @(rf/subscribe frame
                                      [:rf.xray.epoch/subs-filter-mode])
@@ -3713,8 +3663,7 @@
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
         :expandable? false
-        :testid "rf-xray-epoch-subscriptions"
-        :status (proj/step-status step)}
+        :testid "rf-xray-epoch-subscriptions"}
        nil)
      (when (pos? n)
        (subscriptions-table visible-rows))
@@ -3910,7 +3859,7 @@
   surfaces are non-empty; collapses to `N re-rendered` or `M
   unmounted` when one half is absent. The unmounted sub-section
   is omitted entirely when no unmount-trace events fired."
-  [{:keys [rows unmounted-rows step-number] :as step}]
+  [{:keys [rows unmounted-rows step-number]}]
   (let [n (count rows)
         m (count unmounted-rows)
         verb (cond
@@ -3928,8 +3877,7 @@
         :badge :VIEWS
         :verb verb
         :expandable? false
-        :testid "rf-xray-epoch-views"
-        :status (proj/step-status step)}
+        :testid "rf-xray-epoch-views"}
        nil)
      (when (pos? n)
        (views-table rows))
@@ -4613,9 +4561,9 @@
 
 ;; rf2-wnvid — the top-of-cascade outcome banner ("This event failed —
 ;; see the ✗ step below.") is RETIRED (Mike pair-debug 2026-05-31). It
-;; was redundant: the failure now surfaces inline in the cascade — the
-;; failing step paints the red ✗ glyph (rf2-ahhgn `step-status`) and the
-;; inline 'Exception Thrown' card sits right under it. The banner
+;; was redundant: the failure surfaces inline in the cascade — the
+;; failing step's inline 'Exception Thrown' card sits right under the
+;; step (the per-stage ✗ glyph itself retired in rf2-9wq0v). The banner
 ;; restated what the cascade already shows, pushing the actual content
 ;; down. The panel root still stamps `data-rf-xray-outcome` (tools / e2e
 ;; read the tool-side outcome there); the banner element + its style are
@@ -4630,11 +4578,12 @@
   the numbered cascade when steps are present; an empty-state when
   the focus carries no record or the record carries no trace events.
 
-  rf2-ahhgn / rf2-wnvid — when the cascade failed (`:outcome :error`)
-  the failure surfaces INLINE: the failing step paints the red ✗ glyph
-  and the inline 'Exception Thrown' card sits under it. The panel root
-  stamps `data-rf-xray-outcome` for tools / e2e; the pre-rf2-wnvid
-  top banner is retired (it merely restated the inline signal)."
+  rf2-ahhgn / rf2-wnvid / rf2-9wq0v — when the cascade failed
+  (`:outcome :error`) the failure surfaces INLINE: the failing step's
+  'Exception Thrown' card sits under it (the per-stage ✗ glyph retired
+  in rf2-9wq0v). The panel root stamps `data-rf-xray-outcome` for tools /
+  e2e; the pre-rf2-wnvid top banner is retired (it merely restated the
+  inline signal)."
   []
   (let [{:keys [status steps dispatch-id epoch-history outcome]}
         @(rf/subscribe [:rf.xray/epoch-pipeline])]

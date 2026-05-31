@@ -351,70 +351,20 @@
     :cancelled "·"
     "·"))
 
-;; ---- Per-step pass/fail status primitive (rf2-ahhgn) --------------------
+;; rf2-9wq0v retired the per-STAGE status glyph primitive that used to
+;; live here (`step-status-set` / `step-status?` / `step-status-token-key`
+;; / `step-status-colour` / `step-status-glyph`, rf2-ahhgn · rf2-yz57h). A
+;; clean run painted a quiet ✓ on every stage badge — no information — and
+;; a failure is already surfaced by the inline exception card UNDER the
+;; failing stage (rf2-yz57h / rf2-wnvid), so the per-stage ✗ was redundant
+;; too. The pipeline reads quieter without it.
 ;;
-;; Every pipeline step (DISPATCH / COEFFECT / HANDLER / FLOW / FX /
-;; SUBSCRIPTIONS / VIEWS) carries a `:status` of `:ok` or `:error`
-;; (projection/`step-status`). The view paints a ✓ (ok) / ✗ (error)
-;; glyph on each step header off this primitive so the operator
-;; eye-scans the cascade for the FAILING step without reading every
-;; label — the failure that pre-rf2-ahhgn was invisible (handler /
-;; interceptor / coeffect / fx exceptions surfaced NOWHERE in the
-;; cascade).
-;;
-;; This is the GENERAL per-step status shape rf2-kt6js's SIDE-EFFECTS
-;; sub-steps reuse for their per-effect ticks (:db / :fx / other) — one
-;; glyph + token resolver, not a one-off. The closed `:ok` / `:error`
-;; set mirrors the machine-cascade row outcome chrome above (✓ green /
-;; ✗ red); a step with no failure reads `:ok` and paints the quiet ✓.
-
-(def step-status-set
-  "Closed set of per-step statuses (rf2-ahhgn · rf2-yz57h). Tests + the
-  view's glyph-resolver bail-out read this set.
-
-  rf2-yz57h adds `:skipped` — a step that never RAN because an upstream
-  `:before`-chain throw aborted the cascade (the handler is skipped when a
-  coeffect injector or a `:before` interceptor throws). Distinct from `:ok`
-  (the step ran cleanly) and `:error` (the step ran + failed)."
-  #{:ok :error :skipped})
-
-(defn step-status?
-  "Predicate — `status` keyword is a member of `step-status-set`."
-  [status]
-  (contains? step-status-set status))
-
-(defn step-status-token-key
-  "Theme-token keyword for a per-step status glyph colour (rf2-ahhgn ·
-  rf2-yz57h):
-    :ok      → :success         (✓ green)
-    :error   → :error           (✗ red)
-    :skipped → :text-tertiary   (⊘ muted — neutral; the step didn't run,
-                                  it is NOT a failure)
-  Falls back to `:success` for unknown statuses so a never-failed step
-  paints the quiet success tick."
-  [status]
-  (case status
-    :error   :error
-    :skipped :text-tertiary
-    :success))
-
-(defn step-status-colour
-  "CSS-variable string for a per-step status glyph (rf2-ahhgn)."
-  [status]
-  (get tokens/tokens (step-status-token-key status)
-       (get tokens/tokens :success)))
-
-(defn step-status-glyph
-  "Single-char glyph for a per-step status (rf2-ahhgn · rf2-yz57h):
-    :ok      → \"✓\"
-    :error   → \"✗\"
-    :skipped → \"⊘\"  (circled-slash — 'did not run', muted/neutral)
-  Defaults to the success tick for unknown statuses."
-  [status]
-  (case status
-    :error   "✗"
-    :skipped "⊘"
-    "✓"))
+;; The per-step `:ok` / `:error` / `:skipped` SHAPE still lives in the
+;; projection (`projection/step-status`) — it feeds the overall
+;; cascade-outcome banner (`cascade-outcome`, the `(some #(= :error …))`
+;; scan) — and the per-EFFECT outcome glyphs (`fx-row-status-glyph`,
+;; below) plus the cascade-outcome banner (`cascade-outcome-glyph`, above)
+;; carry the surviving, distinct signals.
 
 ;; ---- Flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------
 ;;
