@@ -17,7 +17,7 @@
     {"id": 11, "name": "neg-live-pair",         "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
     {"id": 12, "name": "neg-port-language",     "should_trigger": false, "prompt": "I want to port re-frame2 to F#.", "rationale": "Porting the framework is re-frame2-implementor."},
     {"id": 13, "name": "neg-spec-question",     "should_trigger": false, "prompt": "What's the EP rationale for treating effects as data in v2?", "rationale": "Spec discussion belongs to SKILL-REDIRECT.md."},
-    {"id": 14, "name": "neg-xray-tour",        "should_trigger": false, "prompt": "Which Xray panel shows my schema violations?", "rationale": "Xray tour is its own skill."},
+    {"id": 14, "name": "neg-xray-tour",         "should_trigger": false, "prompt": "Which Xray panel shows my schema violations?", "rationale": "Xray tour is its own skill."},
     {"id": 15, "name": "neg-improver",          "should_trigger": false, "prompt": "Review events.cljs in my v2 project for anti-patterns.", "rationale": "Static critique is re-frame2-improver."},
     {"id": 16, "name": "neg-vocab-migrate-db",  "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
     {"id": 17, "name": "v1-addon-http-fx",      "should_trigger": true,  "prompt": "Our handlers use :http-xhrio (http-fx) everywhere — what's the v2 path?"},
