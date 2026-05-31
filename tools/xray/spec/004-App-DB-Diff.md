@@ -139,6 +139,54 @@ testbed epoch-2 `:rf/runtime` allocation (`:messages []` +
 > the FULL+DIFF family alongside rf2-9d4j8 root-container and
 > rf2-fyd8u scalar-sub-cache cases).
 
+### Removed slots render in place; the absence marker never escapes (rf2-8pfkk)
+
+The diff renders the **union of `before ∪ after`** — a slot present in
+`before` but absent from `after` (a `dissoc`, a `disj`, a popped vector
+tail) must still be visible, rendered **in place** struck-through with
+the `:removed` chrome (the universal diff idiom). The union walker
+threads an internal **`::missing` sentinel** for the slot that does not
+exist on one side; the renderer routes that sentinel through the
+`:added` / `:removed` paths.
+
+Two honesty rules make this robust regardless of how the engine
+anchored the edit:
+
+- **The structural sentinel is authoritative.** A slot whose `value`
+  side is `::missing` is a removal, full stop; a slot whose `before`
+  side is `::missing` is an addition. This overrides the projection's
+  per-path op. The override matters because removing the *only* key of
+  a nested map (`(update db :shapes dissoc :added)`, leaving `:shapes
+  {}`) is anchored by Editscript on the **surviving parent** — `op-at
+  [:shapes]` reports `:removed`/`:children` while the removed child slot
+  `[:shapes :added]` carries the ghost subtree in `:container-ops` and
+  reports `:children`. Trusting that child op leaked the internal
+  `::missing` keyword (`:day8…edn-inspector/missing`) literally into the
+  row (`:added ::missing`). The internal sentinel **must never appear in
+  rendered output**.
+
+- **A removed *container* renders as a collapsed struck-through ghost.**
+  A deleted subtree shows as a single struck-through node (`:shapes {…}
+  (N keys)`, red), expandable on demand to walk the ghost — bounding
+  verbosity and reusing the ordinary collapse / elision machinery rather
+  than `pr-str`-ing the whole deleted tree. Every descendant inside the
+  ghost **inherits `:removed`** via a nearest-removed-ancestor walk-down
+  (the symmetric of rf2-bufw2's `:added` inheritance) — never an
+  `:added` (green) or `:same` row. Maps slot removed keys by sort order;
+  vectors / lists / sets surface a removed index/member via the union
+  walk (a removed index shifts the survivors, so the dropped element is
+  marked by value/index, not by the now-occupied slot).
+
+> **Why the renderer cannot defer to the projection here.** The engine
+> anchors structurally-equivalent deletions in different channels — a
+> dissoc-to-`{}` lands on the surviving parent, a vector-tail deletion
+> lands in the off-path `:vector-removals` channel (no stable after-side
+> path), so `op-at` reports `:same` for the parent. The renderer
+> promotes any container whose `before` and `after` sides genuinely
+> differ but whose projection op reads `:same` to `:children` so the
+> union walk surfaces the struck-through removed slots. (rf2-8pfkk; the
+> fourth operator-honesty fix in the FULL+DIFF family.)
+
 ## Colour coding
 
 | Op | Visual |

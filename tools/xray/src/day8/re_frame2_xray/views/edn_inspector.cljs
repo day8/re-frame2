@@ -1710,7 +1710,8 @@
                                     zoom-path-prefix path)` so the
                                     zoom-slot stores the full path."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
-           dispatch-fn diff? before zoomable? zoom-path-prefix projection]}]
+           dispatch-fn diff? before zoomable? zoom-path-prefix projection
+           removed-ancestor?]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width
                 available-width-px]
          :or {default-expanded-depth default-ceiling-depth
@@ -1742,8 +1743,36 @@
         ;; engine's superset of `:same-shifted` / R7 / R8 nuances
         ;; unreachable from this call path).
         op            (cond
+                        ;; rf2-8pfkk — a removed-container ghost (and
+                        ;; every container inside it) is unconditionally
+                        ;; `:removed`. This MUST precede the projection
+                        ;; lookup: the engine anchors a `dissoc`-to-`{}`
+                        ;; on the surviving parent and classifies the
+                        ;; ghost's own path `:children`, which would
+                        ;; otherwise paint the deletion as a benign
+                        ;; descendant-change rail.
+                        removed-ancestor? :removed
+
                         (and diff? projection)
-                        (engine/op-at projection path)
+                        (let [proj-op (engine/op-at projection path)]
+                          ;; rf2-8pfkk — STRUCTURAL difference wins over a
+                          ;; `:same` projection. A pure vector / list tail
+                          ;; deletion routes through the engine's off-path
+                          ;; `:vector-removals` channel (it owns no stable
+                          ;; after-side path), so `op-at` reports `:same`
+                          ;; for the parent even though `before` ≠
+                          ;; `value`. Trusting that `:same` collapsed the
+                          ;; container and the dropped tail vanished. When
+                          ;; the two sides genuinely differ we promote to
+                          ;; `:children` so the container expands and the
+                          ;; `children-of-pair` union walk surfaces the
+                          ;; struck-through removed indices.
+                          (if (and (= :same proj-op)
+                                   (not= before missing-sentinel)
+                                   (not= value missing-sentinel)
+                                   (not= before value))
+                            :children
+                            proj-op))
 
                         (and diff? (or (= before missing-sentinel)
                                        (= value missing-sentinel)))
@@ -1761,12 +1790,22 @@
         ;; (where R5 chrome-opts are actually gated on them). The
         ;; duplicate container-level bindings were dead code and have
         ;; been removed; the container has no R5-specific behaviour.
+        ;; rf2-8pfkk — a removed-container ghost defaults to COLLAPSED:
+        ;; the deletion reads as a single struck-through summary line
+        ;; (`:shapes {…} (N keys)`), expandable on demand to walk the
+        ;; ghost. We therefore do NOT let its `:removed` op drive the
+        ;; force-open `has-changed-descendant?` rule — the change IS the
+        ;; node itself, not a buried descendant, so the collapsed
+        ;; summary already carries the full signal. The diff-mode
+        ;; collapse rule (`(zero? depth)`) then keeps every nested ghost
+        ;; level collapsed until the operator drills in.
         default?      (and (not depth-capped?)
                            (default-expanded?
                              {:depth                   depth
                               :child-count             cnt
                               :default-expanded-depth  default-expanded-depth
-                              :has-changed-descendant? has-change?
+                              :has-changed-descendant? (and has-change?
+                                                            (not removed-ancestor?))
                               :diff?                   diff?
                               :available-width-px      available-width-px
                               :value                   value}))
@@ -1846,10 +1885,28 @@
                           :line-height 1.4}}
                  zoom-attrs)
      ;; ---- header row ---------------------------------------------------
-     [:div {:style {:display "flex"
-                    :align-items "baseline"
-                    :gap "4px"
-                    :flex-wrap "wrap"}}
+     ;; rf2-8pfkk — a removed-container ghost paints the removed chrome
+     ;; (red wash + 2px red stripe + `−` gutter glyph + strike-through)
+     ;; at the HEADER level so the collapsed `:shapes {…} (N keys)` line
+     ;; reads as a single struck-through deletion, while the triangle
+     ;; stays clickable to walk the ghost. Reuses the same `:diff-
+     ;; removed-*` tokens as the leaf-level `gutter-row :removed`.
+     [:div {:data-rf-removed-ghost (when removed-ancestor? "1")
+            :style (cond-> {:display "flex"
+                            :align-items "baseline"
+                            :gap "4px"
+                            :flex-wrap "wrap"}
+                     removed-ancestor?
+                     (assoc :text-decoration "line-through"
+                            :padding-left "6px"
+                            :border-left (str "2px solid " (:diff-removed-stripe tokens))
+                            :background (:diff-removed-wash tokens)))}
+      (when removed-ancestor?
+        [:span {:data-rf-diff-op "removed"
+                :style (assoc gutter-glyph-base-style
+                              :color (:diff-gutter tokens)
+                              :text-decoration "none")}
+         "−"])
       (cond
         ;; Empty collection — show bracket pair flat, no toggle.
         empty?
@@ -2042,8 +2099,17 @@
                            ;; from "an existing key whose value changed"
                            ;; which paints on the value cell. Pulled off
                            ;; the projection's op at the child path.
-                           child-op (when (and diff? projection)
-                                      (engine/op-at projection child-path))
+                           ;; rf2-8pfkk — inside a removed ghost every
+                           ;; key is `:removed` (the projection's op at
+                           ;; the child path is not authoritative here —
+                           ;; see the `op` override above). Force the
+                           ;; removed key chrome + slot-anchored wash so
+                           ;; the whole row strikes through.
+                           child-op (cond
+                                      removed-ancestor?         :removed
+                                      (and diff? projection)
+                                      (engine/op-at projection child-path)
+                                      :else                     nil)
                            key-side-glyph (case child-op
                                             :added   "+"
                                             :removed "−"
@@ -2080,7 +2146,11 @@
                                          ;; cell here. The gutter glyph
                                          ;; + per-token text colour on
                                          ;; the value still render.
-                                         :slot-anchored? slot-anchored?})]
+                                         :slot-anchored? slot-anchored?
+                                         ;; rf2-8pfkk — propagate the
+                                         ;; ghost so nested containers /
+                                         ;; leaves keep the `:removed` op.
+                                         :removed-ancestor? removed-ancestor?})]
                        [(with-meta
                           ;; Key cell — uses `div` so the grid baseline
                           ;; aligns predictably across rows. `white-
@@ -2171,7 +2241,11 @@
                                        :dispatch-fn dispatch-fn
                                        :zoomable? zoomable?
                                        :zoom-path-prefix zoom-path-prefix
-                                       :opts opts})
+                                       :opts opts
+                                       ;; rf2-8pfkk — vector / set / list
+                                       ;; ghost members keep the `:removed`
+                                       ;; op down the subtree.
+                                       :removed-ancestor? removed-ancestor?})
                          {:key (str "v-" (pr-str k))})))
                    child-pairs)))))
 
@@ -2281,18 +2355,45 @@
   suppression, the inner wash overlaps the outer cell wash and the
   value half reads darker than the key half. Only the gutter glyph
   and per-token text colour remain on the leaf side."
-  [{:keys [value before diff? projection path slot-anchored?]}]
+  [{:keys [value before diff? projection path slot-anchored? removed-ancestor?]}]
   (if-not diff?
     (render-scalar value)
-    (let [;; Resolve op: prefer the projection at this path; else
-          ;; fall back to a 1-shot (before, after) op classification.
-          op (if projection
-               (engine/op-at projection (vec (or path [])))
-               (cond
-                 (= before ::missing) (if (= value ::missing) :same :added)
-                 (= value ::missing)  :removed
-                 (= before value)     :same
-                 :else                :modified))
+    (let [;; rf2-8pfkk — the STRUCTURAL sentinel is authoritative for
+          ;; one-sided slots, OVERRIDING the projection. A slot whose
+          ;; `value` is `::missing` does not exist in the after-tree —
+          ;; that is the definition of a removal, full stop; symmetric
+          ;; for `before` `::missing` (an addition). The projection's
+          ;; per-path op CANNOT be trusted to agree: the engine anchors
+          ;; a `dissoc`-to-`{}` as a `:children`/`:removed` op on the
+          ;; surviving PARENT path and leaves the removed child slot
+          ;; classified `:children` (it has its own `:container-ops`
+          ;; entry for the ghost subtree). Without this override the
+          ;; leaf fell through `case op`'s default branch and rendered
+          ;; `(render-scalar ::missing)` — leaking the internal sentinel
+          ;; keyword (`:day8…edn-inspector/missing`) into the output.
+          ;; `removed-ancestor?` carries the same force down a removed
+          ;; container ghost so every descendant reads `:removed` (the
+          ;; symmetric of rf2-bufw2's `:added` inheritance).
+          op (cond
+               removed-ancestor?    :removed
+               (= value ::missing)  :removed
+               (= before ::missing) (if (= value ::missing) :same :added)
+               projection           (engine/op-at projection (vec (or path [])))
+               (= before value)     :same
+               :else                :modified)
+          ;; rf2-8pfkk — the value actually painted is always the
+          ;; PRESENT side of the (before, value) pair. `::missing` is an
+          ;; internal absence marker, not a value, so it must never be
+          ;; handed to `render-scalar` (which would `pr-str` the sentinel
+          ;; keyword into the output). For a removal `value` is missing →
+          ;; paint `before`; for a ghost descendant `before` is missing →
+          ;; paint `value`. A pair with BOTH sides missing is structurally
+          ;; impossible (a slot exists in at least one side), so it falls
+          ;; back to `nil` rather than ever surfacing the sentinel.
+          present-value (cond
+                          (not= value ::missing)  value
+                          (not= before ::missing) before
+                          :else                   nil)
           ;; R5-tinted: descendant of wholly-changed root?
           wholly-anc (when projection
                        (engine/wholly-changed-ancestor projection (vec (or path []))))
@@ -2326,10 +2427,16 @@
                      (render-scalar value)]
                     chrome-opts)
         :removed
+        ;; The struck-through value is the PRESENT side: the BEFORE side
+        ;; for an ordinary removal (`value` is `::missing`), or the VALUE
+        ;; side when this leaf is a descendant of a removed container
+        ;; ghost (rf2-8pfkk — the ghost is threaded as `value` with
+        ;; `before` `::missing` so the union walk visits every removed
+        ;; descendant). `present-value` is sentinel-free by construction.
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
                             :style {:text-decoration "line-through"}}
-                     (render-scalar (if (= before ::missing) value before))]
+                     (render-scalar present-value)]
                     chrome-opts)
         :modified
         (gutter-row :modified
@@ -2378,7 +2485,7 @@
                             :style {:display "inline-flex"
                                     :align-items "baseline"
                                     :gap "8px"}}
-                     (render-scalar value)
+                     (render-scalar present-value)
                      ;; R6: `(was N)` muted suffix.
                      (when was-index
                        [:span {:data-rf-diff-was-index (str was-index)
@@ -2392,12 +2499,14 @@
         (gutter-row :same
                     [:span {:data-rf-diff-op "same"
                             :style {:color (:text-tertiary tokens)}}
-                     (render-scalar value)]
+                     (render-scalar present-value)]
                     chrome-opts)
         ;; Default — paint as :same so unknown ops degrade gracefully.
+        ;; `present-value` keeps the internal `::missing` sentinel out of
+        ;; the output even if an unexpected op ever reaches here.
         (gutter-row :same
                     [:span {:data-rf-diff-op (name op)}
-                     (render-scalar value)]
+                     (render-scalar present-value)]
                     chrome-opts)))))
 
 (defn render-node
@@ -2432,9 +2541,23 @@
   cells). Container values inside an added/removed slot already
   render via the recursive `render-container` path; that path paints
   no leaf-wash itself, so the flag only matters when the value bottoms
-  out at a scalar leaf."
+  out at a scalar leaf.
+
+  ## rf2-8pfkk — removed-container ghosts + `:removed-ancestor?`
+
+  A removed slot whose prior value is a CONTAINER renders as a single
+  collapsed struck-through ghost node (`:shapes {…} (N keys)`), reusing
+  the ordinary `render-container` collapse / expand / elision machinery
+  — the ghost is threaded as `value` (with `before` `::missing`) so the
+  existing union walk visits every removed descendant. `:removed-
+  ancestor?` is threaded down that ghost subtree so every descendant
+  reads `:removed` regardless of what the projection says about the
+  per-child path (the symmetric of rf2-bufw2's `:added` inheritance).
+  Without the ghost path a deleted subtree either `pr-str`'d in full
+  (unbounded verbosity) or leaked the `::missing` sentinel through the
+  leaf renderer's projection-trusting op resolution."
   [{:keys [value before diff? projection panel-id mount-id path depth expansion-map
-           dispatch-fn zoomable? zoom-path-prefix opts slot-anchored?]
+           dispatch-fn zoomable? zoom-path-prefix opts slot-anchored? removed-ancestor?]
     :or   {depth 0 path [] zoom-path-prefix []}}]
   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
@@ -2450,15 +2573,68 @@
                              :expansion-map expansion-map
                              :opts opts}))
     (cond
-      ;; Diff mode: removed slot — render the prior value struck-through.
-      ;; The `value` side is `::missing` but `before` carries the slot
-      ;; that's being removed. Always a leaf-shaped row (containers
-      ;; collapse to one removed line — operator follows the gutter, not
-      ;; the structure, for deletions).
+      ;; rf2-8pfkk — inside a removed container ghost. The `before` side
+      ;; was collapsed to `::missing` when we re-rooted the ghost as
+      ;; `value` (so `children-of-pair` enumerates the deleted subtree),
+      ;; but every node here is REMOVED, not added. `removed-ancestor?`
+      ;; takes precedence over the `before ::missing` → added rule below
+      ;; and forces the whole subtree through the removed render paths.
+      (and diff? removed-ancestor?)
+      (let [kind (collection-kind value)]
+        (if (container? kind)
+          (render-container {:value value
+                             :kind kind
+                             :panel-id panel-id
+                             :mount-id mount-id
+                             :path path
+                             :depth depth
+                             :expansion-map expansion-map
+                             :dispatch-fn dispatch-fn
+                             :zoomable? zoomable?
+                             :zoom-path-prefix zoom-path-prefix
+                             :opts opts
+                             :diff? true
+                             :before ::missing
+                             :projection projection
+                             :removed-ancestor? true})
+          (render-leaf-with-diff {:value value :before ::missing :diff? true
+                                  :projection projection :path path
+                                  :slot-anchored? slot-anchored?
+                                  :removed-ancestor? true})))
+
+      ;; Diff mode: removed slot — render the prior value struck-through
+      ;; IN PLACE (the universal diff idiom). The `value` side is
+      ;; `::missing`; `before` carries the slot being removed.
+      ;;
+      ;; rf2-8pfkk — a removed CONTAINER renders as a recursive ghost
+      ;; (one collapsed struck-through node, expandable to walk the
+      ;; deleted subtree) via `render-container`, NOT a flat
+      ;; `render-scalar` pr-str. The ghost is threaded as `value` with
+      ;; `before` `::missing` (so `children-of-pair` enumerates every
+      ;; removed descendant) plus `:removed-ancestor? true` (so the
+      ;; whole subtree inherits the `:removed` op via the branch above).
+      ;; A removed SCALAR still paints the single struck-through row.
       (and diff? (= value ::missing))
-      (render-leaf-with-diff {:value ::missing :before before :diff? true
-                              :projection projection :path path
-                              :slot-anchored? slot-anchored?})
+      (let [before-kind (collection-kind before)]
+        (if (container? before-kind)
+          (render-container {:value before
+                             :kind before-kind
+                             :panel-id panel-id
+                             :mount-id mount-id
+                             :path path
+                             :depth depth
+                             :expansion-map expansion-map
+                             :dispatch-fn dispatch-fn
+                             :zoomable? zoomable?
+                             :zoom-path-prefix zoom-path-prefix
+                             :opts opts
+                             :diff? true
+                             :before ::missing
+                             :projection projection
+                             :removed-ancestor? true})
+          (render-leaf-with-diff {:value ::missing :before before :diff? true
+                                  :projection projection :path path
+                                  :slot-anchored? slot-anchored?})))
 
       ;; Diff mode: added slot at a container → render the new
       ;; container in green via the normal recursive path with `op

@@ -1462,6 +1462,146 @@
     (is (re-find #"line-through" s)
         "at least one row carries strike-through (the removed tag)")))
 
+;; =========================================================================
+;; rf2-8pfkk — the `::missing` sentinel must NEVER reach the output, and a
+;; removed CONTAINER renders as a struck-through collapsed ghost (not a
+;; flat pr-str, not the leaked sentinel keyword).
+;; =========================================================================
+;;
+;; These cases thread a REAL `engine/project` projection (the live render
+;; path) rather than the `projection nil` fallback the older diff tests
+;; use. The leak only surfaces with a projection in play: the engine
+;; anchors a `(update db :shapes dissoc :added)` deletion on the surviving
+;; parent (`op-at [:shapes]` → `:removed`) and classifies the removed
+;; child slot `:children` (`op-at [:shapes :added]` → `:children`, it owns
+;; the ghost subtree in `:container-ops`). Pre-fix the leaf renderer
+;; trusted that `:children` op, fell through `case op`'s default branch,
+;; and rendered `(render-scalar ::missing)` — leaking
+;; `:day8.re-frame2-xray.views.edn-inspector/missing` literally into the
+;; row (`:added ::missing`). The fix makes the structural sentinel
+;; authoritative and routes removed containers through a recursive ghost.
+
+(defn- no-missing-sentinel-leak?
+  "True iff the rendered hiccup carries no trace of the internal
+  `::missing` sentinel keyword in any string leaf OR attribute value.
+  The sentinel's `pr-str` is `:day8.re-frame2-xray.views.edn-
+  inspector/missing`; its `name` is the bare `\"missing\"`. We assert on
+  the broad `pr-str` of the whole tree so a leak anywhere (text, attr,
+  data-* marker) is caught."
+  [h]
+  (let [s (try (pr-str h) (catch :default _ ""))]
+    (not (re-find #"edn-inspector/missing" s))))
+
+(deftest diff-removed-only-key-renders-struck-ghost-not-sentinel
+  ;; Mike's live repro (standard_epochs button 7): `(update db :shapes
+  ;; dissoc :added)` removes the only key of `:shapes`, leaving `{}`.
+  ;; The removed `:added {…}` slot must render as a struck-through ghost,
+  ;; NEVER as `:added ::missing` and NEVER as `:shapes {} :same`.
+  (let [before {:shapes {:added {:label "added" :n 42}}}
+        after  {:shapes {}}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    ;; The engine genuinely misclassifies the child path — this pins the
+    ;; precondition so the test documents WHY the renderer cannot trust it.
+    (is (= :children (engine/op-at proj [:shapes :added]))
+        "precondition: engine anchors the removal on the parent, leaves the child :children")
+    (is (no-missing-sentinel-leak? h)
+        "the ::missing sentinel keyword must never reach the rendered output")
+    (is (not (re-find #":day8" all))
+        "no internal namespaced keyword leaks into the visible text")
+    (is (re-find #":added" all)
+        "the removed key :added still appears (struck-through ghost)")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "the removed slot carries the removed diff-op marker")
+    (is (re-find #"line-through" s)
+        "the removed ghost is struck through")))
+
+(deftest diff-removed-container-renders-collapsed-ghost
+  ;; A removed nested map renders as ONE collapsed struck-through node
+  ;; (`{…} (N keys)` summary), reusing the ordinary collapse machinery —
+  ;; bounds verbosity rather than pr-str'ing the whole deleted subtree.
+  (let [before {:shapes {:added {:label "added" :n 42 :deep {:x 1 :y 2}}}}
+        after  {:shapes {}}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (no-missing-sentinel-leak? h)
+        "no sentinel leak even with a deeper ghost subtree")
+    ;; The ghost node is marked + collapsed by default.
+    (is (re-find #"data-rf-removed-ghost" s)
+        "the removed container renders as a marked ghost node")
+    (is (re-find #"data-rf-preview" s)
+        "the ghost defaults to a collapsed `{…N keys}` summary, not the full subtree")
+    (is (re-find #"line-through" s)
+        "the ghost line is struck through")))
+
+(deftest diff-deleted-ancestor-children-inherit-removed-when-expanded
+  ;; The deleted-ancestor hard case: when the operator EXPANDS a removed
+  ;; container ghost, every descendant inherits `:removed` (the symmetric
+  ;; of rf2-bufw2's `:added` inheritance) — never an `:added` (green) or
+  ;; `:same` row, and never a leaked sentinel.
+  (let [before {:shapes {:added {:label "added" :nested {:deep 1}}}}
+        after  {:shapes {}}
+        proj   (engine/project before after)
+        ;; Force the whole ghost subtree open via a sticky expansion
+        ;; override at the ghost path + its nested child.
+        expansion-map {(ei/expansion-key :p "m" [:shapes :added])         {:expanded? true}
+                       (ei/expansion-key :p "m" [:shapes :added :nested]) {:expanded? true}}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map expansion-map
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (no-missing-sentinel-leak? h)
+        "no sentinel leak when the ghost subtree is walked")
+    (is (re-find #":deep" all)
+        "the deeply-nested ghost leaf is reachable on expand")
+    (is (not (re-find #"data-rf-diff-op.\"?added" s))
+        "no descendant of a removed subtree renders as :added (green) — all inherit :removed")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "ghost descendants carry the removed marker")))
+
+(deftest diff-removed-vector-element-no-sentinel-leak
+  ;; A vector that loses its tail under a real projection must not leak
+  ;; the sentinel for the dropped indices.
+  (let [before {:xs [:a :b :c]}
+        after  {:xs [:a]}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)]
+    (is (no-missing-sentinel-leak? h)
+        "popped vector tail must not leak the ::missing sentinel")
+    (is (re-find #":b" all) "dropped element :b still appears struck-through")
+    (is (re-find #":c" all) "dropped element :c still appears struck-through")))
+
 (deftest diff-preserves-added-modified-same-rows
   ;; No regression — added / modified / same rows still render
   ;; alongside the new removed rows.
