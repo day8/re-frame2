@@ -200,24 +200,24 @@
        ($ sparkline {:series series :id id}))))
 
 (defui filter-chips []
-  (let [active   (uix-adapter/use-subscribe [:dashboard/active-tags])
-        dispatch (rf/dispatcher)]
+  (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
+        dispatch    (rf/dispatcher)]
     ($ :div.dash-chips
        (for [{:keys [id label]} all-tags]
          ($ :button {:key id
-                     :class (str "dash-chip " (when (contains? active id) "is-on"))
+                     :class (str "dash-chip " (when (contains? active-tags id) "is-on"))
                      :data-testid (str "dashboard-chip-" (name id))
                      :on-click #(dispatch [:dashboard/toggle-tag id])}
             ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
             label)))))
 
 (defui range-picker []
-  (let [active   (uix-adapter/use-subscribe [:dashboard/range])
-        dispatch (rf/dispatcher)]
+  (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
+        dispatch        (rf/dispatcher)]
     ($ :div.dash-chips
        (for [{:keys [id label]} ranges]
          ($ :button {:key id
-                     :class (str "dash-chip " (when (= active id) "is-on"))
+                     :class (str "dash-chip " (when (= active-range-id id) "is-on"))
                      :data-testid (str "dashboard-range-" (name id))
                      :on-click #(dispatch [:dashboard/set-range id])}
             label)))))
