@@ -389,6 +389,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 | DISPATCH `FROM: <source>` link | Open-in-editor (Xray's existing `:rf.xray/open-in-editor`) at the dispatch-origin call-site |
 | COEFFECTS / AFTER-INTERCEPTORS id ↗ | Open-in-editor at the coeffect / interceptor registration file:line |
 | EVENT HANDLER ↗ | Open-in-editor at handler file:line |
+| FX row fx-id ↗ (rf2-g1mfc) | Open-in-editor at the `reg-fx` registration file:line (shared `coord-chip`, parity with the HANDLER verb + SUBSCRIPTIONS / VIEWS rows; sources the absolute coord off `(rf/handler-meta :fx <fx-id>)`) |
 | FX row | Switch to **Trace** panel, scrolled to the `:rf.fx/do-fx` / `:rf.fx/handled` op for that fx; if `:http/managed`, the badge offers the wire-trace popover |
 | FLOWS row | Switch to **App-db** panel, scrolled to the path that flow wrote |
 | Click any path segment in a COEFFECTS / DB CHANGES value | Cross-panel propagation per §10.5 (App-db ↔ View); no other value interactions |
@@ -1804,6 +1805,19 @@ into a single canonical home at
   drives the displayed label, so the chip resolves the sub's
   REGISTRATION coord. Pre-fix this cell rendered a bare decorative
   `external-link` glyph with no coord resolution + no click handler.
+- **FX-step call-sites (rf2-g1mfc).** Each FX-step row's fx-id mounts
+  `coord-chip` (testid `rf-xray-epoch-fx-row-coord-<i>`), exact parity
+  with the SUBSCRIPTIONS rows + the HANDLER verb. The coord lookup
+  keys off the row's `fx-id` and resolves the `reg-fx` REGISTRATION
+  coord via `(rf/handler-meta :fx <fx-id>)`. The `:file` is ABSOLUTE:
+  `reg-fx` registers through the same `defreg-macro` → `coords-form`
+  path that `reg-sub` / `reg-event-*` use, so it is absolutised at
+  macro-expansion time (rf2-wvsxg) — no error-coords fallback needed
+  (unlike the VIEW case, rf2-quir9, where `reg-view` skips it).
+  Pre-fix the FX row carried NO open-code affordance at all, leaving
+  the source-link grammar inconsistent across pipeline steps. The
+  chip drops out cleanly for framework-shipped fx with no user source
+  (`:dispatch`, `:db`, …) and in production builds without coords.
 
 **`coord-chip` vs `open_in_editor/open-chip`** — two surfaces co-
 exist by design. `coord-chip` (the dispatch-based button used inside

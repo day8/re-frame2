@@ -904,9 +904,17 @@
    :line-height    1})
 
 (def ^:private subs-filter-button-active-style
+  ;; rf2-pjze8 — the selected segment was `:accent` (GitHub blue), which
+  ;; collides with the higher-priority blue signals on the page (changed/
+  ;; recompute, active L4 tab, mode stripe, focus ring). Repaint it a
+  ;; DARKER NEUTRAL GREY (`:bg-3`, raised) with a `:text-primary` label
+  ;; and a `:border-default` edge for definition, so the selection reads
+  ;; clearly without competing with the reserved accent. Token keywords
+  ;; (not raw hex) so both themes resolve through the CSS-var map.
   (assoc subs-filter-button-base-style
-         :background accent-colour
-         :color      white-colour))
+         :background bg-3-colour
+         :color      text-primary-colour
+         :box-shadow (str "inset 0 0 0 1px " border-default-colour)))
 
 (def ^:private subs-filter-button-inactive-style
   (assoc subs-filter-button-base-style
@@ -2639,6 +2647,26 @@
 
 ;; ---- FX step -------------------------------------------------------------
 
+(defn- fx-coord
+  "Pull the registered fx-handler's source coord off
+  `(rf/handler-meta :fx fx-id)`. Returns nil when no meta is captured.
+  Mirrors the sibling `sub-coord` shape (rf2-g1mfc — bring the
+  click-to-source affordance to FX-step rows on parity with the
+  HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS rows).
+
+  The `:file` here is ABSOLUTE: `reg-fx` registers through the same
+  `core-reg-macros/defreg-macro` → `with-coords-form` → `coords-form`
+  path that `reg-sub` / `reg-event-*` use, and that path runs the
+  picked `:file` through `source-coords/absolutise-file` at macro-
+  expansion time (rf2-wvsxg). So the chip's coord ships the right
+  on-disk path with no error-coords fallback — unlike the VIEW case
+  (rf2-quir9), where `reg-view` skips the absolutisation."
+  [fx-id]
+  (when (some? fx-id)
+    (let [m (try (rf/handler-meta :fx fx-id) (catch :default _ nil))]
+      (when (and m (string? (:file m)) (seq (:file m)))
+        {:file (:file m) :line (:line m) :ns (:ns m)}))))
+
 (defn- fx-row-view
   "Render one fx-handler row inside the FX step — green check + fx-id
   + truncated args.
@@ -2648,7 +2676,14 @@
 
   Per rf2-uffov: when the row carries `:attributed-to`, a muted
   `← <action-id>` attribution chip rides alongside so the operator
-  reads `fx X emitted by action Y` in one line."
+  reads `fx X emitted by action Y` in one line.
+
+  Per rf2-g1mfc: each fx-id carries the shared `coord-chip` open-in-
+  editor affordance (exact parity with the SUBSCRIPTIONS / VIEWS rows
+  + the HANDLER verb), sourcing the fx registration coord off
+  `(rf/handler-meta :fx fx-id)` via `fx-coord`. The chip drops out
+  cleanly when no coord was captured (framework-shipped fx with no
+  user source, production builds without coords)."
   [idx {:keys [fx-id status args duration-ms attributed-to]}]
   (let [glyph    (case status
                    :ok          "✓"
@@ -2676,7 +2711,14 @@
            :style fx-row-style}
      [:span {:style (assoc diff-glyph-bold-style :color colour)} glyph]
      [:span {:style fx-row-id-style}
-      (proj/ns-keyword fx-id)]
+      (proj/ns-keyword fx-id)
+      ;; rf2-g1mfc — click-to-source via the shared `coord-chip`, exact
+      ;; parity with the SUBSCRIPTIONS (~3000) + VIEWS rows + the HANDLER
+      ;; verb. The coord lookup keys off `fx-id` and resolves the
+      ;; `reg-fx` REGISTRATION site (absolute `:file`, rf2-wvsxg). Chip
+      ;; drops out cleanly when no coord was captured.
+      (coord-chip/coord-chip (fx-coord fx-id)
+                             (str "rf-xray-epoch-fx-row-coord-" idx))]
      ;; rf2-ef2hy — args render through edn-inspector with
      ;; `:default-expanded-depth 1` so the top-level fx-call surface is
      ;; visible inline (`:strategy :top`) and nested maps collapse to
