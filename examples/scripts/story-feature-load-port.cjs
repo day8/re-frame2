@@ -4,15 +4,26 @@
  * so parallel worktrees (rf2-* worker checkouts) never collide on 8031.
  * Honours STORY_FEATURE_LOAD_PORT if set; otherwise scans forward from
  * the derived preference until an unused port is found.
+ *
+ * The bind probe / forward scan / strict-parse mechanism is shared with
+ * the adapter-smoke resolver via port-resolver.cjs; this file supplies
+ * only the Story-specific POLICY (worktree-hashed preferred port +
+ * wording). Errors are plain (non-actionable) — the Story orchestrators
+ * print full errors, unlike the examples orchestrator.
  */
 
 'use strict';
 
-const net = require('net');
+const {
+  MAX_PORT_ATTEMPTS,
+  canListen,
+  findAvailablePort: findAvailablePortShared,
+  makeParseExplicitPort,
+  portError,
+} = require('./port-resolver.cjs');
 
 const DEFAULT_BASE_PORT = 8031;
 const DERIVED_PORT_SPAN = 2000;
-const MAX_PORT_ATTEMPTS = 200;
 
 function hashString(s) {
   let h = 2166136261;
@@ -23,51 +34,31 @@ function hashString(s) {
   return h >>> 0;
 }
 
-function parseExplicitPort(raw) {
-  if (raw == null || String(raw).trim() === '') return null;
-  const n = Number(String(raw).trim());
-  if (!Number.isInteger(n) || n < 1 || n > 65535) {
-    throw new Error(
-      `STORY_FEATURE_LOAD_PORT must be an integer in 1..65535; got ${JSON.stringify(raw)}`,
-    );
-  }
-  return n;
-}
+const parseExplicitPort = makeParseExplicitPort('STORY_FEATURE_LOAD_PORT');
 
 function preferredPort(repoRoot) {
   const offset = hashString(repoRoot || process.cwd()) % DERIVED_PORT_SPAN;
   return DEFAULT_BASE_PORT + offset;
 }
 
-function canListen(port, host = '127.0.0.1') {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.listen(port, host, () => {
-      server.close(() => resolve(true));
-    });
+// Wrap the shared scanner with the Story-specific exhausted-port wording
+// so the public signature (and the per-worktree hint) is unchanged.
+function findAvailablePort(startPort, opts = {}) {
+  return findAvailablePortShared(startPort, {
+    ...opts,
+    exhausted: (start, attempts) =>
+      portError(
+        `No free Story feature-load port found from ${start} after ${attempts} attempts. ` +
+          `Set STORY_FEATURE_LOAD_PORT to an unused port for this worktree.`,
+      ),
   });
-}
-
-async function findAvailablePort(startPort, opts = {}) {
-  const host = opts.host || '127.0.0.1';
-  const attempts = opts.attempts || MAX_PORT_ATTEMPTS;
-  for (let i = 0; i < attempts; i += 1) {
-    const port = startPort + i;
-    if (port > 65535) break;
-    if (await canListen(port, host)) return port;
-  }
-  throw new Error(
-    `No free Story feature-load port found from ${startPort} after ${attempts} attempts. ` +
-      `Set STORY_FEATURE_LOAD_PORT to an unused port for this worktree.`,
-  );
 }
 
 async function resolveStoryFeatureLoadPort({ env = process.env, repoRoot = process.cwd() } = {}) {
   const explicit = parseExplicitPort(env.STORY_FEATURE_LOAD_PORT);
   if (explicit != null) {
     if (!(await canListen(explicit))) {
-      throw new Error(
+      throw portError(
         `STORY_FEATURE_LOAD_PORT=${explicit} is already in use. ` +
           `Choose a unique port for this worktree.`,
       );
