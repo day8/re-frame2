@@ -1,4 +1,4 @@
-# first-counter
+# First counter
 
 End-to-end worked example: a working re-frame2 counter in one file. This is the smallest piece of code that exercises every layer (event → handler → app-db change → sub recompute → view re-render).
 
