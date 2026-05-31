@@ -167,13 +167,13 @@
             resolves to an absolute on-disk URI when the host has
             plumbed :rf.xray/project-root through xray-config/configure!"
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+      "C:/Users/me/code/my-app/tools/xray/testbeds")
     (let [hiccup (open-in-editor/open-chip
                    {:file "panel_gallery/event_detail_stories.cljs"
                     :line 115
                     :column 3})]
       (is (= (str "vscode://file/"
-                  "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
                   "panel_gallery/event_detail_stories.cljs:115:3")
              (:href (second hiccup)))))))
 
@@ -277,9 +277,9 @@
             served port — the URI depends only on config, never on
             `Location.href`."
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+      "C:/Users/me/code/my-app/tools/xray/testbeds")
     (is (= (str "vscode://file/"
-                "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                "C:/Users/me/code/my-app/tools/xray/testbeds/"
                 "panel_gallery/fixtures_epoch.cljs:42:1")
            (open-in-editor/resolve-uri
              {:file "panel_gallery/fixtures_epoch.cljs"

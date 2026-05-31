@@ -423,10 +423,10 @@
             absolute URI when the host has plumbed :project-root through"
     ;; Recreates the bead's exact failure: source-coord file shipped as
     ;; `panel_gallery/event_detail_stories.cljs` (classpath-relative);
-    ;; with Mike's local re-frame2 worktree as the project root, the URI
-    ;; must absolute-path the file the OS-side editor handler resolves.
+    ;; with a local checkout as the project root, the URI must
+    ;; absolute-path the file the OS-side editor handler resolves.
     (is (= (str "vscode://file/"
-                "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                "C:/Users/me/code/my-app/tools/xray/testbeds/"
                 "panel_gallery/event_detail_stories.cljs:115:3")
            (eu/editor-uri
              :vscode
@@ -434,4 +434,4 @@
               :line 115
               :column 3}
              {:project-root
-              "C:/Users/miket/code/re-frame2/tools/xray/testbeds"})))))
+              "C:/Users/me/code/my-app/tools/xray/testbeds"})))))

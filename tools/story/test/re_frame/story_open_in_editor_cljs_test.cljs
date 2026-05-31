@@ -221,13 +221,13 @@
             resolves to an absolute on-disk URI when the host has
             plumbed :rf.story/project-root through Story's configure!"
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+      "C:/Users/me/code/my-app/tools/xray/testbeds")
     (let [hiccup (open-in-editor/open-chip
                    {:file "panel_gallery/event_detail_stories.cljs"
                     :line 115
                     :column 3})]
       (is (= (str "vscode://file/"
-                  "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
                   "panel_gallery/event_detail_stories.cljs:115:3")
              (:href (second hiccup)))))))
 
@@ -259,13 +259,13 @@
            panel-gallery shape)"))
     ;; Post-fix shape: `story/configure!` seeds the atom; URI is absolute.
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+      "C:/Users/me/code/my-app/tools/xray/testbeds")
     (let [hiccup-post (open-in-editor/open-chip
                         {:file "panel_gallery/gallery_app_db.cljs"
                          :line 42
                          :column 7})]
       (is (= (str "vscode://file/"
-                  "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
                   "panel_gallery/gallery_app_db.cljs:42:7")
              (:href (second hiccup-post)))
           "with :rf.story/project-root the URI is absolute — the
@@ -392,13 +392,13 @@
 (deftest windows-path-uri-shape
   (testing "rf2-muvs8 — Windows project-root + relative source-coord
             produces a URI VSCode's OS handler can resolve"
-    (config/set-project-root! "C:/Users/miket/code/re-frame2")
+    (config/set-project-root! "C:/Users/me/code/my-app")
     (let [hiccup (open-in-editor/open-chip
                    {:file "tools/story/src/re_frame/story/ui/open_in_editor.cljs"
                     :line 92
                     :column 5})]
       (is (= (str "vscode://file/"
-                  "C:/Users/miket/code/re-frame2/"
+                  "C:/Users/me/code/my-app/"
                   "tools/story/src/re_frame/story/ui/open_in_editor.cljs:92:5")
              (:href (second hiccup)))
           "absolute Windows URI shape — drive letter + forward slashes

@@ -167,8 +167,8 @@ will fail to start until the references are updated.
 
 Stale references:
   [global] mcpServers.re-frame-pair2
-    - arg: C:/Users/miket/code/re-frame2/tools/pair2-mcp/out/server.js
-      suggested: C:/Users/miket/code/re-frame2/tools/re-frame2-pair-mcp/out/server.js
+    - arg: C:/Users/me/code/my-app/tools/pair2-mcp/out/server.js
+      suggested: C:/Users/me/code/my-app/tools/re-frame2-pair-mcp/out/server.js
 
 Remediation: open ~/.claude.json in an editor, replace each
 'tools/pair2-mcp/' fragment with 'tools/re-frame2-pair-mcp/',

@@ -11,7 +11,7 @@
   `story/configure!`); there is no baked default. But the dev testbeds
   that drive Xray / Story have to PASS a root to `configure!`, and they
   previously each hardcoded the author's absolute Windows checkout
-  (`C:/Users/miket/code/re-frame2/tools/xray/testbeds`) as that value —
+  (`C:/Users/me/code/my-app/tools/xray/testbeds`) as that value —
   six copies of one machine-specific string. On any other clone, any
   other directory, and every Mac/Linux maintainer, 'open in editor'
   resolved to a path that does not exist.
