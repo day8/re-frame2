@@ -593,6 +593,30 @@
   rung of the fidelity ladder)."
   [:map-of SubQueryVector :any])
 
+(def DbSeed
+  "Schema for the `:db-seed` slot on a variant / fragment body — the
+  MIDDLE rung of the fidelity ladder (rf2-blw1q + spec/017 §View-state
+  subscription overrides — `#{:real-setup :db-seed :sub-overrides}`). A
+  direct app-db state seed: a `path → value` map merged into the variant
+  frame's app-db BEFORE script execution.
+
+  Per `tools/story/spec/017-Testing-Story.md` §Setup direct app-db
+  seeding bypasses event / cofx validation but MUST validate the affected
+  app-db schemas before the script runs — so the plan compiler lowers
+  `:db-seed` to `[:world :db-seed]` and the runtime validates the seeded
+  app-db against the frame's REGISTERED app-db schemas
+  (`:schemas/frame-schema-entries` + `:schemas/validate-with-registered-fn`,
+  the SAME late-bind seam `:sub-return` + the `:sub-override` fold-in
+  reuse). A seed that violates a registered schema FAILS the run with
+  `:rf.error/story-db-seed-invalid`.
+
+  The seed VALUE is left loose (`:any`) at this layer — the precise
+  conformance is the per-frame app-db schema check at run time, which
+  carries the exact path/value/explain diagnostic. The key shape is a
+  top-level app-db slice (a keyword or a path vector), matching the
+  `[:frame-setup :app-db-patch]` decorator slot the runtime reuses."
+  [:map-of [:or :keyword [:vector :any]] :any])
+
 (def NetworkSpec
   "Schema for the `:network` slot on a story / variant / fragment body —
   first-class managed-HTTP request stubs (rf2-5x1wt.14). A map of
@@ -724,6 +748,18 @@
     ;; `:rf.assert/sub-equals`. See `SubOverridesMap` + spec/017
     ;; §View-state subscription overrides.
     [:sub-overrides         {:optional true} SubOverridesMap]
+    ;; rf2-blw1q — `:db-seed` is the MIDDLE fidelity rung (spec/017
+    ;; §View-state subscription overrides — `#{:real-setup :db-seed
+    ;; :sub-overrides}`): a direct app-db state seed (a `path → value`
+    ;; map) merged into the variant frame's app-db BEFORE script
+    ;; execution. The plan compiler lowers it to `[:world :db-seed]` and
+    ;; marks `[:world :fidelity]` with `:db-seed`; the runtime seeds the
+    ;; frame and schema-validates the seeded app-db against the frame's
+    ;; registered app-db schemas — direct seeding bypasses event / cofx
+    ;; validation but MUST validate the affected app-db schema (spec/017
+    ;; §Setup). A seed that violates a registered schema FAILS the run
+    ;; with `:rf.error/story-db-seed-invalid`. See `DbSeed`.
+    [:db-seed               {:optional true} DbSeed]
     ;; rf2-5x1wt.15 — strict-conflict effect/interceptor override slots.
     ;; `:fx-overrides` is the first-class fx-override surface (spec/017
     ;; §The effect-override surface); `:interceptor-overrides` the
@@ -848,6 +884,11 @@
     ;; fragment / the variant wins per key) and mark the resolved plan
     ;; `:fidelity` with `:sub-overrides`. See `SubOverridesMap`.
     [:sub-overrides         {:optional true} SubOverridesMap]
+    ;; rf2-blw1q — a fragment MAY contribute `:db-seed`; the seeds
+    ;; deep-merge into the composing variant's seed map (a later fragment
+    ;; / the variant wins per key) and mark the resolved plan `:fidelity`
+    ;; with `:db-seed`. See `DbSeed`.
+    [:db-seed               {:optional true} DbSeed]
     [:fx-overrides          {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
     [:loaders               {:optional true} [:vector EventVector]]

@@ -623,6 +623,98 @@
              (get-in p [:world :render :sub-overrides])))
       (is (= #{:sub-overrides} (get-in p [:world :fidelity]))))))
 
+;; ---- :db-seed — the MIDDLE fidelity rung (rf2-blw1q) ---------------------
+;;
+;; `:db-seed` is the schema-checked direct app-db seed. The compiler accepts
+;; it (the schema no longer silently ignores it), lowers it to `[:world
+;; :db-seed]` (`[:arg]` placeholders substituted, fragments + the parent
+;; chain composed), and marks `[:world :fidelity]` with `:db-seed`. The
+;; seeded-app-db schema validation is a RUN-TIME check (runtime_test) — it
+;; needs the frame's registered app-db schemas.
+
+(deftest db-seed-lowers-and-marks-fidelity
+  (testing "a :db-seed variant lowers to [:world :db-seed] and marks the rung"
+    (let [m {:story.cart/seeded
+             {:db-seed {:cart {:items [{:sku "A" :qty 2}]}
+                        :user/id 42}}}
+          p (plan/variant-plan :story.cart/seeded {:lookup m})]
+      (testing "the seed lowers verbatim to the world slot"
+        (is (= {:cart {:items [{:sku "A" :qty 2}]} :user/id 42}
+               (get-in p [:world :db-seed]))))
+      (testing ":fidelity carries :db-seed (and no :real-setup — a pure seed variant)"
+        (is (= #{:db-seed} (get-in p [:world :fidelity]))))
+      (testing "explain surfaces the resolved seed + fidelity"
+        (is (= {:cart {:items [{:sku "A" :qty 2}]} :user/id 42}
+               (get-in p [:explain :db-seed :seed])))
+        (is (= #{:db-seed} (get-in p [:explain :fidelity])))))))
+
+(deftest db-seed-author-no-longer-silently-ignored
+  (testing "an author's :db-seed is accepted by the schema (not dropped) and lowers"
+    ;; The Variant schema validates the body at registration; reg-variant
+    ;; would reject an unknown-shape :db-seed. Compiling the body proves the
+    ;; slot is accepted AND survives into the plan (the pre-rf2-blw1q bug was
+    ;; silent-accept-then-silent-ignore).
+    (let [m {:story.x/seed {:db-seed {:k 1}}}
+          p (plan/variant-plan :story.x/seed {:lookup m})]
+      (is (= {:k 1} (get-in p [:world :db-seed])))
+      (is (contains? (get-in p [:world :fidelity]) :db-seed)))))
+
+(deftest db-seed-arg-substitution
+  (testing "[:arg key] placeholders in a seed value resolve before lowering"
+    (let [m {:story.cart/argseed
+             {:args    {:qty 7}
+              :db-seed {:cart {:qty [:arg :qty]}}}}
+          p (plan/variant-plan :story.cart/argseed {:lookup m})]
+      (is (= {:cart {:qty 7}} (get-in p [:world :db-seed])))
+      (is (some #(= {:key :qty :value 7} %) (get-in p [:explain :substitutions]))))))
+
+(deftest db-seed-inherits-through-extends
+  (testing "a child :db-seed deep-merges over the parent's seed (context flows down)"
+    (let [m {:story.p/base  {:db-seed {:cart {:items []} :flags {:a true}}}
+             :story.p/child {:extends :story.p/base
+                             :db-seed {:cart {:items [1 2]}}}}
+          p (plan/variant-plan :story.p/child {:lookup m})]
+      ;; deep-merge: child wins :cart, parent's :flags survives.
+      (is (= {:cart {:items [1 2]} :flags {:a true}}
+             (get-in p [:world :db-seed])))
+      (is (= #{:db-seed} (get-in p [:world :fidelity]))))))
+
+(deftest db-seed-composes-through-fragments
+  (testing "a composed fragment contributes :db-seed; the variant wins per key"
+    (let [frag {:fragment/seed {:db-seed {:cart {:items []} :session :guest}}}
+          m    {:story.cart/composed
+                {:compose [:fragment/seed]
+                 :db-seed {:session :member}}} ; variant overrides the key
+          p (plan/variant-plan :story.cart/composed
+                               {:lookup m :fragment-lookup frag})]
+      (is (= {:cart {:items []} :session :member}
+             (get-in p [:world :db-seed])))
+      (is (= #{:db-seed} (get-in p [:world :fidelity]))))))
+
+(deftest db-seed-empty-is-no-rung
+  (testing "an empty resolved :db-seed activates no rung + carries no world slot"
+    (let [m {:story.cart/emptyseed {:db-seed {}}}
+          p (plan/variant-plan :story.cart/emptyseed {:lookup m})]
+      (is (nil? (get-in p [:world :db-seed])))
+      (is (nil? (get-in p [:world :fidelity]))))))
+
+(deftest compute-fidelity-three-rungs
+  (testing "compute-fidelity computes each of the three rungs independently"
+    (is (= #{} (plan/compute-fidelity {})))
+    (is (= #{:real-setup}
+           (plan/compute-fidelity {:setup [[:dispatch [:e]]]})))
+    (is (= #{:db-seed}
+           (plan/compute-fidelity {:db-seed {:k 1}})))
+    (is (= #{:sub-overrides}
+           (plan/compute-fidelity {:sub-overrides {[:q] 1}})))
+    (testing "an empty seed / override map is treated as absent (no rung)"
+      (is (= #{} (plan/compute-fidelity {:db-seed {} :sub-overrides {}}))))
+    (testing "all three rungs together"
+      (is (= #{:real-setup :db-seed :sub-overrides}
+             (plan/compute-fidelity {:setup         [[:dispatch [:e]]]
+                                     :db-seed       {:k 1}
+                                     :sub-overrides {[:q] 1}}))))))
+
 ;; ---- pure resolver: render-path read + sub-assertion honesty -------------
 
 (deftest sub-overrides-render-path-resolver-is-exact

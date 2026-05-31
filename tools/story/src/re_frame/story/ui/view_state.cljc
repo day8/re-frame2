@@ -239,9 +239,12 @@
 
       {:rung :db-seed :present? bool :source :db-seed}
 
-  The seed slot is reserved (rf2-blw1q — not yet wired to authoring), so
-  `:present?` is normally false; the summary still renders the rung so
-  the ladder + the upgrade target are honest. Pure data → data."
+  The `:db-seed` rung is wired end-to-end (rf2-blw1q): a variant that
+  authors a `:db-seed` map lowers it to `[:world :db-seed]` and the
+  runtime seeds + schema-validates the frame's app-db before the script.
+  `:present?` is true iff the compiled plan carries a non-empty seed; the
+  summary still renders the rung when absent so the ladder + the upgrade
+  target stay honest. Pure data → data."
   [plan]
   {:rung     :db-seed
    :present? (some? (get-in plan [:world :db-seed]))
