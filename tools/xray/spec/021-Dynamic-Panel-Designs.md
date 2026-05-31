@@ -2356,8 +2356,8 @@ matching row's `:errors` (FX row-level) AND `:status :error`.
 | Trace op | Owning step | Granularity |
 |----------|-------------|-------------|
 | `:rf.error/handler-exception` | HANDLER | step-level (handler / interceptor / coeffect throw — the chain is the unit that threw) |
-| `:rf.error/fx-handler-exception` | FX, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
-| `:rf.error/no-such-fx` | FX | step-level (fallback) |
+| `:rf.error/fx-handler-exception` | SIDE EFFECTS, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
+| `:rf.error/no-such-fx` | SIDE EFFECTS | step-level (fallback) |
 | `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
 
 The error MESSAGE rides `[:tags :exception-message]` (handler / fx
@@ -2370,28 +2370,70 @@ Issues panel's `short-description` / `source-coord` read — the bead's
 original probe checked `:message` / `:source` / `:error-id`, which
 the substrate does not stamp (the empty-tags symptom).
 
-**Inline error card.** `view/error-block` renders a red-edged card
-(sibling to the amber schema-violation card; `:bg-violation`
-background, `:error` border) carrying: a `✗ Exception` title bar +
-`Rolled back` recovery chip; a one-line human headline keyed off the
-op + interceptor `:phase` ("The event handler threw." / "An
-interceptor / coeffect threw (:before)." / "The :http/post effect
-threw."); the verbatim `ex-info` message (monospace); and a
-jump-to-source link reading `file:line` (the shared `coord-link`,
-degrading to muted "source unavailable" when no coord was captured).
-HANDLER / FLOW inject `(error-blocks step-key errors)` under their
-body; FX injects per-row cards via `fx-row-with-violations` plus a
-step-level `(error-blocks :fx errors)` for unmatched fx ids.
+**Inline error card (rf2-ahhgn · refined rf2-wnvid).** `view/error-block`
+renders a red-edged card (sibling to the amber schema-violation card;
+`:bg-violation` background, `:error` border) for ALL exception kinds,
+carrying:
+
+1. a `✗ Exception Thrown` title bar + a `Rolled back` recovery chip
+   that paints **ONLY** when a `:db` actually committed before the
+   throw (`db-committed?` — the cascade-level presence of a
+   `:rf.event/db-changed` / schema rollback, stamped onto each
+   exception row by `attach-exceptions`). The substrate stamps
+   `:recovery :no-recovery` on EVERY `:rf.error/handler-exception`, so
+   keying the chip off recovery alone painted a **spurious** "Rolled
+   back" on button-15 — the handler threw before producing any `:db`,
+   so nothing committed and nothing reverted (rf2-wnvid fix);
+2. a one-line human headline derived from the OP, **not** the
+   interceptor `:phase` ("The event handler threw." / "The :http/post
+   effect threw." / "A flow's computation threw."). The substrate
+   routes a handler / interceptor / injected-coeffect throw ALL through
+   `:rf.error/handler-exception` with `:reason "Event handler threw."`
+   and `:phase :before` (the handler is the terminal `:before`
+   interceptor), so the pre-rf2-wnvid `:phase`-keyed wording mislabelled
+   a plain handler throw as "An interceptor / coeffect threw (:before)."
+   — the headline now reads off the op and matches the substrate's own
+   `:reason` (rf2-wnvid fix);
+3. the verbatim `ex-info` message (monospace); and
+4. a **collapsible** `<details>` disclosure ("Details", collapsed by
+   default) carrying the exception's `ex-data` (via `ei/edn-inspector`)
+   + its stack trace (monospace `<pre>`), read off the raw `:exception`
+   object the projection lifts onto the exception row (rf2-wnvid).
+
+The pre-rf2-wnvid always-expanded **jump-to-source link is DROPPED**:
+it duplicated the HANDLER step's verb link (the canonical
+jump-to-source) and, on a handler throw where the trace carried no
+coord, degraded to a useless "source unavailable" (rf2-wnvid). HANDLER /
+FLOW inject `(error-blocks step-key errors)` under their body; the SIDE
+EFFECTS step injects per-row cards via `fx-row-with-violations` plus a
+step-level `(error-blocks :side-effects errors)` for unmatched fx ids.
+
+**HANDLER `:db` — no phantom `:db` (rf2-wnvid).** The HANDLER step's
+`:db` sub-section (`view/handler-db-diff-block`) renders a
+`— no :db (handler threw)` / `— no :db (handler returned no :db)`
+placeholder when the handler wrote NO `:db` effect (the projection's
+`:db-write?` slot, from `projection/handler-wrote-db?`: t1
+`:rf.event/db-pending` OR a `:rf.event/db-changed` commit fired). The
+pre-rf2-wnvid code fell back to the record's full post-cascade
+`:db-after` whenever the post-handler db value was nil — painting the
+ENTIRE app-db tree under the HANDLER step as if the handler had returned
+it (the phantom `:db`, most visible on button-15 where the handler
+mutated nothing).
 
 ### §9.1.10.5 Epoch outcome — tool-side, NOT the framework slot (rf2-ahhgn)
 
 The `:rf.xray/epoch-pipeline` composite sub carries an `:outcome`
 (`:ok` / `:error`) from `projection/epoch-outcome` — `:error` when
-ANY projected step reads `step-status :error`. The Panel paints a
-red **outcome banner** above the pipeline on `:error` ("This event
-failed — see the ✗ step below.") and stamps `data-rf-xray-outcome`
-on the panel root; a clean cascade paints no banner (silence is the
-success signal — no green reassurance chrome on the common case).
+ANY projected step reads `step-status :error`. The Panel stamps
+`data-rf-xray-outcome` on the panel root (tools / e2e read the
+tool-side outcome there). The failure surfaces **inline**: the failing
+step paints the red ✗ glyph (the per-step `step-status` primitive) and
+the inline "Exception Thrown" card sits right under it.
+
+The pre-rf2-wnvid top-of-pipeline **outcome banner** ("This event
+failed — see the ✗ step below.") is **RETIRED** (rf2-wnvid): it merely
+restated the inline signal — the ✗ glyph + the error card already name
+and locate the failure — and pushed the actual cascade content down.
 
 **This is the TOOL-SIDE outcome** — the same trace-derived
 `:error`/`:ok` signal `event-status-colour/cascade-outcome` already

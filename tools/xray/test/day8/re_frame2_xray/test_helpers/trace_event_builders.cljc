@@ -384,17 +384,21 @@
   Drives the HANDLER step's inline error card + the per-step ✗ status.
 
   2-arg form: event-id + message. The 3-arg form adds the source-coord;
-  the 4-arg form adds the interceptor `:phase` (`:before` / `:after`)."
-  ([event-id message] (handler-exception-ev event-id message nil nil))
-  ([event-id message coord] (handler-exception-ev event-id message coord nil))
-  ([event-id message coord phase]
+  the 4-arg form adds the interceptor `:phase` (`:before` / `:after`);
+  the 5-arg form adds the raw `:exception` object (rf2-wnvid — the Epoch
+  card's collapsible details read the stack / ex-data off it)."
+  ([event-id message] (handler-exception-ev event-id message nil nil nil))
+  ([event-id message coord] (handler-exception-ev event-id message coord nil nil))
+  ([event-id message coord phase] (handler-exception-ev event-id message coord phase nil))
+  ([event-id message coord phase exception]
    (cond-> (ev :error :rf.error/handler-exception
                (cond-> {:event-id          event-id
                         :handler-id        event-id
                         :failing-id        event-id
                         :exception-message message
                         :reason            "Event handler threw."}
-                 phase (assoc :phase phase)))
+                 phase     (assoc :phase phase)
+                 exception (assoc :exception exception)))
      true     (assoc :recovery :no-recovery)
      coord    (assoc :rf.trace/trigger-handler {:kind         :event
                                                 :id           event-id

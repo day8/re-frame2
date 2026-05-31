@@ -1166,24 +1166,10 @@
    :font-style "italic"
    :font-size  "10px"})
 
-(def ^:private schema-violation-action-link-style
-  {:background    "transparent"
-   :border        "none"
-   :padding       0
-   :margin        0
-   :color         accent-colour
-   :cursor        "pointer"
-   :font-family   mono-stack
-   :font-size     "11px"
-   :display       "inline-flex"
-   :align-items   "center"
-   :gap           "4px"
-   :text-align    "left"})
-
-(def ^:private schema-violation-actions-style
-  {:display     "flex"
-   :gap         "16px"
-   :flex-wrap   "wrap"})
+;; `schema-violation-action-link-style` + `schema-violation-actions-style`
+;; retired (rf2-wnvid) — they backed the error-card's jump-to-source
+;; action row, which rf2-wnvid dropped as redundant with the HANDLER
+;; step's verb link.
 
 (def ^:private schema-violation-explain-toggle-style
   {:background  "transparent"
@@ -1236,6 +1222,47 @@
 (def ^:private error-block-recovery-chip-style
   (assoc schema-violation-rollback-chip-style
          :text-transform "none"))
+
+;; rf2-wnvid — collapsible exception details (`<details>`/`<summary>`).
+;; The stack trace + ex-data are diagnostic depth the operator wants on
+;; demand, not always-expanded clutter under every failed step. A native
+;; `<details>` element gives a zero-app-db-state, accessible disclosure;
+;; the summary row is the clickable affordance.
+(def ^:private error-block-details-style
+  {:margin "4px 0 0 0"})
+
+(def ^:private error-block-summary-style
+  {:cursor      "pointer"
+   :color       text-secondary-colour
+   :font-family sans-stack
+   :font-size   "11px"
+   :user-select "none"
+   :outline     "none"})
+
+(def ^:private error-block-stack-style
+  ;; The stack trace is verbatim multi-line text — render it monospace
+  ;; in a scrollable, pre-wrapped block so long stacks don't blow out the
+  ;; panel width.
+  {:color          text-tertiary-colour
+   :font-family    mono-stack
+   :font-size      "11px"
+   :line-height    1.45
+   :white-space    "pre-wrap"
+   :word-break     "break-word"
+   :max-height     "240px"
+   :overflow       "auto"
+   :margin         "4px 0 0 0"
+   :padding        "6px 8px"
+   :background     bg-1-colour
+   :border-radius  "3px"})
+
+(def ^:private error-block-data-label-style
+  {:color          text-tertiary-colour
+   :font-family    sans-stack
+   :font-size      "10px"
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :margin         "6px 0 2px 0"})
 
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
@@ -1338,26 +1365,12 @@
 (def ^:private panel-scroll-style
   {:flex 1 :overflow "auto" :padding "21px"})
 
-;; rf2-ahhgn — epoch outcome banner. A failed cascade (an exception or
-;; schema violation fired) paints a thin red banner at the top of the
-;; pipeline so the operator reads "this event failed" the moment they
-;; land on the panel — without scanning for the ✗ step. The per-step
-;; ✗ glyphs + inline error cards then pinpoint WHERE. A clean cascade
-;; renders NO banner (silence is the success signal — no green
-;; reassurance chrome cluttering the common case).
-(def ^:private outcome-banner-error-style
-  {:display       "flex"
-   :align-items   "center"
-   :gap           "8px"
-   :padding       "6px 10px"
-   :margin-bottom "13px"
-   :background    bg-violation-colour
-   :border        (str "1px solid " error-colour)
-   :border-radius "3px"
-   :color         error-colour
-   :font-family   sans-stack
-   :font-size     "12px"
-   :font-weight   600})
+;; rf2-ahhgn epoch outcome banner — RETIRED (rf2-wnvid). The top-of-
+;; pipeline "This event failed — see the ✗ step below." banner restated
+;; what the cascade now shows inline (the failing step's red ✗ glyph +
+;; the 'Exception Thrown' card). `outcome-banner-error-style` +
+;; `outcome-banner` are gone; the panel root keeps `data-rf-xray-outcome`
+;; for tools / e2e.
 
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
@@ -2594,16 +2607,28 @@
   The `:db-diff` arg is unused under the single rendering but stays in
   the parent's `handler-body` signature for projection compatibility.
 
+  rf2-wnvid — PHANTOM-`:db` fix. When the handler wrote NO `:db` effect
+  (`db-write?` false — it threw before returning, per button-15, or
+  returned only `:fx`), the block renders a `— no :db (…)` placeholder
+  instead of falling back to the record's full post-cascade `:db-after`.
+  The pre-rf2-wnvid fallback painted the ENTIRE app-db tree under the
+  HANDLER step as if the handler had returned it — misleading on a
+  thrown handler that mutated nothing. `threw?` tunes the placeholder
+  wording so a handler-exception reads 'no :db (handler threw)'.
+
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
-  [_db-diff db-post-handler]
+  [_db-diff db-post-handler db-write? threw?]
   (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
         db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
-        ;; only when the runtime stamped no t1.
+        ;; only when the runtime stamped no t1 — but ONLY when the handler
+        ;; actually wrote a `:db` (rf2-wnvid). A handler that wrote no
+        ;; `:db` resolves the no-write placeholder below, never the
+        ;; phantom full-app-db fallback.
         db-after  (if (some? db-post-handler)
                     db-post-handler
                     (:db-after record))]
@@ -2611,15 +2636,27 @@
            ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis. Now
            ;; a constant post-rf2-vv3m6; kept for selector compatibility
            ;; (tools / e2e can still pin the FULL+DIFF rendering).
-           :data-rf-xray-diff-mode "full+diff"}
+           :data-rf-xray-diff-mode "full+diff"
+           :data-rf-xray-db-write (str (boolean db-write?))}
      (sub-header ":db" nil)
-     (if (some? db-after)
+     (cond
+       ;; rf2-wnvid — the handler wrote no `:db` → no phantom app-db.
+       (not db-write?)
+       [:span {:data-testid "rf-xray-epoch-handler-db-no-write"
+               :style handler-db-all-missing-style}
+        (if threw?
+          "— no :db (handler threw)"
+          "— no :db (handler returned no :db)")]
+
+       (some? db-after)
        [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
               :style handler-db-all-style}
         [ei/edn-inspector db-after
          {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
           :before db-before
           :default-expanded-depth 3}]]
+
+       :else
        [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
                :style handler-db-all-missing-style}
         "— db-after not available in epoch record"])]))
@@ -2655,8 +2692,13 @@
   Either, both, or neither may render — sections are
   `seq`-conditioned. The `:db` part stays in its own dedicated
   block (the [diff][full][full+diff] toggle) above."
-  [{:keys [flavour event-id db-diff db-post-handler fx-vec other-effects machine] :as _row}]
-  (let [machine? (= :reg-machine flavour)]
+  [{:keys [flavour event-id db-diff db-post-handler db-write? fx-vec other-effects
+           machine errors] :as _row}]
+  (let [machine? (= :reg-machine flavour)
+        ;; rf2-wnvid — the handler threw iff a `:rf.error/handler-exception`
+        ;; attached to this step (`:errors`). Tunes the no-`:db` placeholder
+        ;; wording ('handler threw' vs 'returned no :db').
+        threw?   (boolean (seq errors))]
     [:div {:data-testid "rf-xray-epoch-handler-body"}
      ;; Source / machine spec block — rf2-66wis
      (handler-source-block flavour event-id)
@@ -2669,7 +2711,7 @@
      ;; post-handler (t1) db is threaded so the diff shows ONLY the
      ;; handler's contribution, not the post-flow state.
      (when-not machine?
-       (handler-db-diff-block db-diff db-post-handler))
+       (handler-db-diff-block db-diff db-post-handler db-write? threw?))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -3796,22 +3838,10 @@
     (keyword? recovery)    (name recovery)
     :else                  nil))
 
-(defn- violation-open-source-action
-  "Click-to-source button. `coord` is `{:file :line}` or nil; when
-  nil renders a muted plain-text fallback (graceful degrade — the
-  framework may not yet stamp coords for some surfaces).
-
-  rf2-vw5pi — routes through the shared `coord-link` with
-  `:glyph-leading?` (the schema-violation grammar leads with the
-  glyph: `↗ <failing-id>`). The muted plain fallback overlays the
-  link style with `:text-tertiary` + `default` cursor."
-  [{:keys [label coord testid]}]
-  (coord-link/coord-link coord label testid
-                         {:style          schema-violation-action-link-style
-                          :plain-style    (assoc schema-violation-action-link-style
-                                                 :color  text-tertiary-colour
-                                                 :cursor "default")
-                          :glyph-leading? true}))
+;; `violation-open-source-action` retired (rf2-wnvid) — its only caller
+;; was the error-card's jump-to-source link, which rf2-wnvid dropped as
+;; redundant with the HANDLER step's verb link. The schema-violation
+;; block's `schema check` link routes through `coord-link` directly.
 
 (defn- violation-kind-coord
   "Resolve a `(rf/handler-meta <kind> <id>)` coord, returning
@@ -4052,27 +4082,42 @@
 ;; ---- inline EXCEPTION card (rf2-ahhgn) ----------------------------------
 
 (defn- error-recovery-label
-  "Short recovery chip text for an exception card (rf2-ahhgn). A handler
-  exception rolls back the cascade (`:no-recovery`) — render that as the
-  red `Rolled back` chip so the operator reads the blast radius. Other
-  recovery keywords render name-d; nil recovery omits the chip."
-  [recovery]
+  "Short recovery chip text for an exception card (rf2-ahhgn / rf2-wnvid).
+
+  rf2-wnvid — `db-committed?` gates the `Rolled back` chip: it paints
+  ONLY when a `:db` install actually preceded the throw (so there was a
+  commit to revert). The substrate stamps `:recovery :no-recovery` on
+  EVERY `:rf.error/handler-exception`, so keying off recovery alone
+  painted a SPURIOUS `Rolled back` on button-15 — the handler threw
+  before producing any `:db`, so nothing committed + nothing reverted.
+  With no commit, the chip is omitted (the headline already says the
+  handler threw; there is no rollback to surface). Other recovery
+  keywords render name-d; nil recovery omits the chip."
+  [recovery db-committed?]
   (case recovery
-    :no-recovery "Rolled back"
+    :no-recovery (when db-committed? "Rolled back")
     (when (keyword? recovery) (name recovery))))
 
 (defn- error-block-label
-  "Render the card's one-line failure headline (rf2-ahhgn) — the failing
-  unit + a human verb keyed off the exception op + phase. E.g.
-  'The event handler threw.' / 'An interceptor threw (:before).' /
-  'The :http/post effect threw.'"
-  [{:keys [operation phase failing-id]}]
+  "Render the card's one-line failure headline (rf2-ahhgn / rf2-wnvid) —
+  the failing unit + a human verb keyed off the exception OP. E.g.
+  'The event handler threw.' / 'The :http/post effect threw.'
+
+  rf2-wnvid — attribution derives from `:operation` (== the trace
+  `:category` / `:reason` family), NOT the interceptor `:phase`. The
+  substrate routes a handler / interceptor / injected-coeffect throw ALL
+  through `:rf.error/handler-exception` with `:reason \"Event handler
+  threw.\"` and `:phase :before` (the handler is the terminal `:before`
+  interceptor — `re-frame.router/emit-handler-exception!`). The
+  pre-rf2-wnvid code read `:phase :before` and mislabelled button-15 (a
+  plain handler throw) as 'An interceptor / coeffect threw (:before).'
+  Since the substrate cannot distinguish the three sub-kinds, the
+  headline reads off the op and says 'The event handler threw.' —
+  matching the substrate's own `:reason`."
+  [{:keys [operation failing-id]}]
   (case operation
     :rf.error/handler-exception
-    (cond
-      (= :before phase) "An interceptor / coeffect threw (:before)."
-      (= :after phase)  "An interceptor threw (:after)."
-      :else             "The event handler threw.")
+    "The event handler threw."
     :rf.error/fx-handler-exception
     (str "The " (proj/ns-keyword failing-id) " effect threw.")
     :rf.error/no-such-fx
@@ -4081,34 +4126,91 @@
     "A flow's computation threw."
     "An exception was thrown."))
 
-(defn error-block
-  "Render one inline EXCEPTION card (rf2-ahhgn) for a projected
-  `exception-row`. Four pieces, top to bottom:
+(defn- exception-stack
+  "Lift the stack trace string off a thrown exception object (rf2-wnvid).
+  CLJS errors carry `.-stack` (the panel runs in the browser). nil-safe —
+  returns nil for a non-error / stack-less exception."
+  [exception]
+  (when (some? exception)
+    (let [s (try (.-stack ^js exception)
+                 (catch :default _ nil))]
+      (when (and (string? s) (not (str/blank? s))) s))))
 
-    1. Title bar: `✗` + 'Exception' + right-aligned recovery chip
-       (`Rolled back` for a handler exception).
-    2. Failure headline: a one-line human verb (`error-block-label`).
+(defn- exception-ex-data
+  "Lift the `ex-data` map off a thrown exception object (rf2-wnvid).
+  nil-safe — returns nil when the exception carries no ex-data (a bare
+  `(throw (js/Error. …))` rather than an `ex-info`)."
+  [exception]
+  (when (some? exception)
+    (let [d (try (ex-data exception) (catch :default _ nil))]
+      (when (seq d) d))))
+
+(defn- error-block-details
+  "Render the collapsible EXCEPTION details (rf2-wnvid) — a native
+  `<details>` disclosure carrying the stack trace + any `ex-data`,
+  collapsed by default. Replaces the pre-rf2-wnvid always-expanded
+  source link (which was REDUNDANT — the HANDLER step's verb already
+  jumps to the handler's reg-site, and on a handler throw the error
+  card's own coord was usually nil → a useless 'source unavailable'
+  link). The depth lives behind one click; the common read is the
+  headline + message above. Returns nil when neither a stack nor
+  ex-data is available (nothing to disclose)."
+  [testid-base {:keys [exception]}]
+  (let [stack   (exception-stack exception)
+        ex-data* (exception-ex-data exception)]
+    (when (or stack (seq ex-data*))
+      [:details {:data-testid (str testid-base "-details")
+                 :style error-block-details-style}
+       [:summary {:data-testid (str testid-base "-details-summary")
+                  :style error-block-summary-style}
+        "Details"]
+       (when (seq ex-data*)
+         [:div {:data-testid (str testid-base "-ex-data")}
+          [:div {:style error-block-data-label-style} "ex-data"]
+          [ei/edn-inspector ex-data*
+           {:site-id [:rf.xray.epoch/error-ex-data testid-base]
+            :card?   false
+            :default-expanded-depth 1}]])
+       (when stack
+         [:div {:data-testid (str testid-base "-stack")}
+          [:div {:style error-block-data-label-style} "stack"]
+          [:pre {:style error-block-stack-style} stack]])])))
+
+(defn error-block
+  "Render one inline EXCEPTION card (rf2-ahhgn / rf2-wnvid) for a
+  projected `exception-row`. Top to bottom:
+
+    1. Title bar: `✗` + 'Exception Thrown' + right-aligned recovery chip
+       (`Rolled back`, painted ONLY when a `:db` actually committed +
+       rolled back — `db-committed?`; rf2-wnvid drops the spurious chip
+       on a handler that threw before any commit).
+    2. Failure headline: a one-line human verb (`error-block-label`),
+       attributed off the op (NOT the interceptor `:phase` — rf2-wnvid).
     3. Exception message: the verbatim `ex-info` message (monospace).
-    4. Source-coord jump-to-source link: `↗ file:line` opening the
-       failing handler's registration site via `:rf.xray/open-in-editor`
-       (the same coord-link the schema-violation card uses); omitted
-       when no coord was captured (fn-form / production build).
+    4. Collapsible details (`error-block-details`): the stack trace +
+       any `ex-data`, collapsed behind a `<details>` disclosure.
+
+  rf2-wnvid — the pre-existing always-expanded jump-to-source link is
+  DROPPED: it duplicated the HANDLER step's verb link (the canonical
+  jump-to-source) and, on a handler throw where the trace carried no
+  coord, degraded to a useless 'source unavailable'. The depth that
+  matters (stack / ex-data) now rides the collapsible.
 
   `step-key` + `idx` give stable test ids. The card paints the failing
   step's blast radius right where the work happened — the inline half of
-  rf2-ahhgn."
-  [step-key idx {:keys [message coord recovery] :as row}]
-  (let [recovery-label (error-recovery-label recovery)
+  rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
+  [step-key idx {:keys [message recovery db-committed?] :as row}]
+  (let [recovery-label (error-recovery-label recovery db-committed?)
         testid-base    (str "rf-xray-epoch-error-"
                             (name (or step-key :unknown)) "-" idx)]
     [:div {:key (str "error-" step-key "-" idx)
            :data-testid testid-base
            :data-error-op (when (:operation row) (name (:operation row)))
            :style error-block-style}
-     ;; 1. Title bar — ✗ + 'Exception' + recovery chip
+     ;; 1. Title bar — ✗ + 'Exception Thrown' + recovery chip
      [:div {:style error-block-title-style}
       [:span {:aria-hidden true} "✗"]
-      [:span {:data-testid (str testid-base "-title")} "Exception"]
+      [:span {:data-testid (str testid-base "-title")} "Exception Thrown"]
       [:span {:style schema-violation-title-spacer-style}]
       (when recovery-label
         [:span {:data-testid (str testid-base "-recovery")
@@ -4123,15 +4225,8 @@
        [:div {:data-testid (str testid-base "-message")
               :style error-block-message-style}
         message])
-     ;; 4. Jump-to-source — failing handler's reg-site coord
-     [:div {:style schema-violation-actions-style}
-      (violation-open-source-action
-        {:label  (let [{:keys [file line]} coord]
-                   (if file
-                     (cond-> file line (str ":" line))
-                     "source unavailable"))
-         :coord  coord
-         :testid (str testid-base "-source")})]]))
+     ;; 4. Collapsible details — stack + ex-data behind a disclosure
+     (error-block-details testid-base row)]))
 
 (defn error-blocks
   "Render every exception in `errors` as an inline card inside the
@@ -4371,18 +4466,15 @@
            :style empty-state-style}
      msg]))
 
-(defn outcome-banner
-  "Render the top-of-cascade outcome banner (rf2-ahhgn). Painted only
-  when `outcome` is `:error` — a failed cascade. A clean cascade renders
-  nothing (silence is the success signal). The banner names the failure
-  at a glance; the per-step ✗ glyphs + inline error cards locate it."
-  [outcome]
-  (when (= :error outcome)
-    [:div {:data-testid "rf-xray-epoch-outcome-banner"
-           :data-rf-xray-outcome "error"
-           :style outcome-banner-error-style}
-     [:span {:aria-hidden true} "✗"]
-     [:span "This event failed — see the ✗ step below."]]))
+;; rf2-wnvid — the top-of-cascade outcome banner ("This event failed —
+;; see the ✗ step below.") is RETIRED (Mike pair-debug 2026-05-31). It
+;; was redundant: the failure now surfaces inline in the cascade — the
+;; failing step paints the red ✗ glyph (rf2-ahhgn `step-status`) and the
+;; inline 'Exception Thrown' card sits right under it. The banner
+;; restated what the cascade already shows, pushing the actual content
+;; down. The panel root still stamps `data-rf-xray-outcome` (tools / e2e
+;; read the tool-side outcome there); the banner element + its style are
+;; gone.
 
 ;; ---- public Panel --------------------------------------------------------
 
@@ -4393,9 +4485,11 @@
   the numbered cascade when steps are present; an empty-state when
   the focus carries no record or the record carries no trace events.
 
-  rf2-ahhgn — when the cascade failed (`:outcome :error`) a red banner
-  rides above the pipeline so the failure is visible the moment the
-  operator lands on the panel."
+  rf2-ahhgn / rf2-wnvid — when the cascade failed (`:outcome :error`)
+  the failure surfaces INLINE: the failing step paints the red ✗ glyph
+  and the inline 'Exception Thrown' card sits under it. The panel root
+  stamps `data-rf-xray-outcome` for tools / e2e; the pre-rf2-wnvid
+  top banner is retired (it merely restated the inline signal)."
   []
   (let [{:keys [status steps dispatch-id epoch-history outcome]}
         @(rf/subscribe [:rf.xray/epoch-pipeline])]
@@ -4407,7 +4501,6 @@
         (= :focused status)
         (if (seq steps)
           [:<>
-           (outcome-banner outcome)
            ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
            ;; once per panel render. Threaded through `ctx` to the
            ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
