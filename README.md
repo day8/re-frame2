@@ -237,12 +237,15 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                the rebuild settles; see tools/template/spec/005-Repo-Split.md).
   story/                       day8/re-frame2-story — Storybook-flavoured playground
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
-  re-frame2-pair-mcp/                   day8/re-frame2-re-frame2-pair-mcp — MCP agent surface for the re-frame2-pair
+  re-frame2-pair-mcp/          @day8/re-frame2-pair-mcp — MCP agent surface for the re-frame2-pair
                                nREPL companion
-  xray/                       day8/re-frame2-xray — Xray, the re-frame2 devtools panel;
+  xray/                        day8/re-frame2-xray — Xray, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
-  machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP agent surface for machines-viz
-                               (spec-only)
+  machines-viz/                day8/re-frame2-machines-viz — substrate-agnostic MachineChart
+                               component + read-only viewer surfaces (the chart extracted out of
+                               Xray; also hosts the pure Mermaid emitter)
+  testbed-support/             Shared testbed-config helper (single ns re-frame.testbed.config);
+                               consumed by the framework testbed builds
   mcp-base/                    Shared CLJC library for the MCP servers (arg parsing, redaction,
                                cap, overflow); bundle-isolated boundary helpers
   mcp-conformance/             Cross-server MCP conformance harness — gates wire-vocabulary parity

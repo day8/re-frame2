@@ -91,11 +91,14 @@ implementation/
       src/re_frame/adapter/helix.cljs
                              The Helix adapter.
     reagent-slim/            day8/reagent-slim — Reagent rewrite for React 19
-                             (rf2-5djt; Stage 4 rf2-6hyy). Stage 4-A landed: reactive
-                             primitives in src/reagent2/ratom.{clj,cljs}. Subsequent
-                             sub-stages add render scheduler, component-shape detection,
-                             hiccup translation, render-to-static-markup, throw-on-call
-                             shims, examples + MIGRATION.
+                             (rf2-5djt; Stage 4 rf2-6hyy). Stage 4 landed: the full
+                             reagent2.* rewrite on disk — reactive primitives
+                             (ratom), render scheduler (impl/batching), component-shape
+                             detection (impl/component), hiccup translation
+                             (impl/template), DOM Root API (dom + dom/client) and
+                             pure-CLJS render-to-string (dom/server), plus the
+                             re-frame.adapter.reagent-slim adapter and its own CLJS
+                             test suite (~20 test files).
 
   schemas/                   day8/re-frame2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
@@ -163,9 +166,10 @@ The Reagent adapter is the canonical adapter — every test target (every
 run, every `examples` run, every conformance fixture) executes against
 it. UIx and Helix adapters are smoke-tested via the counter + login
 pair per [Conventions §Adapter test matrix policy](../spec/Conventions.md#adapter-test-matrix-policy).
-The `reagent-slim` adapter is in active development (Stage 4-A landed —
-reactive primitives only); it does not yet participate in the test
-matrix.
+The `reagent-slim` adapter has landed Stage 4 (the full `reagent2.*`
+rewrite) and carries its own CLJS test suite — the `reagent2.*` internals
+plus the slim-adapter substrate-shape, container round-trip, derived-value,
+disposal, render-sequence, and source-coord / view-id contracts.
 
 ## Running tests
 

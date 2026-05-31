@@ -11,8 +11,10 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 | [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
 | [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
-| [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/re-frame2-reagent-slim` (NB: artefact coord is `day8/reagent-slim` per IMPL-SPEC DECISION-1) | Reagent rewrite for React 19 — Stage 4 landed (full `reagent2.*` rewrite) |
+| [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/reagent-slim` [^slim-coord] | Reagent rewrite for React 19 — Stage 4 landed (full `reagent2.*` rewrite) |
 | [`test-react/`](test-react/) | Test-React adapter | `day8/re-frame2-test-react` | Pure-CLJC React class-3 lifecycle simulator — unit-testable lifecycle bug catching; carries ported regressions incl. the organic rf2-4l7t2 sync-unmount-during-render repro (rf2-gqyqv skeleton, broadened rf2-n2cuo) |
+
+[^slim-coord]: The `re-frame2-` prefix is dropped on this coord (per IMPL-SPEC DECISION-1); it is the lone adapter artefact published as `day8/reagent-slim` rather than `day8/re-frame2-*`.
 
 A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
 
