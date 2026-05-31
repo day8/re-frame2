@@ -88,8 +88,10 @@
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
             [malli.error     :as me]
+            [re-frame.mcp-base.cursor :as mcp-cursor]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.overflow :as mcp-overflow]
+            [re-frame.mcp-base.vocab :as mcp-vocab]
             [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
@@ -1203,6 +1205,57 @@
   (is (not (m/validate CursorStaleResult
                        {:ok? false :reason :rf.mcp/cursor-stales}))
       "CursorStaleResult MUST reject the pluralised near-miss"))
+
+(deftest cursor-stale-reason-emitted-live-by-canonical-builder
+  ;; LIVE-emission gate for `:rf.mcp/cursor-stale` (mirrors
+  ;; `overflow-marker-shape-emitted-live-by-canonical-builder` for
+  ;; `:rf.mcp/overflow`). Both reason/marker builders were hoisted into
+  ;; the shared `mcp-base` ns (rf2-ee38b.19), so both are now
+  ;; JVM-reachable from this pure-JVM gate — `overflow-payload` already
+  ;; got its live counterpart, `cursor-stale-result` did not.
+  ;;
+  ;; The gap this closes: the existing cursor-stale coverage was exactly
+  ;; the two layers rf2-80y2h flagged as insufficient for `diff-from` —
+  ;; (1) an authored fixture validated against `CursorStaleResult`, and
+  ;; (2) a source-text grep that the `:rf.mcp/cursor-stale` literal is
+  ;; DECLARED in `mcp-base/vocab.cljc`. Neither observes the actual
+  ;; BUILDER. A regression that hardcoded a drifted `:reason` literal in
+  ;; `cursor-stale-result` (decoupling it from `vocab/cursor-stale-reason`),
+  ;; or dropped the `:ok? false` posture, would: leave the vocab literal
+  ;; in place (grep passes), leave the authored fixture untouched
+  ;; (fixture passes), and ship a builder whose emission no longer
+  ;; matches the constant agents pattern-match on. Every gate green.
+  ;;
+  ;; Drive the real builder with a minimal `error-result` that merely
+  ;; returns the structured data-map (each server shapes the wire
+  ;; envelope its own way; the cross-MCP contract this builder owns is
+  ;; the `:reason` value + the `:ok? false` posture, per the
+  ;; `cursor-stale-result` docstring) and assert the emitted envelope.
+  (let [emitted (mcp-cursor/cursor-stale-result
+                  (fn [_message data] data)
+                  "watch-epochs"
+                  {:extra {:requested-id "epoch-9001"
+                           :head-id      "epoch-9101"}})]
+    (testing "the builder sources :reason from vocab/cursor-stale-reason"
+      (is (= mcp-vocab/cursor-stale-reason (:reason emitted))
+          (str "cursor-stale-result MUST emit the canonical "
+               ":reason value (vocab/cursor-stale-reason). If this fails, "
+               "the builder hardcoded a literal that drifted from the "
+               "vocab constant agents pattern-match on. Got :reason = "
+               (pr-str (:reason emitted)))))
+    (testing "the emitted :reason is the pinned cross-MCP keyword"
+      (is (= :rf.mcp/cursor-stale (:reason emitted))
+          "the canonical reason keyword is :rf.mcp/cursor-stale"))
+    (testing "the emitted envelope validates against canonical CursorStaleResult"
+      (is (m/validate CursorStaleResult emitted)
+          (str "Live-emitted cursor-stale envelope failed CursorStaleResult "
+               "validation:\n" (me/humanize (m/explain CursorStaleResult emitted)))))
+    (testing "the builder preserves the :ok? false error posture"
+      (is (false? (:ok? emitted))
+          "cursor-stale rides an :ok? false envelope — success never carries a stale-reason"))
+    (testing "the consumer's :extra slots merge through verbatim"
+      (is (= "epoch-9001" (:requested-id emitted)))
+      (is (= "epoch-9101" (:head-id emitted))))))
 
 (deftest cursor-stale-literal-in-re-frame2-pair-mcp-emit-source
   ;; The canonical declaration lives in mcp-base/vocab.cljc — same
