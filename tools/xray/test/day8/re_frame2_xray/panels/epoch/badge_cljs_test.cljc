@@ -186,3 +186,43 @@
         (is (string? c))
         (is (re-find #"var\(--rf-xray-" c)
             (str "expected CSS variable for " s ", got " c))))))
+
+;; ---- flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------
+
+(deftest fx-row-status-glyph-test
+  (testing "rf2-j630b — the flat-ledger per-effect glyph closed set:
+            ✓ :ok / ✗ :error / ✗ :rollback / ↺ :overridden / – :skipped"
+    (is (= "✓" (badge/fx-row-status-glyph :ok)))
+    (is (= "✗" (badge/fx-row-status-glyph :error)))
+    (is (= "✗" (badge/fx-row-status-glyph :rollback)))
+    (is (= "↺" (badge/fx-row-status-glyph :overridden)))
+    (is (= "–" (badge/fx-row-status-glyph :skipped))
+        "skipped is the muted en-dash 'n/a'")
+    (is (= "✓" (badge/fx-row-status-glyph :whatever)) "quiet default")))
+
+(deftest skipped-glyph-distinct-from-cancelled-test
+  (testing "rf2-j630b — the skipped en-dash avoids the :cancelled
+            middle-dot (`·`) used by the machine-cascade outcome chip"
+    (is (= "–" badge/skipped-glyph))
+    (is (not= badge/skipped-glyph (badge/cascade-outcome-glyph :cancelled))
+        "the skipped glyph and the :cancelled middle-dot are distinct")
+    (is (string? badge/skipped-hover))))
+
+(deftest fx-row-status-token-key-test
+  (testing "rf2-j630b — :error/:rollback → :error; :overridden → :accent;
+            :skipped → :text-tertiary (muted, NEUTRAL); else → :success"
+    (is (= :error         (badge/fx-row-status-token-key :error)))
+    (is (= :error         (badge/fx-row-status-token-key :rollback)))
+    (is (= :accent        (badge/fx-row-status-token-key :overridden)))
+    (is (= :text-tertiary (badge/fx-row-status-token-key :skipped)))
+    (is (= :success       (badge/fx-row-status-token-key :ok)))
+    (is (= :success       (badge/fx-row-status-token-key nil)))))
+
+(deftest fx-row-status-colour-resolves-css-var-test
+  (testing "rf2-j630b — the row glyph colour resolver returns a
+            CSS-variable string for every ledger status (theme-driven)"
+    (doseq [s [:ok :error :rollback :overridden :skipped]]
+      (let [c (badge/fx-row-status-colour s)]
+        (is (string? c))
+        (is (re-find #"var\(--rf-xray-" c)
+            (str "expected CSS variable for " s ", got " c))))))
