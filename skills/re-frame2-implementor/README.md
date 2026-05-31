@@ -50,7 +50,10 @@ skills/re-frame2-implementor/
 ├── package.json                   # npm metadata for distribution
 ├── .claude-plugin/
 │   └── plugin.json                # Claude Code plugin metadata
+├── evals/
+│   └── evals.json                 # Trigger-accuracy fixtures for the description
 ├── references/
+│   ├── cardinal-rules.md          # The ten rules in prose + anti-pattern corollaries
 │   ├── kickoff-prompt.md          # Paste-ready prompt for a fresh session
 │   ├── phase-1-decisions.md       # The Phase 1 walkthrough
 │   ├── decision-record.md         # Fill-in template for the locked decisions

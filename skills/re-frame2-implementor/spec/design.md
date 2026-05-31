@@ -113,7 +113,9 @@ skills/re-frame2-implementor/
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
+├── evals/evals.json (trigger-accuracy fixtures for the description)
 ├── references/
+│ ├── cardinal-rules.md (the ten rules in prose + anti-pattern corollaries)
 │ ├── kickoff-prompt.md (paste-ready prompt)
 │ ├── phase-1-decisions.md (Phase 1 walkthrough)
 │ ├── decision-record.md (fill-in template)
@@ -129,7 +131,7 @@ skills/re-frame2-implementor/
 
 ## 6. Why this leaf split
 
-The seven reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical session loads:
+The eight reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical session loads:
 
 - **Phase 1 walkthrough**: `phase-1-decisions.md` + `decision-record.md`. ~320 LoC.
 - **Phase 2, single EP**: `phase-2-impl-order.md` (one section) + maybe `reference-impl-tour.md` (one section) + maybe `conformance.md`. ~250-400 LoC.

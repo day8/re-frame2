@@ -27,6 +27,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > ├── package.json (npm metadata; mirror re-frame-migration shape)
 > ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 > └── references/
+> ├── cardinal-rules.md (~90 lines; the ten rules in prose + anti-pattern corollaries)
 > ├── kickoff-prompt.md (~80 lines; paste-ready prompt)
 > ├── phase-1-decisions.md (~200 lines; D1-D7 walkthrough)
 > ├── decision-record.md (~120 lines; fill-in template)
