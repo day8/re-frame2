@@ -306,6 +306,91 @@
   (testing ":substrate :helix produces the expected tree"
     (assert-shape! :helix)))
 
+;; --- Name derivation (rf2-ynjts.22) --------------------------------------
+;;
+;; Every other test in this suite scaffolds `acme/my-app` — a project
+;; name with a single-segment group (no dots) and a single-dash artifact.
+;; That name leaves the two derivation transforms in
+;; `hooks.clj`/`data-fn` (`->file-path` dots→slashes + dashes→underscores;
+;; `->ns-form` the inverse) doing only the trivial single-dash work; the
+;; dot→slash branch and the multi-dash branch are never exercised. A
+;; regression that broke dotted-group nesting (`com.acme` →
+;; `com/acme`) or multi-dash file mangling (`my-cool-app` →
+;; `my_cool_app`) would ship green from the whole rest of the suite.
+;;
+;; This test scaffolds `com.acme/my-cool-app` and pins the full
+;; derivation chain end-to-end: the rename target nesting
+;; (`src/<nested-dirs>/…` = `src/com/acme/my_cool_app/…`), the
+;; substituted `{{namespace}}` flowing into the emitted ns form +
+;; shadow-cljs `:init-fn`, and the group-stripped output directory name.
+;; It is a fresh-emit test (no shared mutable state) and deterministic.
+
+(def ^:private dotted-name "com.acme/my-cool-app")
+(def ^:private dotted-nested "com/acme/my_cool_app")     ;; ->file-path
+(def ^:private dotted-ns "com.acme.my-cool-app")         ;; ->ns-form
+
+(deftest name-derivation-dotted-group-test
+  (testing "a dotted-group + multi-dash project name derives the right
+            nested file path (->file-path: dots→slashes, dashes→underscores)
+            and the right namespace (->ns-form) across rename targets and
+            substituted content"
+    (let [tmp (tmp-dir "rf2-template-dotted-name-")]
+      (try
+        (let [root (run-template! tmp dotted-name :reagent)]
+          ;; -- (1) project output dir is the group-stripped artifact name --
+          (is (= "my-cool-app" (.getName root))
+              "deps-new names the output dir after the artifact portion
+               (group stripped)")
+
+          ;; -- (2) src/test rename targets nest under the file-path form --
+          (doseq [rel ["src/com/acme/my_cool_app/core.cljs"
+                       "src/com/acme/my_cool_app/events.cljs"
+                       "src/com/acme/my_cool_app/subs.cljs"
+                       "src/com/acme/my_cool_app/schema.cljs"
+                       "src/com/acme/my_cool_app/views.cljs"
+                       "test/com/acme/my_cool_app/events_test.cljs"]]
+            (is (file-exists? root rel)
+                (str "expected " rel " — nested-dirs must be "
+                     dotted-nested " (->file-path of " dotted-name ")")))
+
+          ;; -- (3) the substituted {{namespace}} reaches the emitted ns
+          ;;        form + shadow-cljs :init-fn in the dash-preserving
+          ;;        ->ns-form, NOT the underscore file form. --
+          (let [core-text (slurp (io/file root "src/com/acme/my_cool_app/core.cljs"))]
+            (is (.contains core-text (str "(ns " dotted-ns ".core"))
+                "emitted core.cljs ns form uses the ->ns-form (dashes kept)"))
+          (let [scs (read-edn (io/file root "shadow-cljs.edn"))]
+            (is (= (symbol (str dotted-ns ".core") "init")
+                   (get-in scs [:builds :app :modules :main :init-fn]))
+                "shadow-cljs :init-fn substitutes the derived namespace"))
+
+          ;; -- (4) the events_test.cljs requires the user nses by their
+          ;;        derived namespace (regression guard on the rename +
+          ;;        substitution feeding the emitted test scaffold). --
+          (let [test-text (slurp (io/file root "test/com/acme/my_cool_app/events_test.cljs"))]
+            (is (.contains test-text (str "[" dotted-ns ".events]"))
+                "events_test.cljs requires the user events ns by derived namespace")
+            (is (.contains test-text (str "[" dotted-ns ".subs]"))
+                "events_test.cljs requires the user subs ns by derived namespace")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest name-derivation-dotted-group-with-story-test
+  (testing "the dotted-group name also threads correctly through the
+            with-story scaffold: stories.cljs nests under nested-dirs and
+            references the view by its derived namespaced id"
+    (let [tmp (tmp-dir "rf2-template-dotted-story-")]
+      (try
+        (let [root (run-template! tmp dotted-name :reagent true)]
+          (is (file-exists? root "src/com/acme/my_cool_app/stories.cljs")
+              "stories.cljs nests under the derived nested-dirs path")
+          (let [stories-text (slurp (io/file root "src/com/acme/my_cool_app/stories.cljs"))]
+            (is (.contains stories-text (str ":" dotted-ns ".views/counter-app"))
+                "stories.cljs references the view by the derived namespaced id
+                 (the {{namespace}} substitution lands inside the keyword)")))
+        (finally
+          (delete-recursively tmp))))))
+
 (deftest invalid-substrate-rejected-test
   (testing "unknown :substrate value throws with a clear message"
     (let [tmp (tmp-dir "rf2-template-bad-")]
@@ -365,6 +450,26 @@
                 "default-path core.cljs does NOT require re-frame.story")
             (is (not (.contains core-text "#/stories"))
                 "default-path core.cljs has no hash-routing scaffold")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest explicit-include-story-false-equals-default-test
+  (testing "passing :include-story? false EXPLICITLY (not omitted) takes
+            the same no-story path as the default — exercises the
+            `false`-coercion branch of coerce-include-story? + the
+            `(some? include-story?)` arg-passthrough in run-template!,
+            distinct from the nil/omitted path the sibling test covers"
+    (let [tmp (tmp-dir "rf2-template-story-false-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent false)]
+          (is (not (file-exists? root "src/acme/my_app/stories.cljs"))
+              "stories.cljs is NOT emitted when :include-story? is explicitly false")
+          (let [deps      (read-edn (io/file root "deps.edn"))
+                core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
+            (is (not (contains? (:deps deps) 'day8/re-frame2-story))
+                "deps.edn does NOT reference the story coord on explicit false")
+            (is (not (.contains core-text "re-frame.story"))
+                "core.cljs is the default (no-story) variant on explicit false")))
         (finally
           (delete-recursively tmp))))))
 
