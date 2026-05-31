@@ -34,7 +34,7 @@
     "test:xray-feature-gate:smoke": "node scripts/serve-and-run-xray-feature-gate.cjs --smoke",
     "test:story-static": "node scripts/check-story-static.cjs",
     "test:script-policy": "node scripts/_path-policy.test.cjs && node scripts/_changed-surfaces.test.cjs && node scripts/_story-feature-load-port.test.cjs",
-    "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs && node scripts/_local-browser-harness.test.cjs",
+    "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs && node scripts/_local-browser-harness.test.cjs && node scripts/_read-release-bundle.test.cjs",
     "test:mcp-conformance": "node scripts/test-mcp-conformance.cjs"
   }
 }
