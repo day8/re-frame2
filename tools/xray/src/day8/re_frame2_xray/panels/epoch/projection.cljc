@@ -11,7 +11,8 @@
 
   - no `:rf.cofx/run` events → no COEFFECT rows
   - no `:rf.flow/computed` events → no FLOW step
-  - no `:rf.fx/handled` events → no FX step
+  - no side effect (no `:db` commit, no `:fx`, no other effect) →
+    no SIDE EFFECTS step
   - HANDLER step adapts to the handler's flavour:
       reg-event-db / reg-event-fx / reg-machine
 
@@ -1059,147 +1060,294 @@
 ;; with rf2-xnb1x; the splicing in `project` consumes `flow-rows`
 ;; directly.
 
-;; ---- FX step -------------------------------------------------------------
+;; ---- SIDE EFFECTS step (rf2-kt6js) --------------------------------------
+;;
+;; The cascade's post-commit side effects render as ONE numbered step —
+;; SIDE EFFECTS — composed of THREE optional sub-steps, each reusing the
+;; shared per-step `:status` (`:ok` / `:error`) primitive (rf2-ahhgn) for
+;; its per-effect tick:
+;;
+;;   :db    — the handler's app-db write (the `:db` effect). PASS on a
+;;            successful commit; FAILED when the post-commit app-db schema
+;;            check rejected the write and the cascade rolled back. Shown
+;;            whenever a `:db` commit was attempted — INCLUDING a plain
+;;            reg-event-db that returns only `:db` (no `:fx`).
+;;   :fx    — the entries in the handler's `:fx` vector, each `[fx-id arg]`
+;;            with the rf2-g1mfc open-code chip + a per-effect success tick
+;;            (✓ ran / ✗ threw / ↺ overridden / · skipped-on-platform).
+;;   other  — any TOP-LEVEL effect key beyond `:db` / `:fx` on the
+;;            handler's returned map (the historical
+;;            `{:db .. :fx .. :other-key ..}` form).
+;;
+;; SETTLE-FIRST (rf2-kt6js, confirmed against the live substrate):
+;;
+;; - PER-`:fx` SUCCESS IS ALREADY RECORDED. Every entry in the `:fx`
+;;   vector emits exactly one of `:rf.fx/handled` / `:rf.fx/override-
+;;   applied` / `:rf.fx/skipped-on-platform` / `:rf.error/fx-handler-
+;;   exception` / `:rf.error/no-such-fx` (spec 009 §`re-frame.fx`;
+;;   `re-frame.fx/handle-one-fx`). The per-fx tick reads that op directly
+;;   — NO framework-instrumentation change (no (A) prong).
+;;
+;; - THE `:db` COMMIT IS RECORDED BY `:rf.event/db-changed`, NOT a
+;;   fx-id-less `:rf.fx/handled`. `re-frame.fx/emit-handled!` ALWAYS
+;;   stamps `:rf.fx/id`; the framework's `:db` install path
+;;   (`re-frame.router/commit-db-effect!`) emits `:rf.event/db-changed`
+;;   (and a second one with `:rf.trace/phase :rollback` on a schema-fail
+;;   rollback) — it does NOT route `:db` through the fx pipeline. The
+;;   pre-rf2-kt6js heuristic looked for a non-existent fx-id-less
+;;   `:rf.fx/handled`, so the `:db` row only ever appeared on the
+;;   rollback path; a clean reg-event-db showed NO side-effects step at
+;;   all. Keying off `:rf.event/db-changed` fixes the ALWAYS-APPEARS
+;;   contract tool-side.
+;;
+;; - "OTHER" TOP-LEVEL EFFECTS ARE NOT EXECUTED BY THE re-frame2 RUNTIME.
+;;   The effect map is the closed `{:db :fx}` shape (spec/002 §The binary
+;;   fx-handler signature — "the v1 :dispatch-n top-level key is gone";
+;;   spec/002 §`:fx` ordering and atomicity guarantees). `re-frame.router/
+;;   run-fx-effects!` reads ONLY `(:fx effects)`; `:db` commits separately;
+;;   any other top-level key is silently ignored (no trace, no run). So
+;;   "other" is a DIAGNOSTIC sub-step: when the handler's returned map
+;;   (off the `:effects-decomp` `:other-effects` slot) carries a key
+;;   beyond `:db` / `:fx`, surface it as a `:skipped` (not-run) effect so
+;;   the operator sees the dropped effect rather than wondering why
+;;   nothing fired. No framework change records these — they don't exist
+;;   on the trace stream because the runtime never touched them.
 
-(defn fx-rows
-  "Project the `:rf.fx/handled` / `:rf.fx/override-applied` /
-  `:rf.fx/skipped-on-platform` stream into per-handler rows. Each row
-  carries `:fx-id`, `:status` (`:ok / :overridden / :skipped /
-  :error / :rollback`), `:args`, and `:duration-ms`.
+(def ^:private fx-outcome-op->status
+  "Map a per-fx trace op → the fx-row `:status` (rf2-kt6js, lifted from
+  the inline `status-fn`). Closed set — a `:fx`-vector entry surfaces
+  exactly one of these ops per `re-frame.fx/handle-one-fx`."
+  {:rf.fx/handled                 :ok
+   :rf.fx/override-applied        :overridden
+   :rf.fx/skipped-on-platform     :skipped
+   :rf.error/fx-handler-exception :error
+   :rf.error/no-such-fx           :error})
 
-  Per rf2-8resu — the implicit `:db` commit is rendered as the FIRST
-  row of the FX step (the framework treats `:db` as an implicit fx
-  whose commit happens before any user-emitted fx fire). The row's
-  `:fx-id` is the keyword `:db`; the row's `:status` is `:ok` for a
-  successful commit, `:rollback` when an `:where :app-db` schema
-  violation rolled the cascade back. `:where :app-db` violations
-  attach to this row (per `attach-to-fx-db-row`); when the commit
-  rolls back, no user-emitted fx fire (per Spec 010), so the FX step
-  in a rollback case contains only the `:db` row.
-
-  Per rf2-uffov: user-fx rows additionally carry `:attributed-to`
-  (the machine action that emitted the fx) when the cascade was
-  driven by a machine handler — sourced from
-  `:rf.machine/action-ran`'s `:outcome :fx` slot (rf2-9c27r). The
-  attribution is best-effort: matched by `(= fx-id (first fx-tuple))`
-  against the action's emitted fx vector. When a fx-id is emitted by
-  multiple actions in the same cascade, the FIRST attribution wins
-  (cascade order). The synthesised `:db` row does not carry
-  `:attributed-to`."
+(defn- fx-attribution-map
+  "Build the `{fx-id → {:action-id … :phase …}}` per-action attribution
+  map for a cascade (rf2-uffov). Each entry maps a fx-id (first element
+  of a machine action's emitted fx tuple) to the FIRST action that
+  emitted it (cascade order). Empty map for non-machine cascades."
   [events]
-  (let [status-fn (fn [op-kw]
-                    (case op-kw
-                      :rf.fx/handled               :ok
-                      :rf.fx/override-applied      :overridden
-                      :rf.fx/skipped-on-platform   :skipped
-                      :rf.error/fx-handler-exception :error
-                      :rf.error/no-such-fx         :error
-                      :ok))
-        ;; rf2-8resu — `:db` row status. A `:where :app-db` schema
-        ;; violation with `:rollback? true` means the commit was
-        ;; rolled back; otherwise the commit succeeded.
-        db-rolled-back?
-        (some (fn [ev]
-                (and (= :rf.error/schema-validation-failure (op ev))
-                     (= :app-db (common/tag-of ev :where))
-                     (true? (common/tag-of ev :rollback?))))
-              events)
-        ;; rf2-8resu — detect that an implicit `:db` commit was
-        ;; attempted (or fired) in this cascade. Two signals, EITHER
-        ;; sufficient:
-        ;;   (a) An `:rf.fx/handled` trace WITHOUT `:rf.fx/id` — the
-        ;;       framework's emission for the implicit `:db` commit
-        ;;       path when the commit succeeds.
-        ;;   (b) A `:where :app-db` schema violation — implies a
-        ;;       `:db` commit WAS attempted (even if it rolled back +
-        ;;       the framework suppressed the `:rf.fx/handled` emit).
-        ;; Either signal means the operator's :db row should render.
-        db-commit?
-        (or db-rolled-back?
-            (some (fn [ev]
-                    (and (= :rf.fx/handled (op ev))
-                         (nil? (common/tag-of ev :rf.fx/id))))
-                  events))
-        ;; Per rf2-uffov — build the per-action fx attribution map
-        ;; once for this projection pass. Each entry maps a fx-id
-        ;; (the first element of the action's emitted fx tuple) to
-        ;; the FIRST machine action that emitted it. This is the
-        ;; per-action attribution surfaced on the FX section's rows.
-        attribution-map
-        (reduce
-          (fn [acc ev]
-            (if (and (= :rf.machine/action-ran (op ev))
-                     (map? (common/tag-of ev :outcome)))
-              (let [{:keys [fx]} (common/tag-of ev :outcome)
-                    action-id    (common/tag-of ev :action-id)
-                    phase        (common/tag-of ev :phase)]
-                (reduce
-                  (fn [a entry]
-                    (let [fx-id (cond
-                                  (and (vector? entry) (pos? (count entry)))
-                                  (first entry)
-                                  (keyword? entry) entry)]
-                      (if (and fx-id (not (contains? a fx-id)))
-                        (assoc a fx-id {:action-id action-id :phase phase})
-                        a)))
-                  acc
-                  (or fx [])))
-              acc))
-          {}
-          events)
-        ;; The user-emitted fx rows. Drop fx-id-less rows here (the
-        ;; implicit `:db` trace is surfaced via the synthesised :db
-        ;; row prepended below — rf2-8resu).
-        user-rows
-        (vec
-          (for [ev events
-                :let [o (op ev)
-                      fx-id (common/tag-of ev :rf.fx/id)]
-                :when (and (or (= "rf.fx" (op-ns ev))
-                               (contains? #{:rf.error/fx-handler-exception
-                                            :rf.error/no-such-fx} o))
-                           (some? fx-id))]
-            (cond-> {:fx-id       fx-id
-                     :status      (status-fn o)
-                     :args        (common/tag-of ev :rf.fx/args)
-                     ;; rf2-ipaza — substrate stamps the per-fx-handler
-                     ;; invocation duration as `:rf.fx/elapsed-ms` on
-                     ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
-                     ;; spec 009 §241). Legacy `:duration-ms` retained
-                     ;; as a fixture-compat fallback for older runtimes.
-                     :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
-                                      (common/tag-of ev :duration-ms))}
-              (get attribution-map fx-id)
-              (assoc :attributed-to (get attribution-map fx-id)))))]
-    ;; rf2-8resu — prepend synthesised :db row when the implicit
-    ;; commit fired. Status reflects rollback if any :where :app-db
-    ;; violation flagged the cascade as rolled back.
-    (if db-commit?
-      (vec (cons {:fx-id  :db
-                  :status (if db-rolled-back? :rollback :ok)}
-                 user-rows))
-      user-rows)))
+  (reduce
+    (fn [acc ev]
+      (if (and (= :rf.machine/action-ran (op ev))
+               (map? (common/tag-of ev :outcome)))
+        (let [{:keys [fx]} (common/tag-of ev :outcome)
+              action-id    (common/tag-of ev :action-id)
+              phase        (common/tag-of ev :phase)]
+          (reduce
+            (fn [a entry]
+              (let [fx-id (cond
+                            (and (vector? entry) (pos? (count entry)))
+                            (first entry)
+                            (keyword? entry) entry)]
+                (if (and fx-id (not (contains? a fx-id)))
+                  (assoc a fx-id {:action-id action-id :phase phase})
+                  a)))
+            acc
+            (or fx [])))
+        acc))
+    {}
+    events))
 
-(defn fx-step
-  "FX step row (one row aggregating every fx-handler invocation). nil
-  when no fx-handler events fired (the step is OMITTED — conditional).
-
-  Per rf2-uffov the step carries header counters splitting the rows
-  by outcome — `N fired (M succeeded, K threw)`. The view consumes
-  these directly so the header reads as 'at-a-glance correctness'."
+(defn db-rolled-back?
+  "True iff a `:where :app-db` schema-validation failure flagged the
+  cascade rolled back (rf2-kt6js; lifted from the rf2-8resu inline
+  signal). The `:db` sub-step paints ✗ in this case; the schema reason
+  attaches to the `:db` row via `attach-to-fx-db-row`."
   [events]
-  (let [rows (fx-rows events)]
-    (when (seq rows)
-      (let [by-status  (frequencies (map :status rows))
-            succeeded  (+ (get by-status :ok 0)
-                          (get by-status :overridden 0))
-            skipped    (get by-status :skipped 0)
-            threw      (get by-status :error 0)]
-        {:step      :fx
-         :badge     :FX
-         :rows      rows
-         :succeeded succeeded
-         :skipped   skipped
+  (boolean
+    (some (fn [ev]
+            (and (= :rf.error/schema-validation-failure (op ev))
+                 (= :app-db (common/tag-of ev :where))
+                 (true? (common/tag-of ev :rollback?))))
+          events)))
+
+(defn db-commit?
+  "True iff this cascade attempted a `:db` commit (rf2-kt6js). Two
+  signals, EITHER sufficient:
+
+    (a) A `:rf.event/db-changed` trace — the framework's `commit-db-
+        effect!` emits this for EVERY actual `:db` install (forward
+        commit), and a second one with `:rf.trace/phase :rollback` on a
+        schema-fail rollback. This is the canonical `:db`-commit signal,
+        present for a plain reg-event-db that returns only `:db`.
+    (b) A `:where :app-db` schema violation — implies a commit was
+        ATTEMPTED even on the abort path.
+
+  Pre-rf2-kt6js this keyed off a fx-id-less `:rf.fx/handled` that the
+  substrate never emits (`emit-handled!` always stamps `:rf.fx/id`), so
+  the `:db` row only ever appeared on rollback. Keying off `:rf.event/
+  db-changed` is what makes the SIDE EFFECTS step ALWAYS appear on a
+  bare `:db`."
+  [events]
+  (or (db-rolled-back? events)
+      (some? (find-op events :rf.event/db-changed))))
+
+(defn db-effect-row
+  "The `:db` sub-step row — the handler's app-db write rendered as a
+  single per-effect tick (rf2-kt6js). nil when no `:db` commit was
+  attempted (a reg-event-fx that returned no `:db`). `:status` is
+  `:error` on a schema-fail rollback (so `step-status` paints ✗ and the
+  attached `:where :app-db` violation carries the reason box), else
+  `:ok`.
+
+  Reconciles with rf2-4wywy: this is the HANDLER db write (the post-
+  handler / pre-flow `:db` effect). The FLOW step's `:db` diff (the
+  flow's own t1→t2 reshape) stays a SEPARATE step."
+  [events]
+  (when (db-commit? events)
+    {:fx-id  :db
+     :status (if (db-rolled-back? events) :error :ok)}))
+
+(defn fx-effect-rows
+  "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector
+  (rf2-kt6js, the user-emitted fx rows formerly carried inline in
+  `fx-rows`). Each row carries `:fx-id`, `:status` (`:ok / :overridden /
+  :skipped / :error` per `fx-outcome-op->status`), `:args`,
+  `:duration-ms`, and — for machine cascades — `:attributed-to`
+  (rf2-uffov · rf2-9c27r). Each row's `fx-id` carries the rf2-g1mfc
+  open-code chip at the view layer.
+
+  Reads the `:rf.fx/*` + fx-error trace ops directly (per-fx success is
+  ALREADY RECORDED — see the SIDE EFFECTS step settle-first note); the
+  implicit `:db` commit is NOT here (it has its own `db-effect-row`)."
+  [events]
+  (let [attribution-map (fx-attribution-map events)]
+    (vec
+      (for [ev events
+            :let [o     (op ev)
+                  fx-id (common/tag-of ev :rf.fx/id)]
+            :when (and (or (= "rf.fx" (op-ns ev))
+                           (contains? #{:rf.error/fx-handler-exception
+                                        :rf.error/no-such-fx} o))
+                       (some? fx-id))]
+        (cond-> {:fx-id       fx-id
+                 :status      (get fx-outcome-op->status o :ok)
+                 :args        (common/tag-of ev :rf.fx/args)
+                 ;; rf2-ipaza — substrate stamps the per-fx-handler
+                 ;; invocation duration as `:rf.fx/elapsed-ms` on
+                 ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
+                 ;; spec 009 §241). Legacy `:duration-ms` retained
+                 ;; as a fixture-compat fallback for older runtimes.
+                 :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
+          (get attribution-map fx-id)
+          (assoc :attributed-to (get attribution-map fx-id)))))))
+
+(defn other-effect-rows
+  "The `other` sub-step rows — one per TOP-LEVEL effect key on the
+  handler's returned map beyond `:db` / `:fx` (rf2-kt6js). Sourced from
+  `effects-decomp`'s `:other-effects` slot (the return map MINUS `:db`
+  and `:fx`).
+
+  In re-frame2 the effect map is the closed `{:db :fx}` shape and the
+  runtime (`re-frame.router/run-fx-effects!`) reads ONLY `:fx`; any
+  other top-level key is silently DROPPED — never executed, never
+  traced. So each `other` row is a DIAGNOSTIC: `:status :skipped`
+  (not-run) flags that the handler declared an effect the runtime
+  ignored — almost always a bug (the effect belongs inside `:fx`).
+
+  Empty vec when the handler returned the canonical `{:db :fx}` shape
+  (the overwhelming common case), or when no do-fx fired."
+  [events]
+  (let [other (:other-effects (effects-decomp events))]
+    (if (map? other)
+      (vec (for [[fx-id value] other]
+             {:fx-id  fx-id
+              :value  value
+              :status :skipped}))
+      [])))
+
+(def side-effects-sub-kind-order
+  "The fixed render order of SIDE EFFECTS sub-steps (rf2-kt6js):
+  `:db → :fx → other`. Drives both the step's `:sub-kinds` slot and the
+  view's `sub-rows-of` grouping."
+  [:db :fx :other])
+
+(defn sub-rows-of
+  "The flat `:rows` of a (post-attachment) SIDE EFFECTS `step` belonging
+  to sub-step `kind` (`:db / :fx / :other`), in row order (rf2-kt6js).
+  Each row carries a `:sub-kind` tag the view groups by. Reading the
+  flat slot — rather than a duplicated per-sub-step row vector — is what
+  lets the rf2-ahhgn / rf2-xgeag attachment machinery
+  (`attach-to-fx-db-row` / `attach-to-fx-row` / `attach-to-fx-error-row`,
+  all of which mutate the step's `:rows`) flow through to the rendered
+  sub-step unchanged."
+  [step kind]
+  (filterv #(= kind (:sub-kind %)) (:rows step)))
+
+(defn sub-step-status
+  "The per-effect `:status` rollup for a SIDE EFFECTS sub-step (rf2-kt6js)
+  — `:error` iff any of its (post-attachment) rows reads `:error` via the
+  shared `step-status`-style scan (its own `:status` is `:error` /
+  `:rollback`, OR it carries an attached `:errors` / `:violations`), else
+  `:ok`. Reuses the rf2-ahhgn closed `:ok` / `:error` shape so the view
+  paints a sub-step ✓/✗ off `badge/step-status-*` alongside the per-row
+  ticks. Defined over the flat-row group so attached errors/violations
+  (which land AFTER `side-effects-step` builds the step) lift the
+  sub-step to `:error`."
+  [rows]
+  (if (some (fn [r]
+              (or (contains? #{:error :rollback} (:status r))
+                  (seq (:errors r))
+                  (seq (:violations r))))
+            rows)
+    :error
+    :ok))
+
+(defn side-effects-step
+  "The SIDE EFFECTS step (rf2-kt6js) — replaces the pre-rf2-kt6js single
+  `:fx` step. Composed of up to three OPTIONAL sub-steps in fixed order
+  `:db → :fx → other`, each shown only when it has rows:
+
+    :db    — the handler's app-db write (`db-effect-row`).
+    :fx    — the `:fx`-vector entries (`fx-effect-rows`).
+    other  — top-level non-`:db`/`:fx` effects (`other-effect-rows`).
+
+  nil (step OMITTED) when NO side effect occurred — no `:db` commit, no
+  `:fx`, no other effect. Unlike the pre-rf2-kt6js `:fx` step, this
+  ALWAYS appears when a `:db` commit happened, INCLUDING a plain
+  reg-event-db with no `:fx` (`db-commit?` keys off `:rf.event/db-
+  changed`).
+
+  ## Single-source-of-truth row shape
+
+  The step carries ONE flat `:rows` slot (`:db` row first, then `:fx`
+  rows, then `other` rows), each row tagged with `:sub-kind`
+  (`:db / :fx / :other`); plus `:sub-kinds` — the ordered vec of the
+  kinds present. The view groups rows back into sub-steps via
+  `sub-rows-of` and computes each sub-step's ✓/✗ via `sub-step-status`.
+
+  This single-row-vector shape is load-bearing: the rf2-ahhgn /
+  rf2-xgeag attachment machinery (`attach-to-fx-db-row` /
+  `attach-to-fx-row` / `attach-to-fx-error-row`) runs in `project`
+  AFTER this builder and mutates the step's `:rows` to attach schema
+  violations + exceptions by matching `:failing-id` against a row's
+  `:fx-id`. Because the rendered sub-steps READ THE SAME `:rows`
+  (not a duplicated copy), those attachments surface inline on the
+  right sub-step row without the attachment code needing to know
+  sub-steps exist.
+
+  The header carries a threw-count chip (`:threw`) that surfaces only
+  when non-zero."
+  [events]
+  (let [db-row   (db-effect-row events)
+        fx-rows  (fx-effect-rows events)
+        other    (other-effect-rows events)
+        tag      (fn [kind rows] (mapv #(assoc % :sub-kind kind) rows))
+        all-rows (vec (concat (tag :db (when db-row [db-row]))
+                              (tag :fx fx-rows)
+                              (tag :other other)))]
+    (when (seq all-rows)
+      (let [present (filterv #(seq (sub-rows-of {:rows all-rows} %))
+                             side-effects-sub-kind-order)
+            threw   (count (filter #(= :error (:status %)) all-rows))]
+        {:step      :side-effects
+         :badge     :SIDE-EFFECTS
+         :sub-kinds present
+         :rows      all-rows
          :threw     threw}))))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
@@ -1521,8 +1669,9 @@
 ;;   ---------------|-----------------------------------------------
 ;;   :event         | DISPATCH (one step)
 ;;   :cofx          | COEFFECT step matching :failing-id against :id
-;;   :app-db        | FX step :db row (the implicit commit fx; rf2-8resu)
-;;   :fx-args       | FX step (row-level :fx-id match)
+;;   :app-db        | SIDE EFFECTS step :db row (the handler db write;
+;;                  | rf2-8resu / rf2-kt6js)
+;;   :fx-args       | SIDE EFFECTS step (row-level :fx-id match)
 ;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
 ;;   :hot-reload    | Issues panel only — no pipeline step (rf2-7gf7v)
 
@@ -1538,10 +1687,10 @@
   (update row :violations (fnil conj []) violation))
 
 (defn- attach-to-fx-row
-  "When `step` is the FX step + the violation's `:failing-id` matches
-  an `fx-id` in the step's `:rows`, attach the violation to that
-  row's `:violations` vec. Otherwise attach to the step-level
-  `:violations`. Returns the updated step."
+  "When `step` is the SIDE EFFECTS step + the violation's `:failing-id`
+  matches an `fx-id` in the step's flat `:rows` slot, attach the
+  violation to that row's `:violations` vec. Otherwise attach to the
+  step-level `:violations`. Returns the updated step."
   [step row]
   (let [fx-id (:failing-id row)]
     (if (some #(= fx-id (:fx-id %)) (:rows step))
@@ -1555,10 +1704,11 @@
       (attach-step-violation step row))))
 
 (defn- attach-to-fx-db-row
-  "Per rf2-8resu — attach a `:where :app-db` schema-violation to the
-  FX step's `:db` row (the implicit commit fx). Falls back to the
-  step-level `:violations` if the `:db` row isn't present (shouldn't
-  happen — an :app-db violation implies a `:db` commit attempted)."
+  "Per rf2-8resu / rf2-kt6js — attach a `:where :app-db` schema-violation
+  to the SIDE EFFECTS step's `:db` row (the handler's app-db write).
+  Falls back to the step-level `:violations` if the `:db` row isn't
+  present (shouldn't happen — an :app-db violation implies a `:db`
+  commit attempted)."
   [step row]
   (if (some #(= :db (:fx-id %)) (:rows step))
     (update step :rows
@@ -1629,18 +1779,19 @@
                 s)))
 
           :app-db
-          ;; rf2-8resu — :where :app-db violations attach to the FX
-          ;; step's :db row (the implicit commit fx). Was previously
-          ;; HANDLER step per rf2-xgeag, but the :db commit IS an fx
-          ;; (the framework's first fx); attaching there matches the
-          ;; semantic unit that failed.
-          (let [i (index-of #(= :fx (:step %)) s)]
+          ;; rf2-8resu / rf2-kt6js — :where :app-db violations attach to
+          ;; the SIDE EFFECTS step's :db row (the handler's app-db write).
+          ;; Was the FX step's :db row pre-rf2-kt6js; the :fx step became
+          ;; the SIDE EFFECTS step (`:db` / `:fx` / other sub-steps), and
+          ;; the :db row still carries the `:fx-id :db` marker so the
+          ;; row-level attach matches unchanged.
+          (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-db-row row)
               s))
 
           :fx-args
-          (let [i (index-of #(= :fx (:step %)) s)]
+          (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-row row)
               s))
@@ -1707,10 +1858,10 @@
     `:rf/interceptor-error` and the router emitted this op (the `:db`/`:fx`
     did NOT apply — db rolled back). Owns the HANDLER step.
   - `:rf.error/fx-handler-exception` — a registered fx-handler threw during
-    the post-commit fx walk. Owns the FX step (best-effort per-row match on
-    `:rf.fx/id`; falls back to step-level).
+    the post-commit fx walk. Owns the SIDE EFFECTS step (best-effort
+    per-row match on `:rf.fx/id`; falls back to step-level).
   - `:rf.error/no-such-fx` — the handler returned an fx-id with no
-    registered handler. Owns the FX step.
+    registered handler. Owns the SIDE EFFECTS step.
   - `:rf.error/flow-eval-exception` — a flow's compute fn threw (pre-commit
     abort). Owns the FLOW step (step-level; the throwing flow aborted the
     cascade)."
@@ -1727,8 +1878,8 @@
   for the headline button-15 (handler) + button-16 (interceptor) cases and
   acceptable for button-17 (the coeffect throw aborts the handler chain)."
   {:rf.error/handler-exception    :handler
-   :rf.error/fx-handler-exception :fx
-   :rf.error/no-such-fx           :fx
+   :rf.error/fx-handler-exception :side-effects
+   :rf.error/no-such-fx           :side-effects
    :rf.error/flow-eval-exception  :flow})
 
 (defn- exception-message
@@ -1792,10 +1943,10 @@
       (exception-row ev))))
 
 (defn- attach-to-fx-error-row
-  "Attach an fx exception row to the FX step's matching `:fx-id` row
-  (rf2-ahhgn). When `:failing-id` matches a row's `:fx-id`, attach there;
-  otherwise attach to the step-level `:errors`. Mirrors
-  `attach-to-fx-row` for schema violations."
+  "Attach an fx exception row to the SIDE EFFECTS step's matching
+  `:fx-id` row (rf2-ahhgn / rf2-kt6js). When `:failing-id` matches a
+  row's `:fx-id`, attach there; otherwise attach to the step-level
+  `:errors`. Mirrors `attach-to-fx-row` for schema violations."
   [step row]
   (let [fx-id (:failing-id row)]
     (if (some #(= fx-id (:fx-id %)) (:rows step))
@@ -1830,7 +1981,7 @@
           (if i
             (update s i
                     (fn [step]
-                      (-> (if (= :fx target-step)
+                      (-> (if (= :side-effects target-step)
                             (attach-to-fx-error-row step row)
                             (update step :errors (fnil conj []) row))
                           (assoc :status :error))))
@@ -1908,20 +2059,21 @@
 
 (defn mark-rolled-back-downstream
   "When the cascade carries an `:app-db` rollback violation, mark
-  every step downstream of the FX step (SUBSCRIPTIONS / VIEWS / any
-  standalone hot-reload tail) with `:rolled-back? true`. The view
-  paints those steps with mute chrome. Pure fn over the step vector.
+  every step downstream of the SIDE EFFECTS step (SUBSCRIPTIONS /
+  VIEWS / any standalone hot-reload tail) with `:rolled-back? true`.
+  The view paints those steps with mute chrome. Pure fn over the step
+  vector.
 
-  Per rf2-8resu: the FX step itself is NOT marked rolled-back — its
-  `:db` row (first row) carries the red ✗ + violation sub-block
-  that's the visible rollback indicator. Muting the entire FX step
-  would hide the very signal the operator needs. Other FX rows
-  don't exist in a rollback cascade (per Spec 010, user fx don't
-  fire when the commit rolls back) — so the FX step in a rollback
-  contains only the :db row, visibly red."
+  Per rf2-8resu / rf2-kt6js: the SIDE EFFECTS step itself is NOT marked
+  rolled-back — its `:db` row carries the red ✗ + violation sub-block
+  that's the visible rollback indicator. Muting the entire step would
+  hide the very signal the operator needs. User-fx rows don't exist in
+  a rollback cascade (per Spec 010, `:fx` doesn't walk when the commit
+  rolls back) — so the SIDE EFFECTS step in a rollback carries only the
+  :db sub-step, visibly red."
   [steps rows]
   (if (cascade-rolled-back? rows)
-    (let [fx-idx (index-of #(= :fx (:step %)) steps)]
+    (let [fx-idx (index-of #(= :side-effects (:step %)) steps)]
       (if (number? fx-idx)
         (vec
           (map-indexed (fn [i step]
@@ -2112,7 +2264,10 @@
                         into a single step group by the view layer)
       :handler        — always present; adapts to handler flavour
       :flow           — only when flows fired
-      :fx             — only when fx-handlers fired
+      :side-effects   — when ANY side effect occurred (a :db commit —
+                        including a bare reg-event-db — and/or :fx and/or
+                        other top-level effects); :db / :fx / other
+                        sub-steps each shown only when present (rf2-kt6js)
       :subscriptions  — only when subs recomputed
       :views          — only when views re-rendered
 
@@ -2224,7 +2379,7 @@
                           ;; sub-section's [diff][all] toggle which
                           ;; surfaces the same data IN-context.
                           flow-steps
-                          [(fx-step events)
+                          [(side-effects-step events)
                            ;; CHILD DISPATCHES step removed pair-debug
                            ;; 2026-05-26 — redundant with the FX step which
                            ;; already surfaces each `:dispatch` /
@@ -2277,7 +2432,8 @@
 ;;
 ;; Per-step `:duration-ms` is stamped at projection time (each step row
 ;; reads its substrate-emitted duration off the matching trace event:
-;; `:rf.event/run-end` for HANDLER, `:rf.fx/handled` for FX rows, etc).
+;; `:rf.event/run-end` for HANDLER, `:rf.fx/handled` for SIDE EFFECTS
+;; :fx rows, etc).
 ;; The cascade total + long-step predicate are pure aggregations over
 ;; the already-projected step rows so the view layer never re-walks the
 ;; trace stream for chrome decisions.
@@ -2539,10 +2695,12 @@
   - rf2-xgeag: SCHEMA-VIOLATIONS retired (violations attach to owning
     pipeline step inline); + SCHEMA-HOT-RELOAD for the hot-reload-only
     standalone tail step (drift has no owning cascade step).
+  - rf2-kt6js: FX → SIDE-EFFECTS (the single :fx step became the SIDE
+    EFFECTS step with :db / :fx / other sub-steps).
 
   The view's badge resolver bails to `:text-tertiary` on an unknown
   badge, so adding to this set is purely additive."
-  #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS
+  #{:DISPATCH :COEFFECT :HANDLER :FLOW :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS
     :SCHEMA-HOT-RELOAD :CHILD-DISPATCHES :APP-DB-DIFF})
 
 (defn valid-badge?

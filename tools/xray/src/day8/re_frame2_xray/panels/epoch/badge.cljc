@@ -29,7 +29,7 @@
 ;;     :COEFFECT      "#a855f7"                  ; light purple
 ;;     :HANDLER       "var(--devtools-active)"   ; blue
 ;;     :FLOW          "var(--devtools-active)"   ; blue
-;;     :FX            "rgb(154, 103, 0)"         ; orange/brown
+;;     :SIDE-EFFECTS  "rgb(154, 103, 0)"         ; orange/brown
 ;;     :SUBSCRIPTIONS "#ec4899"                  ; pink
 ;;     :VIEWS         "var(--devtools-success)"  ; green
 ;;
@@ -46,8 +46,9 @@
 ;;                              continue to read a violet-family hue.)
 ;;     var(--devtools-active) — `:accent` (the single blue identity)
 ;;     rgb(154,103,0)         — :orange (functional amber, perf-slow
-;;                              tier — close enough hue for the FX
-;;                              step's irreversible/post-commit signal)
+;;                              tier — close enough hue for the SIDE
+;;                              EFFECTS step's irreversible/post-commit
+;;                              signal; the pre-rf2-kt6js `:FX` step)
 ;;     #ec4899                — :magenta-pink (the SUBSCRIPTIONS mock
 ;;                              hue, added as a new palette token in
 ;;                              rf2-cgm4f so the SUBSCRIPTIONS pill is
@@ -89,7 +90,7 @@
    :COEFFECT          :magenta
    :HANDLER           :accent
    :FLOW              :accent
-   :FX                :orange
+   :SIDE-EFFECTS      :orange
    :SUBSCRIPTIONS     :magenta-pink
    :VIEWS             :success
    :SCHEMA-HOT-RELOAD :warning
@@ -103,7 +104,7 @@
    :COEFFECT          "COEFFECT"
    :HANDLER           "HANDLER"
    :FLOW              "FLOW"
-   :FX                ":fx"
+   :SIDE-EFFECTS      "SIDE EFFECTS"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
    :VIEWS             "VIEWS"
    :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"

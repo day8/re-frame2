@@ -28,11 +28,12 @@
   (testing "every badge label resolves to a non-blank string.
 
   Labels are uppercase keyword names by default (DISPATCH, COEFFECT,
-  HANDLER, ...). Labels that lead with `:` are EDN-key-style and
-  render through `badge-pill`'s mono-font, no-uppercase path
-  (post-rf2-xu5iv: `:FX` now renders as `\":fx\"` per commit
-  862288aca's badge-styling change). Both styles are valid; this
-  test just pins that every badge has a label."
+  HANDLER, SIDE EFFECTS, ...). Labels that lead with `:` are
+  EDN-key-style and render through `badge-pill`'s mono-font,
+  no-uppercase path. Both styles are valid; this test just pins that
+  every badge has a label. (rf2-kt6js: the pre-rf2-kt6js `:FX` badge —
+  which rendered as `\":fx\"` — became `:SIDE-EFFECTS` → `\"SIDE
+  EFFECTS\"`.)"
     (doseq [b proj/badge-set]
       (let [l (badge/label b)]
         (is (string? l)
@@ -49,7 +50,7 @@
   (testing "known badges resolve to specific token keys"
     (is (= :accent (badge/token-key :HANDLER)))
     (is (= :accent (badge/token-key :FLOW)))
-    (is (= :orange (badge/token-key :FX)))
+    (is (= :orange (badge/token-key :SIDE-EFFECTS)))
     (is (= :success (badge/token-key :VIEWS)))))
 
 (deftest coeffect-and-subscriptions-pull-distinct-tokens-test

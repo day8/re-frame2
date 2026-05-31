@@ -1198,14 +1198,15 @@ async function runHttpToggle(page) {
   // in this epoch" surface. Per rf2-639lc the panel default-focuses
   // the head (most-recent) cascade on mount — opening the tab after
   // the last `:go` dispatch surfaces its full numbered cascade.
-  // Assert the rendered panel carries an FX step (the `:rf.fx/handled`
-  // emits for the dispatched `:go` event are projected into the FX
-  // step of the cascade).
+  // Assert the rendered panel carries the SIDE EFFECTS step (rf2-kt6js;
+  // the `:rf.fx/handled` emits for the dispatched `:go` event are
+  // projected into the step's `:fx` sub-step). The step header reads
+  // "SIDE EFFECTS" and the `:fx` sub-header reads ":fx".
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
   const epochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
   if (!epochText.includes('fx') && !epochText.includes('effects')) {
-    failWithDetails('Epoch panel did not surface the FX step', {
+    failWithDetails('Epoch panel did not surface the SIDE EFFECTS step', {
       epochText: epochText.slice(0, 800),
     });
   }
