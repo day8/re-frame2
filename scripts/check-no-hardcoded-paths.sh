@@ -52,25 +52,16 @@ PERSONAL_NAMES="mike miket"
 # is a reviewed list, not a silent skip. Matched verbatim against the
 # repo-relative, forward-slashed paths `git grep` emits.
 #
-# TWO TIERS (see bead rf2-1ppe4 NOTES):
-#
-#   PERMANENT — redaction test fixtures. They MUST carry user-named paths
-#   to prove the scrubbing/redaction logic actually redacts them; replacing
-#   the names with placeholders would defeat the test.
+# PERMANENT — redaction test fixtures (see bead rf2-1ppe4 NOTES). They MUST
+# carry user-named paths to prove the scrubbing/redaction logic actually
+# redacts them; replacing the names with placeholders would defeat the test.
 #     - skills/shared/tests/fixtures/02-redaction.md
 #     - skills/shared/tests/retro_protocol_test.clj
 #     - tools/machines-viz/test/day8/re_frame2_machines_viz/share_cljs_test.cljs
 #
-#   TEMPORARY — local worktree-guard + git-hook tooling that encodes the
-#   maintainer's mayor/worktree layout (`C:/Users/miket/...`). Local
-#   workflow tooling, never shipped. Allowlisted ONLY until rf2-lalk6
-#   de-personalises the guard scripts; their entries become
-#   unnecessary-but-harmless then and may be removed.
-#     - CLAUDE.md
-#     - scripts/assert-worker-worktree.ps1
-#     - scripts/git-hooks/README.md
-#     - scripts/git-hooks/lib/check-mayor-commit-boundary.sh
-#     - scripts/git-hooks/pre-commit
+# (The local worktree-guard + git-hook tooling was de-personalised by
+# rf2-lalk6 — marker/env-derived root detection, no maintainer paths — so it
+# is no longer allowlisted and is gated like any other tracked file.)
 #
 # THIS script itself is allowlisted: it names `mike`/`miket` in the
 # PERSONAL_NAMES list and in this comment by necessity.
@@ -82,12 +73,6 @@ is_allowlisted() {
     skills/shared/tests/fixtures/02-redaction.md) return 0 ;;
     skills/shared/tests/retro_protocol_test.clj) return 0 ;;
     tools/machines-viz/test/day8/re_frame2_machines_viz/share_cljs_test.cljs) return 0 ;;
-    # TEMPORARY — local guard + hook tooling (de-personalised by rf2-lalk6 later).
-    CLAUDE.md) return 0 ;;
-    scripts/assert-worker-worktree.ps1) return 0 ;;
-    scripts/git-hooks/README.md) return 0 ;;
-    scripts/git-hooks/lib/check-mayor-commit-boundary.sh) return 0 ;;
-    scripts/git-hooks/pre-commit) return 0 ;;
     # This gate script (carries the PERSONAL_NAMES list + this comment).
     scripts/check-no-hardcoded-paths.sh) return 0 ;;
     *) return 1 ;;

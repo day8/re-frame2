@@ -23,7 +23,7 @@ worktrees. Activation is gated by a marker file at
 `<git-common-dir>/mayor-marker`:
 
 - **Mayor checkout** — `git rev-parse --git-dir` returns the common dir
-  (e.g. `C:/Users/miket/code/re-frame2/.git`). The marker lives there,
+  (e.g. `<mayor-checkout>/.git`). The marker lives there,
   so the hook activates and runs the commit-boundary check.
 
 - **Worker worktrees** — `git rev-parse --git-dir` returns a
@@ -39,8 +39,8 @@ worker has its own per-worktree git dir — exactly what we need.
 
 The bead (rf2-ydl2p) considered two options:
 
-- **A.** Hardcode the mayor path `C:\Users\miket\code\re-frame2`.
-  Simple; fragile if Mike clones elsewhere; OS-coupled.
+- **A.** Hardcode the mayor checkout's absolute path.
+  Simple; fragile if the repo is cloned elsewhere; OS-coupled.
 - **B.** Mark the mayor checkout with a sentinel file (this design).
   Portable, self-documenting, easy to disable (just delete the file).
 

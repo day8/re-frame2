@@ -4,8 +4,8 @@
 # Refuses commits in the MAYOR checkout that touch worker-tracked surfaces
 # (rf2-ydl2p). Mayor commits are allowed only for `.beads/issues.jsonl` and
 # the optional root `MEMORY.md`; any source/spec/test/doc/script change
-# must originate from a worker worktree under
-# `C:\Users\miket\code\re-frame2-worktrees\`.
+# must originate from a worker worktree under the worktree parent
+# directory (a sibling of the mayor checkout, e.g. `../re-frame2-worktrees/`).
 #
 # Activation is gated by a marker file (default `.git/mayor-marker`) that
 # the installer drops into the mayor checkout's git common dir at install

@@ -105,8 +105,8 @@ check_mayor_commit_boundary() {
   printf '    MEMORY.md            (operator-memory file, if present)\n' >&2
   printf '\n' >&2
   printf '  Any source / spec / test / doc / script change must originate\n' >&2
-  printf '  from a worker worktree under\n' >&2
-  printf '  C:\\Users\\miket\\code\\re-frame2-worktrees\\<descriptive>-<BEAD_ID>.\n' >&2
+  printf '  from a worker worktree under the worktree parent directory\n' >&2
+  printf '  (sibling of this checkout, e.g. ../re-frame2-worktrees/<descriptive>-<BEAD_ID>).\n' >&2
   printf '\n' >&2
   printf '  See docs/the-mayor-method/ for the worker dispatch contract.\n' >&2
   printf '\n' >&2

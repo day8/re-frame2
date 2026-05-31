@@ -1,6 +1,10 @@
 #requires -Version 5
-# scripts/install-git-hooks.ps1 — Windows-friendly mirror of
+# scripts/install-git-hooks.ps1 - Windows-friendly mirror of
 # scripts/install-git-hooks.sh.
+#
+# ASCII-only by design: Windows PowerShell 5.x reads -File scripts as the
+# system ANSI codepage, so a BOM-less UTF-8 multibyte char (e.g. an em-dash)
+# in a code position breaks tokenization. Keep this file pure ASCII.
 #
 # Same behaviour: idempotent install of the re-frame2-managed segments
 # of the repo's git hooks, plus the mayor-marker file that gates the
@@ -95,7 +99,7 @@ function Install-Hook {
         }
         $newContent = @(
             '#!/usr/bin/env sh',
-            "# $HookName — managed in part by scripts/install-git-hooks.ps1",
+            "# $HookName - managed in part by scripts/install-git-hooks.ps1",
             '',
             $sourceBlock
         ) -join "`n"
@@ -130,7 +134,7 @@ function Install-Hook {
         return
     }
 
-    # No marker yet — append.
+    # No marker yet - append.
     if ($Check) {
         Write-Error "install-git-hooks: $dst block missing"
     }
