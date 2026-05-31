@@ -92,6 +92,27 @@
     (is (false? (anchor/join-resolved?
                   {:join :any :resolved? false :children [{:done? true}]})))))
 
+(deftest join-resolved-fn-join-falls-back-to-all-done-no-failed
+  (testing "a `{:fn ...}` (or otherwise unknown) join condition is opaque
+            to the overlay, so with no host `:resolved?` it falls back to
+            the conservative default: resolved iff every child is done AND
+            none failed AND there is at least one child"
+    ;; all done, none failed → resolved
+    (is (true? (anchor/join-resolved?
+                 {:join {:fn :host-decides}
+                  :children [{:done? true} {:done? true}]})))
+    ;; a failed child blocks the default even when the rest are done
+    (is (false? (anchor/join-resolved?
+                  {:join {:fn :host-decides}
+                   :children [{:done? true} {:failed? true}]})))
+    ;; not every child done → not resolved
+    (is (false? (anchor/join-resolved?
+                  {:join {:fn :host-decides}
+                   :children [{:done? true} {:done? false}]})))
+    ;; no children at all → not resolved (the `pos? total` guard)
+    (is (false? (anchor/join-resolved?
+                  {:join {:fn :host-decides} :children []})))))
+
 ;; ---- join-summary -------------------------------------------------------
 
 (deftest join-summary-counts
@@ -101,6 +122,18 @@
   (is (= "2/2 done"
          (anchor/join-summary
            {:children [{:done? true} {:done? true}]}))))
+
+(deftest join-summary-omits-zero-segments
+  (testing "the `· failed` / `· cancelled` segments appear ONLY when their
+            count is positive — a failed-only join shows the failed
+            segment but no cancelled segment"
+    (is (= "1/2 done · 1 failed"
+           (anchor/join-summary
+             {:children [{:done? true} {:failed? true}]}))
+        "failed present, cancelled absent → only the failed segment")
+    (is (= "0/0 done"
+           (anchor/join-summary {:children []}))
+        "an empty children list still renders the leading done segment")))
 
 ;; ---- cascade-counts + summary -------------------------------------------
 
@@ -116,3 +149,21 @@
                     {:kind :abort} {:kind :abort} {:kind :abort}]})))
   (is (= "no cascade steps"
          (anchor/cascade-summary-line {:steps []}))))
+
+(deftest cascade-summary-line-cleanup-pluralisation
+  (testing "the cleanup segment pluralises on its own axis: `1 cleanup`
+            (singular) vs `2 cleanups` (plural). A cleanup-only cascade
+            still renders the cleanup segment (no destroyed / aborted)."
+    (is (= "1 cleanup"
+           (anchor/cascade-summary-line {:steps [{:kind :cleanup}]})))
+    (is (= "2 cleanups"
+           (anchor/cascade-summary-line
+             {:steps [{:kind :cleanup} {:kind :cleanup}]})))))
+
+(deftest cascade-summary-line-ignores-exit-only-steps
+  (testing "an `:exit` step contributes to no count bucket
+            (`cascade-counts` tracks only destroy / abort / cleanup), so a
+            cascade of only `:exit` steps reads `no cascade steps`"
+    (is (= "no cascade steps"
+           (anchor/cascade-summary-line
+             {:steps [{:kind :exit} {:kind :exit}]})))))

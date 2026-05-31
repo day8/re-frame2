@@ -402,6 +402,48 @@
                                :always? true
                                :guard   :ready?})))))
 
+;; ---- name-of (the public guard/action/entry/exit stringifier) ----------
+;;
+;; `name-of` is the single public helper `event-line` / `edge-label` /
+;; `chart.projection` all build on to render a guard / action / entry /
+;; exit value as a short label string. The keyword arms are exercised
+;; transitively by the edge-label tests above, but the two LOAD-BEARING
+;; branches — an inlined `(fn ...)` guard/action, which the docstring
+;; calls out as the `#object[Function]` failure mode it guards — had no
+;; direct pin. These deterministic cases nail each arm.
+
+(deftest name-of-nil-passes-through
+  (testing "nil → nil (cond-> arms upstream skip the segment entirely)"
+    (is (nil? (layout/name-of nil)))))
+
+(deftest name-of-plain-keyword
+  (testing "a plain keyword renders via `name` (no leading colon)"
+    (is (= "authed?" (layout/name-of :authed?)))))
+
+(deftest name-of-namespaced-keyword-preserves-ns
+  (testing "a namespaced keyword renders `ns/name` so a guard like
+            `:auth/admin?` reads in full instead of losing its namespace
+            (the bug the rf2-ee38b.21 collapse of the old `safe-name`
+            duplicate fixed)"
+    (is (= "auth/admin?" (layout/name-of :auth/admin?)))))
+
+(deftest name-of-named-fn-surfaces-name-meta
+  (testing "an inlined `(fn name ...)` / `(defn ...)` guard surfaces its
+            `:name` meta as the label — NOT `#object[Function]`"
+    (is (= "do-thing"
+           (layout/name-of (with-meta (fn [_] true) {:name 'do-thing}))))))
+
+(deftest name-of-anonymous-fn-falls-back-to-fn
+  (testing "an anonymous fn with no `:name` meta renders the literal
+            `\"fn\"` rather than an opaque `#object[Function]` dump"
+    (is (= "fn" (layout/name-of (fn [_] true))))))
+
+(deftest name-of-non-keyword-non-fn-uses-str
+  (testing "any other value falls through to `str` (a symbol, a number)"
+    (is (= "raw"   (layout/name-of "raw")))
+    (is (= "go!"   (layout/name-of 'go!)))
+    (is (= "42"    (layout/name-of 42)))))
+
 (deftest parse-definition-emits-event-label-with-guard-and-action
   (testing "parse-definition emits the full xstate label on every edge"
     (let [m {:initial :idle
