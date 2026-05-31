@@ -89,8 +89,30 @@
            id-meta  (:rf/id sym-meta)
            id       (or id-meta (keyword (str current-ns-sym) (str sym)))
            ;; Anything on the symbol other than :rf/id is treated as slot
-           ;; metadata (matches Clojure's defn idiom: ^{:doc "..."} sym).
-           slot-meta (dissoc sym-meta :rf/id)]
+           ;; metadata (matches Clojure's defn idiom: ^{:doc "..."} sym) —
+           ;; EXCEPT the reader's source-position keys.
+           ;;
+           ;; Per rf2-quir9: the CLJS analyzer's indexing reader stamps
+           ;; `:file` / `:line` / `:column` (+ `:source` / `:end-*`) onto
+           ;; the view SYMBOL, and that `:file` is CLASSPATH-RELATIVE
+           ;; (`"button_deck/core.cljs"`). If we let those ride into the
+           ;; registry slot they become `user-meta` in
+           ;; `source-coords/merge-coords`, where user keys WIN over the
+           ;; pending coords — so the relative reader `:file` clobbers the
+           ;; rf2-wvsxg-absolutised value bound into `*pending-coords*` (see
+           ;; `coord-form` below), shipping a relative `:file` into
+           ;; `(rf/handler-meta :view id)` and breaking Xray / IDE
+           ;; open-in-editor for views. The `reg-event-*` path never hits
+           ;; this because it splices args verbatim and contributes no
+           ;; symbol-position meta as user-meta — its public `:file` is the
+           ;; absolutised `*pending-coords*` value. Stripping the reader
+           ;; position keys here makes `*pending-coords*` the SINGLE source
+           ;; of source-coords for the view's public meta, symmetric with
+           ;; `reg-event-*`. `:source` is the reader's whole-form-text key
+           ;; (not a user slot) and is dropped alongside.
+           slot-meta (dissoc sym-meta
+                             :rf/id
+                             :file :line :column :source :end-line :end-column)]
        (when (nil? parsed)
          (throw (ex-info
                   ":rf.error/reg-view-bad-args"
