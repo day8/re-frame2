@@ -316,7 +316,42 @@
         (is (= :double             (:flow-id tags)))
         (is (= :inputs-value-equal (:reason tags))
             ":reason names the suppression cause (rf2-719e value-equal recompute suppression)")
-        (is (= :rf/default         (:frame tags)))))))
+        (is (= :rf/default         (:frame tags)))
+        ;; Per rf2-931pm: `:input-paths-unchanged` names every input
+        ;; db-path whose value was `=` to the previous run — the cascade
+        ;; DAG consumer reads this to render the "considered, no recompute"
+        ;; branch dimmed. For a value-equal skip every input is by
+        ;; definition unchanged, so the tag carries the FULL input-path
+        ;; vector (the flow's `:inputs`). Pin both the key's presence and
+        ;; its full-vector shape so a regression that drops it, ships a
+        ;; partial vector, or renames the key surfaces here.
+        (is (contains? tags :input-paths-unchanged)
+            ":input-paths-unchanged key present on every :rf.flow/skip trace")
+        (is (= [[:n]] (:input-paths-unchanged tags))
+            ":input-paths-unchanged carries the flow's full :inputs vector (every input unchanged on a value-equal skip)")))))
+
+(deftest flow-skip-input-paths-unchanged-names-all-inputs
+  (testing "Per rf2-931pm: a multi-input flow's :rf.flow/skip carries the
+            FULL :inputs vector under :input-paths-unchanged (not a single
+            path, not a truncated subset)"
+    ;; Two distinct input paths. On a value-equal rewrite the cascade-DAG
+    ;; consumer must learn BOTH inputs were considered-and-unchanged, so
+    ;; the tag must enumerate every declared input path.
+    (rf/reg-event-db :init       (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event-db :rewrite-wh (fn [db [_ w h]] (assoc db :w w :h h)))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]})
+    (rf/dispatch-sync [:init])
+    (reset! *captured* [])
+    ;; Rewrite both inputs with their SAME values → value-equal skip.
+    (rf/dispatch-sync [:rewrite-wh 3 4])
+    (let [skips (by-op :rf.flow/skip)]
+      (is (= 1 (count skips)) "the value-equal rewrite produced one skip")
+      (let [tags (:tags (first skips))]
+        (is (= [[:w] [:h]] (:input-paths-unchanged tags))
+            ":input-paths-unchanged enumerates BOTH declared input paths in order")))))
 
 (deftest flow-skip-then-computed-on-real-change
   (testing "skip fires on equal rewrite; subsequent real change fires :rf.flow/computed"
