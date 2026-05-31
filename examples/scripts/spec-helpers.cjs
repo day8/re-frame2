@@ -1,9 +1,16 @@
 /*
- * Shared assertion helpers for the example Playwright specs.
+ * Shared assertion helpers for the repo's hand-rolled Playwright specs.
  *
- * Specs use a hand-rolled runner (run-examples-tests.cjs) that drives
- * raw `playwright` (not `@playwright/test`), so we don't get the
- * `expect()` matcher API for free. These helpers fill the gap with
+ * `examples/` is test-free, so there are no example specs anymore; the
+ * consumers are the per-adapter testbed smokes
+ * (`implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs`) plus the
+ * Story browser scenarios (`tools/story/test/`) and the Xray feature-matrix
+ * scenarios (`tools/xray/testbeds/feature_matrix/scenarios.cjs`). They keep
+ * requiring this module across-tree because the helpers are substrate- and
+ * surface-agnostic; the file stays here as their single shared home.
+ *
+ * Those specs drive raw `playwright` (not `@playwright/test`), so we don't
+ * get the `expect()` matcher API for free. These helpers fill the gap with
  * just the matchers we need: text equality, attribute checks, value
  * checks. Each polls until success or timeout.
  */

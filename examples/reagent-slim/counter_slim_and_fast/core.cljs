@@ -70,6 +70,12 @@
 
 ;; -- Mount -------------------------------------------------------------------
 
+;; Eager `(defonce root (create-root ..))` — intentionally mirrors its
+;; behavioural twin `examples/reagent/counter`, not the lazy
+;; `(defonce react-root (atom nil))` shape the larger examples use. This
+;; is a release / bundle-isolation fixture (never co-loaded with the
+;; browser-test build), so the eager form is the clearer, smaller shape
+;; and the divergence is deliberate.
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
