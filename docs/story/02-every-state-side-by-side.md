@@ -12,7 +12,7 @@ So let me introduce the guest star of this tutorial: **nine_states**. It is a to
 
 Nothing-fetched-yet. Mid-fetch. Fetched-but-empty. Exactly one item. A handful. More than the threshold (search + truncation kick in). A rejected form submission. An accepted one. The archived, read-only end state. Nine faces of one view, all visible at once, all real. That grid is the single most useful thing a workshop does, and it's what this chapter builds toward.
 
-<!-- SCREENSHOT S2: the nine_states :variants-grid — the wall of nine cells, each a distinct UI state of the todos list. -->
+![The nine_states variants-grid — the wall of nine cells, each a distinct UI state of the todos list.](../images/story/s02-nine-states-wall.png)
 
 ## Workspaces — many variants on one page
 
@@ -77,7 +77,7 @@ There is one knob worth knowing about and not belabouring: `:isolation`, which d
 
 ## Controls that derived themselves
 
-<!-- SCREENSHOT S3: the controls panel for the counter — a schema-derived slider for the bounded :int and a text input for :label, with no per-story :argtypes authored. -->
+![The controls panel for the counter — schema-derived arg inputs (a text input for :label and :locale) with no per-story :argtypes authored.](../images/story/s03-controls-panel.png)
 
 This is the single largest authoring win Story has over Storybook, so let me set it up as a contrast.
 

@@ -78,7 +78,7 @@ There's a smaller honesty check too. If you pin a value the real derivation coul
 
 ## Reading the badge
 
-<!-- SCREENSHOT S4 (net-new thesis shot): the fidelity badge on a selected variant, showing the real-setup / db-seed / sub-overrides chip distinct from the adjacent world-inputs and runner-requirements chip groups. NOTE: the fidelity-badge surface is a target built over the current args/schema surface (018 §6, §12.6); confirm it renders before leaning this shot on it. -->
+![The fidelity badge on a selected variant — the real-setup / db-seed / sub-overrides chips, distinct from the adjacent world-inputs and runner-requirements chip groups.](../images/story/s04-fidelity-badge.png)
 
 Every selected variant (and every `variant × mode` cell) carries a compact **fidelity badge**: real-setup, db-seed, or sub-overrides. A few precision points the spec is firm about:
 

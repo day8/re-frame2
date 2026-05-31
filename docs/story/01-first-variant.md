@@ -39,7 +39,7 @@ Here is a complete, working story with one variant. This is drawn verbatim from 
 
 Route `#/stories` to the shell (you did this in the [install step](index.md#adding-story-to-an-existing-app)), open the page, and `:story.counter/empty` is sitting in the sidebar. Click it. The canvas paints a counter at zero.
 
-<!-- SCREENSHOT S1: the shell immediately after the variant loads — sidebar tree with /empty selected, canvas painting the counter, mode-tab strip above the canvas. -->
+![The shell immediately after the variant loads — sidebar tree with /empty selected, canvas painting the counter, mode-tab strip above the canvas.](../images/story/s01-first-variant.png)
 
 That's the first face. Now let's understand what each call did.
 

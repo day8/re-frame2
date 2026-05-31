@@ -27,7 +27,7 @@ Drive the increment button three times against the counter and you get back some
          [:dispatch-sync [:rf.assert/dispatched? [:counter/inc]]]]
 ```
 
-<!-- SCREENSHOT S5: the recorder toolbar (record/stop) on the canvas, and the export modal showing the emitted EDN :script body. -->
+![The recorder toolbar (record/stop) on the canvas, and the export modal showing the emitted EDN :script body.](../images/story/s05-recorder-export.png)
 
 !!! note "One scoped spelling note"
 

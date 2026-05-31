@@ -27,7 +27,7 @@ One selected artifact, lowered through one plan/result/evidence path, wearing si
 
 Hold onto the six-faces picture. The chapters earn each face one at a time, and the last chapter walks back through all six and points at where each was won.
 
-<!-- SCREENSHOT S0: the Story shell — sidebar tree, canvas with a variant rendering, right-hand inspector, mode-tab strip. The "shell overview" establishing shot. -->
+![The Story shell — sidebar tree, canvas with a variant rendering, right-hand inspector, mode-tab strip. The shell overview establishing shot.](../images/story/s00-shell-overview.png)
 
 ## Why a separate tool, and not an MDX bridge to upstream Storybook
 

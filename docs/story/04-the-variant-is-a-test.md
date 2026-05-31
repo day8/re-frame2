@@ -61,7 +61,7 @@ Here's a variant being run as an ordinary `cljs.test` unit test. This is grounde
 
 That test runs **headless**, under `npm run test:cljs`. No browser, no Playwright. This matters more than it looks: in re-frame2, the default home for a Story/behaviour test is a fast CLJS unit test, not a browser test. The migration that moved this project's own Story coverage onto unit tests pulled the overwhelming majority of assertions out of Playwright and into headless CLJS — because the variant's behaviour is `app-db` and effects, and you can prove `app-db` and effects without a DOM. Reach for the browser only when the assertion genuinely needs a DOM (a click, a visibility check), which is the subject of [chapter 5](05-recorder-and-cannot-run.md).
 
-<!-- SCREENSHOT S6: Test mode for a variant — the run-result presentation (pass/fail per assertion) and the green sidebar dot, showing the same artifact wearing the test face. -->
+![Test mode for a variant — the run-result presentation (pass/fail per assertion) and the green sidebar dot, showing the same artifact wearing the test face.](../images/story/s06-test-mode-rows.png)
 
 
 ## The four-bucket plan (a peek under the hood)
