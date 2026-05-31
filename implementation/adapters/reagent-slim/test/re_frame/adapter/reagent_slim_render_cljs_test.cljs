@@ -57,9 +57,9 @@
       ;; lowest arities are exercised by the slim adapter today, but
       ;; covering the published arities keeps the stubs robust.
       (with-redefs [rdc/create-root  (fn
-                                       ([mp]   (swap! calls conj [:create-root mp])
+                                       ([mount-point]   (swap! calls conj [:create-root mount-point])
                                                fake-root)
-                                       ([mp _] (swap! calls conj [:create-root mp])
+                                       ([mount-point _] (swap! calls conj [:create-root mount-point])
                                                fake-root))
                     rdc/render       (fn [root tree]
                                        (swap! calls conj [:render root tree])
@@ -122,11 +122,11 @@
                                        (swap! calls conj [:render])
                                        (throw (ex-info "render must not be called on hydrate path" {})))
                     rdc/hydrate-root (fn
-                                       ([mp tree]
-                                        (swap! calls conj [:hydrate-root mp tree])
+                                       ([mount-point tree]
+                                        (swap! calls conj [:hydrate-root mount-point tree])
                                         fake-root)
-                                       ([mp tree _]
-                                        (swap! calls conj [:hydrate-root mp tree])
+                                       ([mount-point tree _]
+                                        (swap! calls conj [:hydrate-root mount-point tree])
                                         fake-root))
                     rdc/unmount      (fn [arg]
                                        (swap! calls conj [:unmount arg])

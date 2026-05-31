@@ -36,9 +36,9 @@
      ;; `with-redefs` rebind). Runtime behaviour is identical.
      :ratom-ops         {:r/atom              (fn [v] (r/atom v))
                          :ratom/make-reaction (fn [thunk] (ratom/make-reaction thunk))
-                         :rdc/create-root     (fn [mp] (rdc/create-root mp))
+                         :rdc/create-root     (fn [mount-point] (rdc/create-root mount-point))
                          :rdc/render          (fn [root tree] (rdc/render root tree))
-                         :rdc/hydrate-root    (fn [mp tree] (rdc/hydrate-root mp tree))
+                         :rdc/hydrate-root    (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
                          :rdc/unmount         (fn [root] (rdc/unmount root))}}))
 
 (def set-hiccup-emitter!
