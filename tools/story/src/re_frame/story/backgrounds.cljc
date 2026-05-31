@@ -40,7 +40,8 @@
   alpha-pattern background without an SVG asset."
   (:refer-clojure :exclude [resolve])
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.story.local-storage :refer [safe-local-storage]]))
 
 ;; ---- preset table --------------------------------------------------------
 
@@ -152,12 +153,6 @@
     :else                   nil))
 
 ;; ---- CLJS-only: localStorage --------------------------------------------
-
-#?(:cljs
-   (defn- safe-local-storage []
-     (when (and (exists? js/window) (.-localStorage js/window))
-       (try (.-localStorage js/window)
-            (catch :default _ nil)))))
 
 (defn load-from-storage
   "Read the persisted background selection from localStorage. Returns

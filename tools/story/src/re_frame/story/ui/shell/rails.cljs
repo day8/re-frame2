@@ -2,6 +2,7 @@
   "Resizable Story shell rails. Keeps persistence, clamping, and the
   accessible splitter widget out of the top-level shell composer."
   (:require [reagent.core :as r]
+            [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.state :as state]))
 
@@ -15,11 +16,6 @@
   {:left       {:min 180 :max 420}
    :right      {:min 240 :max 520}
    :canvas-min 360})
-
-(defn- safe-local-storage []
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (try (.-localStorage js/window)
-         (catch :default _ nil))))
 
 (defn- viewport-width []
   (if (and (exists? js/window) (.-innerWidth js/window))

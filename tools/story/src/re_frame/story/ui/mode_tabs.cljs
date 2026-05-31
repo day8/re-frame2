@@ -39,29 +39,23 @@
   `#b0b0b0` inactive foreground, white active foreground, `#1e1e1e`
   active background. Reuses the shape of the tab-bar/tab/tab-active
   styles already defined in `re-frame.story.ui.shell`."
-  (:require [re-frame.story.ui.state :as state]
+  (:require [re-frame.story.local-storage :refer [safe-local-storage]]
+            [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage persistence -------------------------------------------
 ;;
 ;; Per-variant — the key embeds the variant id so two variants on the
-;; same page can hold distinct mode-tab selections. Mirrors the help
-;; overlay's `safe-local-storage` pattern (defensive against private-mode
-;; browsers, file://, embedded contexts) so a localStorage failure
-;; degrades silently to in-memory-only state.
+;; same page can hold distinct mode-tab selections. Uses the shared
+;; `re-frame.story.local-storage/safe-local-storage` guard (defensive
+;; against private-mode browsers, file://, embedded contexts) so a
+;; localStorage failure degrades silently to in-memory-only state.
 
 (def ^:const ls-key-prefix
   "Prefix for the localStorage key used to persist the active mode-tab
   per variant. The full key is `<prefix><variant-id-as-string>`."
   "re-frame.story/active-mode-tab/")
-
-(defn- safe-local-storage
-  "Return `js/window.localStorage` if available, otherwise nil."
-  []
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (try (.-localStorage js/window)
-         (catch :default _ nil))))
 
 (defn- ls-key
   "Build the localStorage key for `variant-id`. Variant ids are

@@ -42,7 +42,8 @@
   CLJS surfaces guard against missing `js/window.localStorage` (private
   mode / file:// / Node test runner) by returning nil / no-op."
   (:refer-clojure :exclude [resolve])
-  (:require [clojure.edn :as edn]))
+  (:require [clojure.edn :as edn]
+            [re-frame.story.local-storage :refer [safe-local-storage]]))
 
 ;; ---- preset table --------------------------------------------------------
 
@@ -156,12 +157,6 @@
      :overflow     "auto"}))
 
 ;; ---- CLJS-only: localStorage --------------------------------------------
-
-#?(:cljs
-   (defn- safe-local-storage []
-     (when (and (exists? js/window) (.-localStorage js/window))
-       (try (.-localStorage js/window)
-            (catch :default _ nil)))))
 
 (defn load-from-storage
   "Read the persisted viewport selection from localStorage. Returns

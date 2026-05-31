@@ -35,6 +35,7 @@
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
             [re-frame.story.config :as config]
+            [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]
             [re-frame.story.theme.depth :as depth]
@@ -47,17 +48,6 @@
   overlay. Bump the trailing version when the help content materially
   changes so returning users see the refreshed copy once."
   "re-frame.story/seen-help-v1")
-
-(defn- safe-local-storage
-  "Return js/window.localStorage if available, otherwise nil.
-
-  Browsers can disable localStorage (private-mode quirks, embedded
-  contexts, file:// in some configs) so every access guards. Returns
-  nil rather than throwing — callers degrade to 'always-show'."
-  []
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (try (.-localStorage js/window)
-         (catch :default _ nil))))
 
 (defn seen?
   "Has the user dismissed the help overlay before? Returns false when

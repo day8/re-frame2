@@ -57,6 +57,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.config :as config]
+            [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.ui.state :as state]))
 
 ;; ---- localStorage persistence -------------------------------------------
@@ -65,11 +66,6 @@
   "localStorage key for the chrome-visibility map. Stored as a
   `pr-str`-encoded map of the boolean slots; `read-string` on load."
   "re-frame.story/chrome-visibility")
-
-(defn- safe-local-storage []
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (try (.-localStorage js/window)
-         (catch :default _ nil))))
 
 (defn load-from-storage
   "Read the persisted chrome-visibility map. Returns a map merged over
