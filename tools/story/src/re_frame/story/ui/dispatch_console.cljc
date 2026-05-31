@@ -70,6 +70,7 @@
             #?(:cljs [reagent.core            :as r])
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
+            #?(:cljs [re-frame.story.local-storage :refer [safe-local-storage]])
             #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -254,12 +255,6 @@
    (defn- ls-key
      [variant-id]
      (str ls-key-prefix (pr-str variant-id))))
-
-#?(:cljs
-   (defn- safe-local-storage
-     []
-     (when (and (exists? js/window) (.-localStorage js/window))
-       (try (.-localStorage js/window) (catch :default _ nil)))))
 
 #?(:cljs
    (defn load-history!

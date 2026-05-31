@@ -48,6 +48,7 @@
   a `reg-mode` rename) are silently dropped at hydrate time."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
+            [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.element-inspector :as element-inspector]
@@ -66,15 +67,6 @@
   "Chrome-wide localStorage key for the active-modes vector. Spec/010
   §Persistence — chrome-wide localStorage."
   "re-frame.story/active-modes")
-
-(defn- safe-local-storage
-  "Return `js/window.localStorage` if available, otherwise nil. Mirrors
-  the defensive pattern in `mode-tabs` — private mode / file:// /
-  embedded contexts can throw on touch."
-  []
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (try (.-localStorage js/window)
-         (catch :default _ nil))))
 
 (defn load-modes-from-storage
   "Read the persisted active-modes vector from localStorage. Returns
