@@ -569,9 +569,12 @@
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-db :event-id :counter/inc
                       :db-diff [[[:counter :value] 5 6 :modified]]
+                      :db-post-handler {:counter {:value 6}} :db-write? true
                       :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
-        (is (some? slot))))
+        (is (some? slot))
+        (is (= "true" (-> slot second :data-rf-xray-db-write))
+            "a handler that wrote :db reports db-write? true")))
     (testing "reg-event-fx with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
@@ -582,6 +585,42 @@
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
             "even reg-event-fx that returned no :db gets the sub-section")))))
+
+(deftest handler-db-no-write-renders-placeholder-not-phantom-test
+  (testing "rf2-wnvid — PHANTOM-`:db` fix. A handler that wrote NO :db
+            (`:db-write?` false — button-15: it threw before returning)
+            renders the `— no :db` placeholder, NOT the full post-cascade
+            app-db (the pre-rf2-wnvid `:db-after` fallback)."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (testing "handler threw → 'handler threw' wording"
+      (let [tree (rf/with-frame :rf/xray
+                   (view/render-handler-step
+                     {:step :handler :badge :HANDLER :step-number 3
+                      :flavour :reg-event-db :event-id :button-deck/throw-handler
+                      :db-diff [] :db-write? false :fx [] :machine nil
+                      :status :error
+                      :errors [{:operation :rf.error/handler-exception
+                                :message "boom"}]}))]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
+            "the no-write placeholder renders")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-full-with-diff"))
+            "NO phantom full-app-db block")
+        (is (string/includes?
+              (text-of tree "rf-xray-epoch-handler-db-no-write")
+              "handler threw")
+            "placeholder wording names the throw")))
+    (testing "clean handler returning no :db → 'returned no :db' wording"
+      (let [tree (rf/with-frame :rf/xray
+                   (view/render-handler-step
+                     {:step :handler :badge :HANDLER :step-number 3
+                      :flavour :reg-event-fx :event-id :navigate
+                      :db-diff [] :db-write? false
+                      :fx [{:fx-id :navigate :value "/x"}] :machine nil}))]
+        (is (string/includes?
+              (text-of tree "rf-xray-epoch-handler-db-no-write")
+              "returned no :db")
+            "a clean no-:db handler reads 'returned no :db'")))))
 
 (deftest handler-db-diff-suppressed-for-machine-handlers-test
   (testing "rf2-93436 — for machine handlers the standalone `:db diff`
@@ -2289,32 +2328,80 @@
 
 ;; ---- rf2-ahhgn — inline exception card + per-step ✓/✗ + outcome banner ---
 
-(deftest error-block-renders-message-and-coord-test
-  (testing "rf2-ahhgn — `error-block` renders the red exception card with
-            the title, human headline, the verbatim message, and a
-            jump-to-source link reading `file:line`"
+(deftest error-block-renders-message-and-title-test
+  (testing "rf2-ahhgn / rf2-wnvid — `error-block` renders the red card with
+            the 'Exception Thrown' title, the op-derived human headline,
+            and the verbatim message. The redundant jump-to-source link is
+            DROPPED (rf2-wnvid — the HANDLER verb is the canonical link)."
     (let [row  {:operation :rf.error/handler-exception
                 :message "button-deck / handler (intentional — exercises the handler error surface)"
-                :coord {:file "button_deck/core.cljs" :line 322}
                 :failing-id :button-deck/throw-handler
-                :recovery :no-recovery}
+                :recovery :no-recovery
+                ;; a committed-then-rolled-back db → the chip is legitimate
+                :db-committed? true}
           tree (view/error-block :handler 0 row)
           base "rf-xray-epoch-error-handler-0"]
       (is (some? (th/find-by-testid tree base))
           "the exception card wrapper renders")
-      (is (string/includes? (text-of tree (str base "-title")) "Exception")
-          "title reads 'Exception'")
+      (is (string/includes? (text-of tree (str base "-title")) "Exception Thrown")
+          "title reads 'Exception Thrown'")
       (is (string/includes? (text-of tree (str base "-recovery")) "Rolled back")
-          ":no-recovery → 'Rolled back' chip")
+          ":no-recovery + db-committed? → 'Rolled back' chip")
       (is (string/includes? (text-of tree (str base "-headline"))
                             "event handler threw")
           "headline names the handler failure")
       (is (string/includes? (text-of tree (str base "-message"))
                             "intentional")
           "the verbatim ex-info message renders")
-      (is (string/includes? (text-of tree (str base "-source"))
-                            "button_deck/core.cljs:322")
-          "the jump-to-source link reads file:line"))))
+      (is (nil? (th/find-by-testid tree (str base "-source")))
+          "rf2-wnvid — the redundant jump-to-source link is dropped"))))
+
+(deftest error-block-handler-headline-ignores-phase-test
+  (testing "rf2-wnvid — a `:phase :before` handler-exception (button-15's
+            live shape — the handler runs as the terminal :before
+            interceptor) reads 'The event handler threw.', NOT the
+            pre-rf2-wnvid 'An interceptor / coeffect threw (:before).'"
+    (let [tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception
+                  :message "boom" :phase :before
+                  :failing-id :button-deck/throw-handler})
+          head (text-of tree "rf-xray-epoch-error-handler-0-headline")]
+      (is (string/includes? head "event handler threw"))
+      (is (not (string/includes? head "interceptor"))
+          "no spurious interceptor/coeffect attribution from :phase"))))
+
+(deftest error-block-no-spurious-rolled-back-test
+  (testing "rf2-wnvid — when NO :db committed (`db-committed?` false /
+            absent — button-15: the handler threw before producing any
+            :db), the 'Rolled back' chip is OMITTED even though the
+            substrate stamped :recovery :no-recovery (nothing to revert)."
+    (let [tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception
+                  :message "boom"
+                  :recovery :no-recovery
+                  :db-committed? false})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-error-handler-0-recovery"))
+          "no commit → no spurious 'Rolled back' chip"))))
+
+(deftest error-block-collapsible-details-test
+  (testing "rf2-wnvid — when the exception carries a stack / ex-data, the
+            card renders a collapsed `<details>` disclosure rather than an
+            always-expanded block."
+    (let [ex   (ex-info "boom" {:surface :handler-exception})
+          tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception
+                  :message "boom"
+                  :exception ex})
+          base "rf-xray-epoch-error-handler-0"]
+      (is (some? (th/find-by-testid tree (str base "-details")))
+          "the collapsible details disclosure renders")
+      (is (some? (th/find-by-testid tree (str base "-ex-data")))
+          "ex-data is surfaced inside the disclosure")))
+  (testing "rf2-wnvid — no exception object → no details disclosure"
+    (let [tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception :message "boom"})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-error-handler-0-details"))
+          "nothing to disclose → the details element is omitted"))))
 
 (deftest error-block-fx-headline-test
   (testing "rf2-ahhgn — an fx-handler exception names the failing fx-id"
@@ -2325,16 +2412,6 @@
       (is (string/includes? (text-of tree "rf-xray-epoch-error-fx-0-headline")
                             ":http/post")
           "headline names the failing effect"))))
-
-(deftest error-block-degrades-when-coord-absent-test
-  (testing "rf2-ahhgn — no coord → the source link reads a muted
-            'source unavailable' fallback rather than a dead link"
-    (let [tree (view/error-block :handler 0
-                 {:operation :rf.error/handler-exception
-                  :message "boom" :coord nil})]
-      (is (string/includes?
-            (text-of tree "rf-xray-epoch-error-handler-0-source")
-            "source unavailable")))))
 
 (deftest error-blocks-nil-safe-test
   (testing "rf2-ahhgn — `error-blocks` renders nothing for empty / nil"
@@ -2402,13 +2479,7 @@
             (text-of tree "rf-xray-epoch-error-fx-row-1-0-message")
             "fx threw on purpose")))))
 
-(deftest outcome-banner-renders-on-error-test
-  (testing "rf2-ahhgn — the outcome banner renders for `:error` and is
-            absent for `:ok` (silence is the success signal)"
-    (is (some? (th/find-by-testid (view/outcome-banner :error)
-                                  "rf-xray-epoch-outcome-banner"))
-        "an errored cascade paints the red banner")
-    (is (nil? (view/outcome-banner :ok))
-        "a clean cascade paints no banner")
-    (is (nil? (view/outcome-banner nil))
-        "a nil outcome paints no banner")))
+;; `outcome-banner-renders-on-error-test` retired (rf2-wnvid) — the
+;; top-of-pipeline "This event failed" banner is gone; the failure
+;; surfaces inline (the failing step's ✗ glyph + the 'Exception Thrown'
+;; card). The panel root still stamps `data-rf-xray-outcome`.

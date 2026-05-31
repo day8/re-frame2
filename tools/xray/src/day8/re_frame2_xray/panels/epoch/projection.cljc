@@ -924,6 +924,31 @@
       (no-db-effect-with-flow? events) db-before
       :else                            nil)))
 
+(defn handler-wrote-db?
+  "True iff the handler actually wrote a `:db` effect this cascade
+  (rf2-wnvid). The discriminator off the trace stream:
+
+  1. t1 (`:rf.event/db-pending`) fired → the handler returned a `:db`
+     effect (the canonical post-rf2-ta0y7 signal).
+  2. No t1 (pre-rf2-ta0y7 runtime, or no `:rf.event/db-pending` on the
+     stream) but a `:rf.event/db-changed` commit fired → the runtime
+     installed a `:db` from the handler.
+
+  FALSE when the handler returned NO `:db` — INCLUDING the
+  handler-threw case (button-15 `:button-deck/throw-handler`: the
+  handler threw before returning, db-before == db-after, no t1, no
+  db-changed). The HANDLER step's `:db` sub-section keys off this to
+  show 'no :db (handler threw / returned no :db)' rather than falling
+  back to the full post-cascade app-db — the rf2-wnvid PHANTOM-`:db`
+  fix. Distinct from `effective-post-handler-db`, which resolves the
+  db VALUE (and returns db-before in the no-db-with-flow edge case);
+  this predicate answers the orthogonal 'did the handler write a `:db`
+  AT ALL' question the view needs to choose between a diff and the
+  no-write placeholder."
+  [events]
+  (or (some? (db-pending-t1 events))
+      (some? (find-op events :rf.event/db-changed))))
+
 (defn handler-row
   "Build the step-N HANDLER row. ALWAYS present (every epoch has a
   dispatched event therefore a handler). Adapts to the trace stream's
@@ -996,6 +1021,13 @@
                      ;; leaves the slot nil and the view falls back to the
                      ;; record's `:db-after`.
                      :db-post-handler db-post-handler
+                     ;; rf2-wnvid — did the handler write a `:db` effect
+                     ;; AT ALL this cascade? FALSE when it threw before
+                     ;; returning (button-15) or returned only `:fx`. The
+                     ;; view's `:db` sub-section keys off this to render the
+                     ;; no-write placeholder rather than the spurious full
+                     ;; post-cascade app-db (PHANTOM-`:db` fix).
+                     :db-write?      (handler-wrote-db? events)
                      :db-diff        (db-diff-paths db-before db-handler)
                      ;; :fx — legacy flat-entries slot (kept for non-view
                      ;; consumers; tests + pre-rf2-p2zy0 callers).
@@ -1917,10 +1949,18 @@
        :failing-id <kw-or-nil>             ;; the failing handler / fx id
        :phase      <kw-or-nil>             ;; :before / :after (interceptor)
        :recovery   <kw-or-nil>             ;; e.g. :no-recovery
+       :exception  <Throwable-or-nil>      ;; rf2-wnvid — the raw exception
+                                           ;; object (carries the stack)
        :raw        <trace-event>}          ;; the underlying trace event
 
-  Pure-data; the view's `error-block` renders message + coord + jump-to-
-  source. Empty slots are tolerated absent by the view."
+  Pure-data; the view's `error-block` renders the message + the
+  collapsible details (stack / ex-data). Empty slots are tolerated
+  absent by the view.
+
+  rf2-wnvid — the cascade-level `:db-committed?` slot is stamped LATER
+  by `attach-exceptions` (it needs the whole event stream, not the one
+  exception event); it gates the view's 'Rolled back' chip so the chip
+  only paints when a `:db` install actually preceded the throw."
   [ev]
   {:operation  (op ev)
    :message    (exception-message ev)
@@ -1930,6 +1970,7 @@
                    (common/tag-of ev :handler-id))
    :phase      (common/tag-of ev :phase)
    :recovery   (or (:recovery ev) (common/tag-of ev :recovery))
+   :exception  (common/tag-of ev :exception)
    :raw        ev})
 
 (defn exception-rows
@@ -2368,7 +2409,16 @@
                                  (assoc :db-post-flow flow-db-post)))
                              (flow-rows events))
             violations (schema-violation-rows events)
-            exceptions (exception-rows events)
+            ;; rf2-wnvid — stamp the cascade-level `:db-committed?` onto
+            ;; every exception row so the view's 'Rolled back' chip paints
+            ;; ONLY when a `:db` install actually preceded the throw (a real
+            ;; commit there is something to roll back). `db-commit?` keys off
+            ;; `:rf.event/db-changed` / a schema rollback — both absent on a
+            ;; handler that threw before returning (button-15), so the chip
+            ;; correctly stays off there (NO SPURIOUS 'Rolled back').
+            db-committed? (db-commit? events)
+            exceptions (mapv #(assoc % :db-committed? db-committed?)
+                             (exception-rows events))
             base-steps (vec
                         (concat
                           [(dispatch-row events fallback)]

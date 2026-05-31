@@ -2231,7 +2231,58 @@
           row (proj/exception-row ev)]
       ;; handler-exception-ev stamps `:reason "Event handler threw."`
       (is (= "Event handler threw." (:message row)))
-      (is (nil? (:coord row))))))
+      (is (nil? (:coord row)))))
+
+  (testing "rf2-wnvid — `exception-row` lifts the raw `:exception` object
+            off `[:tags :exception]` (the view's collapsible details read
+            the stack / ex-data off it)"
+    (let [boom (ex-info "boom" {:surface :handler-exception})
+          ev   (handler-exception-ev :e "boom" nil nil boom)
+          row  (proj/exception-row ev)]
+      (is (identical? boom (:exception row))
+          "the raw exception object rides the row")))
+
+  (testing "rf2-wnvid — no `:exception` tag → `:exception` slot is nil"
+    (let [row (proj/exception-row (handler-exception-ev :e "boom"))]
+      (is (nil? (:exception row))))))
+
+(deftest handler-wrote-db?-test
+  (testing "rf2-wnvid — true when t1 (`:rf.event/db-pending`) fired"
+    (is (true? (proj/handler-wrote-db?
+                 [(db-pending-ev {:count 1})]))))
+  (testing "rf2-wnvid — true when a `:rf.event/db-changed` commit fired"
+    (is (true? (proj/handler-wrote-db?
+                 [(db-changed-ev [[[:count] 0 1 :modified]])]))))
+  (testing "rf2-wnvid — FALSE for the handler-threw shape (button-15: no
+            t1, no db-changed — handler threw before returning a :db)"
+    (is (false? (proj/handler-wrote-db?
+                  [(dispatched-ev [:button-deck/throw-handler] :ui nil)
+                   (handler-exception-ev :button-deck/throw-handler "boom" nil)
+                   (run-end-ev 1)]))))
+  (testing "rf2-wnvid — FALSE for a reg-event-fx that returned only :fx"
+    (is (false? (proj/handler-wrote-db?
+                  [(do-fx-ev {:fx [[:navigate "/x"]]})
+                   (run-end-ev 1)])))))
+
+(deftest handler-row-db-write?-slot-test
+  (testing "rf2-wnvid — the HANDLER row carries `:db-write?` so the view's
+            `:db` sub-section chooses the no-write placeholder over the
+            phantom full-app-db fallback"
+    (let [threw (proj/handler-row
+                  [(dispatched-ev [:button-deck/throw-handler] :ui nil)
+                   (handler-exception-ev :button-deck/throw-handler "boom" nil)
+                   (run-end-ev 1)]
+                  :button-deck/throw-handler
+                  {:n 1} {:n 1})]
+      (is (false? (:db-write? threw))
+          "handler that threw before returning a :db → db-write? false"))
+    (let [wrote (proj/handler-row
+                  [(db-pending-ev {:count 1})
+                   (db-changed-ev [[[:count] 0 1 :modified]])
+                   (run-end-ev 1)]
+                  :counter/inc {:count 0} {:count 1})]
+      (is (true? (:db-write? wrote))
+          "handler that wrote a :db → db-write? true"))))
 
 (deftest exception-rows-harvests-cascade-exceptions-test
   (testing "rf2-ahhgn — `exception-rows` harvests the `cascade-exception-ops`
@@ -2340,7 +2391,22 @@
       (let [err (first (:errors handler))]
         (is (= "button-deck / handler (intentional — exercises the handler error surface)"
                (:message err)))
-        (is (= {:file "button_deck/core.cljs" :line 322} (:coord err))))
+        (is (= {:file "button_deck/core.cljs" :line 322} (:coord err)))
+        ;; rf2-wnvid — the live button-15 had NO :db commit (handler
+        ;; threw before returning), so the exception row's cascade-level
+        ;; `:db-committed?` is false → the view omits the spurious
+        ;; 'Rolled back' chip.
+        (is (false? (:db-committed? err))
+            "no :db commit preceded the throw → :db-committed? false (no spurious rollback)"))
+      ;; rf2-wnvid — the HANDLER step carries :db-write? false (it threw
+      ;; before producing a :db), so the view shows 'no :db (handler
+      ;; threw)' rather than the phantom full app-db.
+      (is (false? (:db-write? handler))
+          "no :db write → :db-write? false (no phantom :db)")
+      ;; rf2-wnvid — no schema rollback fired, so NO step is marked
+      ;; rolled-back (the downstream-mute path is correctly inert).
+      (is (every? #(nil? (:rolled-back? %)) steps)
+          "no schema rollback → no :rolled-back? flags (no spurious rollback chrome)")
       (is (= :error (proj/epoch-outcome steps))
           "the epoch outcome reflects the exception (NOT :ok)")))
 
