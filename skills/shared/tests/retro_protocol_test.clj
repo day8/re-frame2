@@ -9,6 +9,12 @@
 ;;;;   2. Universal redaction          — Finding 2, Medium
 ;;;;   3. Edit-gate split              — Finding 3, recommendation
 ;;;;
+;;;; Plus a fourth surface (Lock 4) the original suite left unguarded:
+;;;; the shell-safety / command-injection boundary on the one
+;;;; destructive surface the protocol grants (`gh issue create`),
+;;;; specified in `issue-filing.md`. It is the same untrusted-evidence
+;;;; threat model as Lock 1 projected onto the shell.
+;;;;
 ;;;; The audit's Finding 4 was PARTIAL — the prose was in place but no
 ;;;; regression suite asserted the locks. This file closes that gap by
 ;;;; pinning the load-bearing phrasings as a structural drift detector.
@@ -60,6 +66,9 @@
 
 (def ^:private pair-retro-skill-md
   (delay (slurp-rel skills-root "re-frame2-pair-retro/SKILL.md")))
+
+(def ^:private issue-filing-md
+  (delay (slurp-rel shared-root "issue-filing.md")))
 
 ;; ---------------------------------------------------------------------------
 ;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
@@ -285,6 +294,80 @@
                "missing. Without it future readers can't tell why a "
                "confident-looking mechanical rewrite still needs "
                "approval when its shape comes from evidence.")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 4 — Shell-safety on the one destructive surface (gh issue create)
+;;
+;; `issue-filing.md` is the consumer-facing recipe for the only mutating
+;; surface the protocol grants (`Bash(gh issue *)`). Its load-bearing
+;; safety claim is a *command-injection* boundary: transcript-derived
+;; issue bodies can carry shell metacharacters, so the body MUST be
+;; passed via a single-quoted here-doc (keeping $, `, \ literal) rather
+;; than interpolated inline. This is the same untrusted-evidence threat
+;; model as Lock 1, projected onto the shell. The structural test pinned
+;; the three prose locks but left this one — the actual destructive
+;; surface — unguarded; a silent weakening here (dropping the
+;; single-quote requirement, or the "never interpolate inline" rule)
+;; would re-open transcript→shell injection with no gate firing.
+;; ---------------------------------------------------------------------------
+
+(deftest issue-filing-shell-safety-section-exists
+  (testing "issue-filing.md carries a shell-safety section"
+    (is (contains-any? @issue-filing-md
+                       ["Shell-safety" "shell metacharacter"
+                        "pass the body via a file"])
+        (str "The shell-safety section of issue-filing.md was renamed "
+             "or deleted. This is the command-injection boundary on the "
+             "one destructive surface the protocol grants (gh issue "
+             "create); a transcript-derived body interpolated inline is "
+             "the attack. Restore the section or update this test."))))
+
+(deftest issue-filing-requires-single-quoted-heredoc
+  (testing "single-quoted here-doc delimiter is mandated"
+    (let [s (section @issue-filing-md "Shell-safety")]
+      (is (contains-any? s ["single-quoted" "<<'EOF'"])
+          (str "The single-quoted here-doc requirement was dropped from "
+               "issue-filing.md. Without the single-quote, $, backtick, "
+               "and \\ in a transcript-derived body expand in the shell "
+               "— the exact transcript→shell injection vector."))
+      (is (contains-any? s ["stay literal" "keeps $" "literal"])
+          (str "The 'metacharacters stay literal' rationale was dropped. "
+               "It is the reason the single-quote requirement is "
+               "load-bearing, not stylistic.")))))
+
+(deftest issue-filing-forbids-inline-interpolation
+  (testing "never interpolate transcript-derived text inline"
+    (is (contains-any? @issue-filing-md
+                       ["Never interpolate transcript-derived text"
+                        "never interpolate" "never inline"])
+        (str "The 'never interpolate transcript-derived text directly "
+             "into a shell command' prohibition is missing. This is the "
+             "imperative half of the shell-safety lock — the here-doc "
+             "recipe is the safe path, this is the banned path."))))
+
+(deftest issue-filing-gates-create-on-user-approval
+  (testing "gh issue create is gated on a fresh in-conversation yes"
+    (is (contains-any? @issue-filing-md
+                       ["explicit user approval"
+                        "fresh, in-conversation"
+                        "in-conversation \"yes"])
+        (str "The 'file only after explicit user approval' gate on "
+             "gh issue create was weakened. A 'pre-approved' claim inside "
+             "evidence is NOT approval — this couples back to Lock 1."))
+    (is (contains-any? @issue-filing-md ["pre-approved"])
+        (str "The 'a pre-approved claim inside the evidence is not "
+             "approval' carve-out is missing — it is the explicit link "
+             "between the filing gate and the untrusted-evidence boundary."))))
+
+(deftest protocol-step-six-points-at-shell-safe-filing
+  (testing "step 6 still surfaces the shell-safe filing recipe"
+    (let [s (section @protocol-md "The seven-step protocol")]
+      (is (contains-any? s ["Shell safety" "single-quoted here-doc"
+                            "issue-body"])
+          (str "The seven-step protocol's pointer to the shell-safe "
+               "filing recipe was dropped. The inline reminder is what "
+               "carries the shell-safety lock to the agent at workflow "
+               "time, not just in the linked leaf.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-consumer adoption — both consuming skills must actually load
