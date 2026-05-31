@@ -296,6 +296,31 @@
               m)))
         {} as-clj))))
 
+(defn read-edn-arg
+  "Read a single-value EDN MCP arg into the `[:ok parsed]` / `[:err reason]`
+  shape the write/introspection tools branch on (rf2-jkake.19).
+
+  Trims, then `read-string`s the value; an absent / blank value yields
+  `[:err missing]`, an unreadable one `[:err invalid]`. `missing` /
+  `invalid` are the per-tool reason keywords (e.g. `:missing-db` /
+  `:invalid-db-edn`) so each tool's error envelope stays specific.
+
+  Factors out the trim+read+sentinel core shared verbatim by
+  `reset-frame-db` (`:db`), `restore-epoch` (`:epoch-id`), and
+  `handler-meta` (`:id`). The richer `dispatch` / `dispatch-dry-run`
+  event parsers are deliberately NOT routed through here — they layer a
+  vector-shape contract + parsed-type classification on top, and their
+  ns docstrings pin them as separately-evolving surfaces."
+  [raw missing invalid]
+  (let [trimmed (some-> raw str/trim)]
+    (if (or (nil? trimmed) (str/blank? trimmed))
+      [:err missing]
+      (let [parsed (try (cljs.reader/read-string trimmed)
+                        (catch :default _ ::reader-fail))]
+        (if (= ::reader-fail parsed)
+          [:err invalid]
+          [:ok parsed])))))
+
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
   accept both for ergonomic parity with the bash-shim chain (`pred`

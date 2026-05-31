@@ -47,7 +47,6 @@
   runtime's recording registry, but no app-state mutation)."
   (:require [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -229,10 +228,9 @@
 
       :else
       (let [form (start-recording-form signals stop frame max-entries)]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [envelope] (wire/ok-text envelope)))
-            (.catch (fn [err] (probe/err->result :record-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :record-failed
+          (fn [envelope] (wire/ok-text envelope)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; read-recording — read back the change-log.
@@ -259,7 +257,6 @@
                    (ef/rt-call 'read-recording
                                (str recording-id)
                                {:drain drain? :stop stop?}))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [envelope] (wire/ok-text envelope)))
-            (.catch (fn [err] (probe/err->result :read-recording-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :read-recording-failed
+          (fn [envelope] (wire/ok-text envelope)))))))

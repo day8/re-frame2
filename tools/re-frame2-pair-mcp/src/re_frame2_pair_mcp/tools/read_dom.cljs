@@ -96,7 +96,6 @@
   No DOM at all (server-side / headless eval target) →
   {:ok? false :reason :rf.error/read-dom-no-document}."
   (:require [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -234,8 +233,6 @@
 
       :else
       (let [form (read-dom-form selector sub-selector limit max-text attrs)]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [envelope]
-                     (wire/ok-text envelope)))
-            (.catch (fn [err] (probe/err->result :read-dom-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :read-dom-failed
+          (fn [envelope] (wire/ok-text envelope)))))))

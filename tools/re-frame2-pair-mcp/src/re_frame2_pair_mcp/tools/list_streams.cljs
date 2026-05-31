@@ -39,7 +39,6 @@
   :created-at}]}`. Empty `:subs` vector when no streams are open (or
   when the filter matches nothing)."
   (:require [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
@@ -68,7 +67,6 @@
                                'subs (ef/rt-raw "(:subs r)")]
                               (ef/rt-raw
                                 (str "(assoc r :subs " (filter-form topic sub-id) ")"))))]
-    (-> (probe/ensure-runtime! conn build-id)
-        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))
-        (.catch (fn [err] (probe/err->result :list-streams-failed err))))))
+    (probe/eval-after-runtime!
+      conn build-id form :list-streams-failed
+      (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))))

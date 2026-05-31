@@ -53,8 +53,7 @@
   (or, with `:include-values true`,
   `:subs [{:query-v <v> :value v :ref-count n} ...]`). Empty `:subs`
   vector when nothing is subscribed in the frame."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]
+  (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.probe :as probe]))
@@ -70,7 +69,6 @@
                    frame (assoc :frame frame)
                    incl? (assoc :include-values? true))
         form     (ef/emit (ef/rt-call 'sub-cache-info opts))]
-    (-> (probe/ensure-runtime! conn build-id)
-        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))
-        (.catch (fn [err] (probe/err->result :list-subscriptions-failed err))))))
+    (probe/eval-after-runtime!
+      conn build-id form :list-subscriptions-failed
+      (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))))

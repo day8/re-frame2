@@ -525,3 +525,49 @@
   (if-let [data (ex-data err)]
     (wire/ok-text (merge {:ok? false} data))
     (wire/ok-text {:ok? false :reason fallback-reason :message (.-message err)})))
+
+;; ---------------------------------------------------------------------------
+;; Shared eval-prelude (rf2-jkake.19).
+;;
+;; The single-eval read/write tools all wear the SAME four-step promise
+;; chain: confirm the runtime is preloaded, send ONE form over nREPL,
+;; shape the resolved value into an MCP envelope, and translate any
+;; rejection through `err->result`. Only the middle `.then` (how the
+;; resolved value becomes an envelope) and the `:fail-reason` keyword
+;; differ per tool. `eval-after-runtime!` factors out the invariant
+;; prelude/postlude so each tool body reads as just "what form do I
+;; send, and how do I shape the response" — the prelude stops obscuring
+;; the per-tool logic.
+;;
+;; Tools that DON'T use this helper, and why:
+;;   - snapshot / get-path / subscribe — insert a `signal-runtime!` step
+;;     between `ensure-runtime!` and the eval (the raw-state tap gate,
+;;     rf2-c2dtu), so their prelude is a different shape.
+;;   - eval-cljs — uses `resolve-and-preflight!` (fail-loud build
+;;     resolution), not the plain `ensure-runtime!` probe.
+;;   - watch-until / tail-build — poll a form on a cadence, not a single
+;;     eval.
+;;   - dispatch (`:await-render`) — threads the await-promise mailbox
+;;     between the eval and the result.
+;;   - discover-app — chains a `runtime-health!` read after the probe.
+;; ---------------------------------------------------------------------------
+
+(defn eval-after-runtime!
+  "The shared single-eval prelude (rf2-jkake.19). Confirm the runtime is
+  preloaded for `(conn, build-id)`, eval `form` over nREPL, pass the
+  resolved value to `on-value` (which returns the MCP envelope), and
+  translate any rejection via `err->result` keyed by `fail-reason`.
+
+  `on-value` is a 1-arity fn `(fn [v] => js-mcp-result)` carrying the
+  tool's own response-shaping — the part that genuinely differs per
+  tool. Returns the Promise of the MCP result.
+
+  `nrepl/cljs-eval-value` is resolved per-call (a plain var reference),
+  so the `set!`-based test seam — every per-tool test stubs that var —
+  keeps working through this helper exactly as it did at the inline
+  call-sites."
+  [conn build-id form fail-reason on-value]
+  (-> (ensure-runtime! conn build-id)
+      (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+      (.then on-value)
+      (.catch (fn [err] (err->result fail-reason err)))))

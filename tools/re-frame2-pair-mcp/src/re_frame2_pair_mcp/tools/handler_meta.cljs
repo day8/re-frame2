@@ -56,7 +56,7 @@
   the agent can rely on across runtimes and editor-config postures."
   (:require [clojure.string :as str]
             [cljs.reader :as edn]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
@@ -107,23 +107,14 @@
   `\"[:rf/composite \\\"x\\\"]\"`) so callers can pass any registered
   id shape, including composite vectors used for sub-graph keys.
 
-  Returns `[:ok parsed]` on success or `[:err msg]` on a read failure.
-  A bare keyword-shaped string (leading `:`) round-trips through
-  `read-string`; a plain word like `\"foo\"` reads as a symbol — we
-  reject that to surface the contract clearly (registered ids are
-  keywords, not symbols)."
+  Returns `[:ok parsed]` on success or `[:err reason]` on a read
+  failure (`:missing-id` / `:invalid-id-edn`) — the shared
+  `args/read-edn-arg` readability core (rf2-jkake.19). A bare
+  keyword-shaped string (leading `:`) round-trips through `read-string`;
+  a plain word like `\"foo\"` reads as a symbol — the caller's
+  `:not-registered` lookup then surfaces that it isn't a registered id."
   [s]
-  (cond
-    (or (nil? s) (and (string? s) (str/blank? s)))
-    [:err :missing-id]
-
-    :else
-    (let [trimmed (str/trim s)
-          parsed  (try (cljs.reader/read-string trimmed)
-                       (catch :default _ ::reader-fail))]
-      (cond
-        (= ::reader-fail parsed) [:err :invalid-id-edn]
-        :else                    [:ok parsed]))))
+  (args/read-edn-arg s :missing-id :invalid-id-edn))
 
 (defn- kinds-hint
   "Comma-joined list of the supported kinds — used in error envelopes
@@ -194,9 +185,9 @@
       (let [form (if (= :machine kind)
                    (machine-form id-val)
                    (registrar-form kind id-val))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [v]
+        (probe/eval-after-runtime!
+          conn build-id form :handler-meta-failed
+          (fn [v]
                      ;; Three envelope shapes resolve into one shape
                      ;; agents can rely on:
                      ;;   - hit (map with no :reason): merge :ok? true
@@ -233,8 +224,7 @@
                            (assoc v* :kind kind :id id-val)
 
                            :else
-                           (assoc v* :ok? true :kind kind :id id-val))))))
-            (.catch (fn [err] (probe/err->result :handler-meta-failed err))))))))
+                           (assoc v* :ok? true :kind kind :id id-val))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool — list-handlers.
@@ -265,12 +255,11 @@
 
       :else
       (let [form (list-form kind)]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [v]
-                     (wire/ok-text
-                       {:ok?   true
-                        :kind  kind
-                        :ids   (vec v)
-                        :count (count v)})))
-            (.catch (fn [err] (probe/err->result :list-handlers-failed err))))))))
+        (probe/eval-after-runtime!
+          conn build-id form :list-handlers-failed
+          (fn [v]
+            (wire/ok-text
+              {:ok?   true
+               :kind  kind
+               :ids   (vec v)
+               :count (count v)})))))))

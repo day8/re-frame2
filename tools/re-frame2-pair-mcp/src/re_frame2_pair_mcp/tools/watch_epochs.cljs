@@ -27,8 +27,7 @@
       epochs landed after it. Calmly says \"nothing new\".
     - `:pred-excludes-history` — the predicate filtered every epoch
       out. Says the history exists; the pred is the gate."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
@@ -99,88 +98,86 @@
                             " :history-count history-count"
                             " :since-count since-count"
                             " :remaining (max 0 (- (count matches) (count page)))}"))))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then
-              (fn [v]
-                (let [v          (if (map? v) v {})
-                      aged-out?  (:id-aged-out? v)]
-                  (if (and aged-out? (some? effective-after))
-                    (cursor/cursor-stale-result "watch-epochs"
-                                                {:requested-id (or (:requested-id v) effective-after)
-                                                 :head-id      (:head-id v)})
-                    (let [matches (vec (:matches v))
-                          {:keys [value indicators]}
-                          (wp/run-wire-pipeline matches
-                                                {:kind   :epoch-vector
-                                                 :incl?  incl?
-                                                 :mode   mode
-                                                 :dedup? dedup?})
-                          {:keys [dropped elided count]} indicators
-                          next-id       (:next-id v)
-                          next-cursor   (cursor/encode-cursor
-                                          (when next-id
-                                            {:v        1
-                                             :after-id next-id
-                                             :ms       nil
-                                             :until-ms nil
-                                             :frame    sticky-frame}))
-                          remaining     (or (:remaining v) 0)
-                          history-count (or (:history-count v) 0)
-                          since-count   (or (:since-count v) 0)
-                          ;; rf2-fb4hn: two distinct empty-result
-                          ;; explainers, picked by the runtime data:
-                          ;;
-                          ;;   - since-count = 0 + history-count > 0
-                          ;;     → caller's :since-id is at (or past)
-                          ;;     the head; calmly say \"nothing new
-                          ;;     yet\".
-                          ;;
-                          ;;   - since-count > 0 + count = 0
-                          ;;     → events landed since the id but the
-                          ;;     :pred filtered them all out — point
-                          ;;     at the predicate, not the buffer.
-                          advisory
-                          (cond
-                            (and (zero? count)
-                                 (zero? since-count)
-                                 (pos? history-count))
-                            {:reason            :no-events-since-id
-                             :frame             sticky-frame
-                             :epochs-in-history history-count
-                             :requested-id      effective-after
-                             :hint              (str "Per-frame history holds "
-                                                     history-count
-                                                     " epochs but none have landed since the "
-                                                     "supplied :since-id. Dispatch an event "
-                                                     "to advance the head, or omit :since-id "
-                                                     "to see the full ring.")}
+        (probe/eval-after-runtime!
+          conn build-id form :watch-failed
+          (fn [v]
+            (let [v          (if (map? v) v {})
+                  aged-out?  (:id-aged-out? v)]
+              (if (and aged-out? (some? effective-after))
+                (cursor/cursor-stale-result "watch-epochs"
+                                            {:requested-id (or (:requested-id v) effective-after)
+                                             :head-id      (:head-id v)})
+                (let [matches (vec (:matches v))
+                      {:keys [value indicators]}
+                      (wp/run-wire-pipeline matches
+                                            {:kind   :epoch-vector
+                                             :incl?  incl?
+                                             :mode   mode
+                                             :dedup? dedup?})
+                      {:keys [dropped elided count]} indicators
+                      next-id       (:next-id v)
+                      next-cursor   (cursor/encode-cursor
+                                      (when next-id
+                                        {:v        1
+                                         :after-id next-id
+                                         :ms       nil
+                                         :until-ms nil
+                                         :frame    sticky-frame}))
+                      remaining     (or (:remaining v) 0)
+                      history-count (or (:history-count v) 0)
+                      since-count   (or (:since-count v) 0)
+                      ;; rf2-fb4hn: two distinct empty-result
+                      ;; explainers, picked by the runtime data:
+                      ;;
+                      ;;   - since-count = 0 + history-count > 0
+                      ;;     → caller's :since-id is at (or past)
+                      ;;     the head; calmly say \"nothing new
+                      ;;     yet\".
+                      ;;
+                      ;;   - since-count > 0 + count = 0
+                      ;;     → events landed since the id but the
+                      ;;     :pred filtered them all out — point
+                      ;;     at the predicate, not the buffer.
+                      advisory
+                      (cond
+                        (and (zero? count)
+                             (zero? since-count)
+                             (pos? history-count))
+                        {:reason            :no-events-since-id
+                         :frame             sticky-frame
+                         :epochs-in-history history-count
+                         :requested-id      effective-after
+                         :hint              (str "Per-frame history holds "
+                                                 history-count
+                                                 " epochs but none have landed since the "
+                                                 "supplied :since-id. Dispatch an event "
+                                                 "to advance the head, or omit :since-id "
+                                                 "to see the full ring.")}
 
-                            (and (zero? count)
-                                 (pos? since-count))
-                            {:reason            :pred-excludes-history
-                             :frame             sticky-frame
-                             :epochs-in-history history-count
-                             :epochs-since-id   since-count
-                             :hint              (str since-count
-                                                     " epochs landed since the requested id but "
-                                                     "the :pred filter excluded all of them. "
-                                                     "Drop / widen :pred, or use trace-window for "
-                                                     "an unfiltered view.")})
-                          base          (cond-> {:ok?          true
-                                                 :head-id      (:head-id v)
-                                                 :id-aged-out? (boolean aged-out?)}
-                                          (:requested-id v) (assoc :requested-id (:requested-id v))
-                                          advisory          (assoc :advisory advisory))]
-                      (wire/ok-text (wire/with-indicators
-                                      (assoc base
-                                             :matches             value
-                                             :limit               limit
-                                             :count               count
-                                             :epochs-mode         mode
-                                             :dedup               dedup?
-                                             :has-more?           (some? next-cursor)
-                                             :estimated-remaining remaining
-                                             :next-cursor         next-cursor)
-                                      {:dropped dropped :elided elided})))))))
-            (.catch (fn [err] (probe/err->result :watch-failed err))))))))
+                        (and (zero? count)
+                             (pos? since-count))
+                        {:reason            :pred-excludes-history
+                         :frame             sticky-frame
+                         :epochs-in-history history-count
+                         :epochs-since-id   since-count
+                         :hint              (str since-count
+                                                 " epochs landed since the requested id but "
+                                                 "the :pred filter excluded all of them. "
+                                                 "Drop / widen :pred, or use trace-window for "
+                                                 "an unfiltered view.")})
+                      base          (cond-> {:ok?          true
+                                             :head-id      (:head-id v)
+                                             :id-aged-out? (boolean aged-out?)}
+                                      (:requested-id v) (assoc :requested-id (:requested-id v))
+                                      advisory          (assoc :advisory advisory))]
+                  (wire/ok-text (wire/with-indicators
+                                  (assoc base
+                                         :matches             value
+                                         :limit               limit
+                                         :count               count
+                                         :epochs-mode         mode
+                                         :dedup               dedup?
+                                         :has-more?           (some? next-cursor)
+                                         :estimated-remaining remaining
+                                         :next-cursor         next-cursor)
+                                  {:dropped dropped :elided elided})))))))))))
