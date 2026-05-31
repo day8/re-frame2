@@ -25,7 +25,16 @@
 
        3. Double-render. A redundant re-render fires where exactly one was
           expected; the symptom is an extra :render (and :did-update) entry in
-          the lifecycle log — the render counter is higher than the contract."
+          the lifecycle log — the render counter is higher than the contract.
+
+  C. Harness-contract guards (rf2-ynjts.6) — the documented public-surface
+     invariants the uix/helix browser suites lean on. Each pins a guard /
+     error / two-entry-point behaviour the harness PROMISES in its docstrings
+     but the A/B layers above never exercised: trigger-update! / unmount!
+     after teardown, mount-child! outside a render body, mount! under the
+     wrong installed adapter, the no-emitter render-to-string throw, unmount!
+     idempotency, the substrate :render entry point returning a working
+     unmount thunk, and deep (grandchild) leaf-upward cascade ordering."
   (:require [re-frame.adapter.test-react :as test-react]
             [re-frame.substrate.adapter :as substrate-adapter]
             #?(:clj  [clojure.test :as ctest :refer [deftest is testing use-fixtures]]
@@ -357,3 +366,172 @@
       (is (= 1 (phase-count mount :did-update))
           "exactly one update render for one logical change")
       (test-react/unmount! mount))))
+
+;; ----------------------------------------------------------------------------
+;; C. Harness-contract guards (rf2-ynjts.6)
+;; ----------------------------------------------------------------------------
+;;
+;; The uix/helix browser suites consume this harness's PUBLIC surface
+;; (`mount!` / `trigger-update!` / `unmount!` / `mount-child!` / the substrate
+;; `:render` entry point / `render-to-string`). Each of the following pins a
+;; guard or two-entry-point behaviour the harness docstrings PROMISE but the
+;; A/B layers above never exercised. A silent regression in any of these would
+;; weaken the downstream suites without tripping their own assertions — e.g. a
+;; `trigger-update!` that no longer throws after teardown would let a test
+;; re-render a dead mount and read a stale tree; a `mount!` that dropped its
+;; installed-adapter guard would silently mount under whatever adapter the
+;; suite forgot to install. These are the harness's own contract.
+
+;; ---- trigger-update! after unmount throws ---------------------------------
+
+(deftest trigger-update-after-unmount-throws
+  (testing "trigger-update! on an already-unmounted mount throws
+            :rf.error/update-after-unmount — you cannot re-render a dead mount.
+            The lifecycle log is untouched (no stray :render / :did-update),
+            so the throw is a true short-circuit, not a render-then-throw."
+    (let [mount (test-react/mount! [:div "v1"])
+          _     (test-react/unmount! mount)
+          log-before (test-react/lifecycle-log mount)]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #":rf.error/update-after-unmount"
+            (test-react/trigger-update! mount [:div "v2"]))
+          "trigger-update! refuses an unmounted mount")
+      (is (= log-before (test-react/lifecycle-log mount))
+          "no :render / :did-update leaked onto the log — the guard short-circuited before run-render!"))))
+
+;; ---- unmount! is idempotent ------------------------------------------------
+
+(deftest unmount-is-idempotent
+  (testing "a second unmount! on an already-unmounted mount is a silent no-op:
+            it does NOT throw, and records no second :will-unmount entry (so a
+            double-teardown in downstream code can't double-count or corrupt
+            the log)"
+    (let [mount (test-react/mount! [:div "once"])]
+      (test-react/unmount! mount)
+      (is (= 1 (phase-count mount :will-unmount))
+          "first unmount recorded exactly one :will-unmount")
+      ;; Second call must neither throw nor append a second :will-unmount.
+      (is (nil? (test-react/unmount! mount))
+          "second unmount! returns nil without throwing")
+      (is (= 1 (phase-count mount :will-unmount))
+          "second unmount! recorded NO additional :will-unmount — idempotent")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the forest stays empty across the redundant teardown"))))
+
+;; ---- mount-child! outside a render body throws ----------------------------
+
+(deftest mount-child-outside-render-body-throws
+  (testing "mount-child! called with no render in flight (*rendering-mount* nil)
+            throws :rf.error/mount-child-outside-render — a child needs a parent
+            render to attach to. Guards the recursive-child seam against a stray
+            top-level call that would otherwise produce an unparented mount."
+    (is (false? (test-react/rendering?))
+        "precondition: no render in flight at the test top level")
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #":rf.error/mount-child-outside-render"
+          (test-react/mount-child! [:span "orphan"]))
+        "mount-child! demands an in-flight render body")
+    (is (zero? (count (test-react/mounted-roots)))
+        "the failed mount-child! left nothing in the forest")))
+
+;; ---- mount! under the wrong installed adapter throws ----------------------
+
+(deftest mount-under-wrong-adapter-throws
+  (testing "mount! throws :rf.error/test-react-not-installed when a DIFFERENT
+            adapter is installed — the guard prevents a test from driving the
+            simulator against a foreign adapter's container/render fns. We swap
+            the install slot to a sentinel non-test-react adapter, assert the
+            throw, then restore so the :each fixture's dispose finds the
+            expected adapter."
+    (let [sentinel-adapter {:kind             :rf.adapter/plain-atom
+                            :dispose-adapter! (fn [] nil)}]
+      ;; Tear down the fixture-installed test-react adapter and seat the
+      ;; sentinel in its place.
+      (substrate-adapter/dispose-adapter!)
+      (substrate-adapter/install-adapter! sentinel-adapter)
+      (try
+        (is (thrown-with-msg?
+              #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+              #":rf.error/test-react-not-installed"
+              (test-react/mount! [:div "nope"]))
+            "mount! refuses to run when test-react is not the installed adapter")
+        (finally
+          ;; Restore the test-react adapter the :each fixture expects to dispose.
+          (substrate-adapter/dispose-adapter!)
+          (substrate-adapter/install-adapter! test-react/adapter))))))
+
+;; ---- render-to-string with no emitter bound throws ------------------------
+
+(deftest render-to-string-without-emitter-throws
+  (testing "render-to-string with NO hiccup emitter bound throws
+            :rf.error/no-hiccup-emitter-bound — the harness ships no built-in
+            emitter, so a test that needs HTML must install one. We force the
+            emitter cell to nil (it may carry a leftover SSR chain install) and
+            assert the throw, then leave it nil for downstream tests."
+    (test-react/set-hiccup-emitter! nil)
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #":rf.error/no-hiccup-emitter-bound"
+          (substrate-adapter/render-to-string [:div "x"] nil))
+        "no emitter bound → render-to-string throws the documented error")))
+
+;; ---- the substrate :render entry point returns a working unmount thunk ----
+
+(deftest substrate-render-entry-point-returns-working-thunk
+  (testing "the substrate contract's :render fn (the path the runtime / browser
+            suites actually drive, distinct from the public mount! driver)
+            returns a thunk that, when called, tears the mount down. mount! and
+            :render share the internal mount-tree! seam; :render discards the
+            record and hands back ONLY the thunk. Pinning this proves the
+            substrate-facing surface the uix/helix adapters route through stays
+            a live unmount handle, not just the inspection-friendly mount!."
+    (let [thunk (substrate-adapter/render [:div "via-render"] nil nil)]
+      (is (fn? thunk)
+          ":render returns a callable unmount thunk")
+      (is (= 1 (count (test-react/mounted-roots)))
+          "the :render entry point mounted exactly one root")
+      (thunk)
+      (is (zero? (count (test-react/mounted-roots)))
+          "calling the returned thunk tore that root down")
+      ;; The thunk is idempotent too — same contract as unmount!.
+      (is (nil? (thunk))
+          "second thunk call is a silent no-op"))))
+
+;; ---- deep cascade tears down leaf-upward ----------------------------------
+
+(deftest deep-cascade-tears-down-leaf-upward
+  (testing "a parent → child → grandchild tree unmounts leaf-upward when the
+            root unmounts: the grandchild's :will-unmount fires no later than
+            the child's, which fires no later than the parent's. The A' layer
+            proved one level of children-first teardown; this pins the
+            documented 'deep tree unwinds leaf-upward' invariant across two
+            levels — the recursive cascade real component trees rely on."
+    (let [grandchild-ref (atom nil)
+          child-ref      (atom nil)
+          parent (test-react/mount!
+                   {:rf/component
+                    (fn [_parent]
+                      (reset! child-ref
+                              (test-react/mount-child!
+                                {:rf/component
+                                 (fn [_child]
+                                   (reset! grandchild-ref
+                                           (test-react/mount-child! [:span "leaf"])))})))})]
+      (is (= 3 (count (test-react/mounted-roots)))
+          "parent + child + grandchild all live")
+      (is (= [@child-ref] (test-react/children parent))
+          "child recorded under parent")
+      (is (= [@grandchild-ref] (test-react/children @child-ref))
+          "grandchild recorded under child — the tree is two levels deep")
+      (test-react/unmount! parent)
+      (is (zero? (count (test-react/mounted-roots)))
+          "the whole forest drained — no orphaned descendant")
+      (let [gc-at     (phase-first-at @grandchild-ref :will-unmount)
+            child-at  (phase-first-at @child-ref :will-unmount)
+            parent-at (phase-first-at parent :will-unmount)]
+        (is (and gc-at child-at parent-at)
+            "every level recorded a :will-unmount during the cascade")
+        (is (<= gc-at child-at parent-at)
+            "teardown order is grandchild ≤ child ≤ parent — leaf-upward unwind")))))
