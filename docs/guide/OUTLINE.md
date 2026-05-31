@@ -1,46 +1,69 @@
 # Guide Outline
 
-This outline is the editorial map for the guide. It is excluded from MkDocs navigation and exists so future chapters keep the same teaching contract.
+This is the authoring map for `docs/guide/`. The guide is the human tutorial track: it teaches the runtime model by building and modifying programs, then hands off to the API reference, spec, Story docs, and Xray docs when the reader needs those surfaces.
 
-## Teaching contract
+The guide is not the spec and should not read like the spec. It should teach enough detail that a motivated programmer can build a real re-frame2 app without guessing.
 
-Every reader-facing chapter starts with two or three sentences framed as a human problem or interest area. The chapter then teaches the smallest useful mental model, shows the canonical shape, names the common trap, and leaves the reader with a usable rule of thumb.
+## Structure Rules
 
-Do not end every chapter with a ritual "What next" section. Cross-links are fine when they earn their keep, but a page should feel complete on its own.
+1. Chapter files use straight `NN-name.md` ordering. Do not introduce `01a`, `01b`, or sidecar chapter numbers.
+2. Visible chapter titles use `NN - Title`.
+3. Every numbered chapter opens with a short reader-problem summary: what pain or curiosity brought the reader here, and what they will be able to do afterward.
+4. Do not add a generic "What's next" section to every page. Cross-link when useful; let the navigation do the rest.
+5. Prefer worked examples over abstract prose. Prefer runnable cells only when editing the code teaches more than reading it.
+6. Keep Story and Xray as linked tool-doc handoffs. The guide may explain the runtime evidence they read, but their APIs and full workflows belong in their own docs.
 
-Use a conversational engineering voice. It can be funny and opinionated, but it must not become a performance. The job is to teach humans, not to impress the author.
+## Chapter Set
 
-## Structure
+| # | File | Job |
+|---|---|---|
+| 01 | `01-introduction.md` | Give the reader the mental model and a live first program. |
+| 02 | `02-app-db.md` | Teach state as one inspectable value. |
+| 03 | `03-first-app.md` | Build the counter for real and meet the core primitives. |
+| 04 | `04-events-and-the-cascade.md` | Walk one event through the six-domino cascade. |
+| 05 | `05-subscriptions.md` | Teach derived reads, query vectors, chaining, and cache behavior. |
+| 06 | `06-views.md` | Teach views as derivative UI, not causal state owners. |
+| 07 | `07-effects-and-coeffects.md` | Teach controlled inputs and outputs at the boundary of purity. |
+| 08 | `08-schemas.md` | Teach boundary validation and schema-backed confidence. |
+| 09 | `09-interceptors.md` | Teach reusable event-pipeline behavior. |
+| 10 | `10-http.md` | Teach managed remote data without callback soup. |
+| 11 | `11-forms.md` | Teach draft state, validation, submission, and field errors. |
+| 12 | `12-machines.md` | Teach dynamic processes without boolean soup. |
+| 13 | `13-testing.md` | Teach cheap tests: events, subs, views, effects, and integration scripts. |
+| 14 | `14-errors.md` | Teach how failures are emitted, surfaced, and recovered from. |
+| 15 | `15-performance.md` | Teach subscription/render performance and how to see it. |
+| 16 | `16-observability.md` | Teach trace/epoch evidence and production-safe observation. |
+| 17 | `17-tooling.md` | Orient the reader to Story, Xray, and MCP without duplicating their docs. |
+| 18 | `18-frames.md` | Teach isolated runtime instances. |
+| 19 | `19-routing.md` | Teach URL state, links, route params, query params, and guarded navigation. |
+| 20 | `20-server-side.md` | Teach SSR as another frame use, not a second app architecture. |
+| 21 | `21-dynamic-model.md` | Teach runtime registration and dynamic model concerns. |
+| 22 | `22-adapters.md` | Teach Reagent, UIx, Helix, SSR, and headless adapter boundaries. |
+| 23 | `23-privacy-and-large-things.md` | Teach redaction, elision, and large values. |
+| 24 | `24-config-and-safety.md` | Teach configuration, safety knobs, and production posture. |
+| 25 | `25-from-re-frame-v1.md` | Map v1 habits to v2 and explain why migration is worth it. |
+| 26 | `26-operating-well.md` | Provide the operating map: examples, API, spec, patterns, tools, skills. |
 
-The guide keeps the existing `01` through `26` file names to preserve repo links. Chapter titles and navigation are the source of truth for the reader.
+## Live Cell Policy
 
-1. Introduction
-2. app-db
-3. First app
-4. Events and the cascade
-5. Subscriptions
-6. Views
-7. Effects and coeffects
-8. Schemas
-9. Interceptors
-10. HTTP
-11. Forms
-12. Machines
-13. Testing
-14. Errors
-15. Performance
-16. Observability
-17. Tooling
-18. Frames
-19. Routing
-20. Server side
-21. Runtime model
-22. Adapters
-23. Privacy and large data
-24. Configuration and safety
-25. From re-frame v1
-26. Operating well
+Use `cljs-rf2` cells for ideas the reader should edit and rerun:
 
-## Live cells
+- First counter.
+- Event/cascade tracing.
+- Subscription derivations.
+- Small view-state examples.
 
-Use `cljs-rf2` only when editing the code teaches more than reading it. A live cell must be self-contained: require aliases, register events/subs, seed state, and finish with renderable hiccup.
+Do not turn the whole guide into an embedded IDE. Most chapters should use static listings plus a clear checkpoint.
+
+## Quality Bar
+
+A foundational chapter should usually include:
+
+- A concrete reader problem.
+- A complete or nearly complete code listing.
+- A walkthrough of the listing.
+- A common mistake.
+- A checkpoint the reader can run or reason through.
+- Links to API/spec/tool docs only after the chapter has taught the usable idea.
+
+If a chapter is under 100 lines and covers a foundational concept, assume it is probably too thin.

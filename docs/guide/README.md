@@ -1,46 +1,32 @@
-# Guide
+# The re-frame2 Guide
 
-You want to build a serious browser app without turning the codebase into a haunted wardrobe of callbacks, local state, and heroic debugging rituals. This guide teaches re-frame2 as a small set of repeatable moves: state is data, change is events, reads are subscriptions, views are derivatives, effects are named requests, and tools get their power because the runtime can explain itself.
+This is the human tutorial for re-frame2. It is the place to build intuition: counters first, then the cascade, then subscriptions, views, effects, schemas, frames, HTTP, routing, tests, SSR, privacy, and the operational habits that keep a real app from becoming haunted furniture.
 
-This is not an API reference. The reference tells you every knob. The guide teaches the shape of the machine, why that shape exists, and how to use it without becoming the person who says "just one more useEffect" in a meeting and ruins everyone's afternoon.
+If you want signatures, use the [API reference](../api/README.md). If you want the normative contract, use the [spec](../../spec/README.md). If you want Story or Xray in depth, use their dedicated sections. This guide teaches the application model and hands off to those references when the topic stops being a tutorial.
 
-## How to read it
+## Who This Is For
 
-Start with chapters 01 through 07 if you are new to re-frame. That gives you the core loop: `app-db`, events, subscriptions, views, effects, and coeffects. You can write a useful app after that.
+JavaScript programmers should start here to understand why re-frame2 is not just another state library with a Clojure accent. The short answer is that events, effects, subscriptions, schemas, frames, and evidence are all data-shaped and tool-readable.
 
-Chapters 08 through 13 teach the parts that make a codebase robust: schemas, interceptors, HTTP, forms, machines, and tests. These are where re-frame2 starts to feel less like a UI library and more like an operating discipline for applications.
+ClojureScript developers can move quickly through the first few chapters, but should not skip the v2 substrate: frames, schema boundaries, trace/epoch evidence, adapters, Story, Xray, and MCP change what the framework can explain.
 
-Chapters 14 through 26 cover production pressure: errors, performance, observability, tooling, frames, routing, server rendering, adapters, privacy, configuration, migration from re-frame v1, and the habits that keep a large app pleasant.
+re-frame v1 users should read the main guide, then [25 - From re-frame v1](25-from-re-frame-v1.md). The old instincts mostly survive. The old global assumptions do not.
 
-Some pages include runnable `cljs-rf2` cells. Click into the cell, edit the code, and press `Ctrl-Enter` or `Cmd-Enter`. The point is not gimmickry. The point is to let you change the machine while it is sitting in front of you.
+## How To Read It
 
-## The chapters
+Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema.
 
-| # | Chapter | Job |
-|---|---|---|
-| 01 | Introduction | Build the mental model: one loop, six steps, no mystery fog. |
-| 02 | app-db | Learn where state lives and how to shape it. |
-| 03 | First app | Build the counter in a real project shape. |
-| 04 | Events and the cascade | Watch one event run through the whole runtime. |
-| 05 | Subscriptions | Put reads behind named derivations. |
-| 06 | Views | Render data without smuggling logic into the DOM. |
-| 07 | Effects and coeffects | Push impurity to named edges. |
-| 08 | Schemas | Make invalid data loud while the code is still cheap to fix. |
-| 09 | Interceptors | Learn the sandwich around handlers. |
-| 10 | HTTP | Treat the network as a managed effect, not a side alley. |
-| 11 | Forms | Build forms as state machines, not scattered flags. |
-| 12 | Machines | Model flows where state names matter. |
-| 13 | Testing | Test the system at the cheapest truthful layer. |
-| 14 | Errors | Understand failure without losing the plot. |
-| 15 | Performance | Spend less time guessing why the app is slow. |
-| 16 | Observability | Read the trace and epoch surfaces. |
-| 17 | Tooling | Use Xray, Story, and pair tools as views over the same runtime. |
-| 18 | Frames | Isolate app instances for tests, stories, tools, and SSR. |
-| 19 | Routing | Make URLs part of the event/data loop. |
-| 20 | Server side | Run the same model on the server. |
-| 21 | Runtime model | Know which state is yours and which state is framework-managed. |
-| 22 | Adapters | Use Reagent, UIx, and Helix without changing the app model. |
-| 23 | Privacy and large data | Keep secrets and giant blobs out of traces. |
-| 24 | Configuration and safety | Tune runtime policy without scattering switches. |
-| 25 | From re-frame v1 | Translate old reflexes into v2's stricter shape. |
-| 26 | Operating well | Keep the codebase boring in the good way. |
+After that, jump by problem:
+
+- Building real forms? Read [11 - Forms](11-forms.md).
+- Talking to a server? Read [10 - HTTP](10-http.md).
+- Modeling a process? Read [12 - State machines](12-machines.md).
+- Adding tests? Read [13 - Testing](13-testing.md).
+- Fighting routing? Read [19 - Routing](19-routing.md).
+- Debugging weird behavior? Read [16 - Observability](16-observability.md) and [17 - Tooling](17-tooling.md), then use the Xray docs.
+
+All code in the guide is ClojureScript. If you can read Clojure data structures, you are close enough to begin; if not, the [ClojureScript reading guide](../cljs/index.md) is the better first stop.
+
+## What The Guide Believes
+
+The guide is opinionated because the framework is opinionated. A single application state value is a good idea. Effects should be data. Views should be derivative. Runtime evidence should be structured enough that humans and tools can both read it. You can disagree with those claims, but re-frame2 is built around them, so the tutorial argues for them directly instead of pretending to be a neutral catalog.
