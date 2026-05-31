@@ -162,3 +162,100 @@
           "snapshot is cleared exactly once")
       (is (nil? (registrar/lookup :event :rf2-lbjnz/target))
           "handler is unregistered exactly once"))))
+
+;; ---- Test 3: spawn-all join-cancelled survivor destroyed exactly once ------
+;;
+;; rf2-ndfjo — the destroy-single-actor! / spawn-all exit-cascade path was
+;; unpinned. When a `:spawn-all` join resolves with `:cancel-on-decision?`
+;; true (the default), surviving children are torn down TWICE:
+;;
+;;   1. `build-resolution-fx` (join.cljc) emits `[:rf.machine/destroy
+;;      <survivor>]` (keyword form → guarded `destroy-single!`) — one
+;;      `:rf.machine/destroyed`.
+;;   2. the parent then transitions OUT of the `:spawn-all` state; the
+;;      exit cascade emits `[:rf.machine/destroy {:rf/spawn-all true ...}]`
+;;      → `destroy-spawn-all-children!` re-reads the still-uncleared
+;;      join-state and (pre-fix) fired `destroy-single-actor!` +
+;;      `emit-destroyed!` UNCONDITIONALLY per child — a SECOND
+;;      `:rf.machine/destroyed` for the already-cancelled survivors.
+;;
+;; This violated the silent-idempotent destroy contract (rf2-lbjnz): one
+;; observable Active→Stopped transition ⇒ exactly one `:rf.machine/destroyed`
+;; per actor. The fix gives `destroy-single-actor!` the same liveness guard
+;; `destroy-single!` carries and gates the cascade's emit on it.
+
+(defn- mk-cancel-child
+  "Child that, on `:go`, transitions to `:done` and dispatches
+  `[parent-id [:done <own-id>]]` back to the parent. `:set-id` records
+  the child's own id (supplied via the parent's `:start`)."
+  [parent-id]
+  {:initial :running
+   :data    {:id nil}
+   :actions {:dispatch-done
+             (fn [{data :data}]
+               {:fx [[:dispatch [parent-id [:done (:id data)]]]]})
+             :record-id
+             (fn [{data :data ev :event}]
+               {:data (assoc data :id (second ev))})}
+   :states
+   {:running {:on {:set-id {:action :record-id}
+                   :go     {:target :done :action :dispatch-done}}}
+    :done    {}}})
+
+(deftest spawn-all-join-cancelled-survivor-destroyed-exactly-once
+  (testing "rf2-ndfjo — a join-cancelled survivor in a :spawn-all exit
+            cascade emits :rf.machine/destroyed EXACTLY once (silent-
+            idempotent destroy; no phantom double-destroy)"
+    (let [traces (record-traces! ::ndfjo-cancel)
+          child  (mk-cancel-child :rf2-ndfjo/sup)
+          parent {:initial :idle
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working
+                   {:spawn-all
+                    {:children         [{:id :a :machine-id :rf2-ndfjo/ca :start [:set-id :a]}
+                                        {:id :b :machine-id :rf2-ndfjo/cb :start [:set-id :b]}
+                                        {:id :c :machine-id :rf2-ndfjo/cc :start [:set-id :c]}
+                                        {:id :d :machine-id :rf2-ndfjo/cd :start [:set-id :d]}
+                                        {:id :e :machine-id :rf2-ndfjo/ce :start [:set-id :e]}]
+                     :join             {:n 3}
+                     :on-child-done    :done
+                     :on-child-error   :failed
+                     :on-some-complete [:phase/three-done]}
+                    ;; The parent transitions OUT of :working on resolution —
+                    ;; this is what fires the exit cascade's spawn-all destroy
+                    ;; over the still-uncleared join-state.
+                    :on    {:phase/three-done :ready}}
+                   :ready  {}}}]
+      (doseq [k [:rf2-ndfjo/ca :rf2-ndfjo/cb :rf2-ndfjo/cc
+                 :rf2-ndfjo/cd :rf2-ndfjo/ce]]
+        (rf/reg-machine k child))
+      (rf/reg-machine :rf2-ndfjo/sup parent)
+      (rf/dispatch-sync [:rf2-ndfjo/sup [:start]])
+      (let [ids (get-in (rf/get-frame-db :rf/default)
+                        [:rf/runtime :machines :spawned :rf2-ndfjo/sup [:working] :children])]
+        (is (= 5 (count ids)) "five children spawned")
+        ;; Complete a, b, c → join resolves at :n 3; d, e are cancelled
+        ;; survivors; parent transitions :working → :ready (exit cascade).
+        (rf/dispatch-sync [(:a ids) [:go]])
+        (rf/dispatch-sync [(:b ids) [:go]])
+        (rf/dispatch-sync [(:c ids) [:go]])
+        (is (= :ready (:state (snapshot :rf2-ndfjo/sup)))
+            "parent resolved to :ready via :on-some-complete")
+        ;; Every child's actor is torn down.
+        (doseq [[_ spawned-id] ids]
+          (is (nil? (snapshot spawned-id))
+              "every child snapshot is cleared"))
+        ;; The contract under test: count :rf.machine/destroyed per actor-id.
+        ;; Each of the five spawned actors — completed (a,b,c) AND cancelled
+        ;; survivors (d,e) — must show EXACTLY ONE destroyed trace.
+        (let [dest-by-actor (frequencies (map (comp :actor-id :tags)
+                                              (destroyed-traces traces)))]
+          (doseq [[_ spawned-id] ids]
+            (is (= 1 (get dest-by-actor spawned-id))
+                (str "actor " spawned-id
+                     " emitted exactly one :rf.machine/destroyed (got "
+                     (get dest-by-actor spawned-id) ") — rf2-ndfjo")))
+          ;; Belt-and-braces: no actor exceeds one destroyed trace.
+          (is (every? #(= 1 %) (vals dest-by-actor))
+              "no actor double-emits :rf.machine/destroyed"))))))

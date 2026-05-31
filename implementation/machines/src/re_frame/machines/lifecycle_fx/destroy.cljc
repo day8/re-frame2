@@ -38,6 +38,38 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(defn- actor-live?
+  "Per rf2-lbjnz — the silent-idempotent liveness probe, shared by the
+  keyword/tracked `destroy-single!` path and the per-actor
+  `destroy-single-actor!` path (rf2-ndfjo). An actor with a resolved
+  `actor-id` is live iff ANY of the following survive:
+
+    - **Handler still registered** at `actor-id` in the event
+      registrar (final-state auto-destroy + prior explicit destroys
+      both unregister; a still-registered handler reliably means
+      \"not yet destroyed\").
+    - **Snapshot present** at `[:rf/runtime :machines :snapshots actor-id]`
+      (covers the mid-drain handler-replaced window + hand-crafted call
+      sites).
+    - **Spawn-order entry present** for `actor-id` in the per-frame
+      spawn-order channel (the dedicated signal for spec-less spawns
+      whose handler+snapshot were both skipped at spawn time).
+
+  A truly-already-destroyed actor has all three gone — the unified
+  teardown projection + `registrar/unregister!` + `spawn-order/forget!`
+  run atomically per `destroy-single-actor!` / `destroy-single!` /
+  `finalize-machine`. See [Spec 005 §Destroy is silent-idempotent
+  (rf2-lbjnz)] for the normative paragraph.
+
+  The tracked-slot signal `destroy-single!` additionally consults is
+  resolved-actor-id agnostic and so stays local to that call site."
+  [frame-id actor-id db]
+  (and actor-id
+       (or (some? (registrar/lookup :event actor-id))
+           (and (some? db)
+                (contains? (get-in db (paths/snapshot-path)) actor-id))
+           (some #(= actor-id %) (spawn-order/frame-order frame-id)))))
+
 (defn destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: run
   the active configuration's `:exit` cascade (rf2-nahfm), apply the
@@ -54,9 +86,18 @@
   Per Spec 005 §Declarative `:spawn` §Composition with explicit
   `:entry` / `:exit`: the actor's `:exit` action runs BEFORE the
   teardown clears the snapshot, so `:exit`-time side effects (HTTP
-  requests, logs, dispatches) execute against the live snapshot."
+  requests, logs, dispatches) execute against the live snapshot.
+
+  Per rf2-ndfjo — silent-idempotent guard: an already-destroyed actor
+  (all liveness signals gone) is a no-op. Returns `true` iff the actor
+  was live and torn down this call, `false` for the silent no-op — so
+  callers (notably `destroy-spawn-all-children!`) can gate their
+  `:rf.machine/destroyed` emit on the actor having actually been live,
+  preventing a double-destroyed trace for join-cancelled survivors the
+  resolution cascade already tore down. Mirrors the `live?` gate
+  `destroy-single!` carries (rf2-lbjnz)."
   [frame-id actor-id]
-  (when actor-id
+  (when (actor-live? frame-id actor-id (frame/frame-app-db-value frame-id))
     ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
     ;; BEFORE any teardown work. This fires `:exit`-emitted fx via
     ;; do-fx and writes any `:data` updates back to the snapshot —
@@ -87,8 +128,12 @@
       (spawn-order/forget! frame-id actor-id)
       (when db-swapped?
         (traces/emit-system-id-released! frame-id @sid actor-id)
-        (registrar/unregister! :event actor-id)
-        @sid))))
+        (registrar/unregister! :event actor-id)))
+    ;; rf2-ndfjo — signal to callers (`destroy-spawn-all-children!`) that
+    ;; this actor was live and torn down this call, so they emit
+    ;; `:rf.machine/destroyed` exactly once. The `when` returns nil for
+    ;; an already-destroyed actor (silent no-op).
+    true))
 
 (defn- destroy-spawn-all-children!
   "Per rf2-6vmw — the declarative-`:spawn-all` exit-cascade form.
@@ -105,16 +150,27 @@
       ;; cascade before teardown; we fire `:rf.machine/destroyed` AFTER it
       ;; so the trace lands after `:exit` — the same exit-then-destroyed
       ;; ordering `destroy-single!` and `finalize-machine` use.
-      (destroy-single-actor! frame-id spawned-id)
+      ;;
+      ;; rf2-ndfjo — silent-idempotent destroy contract (rf2-lbjnz):
+      ;; `:cancel-on-decision?` join resolution (join.cljc/build-resolution-fx)
+      ;; already tore down surviving children via the guarded
+      ;; `destroy-single!` keyword form (one `:destroyed` each) BEFORE the
+      ;; parent's exit cascade re-reads the still-uncleared join-state here.
+      ;; `destroy-single-actor!` now returns falsey for those
+      ;; already-destroyed survivors (its liveness guard short-circuits), so
+      ;; gating the emit on its return value keeps each survivor's
+      ;; `:rf.machine/destroyed` to EXACTLY ONE — no phantom double-destroy.
+      ;;
       ;; rf2-gn80 D6 — `:reason :explicit` discriminates "the parent cascade
       ;; tore the child down" from `:rf.machine/finished` (the auto-destroy
       ;; on `:final?`). Per-child fires omit `:system-id` (the join-state's
       ;; children aren't system-id-bound through the parent's slot).
-      (traces/emit-destroyed! {:frame     frame-id
-                               :actor-id  spawned-id
-                               :parent-id parent-id
-                               :spawn-id invoke-id
-                               :child-id  child-id}))
+      (when (destroy-single-actor! frame-id spawned-id)
+        (traces/emit-destroyed! {:frame     frame-id
+                                 :actor-id  spawned-id
+                                 :parent-id parent-id
+                                 :spawn-id invoke-id
+                                 :child-id  child-id})))
     ;; Clear the join-state slot via the unified projection (slot-only).
     (frame/swap-frame-db! frame-id
                           (fn [db]
@@ -186,16 +242,15 @@
                     (get-in old-db (paths/spawned-path parent-id invoke-id)))
         actor-id  (if tracked? slot-id args)
         ;; rf2-lbjnz — silent-idempotent guard. `live?` is true iff ANY
-        ;; liveness signal survives (handler registered / snapshot
-        ;; present / spawn-order entry / tracked-slot present). See
-        ;; docstring for the rationale and what each signal covers.
-        live?     (and actor-id
-                       (or (some? (registrar/lookup :event actor-id))
-                           (and (some? old-db)
-                                (contains? (get-in old-db (paths/snapshot-path)) actor-id))
-                           (some #(= actor-id %)
-                                 (spawn-order/frame-order frame-id))
-                           (and tracked? (some? slot-id))))]
+        ;; liveness signal survives. The first three (handler registered /
+        ;; snapshot present / spawn-order entry) are the resolved-actor-id
+        ;; signals shared with `destroy-single-actor!` via `actor-live?`
+        ;; (rf2-ndfjo extracted them so both destroy paths apply the
+        ;; identical probe). The tracked-slot signal is local to this site —
+        ;; belt-and-braces for the declarative-`:spawn` tracked-map form's
+        ;; spec-less spawn case. See docstring for what each signal covers.
+        live?     (or (actor-live? frame-id actor-id old-db)
+                      (and tracked? (some? slot-id)))]
     (when live?
       (let [released-sid (teardown/find-system-id-for-actor old-db actor-id)]
         ;; (rf2-nahfm) Run the active configuration's `:exit` cascade

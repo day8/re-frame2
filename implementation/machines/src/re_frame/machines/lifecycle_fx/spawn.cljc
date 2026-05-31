@@ -101,61 +101,69 @@
 ;; The spawn path passes `:bootstrap-pending? true` because the actor's
 ;; first dispatch must fire the initial-entry cascade (rf2-0z73).
 
+(defn- spawn-rejected?
+  "Per rf2-jbbp7 + rf2-f3kp7: decide whether a spawn must be rejected by
+  schema validation BEFORE any registration or install side effect runs.
+  When the spawning machine's spec carries a `:schema`, the freshly-built
+  `initial-snap`'s `:data` is validated against it. A failure emits
+  `:rf.error/schema-validation-failure :where :machine-data :phase :spawn`
+  (via `validate-spawn-data!`) and returns `true`; the caller then skips
+  the trace, the handler registration, the snapshot/system-id/spawn-slot
+  install, the spawn-order record, AND the `:start` dispatch — the
+  rejected actor leaves NO half-installed bookkeeping (no registered
+  handler, no actor state, no phantom `(rf/machines)` entry).
+
+  Returns `false` for a no-schema / no-validator / conforming spawn (and
+  for a spec-less spawn — nothing to validate)."
+  [spec spawned-id initial-snap]
+  (and (some? spec)
+       (not (data-validation/validate-spawn-data!
+              spawned-id spec initial-snap))))
+
 (defn- install-spawn!
-  "Atomically install the spawned actor's initial snapshot, system-id
+  "Atomically install the spawned actor's `initial-snap`, system-id
   binding, and runtime-owned spawn registry slot into the frame's
-  app-db. Returns `:ok` on a successful install, `:rejected` when
-  schema validation rejects the spawned actor's initial `:data` (the
-  caller emitted the trace; the install is skipped). Emits the
-  collision and system-id-bound traces when applicable.
+  app-db. Returns `:ok`. Emits the collision and system-id-bound traces
+  when applicable.
+
+  Per rf2-f3kp7 schema-rejection is decided by the caller (`spawn-fx`)
+  via `spawn-rejected?` BEFORE this fn — and BEFORE the handler
+  registration — runs, so by the time `install-spawn!` is reached the
+  spawn is known-accepted and `initial-snap` (built once by the caller)
+  is threaded in rather than re-built here.
 
   `db-after-alloc` is the post-id-allocation db computed by the caller
   (see `spawn-fx`); `swap-frame-db!`'s fn arg is discarded — the merge
   is applied on top of `db-after-alloc` so the caller's counter bump
   survives. Under Spec 002's single-drainer invariant the discarded
-  re-read is value-equal to the snapshot the caller already had.
-
-  Per rf2-jbbp7: when the spawning machine's spec carries a `:schema`,
-  the freshly-built initial snapshot's `:data` is validated against
-  it before the snapshot lands. A failure emits
-  `:rf.error/schema-validation-failure :where :machine-data
-  :phase :spawn` and short-circuits the install — the actor never
-  starts. Sibling `:system-id` / `[:rf/runtime :machines :spawned]` registrations are also
-  skipped so the rejected actor leaves no half-installed bookkeeping."
-  [frame-id db-after-alloc spec spawned-id
+  re-read is value-equal to the snapshot the caller already had."
+  [frame-id db-after-alloc spec spawned-id initial-snap
    {:keys [system-id parent-id track?] invoke-id :spawn-id}]
-  (let [initial-snap (when spec
-                       (parallel/build-initial-snapshot
-                         spec {:bootstrap-pending? true}))
-        existing     (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))]
-    (if (and spec (not (data-validation/validate-spawn-data!
-                         spawned-id spec initial-snap)))
-      :rejected
-      (do
-        (when (and system-id existing (not= existing spawned-id))
-          (trace/emit-error! :rf.error/system-id-collision
-                             {:frame             frame-id
-                              :system-id         system-id
-                              :existing-machine  existing
-                              :rebound-to        spawned-id
-                              :reason            (str ":system-id " system-id
-                                                      " was already bound to "
-                                                      existing
-                                                      "; rebinding to " spawned-id
-                                                      " (last-write-wins).")
-                              :recovery          :warned-and-replaced}))
-        (frame/swap-frame-db! frame-id
-                              (fn [_db]
-                                (cond-> db-after-alloc
-                                  spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
-                                  system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                                  track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
-        (when system-id
-          (trace/emit! :rf.machine :rf.machine/system-id-bound
-                       {:frame      frame-id
-                        :system-id  system-id
-                        :machine-id spawned-id}))
-        :ok))))
+  (let [existing (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))]
+    (when (and system-id existing (not= existing spawned-id))
+      (trace/emit-error! :rf.error/system-id-collision
+                         {:frame             frame-id
+                          :system-id         system-id
+                          :existing-machine  existing
+                          :rebound-to        spawned-id
+                          :reason            (str ":system-id " system-id
+                                                  " was already bound to "
+                                                  existing
+                                                  "; rebinding to " spawned-id
+                                                  " (last-write-wins).")
+                          :recovery          :warned-and-replaced}))
+    (frame/swap-frame-db! frame-id
+                          (fn [_db]
+                            (cond-> db-after-alloc
+                              spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                              system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                              track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
+    (when system-id
+      (trace/emit! :rf.machine :rf.machine/system-id-bound
+                   {:frame      frame-id
+                    :system-id  system-id
+                    :machine-id spawned-id}))
+    :ok))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
@@ -224,70 +232,79 @@
           (and old-db machine-id-for-alloc)
                         (allocate-actor-id-in-db old-db machine-id-for-alloc)
           :else         [old-db nil])
-        spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id)]
-    (trace/emit! :rf.machine :rf.machine/spawned
-                 {:frame      frame-id
-                  :machine-id (:machine-id args)
-                  :spawned-id spawned-id
-                  :id-prefix  (:id-prefix args)
-                  :start      (:start args)
-                  :on-spawn   (:on-spawn args)
-                  :system-id  system-id
-                  :parent-id  parent-id
-                  :spawn-id  invoke-id})
-    (when spec''
-      (registration/reg-machine* spawned-id spec''))
-    ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
-    ;; runtime-owned spawn registry (atomically under one app-db swap so
-    ;; observers see consistent state). When the spawned id was allocated
-    ;; from the frame's app-db (the hand-emitted-spawn fallback path),
-    ;; `db-after-alloc` already carries the bumped counter — install the
-    ;; snapshot on top of that.
-    ;;
-    ;; Per rf2-jbbp7 the install path validates the spawned actor's
-    ;; initial `:data` against the machine's `:schema` (when declared)
-    ;; before landing the snapshot. A `:rejected` return short-circuits
-    ;; the spawn-order recording AND the `:start` dispatch — the actor
-    ;; never enters the runtime, and no parent state observes a
-    ;; half-installed child.
-    (let [install-result
-          (when old-db
-            (let [r (install-spawn! frame-id db-after-alloc spec'' spawned-id
-                                    {:system-id system-id
-                                     :parent-id parent-id
-                                     :spawn-id invoke-id
-                                     :track?    track?})]
-              (when (= r :ok)
-                ;; Per rf2-vsigt — record the spawned actor in the frame's
-                ;; spawn-order channel so frame-destroy can walk in reverse-
-                ;; creation order per Spec 005 §Cross-Spec Interactions §1.
-                (spawn-order/record! frame-id spawned-id))
-              r))]
-      (when-not (= install-result :rejected)
-        ;; (6) Fire the :start event into the new actor. Per rf2-ijm7,
-        ;; spawns that don't supply :start receive a synthetic
-        ;; [:rf.machine/spawned] so generic child machines can declare their
-        ;; first transition out of an :initial state at spec-write time.
-        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-          ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source :machine-spawn`
-          ;; on the actor-bootstrap dispatch so the Epoch panel's
-          ;; DISPATCH step labels it "from machine spawn" rather than
-          ;; `:unknown` (rf2-hxj0d residual default) or `:fx-dispatch`
-          ;; (which would be the value if the spawn fx routed through
-          ;; `:dispatch`), and Xray's L2 timeline can prefix the row +
-          ;; per-source filter pills can discriminate actor-bootstrap
-          ;; cascades. Per rf2-1ve9h (Mike-approved Option A,
-          ;; 2026-05-28) the prior parallel `:rf/dispatch-origin
-          ;; :internal` axis was collapsed into `:source` —
-          ;; `:machine-spawn` is now the single functional-origin
-          ;; discriminator (closed-enum per Spec-Schemas
-          ;; §`:rf/dispatch-envelope`).
-          (let [start (:start args)
-                opts  {:frame              frame-id
-                       :source             :machine-spawn}]
-            (if (some? start)
-              (dispatch! [spawned-id start] opts)
-              (dispatch! [spawned-id [:rf.machine/spawned]] opts))))))
+        spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id)
+        ;; Build the initial snapshot ONCE here so the schema-rejection
+        ;; decision can gate every side effect below; `install-spawn!`
+        ;; threads the same value rather than re-building it.
+        initial-snap (when spec''
+                       (parallel/build-initial-snapshot
+                         spec'' {:bootstrap-pending? true}))
+        ;; Per rf2-f3kp7: decide schema rejection BEFORE the trace, the
+        ;; handler registration, and the install. The prior code emitted
+        ;; the `:rf.machine/spawned` trace and called `reg-machine*`
+        ;; unconditionally, so a `:schema`-rejected spawn leaked a
+        ;; registered event handler + a phantom `(rf/machines)` entry
+        ;; (the install was correctly skipped, but the registration ran
+        ;; out of step). Gating all three on `(not rejected?)` makes a
+        ;; rejected spawn FULLY atomic — it registers nothing, installs
+        ;; nothing, records no spawn-order entry, dispatches no `:start`,
+        ;; and announces no `:rf.machine/spawned` (only the
+        ;; `:rf.error/schema-validation-failure :phase :spawn` that
+        ;; `validate-spawn-data!` already emitted).
+        rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
+    (when-not rejected?
+      (trace/emit! :rf.machine :rf.machine/spawned
+                   {:frame      frame-id
+                    :machine-id (:machine-id args)
+                    :spawned-id spawned-id
+                    :id-prefix  (:id-prefix args)
+                    :start      (:start args)
+                    :on-spawn   (:on-spawn args)
+                    :system-id  system-id
+                    :parent-id  parent-id
+                    :spawn-id  invoke-id})
+      (when spec''
+        (registration/reg-machine* spawned-id spec''))
+      ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
+      ;; runtime-owned spawn registry (atomically under one app-db swap so
+      ;; observers see consistent state). When the spawned id was allocated
+      ;; from the frame's app-db (the hand-emitted-spawn fallback path),
+      ;; `db-after-alloc` already carries the bumped counter — install the
+      ;; snapshot on top of that.
+      (when old-db
+        (install-spawn! frame-id db-after-alloc spec'' spawned-id initial-snap
+                        {:system-id system-id
+                         :parent-id parent-id
+                         :spawn-id invoke-id
+                         :track?    track?})
+        ;; Per rf2-vsigt — record the spawned actor in the frame's
+        ;; spawn-order channel so frame-destroy can walk in reverse-
+        ;; creation order per Spec 005 §Cross-Spec Interactions §1.
+        (spawn-order/record! frame-id spawned-id))
+      ;; (6) Fire the :start event into the new actor. Per rf2-ijm7,
+      ;; spawns that don't supply :start receive a synthetic
+      ;; [:rf.machine/spawned] so generic child machines can declare their
+      ;; first transition out of an :initial state at spec-write time.
+      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source :machine-spawn`
+        ;; on the actor-bootstrap dispatch so the Epoch panel's
+        ;; DISPATCH step labels it "from machine spawn" rather than
+        ;; `:unknown` (rf2-hxj0d residual default) or `:fx-dispatch`
+        ;; (which would be the value if the spawn fx routed through
+        ;; `:dispatch`), and Xray's L2 timeline can prefix the row +
+        ;; per-source filter pills can discriminate actor-bootstrap
+        ;; cascades. Per rf2-1ve9h (Mike-approved Option A,
+        ;; 2026-05-28) the prior parallel `:rf/dispatch-origin
+        ;; :internal` axis was collapsed into `:source` —
+        ;; `:machine-spawn` is now the single functional-origin
+        ;; discriminator (closed-enum per Spec-Schemas
+        ;; §`:rf/dispatch-envelope`).
+        (let [start (:start args)
+              opts  {:frame              frame-id
+                     :source             :machine-spawn}]
+          (if (some? start)
+            (dispatch! [spawned-id start] opts)
+            (dispatch! [spawned-id [:rf.machine/spawned]] opts)))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
