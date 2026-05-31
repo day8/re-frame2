@@ -139,7 +139,15 @@
       (catch Throwable t
         (ssr/clear-request! frame-id)
         (lifecycle/destroy-frame-quietly! frame-id)
-        {:short-circuit (on-error request t)}))))
+        ;; rf2-ljjh0 — the short-circuit response goes through
+        ;; `safe-on-error` so a caller-supplied `:on-error` that THROWS
+        ;; during a setup failure is contained (trace + locked
+        ;; `default-on-error`) rather than escaping `setup-request-frame!`
+        ;; as a raw container 500 with internal topology in the stack
+        ;; trace. The setup-failure path runs OUTSIDE the handler's own
+        ;; try/catch, so without this guard it is the one `:on-error`
+        ;; call site not protected by the handler body's catch.
+        {:short-circuit (lifecycle/safe-on-error on-error request t)}))))
 
 (defn ^:private render-error-body
   "Build a minimal HTML body from a public-error map — the host's

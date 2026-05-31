@@ -198,11 +198,15 @@
       circuits to a non-streamed Location response (Spec 011 §Redirect
       precedence) AND destroys the per-request frame inline (the writer
       thread is never spawned on this branch),
-    - otherwise spawns a streaming writer on a daemon thread that
-      flushes shell → continuations → final payload → close, and
-      destroys the frame in that thread's finally so the per-frame
-      side-channels clear (Spec 011 §Per-request frame teardown
-      contract) without blocking the response close.
+    - otherwise materialises the response head (status / headers /
+      cookies) FIRST — so a header/cookie serialisation throw on a
+      value that escaped the fx boundary's partial validation
+      short-circuits to `:on-error` with no pipe + no thread to orphan
+      (rf2-z5azc) — and only then spawns a streaming writer on a daemon
+      thread that flushes shell → continuations → final payload →
+      close, destroying the frame in that thread's finally so the
+      per-frame side-channels clear (Spec 011 §Per-request frame
+      teardown contract) without blocking the response close.
 
   The response body is a `PipedInputStream` Ring accepts directly; the
   pipe's writer side runs on a daemon thread so Jetty/http-kit/Aleph
@@ -259,12 +263,37 @@
                   (pipeline/ssr-response->ring-response resp nil)
                   (finally
                     (lifecycle/destroy-frame-quietly! frame-id)))
-                ;; Streaming path: build a pipe + spawn the writer thread.
-                ;; 16 KiB pipe buffer — large enough to absorb the shell
-                ;; chunk in one write so the writer thread rarely blocks
-                ;; on a slow consumer, small enough that one stuck client
-                ;; doesn't pin a non-trivial chunk of heap per request.
-                (let [pipe-in  (PipedInputStream. (* 16 1024))
+                ;; Streaming path. rf2-z5azc — MATERIALISE the response
+                ;; head (status / headers / cookies) BEFORE constructing
+                ;; the pipe or spawning the writer thread. Cookie / header
+                ;; serialisation CAN throw at materialise time on a value
+                ;; that escaped the fx boundary's partial validation —
+                ;; e.g. a `:max-age` carrying CR/LF or a non-integer
+                ;; `:expires`, which `cookie->set-cookie-header` rejects
+                ;; but the runtime `validate-cookie!` (name/value/path/
+                ;; domain only) does not. If we spawned the writer first
+                ;; (the old order), that throw would orphan the pipe: the
+                ;; daemon writer keeps pumping the full body into a pipe
+                ;; whose reader is never handed out, blocks forever once
+                ;; the 16 KiB buffer fills, and leaks one live thread per
+                ;; such request — a resource-exhaustion vector. By
+                ;; building `resp-map` first, a head-materialisation
+                ;; failure short-circuits to the outer catch BEFORE any
+                ;; thread or pipe exists → on-error, no detached writer,
+                ;; no orphaned pipe. "We committed to streaming" is now
+                ;; atomic with "the response envelope is materialisable".
+                ;;
+                ;; No body default-stamp here (we pass our own
+                ;; InputStream); `:body` is assoc'd after the writer is
+                ;; wired below.
+                (let [resp-map (pipeline/ssr-response->ring-response
+                                 resp "" content-type)
+                      ;; 16 KiB pipe buffer — large enough to absorb the
+                      ;; shell chunk in one write so the writer thread
+                      ;; rarely blocks on a slow consumer, small enough
+                      ;; that one stuck client doesn't pin a non-trivial
+                      ;; chunk of heap per request.
+                      pipe-in  (PipedInputStream. (* 16 1024))
                       pipe-out (PipedOutputStream. pipe-in)]
                   ;; Daemon thread (rf2-ekwda): a writer blocked on
                   ;; `.write` to the bounded 16 KiB pipe of a slow-loris
@@ -287,16 +316,17 @@
                       ^String (str "rf2-ssr-streaming-" (name frame-id)))
                     (.setDaemon true)
                     (.start))
-                  ;; Build the Ring response off the response
-                  ;; accumulator's status/headers/cookies — no body
-                  ;; default-stamp (we pass our own InputStream).
-                  (let [resp-map
-                        (pipeline/ssr-response->ring-response resp "" content-type)]
-                    (assoc resp-map :body pipe-in)))))
+                  (assoc resp-map :body pipe-in))))
             (catch Throwable t
-              ;; Setup-path throw OR get-response throw — neither happens
-              ;; under the streaming writer's catch arm; destroy the
-              ;; frame inline and respond per on-error.
+              ;; get-response throw, redirect-materialise throw, OR (per
+              ;; rf2-z5azc) a head-materialisation throw raised BEFORE the
+              ;; writer thread is spawned — none happen under the
+              ;; streaming writer's own catch arm. Destroy the frame
+              ;; inline and respond per on-error. rf2-ljjh0 —
+              ;; `safe-on-error` contains a throwing caller `:on-error`:
+              ;; it falls back to the locked `default-on-error` rather
+              ;; than escaping as a raw container 500 with leaked
+              ;; internals.
               (try (lifecycle/destroy-frame-quietly! frame-id)
                    (catch Throwable _ nil))
-              (on-error request t))))))))
+              (lifecycle/safe-on-error on-error request t))))))))
