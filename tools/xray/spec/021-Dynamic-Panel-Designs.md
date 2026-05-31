@@ -1839,6 +1839,21 @@ into a single canonical home at
   drives the displayed label, so the chip resolves the sub's
   REGISTRATION coord. Pre-fix this cell rendered a bare decorative
   `external-link` glyph with no coord resolution + no click handler.
+- **SUBSCRIPTIONS `caused by <event-id>` cell (rf2-1cc03).** Below the
+  sub-name + `coord-chip`, the same sub-name cell carries a CONDITIONAL
+  `caused by <event-id>` chrome — a `<div>` (testid
+  `rf-xray-epoch-sub-row-cause-event-id-<i>`, attr
+  `data-rf-xray-subs-cause-event-id`) holding a `caused by` label plus
+  the dispatching cascade's trigger event-id, which routes through
+  `edn-inspector/mini` (the same `ei/mini` the sub-id above rides) so
+  the keyword paints the same magenta syntax-token chrome. It NAMES which event invalidated this
+  sub's reactive input — the same attribution the VIEW step surfaces via
+  `:rf.view/cause-event-id`. The cell is OMITTED (not an empty
+  placeholder) when the row carries no `:cause-event-id` — a sub that
+  ran outside any in-flight cascade has no event attribution. The
+  projection threads the slot via a `cond->` assoc so the row key stays
+  absent in that case, parity with the OMIT-vs-nil semantics of the
+  `:rf.sub/cause-event-id` trace tag (rf2-okz1u).
 - **FX-step call-sites (rf2-g1mfc).** Each FX-step row's fx-id mounts
   `coord-chip` (testid `rf-xray-epoch-fx-row-coord-<i>`), exact parity
   with the SUBSCRIPTIONS rows + the HANDLER verb. The coord lookup

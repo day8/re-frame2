@@ -532,7 +532,7 @@ localStorage).
 | `:toggle-reduced-motion` | `#{:dynamic :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
 | `:snapshot-db` | `#{:dynamic}` | Pins the current target-frame's app-db snapshot via `:rf.xray/pin-current`. |
 | `:clear-epoch` | `#{:dynamic}` | Clears the framework's per-frame rings + Xray's frameless secondary ring + the epoch history via `trace-collector/retroactive-scrub!`. |
-| `:mode-toggle` | `#{:dynamic :static}` | Dispatches `:rf.xray/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
+| `:toggle-mode` | `#{:dynamic :static}` | Dispatches `:rf.xray/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
 | `:jump-to-settings` | `#{:dynamic :static}` | Opens the Settings popup. |
 
 The `:modes` filter is the normative convention for palette command
