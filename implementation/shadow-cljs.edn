@@ -274,7 +274,31 @@
             ;; the trio's machine slot (standard-epochs 8031, routes-epochs
             ;; 8032).
             8033 ["../tools/xray/testbeds/machine_epochs"
-                  "out/examples/machine-epochs"]}
+                  "out/examples/machine-epochs"]
+            ;; --- Story showcases (rf2-xz4zn) -------------------------
+            ;; The four Story-enabled builds, on the 804x band (the Xray
+            ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
+            ;; the live app, `/#/stories` mounts the Story shell; the Xray
+            ;; preload is wired (Ctrl+Shift+C). Same source-dir-first
+            ;; cascade as the testbeds above — the hand-written index.html
+            ;; resolves at `/`, the compiled main.js falls through to the
+            ;; build's :output-dir. One command brings all four up:
+            ;;   npx shadow-cljs watch :examples/nine-states-with-stories \
+            ;;     :examples/login-with-stories \
+            ;;     :examples/counter-with-stories :examples/login-form
+            ;; Story shells:
+            ;;   http://localhost:8040/#/stories  nine-states showcase (rf2-rgyia)
+            ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
+            ;;   http://localhost:8042/#/stories  counter (canonical minimal)
+            ;;   http://localhost:8043/#/stories  login-form (5-state)
+            8040 ["../examples/reagent/nine_states"
+                  "out/examples/nine-states-with-stories"]
+            8041 ["../examples/reagent/login"
+                  "out/examples/login-with-stories"]
+            8042 ["../tools/story/testbeds/counter_with_stories"
+                  "out/examples/counter-with-stories"]
+            8043 ["../tools/story/testbeds/login_form"
+                  "out/examples/login-form"]}
 
  :builds
  {:node-test
