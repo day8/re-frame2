@@ -237,6 +237,15 @@ The trace mode is the workhorse for agent loops: dispatch, see what
 fired, decide next step. See
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md) § `dispatch`.
 
+The `await-render` flag (rf2-gfu33) is orthogonal to the mode table: set
+it and the tool resolves only AFTER the substrate has flushed the new
+state to the DOM and the next paint is scheduled, so `dispatch → observe`
+is one deterministic step. It forces synchronous dispatch and routes the
+flush through the substrate-agnostic `re-frame.interop/after-render`
+adapter primitive (Spec 006) + one `requestAnimationFrame`. See
+[`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md) § dispatch §
+Render-settle.
+
 ## Result shape
 
 All tools return EDN inside the MCP `tools/call` `content` text
