@@ -541,13 +541,13 @@
       ;; owns the positioning attribute, the click-outside dismiss,
       ;; `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
       ;;
-      ;; NB the dialog `:on-key-down` is the bare `handle-popover-keydown`
-      ;; builder (NOT `(handle-popover-keydown dispatch)`) — preserved
-      ;; verbatim from the pre-rf2-7oxvd code. That makes the dialog-level
-      ;; keydown a no-op (React calls the 1-arity builder, which returns a
-      ;; fn that is never invoked); Esc closes via the backdrop's
-      ;; correctly-built handler. Filed as a follow-on bug, not touched
-      ;; here (this refactor is behaviour-preserving).
+      ;; Both the backdrop and the dialog get the BUILT keydown handler
+      ;; `(handle-popover-keydown dispatch)` (rf2-op8c7). The dialog
+      ;; previously received the bare 1-arity builder, so React called the
+      ;; builder with the keydown event and discarded the handler fn it
+      ;; returned — making the dialog-level Esc a no-op. With the focus
+      ;; trap keeping focus inside the dialog, a dialog-focused Esc never
+      ;; reached the backdrop's handler, so Esc-on-dialog did not close.
       (modal-chrome/modal-chrome
         {:positioning          positioning
          :backdrop-style       (backdrop-style positioning)
@@ -557,7 +557,7 @@
          :backdrop-testid      "rf-xray-cancellation-cascade-popover-backdrop"
          :dialog-testid        "rf-xray-cancellation-cascade-popover-dialog"
          :on-backdrop-key-down (handle-popover-keydown dispatch)
-         :on-dialog-key-down   handle-popover-keydown
+         :on-dialog-key-down   (handle-popover-keydown dispatch)
          :backdrop-tab-index   -1
          :dialog-tab-index     0}
         (render-cascade cascade close)))))
