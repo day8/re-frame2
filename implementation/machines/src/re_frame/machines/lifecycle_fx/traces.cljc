@@ -56,3 +56,24 @@
                  {:frame      frame-id
                   :system-id  sid
                   :machine-id actor-id})))
+
+(defn emit-destroy-exit-failure!
+  "Fire the destroy-time exit-cascade failure trace
+  (`:rf.error/machine-action-exception`, `:phase :rf.machine/destroy-exit`)
+  when an actor's active-configuration `:exit` cascade threw during
+  teardown. Both destroy-time `:exit` runners — the explicit-destroy
+  wrapper (`lifecycle-fx.exit-cascade/run-child-exit!`) and the
+  final-state auto-destroy (`lifecycle-fx.finalize/finalize-machine`) —
+  fire the SAME diagnostic shape; centralising it here keeps the
+  `:phase` discriminator + reason string one-edit-touches-both, matching
+  `apply-transition-once`'s transition-time exit-cascade failure category
+  with a destroy-time discriminator. Fail-soft: the destroy proceeds with
+  the pre-cascade snapshot."
+  [actor-id frame-id result-info]
+  (trace/emit-error! :rf.error/machine-action-exception
+                     {:machine-id actor-id
+                      :frame      frame-id
+                      :phase      :rf.machine/destroy-exit
+                      :reason     "An :exit action threw during destroy-time cascade."
+                      :recovery   :skipped
+                      :info       result-info}))

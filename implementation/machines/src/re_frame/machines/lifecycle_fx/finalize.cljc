@@ -26,8 +26,10 @@
   unregistered.
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
-  hook into the http-managed artefact (rf2-wvkn) — because both the
-  finalize cascade and the spawn-destroy teardowns invoke it.
+  hook into the http-managed artefact (rf2-wvkn) — the single home for
+  the abort contract every destroy trigger shares: the finalize cascade,
+  the spawn-destroy teardowns (`lifecycle-fx.destroy`), and the
+  frame-destroy singleton-straggler pass (`lifecycle-fx.frame-destroy`).
 
   The actor-teardown app-db dance lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
@@ -145,13 +147,11 @@
                         (assoc-in db (paths/snapshot-path machine-id) next-snapshot)
                         db)
         _             (when (not exit-ok?)
-                        (trace/emit-error! :rf.error/machine-action-exception
-                                           {:machine-id machine-id
-                                            :frame      frame-id
-                                            :phase      :rf.machine/destroy-exit
-                                            :reason     "An :exit action threw during destroy-time cascade."
-                                            :recovery   :skipped
-                                            :info       (result/info exit-result)}))]
+                        ;; Same destroy-exit failure shape as the explicit-
+                        ;; destroy path (`exit-cascade/run-child-exit!`) —
+                        ;; shared via `traces/emit-destroy-exit-failure!`.
+                        (traces/emit-destroy-exit-failure!
+                          machine-id frame-id (result/info exit-result)))]
   (let [child-data (:data next-snapshot)
         ;; Resolve the final state-node so we can extract `:output-key`.
         final-node (cond

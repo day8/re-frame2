@@ -39,11 +39,11 @@
   proceeds as before)."
   (:require [re-frame.fx :as fx]
             [re-frame.frame :as frame]
+            [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.result :as result]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]))
+            [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -85,14 +85,10 @@
           (if (result/fail? r)
             ;; Match `apply-transition-once`'s exit-cascade failure
             ;; trace shape — same category, with a destroy-time
-            ;; discriminator so consumers can disambiguate.
-            (trace/emit-error! :rf.error/machine-action-exception
-                               {:machine-id actor-id
-                                :frame      frame-id
-                                :phase      :rf.machine/destroy-exit
-                                :reason     "An :exit action threw during destroy-time cascade."
-                                :recovery   :skipped
-                                :info       (result/info r)})
+            ;; discriminator so consumers can disambiguate. Shared with
+            ;; `finalize-machine`'s final-state auto-destroy via
+            ;; `traces/emit-destroy-exit-failure!`.
+            (traces/emit-destroy-exit-failure! actor-id frame-id (result/info r))
             (result/with-ok [new-snap exit-fx] r
               ;; (4) Write the post-exit snapshot back. The write is
               ;; transient — the unified teardown projection runs

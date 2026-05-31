@@ -39,9 +39,9 @@
   but DO live in app-db — the walker covers them as a stragglers pass
   after the recorded vector drains."
   (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
+            [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.substrate.adapter :as adapter]
@@ -73,16 +73,6 @@
                 :last-state (:state snapshot)
                 :reason     :parent-frame-destroyed}))
 
-(defn- safe-abort-http!
-  "Best-effort HTTP-abort: fire the late-bind hook if registered. The
-  hook is owned by `re-frame.http-managed` (rf2-wvkn). Idempotent —
-  calling against an actor with no in-flight requests is a no-op."
-  [actor-id]
-  (when-let [abort! (late-bind/get-fn :http/abort-on-actor-destroy)]
-    (try (abort! actor-id)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
-  nil)
-
 (defn- run-singleton-exit-cascade!
   "Singleton-machine destroy on frame teardown: run the actor's `:exit`
   cascade so Spec 005 §Final states §Composition with `:entry` /
@@ -90,10 +80,15 @@
   unregister the handler — singleton handlers live in the global
   registrar per Spec 005 §Spawning §v1-partial footnote: the handler
   outlives any particular frame. Snapshot dissoc is moot at this point
-  (the frame's app-db is about to be released)."
+  (the frame's app-db is about to be released).
+
+  The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
+  late-bind hook via `finalize/abort-actor-in-flight-http!` — the same
+  best-effort, idempotent helper the spawn-destroy + final-state
+  teardowns use, so the rf2-wvkn contract has one home."
   [frame-id actor-id]
   (exit-cascade/run-child-exit! frame-id actor-id)
-  (safe-abort-http! actor-id)
+  (finalize/abort-actor-in-flight-http! actor-id)
   nil)
 
 (defn teardown-on-frame-destroy!
