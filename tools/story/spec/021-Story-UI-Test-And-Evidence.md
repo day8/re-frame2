@@ -254,6 +254,24 @@ The UI MUST:
 - show visual diffs beside app evidence;
 - show a11y findings with selector/source/context links.
 
+The selector/source-link requirement is met per tier (CURRENT, rf2-ffu8t):
+
+- **axe `:rf.assert/a11y` (the `:browser` tier)** carries a real source
+  link. The executor (`re-frame.story.play.browser/eval-a11y`) recovers the
+  offending-element CSS selector(s) from the axe violation's `:nodes` →
+  `:target` (`axe-finding`) — the SAME selectors the a11y panel's overlay
+  decorates — and threads them onto the finding as `:selector` (the primary
+  link) + `:targets` (every node selector). The result UI
+  (`re-frame.story.ui.test-mode.visual_a11y_view`) renders the selector as
+  the finding's locus/source link.
+- **structural `:rf.assert/a11y-structural` (the `:hiccup` tier)** has NO
+  real source coordinate to surface, and the UI does not fabricate one. The
+  `:hiccup-structure` runner walks an in-memory rendered hiccup tree, not a
+  DOM, so there is no CSS selector and no file/line coord on the tree to
+  recover. A structural finding surfaces its offending hiccup TAG as the
+  locus (the strongest honest signal the tier can prove) and offers no
+  selector slot. A real selector for the same surface is the axe tier's job.
+
 Visual-diff UX MUST define:
 
 - baseline source: golden slice, previous run, or named visual baseline;
@@ -285,7 +303,10 @@ The Test-mode and evidence-linkage contract is satisfied when:
   fidelity, and respects egress redaction;
 - visual/a11y results show browser-evidence requirements, render
   cannot-run distinctly, and present diffs/findings beside app evidence
-  with source links;
+  with source links — the axe `:browser`-tier finding carries the
+  offending-element CSS selector recovered from the violation's `:nodes`
+  (CURRENT, rf2-ffu8t); the structural `:hiccup`-tier finding surfaces its
+  hiccup tag (no DOM selector exists at that tier — see §4);
 - failed runs do not first confront the user with a raw app-db diff, trace
   tree, or EDN blob.
 

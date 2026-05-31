@@ -86,9 +86,25 @@
 ;; SAME axe-core findings the panel accumulated WITHOUT the executor needing
 ;; a compile-time dependency on this CLJS-only UI ns. Read-only — the
 ;; executor only reads `frame-id` → violations.
+;;
+;; The panel stores the raw axe-core JS violation objects (it reads them via
+;; `^js` interop in `violation-row`); the `.cljc` executor consumes CLJS data
+;; (`select-keys` / `:nodes` / `:target` keyword access — see
+;; `browser/axe-finding`). So the reader NORMALISES each violation to CLJS
+;; data at this boundary via `js->clj :keywordize-keys`, recovering the
+;; `:nodes` → `:target` selector(s) the source-link projection needs
+;; (rf2-ffu8t — `select-keys [:id :impact :help]` formerly discarded them).
+(defn- ->clj-violations
+  "Normalise the per-frame violations bag to CLJS data for the executor seam.
+  `nil` (no run yet) passes through as nil so the executor falls back to its
+  supplied `:violations` / `:cannot-run`. rf2-ffu8t."
+  [vs]
+  (when (some? vs)
+    (js->clj vs :keywordize-keys true)))
+
 (defonce ^:private _a11y-reader-registered
   (do (browser/register-a11y-reader!
-        (fn [frame-id] (get @violations-by-frame frame-id)))
+        (fn [frame-id] (->clj-violations (get @violations-by-frame frame-id))))
       true))
 
 (defn reset-state!

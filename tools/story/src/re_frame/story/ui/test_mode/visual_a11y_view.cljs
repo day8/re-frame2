@@ -140,17 +140,30 @@
 
 (defn- findings-list
   "Render an a11y findings list (structural or axe) readably — the finding
-  in words + its locus (the offending hiccup tag / axe rule id), the
-  executor's detail line, and (axe) the impact level. Never a raw EDN blob."
+  in words + its locus (the SOURCE LINK: the offending element's CSS selector
+  for axe `:browser`-tier findings, or the hiccup tag for structural ones),
+  the executor's detail line, and (axe) the impact level. Never a raw EDN
+  blob.
+
+  Per rf2-ffu8t the axe tier now carries a real `:selector` (recovered from
+  the violation's `:nodes` → `:target`); when present the locus is tagged
+  `data-selector` so the result UI exposes the source link the spec/021 §4
+  MUST requires. A structural finding has no selector (the `:hiccup` tier
+  walks an in-memory tree, not a DOM — see `pure/structural-a11y-findings`),
+  so it surfaces only its hiccup-tag locus, honestly."
   [findings]
   [:ul {:style (:findings styles) :data-test "story-va-findings"}
-   (for [[i {:keys [finding locus detail impact rule]}] (map-indexed vector findings)]
+   (for [[i {:keys [finding locus detail impact rule selector]}] (map-indexed vector findings)]
      ^{:key (str rule "#" i)}
      [:li {:style       (:finding-row styles)
            :data-test   "story-va-finding"
            :data-rule   (str rule)}
       (when locus
-        [:span {:style (:locus styles) :data-test "story-va-locus"} locus])
+        [:span (cond-> {:style     (:locus styles)
+                        :data-test "story-va-locus"}
+                 selector (assoc :data-selector selector
+                                 :title         (str "source: " selector)))
+         locus])
       [:span {:style (:finding-txt styles)} finding]
       (when impact
         [:span {:style (:impact styles)} impact])
@@ -161,7 +174,7 @@
   "One a11y check card (structural or axe). On `:cannot-run` shows the
   refusal reason; on a clean pass shows an all-clear line; on a fail shows
   the readable findings list."
-  [{:keys [kind status reason count findings]}]
+  [{:keys [kind status reason findings]}]
   [:div {:style       (:card styles)
          :data-test   "story-va-card"
          :data-kind   (name kind)
@@ -180,7 +193,7 @@
 
      :else
      [:div {:style (:all-clear styles) :data-test "story-va-all-clear"}
-      (str "no " (when (= count 0) "") "violations")])])
+      "no violations"])])
 
 (defn- visual-card
   "One visual-snapshot check card. On `:cannot-run` (the headless / no-pixel
