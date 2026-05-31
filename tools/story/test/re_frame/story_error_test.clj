@@ -9,6 +9,7 @@
   drift is gone — every routed site now yields the SAME
   `{:message :stack :data}` shape."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [re-frame.story.error :as story-error]))
 
 ;; ---- throwable->error-map -------------------------------------------------
@@ -24,9 +25,15 @@
       (is (= {:why :test} (:data m))
           ":data is the ex-data of an ExceptionInfo")
       (is (string? (:stack m))
-          ":stack is a string on the JVM (the with-out-str capture of
-           .printStackTrace — the behaviour is preserved verbatim from the
-           pre-consolidation copies)"))))
+          ":stack is a string on the JVM")
+      ;; rf2-qk0h9 regression guard: the trace must be CAPTURED into
+      ;; :stack, not leaked to System/err. The buggy `with-out-str`
+      ;; capture of the no-arg `.printStackTrace` returned "" (still a
+      ;; string — so the bare `string?` assertion above passed while the
+      ;; trace trailed every green run on stderr). Asserting the rendered
+      ;; trace text is actually present pins the explicit-PrintWriter fix.
+      (is (str/includes? (:stack m) "boom")
+          ":stack carries the rendered trace (captured, not leaked to stderr)"))))
 
 (deftest throwable->error-map-non-ex-info-has-nil-data
   (testing "a plain Throwable (no ex-data) yields :data nil WITHOUT an

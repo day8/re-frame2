@@ -31,8 +31,12 @@
     MAY supply an explicit `:message` override (the trace-drain path
     carries a pre-extracted `:exception-message` and falls back to it
     when no throwable is in hand);
-  - `:stack`   — `(.printStackTrace e)` (JVM) / `(.-stack e)` (CLJS);
-    nil when `e` is nil;
+  - `:stack`   — the rendered stack trace string. On the JVM we MUST
+    capture via an explicit `PrintWriter`: the no-arg
+    `Throwable.printStackTrace()` writes to `System/err` (a Java stream
+    `with-out-str` does NOT intercept — it only rebinds Clojure's
+    `*out*`), so capturing the trace requires handing `printStackTrace`
+    a writer directly. On CLJS it is `(.-stack e)`. nil when `e` is nil;
   - `:data`    — `(ex-data e)`; nil for a non-`ExceptionInfo` throwable
     and nil for a nil `e` (`ex-data` already guards the instance check,
     so no explicit `instance?` test is needed).
@@ -57,7 +61,16 @@
    {:message (or message
                  #?(:clj  (when err (.getMessage ^Throwable err))
                     :cljs (when err (str err))))
-    :stack   #?(:clj  (when err (with-out-str (.printStackTrace ^Throwable err)))
+    ;; `with-out-str` rebinds Clojure's `*out*`, but the no-arg
+    ;; `Throwable.printStackTrace()` writes to `System/err` — so the
+    ;; trace LEAKED to stderr (trailing every green test run with a bare
+    ;; stack trace) while `:stack` captured the empty string (rf2-qk0h9).
+    ;; Hand `printStackTrace` an explicit `PrintWriter` so the trace
+    ;; lands in `:stack` and nothing escapes to the console.
+    :stack   #?(:clj  (when err
+                        (let [sw (java.io.StringWriter.)]
+                          (.printStackTrace ^Throwable err (java.io.PrintWriter. sw))
+                          (str sw)))
                 :cljs (when err (.-stack err)))
     ;; `ex-data` already returns nil for a non-ExceptionInfo (and a nil)
     ;; throwable, so no explicit `instance?` guard is needed.
