@@ -66,9 +66,11 @@
   (epoch/clear-epoch-listeners!)
   ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
   ;; doesn't leak between tests — `configure!` merges, so a per-test
-  ;; opt-in to elision would otherwise persist. Per rf2-mrsck the
-  ;; default :trace-events-keep is 5 (finite); fixtures restore the
-  ;; default map verbatim.
+  ;; opt-in to elision would otherwise persist. The fixture forces
+  ;; :trace-events-keep 5 (NOT the shipped default of 50 = :depth, see
+  ;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
+  ;; 2026-05-27) so the keep<depth elision path is reachable with a
+  ;; handful of dispatches.
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -1499,18 +1501,27 @@
         (is (contains? r4 :trace-events)
             "record 4 — :trace-events kept (most-recent)")))))
 
-(deftest trace-events-keep-default-is-finite-five
-  (testing "default :trace-events-keep is a FINITE 5 — drive >5 cascades
-            and the oldest records lose :trace-events while keeping the
-            structured projections (per rf2-mrsck and Security.md
-            §Epoch privacy posture)"
+(deftest trace-events-keep-finite-cap-elides-older-records
+  (testing "a FINITE :trace-events-keep (the fixture configures 5) — drive
+            >keep cascades and the oldest records lose :trace-events while
+            keeping the structured projections (per rf2-mrsck and Security.md
+            §Epoch privacy posture).
+
+            NOTE: this pins the keep<depth ELISION behaviour against the
+            fixture-configured cap of 5, NOT 'the default'. The real
+            shipped default is 50 (= :depth, see
+            `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
+            2026-05-27), at which trace + epoch evict atomically and no
+            retained record drops its :trace-events. The fixture forces 5 so
+            this elision path is reachable with a handful of dispatches."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
-    ;; Default config — :trace-events-keep is the new finite default (5).
+    ;; Fixture-configured cap (NOT the shipped default of 50). Reset-runtime
+    ;; forces :trace-events-keep 5 so this elision path is exercised cheaply.
     (is (= 5 (:trace-events-keep (epoch/current-config)))
-        "default :trace-events-keep is 5")
+        "fixture-configured :trace-events-keep is 5 (the shipped default is 50)")
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))

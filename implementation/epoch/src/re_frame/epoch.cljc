@@ -59,14 +59,20 @@
 ;;
 ;; Design provenance (kept out of the public `configure!` docstring per the
 ;; rf2-ee38b clarity review):
-;;   * `:trace-events-keep` defaults to a FINITE 5 (rf2-mrsck / Security.md
-;;     §Epoch privacy posture): the most-recent five records per frame retain
-;;     raw `:trace-events`; older records keep only the cheap structured
-;;     projections — bounding dev-session heap from accumulated raw traces.
-;;     Apps that need the whole ring's raw streams pass a larger value (or
-;;     one >= the depth cap). `(rf/configure :epoch-history {:trace-events-keep
-;;     nil})` is a no-op against the explicit-value validation; use a numeric
-;;     value or omit the slot.
+;;   * `:trace-events-keep` defaults to a FINITE value equal to `:depth`
+;;     (50 — see `re-frame.epoch.state/default-trace-events-keep`; rf2-mrsck /
+;;     Security.md §Epoch privacy posture). With the default the most-recent
+;;     `:depth` records per frame retain raw `:trace-events`; when an epoch
+;;     evicts from the ring its raw trace evicts with it, so trace + epoch
+;;     stay atomic (Mike pair-debug 2026-05-27 — the prior finite-5 default
+;;     created the discrepancy of 50 retained records but only 5 with their
+;;     `:trace-events`). Older records (beyond the keep-window, when an app
+;;     configures a keep < depth) keep only the cheap structured projections.
+;;     Memory-conscious hosts pass a smaller value (e.g.
+;;     `{:trace-events-keep 5}`); `0` drops every record's `:trace-events`.
+;;     `(rf/configure :epoch-history {:trace-events-keep nil})` is a no-op
+;;     against the explicit-value validation; use a numeric value or omit the
+;;     slot.
 ;;   * Keys are validated at the boundary (refactor-audit r2 rf2-lwn4t
 ;;     §rf2-douii): a `:depth` / `:trace-events-keep` that isn't a
 ;;     non-negative integer is silently dropped rather than stored, so a
@@ -86,7 +92,9 @@
                         `:trace-events` vector. Older records keep the cheap
                         structured projections (`:sub-runs` / `:renders` /
                         `:effects`) but drop `:trace-events` to bound memory.
-                        Default 5.
+                        Defaults to the `:depth` value (50) so trace + epoch
+                        evict atomically; pass a smaller value (e.g. 5) to
+                        bound dev-session heap more aggressively.
     :redact-fn          fn? or nil. When non-nil the runtime invokes the fn
                         once per assembled record between `build-record` and
                         ring-append / listener fan-out, so the ring and every
