@@ -9,7 +9,9 @@
   ## Schema (see `re-frame.story.schemas/XrayPreset`)
 
       {:xray {:open?    true                 ; auto-open the shell
-               :tab      :issues              ; pre-select tab
+               :tab      :trace               ; pre-select tab (rf2-gbz39
+                                              ; removed :issues with the
+                                              ; Xray Issues tab, Option (c))
                :filters  {:out [:my/noise]    ; filter pre-population
                           :in  []}
                :focus    {:event-pos 5}}}     ; pre-focus a cascade pos

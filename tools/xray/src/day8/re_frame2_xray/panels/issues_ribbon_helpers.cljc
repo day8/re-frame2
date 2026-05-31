@@ -1,17 +1,36 @@
 (ns day8.re-frame2-xray.panels.issues-ribbon-helpers
-  "Pure-data helpers for Xray's Issues panel (rf2-jio48 rebuild;
-  Figma reconcile rf2-ad7zx.9).
+  "Pure-data helpers for Xray's issue projection (rf2-jio48 rebuild;
+  Figma reconcile rf2-ad7zx.9; tab removed rf2-gbz39).
+
+  ## The dedicated Issues tab is gone (rf2-gbz39, Option (c))
+
+  Mike RULED Option (c) — the dedicated Issues TAB + its aggregate
+  panel (the old `issues_ribbon.cljs` view) were removed (2026-05-31).
+  Issues now surface inline in the Epoch panel (per-step pass/fail +
+  exception block, rf2-ahhgn; `:db` schema-fail, rf2-kt6js; slow-fx
+  amber), via the L2 event-row pink-wash (rf2-b8guz), and via the
+  always-on issues ribbon signal (the auto-open-on-error watcher). The
+  session-wide aggregate / triage list was consciously dropped.
+
+  This `.cljc` algebra SURVIVES the tab removal — it remains the
+  canonical issue projection feeding TWO live surfaces:
+
+    1. The `:rf.xray/issues-ribbon` composite (registered in
+       `registry.cljs`), which the auto-open-on-error watcher reads
+       (`settings/effects.cljs/install-auto-open-watcher!`) — the
+       cross-epoch \"something is wrong\" signal Mike kept under (c).
+    2. The L2 event-row pink-wash predicate
+       (`panels/l2-timeline/cascade-has-issue?` reuses `issue-event?`
+       so the wash stays in lockstep with the ribbon by construction).
 
   ## Why a separate `.cljc` ns
 
-  The panel view in `issues_ribbon.cljs` paints the per-row issue feed
-  and dispatches into the Xray frame. The *logic* — project the focused
-  epoch's `:trace-events` to the issue subset (errors + warnings +
-  hydration mismatches + schema violations) and project each trace event
-  into a flat row shape — is pure data → data. Splitting the algebra
-  into `.cljc` so it runs under the JVM unit-test target
-  (`clojure -M:test`) is required by the standing rule
-  `feedback_jvm_interop_must_work.md`.
+  The *logic* — project the focused epoch's `:trace-events` to the
+  issue subset (errors + warnings + hydration mismatches + schema
+  violations) and project each trace event into a flat row shape — is
+  pure data → data. Splitting the algebra into `.cljc` so it runs
+  under the JVM unit-test target (`clojure -M:test`) is required by the
+  standing rule `feedback_jvm_interop_must_work.md`.
 
   ## Substrate (per `spec/009-Instrumentation.md` §Error event catalogue)
 

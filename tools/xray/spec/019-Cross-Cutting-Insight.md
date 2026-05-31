@@ -40,10 +40,13 @@ that make them hard to debug from code alone:
    Xray today funnels most of them through one generic Issues row; that
    wastes signal the framework paid to capture.
 
-**The strategic move:** Xray's existing 7-tab chrome (Routing was
+**The strategic move:** Xray's existing 6-tab chrome (Routing was
 promoted to its own L3 tab in rf2-nrbs9 — a deliberate exception
-because cohesive sub-domains earn their own lens) does NOT need an
-8th, 9th tab for the remaining cross-cutting concerns. Cross-cutting
+because cohesive sub-domains earn their own lens; the Issues tab was
+later removed per rf2-gbz39 Option (c), issues surfacing inline + via
+the event-row pink-wash + the always-on issues ribbon signal) does NOT
+need a 7th, 8th tab for the remaining cross-cutting concerns.
+Cross-cutting
 content needs **deep specialised renderings inside the existing
 tabs**, surfaced through five reusable visual idioms:
 
@@ -901,8 +904,9 @@ clause), the findings carry the discussion that locked the opinion.
 - [`000-Vision.md`](000-Vision.md) — the claim, the five canonical
   questions, the audience, the "where Xray fits" diagram.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
-  contract; the spine sub; the 7-tab inventory (Routing added per
-  rf2-nrbs9); the popover invocation contract.
+  contract; the spine sub; the 6-tab inventory (Routing added per
+  rf2-nrbs9; Issues tab removed per rf2-gbz39 Option (c)); the popover
+  invocation contract.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines
   tab's full feature spec; this doc's §2.1 catalogues the bug classes
   that motivate each feature there.

@@ -94,20 +94,21 @@
 ;; ===========================================================================
 ;;
 ;; The Xray focus API's `valid-panels` is `#{:epoch :app-db :views :trace
-;; :machines :routes :issues}` (day8.re-frame2-xray.focus/valid-panels). Note
+;; :machines :routes}` (day8.re-frame2-xray.focus/valid-panels). Note
 ;; this is the FOCUS vocabulary — it uses `:routes` (where the RHS embed
 ;; chip-row uses `:routing`). The spine targets the focus vocabulary because
 ;; it speaks to the host-facing focus API, not the embed chip-row. We mirror
 ;; the set here as pure data so `panel-for-row` can validate a selector
 ;; before building a command (a typo'd panel would otherwise land Xray's
-;; unknown-tab stub).
+;; unknown-tab stub). (rf2-gbz39 — `:issues` was removed alongside the
+;; Xray Issues tab per Mike's Option (c) ruling.)
 
 (def focus-panels
   "The canonical host-facing Xray panel ids a focus command may target
   (mirrors `day8.re-frame2-xray.focus/valid-panels`). Pure data — the
   spine validates its panel selector against this set before building a
-  focus command."
-  #{:epoch :app-db :views :trace :machines :routes :issues})
+  focus command. (rf2-gbz39 dropped `:issues` with the Xray Issues tab.)"
+  #{:epoch :app-db :views :trace :machines :routes})
 
 ;; ===========================================================================
 ;; EVIDENCE STRENGTH  (spec/020 §3 — direct vs attributed)

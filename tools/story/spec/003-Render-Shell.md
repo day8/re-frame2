@@ -341,7 +341,11 @@ namespace (locked in
 | `:trace`        | `(mount-trace!              mount-point opts) → unmount`  | Trace-buffer feed for the focused cascade         |
 | `:machines`     | `(mount-machine-inspector!  mount-point opts) → unmount`  | State-machine chart + arcs/rings/cluster overlays |
 | `:routing`      | `(mount-routing!            mount-point opts) → unmount`  | Registered routes + simulate-URL surface          |
-| `:issues`       | `(mount-issues-ribbon!      mount-point opts) → unmount`  | Cascade-scoped issues feed + escape-hatch lane    |
+
+(rf2-gbz39 — `:issues` + `mount-issues-ribbon!` were removed alongside
+the Xray Issues tab per Mike's Option (c) ruling; issues surface inline
+in the Epoch panel + the L2 event-row pink-wash + the always-on issues
+ribbon signal, so there is no standalone Issues panel to embed.)
 
 Each mount fn:
 
@@ -355,8 +359,8 @@ Each mount fn:
    tree at `mount-point`.
 5. Returns an `unmount` fn so the caller owns lifecycle.
 
-The seven panel ids are also the chip ids in §Right-hand pane's
-chip-row picker.
+The six panel ids are also the chip ids in §Right-hand pane's
+chip-row picker. (rf2-gbz39 dropped `:issues` with the Xray Issues tab.)
 
 ### Story's panel-host — Reagent class-3 driver
 
@@ -379,9 +383,10 @@ hiccup so a variant or panel change forces a fresh React mount
 guarantees no state leaks across Xray-internal bugs).
 
 `mount-fn-for` does a compile-time symbol → fn lookup against the
-canonical seven panel ids (e.g. `:epoch` → `day8.re-frame2-xray.
-panels/mount-epoch-panel!` post rf2-5gl5r) — a nil result is a
-clean no-op render, so Xray absence never throws.
+canonical six panel ids (e.g. `:epoch` → `day8.re-frame2-xray.
+panels/mount-epoch-panel!` post rf2-5gl5r; rf2-gbz39 dropped `:issues`
+with the Xray Issues tab) — a nil result is a clean no-op render, so
+Xray absence never throws.
 
 ### Chip-click → swap sequence
 

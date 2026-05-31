@@ -524,7 +524,7 @@ panel chrome get the chart transitively via Xray.
 
 ## Tab placement
 
-- **Tab id:** 5 of 7 (`m` mnemonic). Routing is now its own L3 tab per rf2-nrbs9.
+- **Tab id:** 5 of 6 (`m` mnemonic). Routing is now its own L3 tab per rf2-nrbs9. (The Issues tab was removed per rf2-gbz39 Option (c) — 6 tabs total now; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal.)
 - **Spine binding:** reads `:rf.xray/focus`. The Machines tab inherits
   the ribbon's selected frame; if a user has a machine spawned in
   `:app/dialog`, they need to select `:app/dialog` in the picker to see

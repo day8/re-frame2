@@ -717,10 +717,11 @@
   blue accent pops.
 
   Every tab therefore maps to the `:accent` token. Domain colour still
-  does load-bearing work INSIDE each panel where it is semantic
-  (`error` red in Issues, machine `green`, route `yellow`, the
-  op-family bands in Trace, the per-panel header icons §021 §17.1.5) —
-  but the HEADER STRIPE is the single accent.
+  does load-bearing work where it is semantic (severity `error` red on
+  the inline Epoch exception block + the L2 event-row issue wash,
+  machine `green`, route `yellow`, the op-family bands in Trace, the
+  per-panel header icons §021 §17.1.5) — but the HEADER STRIPE is the
+  single accent.
 
   The map is retained (rather than collapsed to a constant) so the
   per-tab inventory stays explicit and a future per-panel signal can
@@ -734,8 +735,7 @@
    :views           :accent
    :trace           :accent
    :machines        :accent
-   :routing         :accent
-   :issues          :accent})
+   :routing         :accent})
 
 (defn panel-accent
   "Resolve the L4 panel's header-stripe accent CSS-variable string —
@@ -813,7 +813,10 @@
   | `:trace`      | ⬢    |
   | `:machines`   | ◆    |
   | `:routing`    | 🌐    |
-  | `:issues`     | ⚠    |
+
+  (rf2-gbz39 — the `:issues` glyph (⚠) was removed alongside the Issues
+  tab; Option (c) folds issue surfacing into the Epoch panel + the L2
+  event-row pink-wash + the always-on issues ribbon signal.)
 
   (rf2-4v67l — the Chrome A11y glyph was removed alongside the panel
   itself; a11y dogfooding is now Story's concern per rf2-18t6p +
@@ -830,8 +833,7 @@
    :app-db          "◐"
    :trace           "⬢"
    :machines        "◆"
-   :routing         "🌐"
-   :issues          "⚠"})
+   :routing         "🌐"})
 
 (defn panel-icon-style
   "Build an inline-style map for the panel header icon span. Resolves

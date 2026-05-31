@@ -12,10 +12,13 @@ const {
 } = require('../../../../testbeds/spec-helpers.cjs');
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
-// sidebar + bottom rail is dead. The L3 tab bar exposes 7 tabs:
-// epoch / app-db / views / trace / machines / routing / issues
+// sidebar + bottom rail is dead. The L3 tab bar exposes 6 tabs:
+// epoch / app-db / views / trace / machines / routing
 // (spec/018 §5; spec/007-UX-IA.md §L3 — post rf2-5gl5r the Event/
-// Handler tab was retired in favour of the Epoch panel). Panels
+// Handler tab was retired in favour of the Epoch panel; post rf2-gbz39
+// the Issues tab was removed per Mike's Option (c) ruling — issues
+// surface inline in the Epoch panel + the L2 event-row pink-wash + the
+// always-on issues ribbon signal). Panels
 // without a tab no longer have a UI handoff and are dropped from
 // the shell-sweep scenario.
 const PANEL_HANDOFFS = [
@@ -31,7 +34,10 @@ const PANEL_HANDOFFS = [
   // rf2-lq0ef) is the focused-event navigation lens. Its root view
   // renders the `rf-xray-routing` testid (panels/routing.cljs).
   ['routing', 'rf-xray-routing'],
-  ['issues', 'rf-xray-issues-ribbon'],
+  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
+  // issues surface inline in the Epoch panel + the L2 event-row pink-
+  // wash + the always-on issues ribbon signal (the auto-open-on-error
+  // watcher). There is no dedicated Issues tab to enumerate here.
 ];
 
 const STAGED_SURFACES = [
@@ -149,10 +155,11 @@ async function openXray(page) {
 }
 
 // Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
-// expose `data-testid="rf-xray-tab-<id>"` for the 7 surviving panels
-// (epoch / app-db / views / trace / machines / routing / issues —
+// expose `data-testid="rf-xray-tab-<id>"` for the 6 surviving panels
+// (epoch / app-db / views / trace / machines / routing —
 // spec/018 §5; rf2-5gl5r retired the Event/Handler tab in favour of
-// the Epoch panel).
+// the Epoch panel; rf2-gbz39 removed the Issues tab per Mike's Option
+// (c) ruling).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);
@@ -171,7 +178,10 @@ const LEGACY_PANEL_TO_TAB = {
   'app-db':       'app-db',
   'trace':        'trace',
   'machines':     'machines',
-  'issues':       'issues',
+  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
+  // there is no `issues` tab handoff. Issues surface inline in the
+  // Epoch panel + the L2 event-row pink-wash + the always-on issues
+  // ribbon signal.
 };
 
 // Back-compat wrapper used by scenarios still pointing at the old
@@ -256,7 +266,9 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
     const root = document.getElementById('rf-xray-root');
     const selectors = {
       trace: '[data-testid^="rf-xray-trace-row-"] button[data-testid$="-source-coord"]',
-      issues: '[data-testid^="rf-xray-issues-row-"] button[data-testid$="-source"]',
+      // rf2-gbz39 — the `issues` panel selector was dropped with the
+      // removed Issues tab; source-coord bridge coverage rides the
+      // Trace panel's chips (the same exception traces carry coords).
       hydration: '[data-testid="rf-xray-hydration-source-coord"] button',
     };
     if (!root) return { clicked: false, reason: 'Xray root missing', candidates: [] };
@@ -1046,11 +1058,28 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     ['machine exception', /machine-action-exception|deliberate-throw \/ machine action/],
   ]);
 
-  await clickTab(page, 'issues', 'rf-xray-issues-ribbon');
-  await expectVisible(page.locator('[data-testid="rf-xray-issues-feed"]'), 5000);
-  await assertSourceCoordBridge(page, state, ctx, { panel: 'issues' });
+  // rf2-gbz39 — the dedicated Issues tab was removed (Mike RULED
+  // Option (c)). Exceptions now surface INLINE in the Epoch panel as
+  // the "Exception Thrown" block (rf2-ahhgn / rf2-wnvid). Verify the
+  // inline surfacing, then run the source-coord bridge against the
+  // Trace panel's source-coord chips (the same exception traces carry
+  // the coords) since the Issues feed no longer exists.
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
+  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
+  const exceptionEpochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
+  if (!exceptionEpochText.includes('exception') && !exceptionEpochText.includes('threw')) {
+    failWithDetails('Epoch panel did not surface the inline exception block', {
+      epochText: exceptionEpochText.slice(0, 800),
+    });
+  }
   await clickTab(page, 'trace', 'rf-xray-trace');
   await expectVisible(page.locator('[data-testid="rf-xray-trace-feed"]'), 5000);
+  await waitForValue(
+    () => page.locator('[data-testid^="rf-xray-trace-row-"] button[data-testid$="-source-coord"]').count(),
+    (count) => count > 0,
+    { timeoutMs: 5000, description: 'trace source-coordinate chips' },
+  );
+  await assertSourceCoordBridge(page, state, ctx, { panel: 'trace' });
 }
 
 async function runSchemaViolation(page, state) {
@@ -1117,55 +1146,21 @@ async function runSchemaViolation(page, state) {
     cofxHandlerSkipped: host.cofxCount === 0,
     fxArgsSkipped: !fxWasHandled && host.fxCount === 1,
   };
-  // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Per
-  // spec/018 §5 schema violations now surface in the Issues tab as
-  // `:rf.error/schema-validation-failure` rows (one per `:where`).
-  //
-  // Per rf2-u6dhp the Issues feed is cascade-scoped: only issues
-  // whose `:dispatch-id` matches the spine's focused cascade are
-  // projected. Each `violate-*` click above is its own cascade, so
-  // the focused cascade renders the single schema-violation row for
-  // that one violation — not the whole 4-row aggregate. The trace
-  // assertions above already verify all four `:where` surfaces
-  // fired; here we verify the focused-cascade round-trip (every
-  // violation in this cascade surfaces as a visible Issues row).
-  await clickTab(page, 'issues', 'rf-xray-issues-ribbon');
-  await expectVisible(page.locator('[data-testid="rf-xray-issues-feed"]'), 5000);
-  const issuesProjection = await waitForValue(
-    () => page.evaluate(() => {
-      const rows = Array.from(
-        document.querySelectorAll('[data-testid^="rf-xray-issues-row-"]'),
-      ).filter((el) => /^rf-xray-issues-row-\d+$/.test(el.getAttribute('data-testid') || ''));
-      const descriptions = rows.map((row) => {
-        const desc = row.querySelector('[data-testid$="-description"]');
-        return desc ? (desc.textContent || '').trim() : '';
-      });
-      return {
-        rowCount: rows.length,
-        descriptions,
-        schemaRowCount: descriptions.filter((d) =>
-          d.includes(':rf.error/schema-validation-failure')).length,
-      };
-    }),
-    (projection) => projection.schemaRowCount >= 1,
-    {
-      timeoutMs: 5000,
-      description: 'Issues feed rendered >= 1 schema-validation row in focused cascade',
-    },
-  );
-  state.schemaRecovery.issuesProjection = issuesProjection;
-  // The Issues row's `:description` is built from
-  // `:operation + :tags[:path]` (issues-ribbon-helpers
-  // `short-description`); the `:where` keyword that distinguishes the
-  // four recovery surfaces lives on the raw trace event, not the row.
-  // The trace assertions above already verify all four `:where`
-  // surfaces fired; here we verify that schema-violation traces
-  // round-trip into visible Issues-tab rows for the focused cascade.
-  if (issuesProjection.schemaRowCount < 1) {
-    failWithDetails('Issues feed dropped the focused-cascade schema-violation trace', {
-      expectedMinRowCount: 1,
-      observedRowCount: issuesProjection.schemaRowCount,
-      observed: issuesProjection,
+  // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Post
+  // rf2-gbz39 (Mike RULED Option (c)) the Issues tab was ALSO removed;
+  // schema violations now surface INLINE in the Epoch panel's SIDE
+  // EFFECTS step (rf2-kt6js — `:db` schema-fail projected into the
+  // step) rather than a dedicated Issues feed. The trace assertions
+  // above already verify all four `:where` surfaces fired; here we
+  // verify the focused-cascade round-trip surfaces inline in the Epoch
+  // panel.
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
+  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
+  const schemaEpochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
+  state.schemaRecovery.epochText = schemaEpochText.slice(0, 800);
+  if (!schemaEpochText.includes('schema') && !schemaEpochText.includes('validation')) {
+    failWithDetails('Epoch panel did not surface the inline schema-validation failure', {
+      epochText: schemaEpochText.slice(0, 800),
       schemaEvents,
     });
   }
@@ -1210,13 +1205,10 @@ async function runHttpToggle(page) {
       epochText: epochText.slice(0, 800),
     });
   }
-  // Per rf2-u6dhp the Issues feed is cascade-scoped: when the focused
-  // cascade has no issues the feed `<ul>` is replaced by the silent
-  // 'no issues for this event' empty-state. This scenario's intent
-  // at the Issues tab is to verify the panel/tab handoff works — the
-  // `clickTab` helper already asserts the `rf-xray-issues-ribbon`
-  // panel is visible, which is the right assertion now.
-  await clickTab(page, 'issues', 'rf-xray-issues-ribbon');
+  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c)).
+  // The fx outcomes for this scenario surface inline in the Epoch
+  // panel's SIDE EFFECTS step (asserted above); there is no dedicated
+  // Issues tab to hand off to anymore.
 }
 
 async function runMultiFrame(page, state) {
@@ -1695,8 +1687,10 @@ async function runHydration(page) {
   // ---- (1) verify-hydration! emitted the structured trace ------------
   //
   // Post rf2-xy4yb: the dedicated Hydration debugger panel was
-  // dropped. Per spec/018 §5 hydration mismatches surface as
-  // `:rf.ssr/*` rows (category-prefix "rf.ssr") in the Issues tab.
+  // dropped. Post rf2-gbz39 (Mike RULED Option (c)) the Issues tab was
+  // ALSO removed; hydration mismatches surface as `:rf.ssr/*` rows
+  // (category-prefix "rf.ssr") via the L2 event-row signal + the
+  // always-on issues ribbon (auto-open-on-error) rather than a tab.
   //
   // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
   // OUTSIDE any event-handler context (see testbed `core.cljs:188`).
@@ -1704,51 +1698,29 @@ async function runHydration(page) {
   // event!`) drops out-of-cascade orphan emits — an error with no
   // in-flight cascade AND no `:dispatch-id` (rf2-avvwm) — so the
   // mismatch trace never lands in any `:rf/epoch-record`'s
-  // `:trace-events`. Surfacing orphaned out-of-cascade errors in the
-  // focused-epoch Issues lens is a deliberately separate concern
-  // (the L2 timeline's per-row badges, not this per-epoch panel).
+  // `:trace-events`. Surfacing orphaned out-of-cascade errors is a
+  // deliberately separate concern (the L2 timeline's per-row signal,
+  // not a per-epoch panel).
   //
   // What this scenario verifies end-to-end:
   //
   //   - the trace fired (testbed banner renders the projected
   //     payload — proves `verify-hydration!` reached `emit-error!`)
-  //   - the Issues panel mounts cleanly under cascade (focused-epoch)
-  //     scope and renders either the feed or a proper empty-state —
-  //     proving the focused-epoch projection doesn't crash and the
-  //     head-fallback (rf2-h0120) resolves to a real epoch record.
+  //   - the Xray shell opens cleanly under cascade (focused-epoch)
+  //     scope without crashing — proving the focused-epoch projection
+  //     + head-fallback (rf2-h0120) resolve to a real epoch record.
   const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
   await expectVisible(mismatchBanner, 10000);
   await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
 
-  // ---- (2) Xray Issues panel mounts cleanly under cascade scope ----
+  // ---- (2) Xray shell opens cleanly under cascade scope (rf2-gbz39) ---
+  // The dedicated Issues tab was removed under Option (c). Verify the
+  // shell mounts cleanly and the default Epoch panel renders its
+  // focused-epoch projection without crashing (the head-fallback,
+  // rf2-h0120, resolves to a real epoch record).
   await openXray(page);
-  await clickTab(page, 'issues', 'rf-xray-issues-ribbon');
-  // The Issues panel is the focused-epoch lens (rf2-jio48): with no
-  // explicit focus it head-falls-back to the most-recent epoch
-  // (rf2-h0120). That epoch carries no projected `:error`/`:warning`/
-  // `:advisory` issue (the mismatch trace is out-of-cascade — see
-  // above), so the panel paints the positive `:no-issues` empty-state.
-  // Either the feed `<ul>` OR any of the panel's empty-state branches
-  // is acceptable — all prove the focused-epoch projection is honoured
-  // without crashing. (The legacy cascade-scoped `-for-event` empty
-  // state was collapsed into `:no-issues` by the rf2-jio48 rebuild.)
-  const feedOrEmptyState = page.locator(
-    [
-      '[data-testid="rf-xray-issues-feed"]',
-      '[data-testid="rf-xray-issues-empty-no-issues"]',
-      '[data-testid="rf-xray-issues-empty-no-matches"]',
-      '[data-testid="rf-xray-issues-empty-no-focus"]',
-      '[data-testid="rf-xray-issues-empty-epoch-evicted"]',
-    ].join(', '),
-  );
-  await waitForValue(
-    async () => (await feedOrEmptyState.count()) > 0,
-    (n) => n === true,
-    {
-      timeoutMs: 5000,
-      description: 'Issues panel renders feed-or-empty-state under cascade scope',
-    },
-  );
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
+  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
 }
 
 async function runTraceBudgetSaturation(page, state) {
@@ -2577,18 +2549,20 @@ const SCENARIOS = [
     smoke: true,
     panels: PANEL_HANDOFFS.map(([id]) => id),
     // Post rf2-xy4yb + rf2-y0z5b + rf2-5gl5r: coverage narrowed to the
-    // 7 surviving L3 tabs (Event/Handler retired in favour of the
-    // Epoch panel). Removed surfaces (Time Travel, Causality Graph,
-    // Subscriptions, Routes, Schemas, Hydration, Performance, Flows,
-    // Effects, MCP Server) lost their UI handoff with the 4-layer
-    // chrome refactor and are covered (where still functionally
-    // present) by their dedicated substrate scenarios.
+    // surviving L3 tabs (Event/Handler retired in favour of the Epoch
+    // panel). Post rf2-gbz39 (Option (c)) the Issues tab was removed —
+    // 6 surviving tabs; issues surface inline in the Epoch panel + the
+    // L2 event-row pink-wash + the always-on issues ribbon signal.
+    // Removed surfaces (Time Travel, Causality Graph, Subscriptions,
+    // Routes, Schemas, Hydration, Performance, Flows, Effects, MCP
+    // Server) lost their UI handoff with the 4-layer chrome refactor
+    // and are covered (where still functionally present) by their
+    // dedicated substrate scenarios.
     coveredRows: [
       'Epoch Panel',
       'App-DB Diff',
       'Trace',
       'Machines',
-      'Issues Ribbon',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runShellFeatureSweep,
@@ -2606,24 +2580,29 @@ const SCENARIOS = [
     run: runSourceCoordinatesAndLaunchModes,
   },
   {
-    name: 'deterministic exceptions and issue/trace surfacing',
+    name: 'deterministic exceptions and inline/trace surfacing',
     url: '/testbeds/deliberate-throw/',
-    // rf2-wa3oo: PR-smoke tier. The exception → Issues/Trace surfacing
-    // path is the second-highest-signal slice (it proves the error lens
-    // wires up end-to-end against a real thrown handler). Counter +
-    // deliberate-throw are the only two surfaces the smoke compiles.
+    // rf2-wa3oo: PR-smoke tier. The exception → inline-Epoch/Trace
+    // surfacing path is the second-highest-signal slice (it proves the
+    // error lens wires up end-to-end against a real thrown handler).
+    // Counter + deliberate-throw are the only two surfaces the smoke
+    // compiles. (rf2-gbz39 — the Issues tab was removed under Option
+    // (c); exceptions now surface inline in the Epoch panel + via the
+    // Trace panel source-coord chips.)
     smoke: true,
-    panels: ['issues', 'trace'],
-    coveredRows: ['Epoch Panel', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
+    panels: ['epoch', 'trace'],
+    coveredRows: ['Epoch Panel', 'Trace', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
   },
   {
     name: 'schema violation timeline',
     url: '/testbeds/schema-violation/',
-    // Post rf2-xy4yb: the dedicated Schemas panel was dropped.
-    // Schema violations are now surfaced as Issues-tab rows.
-    panels: ['issues'],
-    coveredRows: ['Issues Ribbon'],
+    // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Post
+    // rf2-gbz39 (Option (c)) the Issues tab was ALSO removed — schema
+    // violations now surface inline in the Epoch panel's SIDE EFFECTS
+    // step (rf2-kt6js).
+    panels: ['epoch'],
+    coveredRows: ['Epoch Panel'],
     run: runSchemaViolation,
   },
   {
@@ -2633,8 +2612,10 @@ const SCENARIOS = [
     // are now inline steps inside the Epoch panel's numbered cascade.
     // Performance panel is gone too (Mike's call: use Chrome DevTools
     // Performance). rf2-5gl5r: `event` panel renamed to `epoch`.
-    panels: ['epoch', 'issues', 'trace'],
-    coveredRows: ['Epoch Panel', 'Issues Ribbon', 'Trace'],
+    // rf2-gbz39: the Issues tab was removed (Option (c)) — fx outcomes
+    // surface inline in the Epoch panel's SIDE EFFECTS step.
+    panels: ['epoch', 'trace'],
+    coveredRows: ['Epoch Panel', 'Trace'],
     run: runHttpToggle,
   },
   {
@@ -2757,9 +2738,12 @@ const SCENARIOS = [
     name: 'hydration mismatch debugger',
     url: '/testbeds/ssr-hydration-mismatch/',
     // Post rf2-xy4yb: the dedicated Hydration debugger panel was
-    // dropped. Hydration mismatches surface in the Issues tab.
-    panels: ['issues'],
-    coveredRows: ['Issues Ribbon'],
+    // dropped. Post rf2-gbz39 (Option (c)) the Issues tab was ALSO
+    // removed; hydration mismatches surface via the L2 event-row signal
+    // + the always-on issues ribbon. The scenario now verifies the
+    // Xray shell + Epoch panel mount cleanly under cascade scope.
+    panels: ['epoch'],
+    coveredRows: ['Epoch Panel'],
     run: runHydration,
   },
   // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------

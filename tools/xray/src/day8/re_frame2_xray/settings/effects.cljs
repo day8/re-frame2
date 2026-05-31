@@ -479,22 +479,25 @@
 ;; ---- auto-open-on-error -------------------------------------------------
 ;;
 ;; The auto-open-on-error wiring is a sub-watcher: we subscribe to the
-;; existing `:rf.xray/issues-ribbon` sub (the same one the Issues
-;; panel reads) and dispatch `mount/open!` on the first transition
-;; from empty → non-empty IFF the toggle is on AND Xray is not
-;; already visible. Two install triggers, both idempotent: (1)
-;; `mount/ensure-xray-frame!` on first Xray open when the persisted
-;; toggle is on, (2) `:rf.xray/settings-update` on toggle flip-on.
-;; Detached on flip-off.
+;; `:rf.xray/issues-ribbon` composite (registered in `registry.cljs`)
+;; and dispatch `mount/open!` on the first transition from empty →
+;; non-empty IFF the toggle is on AND Xray is not already visible. Two
+;; install triggers, both idempotent: (1) `mount/ensure-xray-frame!`
+;; on first Xray open when the persisted toggle is on, (2)
+;; `:rf.xray/settings-update` on toggle flip-on. Detached on flip-off.
+;;
+;; This is the always-on issues RIBBON signal Mike KEPT under rf2-gbz39
+;; Option (c): the dedicated Issues tab + its aggregate panel were
+;; removed, but the cross-epoch "something is wrong" signal survives as
+;; this auto-open watcher reading the same composite.
 ;;
 ;; ## Why subscribe rather than register a trace-cb
 ;;
-;; The issues-ribbon sub already does the severity classification,
-;; the filter application, the empty-state classification — wiring
-;; the watcher to its output means we react to the exact shape the
-;; Issues panel renders, not the raw trace stream. A new severity
-;; that the helpers classify differently (or a new filter axis)
-;; rides through this watcher for free.
+;; The issues-ribbon composite already does the severity
+;; classification + the empty-state classification — wiring the watcher
+;; to its output means we react to the exact projected issue feed, not
+;; the raw trace stream. A new severity that the helpers classify
+;; differently rides through this watcher for free.
 ;;
 ;; ## Why not install at preload
 ;;

@@ -119,10 +119,13 @@
 
 (def valid-panels
   "The canonical host-facing Xray panel (L4 tab) ids a focus command
-  may target. Matches the spine's 7-tab inventory (Epoch · app-db ·
-  Views · Trace · Machine · Routes · Issues) — internal registry keys
-  `:views` / `:routes` per `tools/xray/spec/007-UX-IA.md`."
-  #{:epoch :app-db :views :trace :machines :routes :issues})
+  may target. Matches the spine's 6-tab inventory (Epoch · app-db ·
+  Views · Trace · Machine · Routes) — internal registry keys
+  `:views` / `:routes` per `tools/xray/spec/007-UX-IA.md`. The Issues
+  tab was removed per rf2-gbz39 (Option (c) — issues surface inline in
+  the Epoch + the L2 event-row pink-wash + the always-on issues ribbon
+  signal), so `:issues` is no longer a focusable panel."
+  #{:epoch :app-db :views :trace :machines :routes})
 
 ;; ---------------------------------------------------------------------------
 ;; Pure command → dispatches translation (JVM-runnable)

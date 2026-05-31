@@ -184,15 +184,23 @@
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 6. Issues tab pre-selected ---------------------------------
-  (story/reg-variant :story.xray.chrome/tab-issues
-    {:doc        "Chrome with the Issues tab pre-selected. Trace
-                 buffer carries an issue mix (errors / warnings /
-                 info); the panel projection surfaces the issue
-                 feed."
+  ;; ----- 6. Chrome under issue load (rf2-gbz39) ---------------------
+  ;; The dedicated Issues tab was removed per Mike's Option (c) ruling;
+  ;; issues now surface INLINE in the Epoch panel + via the L2 event-
+  ;; row pink-wash + the always-on issues ribbon signal. This variant
+  ;; keeps the issue-bearing trace buffer but pre-selects the Epoch tab
+  ;; — pinning the chrome's response under issue load (the L2 rows wash
+  ;; pink; the Epoch panel surfaces the exception inline) rather than a
+  ;; standalone Issues feed that no longer exists.
+  (story/reg-variant :story.xray.chrome/issue-load
+    {:doc        "Chrome under issue load. Trace buffer carries an
+                 issue mix (errors / warnings / info); the L2 event
+                 rows wash pink (rf2-b8guz) and the Epoch panel
+                 surfaces the issues inline (rf2-ahhgn). No dedicated
+                 Issues tab post rf2-gbz39 (Option (c))."
      :setup      (chrome-setup
                    {:trace-buffer (fixtures-trace/error-buffer)
-                    :selected-tab :issues})
+                    :selected-tab :epoch})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 

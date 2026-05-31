@@ -193,14 +193,17 @@
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
 (deftest panel-domain-map-covers-every-l4-tab
-  (testing "rf2-5kfxe.8 — the 7 L4 tabs each get a domain colour, so
+  (testing "rf2-5kfxe.8 — the 6 L4 tabs each get a domain colour, so
             panels are distinguishable at a glance via the 3px left
-            border on their header. (rf2-4v67l — Chrome A11y was removed
-            in favour of Story's already-shipped chrome-a11y dogfood per
-            rf2-18t6p. rf2-ga16q — Machines Canvas removed; its
-            browse-all canvas relocated to the Static Machines sub-tab.)"
+            border on their header. (rf2-gbz39 — the Issues tab was
+            removed per Mike's Option (c) ruling; issues surface inline
+            + event-row pink-wash + the always-on issues ribbon signal.
+            rf2-4v67l — Chrome A11y was removed in favour of Story's
+            already-shipped chrome-a11y dogfood per rf2-18t6p. rf2-ga16q
+            — Machines Canvas removed; its browse-all canvas relocated
+            to the Static Machines sub-tab.)"
     (let [tabs #{:event :app-db :views :trace :machines
-                 :routing :issues}]
+                 :routing}]
       (is (= tabs (set (keys t/panel-domain->token)))))))
 
 (deftest panel-accent-resolves-through-tokens
@@ -226,7 +229,7 @@
             rf2-on4cm the border resolves through the active theme's
             CSS variable (`var(--rf-xray-…)`) rather than a hardcoded
             hex."
-    (let [s (t/accent-stripe-style :issues)]
+    (let [s (t/accent-stripe-style :machines)]
       (is (re-find #"3px solid" (:border-left s)))
       (is (re-find #"var\(--rf-xray-" (:border-left s))
           "the border ends with a CSS-variable reference, not a hardcoded hex")
@@ -549,10 +552,12 @@
   (testing "rf2-ezx8w — every L4 tab has a header-icon glyph per
             spec/021 §17.1.5. Mirrors `panel-domain->token` so the
             icon and the accent stripe address the same tab keys.
-            (rf2-4v67l — Chrome A11y removed in favour of Story's
-            already-shipped chrome-a11y dogfood per rf2-18t6p.)"
+            (rf2-gbz39 — the Issues tab + its ⚠ glyph were removed per
+            Mike's Option (c) ruling. rf2-4v67l — Chrome A11y removed
+            in favour of Story's already-shipped chrome-a11y dogfood
+            per rf2-18t6p.)"
     (let [tabs #{:event :reactive :views :app-db :trace :machines
-                 :routing :issues}]
+                 :routing}]
       (is (= tabs (set (keys t/panel-icon)))))))
 
 (deftest panel-icon-glyphs-are-strings
@@ -571,8 +576,7 @@
     (is (= "◐" (:app-db          t/panel-icon)))
     (is (= "⬢" (:trace           t/panel-icon)))
     (is (= "◆" (:machines        t/panel-icon)))
-    (is (= "🌐" (:routing         t/panel-icon)))
-    (is (= "⚠" (:issues          t/panel-icon)))))
+    (is (= "🌐" (:routing         t/panel-icon)))))
 
 (deftest panel-icon-style-rides-panel-accent
   (testing "rf2-ezx8w — `panel-icon-style` resolves the glyph colour

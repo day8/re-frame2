@@ -1154,8 +1154,11 @@
 
 (deftest sub-issues-ribbon-shape-on-empty-buffer
   (testing ":rf.xray/issues-ribbon returns :no-focus empty-kind when
-            no focused epoch yet (rf2-jio48 — panel is focused-epoch-
-            scoped per spec/021 §1.2; cold-start surfaces :no-focus)"
+            no focused epoch yet (rf2-jio48 — focused-epoch-scoped
+            projection per spec/021 §1.2; cold-start surfaces :no-focus.
+            rf2-gbz39 — the Issues tab was removed under Option (c), but
+            this composite survives as the auto-open-on-error signal
+            source + now lives in registry.cljs)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]

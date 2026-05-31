@@ -598,7 +598,7 @@ Storybook commodity alternatives live in
 | Gradient mesh + grain backdrop — anti-flat-chrome composition | F7 / rf2-4kqvw | Stage 4 |
 | Sidebar glyph rhythm — 5 SVG glyphs (story=◆, variant=●, workspace=▦, chevron, external-link); amber-diamond per-row; amber-active row border | F8 / rf2-ck4x5 | Stage 4 polish |
 | 5-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| REC with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |
-| Xray-in-Story per-panel embed — Xray's RHS panels (`:app-db`, `:epoch`, `:trace`, `:machines`, `:views`, `:routing`, `:issues` — post rf2-5gl5r `:epoch` supersedes the retired `:event-detail`) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
+| Xray-in-Story per-panel embed — Xray's RHS panels (`:app-db`, `:epoch`, `:trace`, `:machines`, `:views`, `:routing` — post rf2-5gl5r `:epoch` supersedes the retired `:event-detail`; rf2-gbz39 dropped `:issues` with the Xray Issues tab) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
 | Phase 3 chrome surfaces — density knob, command palette, settings modal, polish sweep | rf2-38pb9 cluster | Stage 6 polish |
 
 These ship inside Story's v1 envelope; they are not deferrals. The

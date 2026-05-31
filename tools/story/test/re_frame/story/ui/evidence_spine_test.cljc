@@ -286,6 +286,7 @@
 
 (deftest focus-panels-mirror-host-facing-vocabulary
   (testing "the spine's focus-panel set matches the Xray focus API's
-            valid-panels (uses :routes / :views, NOT the embed's :routing)"
-    (is (= #{:epoch :app-db :views :trace :machines :routes :issues}
+            valid-panels (uses :routes / :views, NOT the embed's :routing).
+            rf2-gbz39 dropped :issues with the Xray Issues tab (Option (c))."
+    (is (= #{:epoch :app-db :views :trace :machines :routes}
            spine/focus-panels))))

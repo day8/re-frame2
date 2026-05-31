@@ -40,8 +40,8 @@
 (deftest merge-preset-variant-overrides-story
   (testing "variant slot wins over story slot at the top level"
     (let [story {:open? true :tab :epoch}
-          vari  {:tab :issues}]
-      (is (= {:open? true :tab :issues}
+          vari  {:tab :trace}]
+      (is (= {:open? true :tab :trace}
              (xray-preset/merge-preset story vari))))))
 
 (deftest merge-preset-deep-merges-filters
@@ -73,12 +73,12 @@
     (story/reg-story :story.story-preset
       {:doc "preset on story"
        :component :Some.view
-       :xray {:open? true :tab :issues}})
+       :xray {:open? true :tab :trace}})
     (story/reg-variant :story.story-preset/v
       {:doc "v"})
     (let [p (xray-preset/resolve-preset :story.story-preset/v)]
       (is (= true     (:open? p)))
-      (is (= :issues  (:tab   p))))))
+      (is (= :trace   (:tab   p))))))
 
 (deftest resolve-preset-merges-story-and-variant
   (testing "variant :xray overrides story slot, :filters deep-merge"
@@ -90,11 +90,11 @@
                :filters {:in [:keep/x]}}})
     (story/reg-variant :story.both/v
       {:doc "v"
-       :xray {:tab :issues
+       :xray {:tab :trace
                :filters {:out [:drop/y]}}})
     (let [p (xray-preset/resolve-preset :story.both/v)]
       (is (= true                                (:open? p)))
-      (is (= :issues                             (:tab   p)))
+      (is (= :trace                              (:tab   p)))
       (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
 
 ;; ---- CLJS-only: apply-preset! --------------------------------------------
@@ -105,7 +105,7 @@
        (story/reg-story :story.no-xray
          {:doc "no xray"
           :component :Some.view
-          :xray {:open? true :tab :issues}})
+          :xray {:open? true :tab :trace}})
        (story/reg-variant :story.no-xray/v
          {:doc "v"})
        ;; rf2-ibpwr: post-fix `xray-available?` is a compile-time

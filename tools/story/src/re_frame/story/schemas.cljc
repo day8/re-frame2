@@ -308,7 +308,7 @@
                  are the default RHS surface; `:open?` survives for the
                  popout / whole-shell escape hatch only.
   - `:panel`   — rf2-v1ach. The Xray panel to mount in the RHS Xray
-                 host. Post rf2-5gl5r, one of:
+                 host. Post rf2-5gl5r + rf2-gbz39, one of:
                    `:epoch` (default — supersedes the retired
                               `:event-detail`)
                    `:app-db`
@@ -316,7 +316,10 @@
                    `:trace`
                    `:machines`
                    `:routing`
-                   `:issues`
+                 (rf2-gbz39 removed `:issues` alongside the Xray Issues
+                 tab per Mike's Option (c) ruling; issues surface inline
+                 in the Epoch panel + the L2 event-row pink-wash + the
+                 always-on issues ribbon signal.)
                  Authors choose the panel-id that fits the story's
                  diagnostic question (`:counter/at-five` → `:app-db`,
                  `:routing-demo/*` → `:routing`, etc.). The user can

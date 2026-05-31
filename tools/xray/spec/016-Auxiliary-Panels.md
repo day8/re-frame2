@@ -2,8 +2,8 @@
 
 The normative home for the per-tab content contracts beyond the hero
 4-layer chrome architecture in
-[`018-Event-Spine.md`](./018-Event-Spine.md). The 7-tab inventory in
-[`000-Vision.md`](./000-Vision.md) §The 7-tab inventory is the
+[`018-Event-Spine.md`](./018-Event-Spine.md). The 6-tab inventory in
+[`000-Vision.md`](./000-Vision.md) §The 6-tab inventory is the
 top-level navigation map; this doc gives the per-tab implementation
 contract a one-shot implementer needs — inputs (subs / events
 consumed), main interactions, observable outputs — without having to
@@ -13,18 +13,23 @@ The per-tab content this doc covers:
 
 | Tab content | `:rf.xray/panels.*` | Source / phase |
 |---|---|---|
-| Epoch tab content (numbered cascade) | `epoch-panel` | rf2-sc3r1; supersedes the retired Event/Handler panel per rf2-5gl5r (see §9.1 of [`021`](./021-Dynamic-Panel-Designs.md)) |
-| Issues tab content | `issues-ribbon` | Phase 5 (rf2-d1p4o); unified feed per [`018-Event-Spine.md`](./018-Event-Spine.md) §5.4 |
-| Routing tab content (7th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
+| Epoch tab content (numbered cascade) | `epoch-panel` | rf2-sc3r1; supersedes the retired Event/Handler panel per rf2-5gl5r (see §9.1 of [`021`](./021-Dynamic-Panel-Designs.md)). Carries the inline issue surfacing (exception block + schema-fail step) per rf2-gbz39 Option (c) |
+| Routing tab content (6th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
 
-## 13-panel inventory (rf2-crhr8 + rf2-3r3ao)
+## 12-panel inventory (rf2-crhr8 + rf2-3r3ao; rf2-gbz39)
 
 Every Xray panel is independently mountable per
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract. The
-4-tier surface inventory totals 13 panels — 11 independently
-mountable, 2 internal sub-components. The canonical Panel-component
-mount paths and L3-tab backing (when applicable) are:
+4-tier surface inventory totals 12 panels — 10 independently
+mountable, 2 internal sub-components. (The Issues tab + its
+`issues-ribbon/Panel` were removed per rf2-gbz39 Option (c) — Mike
+RULED the dedicated aggregate tab away; issues surface inline in the
+Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon
+signal. The underlying `:rf.xray/issues-ribbon` projection survives in
+`registry.cljs` as the ribbon signal's data source but no longer backs
+a mountable panel.) The canonical Panel-component mount paths and
+L3-tab backing (when applicable) are:
 
 | # | Tier | Panel | Mount path (`day8.re-frame2-xray.panels.*`) | Backs L3 tab |
 |---|---|---|---|---|
@@ -34,13 +39,12 @@ mount paths and L3-tab backing (when applicable) are:
 | 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
 | 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
 | 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
-| 7  | 1 | Issues tab           | `issues-ribbon/Panel`               | Issues |
-| 8  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
-| 9  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
-| 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
-| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
-| 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
-| 13 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
+| 7  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
+| 8  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
+| 9  | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
+| 10 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
+| 11 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
+| 12 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
 
 Panel-by-panel detail (subs / events / interactions) lives in the
 sections below. Tier 4 sub-components are geometry-coupled to
@@ -190,25 +194,36 @@ A registered-flows-overview is reachable via the Cmd-K palette under
 the `:flow` source: flow-id, inputs, output path, last recompute. No
 standalone tab.
 
-## Issues panel
+## Issues — the dedicated tab was REMOVED (rf2-gbz39, Option (c))
 
-The Issues panel is a **focused-epoch lens** per
-[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8
-(canonical). Reads the focused epoch's `:trace-events` and projects
-the issue subset (errors + warnings + advisories) per
+**Mike RULED Option (c) (2026-05-31): the dedicated Issues tab + its
+aggregate `issues-ribbon/Panel` were removed.** The session-wide
+aggregate / triage list the tab provided was consciously dropped.
+Issues now surface through three kept surfaces:
+
+- **Inline in the Epoch panel** — the "Exception Thrown" block +
+  per-step pass/fail (rf2-ahhgn / rf2-wnvid); `:db` schema-fail in the
+  SIDE EFFECTS step (rf2-kt6js); slow-fx duration + amber.
+- **The L2 event-row pink-wash** (rf2-b8guz) — rows whose epoch
+  contains an issue.
+- **The always-on issues ribbon signal** — the auto-open-on-error
+  watcher reads the surviving `:rf.xray/issues-ribbon` projection
+  (registered in `registry.cljs`) and pops Xray open on the first
+  empty→non-empty transition. The cross-epoch "something is wrong" cue.
+
+The issue projection (`:rf.xray/issues-ribbon`) reads the focused
+epoch's `:trace-events` and projects the issue subset (errors +
+warnings + advisories) per
 [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
-§Error event catalogue.
+§Error event catalogue. The pure-data algebra lives in
+`panels/issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
+predicate `l2-timeline/cascade-has-issue?`). What was a panel lens is
+now purely a signal source.
 
-The legacy aggregate-feed shape (cascade-scoped global ribbon +
-`:ungrouped` escape-hatch lane + `since-ms` axis) is **gone** as of
-rf2-jio48 — spec/021 §1.2 binds every L4 panel to the focused-epoch
-scope; cross-epoch navigation lives on the L2 timeline's per-row
-badges. Evicted-epoch surfaces use the canonical placeholder per
-spec/021 §10.7.
-
-For the full per-panel contract (layout, queries, empty states,
-cross-panel navigation, film-strip) see
-[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.
+(Historical: pre-rf2-gbz39 the Issues panel was a focused-epoch lens
+per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+§8; the rf2-jio48 rebuild had already dropped the legacy aggregate-feed
+shape. The §8 panel-design contract is superseded by this removal.)
 
 ## Performance — dropped (see §Performance cross-link at top of file)
 
@@ -636,26 +651,33 @@ in three columns under the Epoch panel. See
 [`006-Hydration-Debugger.md`](006-Hydration-Debugger.md)
 §Vision §Head model inspector.
 
-### Issues tab — pending-navigation card
+### Pending-navigation card
 
 When `:rf/pending-navigation` is set in app-db (a `:can-leave` guard
-rejected), surface it as a yellow card at the top of the App-db tab
-+ the Issues tab. Shows the requested URL, the reason, the rejecting
-route, the rejecting guard, and three action buttons (re-evaluate /
-force continue / cancel). See
+rejected), surface it as a yellow card at the top of the App-db tab.
+Shows the requested URL, the reason, the rejecting route, the rejecting
+guard, and three action buttons (re-evaluate / force continue /
+cancel). (Pre rf2-gbz39 this also surfaced in the Issues tab; that tab
+was removed per Option (c) — the App-db card + the issues ribbon signal
+carry it now.) See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.6.
 
-### Issues tab — flow cascade-halt alarm
+### Flow cascade-halt alarm
 
 When `:rf.error/flow-eval-exception` fires, surface a high-priority
-entry listing the subsequent flows that did NOT run (the cascade-halt
-clause of the atomicity contract per Spec 013 §Failure semantics). See
+entry inline in the Epoch panel (+ the issues ribbon signal) listing
+the subsequent flows that did NOT run (the cascade-halt clause of the
+atomicity contract per Spec 013 §Failure semantics). (rf2-gbz39 removed
+the Issues tab per Option (c); the alarm surfaces inline + via the
+ribbon signal.) See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.4.
 
-### Issues tab — open-redirect / CRLF / trusted-shell advisories
+### Open-redirect / CRLF / trusted-shell advisories
 
-Three security-class advisories surface in Issues at `:advisory`
-severity (different from `:error` / `:warning`, not pushed to top):
+Three security-class advisories surface at `:advisory` severity
+(different from `:error` / `:warning`, not pushed to top) — inline in
+the Epoch panel + via the issues ribbon signal (rf2-gbz39 removed the
+dedicated Issues tab per Option (c)):
 
 - Open-redirect when `:rf.server/redirect` uses caller-untrusted
   input (Spec 011 rf2-zfm8v).
@@ -725,7 +747,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
 
 ## Cross-references
 
-- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 7-tab
+- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab
   inventory.
 - [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) —
   the 5-idioms × 4-areas matrix driving the per-tab content growth
