@@ -257,7 +257,7 @@ The RHS stacks four regions vertically:
    the contract between Story (the host) and Xray (the panel
    provider).
 
-   The region renders three things:
+   The region renders four things:
 
    - **Chip-row picker.** A horizontal strip of chips
      `[Event] [App-db] [Views] [Trace] [Machines] [Routing] [Issues]`
@@ -270,6 +270,30 @@ The RHS stacks four regions vertically:
      chip — clicking it opens the full Xray 4-layer shell in a
      second window via `day8.re-frame2-xray.mount/popout!`, the
      escape hatch for the chrome the per-panel embed elides.
+   - **Event spine band (rf2-9k43e).** A COMPACT, clickable
+     recent-events spine sitting BETWEEN the chip-row and the panel
+     host (`<div data-test="story-xray-spine-band">`). It hosts the
+     SAME `shell/event-list` L2 component the full Xray shell
+     composes — via Xray's `panels/mount-event-spine!` (see
+     [`tools/xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md)
+     §Embeddable event spine) — so a variant's event SEQUENCE is
+     inspectable IN-PLACE, not only the final/focused event. The
+     spine + the chip-selected panel mount in the SAME `:rf/xray`
+     frame; clicking a PAST event in the spine dispatches
+     `:rf.xray/focus-cascade` (the row's own handler, reused
+     verbatim from the full shell), which re-binds the spine sub
+     `:rf.xray/focus` — and the panel below re-renders against the
+     chosen epoch (app-db + epoch panels update to that epoch).
+     **Mike RULED scope = A (2026-06-01):** the embed's inline spine
+     is the compact in-place affordance; the `[Pop out ↗]` /
+     `Ctrl+Shift+C` full-shell stays the deep-history escape hatch
+     (NOT a second full shell). The band is height-capped (the
+     full-shell L2 defaults to ~200px; Story's RHS column is 320px,
+     so the host caps the band to keep it compact and lets the
+     list's own `overflow-y:auto` scroll older events — the host
+     owns the container size). While the embed is collapsed
+     (rf2-ba86n.19 disclosure) the spine drops too — no spine mount,
+     no L2 compute.
    - **Panel host.** A `<div data-rf-xray-panel-host=<panel-id>>`
      into which one of Xray's `panels/mount-<panel>!` fns
      ([`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs))
@@ -347,6 +371,21 @@ the Xray Issues tab per Mike's Option (c) ruling; issues surface inline
 in the Epoch panel + the L2 event-row pink-wash + the always-on issues
 ribbon signal, so there is no standalone Issues panel to embed.)
 
+The RHS additionally mounts one **L2 spine** (rf2-9k43e), the compact
+in-place event navigator — NOT a chip-row panel:
+
+| Pseudo-id       | Mount fn                                                  | Xray view                                        |
+|-----------------|-----------------------------------------------------------|---------------------------------------------------|
+| `:event-spine`  | `(mount-event-spine! mount-point opts) → unmount`         | The L2 `shell/event-list` recent-events timeline (the full shell's spine, mounted standalone) |
+
+`:event-spine` is wired through `mount-fn-for` like every chip panel,
+but it does NOT appear in `panel-catalog` (it is a persistent band, not
+a chip-selected lens). The same `panel-host-component` class-3 driver
+mounts it — with the spine host-style + `data-test="story-xray-spine-host"`
+— so it inherits the rf2-4l7t2 React-18 deferred-unmount lifecycle. Its
+panel-id never changes, so the host mounts the spine once; focus changes
+flow through the spine's own subs, not a remount.
+
 Each mount fn:
 
 1. Installs Xray's handler registry (idempotent).
@@ -385,8 +424,9 @@ guarantees no state leaks across Xray-internal bugs).
 `mount-fn-for` does a compile-time symbol → fn lookup against the
 canonical six panel ids (e.g. `:epoch` → `day8.re-frame2-xray.
 panels/mount-epoch-panel!` post rf2-5gl5r; rf2-gbz39 dropped `:issues`
-with the Xray Issues tab) — a nil result is a clean no-op render, so
-Xray absence never throws.
+with the Xray Issues tab) **plus the `:event-spine` pseudo-id**
+(rf2-9k43e — → `panels/mount-event-spine!`, the L2 spine band) — a nil
+result is a clean no-op render, so Xray absence never throws.
 
 ### Chip-click → swap sequence
 

@@ -16,6 +16,51 @@ surface is internal-but-stable (the shell composes panels through it;
 tests mount panels through it) rather than a host-facing embed
 contract with its own props vocabulary.
 
+## Embeddable event spine — `mount-event-spine!` (rf2-9k43e)
+
+The per-panel mount family (`007-UX-IA.md` §Mountable panel contract)
+covers the L4 *detail* surfaces. It is joined by one **L2 spine** mount:
+
+```clojure
+(day8.re-frame2-xray.panels/mount-event-spine! mount-point opts) → unmount-fn
+```
+
+`mount-event-spine!` mounts the **same `shell/event-list` reg-view the
+full 4-layer shell composes at L2** — the recent-events timeline
+(single-line rows, latest-on-bottom) that IS Xray's canonical scrubber.
+It is **not a parallel spine**: it reuses the full-shell component
+verbatim, so the embedded spine inherits the row anatomy, the issue-row
+wash (rf2-b8guz), the relative-time chips, virtualisation, the
+ribbon-driven filters, and — load-bearing — the row-click →
+`:rf.xray/focus-cascade` write that drives the single-axis spine sub
+`:rf.xray/focus` (`018-Event-Spine.md` §4 + §6).
+
+It honours the same shape as every other mount fn — installs handlers,
+ensures the `:rf/xray` frame, wraps the view in `[rf/frame-provider
+{:frame :rf/xray} …]`, returns an `unmount`. Per `018-Event-Spine.md`
+§4 the list owns its own height via `:rf.xray/events-list-height-px`;
+the host caps the visible band through its mount-point CSS (the contract
+is "the host owns the container size" — §Embed props inventory).
+
+### Why a spine mount exists — in-place past-event navigation
+
+A host that embeds **only** an L4 detail panel (e.g. Story's RHS, which
+hosts one chip-selected panel at a time) surfaces only the
+final/focused event's cascade — there is no way to navigate a variant's
+PAST events in-place; the workaround was the full-shell pop-out
+(below). `mount-event-spine!` is the **compact in-place affordance**:
+a host mounts the spine ALONGSIDE a focus-keyed detail panel in the
+SAME `:rf/xray` frame; clicking a past event in the spine re-binds
+`:rf.xray/focus`, and the sibling panel re-renders against the chosen
+epoch IN-PLACE. The full-shell pop-out remains the deep-history escape
+hatch (§Full-shell embed contract); the spine mount is the compact
+in-place navigator, not a second full shell.
+
+The spine carries no host-facing props beyond the shared `:frame` opt
+(see §Frame-provider opt in `panels.cljs`'s ns docstring); focus flows
+through the spine's own `:rf.xray/focus-cascade` write surface, not a
+new prop vocabulary.
+
 ## Full-shell embed contract (Xray-as-Story-RHS)
 
 When a host mounts the **full Xray shell** as its right-hand-side
