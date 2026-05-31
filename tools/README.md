@@ -93,6 +93,31 @@ wired into the build, and consumers can use it today.
   timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
   [`tools/xray/spec/000-Vision.md`](./xray/spec/000-Vision.md).
 
+- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
+  substrate-agnostic **`MachineChart`** state-chart component (xyflow +
+  elkjs in-page renderer: nested compound states, parallel regions,
+  `:spawn-all` join + cancellation-cascade overlays, `:after` countdown
+  rings, UIx/Helix adapters) plus a read-only share-URL **viewer page**
+  (`public/viewer.html` + `viewer.cljs`). Also ships the pure-data
+  Mermaid `stateDiagram-v2` emitter (relocated out of the runtime
+  `machines` artefact per rf2-sqhqu so the engine stays pure), SCXML
+  import/export round-trip, an AI-generate-a-machine seam, and PNG / SVG
+  / Mermaid / share-URL exporters. Embedded by Xray's Machine Inspector
+  panel; bundle-isolated like the rest of `tools/`. See
+  [`tools/machines-viz/README.md`](./machines-viz/README.md).
+
+- **`tools/testbed-support/`** — a small dev-only support library
+  (single ns `re-frame.testbed.config`) the Xray / Story browser
+  testbeds share: `resolve-project-root` derives the on-disk project
+  root for "open in editor" from a build-env `goog-define` (seeded per
+  build via `#shadow/env`, so it's cross-platform with no hardcoded
+  checkout path) with a `?project-root=` per-session override. It is
+  **not a published jar** — no `deps.edn`/Clojars coord; it's wired into
+  the testbed builds as an extra source path in
+  `implementation/shadow-cljs.edn`. Bundle-isolated (nothing under
+  `implementation/` `:require`s it). See
+  [`tools/testbed-support/README.md`](./testbed-support/README.md).
+
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
   for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): seven
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
@@ -128,11 +153,17 @@ wired into the build, and consumers can use it today.
   shadow-cljs) that pair-programs with a live re-frame2 app over a
   persistent nREPL socket. Structural successor to the bash-shim →
   babashka → nREPL chain under `skills/re-frame2-pair/scripts/`.
-  Fourteen tools (`discover-app`, `eval-cljs`, `dispatch`,
-  `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
-  `get-path`, the streaming triad `subscribe` / `unsubscribe` /
-  `list-subscriptions`, the registrar-introspection pair
-  `handler-meta` / `list-handlers`, and `get-re-frame2-pair-instructions`);
+  Twenty-two tools — the per-op set (`discover-app`, `eval-cljs`,
+  `dispatch`, `dispatch-dry-run`, `trace-window`, `watch-epochs`,
+  `tail-build`), the mega-op reads (`snapshot`, `get-path`), the
+  view-plane read `read-dom`, the signal recorder
+  (`record` / `read-recording` / `watch-until`), the streaming triad
+  (`subscribe` / `unsubscribe` / `list-streams`), the reactive-sub-cache
+  read `list-subscriptions`, the write pair (`restore-epoch` /
+  `reset-frame-db`, gated behind `--allow-writes`), the
+  registrar-introspection pair (`handler-meta` / `list-handlers`), and
+  `get-re-frame2-pair-instructions` (authoritative ordered catalogue:
+  `src/re_frame2_pair_mcp/tools/registry.cljs`);
   per-op latency drops from ~700ms to ~5–50ms. Published to npm as
   `@day8/re-frame2-pair-mcp`. See
   [`tools/re-frame2-pair-mcp/README.md`](./re-frame2-pair-mcp/README.md).
@@ -258,13 +289,13 @@ runtime implementation has landed on disk yet. They will graduate to
 not created up-front.
 
 - **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
-  A likely separate MCP surface for machine viz. Confirmed separation
-  pending the first cut. (The chart-component role originally scoped
-  to `tools/machines-viz/` was superseded by Xray's Machine Inspector
-  panel per PR #1400/#1402/#1407; the pure Mermaid emitter lives at
-  `tools/machines-viz/src/day8/re_frame2_machines_viz/mermaid.cljc`
-  per rf2-sqhqu — a tool-side concern, so the runtime `machines`
-  artefact stays pure-engine.)
+  A likely separate MCP agent surface for the shipped
+  [`tools/machines-viz/`](#shipped) chart tool. Spec-only — the
+  separation is being shaped, but no `machines-viz-mcp/` directory has
+  landed on disk yet. (Note: the chart component itself, the Mermaid /
+  SCXML emitters, and the read-only viewer all ship today in
+  `tools/machines-viz/`, listed under "Shipped" above; this entry is the
+  planned *MCP* surface only.)
 
 ## Distinction from `skills/`
 
