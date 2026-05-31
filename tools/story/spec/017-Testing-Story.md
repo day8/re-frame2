@@ -168,7 +168,7 @@ Required normalized plan shape:
          :view-args-schema optional-schema ; explicit view input contract copied from view :rf/props
          :effective-args {...}            ; post-control-override args; drives render-variant
          :setup [setup-step ...]
-         :db-seed optional-db-or-patch    ; schema-checked direct state seed
+         :db-seed optional-db-or-patch    ; schema-checked direct state seed (§Setup — Direct app-db seeding)
          :render {:sub-overrides {query-vector data}} ; view-state affordance
          :network {[method url] {:reply {:ok data}}}  ; or {:reply {:failure data}}
          :fidelity #{:real-setup :db-seed :sub-overrides}
@@ -600,9 +600,11 @@ Rules:
 The fidelity ladder is: real setup events first, schema-checked app-db
 seed second, subscription overrides third. The third path is useful and
 legitimate, but it must be labelled. In the normalized plan, top-level
-`:sub-overrides` lowers to `[:world :render :sub-overrides]`; `:fidelity`
-is computed from the resolved world inputs, so authors SHOULD NOT have to
-type it.
+`:sub-overrides` lowers to `[:world :render :sub-overrides]` and
+`:db-seed` lowers to `[:world :db-seed]` (see §Setup — Direct app-db
+seeding); `:fidelity` is computed from the resolved world inputs, so
+authors SHOULD NOT have to type it. All three rungs are wired end-to-end
+(rf2-blw1q closed the `:db-seed` middle-rung gap).
 
 **Compiler contract (as implemented).** The plan compiler
 (`re-frame.story.plan`):
@@ -731,6 +733,42 @@ event/cofx/schema validation is part of establishing a realistic
 precondition. Direct app-db seeding MAY be added, but if supported it
 MUST validate affected app-db schemas before script execution (it
 bypasses event/cofx validation).
+
+#### Direct app-db seeding — `:db-seed` (as implemented)
+
+`:db-seed` is the implemented direct-seed slot — the MIDDLE rung of the
+fidelity ladder (`#{:real-setup :db-seed :sub-overrides}`). A variant /
+fragment authors a `{path → value}` map; the path is a top-level app-db
+key (or a path vector). The plan compiler:
+
+1. **Resolves `[:arg key]` placeholders inside the seed values** through
+   the same one-level `substitute-args` pass setup / script / network /
+   `:sub-overrides` use (a missing arg FAILS plan construction with
+   `:rf.error/story-missing-arg`).
+2. **Composes through fragments + the parent chain** — a composed
+   fragment MAY contribute `:db-seed`; fragment maps merge in declared
+   order, then the variant chain (where `:extends` context deep-merged)
+   wins per key. The result is one flat `{path → value}` map.
+3. **Lowers it to `[:world :db-seed]`** (present only when non-empty; it
+   participates in `:plan-hash` because the seed IS part of the variant's
+   identity) and **marks `[:world :fidelity]`** with `:db-seed`.
+
+The runtime, BEFORE any loaders or setup events run, merges the seed into
+the variant frame's app-db (a non-destructive top-level merge, so
+framework-reserved slots survive and a following `:real-setup` runs on
+top of the seed) and then **schema-validates the seeded app-db**. Per the
+rule above, direct seeding bypasses event / cofx validation but MUST
+validate the affected app-db schema: the runtime walks the frame's
+REGISTERED app-db schemas and validates each seeded slice, REUSING the
+existing schemas late-bind seam (`:schemas/frame-schema-entries` +
+`:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
+— the SAME validator the `:sub-return` path and the `:sub-override`
+fold-in reach; no new mechanism, no hard dep on the schemas artefact —
+when it is absent the check soft-passes). A seed that violates a
+registered schema FAILS the run with `:rf.error/story-db-seed-invalid`,
+whose ex-data carries every `:violations` entry (`{:path :value :schema
+:explain}`); the run never reaches the script. With no schemas artefact /
+no registered schema the seed is applied unchecked (the host-free floor).
 
 ### Script and `settled-boundary`
 

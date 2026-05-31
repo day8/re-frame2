@@ -38,6 +38,7 @@
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
+            [re-frame.late-bind       :as late-bind]
             [re-frame.story.args      :as args]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async     :as async]
@@ -376,7 +377,8 @@
 (defn install-canonical-runtime-events!
   "Register the runtime's internal helper events: `::append-assertion`
   for projecting exception captures + assertion records onto the
-  variant frame's `:rf.story/assertions` accumulator. Idempotent.
+  variant frame's `:rf.story/assertions` accumulator, and `::apply-db-seed`
+  for the `:db-seed` fidelity rung (rf2-blw1q). Idempotent.
 
   Mirrors the `install-canonical-<X>!` shape used by every sibling
   installer in `canonical/canonical-installers`. Was the vague
@@ -386,7 +388,24 @@
     (rf/reg-event-db
       ::append-assertion
       (fn [db [_ record]]
-        (update db :rf.story/assertions (fnil conj []) record)))))
+        (update db :rf.story/assertions (fnil conj []) record)))
+    ;; rf2-blw1q — the `:db-seed` direct app-db seed. Merges the resolved
+    ;; `{path → value}` seed map into the frame's app-db via `assoc-in`
+    ;; (a top-level keyword path is normalised to a 1-element vector), the
+    ;; SAME merge `::apply-app-db-patch` (the `:frame-setup` decorator
+    ;; seam) uses. A MERGE (not a wholesale replace) so framework-reserved
+    ;; slots the frame already carries (e.g. `:rf.story/assertions`)
+    ;; survive — the seed establishes the author's state on top, then
+    ;; phase-2 `:setup` events run over it (the fidelity ladder composes:
+    ;; `:db-seed` then `:real-setup`).
+    (rf/reg-event-db
+      ::apply-db-seed
+      (fn [db [_ seed]]
+        (reduce-kv
+          (fn [d path v]
+            (assoc-in d (if (vector? path) path [path]) v))
+          db
+          seed)))))
 
 ;; ---- assertions read -----------------------------------------------------
 
@@ -711,6 +730,79 @@
   (play/install-trace-listener! variant-id)
   ctx)
 
+(defn- db-seed-violations
+  "Validate the seeded `db` against the frame's REGISTERED app-db schemas
+  (rf2-blw1q + spec/017 §Setup — direct seeding bypasses event / cofx
+  validation but MUST validate the affected app-db schema). Returns a
+  (possibly empty) vector of `{:path :value :explain}` violations.
+
+  REUSES the existing schemas late-bind seam — the SAME
+  `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
+  the `:sub-return` path + the rf2-7pgiz `:sub-override` fold-in reach, and
+  `:schemas/frame-schema-entries` to enumerate the frame's registered
+  `{path → schema-meta}`. No new validation mechanism, and no hard dep on
+  the schemas artefact: when it is absent every hook resolves nil and the
+  walk SOFT-PASSES (the host-free floor — a Story-only build pays nothing).
+  When the schemas artefact IS present its registered validator (Malli on
+  the CLJS reference) is the same one the framework's dev-mode hot path
+  uses, so the seed is held to exactly the contract a real handler commit
+  would be (spec/010 §Production builds)."
+  [frame-id db]
+  (let [entries-fn  (late-bind/get-fn :schemas/frame-schema-entries)
+        validate-fn (late-bind/get-fn :schemas/validate-with-registered-fn)
+        explain-fn  (late-bind/get-fn :schemas/explain-with-registered-fn)]
+    (if (or (nil? entries-fn) (nil? validate-fn))
+      ;; No schemas artefact / no validator → soft-pass (nothing to check).
+      []
+      (into []
+            (keep (fn [[reg-path schema-meta]]
+                    (let [schema    (:schema schema-meta)
+                          reg-slice (get-in db reg-path)]
+                      (when (and (some? schema)
+                                 (not (validate-fn schema reg-slice)))
+                        {:path    reg-path
+                         :value   reg-slice
+                         :schema  schema
+                         :explain (when explain-fn (explain-fn schema reg-slice))}))))
+            (entries-fn frame-id)))))
+
+(defn- run-db-seed!
+  "Phase 0.5 (rf2-blw1q): seed the variant frame's app-db from the plan's
+  `[:world :db-seed]` slot, then SCHEMA-VALIDATE the seeded app-db — BEFORE
+  any loaders (phase 1) or setup events (phase 2) run. The MIDDLE fidelity
+  rung: a direct app-db state seed merged into the frame ahead of the
+  script (spec/017 §Setup + §View-state subscription overrides — the
+  fidelity ladder).
+
+  No-op when the variant carries no seed (the common case carries no
+  `[:world :db-seed]` slot, so the merge dispatch + the schema walk are
+  skipped entirely).
+
+  Per spec/017 §Setup direct seeding bypasses event / cofx validation but
+  MUST validate the affected app-db schema. A seed that violates a
+  registered schema THROWS a structured `:rf.error/story-db-seed-invalid`
+  ex-info carrying every `{:path :value :explain}` violation; the
+  orchestrator's `handle-run-error!` projects it onto the run result as a
+  failed `:rf.error/story-db-seed-invalid` assertion (the run never reaches
+  the script — a malformed precondition is not a thing to assert against)."
+  [{:keys [variant-id plan] :as ctx}]
+  (when-let [seed (not-empty (get-in plan [:world :db-seed]))]
+    (rf/dispatch-sync [::apply-db-seed seed] {:frame variant-id})
+    (let [violations (db-seed-violations variant-id (rf/get-frame-db variant-id))]
+      (when (seq violations)
+        (throw (ex-info
+                 (str "re-frame2-story: variant " variant-id
+                      " — :db-seed does not satisfy the registered app-db "
+                      "schema(s) at path(s) "
+                      (pr-str (mapv :path violations))
+                      ". A direct app-db seed bypasses event/cofx validation "
+                      "but MUST validate the affected app-db schema "
+                      "(spec/017 §Setup).")
+                 {:rf.error/id :rf.error/story-db-seed-invalid
+                  :variant/id  variant-id
+                  :violations  violations})))))
+  ctx)
+
 (defn- run-phase-1!
   "Phase 1: drive loaders to completion. Thin wrapper that returns
   `ctx` so the orchestrator stays a clean threaded pipeline.
@@ -891,6 +983,38 @@
                        :reason     (exception-message e)
                        :error      (story-error/throwable->error-map e)}]))
 
+(defn- db-seed-error?
+  "True iff `e` is the structured `:db-seed` schema-validation failure
+  `run-db-seed!` throws (rf2-blw1q). Discriminated on `:rf.error/id` —
+  the seed throw stamps `:rf.error/story-db-seed-invalid` with a
+  `:violations` vector. The frame IS allocated when it throws (the seed
+  ran against it), so it takes the frame-bound branch, but we record it as
+  its OWN structured assertion (id `:rf.error/story-db-seed-invalid` +
+  the path/value/explain violations) rather than the opaque
+  `:rf.error/exception` shape, so tooling routes on the seed-failure id."
+  [e]
+  (= :rf.error/story-db-seed-invalid (:rf.error/id (ex-data e))))
+
+(defn- record-seed-error!
+  "Append the structured `:rf.error/story-db-seed-invalid` assertion to the
+  variant frame's `:rf.story/assertions` accumulator (rf2-blw1q). The
+  record carries the `:violations` vector (`{:path :value :explain}` per
+  violating slice) so the result surfaces the exact schema misses the seed
+  produced (spec/017 §Setup). `:passed? false` makes the run aggregate to
+  `:fail`."
+  [variant-id e]
+  (let [data   (ex-data e)
+        record {:assertion  :rf.error/story-db-seed-invalid
+                :variant-id variant-id
+                :status     :error
+                :passed?    false
+                :reason     (exception-message e)
+                :violations (:violations data)}]
+    (try
+      (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    record))
+
 (defn- handle-run-error!
   "Catch-branch for the orchestrator: record the exception as a
   phase-0-setup assertion (covers any sync throw from the phase chain),
@@ -904,11 +1028,26 @@
   `prepare-context`, before frame allocation) cannot be recorded onto a
   frame, so it is projected directly via `plan-error-result`. Every other
   throw lands after the frame exists and routes through the frame-bound
-  record/transition path."
+  record/transition path.
+
+  rf2-blw1q — a `:db-seed` schema-validation failure (`run-db-seed!`)
+  throws AFTER the frame is allocated, so it takes the frame-bound branch,
+  but is recorded as its own structured `:rf.error/story-db-seed-invalid`
+  assertion (carrying the path/value/explain violations) rather than the
+  opaque `:rf.error/exception` shape."
   [resolve variant-id e start-ms]
-  (if (and (plan-construction-error? e)
-           (= :pre-mount (loaders/current-state variant-id)))
+  (cond
+    (and (plan-construction-error? e)
+         (= :pre-mount (loaders/current-state variant-id)))
     (resolve (plan-error-result variant-id e))
+
+    (db-seed-error? e)
+    (do
+      (record-seed-error! variant-id e)
+      (loaders/error! variant-id (ex-data e))
+      (resolve (record-result-map {:variant-id variant-id} start-ms)))
+
+    :else
     (do
       (record-error! variant-id :phase-0-setup nil e)
       (loaders/error! variant-id (ex-data e))
@@ -961,6 +1100,7 @@
                (try
                  (let [ctx          (-> (prepare-context variant-id variant-body opts)
                                         run-phase-0!
+                                        run-db-seed!
                                         run-phase-1!
                                         run-phase-2!)
                        [ctx' play-promise] (run-phase-4! ctx)]
@@ -1110,6 +1250,7 @@
                (try
                  (let [ctx          (-> (prepare-inline-context frame-id plan opts)
                                         run-inline-phase-0!
+                                        run-db-seed!
                                         run-phase-1!
                                         run-phase-2!)
                        [ctx' play-promise] (run-phase-4! ctx)]
@@ -1123,7 +1264,12 @@
                              (resolve result))
                            nil))))
                  (catch #?(:clj Throwable :cljs :default) e
-                   (record-error! frame-id :phase-0-setup nil e)
+                   ;; rf2-blw1q — a `:db-seed` schema-validation failure
+                   ;; records as its own structured assertion; every other
+                   ;; throw stays the opaque `:rf.error/exception` shape.
+                   (if (db-seed-error? e)
+                     (record-seed-error! frame-id e)
+                     (record-error! frame-id :phase-0-setup nil e))
                    (loaders/error! frame-id (ex-data e))
                    (let [result (record-result-map
                                   {:variant-id frame-id :plan plan} start-ms)]

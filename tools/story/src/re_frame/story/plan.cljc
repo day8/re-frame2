@@ -229,7 +229,7 @@
   chain (the single source of truth for `arg-map` / `argtypes`), never read
   off `ctx`. Listing them here only buys a redundant deep-merge per compile
   and misleads a reader into thinking `ctx` is the arg source."
-  [:sub-overrides :network :fx-overrides :interceptor-overrides
+  [:sub-overrides :db-seed :network :fx-overrides :interceptor-overrides
    :decorators :loaders :loaders-teardown :loaders-complete-when
    :modes :substrates :platforms :viewport :background :xray
    :dispatch-console? :component :doc :args->events])
@@ -737,8 +737,10 @@
 ;;   :real-setup    — the variant has setup events (or a script) that
 ;;                    drive real state into the frame;
 ;;   :db-seed       — a schema-checked direct app-db seed (the world
-;;                    `:db-seed` slot; reserved — folded in when that slot
-;;                    lands so this fn does not need revisiting);
+;;                    `:db-seed` slot; rf2-blw1q — wired end-to-end: the
+;;                    compiler lowers it to `[:world :db-seed]` and the
+;;                    runtime seeds + schema-validates the frame's app-db
+;;                    BEFORE the script);
 ;;   :sub-overrides — one or more view-state subscription overrides.
 
 (defn compute-fidelity
@@ -748,18 +750,22 @@
 
   - `:real-setup`    when `setup` (or `script`) is non-empty — real
                      events drive the frame's state;
-  - `:db-seed`       when `db-seed` is present (a schema-checked direct
-                     app-db seed; reserved world slot);
+  - `:db-seed`       when `db-seed` resolves any entry (a schema-checked
+                     direct app-db seed merged into the frame BEFORE the
+                     script — rf2-blw1q);
   - `:sub-overrides` when `sub-overrides` resolves any entry.
 
   A plain events-driven variant yields `#{:real-setup}`; a pure design
-  variant that only pins sub values yields `#{:sub-overrides}`; a hybrid
-  carries both. The empty set (no setup, no seed, no overrides) is a
-  legitimate render-the-view-as-mounted variant."
+  variant that only pins sub values yields `#{:sub-overrides}`; a
+  db-seed variant yields `#{:db-seed}`; a hybrid carries the union. The
+  empty set (no setup, no seed, no overrides) is a legitimate
+  render-the-view-as-mounted variant. An EMPTY resolved seed / override
+  map is treated as absent (no rung) — the same `seq` floor `setup`
+  uses."
   [{:keys [setup script db-seed sub-overrides]}]
   (cond-> #{}
     (or (seq setup) (seq script)) (conj :real-setup)
-    (some? db-seed)               (conj :db-seed)
+    (seq db-seed)                 (conj :db-seed)
     (seq sub-overrides)           (conj :sub-overrides)))
 
 ;; ============================================================================
@@ -1289,6 +1295,19 @@
         ;; resolved overrides below feed validation + the run path.
         sub-overrides-raw (merge frag-sub-ovr (:sub-overrides ctx))
         sub-overrides (substitute-args sub-overrides-raw arg-map subs!)
+        ;; ---- :db-seed world slot (rf2-blw1q) ----
+        ;; The MIDDLE fidelity rung: a direct app-db state seed
+        ;; (`{path → value}`). Composes through the parent chain (ctx,
+        ;; deep-merged via `merge-context` through `:extends`) + composed
+        ;; fragments' seed maps (later wins per declared order, then the
+        ;; variant chain — the SAME ordering `:sub-overrides` / `:network`
+        ;; follow). Seed values MAY carry `[:arg key]` placeholders (a
+        ;; control-driven seed slice), so substitute before lowering. The
+        ;; runtime seeds + schema-validates the resolved map BEFORE the
+        ;; script (spec/017 §Setup); a violation FAILS the run with
+        ;; `:rf.error/story-db-seed-invalid`.
+        frag-db-seed (reduce (fn [m l] (merge m (:db-seed l))) {} frag-layers)
+        db-seed      (substitute-args (merge frag-db-seed (:db-seed ctx)) arg-map subs!)
         ;; ---- strict-conflict composition (rf2-5x1wt.15) ----
         ;; The strict-conflict override MAPS (`:fx-overrides` /
         ;; `:interceptor-overrides`) compose per-KEY: the variant chain
@@ -1396,7 +1415,7 @@
         ;; overrides — fidelity ladder).
         fidelity     (compute-fidelity {:setup         setup
                                         :script        script*
-                                        :db-seed       (:db-seed ctx)
+                                        :db-seed       db-seed
                                         :sub-overrides sub-overrides})
         ;; ---- runner requirement ----
         required     (compute-required-runner setup script* assertions)
@@ -1426,6 +1445,18 @@
                               :platforms      platforms}
                        (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
+                       ;; rf2-blw1q — the resolved direct app-db seed
+                       ;; (`{path → value}`, `[:arg]` placeholders
+                       ;; substituted). In `:world` so it participates in
+                       ;; `:plan-hash` (the seed IS part of the variant's
+                       ;; identity) and feeds the now-LIVE `:fidelity`
+                       ;; `:db-seed` rung. Present only when non-empty; a
+                       ;; variant with no seed carries no slot. The runtime
+                       ;; reads `[:world :db-seed]`, merges it into the
+                       ;; frame's app-db BEFORE the script, and
+                       ;; schema-validates the seeded app-db (spec/017
+                       ;; §Setup).
+                       (seq db-seed)         (assoc :db-seed db-seed)
                        ;; rf2-5x1wt.13 — the fidelity ladder, computed from
                        ;; the resolved world inputs. In `:world` so it
                        ;; participates in `:plan-hash` (fingerprint's
@@ -1514,6 +1545,16 @@
                                         :validation (when sub-ovr-val
                                                       {:status     (:status sub-ovr-val)
                                                        :violations (:violations sub-ovr-val)})})
+                      ;; rf2-blw1q — the resolved direct app-db seed (post
+                      ;; `[:arg]` substitution). `explain` surfaces it so a
+                      ;; reviewer / doc page sees exactly which app-db
+                      ;; slices the variant seeds; `:fidelity` labels it the
+                      ;; `:db-seed` rung. The seeded-app-db schema
+                      ;; validation is a RUN-TIME check (it needs the
+                      ;; frame's registered app-db schemas), so it is NOT a
+                      ;; plan-compile slot here — a violation surfaces as
+                      ;; `:rf.error/story-db-seed-invalid` at run time.
+                      :db-seed      (when (seq db-seed) {:seed db-seed})
                       :fidelity     fidelity
                       :setup-order  setup
                       :script-order script*
