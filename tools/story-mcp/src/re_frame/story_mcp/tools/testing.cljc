@@ -91,8 +91,12 @@
                         schema-violation selectors (single source of truth)
     :schema-violations / :warnings / :effects / :sub-runs / :renders /
     :narrative          the .4 evidence-slot projections (one tape, one
-                        projection); :schema-violations / :effects /
-                        :renders value-redacted at egress
+                        projection); ALL value-bearing — each is
+                        value-redacted at egress (rf2-j90sb: :narrative's
+                        per-beat :db-before/:db-after, :warnings trace
+                        events, :sub-runs sub :value all carry app-db
+                        slices that would otherwise ship sensitive
+                        values off-box raw)
     :app-db             post-run app-db, elided at egress
     :rendered-hiccup / :snapshot  value-redacted derived trees
     :elapsed-ms         wall-clock run time
@@ -140,18 +144,26 @@
                               :checks             (vec (:checks outcome))
                               :consumed-selectors (:consumed-selectors outcome #{})
                               ;; Evidence-slot projections (.4 — one tape, one
-                              ;; projection). The value-bearing slots
-                              ;; (:schema-violations / :effects / :renders) are
+                              ;; projection). Every value-bearing slot is
                               ;; value-redacted against the frame's declared-
                               ;; sensitive values, same as :rendered-hiccup —
                               ;; a secret reappears there at a non-app-db path
                               ;; the path walker can't reach (rf2-ee38b.17).
+                              ;; :narrative is a two-level evidence tree whose
+                              ;; inner beats carry :db-before/:db-after FULL
+                              ;; app-db snapshots; :warnings are trace-event
+                              ;; records; :sub-runs carry subscription :value —
+                              ;; all three egressed RAW would ship a declared-
+                              ;; sensitive value off-box verbatim (rf2-j90sb,
+                              ;; sibling of pair-mcp's rf2-6wvh5). scrub-rendered
+                              ;; recurses the nested trees and the gate stays
+                              ;; symmetric (incl? true forwards raw).
                               :schema-violations  (egress/scrub-rendered (:schema-violations outcome) raw-db vk incl?)
-                              :warnings           (vec (:warnings outcome))
+                              :warnings           (egress/scrub-rendered (vec (:warnings outcome)) raw-db vk incl?)
                               :effects            (egress/scrub-rendered (:effects outcome) raw-db vk incl?)
-                              :sub-runs           (vec (:sub-runs outcome))
+                              :sub-runs           (egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
                               :renders            (egress/scrub-rendered (:renders outcome) raw-db vk incl?)
-                              :narrative          (:narrative outcome)
+                              :narrative          (egress/scrub-rendered (:narrative outcome) raw-db vk incl?)
                               ;; Derived trees re-key the same sensitive value
                               ;; at a non-app-db path — value-redact (rf2-ee38b.17).
                               :rendered-hiccup    (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
@@ -270,7 +282,7 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` / evidence value-slots are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach — `:narrative` beats carry full `:db-before` / `:db-after` snapshots). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
