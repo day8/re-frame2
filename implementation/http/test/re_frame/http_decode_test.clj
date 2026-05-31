@@ -269,3 +269,108 @@
                                @captured))]
           (is (= :text (get-in w [:tags :resolved-decoder]))
               "text/* content-type sniffs to :text"))))))
+
+;; ---- Malli-absent degradation warning (rf2-ee38b.7 / rf2-ynjts.9) ---------
+;;
+;; Coverage gap (rf2-ynjts.9 testing-review): the "no silent fallback"
+;; contract per Spec 014 §JSON decoder hardening was uncovered. When a real
+;; `:decode` schema rides the request but Malli is NOT on the classpath, the
+;; resolve delays fall to nil, schema validation is SKIPPED, and the parsed
+;; value flows to `:accept` UNCHECKED. Per rf2-ee38b.7 this must NOT be a
+;; silent no-op: a one-shot `:rf.warning/http-malli-absent` trace fires so
+;; the degraded path is observable. Every other decode path was tested
+;; (coerce success, validation-failure throw, too-many-keys re-raise,
+;; decode-defaulted), but the Malli-ABSENT branch + its one-shot latch had
+;; zero assertion — a regression that re-silenced it (or fired it per
+;; response, flooding the trace surface) would slip through.
+;;
+;; The Malli resolve vars are `defonce`d delays already realised WITH Malli
+;; present on this test classpath (`malli-is-on-the-test-classpath` above
+;; pins that), so the absent path can't be reached through the live
+;; `decode-response-body` here. We exercise the contract at its source: reach
+;; the three resolve delays + the one-shot latch via `#'`, rebind the delays
+;; to `(delay nil)` (the classpath-absent shape) under `with-redefs`, reset
+;; the latch, and assert the documented degradation behaviour directly. This
+;; is deterministic and host-agnostic.
+
+(def ^:private malli-decode-fn      @#'decode/malli-decode-fn)
+(def ^:private malli-transformer-fn @#'decode/malli-transformer-fn)
+(def ^:private malli-validate-fn    @#'decode/malli-validate-fn)
+(def ^:private malli-absent-warned? @#'decode/malli-absent-warned?)
+
+(defn- with-malli-absent
+  "Run `body-fn` with the three Malli resolve delays rebound to the
+  classpath-absent shape (`(delay nil)`) and the one-shot warn latch
+  reset to false, so the Malli-absent degradation path is exercised
+  deterministically regardless of what's actually on the classpath.
+  Restores the latch afterwards."
+  [body-fn]
+  (let [prior-latch @malli-absent-warned?]
+    (try
+      (reset! malli-absent-warned? false)
+      (with-redefs [decode/malli-decode-fn      (delay nil)
+                    decode/malli-transformer-fn (delay nil)
+                    decode/malli-validate-fn    (delay nil)]
+        (body-fn))
+      (finally
+        (reset! malli-absent-warned? prior-latch)))))
+
+(deftest malli-decode-absent-returns-value-unvalidated
+  (testing "rf2-ynjts.9 — when Malli is absent (decode AND validate both
+            resolve to nil), malli-decode returns the parsed value
+            UNCHANGED and does NOT throw — even for a value that WOULD
+            fail the schema were Malli present. The degradation is a
+            pass-through, not a rejection (Spec 014 §JSON decoder
+            hardening: 'unchecked data flows to :accept')."
+    (with-malli-absent
+      (fn []
+        ;; :int schema + a string value: with Malli present this throws
+        ;; :rf.error/http-schema-validation-failed (see
+        ;; malli-decode-throws-canonical-ex-info-on-validation-failure).
+        ;; With Malli ABSENT the value must pass through verbatim.
+        (is (= "notanumber" (malli-decode :int "notanumber"))
+            "schema-violating value passes through untouched when Malli is absent")
+        (is (= {:id 1} (malli-decode [:map [:id :int] [:name :string]] {:id 1}))
+            "a map missing a required key also passes through (no validation runs)")))))
+
+(deftest malli-decode-absent-emits-degradation-warning-with-schema
+  (testing "rf2-ynjts.9 — the Malli-absent fall-through emits a
+            `:rf.warning/http-malli-absent` trace carrying the offending
+            schema + a human :reason sentence, so the dropped validation
+            is observable rather than silent (rf2-ee38b.7)."
+    (with-malli-absent
+      (fn []
+        (with-trace-capture
+          (fn [captured]
+            (malli-decode [:map [:id :int]] {:id 1})
+            (let [warns (filter #(= :rf.warning/http-malli-absent (:operation %))
+                                @captured)]
+              (is (seq warns)
+                  (str "expected a :rf.warning/http-malli-absent trace; captured: "
+                       (pr-str (mapv :operation @captured))))
+              (let [w (first warns)]
+                (is (= :warning (:op-type w)))
+                (is (= [:map [:id :int]] (get-in w [:tags :schema]))
+                    "the offending schema rides the trace for diagnosis")
+                (is (string? (get-in w [:tags :reason]))
+                    "a human-readable :reason sentence explains the skipped validation")))))))))
+
+(deftest malli-decode-absent-warning-is-one-shot-per-runtime
+  (testing "rf2-ynjts.9 — the degradation warning fires AT MOST ONCE per
+            runtime (the `malli-absent-warned?` compare-and-set! latch).
+            A Malli-less app's degraded decode is steady-state; a
+            per-response trace would flood the surface. Multiple decodes
+            after the first must NOT re-emit."
+    (with-malli-absent
+      (fn []
+        (with-trace-capture
+          (fn [captured]
+            ;; Three decodes back-to-back; only the first may warn.
+            (malli-decode [:map [:id :int]] {:id 1})
+            (malli-decode :keyword "foo")
+            (malli-decode [:enum :a :b] "a")
+            (let [warns (filter #(= :rf.warning/http-malli-absent (:operation %))
+                                @captured)]
+              (is (= 1 (count warns))
+                  (str "the one-shot latch must collapse repeated Malli-absent "
+                       "decodes to a single warning; saw " (count warns))))))))))
