@@ -104,6 +104,31 @@
       (is (zero? (count (test-react/mounted-roots))))
       (is (nil? (test-react/current-render-tree mount))))))
 
+(deftest unmount-actually-evicts-from-the-raw-active-set
+  (testing "unmount! removes the mount from the RAW active-mounts set, not just
+            flips its :mounted? flag. mounted-roots filters by :mounted?, so it
+            reports zero even if the dead record were left in the backing set —
+            this pins the eviction directly. Regression for the
+            base/mount record-identity disj mismatch: the unmount thunk must
+            disj the exact record conj'd, or the dead record leaks for the
+            adapter's lifetime (defrecord equality includes :unmount-fn, so the
+            pre-assoc skeleton would not match)."
+    (let [active @#'test-react/active-mounts]
+      (is (zero? (count @active))
+          "precondition: raw active set starts empty")
+      (let [mount (test-react/mount! [:div "live"])]
+        (is (= 1 (count @active))
+            "mount registered exactly one record in the raw set")
+        (test-react/unmount! mount)
+        (is (zero? (count @active))
+            "unmount! EVICTED the record from the raw set — no leaked dead record"))
+      ;; Many mount/unmount cycles must not grow the raw set (the leak symptom
+      ;; was monotonic growth masked by the :mounted? filter).
+      (dotimes [_ 25]
+        (test-react/unmount! (test-react/mount! [:div "churn"])))
+      (is (zero? (count @active))
+          "25 mount/unmount cycles left the raw active set empty — no accumulation"))))
+
 ;; ---- adapter-disposal drains stranded mounts ------------------------------
 
 (deftest dispose-adapter-drains-stranded-mounts
