@@ -13,7 +13,8 @@
   passes JS-array deps unconditionally). The React frame-context
   comes from `re-frame.adapter.context` so a mixed-substrate app's
   frame-provider chain composes across substrates."
-  (:require [helix.hooks         :as helix-hooks]
+  (:require [goog.object         :as gobj]
+            [helix.hooks         :as helix-hooks]
             [re-frame.substrate.spine   :as spine]))
 
 ;; ---- shared spine wiring --------------------------------------------------
@@ -50,7 +51,14 @@
   `spine/make-react-adapter`) covers that chain. Per rf2-84myk."
   (:use-current-frame spine-fns))
 
-(def frame-provider
+(def ^:private spine-frame-provider
+  "The shared-spine `frame-provider` fn. Destructures a CLJS-map props
+  argument (`{:keys [frame children]}`). The public `frame-provider`
+  below wraps it so the documented `($ frame-provider {...})` call shape
+  works (see that var's docstring)."
+  (:frame-provider spine-fns))
+
+(defn frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
   children in the shared frame Context Provider. Helix call shape:
 
@@ -60,8 +68,35 @@
   Per rf2-sixo: missing or `nil` `:frame` falls through to `:rf/default`.
   The three React-shaped adapters share one React Context (per rf2-2qit
   Decision 2) so a subtree under any frame-provider sees the right frame
-  regardless of which substrate rendered the provider."
-  (:frame-provider spine-fns))
+  regardless of which substrate rendered the provider.
+
+  Prop normalisation (rf2-9ok1s): the shared-spine `frame-provider` is a
+  plain CLJS fn that destructures a CLJS-map props argument. Helix's `$`
+  routes props through `helix.impl.props/-props`, which hands the
+  component a *raw JS object* (string keys `\"frame\"` / `\"children\"`,
+  with a single child or a JS array under `\"children\"`) — not the CLJS
+  map the spine expects. A bare re-export of the spine fn therefore reads
+  `nil` for both keys under the documented `$` shape: `:frame` silently
+  resolves to `:rf/default` and the subtree renders nothing. This wrapper
+  reads the props via JS interop when React supplies a JS object, and
+  passes a CLJS map through unchanged when invoked directly (the shape
+  the shared test suite uses), so both call shapes reach the spine fn
+  with the same CLJS-map contract."
+  [props]
+  (if (map? props)
+    ;; Direct CLJS-fn invocation (e.g. shared test suite) — pass through.
+    (spine-frame-provider props)
+    ;; `$`-supplied raw JS object — read string keys, normalise children.
+    (let [frame    (gobj/get props "frame")
+          children (gobj/get props "children")]
+      (spine-frame-provider
+        {:frame    frame
+         :children (cond
+                     (nil? children)         []
+                     ;; `$` collapses multiple children into a JS array;
+                     ;; a lone child is passed through unwrapped.
+                     (array? children)       (vec children)
+                     :else                   [children])}))))
 
 (def use-subscribe
   "Helix hook that reads a re-frame subscription. Returns the current
