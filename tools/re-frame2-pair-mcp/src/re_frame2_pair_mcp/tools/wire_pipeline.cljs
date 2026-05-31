@@ -133,7 +133,16 @@
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
-        diff-encoded          (pipeline/diff-encode-epochs-in-snapshot sliced mode)
+        ;; rf2-lbm21 — cap the full-mode `:epochs` slice to the most-recent
+        ;; N records BEFORE diff-encode + dedup so those operate on the
+        ;; bounded set. Only fires when `:epochs` resolves to `:full`
+        ;; (the verbatim-`:db-before`/`:db-after` overflow path); a no-op
+        ;; in summary / diff. Keeps the slice usable instead of letting
+        ;; an unbounded 50-record history trip the global wire-cap and
+        ;; replace the WHOLE snapshot with an overflow marker.
+        capped                (pipeline/cap-full-epochs-in-snapshot
+                                sliced slice-modes slice-mode pipeline/full-epochs-cap)
+        diff-encoded          (pipeline/diff-encode-epochs-in-snapshot capped mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
         ;; Spec 009 §Indicator field (rf2-8cntr).

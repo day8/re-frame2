@@ -209,20 +209,20 @@ function run() {
       }
       console.log('OK   snapshot descriptor -> frames/include/path/build');
 
-      // 2d. Verify the get-path descriptor (rf2-tygdv). Required
-      // input: `path`; optional: `frame`, `build`.
+      // 2d. Verify the get-path descriptor (rf2-tygdv + rf2-lbm21).
+      // Inputs: `path` (singular) OR `paths` (plural batch read); both
+      // optional at the schema level — the tool enforces "exactly one"
+      // at call time (neither -> :missing-path; both ->
+      // :path-and-paths-both-supplied). Optional: `frame`, `build`.
       const gpDesc = (list.result?.tools || []).find((t) => t.name === 'get-path');
       if (!gpDesc) throw new Error('get-path descriptor missing from tools/list');
       const gpProps = gpDesc.inputSchema?.properties || {};
-      for (const k of ['path', 'frame', 'build']) {
+      for (const k of ['path', 'paths', 'frame', 'build']) {
         if (!(k in gpProps)) {
           throw new Error('get-path inputSchema missing property: ' + k);
         }
       }
-      if (!gpDesc.inputSchema?.required?.includes('path')) {
-        throw new Error('get-path.inputSchema missing required: path');
-      }
-      console.log('OK   get-path descriptor -> path (required) + frame/build');
+      console.log('OK   get-path descriptor -> path/paths/frame/build');
 
       // 3. tools/call eval-cljs without nREPL — expect graceful degraded result
       const evalResp = await call('tools/call', {

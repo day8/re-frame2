@@ -17,7 +17,7 @@
   application of summarise / path-slice / diff-encode / dedup — lives
   in `tools/snapshot-pipeline.cljs`.
 
-  ## Approximate `:bytes` field (rf2-qta8j)
+  ## Approximate `:bytes` field (rf2-qta8j, sampled rf2-lbm21)
 
   The `:bytes` field is a *cheap* approximation, not a precise count.
   Earlier shape computed `(count (pr-str v))` on every branch which
@@ -28,11 +28,24 @@
   that's a 54MB string allocation + ~13M tokens of serialisation work
   per summary.
 
-  The current heuristic estimates `~ entry-count × constant` (see
-  `byte-estimate-per-entry`). It is intentionally rough — the marker
-  is consumed by agents for *planning* (\"is this slice worth
-  drilling into?\"), not for precise budgeting. Agents needing a
-  precise size measure their drill-down result directly.")
+  The estimate is `~ entry-count × per-entry-bytes`. Per-entry-bytes is
+  SAMPLED from one representative entry (rf2-lbm21): the prior fixed
+  8-/16-byte constants assumed every entry was a scalar, which under-
+  reported a collection of deep entries by ~1000×. The dominant
+  offender was the `:epochs` slice — a vector of epoch records, each
+  carrying a full `:db-before` / `:db-after` app-db pair. A 20-record
+  slice estimated `20 × 8 = 160` bytes while the FULL expansion ran to
+  ~171K tokens; an agent reading the `:bytes` hint to decide whether to
+  drill (`mode full`) saw a slice that looked trivial and blew its
+  budget on expansion. Sampling one entry's serialised size captures
+  the per-entry depth so the hint reflects the full-expansion cost.
+
+  Cost stays bounded: we `pr-str` exactly ONE entry (and ONE map
+  value), not all N — `O(one-entry-depth)`, independent of `:count`.
+  The estimate is still intentionally rough — the marker is consumed by
+  agents for *planning* (\"is this slice worth drilling into?\"), not
+  for precise budgeting. Agents needing a precise size measure their
+  drill-down result directly.")
 
 (def summary-keys-cap
   "Top-N keys included verbatim in a tree-summary marker. Above this,
@@ -44,26 +57,60 @@
   64)
 
 ;; ---------------------------------------------------------------------------
-;; Cheap `:bytes` estimator (rf2-qta8j).
+;; Sampled `:bytes` estimator (rf2-qta8j, rf2-lbm21).
 ;;
-;; Average per-entry overhead under `pr-str` for representative
-;; runtime values:
+;; `:bytes` ≈ entry-count × per-entry-bytes, where per-entry-bytes is
+;; SAMPLED from one representative entry rather than assumed a flat
+;; scalar constant. The prior fixed constants (8 for coll entries, 16
+;; for map entries) under-reported a collection of DEEP entries — most
+;; egregiously the `:epochs` slice, where each vector entry is a full
+;; epoch record carrying a `:db-before` / `:db-after` app-db pair. A
+;; 20-record slice reported `20 × 8 = 160` bytes while the full
+;; expansion was ~171K tokens — the ~1000× miss rf2-lbm21 fixes.
 ;;
-;; - map entry: keyword key + scalar value + space + colon → ~16 chars
-;; - vector / set / seq entry: scalar value + space         → ~8  chars
-;;
-;; These are *order-of-magnitude* constants, not measurements. The
-;; marker's `:bytes` field is consumed for planning ("is this slice
-;; worth drilling?"); agents needing a precise byte count walk the
-;; drill-down result directly. Drop a level of precision in exchange
-;; for one constant-time multiplication per summarised value.
+;; Sampling reads ONE entry's serialised size (and, for maps, one
+;; value's), so the cost is `O(one-entry-depth)` — independent of N.
+;; Floors keep tiny scalar entries from rounding to zero and preserve
+;; the old order-of-magnitude shape for shallow collections.
 ;; ---------------------------------------------------------------------------
 
-(def ^:const ^:private map-bytes-per-entry  16)
-(def ^:const ^:private coll-bytes-per-entry 8)
+(def ^:const ^:private map-key-overhead-bytes
+  "Per map-entry overhead for the key + `:`/space punctuation under
+  `pr-str`, on TOP of the sampled value size. ~16 chars for a typical
+  keyword key."
+  16)
 
-(defn- approx-map-bytes  [n] (* map-bytes-per-entry  n))
-(defn- approx-coll-bytes [n] (* coll-bytes-per-entry n))
+(def ^:const ^:private coll-entry-floor-bytes
+  "Floor for a sampled vector / set / seq entry — a bare scalar entry
+  (`1`, `:x`) prints to ~1-4 chars; floor at 8 to keep the old shape
+  for shallow collections and avoid zero-byte estimates."
+  8)
+
+(defn- sample-entry-bytes
+  "Serialised size of ONE sample value under `pr-str`, floored at
+  `coll-entry-floor-bytes`. The single-entry `pr-str` is the whole cost
+  of the sampled estimate — bounded by the entry's own depth, NOT by
+  the collection's `:count`. nil / empty sample ⇒ the floor."
+  [sample]
+  (if (nil? sample)
+    coll-entry-floor-bytes
+    (max coll-entry-floor-bytes (count (pr-str sample)))))
+
+(defn- approx-coll-bytes
+  "Estimate the full-expansion byte cost of a collection: `count ×
+  sampled-per-entry-bytes`. `first-entry` is one representative element
+  (the slice is non-empty when `n` is positive)."
+  [n first-entry]
+  (* n (sample-entry-bytes first-entry)))
+
+(defn- approx-map-bytes
+  "Estimate the full-expansion byte cost of a map: `count × (key
+  overhead + sampled-value-bytes)`. `first-val` is one representative
+  value sampled to capture per-value depth (a map of deep values — a
+  per-frame epoch index, say — is as expensive to expand as a vector
+  of deep entries)."
+  [n first-val]
+  (* n (+ map-key-overhead-bytes (sample-entry-bytes first-val))))
 
 (defn tree-summary
   "Compute a server-friendly tree summary of `v`. Returns the marker
@@ -92,28 +139,31 @@
           n       (count ks)
           shown   (if (> n summary-keys-cap)
                     (vec (take summary-keys-cap ks))
-                    (vec ks))]
+                    (vec ks))
+          ;; Sample one value to capture per-value depth (rf2-lbm21).
+          ;; `(first (vals v))` is O(1) — it doesn't realise the rest.
+          first-val (when (pos? n) (val (first v)))]
       {:rf.mcp/summary (cond-> {:type   :map
                                 :keys   shown
                                 :count  n
-                                :bytes  (approx-map-bytes n)}
+                                :bytes  (approx-map-bytes n first-val)}
                          (> n summary-keys-cap)
                          (assoc :keys-truncated? true))})
     (vector? v)
     (let [n (count v)]
       {:rf.mcp/summary {:type  :vector
                         :count n
-                        :bytes (approx-coll-bytes n)}})
+                        :bytes (approx-coll-bytes n (first v))}})
     (set? v)
     (let [n (count v)]
       {:rf.mcp/summary {:type  :set
                         :count n
-                        :bytes (approx-coll-bytes n)}})
+                        :bytes (approx-coll-bytes n (first v))}})
     (sequential? v)
     (let [n (count v)]
       {:rf.mcp/summary {:type  :seq
                         :count n
-                        :bytes (approx-coll-bytes n)}})
+                        :bytes (approx-coll-bytes n (first v))}})
     :else v))
 
 (defn deepest-valid-prefix

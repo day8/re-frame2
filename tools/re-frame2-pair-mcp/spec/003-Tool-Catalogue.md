@@ -1023,8 +1023,9 @@ Return `:rf/epoch-record`s that landed in the last N ms for the
 operating frame.
 
 **Args**: `ms` (integer, default 1000 — sticky across cursor pagination,
-encoded in the cursor on the first call), `frame` (string),
-`limit` (int, default 50 — see §Cursor pagination above),
+encoded in the cursor on the first call), `frame` (string — frame-id,
+colon-tolerant: `"rf/default"` and `":rf/default"` resolve identically,
+rf2-lbm21), `limit` (int, default 50 — see §Cursor pagination above),
 `cursor` (string, opaque continuation token — see §Cursor pagination
 above), `epochs-mode` (string — `"diff"` (default) or `"full"`, see
 §Diff-encoded `:db-after` below), `dedup` (boolean, default `true` —
@@ -1119,7 +1120,8 @@ loop should call us repeatedly with the same `since-id`.
 by `cursor` when both are supplied), `pred` (object, optional predicate
 filter, keys from: `:event-id`, `:event-id-prefix`, `:effects`,
 `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`,
-`:timing-ms`), `frame`,
+`:timing-ms`), `frame` (string — frame-id, colon-tolerant:
+`"rf/default"` and `":rf/default"` resolve identically, rf2-lbm21),
 `limit` (int, default 50 — see §Cursor pagination above), `cursor`
 (string, opaque continuation token — see §Cursor pagination above),
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see
@@ -1349,6 +1351,24 @@ the legacy shape (rare — only needed if you drive time-travel restore
 off the wire response rather than via `rf/restore-epoch`). See
 `trace-window` above for the wire shape and rationale.
 
+**Full-mode record cap (rf2-lbm21).** When the `:epochs` slice resolves
+to `:full` lazy-summary mode (global `mode "full"` or per-slice `modes
+{"epochs": "full"}`), the slice ships each record **verbatim** —
+`:db-before` plus a full `:db-after` — so an unbounded 50-record
+history pr-strs to ~50× the app-db and trips the global wire cap,
+replacing the **whole** snapshot with an `:rf.mcp/overflow` marker (and
+losing every other slice). To keep full mode usable, the slice is
+default-capped to the **most-recent 10 records** (the tail of the
+chronological history — "what just happened"). When records are
+dropped, the frame map carries a sibling
+`:rf.mcp/epochs-capped {:shown 10 :total <m> :dropped <d> :kept
+:most-recent :hint ...}` marker so the truncation is explicit, never
+silent. An agent that needs the full history pages via `trace-window`
+/ `watch-epochs` (cursor-bounded) or fetches one record by id via
+`restore-epoch`. The cap is a no-op in `:summary` mode (the slice is
+already a one-line marker) and `:diff` `epochs-mode` (each `:db-after`
+is already a small patch).
+
 ### Lazy-summary mode (rf2-u2029)
 
 Every rich slice in the snapshot response defaults to a
@@ -1378,16 +1398,25 @@ slices are markers vs raw payloads without re-deriving the choice
 from the request shape.
 
 The summary marker's `:bytes` hint is a cheap APPROXIMATION
-(rf2-qta8j) — `entry-count × per-entry-constant`, not a precise
+(rf2-qta8j, sampled rf2-lbm21) — `entry-count × per-entry-bytes`,
+where `per-entry-bytes` is **sampled** from one representative entry
+(`pr-str` of the first element / one map value), not a precise
 serialised byte count. The marker's whole point is to avoid
-serialising the deep value (a 54MB app-db slice would otherwise burn
-a 54MB string allocation per summary just to compute one integer);
-agents needing a precise byte count walk the drill-down result
-directly. The marker is computed AFTER diff-encoding and dedup so
-the entry count reflects the post-shrink top-level shape. A map
-with more than 64 top-level keys truncates the `:keys` list and
-flags `:keys-truncated? true` so the marker itself can never blow
-the wire cap.
+serialising the deep value across all N entries (a 54MB app-db slice
+would otherwise burn a 54MB string allocation per summary just to
+compute one integer); agents needing a precise byte count walk the
+drill-down result directly. Sampling reads one entry's depth so the
+hint reflects the **full-expansion cost** — the prior flat per-entry
+constant under-reported a slice of deep entries by ~1000× (the
+`:epochs` slice — a vector of records each carrying a `:db-before` /
+`:db-after` app-db pair — estimated 160 bytes while the full
+expansion ran to ~171K tokens, so an agent reading the hint to
+decide whether to `mode full` blew its budget). The sample cost is
+`O(one-entry-depth)`, independent of `:count`. The marker is computed
+AFTER diff-encoding and dedup so the entry count reflects the
+post-shrink top-level shape. A map with more than 64 top-level keys
+truncates the `:keys` list and flags `:keys-truncated? true` so the
+marker itself can never blow the wire cap.
 
 ### `:app-db` slice modes (rf2-tygdv)
 
@@ -1432,13 +1461,16 @@ Server-side `(get-in db path)`; only the addressed subtree crosses
 the wire (rf2-tygdv).
 
 **Args**: `path` (string — EDN-encoded vector, e.g. `"[:cart :items 0
-:sku]"` — or JSON array of segment strings; required), `frame`
-(string — frame-id, default operating frame), `elision` (boolean,
-default `true` — applies the size-elision walker to the resolved
-value; see §Size-elision at the top of this catalogue, rf2-urjnc),
-`build` (string).
+:sku]"` — or JSON array of segment strings), `paths` (string — an
+EDN-encoded vector of path vectors, e.g. `"[[:cart :total] [:user
+:id]]"` — or JSON array whose entries are EDN path strings / segment
+arrays; the batch surface, rf2-lbm21), `frame` (string — frame-id,
+default operating frame), `elision` (boolean, default `true` — applies
+the size-elision walker to the resolved value(s); see §Size-elision at
+the top of this catalogue, rf2-urjnc), `build` (string). `path` and
+`paths` are **mutually exclusive** — supply exactly one.
 
-**Returns** on success:
+**Returns** on success (singular `path`):
 
 ```clojure
 {:ok?     true
@@ -1448,6 +1480,24 @@ value; see §Size-elision at the top of this catalogue, rf2-urjnc),
  :elision true | false
  :frame   <frame-id>}          ; only when frame arg was supplied
 ```
+
+**Returns** on success (plural `paths` — batch read, rf2-lbm21):
+
+```clojure
+{:ok?     true
+ :results {[<segment>...] {:exists? true  :value <subtree>}   ; elided per-value as above
+           [<segment>...] {:exists? false :value nil}}        ; path didn't resolve
+ :elision true | false
+ :frame   <frame-id>}          ; only when frame arg was supplied
+```
+
+The batch surface resolves the frame's `app-db` once and reads every
+path against it in a single round-trip — N targeted reads without N
+calls. Each value is elided exactly as the singular surface does;
+`:results` is keyed by the caller's path vectors so the agent
+correlates hits without re-deriving order. An unresolved path carries
+`:exists? false` (never a `:path-not-found` envelope — the batch is a
+whole-or-nothing success).
 
 When the path doesn't resolve:
 
@@ -1477,7 +1527,9 @@ wants several slices in the same round-trip; both share the same
 `:path` vocabulary.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
-`:reason :missing-path` if `path` was omitted;
+`:reason :missing-path` if neither `path` nor `paths` was supplied;
+`:reason :path-and-paths-both-supplied` if both were supplied;
+`:reason :empty-paths` if `paths` was an empty vector;
 `:reason :get-path-failed` (with `:message`) on any other failure.
 
 ## read-dom

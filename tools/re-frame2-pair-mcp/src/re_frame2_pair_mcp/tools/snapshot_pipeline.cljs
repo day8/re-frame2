@@ -58,6 +58,20 @@
   grow unbounded with runtime state."
   #{:sub-cache :machines :epochs :traces})
 
+(def ^:const full-epochs-cap
+  "Default record cap on the `:epochs` slice when it resolves to `:full`
+  mode (rf2-lbm21). `:full` mode ships each epoch record VERBATIM —
+  including its `:db-before` / `:db-after` app-db pair — so an
+  unbounded 50-record history pr-strs to ~50× the app-db (the
+  171K-token overflow the bead reports). Capping to the most-recent N
+  records keeps full mode usable for the common 'what just happened?'
+  read while the wire-cap stays a backstop for the rest. An agent that
+  needs the full history pages via `trace-window` / `watch-epochs`
+  (cursor-bounded) or `restore-epoch` (one record by id). 10 is the
+  recent-history window a debugging read actually wants; more and the
+  slice is a paging job, not a snapshot."
+  10)
+
 (defn resolve-slice-mode
   "Resolve the effective mode for a slice. `slice-modes` is the
   per-slice override map; `global-mode` is the snapshot-wide `:mode`
@@ -147,6 +161,59 @@
                                  (assoc m fid (process-frame fmap)))
                                {} snapshot)]
       {:snapshot processed :resolved-modes resolved})))
+
+(defn cap-full-epochs-in-snapshot
+  "Bound the `:epochs` slice to the most-recent `cap` records on every
+  frame whose `:epochs` resolved to `:full` mode (rf2-lbm21).
+
+  Only fires in `:full` mode — in `:summary` mode the slice is already a
+  one-line `{:rf.mcp/summary ...}` marker, and `:diff` epochs-mode has
+  collapsed each `:db-after` to a small patch, so neither needs the cap.
+  Full mode is the overflow path: each record carries a verbatim
+  `:db-before` / `:db-after` app-db pair, so an unbounded history blows
+  the wire budget (the 171K-token report).
+
+  Keeps the LAST `cap` records (epoch-history is chronological,
+  oldest→newest, so the tail is 'what just happened'). The `:epochs`
+  slot stays a plain (truncated) vector — diff-encode and dedup
+  downstream operate on it unchanged. When records are dropped, a
+  SIBLING `:rf.mcp/epochs-capped {:shown <n> :total <m> :dropped <d>
+  :kept :most-recent :hint ...}` key is added to the frame map so the
+  agent sees the truncation explicitly (never silent) and the next-step
+  (page older history via `watch-epochs` / `trace-window`). A slice
+  already at/under the cap passes through untouched, no sibling key.
+
+  Runs FIRST among the epochs transforms (before diff-encode + dedup) so
+  those operate on the already-bounded set. `cap` is the record limit
+  (`full-epochs-cap` by default)."
+  [snapshot slice-modes global-mode cap]
+  (if (or (not (map? snapshot))
+          (not= :full (resolve-slice-mode :epochs slice-modes global-mode)))
+    snapshot
+    (reduce-kv
+      (fn [m fid fmap]
+        (assoc m fid
+               (if-not (and (map? fmap)
+                            (contains? fmap :epochs)
+                            (sequential? (:epochs fmap)))
+                 fmap
+                 (let [epochs (:epochs fmap)
+                       total  (count epochs)]
+                   (if (<= total cap)
+                     fmap
+                     (let [kept (vec (take-last cap epochs))]
+                       (assoc fmap
+                              :epochs kept
+                              :rf.mcp/epochs-capped
+                              {:shown   (count kept)
+                               :total   total
+                               :dropped (- total (count kept))
+                               :kept    :most-recent
+                               :hint    (str "full-mode epoch-history capped to the most-recent "
+                                             cap " records — page older history via "
+                                             "watch-epochs / trace-window (cursor-bounded) or "
+                                             "fetch one by id via restore-epoch")})))))))
+      {} snapshot)))
 
 (defn diff-encode-epochs-in-snapshot
   "Walk the per-frame snapshot map and diff-encode every frame's
