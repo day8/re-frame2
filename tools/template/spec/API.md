@@ -148,7 +148,7 @@ mirror the chosen `:substrate` + `:include-story?` flags.
 | `:include-story?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-story-flag` | `ex-info` thrown; message gives the offending value. |
 | `:include-story? true` with non-Reagent substrate | `:rf.error/template-include-story-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
 | `:name` missing | n/a (deps-new) | deps-new's harness rejects before template is invoked. |
-| `:name` not group-qualified | n/a (deps-new) | deps-new's harness rejects (`acme/my-app`, not `my-app`). |
+| `:name` not group-qualified | n/a (deps-new) | **Not rejected.** deps-new doubles a bare name (`my-app` → the symbol `my-app/my-app`), so the generated namespace is `my-app.my-app` and the source nests under `src/my_app/my_app/`. Always pass a group-qualified `:name` (`acme/my-app`); an unqualified one scaffolds, but with a doubled, almost-certainly-unintended namespace. |
 | Target directory already exists | n/a (deps-new) | deps-new's harness aborts to avoid clobbering (unless `:overwrite` is passed). |
 
 ## Cross-references
