@@ -307,7 +307,11 @@
                 (pipeline/ssr-response->ring-response resp nil)
                 (pipeline/build-full-response frame-id resp opts)))
             (catch Throwable t
-              (on-error request t))
+              ;; rf2-ljjh0 — `safe-on-error` contains a throwing
+              ;; caller `:on-error`: a bug in the caller's transport-
+              ;; failure handler falls back to the locked
+              ;; `default-on-error` rather than escaping as a raw 500.
+              (lifecycle/safe-on-error on-error request t))
             (finally
               ;; `destroy-frame!` invokes `:ssr/on-frame-destroyed`
               ;; (rf2-fcj33), which clears the per-frame request slot.

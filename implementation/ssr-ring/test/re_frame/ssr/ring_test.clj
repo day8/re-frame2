@@ -2044,3 +2044,93 @@
            templated default's locked 500 — :on-error wins")
       (is (= explicit-body (:body response))
           "explicit :on-error fn body wins over :on-error-fallback :body"))))
+
+;; ===========================================================================
+;; rf2-ljjh0 — a throwing caller :on-error must be CONTAINED, not escape
+;;
+;; `:on-error` is the handler's last-resort transport-failure net. A
+;; caller-supplied `:on-error` that ITSELF throws must not propagate out
+;; of the handler: an uncaught throwable handed to the Ring server
+;; (Jetty / http-kit) surfaces as a raw container 500 with a stack
+;; trace, defeating the rf2-kzvwq topology-leak contract the boundary
+;; otherwise upholds. The exposure is symmetric — the setup-failure path
+;; (`setup-request-frame!`, which runs OUTSIDE the handler's own
+;; try/catch) AND the success path both invoke `:on-error`. Both now
+;; route through `lifecycle/safe-on-error`, which falls back to the
+;; locked `default-on-error` when the caller's fn throws.
+;; ===========================================================================
+
+(deftest ssr-handler-throwing-on-error-during-setup-is-contained
+  (testing "rf2-ljjh0 — a caller :on-error that THROWS during a
+            setup-failure is contained: the handler returns the locked
+            default-on-error 500 rather than letting the throwable
+            escape as a raw container 500 with leaked internals.
+
+            Setup failure is driven by a non-vector :on-create
+            (`validate-on-create!` throws inside `setup-request-frame!`,
+            which runs OUTSIDE the handler body's try/catch). The
+            caller's :on-error then throws — exercising the one
+            :on-error call site that the handler body's catch does not
+            wrap."
+    (let [throwing-on-error
+          (fn [_req _t]
+            (throw (ex-info "boom in the caller's on-error — leaks JDBC URL etc."
+                            {:internal :topology})))
+          handler (ssr-ring/ssr-handler
+                    {:on-create '(:rf/server-init) ;; non-vector → setup throws
+                     :root-view [:div]
+                     :payload-keys [:x]
+                     :on-error throwing-on-error})
+          ;; Before the fix this call THREW (the throwing on-error
+          ;; escaped `setup-request-frame!` uncaught). After the fix it
+          ;; returns the contained locked-default 500.
+          response (handler {:uri "/x" :request-method :get})]
+      (is (map? response)
+          "the handler RETURNED a Ring response — the throwing
+           :on-error did not escape uncaught")
+      (is (= 500 (:status response))
+          "contained via the locked default-on-error (500)")
+      (is (= "Internal error" (:body response))
+          "locked generic body — the secondary throw's internals never
+           reach the wire (rf2-kzvwq topology-leak contract held)")
+      (is (= "text/plain; charset=utf-8"
+             (get (:headers response) "Content-Type"))
+          "locked default-on-error content-type"))))
+
+(deftest ssr-handler-throwing-on-error-on-success-path-is-contained
+  (testing "rf2-ljjh0 — symmetric: a caller :on-error that throws on the
+            SUCCESS path is also contained. Driven by a cookie whose
+            :max-age carries CR/LF — it passes the fx boundary
+            (`validate-cookie!` gates only :name/:value/:path/:domain)
+            but throws at head materialisation. That throw escapes
+            `build-full-response`'s own catch (its error-path materialise
+            re-folds the SAME bad cookie and throws again), reaching the
+            handler body's :on-error catch — the success-path call site."
+    (rf/reg-event-fx :rf.test/init-bad-cookie
+      {:platforms #{:server}}
+      (fn [_ _]
+        ;; CR/LF in :max-age escapes the fx boundary (`validate-cookie!`
+        ;; gates only :name/:value/:path/:domain) and throws at host
+        ;; materialise time in `cookie->set-cookie-header`.
+        {:db {}
+         :fx [[:rf.server/set-cookie {:name "s" :value "v" :max-age "1\r\n2"}]]}))
+    (let [throwing-on-error
+          (fn [_req _t]
+            (throw (ex-info "boom in the caller's on-error" {:internal :topology})))
+          handler (ssr-ring/ssr-handler
+                    {:on-create [:rf.test/init-bad-cookie]
+                     :root-view [:div "hello"]
+                     :payload-policy :rf.ssr.payload/whole-app-db
+                     :on-error throwing-on-error})
+          ;; Before the fix the throwing :on-error escaped the handler
+          ;; body's catch uncaught; after the fix `safe-on-error`
+          ;; contains it → locked default 500.
+          response (handler {:uri "/x" :request-method :get})]
+      (is (map? response)
+          "handler returned a Ring response — throwing :on-error on the
+           success path did not escape uncaught")
+      (is (= 500 (:status response))
+          "contained via the locked default-on-error (500)")
+      (is (= "Internal error" (:body response))
+          "locked generic body — the secondary throw's internals never
+           reach the wire (rf2-kzvwq topology-leak contract held)"))))

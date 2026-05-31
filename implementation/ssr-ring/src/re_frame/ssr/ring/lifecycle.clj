@@ -119,6 +119,42 @@
   surface that builds this exact shape via `make-default-on-error`)."
   (make-default-on-error))
 
+(defn safe-on-error
+  "Invoke the resolved `:on-error` Ring-fn under containment and return
+  its Ring response. Shared by `ssr-handler`, `stream-handler`, AND
+  `setup-request-frame!` so EVERY `:on-error` call site is protected.
+
+  rf2-ljjh0 — `:on-error` is the handler's last-resort transport-failure
+  net (Ring-layer / render-time / setup-failure throws the projector
+  can't see). A CALLER-supplied `:on-error` that itself throws must NOT
+  escape the handler: an uncaught throwable handed to the Ring server
+  (Jetty / http-kit) surfaces as a raw container 500 with a stack
+  trace, defeating the rf2-kzvwq topology-leak contract the boundary
+  otherwise upholds (`default-on-error` emits a fixed generic body,
+  never the throwable). When the caller's `:on-error` throws, we surface
+  the secondary throw on the trace bus and fall back to the host-locked
+  `default-on-error` — mirroring the `resolve-error-body` pattern (a
+  buggy `:error-view` must not bypass the error boundary either). The
+  boundary is not bypassable by a bug in the caller's transport-failure
+  handler, exactly as it is not bypassable by a bug in the caller's
+  `:error-view`.
+
+  `on-error` is the ALREADY-RESOLVED fn (rf2-c1tac precedence applied by
+  `resolve-on-error` at construction time): the caller's `:on-error`,
+  the `:on-error-fallback`-templated default, or `default-on-error`.
+  When `on-error` IS `default-on-error` (or the templated default) it
+  cannot throw — the guard is then a free no-op — so this is cheap on
+  the common path."
+  [on-error request t]
+  (try
+    (on-error request t)
+    (catch Throwable on-error-t
+      (trace/emit-error! :rf.error/ssr-ring-on-error-failed
+                         {:exception (.getMessage on-error-t)
+                          :ex-class  (.getName (class on-error-t))
+                          :recovery  :fell-back-to-default-on-error})
+      (default-on-error request t))))
+
 (defn destroy-frame-quietly!
   "Best-effort frame teardown. Exceptions during destroy must not mask
   a real handler error; swallow + emit a `:warning` trace is preferred

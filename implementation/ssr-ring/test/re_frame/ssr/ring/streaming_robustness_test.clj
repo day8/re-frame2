@@ -479,3 +479,93 @@
           (is (empty? leaked)
               "happy-path streaming also exits without leaking a
                daemon thread"))))))
+
+;; ===========================================================================
+;; Test 5 (rf2-z5azc) — head-materialisation throw must not orphan the pipe
+;;                       or leak a writer thread
+;; ===========================================================================
+;;
+;; `ssr-response->ring-response` folds the response accumulator's
+;; cookies/headers into the Ring head, and cookie/header serialisation
+;; CAN throw at materialise time on a value that escaped the fx
+;; boundary's PARTIAL validation: the runtime `validate-cookie!` checks
+;; only :name / :value / :path / :domain, but `cookie->set-cookie-header`
+;; additionally rejects a CR/LF-bearing :max-age and a non-integer
+;; :expires. So a cookie like {:name "s" :value "v" :max-age "1\r\n2"}
+;; PASSES the fx gate, is stored on the accumulator, and THEN throws when
+;; the host adapter materialises the head.
+;;
+;; The bug (rf2-z5azc): the old streaming branch spawned + started the
+;; daemon writer thread BEFORE materialising the head. When the head
+;; throw fired, the Ring response handed back was the :on-error 500 —
+;; but the writer thread was already pumping the FULL body into a pipe
+;; whose reader (`pipe-in`) was never returned to anyone. With a body
+;; larger than the 16 KiB pipe buffer the writer BLOCKS FOREVER on
+;; `.write` (no consumer) — one live daemon thread leaked per such
+;; request, a resource-exhaustion vector.
+;;
+;; The fix: materialise the head FIRST. A head-materialisation throw then
+;; short-circuits to the outer catch BEFORE any pipe or thread exists —
+;; the handler returns the :on-error 500 and NO `rf2-ssr-streaming-*`
+;; thread is ever spawned.
+;;
+;; This test pins BOTH halves of the contract:
+;;   - the handler returns a contained 500 (not a streamed body), and
+;;   - no orphan `rf2-ssr-streaming-*` daemon thread is alive afterward.
+;; The body is deliberately sized past the 16 KiB pipe buffer so that on
+;; the OLD ordering the orphaned writer would block forever (a detectable
+;; leak), giving the test genuine before/after discriminating power.
+
+(deftest head-materialisation-throw-does-not-orphan-writer
+  (testing "rf2-z5azc — a cookie that throws at head materialisation
+            (escaped the fx boundary) short-circuits to :on-error with
+            NO writer thread spawned + NO orphaned pipe"
+    ;; :on-create sets a cookie whose :max-age carries CR/LF. The fx
+    ;; boundary (`validate-cookie!`) gates only :name/:value/:path/
+    ;; :domain, so this passes the gate and is stored on the response
+    ;; accumulator. The host materialiser's `cookie->set-cookie-header`
+    ;; then throws `:rf.error/cookie-invalid-attribute` on :max-age.
+    (rf/reg-event-fx :rf.test.server/init-bad-cookie
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {}
+         :fx [[:rf.server/set-cookie {:name "s" :value "v" :max-age "1\r\n2"}]]}))
+    ;; A root-view emitting a body well past the 16 KiB pipe buffer, so
+    ;; that under the OLD (buggy) ordering the orphaned writer would
+    ;; block forever on `.write` — making the leak deterministic. Under
+    ;; the FIXED ordering this view never renders (the head throws first,
+    ;; before the writer is spawned).
+    (rf/reg-view ^{:rf/id :test/big-root} big-root []
+      (into [:div]
+            (for [i (range 4000)]
+              ^{:key i} [:p (str "row-" i "-padding-padding-padding")])))
+    (let [handler   (ssr-ring/stream-handler
+                      {:on-create [:rf.test.server/init-bad-cookie]
+                       :root-view [:test/big-root]
+                       :payload-policy :rf.ssr.payload/whole-app-db})
+          ;; Direct handler call (no Jetty needed — the throw is on the
+          ;; request thread during head materialisation, before any
+          ;; transport hand-off).
+          response  (handler {:uri "/" :request-method :get})]
+      ;; The response is the contained :on-error 500 — NOT a streamed
+      ;; body. The head throw short-circuited to the outer catch.
+      (is (= 500 (:status response))
+          "head-materialisation throw routed to the :on-error 500
+           (locked default), not a partially-streamed body")
+      (is (not (instance? InputStream (:body response)))
+          "the response body is the :on-error string body, NOT a
+           PipedInputStream — no streaming pipe was ever handed out")
+      (is (= "Internal error" (:body response))
+          "locked default-on-error body — the topology-leak contract
+           holds; no cookie internals reach the wire")
+      ;; The load-bearing assertion: NO writer thread leaked. Under the
+      ;; OLD ordering the writer was spawned before the head throw and,
+      ;; with this oversized body, would block forever on a reader-less
+      ;; pipe — `await-no-streaming-threads!` would time out non-empty.
+      (let [leaked (await-no-streaming-threads! 5000)]
+        (is (empty? leaked)
+            (str "no orphan rf2-ssr-streaming-* daemon thread after a
+                 head-materialisation throw — the writer must not be
+                 spawned until the head is known materialisable
+                 (rf2-z5azc). Live threads observed: "
+                 (mapv (fn [^Thread t] (.getName t)) leaked)))))))
