@@ -125,10 +125,21 @@ Xray preload is wired — press `Ctrl+Shift+C`).
 | `:examples/counter-with-stories` | 8042 | http://localhost:8042/#/stories | canonical minimal testbed |
 | `:examples/login-form` | 8043 | http://localhost:8043/#/stories | five-state login-form testbed |
 
-A single watch brings all four up at once:
+A single command brings all four up at once and prints each shell URL
+(via the `stories` group alias in `implementation/scripts/dev-testbed.cjs`,
+rf2-jooy3):
 
 ```bash
 # from implementation/
+npm run dev -- stories
+# or the package.json shortcut (no `--`):
+npm run dev:stories
+```
+
+Equivalently, the raw watch (no URL printing, no `RF2_TESTBED_PROJECT_ROOT`
+seeding for open-in-editor):
+
+```bash
 npx shadow-cljs watch :examples/nine-states-with-stories \
   :examples/login-with-stories \
   :examples/counter-with-stories :examples/login-form
