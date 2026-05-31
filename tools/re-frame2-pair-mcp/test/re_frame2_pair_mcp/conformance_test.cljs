@@ -301,6 +301,7 @@
     | tail-build             | yes   | n/a         | n/a               |
     | snapshot               | yes   | n/a         | yes (no-preload)  |
     | get-path               | yes   | yes         | yes (no-preload)  |
+    | read-dom               | yes   | yes         | bad-selector      |
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
@@ -837,6 +838,68 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? false :reason :path-not-found}}}
+
+   ;; ---------- read-dom (rf2-nfjil — view-plane read) --------------------
+   ;; The whole read runs browser-side; the corpus stubs the eval form's
+   ;; canned envelope. Pins the outer wire shape: matched :count +
+   ;; per-node {:tag :text :attrs}, the large-text elision marker, the
+   ;; missing-arg gate, and the bad-selector error reason.
+   {:fixture/id    :read-dom/happy
+    :fixture/doc   "read-dom returns {:ok? true :count N :nodes [{:tag :text :attrs}]} from the browser-side querySelectorAll form."
+    :fixture/tool  "read-dom"
+    :fixture/args  {:selector "#app .counter"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["querySelectorAll"          {:ok? true :selector "#app .counter"
+                                   :count 1 :truncated? false
+                                   :nodes [{:tag "div" :text "Count: 3"
+                                            :attrs {"class" "counter" "data-count" "3"}}]}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["querySelectorAll" "#app .counter" ":rf.size/large-elided"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :count 1 :truncated? false}
+     :edn-contains-keys #{:nodes :selector}}}
+
+   {:fixture/id    :read-dom/large-text-elided
+    :fixture/doc   "read-dom replaces over-:max-text node text with the {:rf.size/large-elided {:type :dom-text ...}} marker (rf2-urjnc convention)."
+    :fixture/tool  "read-dom"
+    :fixture/args  {:selector "pre" :max-text 100}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["querySelectorAll"          {:ok? true :selector "pre" :count 1 :truncated? false
+                                   :nodes [{:tag "pre"
+                                            :text {:rf.size/large-elided
+                                                   {:type :dom-text :chars 54000 :preview "lorem..."}}
+                                            :attrs {}}]}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :count 1}}}
+
+   {:fixture/id    :read-dom/missing-selector
+    :fixture/doc   "read-dom without :selector surfaces :missing-selector before any nREPL round-trip."
+    :fixture/tool  "read-dom"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-selector}}
+
+   {:fixture/id    :read-dom/bad-selector
+    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError)."
+    :fixture/tool  "read-dom"
+    :fixture/args  {:selector "###"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["querySelectorAll"          {:ok? false :reason :rf.error/read-dom-bad-selector
+                                   :selector "###" :message "bad selector"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? false :reason :rf.error/read-dom-bad-selector}}}
 
    ;; ---------- subscribe (missing-arg only — streaming path not simulated here)
    {:fixture/id    :subscribe/missing-topic

@@ -1480,6 +1480,77 @@ wants several slices in the same round-trip; both share the same
 `:reason :missing-path` if `path` was omitted;
 `:reason :get-path-failed` (with `:message`) on any other failure.
 
+## read-dom
+
+View-plane READ (rf2-nfjil): query the **rendered DOM** by CSS selector
+and return matched count + per-node `{:tag :text :attrs}`. The
+data-plane reads (`snapshot` / `get-path` / `trace-window` /
+`list-subscriptions`) answer "what's in app-db and the trace?";
+`read-dom` answers "what did the app actually put on screen?" — the
+read needed for "did the UI update?" and "what does the rendered
+node / attribute say?". It generalises the source-coord reads
+(`handler-meta`'s `:rf.source/uri`, which return where a handler is
+*defined*) to rendered-*content* reads (what's on screen *now*).
+
+Named with the catalogued `read-<thing>` verb (NAMING.md §The verb
+table): a cheap reflection of already-rendered state — the render
+already happened; this is a no-recompute read of its output.
+
+**Pairs with `dispatch {:await-render true}`** (rf2-gfu33): that op
+resolves only after the substrate has flushed new state to the DOM, so
+`dispatch → settle → read-dom` is a deterministic three-step observe
+with no manual `requestAnimationFrame` dance.
+
+**Read-only by construction.** The browser-side eval form calls
+`querySelectorAll` and reads `textContent` / attribute strings only —
+it never assigns a property, dispatches an event, or mutates a node.
+The descriptor carries the read-only annotations so hosts auto-approve.
+
+**Capped at the source.** The per-node text cap (`max-text`) and the
+matched-node `limit` are applied **browser-side**, so only bounded EDN
+crosses the wire — a 5 MB `<pre>` blob never leaves the tab. Over-cap
+text is replaced with the framework's size-elision marker shape
+`{:rf.size/large-elided {:type :dom-text :chars N :preview "..."}}` —
+the same convention `get-path` / `snapshot` emit for over-threshold
+app-db slots (see §Size-elision, rf2-urjnc). The wire-boundary token
+cap (§top of this catalogue) remains the backstop.
+
+**Args**: `selector` (string — CSS selector, required), `sub-selector`
+(string — CSS selector run *relative to each matched node*
+(`node.querySelectorAll`) to narrow a coarse match to its inner parts;
+optional), `limit` (integer — max matched nodes returned, default 50;
+excess nodes drop and `:truncated?` flips true), `max-text` (integer —
+per-node `textContent` character cap, default 2000), `attrs` (array of
+attribute-name strings to include; when omitted a curated structural
+set rides *plus* a `data-*` / `aria-*` prefix sweep — the re-frame2
+view-plane idiom for surfacing rendered state), `build` (string).
+
+**Returns** on success:
+
+```clojure
+{:ok?          true
+ :selector     "<selector>"
+ :sub-selector "<sub>"           ; only when supplied
+ :count        <total matches>   ; full tally, pre-:limit
+ :truncated?   <bool>            ; true iff count > returned nodes
+ :nodes [{:tag   "div"            ; lower-case tag name
+          :text  "Count: 3"       ; textContent, capped (or :rf.size/large-elided marker)
+          :attrs {"id" "c" "data-count" "3" ...}}
+         ...]}
+```
+
+When nothing matched (no app mounted, or the selector matched no
+element): `{:ok? true :count 0 :nodes []}`.
+
+`:reason :missing-selector` if `selector` was omitted / blank (no
+nREPL round-trip);
+`:reason :rf.error/read-dom-bad-selector` (with `:message`) when
+`querySelectorAll` throws on a malformed selector;
+`:reason :rf.error/read-dom-no-document` when the eval target has no
+`js/document` (headless / server-side);
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :read-dom-failed` (with `:message`) on any other failure.
+
 ## subscribe
 
 Streaming subscription on the trace or epoch bus (rf2-hq49). Push-mode

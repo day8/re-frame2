@@ -73,6 +73,7 @@
             [re-frame2-pair-mcp.tools.tail-build :as tail-build]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
+            [re-frame2-pair-mcp.tools.read-dom :as read-dom]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
             [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
@@ -98,8 +99,8 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Seventeen of the
-  eighteen registered tools ignore `extra` (only `subscribe`
+  3-arity convention `(fn [conn args _extra])`. Eighteen of the
+  nineteen registered tools ignore `extra` (only `subscribe`
   consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
@@ -121,12 +122,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The eighteen-tool catalogue. Single source of truth for the
+  "The nineteen-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the seventeen tools that ignore `extra`,
+  fn — `ignoring-extra` for the eighteen tools that ignore `extra`,
   or an inline `(fn [conn args extra] ...)` for `subscribe` (which
   uses `extra` for its progress-callback plumbing). Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
@@ -175,6 +176,16 @@
     :handler    (ignoring-extra #(get-path/get-path-tool %1 %2))
     :cacheable? true
     :descriptor data/get-path}
+   {:name       "read-dom"
+    :handler    (ignoring-extra #(read-dom/read-dom-tool %1 %2))
+    ;; Read of live rendered DOM — a function of view-plane state, not
+    ;; frame state. NOT cacheable: the precheck-hash short-circuit keys
+    ;; on `(hash app-db)`, but the DOM can change without an app-db
+    ;; mutation (a portal, a third-party widget, an async layout), so a
+    ;; cache keyed on app-db would serve stale render reads. Same posture
+    ;; as the action / streaming tools.
+    :cacheable? false
+    :descriptor data/read-dom}
    {:name       "subscribe"
     :handler    (fn [conn args extra] (subscribe/subscribe-tool conn args extra))
     :cacheable? false

@@ -11,6 +11,7 @@
     "list-handlers",
     "list-streams",
     "list-subscriptions",
+    "read-dom",
     "reset-frame-db",
     "restore-epoch",
     "snapshot",
