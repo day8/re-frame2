@@ -111,7 +111,7 @@ Other untrusted-boundary shapes that hit the same rule (the source varies, the g
 
 ;; localStorage rehydration
 (rf/reg-event-fx :session/rehydrate                              ;; flag — no always-on gate
-  (fn [_ _]
+  (fn [{:keys [db]} _]
     (let [raw (.getItem js/localStorage "session")]
       {:db (assoc db :session (js->clj (js/JSON.parse raw)))})))
 
