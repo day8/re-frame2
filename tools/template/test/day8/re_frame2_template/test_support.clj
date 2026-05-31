@@ -159,8 +159,10 @@
    (run-template! tmp project-name substrate nil))
   ([tmp project-name substrate include-story?]
    (let [dir-str   (.toString ^Path tmp)
-         proj-name (-> project-name name (string/replace #"^.*?/" ""))
-         proj-dir  (io/file dir-str proj-name)
+         ;; deps-new names the output dir after the artifact portion of
+         ;; `acme/my-app` (the part after the `/`), so strip the group.
+         dir-name  (-> project-name name (string/replace #"^.*?/" ""))
+         proj-dir  (io/file dir-str dir-name)
          opts      (cond-> {:template   'day8/re-frame2-template
                             :name       (symbol project-name)
                             :target-dir (.getCanonicalPath proj-dir)

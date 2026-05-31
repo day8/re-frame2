@@ -273,7 +273,7 @@
                ;; compiles `:app`, so all of them hard-require `linked?`
                ;; (a real symlink/junction), not just the with-story tier.
                node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
-               env-over  {"NODE_PATH" node-path}]
+               env-overrides {"NODE_PATH" node-path}]
            (is linked?
                (str "project-local node_modules must resolve for the "
                     "`:app` (:browser) compile — it ignores NODE_PATH. "
@@ -288,7 +288,7 @@
              (let [{:keys [exit out]}
                    (run-process! (into ["clojure" "-M:shadow" "compile"]
                                        compile-targets)
-                                 proj env-over)]
+                                 proj env-overrides)]
                (is (zero? exit)
                    (str "`clojure -M:shadow compile "
                         (string/join " " compile-targets) "` exited " exit
@@ -301,7 +301,7 @@
                    (str "Compile step produced out/node-test.js for " label))
                (when (.isFile bundle)
                  (let [{:keys [exit out]}
-                       (run-process! ["node" "out/node-test.js"] proj env-over)]
+                       (run-process! ["node" "out/node-test.js"] proj env-overrides)]
                    (is (zero? exit)
                        (str "`node out/node-test.js` exited " exit
                             " for " label ". Output:\n" out))
