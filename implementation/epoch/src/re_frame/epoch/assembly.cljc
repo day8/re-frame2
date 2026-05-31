@@ -82,6 +82,32 @@
     :halted-destroy           :blocked
     :halted-handler-exception :error))
 
+(defn emit-snapshotted+outcome!
+  "Emit the paired cascade-trailer trace ops for a committed epoch:
+  `:rf.epoch/snapshotted` carrying the detailed `:outcome` CAUSE, then
+  `:rf.epoch/outcome` carrying the consumer-facing `{:ok :blocked :error}`
+  tier (via `outcome->consumer-facing`). Both ops share the same
+  `:frame` / `:rf.epoch/id` / `:rf.trace/event-id` so consumers correlate
+  the detailed cause with the coarse summary (rf2-18g1w / rf2-jppad).
+
+  Shared by the per-event clean/halt settle (`re-frame.epoch/commit-record!`)
+  and the mid-drain destroy commit (`re-frame.epoch.listeners/on-frame-
+  destroyed!`) so the two-op trailer shape lives in one place — a future
+  trailer tag lands on both surfaces at once. Both ops are catalogued in
+  `re-frame.epoch.capture/skip-ops` (they fire after the buffer is
+  harvested, outside any cascade)."
+  [frame-id epoch-id event-id outcome]
+  (trace/emit! :rf.epoch :rf.epoch/snapshotted
+               {:frame             frame-id
+                :rf.epoch/id       epoch-id
+                :rf.trace/event-id event-id
+                :outcome           outcome})
+  (trace/emit! :rf.epoch :rf.epoch/outcome
+               {:frame             frame-id
+                :rf.epoch/id       epoch-id
+                :rf.trace/event-id event-id
+                :outcome           (outcome->consumer-facing outcome)}))
+
 ;; ---- redaction hook -------------------------------------------------------
 
 (defn maybe-redact
