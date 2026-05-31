@@ -110,7 +110,7 @@ Report the hint to the user verbatim — they can fix it in seconds without re-c
 ## Cardinal rule — two modes of changing the app
 
 - **REPL changes** (hot-swap a handler, evaluate a form, reset a frame's `app-db`) are **ephemeral**. They survive hot-reloads of unaffected namespaces, but are lost on full page reload. Use them for **probes, experiments, and throwaway fixes**.
-- **Source edits** (using `Edit` / `Write`) are **permanent**. After any source edit, you *must* call `hot-reload/wait` before dispatching or tracing. Otherwise you'll interact with the pre-reload code and get misleading results.
+- **Source edits** (using `Edit` / `Write`) are **permanent**. After any source edit, you *must* run the hot-reload coordination protocol (`tail-build` with a probe) before dispatching or tracing. Otherwise you'll interact with the pre-reload code and get misleading results.
 
 Know which mode you're in and why. For the strict source-edit protocol, see [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination).
 
@@ -180,7 +180,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 |---|---|
 | Pick a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
-| Drive a Story variant from a pair-session — variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle | [references/variant-as-frame.md](references/variant-as-frame.md) |
+| Drive a Story variant from a re-frame2-pair session — the variant *is* a frame; variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
 | Open a push-mode subscription on the trace or epoch bus (topics, filters, termination) | [references/streaming-subscriptions.md](references/streaming-subscriptions.md) |
 | Decode a deduped wire payload (`:rf.mcp/dedup-table`) or pick the right size-conscious arg (`max-tokens`, `path`, `mode`, `dedup`, `elision`, `limit`/`cursor`, `cache`, `max-buffered-*`) | [references/wire-size-budget.md](references/wire-size-budget.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
@@ -188,8 +188,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
-| Drive a Story variant from a re-frame2-pair session — the variant *is* a frame; per-variant isolation, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
-| Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`) during a live pair-session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |
+| Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`) during a live re-frame2-pair session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |
 
 Load at most two references for a single task. If you find yourself wanting three, the request likely spans concerns and should be broken up.
 
