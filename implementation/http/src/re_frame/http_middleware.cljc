@@ -254,7 +254,7 @@
                                  :returned    out}))))
             (catch #?(:clj Throwable :cljs :default) t
               (let [data (ex-info ":rf.error/http-interceptor-failed"
-                                  {:where    'run-http-interceptor-chain!
+                                  {:where    'rf.http/run-interceptor-chain!
                                    :recovery :no-recovery
                                    :frame    frame-id
                                    :interceptor-id id
@@ -319,7 +319,7 @@
                                  :returned    out}))))
             (catch #?(:clj Throwable :cljs :default) t
               (let [data (ex-info ":rf.error/http-interceptor-failed"
-                                  {:where    'run-http-interceptor-after-chain!
+                                  {:where    'rf.http/run-after-chain!
                                    :recovery :no-recovery
                                    :frame    frame-id
                                    :interceptor-id id

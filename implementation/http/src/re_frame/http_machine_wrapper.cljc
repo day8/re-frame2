@@ -150,7 +150,7 @@
    - `:succeeded` / `:failed` are terminal leaf states; their
      `:entry` dispatches the parent's `[:succeeded value]` or
      `[:failed failure]`. When `:rf/parent-id` is nil (direct dispatch
-     of `[:rf.http/managed ...]` to the wrapper rather tha `:spawn`
+     of `[:rf.http/managed ...]` to the wrapper rather than `:spawn`
      spawning), the parent-dispatch is a benign no-op."
   []
   {:doc "Spec 014 — :rf.http/managed as a child-invokable state machine.
