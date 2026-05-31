@@ -1906,7 +1906,7 @@
         (is (= "TOPSECRET" (get-in s [:app-db :secret])))))))
 
 (deftest elide-app-db-include?-true-bypasses-walker
-  ;; rf2-brehq — the `include? true` branch of `helpers/elide-app-db`
+  ;; rf2-brehq — the `include? true` branch of `egress/elide-app-db`
   ;; skips `elide-wire-value` entirely. Pins behavioural equivalence
   ;; with the previous walking-then-no-edit implementation:
   ;;
@@ -1921,7 +1921,7 @@
   ;;      still pass (2) but break (1) — the load-bearing perf invariant
   ;;      this bead fixes.
   ;;
-  ;; Calls `helpers/elide-app-db` directly so the test pins the helper's
+  ;; Calls `egress/elide-app-db` directly so the test pins the helper's
   ;; contract, not a downstream tool's composition of it. Avoids
   ;; coupling to `run-variant`'s lifecycle behaviour.
   (testing ":include? true returns the input ref unchanged AND matches walker-with-both-knobs-on"
