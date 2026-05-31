@@ -76,6 +76,7 @@
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
             [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
+            [re-frame2-pair-mcp.tools.list-streams :as list-streams]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
@@ -97,8 +98,8 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Sixteen of the
-  seventeen registered tools ignore `extra` (only `subscribe`
+  3-arity convention `(fn [conn args _extra])`. Seventeen of the
+  eighteen registered tools ignore `extra` (only `subscribe`
   consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
@@ -120,12 +121,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The seventeen-tool catalogue. Single source of truth for the
+  "The eighteen-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the sixteen tools that ignore `extra`,
+  fn — `ignoring-extra` for the seventeen tools that ignore `extra`,
   or an inline `(fn [conn args extra] ...)` for `subscribe` (which
   uses `extra` for its progress-callback plumbing). Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
@@ -184,8 +185,12 @@
     :descriptor data/unsubscribe}
    {:name       "list-subscriptions"
     :handler    (ignoring-extra #(list-subscriptions/list-subscriptions-tool %1 %2))
-    :cacheable? false
+    :cacheable? true
     :descriptor data/list-subscriptions}
+   {:name       "list-streams"
+    :handler    (ignoring-extra #(list-streams/list-streams-tool %1 %2))
+    :cacheable? false
+    :descriptor data/list-streams}
    {:name       "handler-meta"
     :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
     :cacheable? true
@@ -227,12 +232,14 @@
 
   True for read tools whose return value is a function of state
   (`snapshot`, `get-path`, `trace-window`, `watch-epochs`,
-  `discover-app`) and for the inline `get-re-frame2-pair-instructions`
-  onboarding text (which is a pure-data function with no state
-  whatsoever — once is forever). False for action tools (`dispatch`,
-  `eval-cljs`, `tail-build`) and streaming tools (`subscribe`,
-  `unsubscribe`, `list-subscriptions`) — their return value is the
-  result of an action, not a read of state.
+  `discover-app`, `list-subscriptions` — the last reads the live
+  reactive sub-cache, a pure function of frame state, rf2-qicji) and
+  for the inline `get-re-frame2-pair-instructions` onboarding text
+  (which is a pure-data function with no state whatsoever — once is
+  forever). False for action tools (`dispatch`, `eval-cljs`,
+  `tail-build`) and streaming tools (`subscribe`, `unsubscribe`,
+  `list-streams`) — their return value is the result of an action /
+  a read of the volatile streaming registry, not frame state.
 
   Unknown names return false."
   [tool]

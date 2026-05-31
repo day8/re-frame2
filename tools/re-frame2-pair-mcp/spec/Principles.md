@@ -125,7 +125,8 @@ sixteen canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differs. The MCP-only additions
 (`restore-epoch`, `reset-frame-db`, `snapshot`, `get-path`, the
-streaming triad `subscribe` / `unsubscribe` / `list-subscriptions`, the
+streaming triad `subscribe` / `unsubscribe` / `list-streams`, the
+reactive-sub-cache reader `list-subscriptions`, the
 registrar-introspection pair `handler-meta` / `list-handlers`, and
 `get-re-frame2-pair-instructions`) have no shim equivalent. This is what makes
 the back-compat tractable: the overlap is contract-identical; the
@@ -898,14 +899,17 @@ shared with story-mcp. The shared verbs the pair pins are
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-Pair2-mcp's sixteen current tools (`discover-app`, `eval-cljs`,
-`dispatch`, `restore-epoch`, `reset-frame-db`, `tail-build`, `snapshot`,
-`trace-window`, `watch-epochs`, `get-path`, `subscribe`, `unsubscribe`,
-`list-subscriptions`, `handler-meta`, `list-handlers`,
+Pair2-mcp's current tools (`discover-app`, `eval-cljs`,
+`dispatch`, `dispatch-dry-run`, `restore-epoch`, `reset-frame-db`,
+`tail-build`, `snapshot`, `trace-window`, `watch-epochs`, `get-path`,
+`subscribe`, `unsubscribe`, `list-subscriptions`, `list-streams`,
+`handler-meta`, `list-handlers`,
 `get-re-frame2-pair-instructions`) are all conformant against existing
-verbs after the rf2-4y595 rename
-(`subscription-info` → `list-subscriptions`, `registry-list` →
-`list-handlers` — see NAMING.md's audit table). New tools land
+verbs. `list-subscriptions` reads the reactive sub-cache and
+`list-streams` the streaming-tap registry (rf2-qicji split — the
+`list-<things>` enumeration verb fits both); `list-handlers` came from
+the rf2-4y595 `registry-list` → `list-handlers` rename (see NAMING.md's
+audit table). New tools land
 against an existing verb, or via a Lock entry in
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension to
 the canonical table.

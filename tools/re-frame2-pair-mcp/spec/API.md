@@ -191,7 +191,7 @@ node out/server.js
 
 ## Tool surface
 
-The sixteen tools, in the order a typical session uses them. Argument
+The eighteen tools, in the order a typical session uses them. Argument
 schemas and result shapes are specified in
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 
@@ -209,7 +209,8 @@ schemas and result shapes are specified in
 | `get-path` | Direct slice read at a path inside `app-db`. The deep-read peer of `snapshot`; agents drill in once a `:rf.mcp/summary` or elision marker names the path of interest. |
 | `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
-| `list-subscriptions` | Diagnostic peer for `subscribe` / `unsubscribe` (rf2-zjz9q; renamed from `subscription-info` per rf2-4y595) — "what streams are open?" snapshot of the active subscription set. |
+| `list-subscriptions` | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `include-values` adds value + ref-count. |
+| `list-streams` | Diagnostic peer for `subscribe` / `unsubscribe` — "what streaming taps are open?" snapshot of the active streaming-subscription set (rf2-qicji; the streaming diagnostic `list-subscriptions` formerly carried, wrapping `subscription-info`). |
 | `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
 | `list-handlers` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same eleven supported kinds (rf2-pctf8; renamed from `registry-list` per rf2-4y595). |
 | `get-re-frame2-pair-instructions` | Returns the agent-onboarding text — how re-frame2-pair connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |

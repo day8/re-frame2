@@ -41,7 +41,8 @@ cljs-eval compile.
 | `get-path`     | _(new — no bash equivalent)_ | Read a single value at `path` from a frame's app-db (rf2-tygdv). Minimal targeted-read primitive; server-side `get-in` so only the addressed subtree crosses the wire. Distinguishes a path that points at `nil` from a path that doesn't resolve, and attaches `deepest-valid-prefix` on misses so the agent can re-aim. |
 | `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
-| `list-subscriptions` | _(new — no bash equivalent)_ | List active streaming subscriptions with per-sub queue depth, drop counts, and `:overflow-reason` (rf2-zjz9q; renamed from `subscription-info` per rf2-4y595). Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps the runtime fn directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. |
+| `list-subscriptions` | _(new — no bash equivalent)_ | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `frame` / `include-values`. |
+| `list-streams` | _(new — no bash equivalent)_ | List active **streaming-tap** subscriptions with per-sub queue depth, drop counts, and `:overflow-reason`. Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps `subscription-info` directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. (rf2-qicji: the streaming diagnostic `list-subscriptions` formerly carried.) |
 | `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.source/uri` jump-to-editor link (rf2-pctf8). Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. |
 | `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same eleven supported kinds as `handler-meta`. |
 | `get-re-frame2-pair-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for re-frame2-pair-mcp (rf2-fnpqg): tool catalogue, EDN posture, tagged-mutation conventions, streaming subscribe semantics, wire-boundary pipeline. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
@@ -445,7 +446,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The sixteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-subscriptions` triad + `get-path` direct-read + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The eighteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. |
 
 ## Development
 
@@ -517,7 +518,7 @@ tools/re-frame2-pair-mcp/
 │   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the sixteen MCP tools (per-op + snapshot + get-path + restore-epoch/reset-frame-db writes + subscribe/unsubscribe/list-subscriptions + get-re-frame2-pair-instructions)
+    ├── tools.cljs                            ; the eighteen MCP tools (per-op + snapshot + get-path + restore-epoch/reset-frame-db writes + subscribe/unsubscribe/list-streams + list-subscriptions reactive-sub-cache + get-re-frame2-pair-instructions)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame2_pair_mcp/nrepl_test.cljs    ; bencode framing unit tests
@@ -565,8 +566,8 @@ subscription registry — is **not** partitioned by agent.
 Two agents attaching to the same re-frame2-pair-mcp instance simultaneously
 work today (no lock-out), but they will see each other's
 side-effects: a `dispatch` from agent A may show up in agent B's
-`watch-epochs` poll; a `subscribe` from agent A counts against
-agent B's `list-subscriptions`. For pre-alpha this is the documented
+`watch-epochs` poll; a `subscribe` from agent A shows up in
+agent B's `list-streams`. For pre-alpha this is the documented
 behaviour, not a bug — single-agent is the expected workflow.
 
 **v2 sketch (not implemented; deferred).** Multi-agent semantics

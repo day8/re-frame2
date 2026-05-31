@@ -38,8 +38,14 @@
 ;;;;
 ;;;;     | MCP tool name           | Runtime fn name             |
 ;;;;     |-------------------------|-----------------------------|
-;;;;     | `list-subscriptions`    | `subscription-info`         |
+;;;;     | `list-subscriptions`    | `sub-cache-info`            |
+;;;;     | `list-streams`          | `subscription-info`         |
 ;;;;     | `list-handlers`         | `rf/registry-list`          |
+;;;;
+;;;;   (rf2-qicji: `list-subscriptions` reads the live reactive
+;;;;   sub-cache via `sub-cache-info`; the streaming-tap diagnostic it
+;;;;   formerly carried moved to `list-streams`, still wrapping
+;;;;   `subscription-info`.)
 ;;;;
 ;;;;   An agent generating an eval form via `eval-cljs` uses the
 ;;;;   right-hand column; the same agent calling the MCP tool surface
@@ -391,6 +397,66 @@
   ([] (sub-cache (current-frame)))
   ([frame-id]
    (subs-tooling/sub-cache-snapshot frame-id)))
+
+(defn sub-cache-info
+  "List the LIVE reactive subscriptions materialised in a frame's
+   per-frame sub-cache — the answer to \"what subscriptions are
+   currently active?\" (rf2-qicji).
+
+   Reads the SAME source `snapshot`'s `:sub-cache` slice reads
+   (`subs-tooling/sub-cache-snapshot`, via the `sub-cache` fn above), so
+   the two never disagree. This is the live reactive cache: an entry
+   appears the moment a view subscribes and DISAPPEARS when the last
+   consumer disposes the reaction — so a disposed sub no longer shows
+   here, matching the framework's ref-counted lifecycle.
+
+   Distinct from `subscription-info` (the streaming-tap registry that
+   `subscribe` / `unsubscribe` mutate — trace/epoch/fx/error queues, NOT
+   reactive subs). The two surfaces answer different questions: this one
+   is the reactive sub-cache; that one is the MCP streaming-tap
+   diagnostic.
+
+   Frame resolution mirrors every other read op — no-arg uses the
+   operating frame, arity-1 takes an explicit frame-id. Returns
+   `{:ok? false :reason :ambiguous-frame}` when no frame can be resolved
+   (multi-frame session with no selection) rather than silently reading
+   `:rf/default`.
+
+   `:include-values?` (default false) controls payload size: when false
+   only the query-vectors ride the wire (the cheap \"what's subscribed\"
+   read); when true each entry also carries `:value` (the current
+   deref) and `:ref-count`.
+
+   Returns:
+     `{:ok? true :frame <id> :count N
+       :subs [<query-v> ...]}`                       ; :include-values? false
+     `{:ok? true :frame <id> :count N
+       :subs [{:query-v <v> :value v :ref-count n}]}` ; :include-values? true
+
+   `:subs` is the empty vector when nothing is subscribed in the frame —
+   never `:ok? false` for the empty case. The query-vectors are sorted
+   (by `pr-str`) so the listing is stable across calls."
+  ([] (sub-cache-info {}))
+  ([opts]
+   (let [{:keys [frame include-values?]} opts
+         frame-id (current-frame frame)]
+     (if (nil? frame-id)
+       {:ok?    false
+        :reason :ambiguous-frame
+        :hint   "Multi-frame session with no selected frame — pass `frame` or call `select-frame!` first."}
+       (let [cache (or (subs-tooling/sub-cache-snapshot frame-id) {})
+             qvs   (sort-by pr-str (keys cache))]
+         {:ok?   true
+          :frame frame-id
+          :count (count qvs)
+          :subs  (if include-values?
+                   (mapv (fn [q]
+                           (let [{:keys [value ref-count]} (get cache q)]
+                             {:query-v   q
+                              :value     value
+                              :ref-count ref-count}))
+                         qvs)
+                   (vec qvs))})))))
 
 (defn subs-sample
   "Subscribe to query-v in the operating frame and deref once. Goes
@@ -1299,10 +1365,21 @@
        :gone? true})))
 
 (defn subscription-info
-  "Return active subscription metadata — handy for diagnostics. Returns
+  "Return active STREAMING-tap subscription metadata — the trace / epoch
+   / fx / error queues opened via `subscribe!` and torn down by
+   `unsubscribe!`. Handy for diagnostics: confirm a stream is still
+   alive, inspect its queue depth / overflow-reason. Does not drain.
+
+   NOT the reactive sub-cache — for \"what reactive subscriptions are
+   currently materialised in a frame?\" use `sub-cache-info`, which
+   reads the per-frame reactive cache `snapshot`'s `:sub-cache` slice
+   reads. The MCP `list-streams` tool wraps THIS fn; the MCP
+   `list-subscriptions` tool wraps `sub-cache-info` (rf2-qicji).
+
+   Returns
    `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes
                        :dropped-events :dropped-bytes :overflow-reason
-                       :created-at}]}`. Does not drain."
+                       :created-at}]}`."
   []
   {:ok? true
    :subs (mapv (fn [[sub-id sub]]

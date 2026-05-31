@@ -22,8 +22,11 @@
   | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
-  | list-subscriptions | List active streaming subscriptions + queue stats    |
-  |               | (rf2-zjz9q; renamed from subscription-info per rf2-4y595) |
+  | list-subscriptions | List the live reactive sub-cache for a frame —       |
+  |               | matches snapshot :sub-cache (rf2-qicji)                  |
+  | list-streams  | List active streaming-tap subscriptions + queue stats    |
+  |               | (rf2-qicji; the streaming diagnostic list-subscriptions  |
+  |               | formerly carried, wrapping subscription-info)            |
   | handler-meta  | Registration metadata for a (kind, id) — source-coord +   |
   |               | :rf.source/uri (rf2-pctf8)                                |
   | list-handlers | All registered ids under a kind (rf2-pctf8; renamed from  |
@@ -33,7 +36,7 @@
   ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The seventeen tool
+  dispatch, and re-exported descriptor surface. The eighteen tool
   bodies and the cross-cutting concerns each live in
   `tools/<concern>` or `tools/<tool>` files:
 
@@ -43,7 +46,7 @@
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
     `restore-epoch`, `reset-frame-db`, `trace-window`, `watch-epochs`,
     `tail-build`, `snapshot`, `get-path`, `subscribe`, `unsubscribe`,
-    `list-subscriptions`, `handler-meta`, `list-handlers`,
+    `list-subscriptions`, `list-streams`, `handler-meta`, `list-handlers`,
     `get-re-frame2-pair-instructions`.
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`

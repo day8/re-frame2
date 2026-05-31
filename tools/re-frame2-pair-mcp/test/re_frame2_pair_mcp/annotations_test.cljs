@@ -50,9 +50,9 @@
     (let [by-name (into {} (map (juxt :name :annotations)) tools/tool-descriptors)]
       ;; Read-only tools
       (doseq [n ["discover-app" "snapshot" "get-path" "trace-window"
-                 "watch-epochs" "list-subscriptions" "handler-meta"
-                 "list-handlers" "get-re-frame2-pair-instructions"
-                 "tail-build"]]
+                 "watch-epochs" "list-subscriptions" "list-streams"
+                 "handler-meta" "list-handlers"
+                 "get-re-frame2-pair-instructions" "tail-build"]]
         (is (true? (:readOnlyHint (by-name n)))
             (str n " should have readOnlyHint true")))
       ;; Destructive tools

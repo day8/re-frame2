@@ -182,7 +182,9 @@ Fallback: poll `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":c
 
 ### Inspect what's currently subscribed
 
-When a streaming probe seems to have gone quiet, call `mcp__re-frame2-pair__list-subscriptions {}` to confirm it's still registered and check its `:queue-depth` before assuming the bus is dry. Full return shape and filters: see [streaming-subscriptions.md §Diagnostics](streaming-subscriptions.md#diagnostics--whats-currently-registered).
+For the **live reactive sub-cache** — "what subscriptions are active in this frame?" — call `mcp__re-frame2-pair__list-subscriptions {frame: ":rf/default"}`. It reads the same source as `snapshot :sub-cache` and returns the cached query-vectors (reflecting disposal); pass `include-values: true` for current values + ref-counts (rf2-qicji).
+
+When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__list-streams {}` to confirm it's still registered and check its `:queue-depth` before assuming the bus is dry. Full return shape and filters: see [streaming-subscriptions.md §Diagnostics](streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered).
 
 ## "Drive a Story variant from a re-frame2-pair session"
 
