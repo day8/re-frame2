@@ -16,7 +16,9 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart :as chart]
-            [day8.re-frame2-machines-viz.chart.edges :as edges]))
+            [day8.re-frame2-machines-viz.chart.edges :as edges]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.projection :as projection]))
 
 ;; ---- fixtures ----------------------------------------------------------
 
@@ -394,3 +396,99 @@
       (is (false? (:routed? xhier)))
       (is (= (:d plain) (:d xhier))
           "bezier fallback is identical regardless of cross-hierarchy"))))
+
+;; ---- producer → consumer bridge (rf2-r636q) ----------------------------
+;;
+;; The dead-G2 bug shipped GREEN because no test bridged the two halves
+;; of the :edge-points contract:
+;;
+;;   PRODUCER  `chart/elk-result->positions` keys :edge-points by the elk
+;;             edge id — `<spec-edge-id>__in` / `<spec-edge-id>__out`
+;;             (the two edges `->elk-input` splits each transition into
+;;             under the events-as-nodes paradigm, rf2-qo5xy).
+;;   CONSUMER  `projection/xyflow-graph` looked up the BARE canonical
+;;             `<spec-edge-id>`, which the producer never emits → every
+;;             lookup missed → :points always nil → silent bezier
+;;             fallback (a real visual regression: cross-hierarchy edges
+;;             cut straight across containers).
+;;
+;; The producer half (`elk-edge-points`) and the consumer half (the
+;; projection pins above) were each green in isolation. This test feeds
+;; a STUBBED elk result (shaped exactly like elkjs's output, with the
+;; `__in` / `__out` edge ids) through the real producer, then through
+;; the real consumer, and asserts the routes land on the right xyflow
+;; edges — the integration that was never exercised. It FAILS before the
+;; fix (bare-id lookup → nil points) and PASSES after (per-segment
+;; `__in` / `__out` lookup).
+
+(defn- ->elk-node-with-edges
+  "A synthetic elk result node carrying laid-out child node positions +
+  an `edges` array (each elk edge has an `id` + `sections`). Mirrors the
+  shape `elk-result->positions` walks."
+  [children elk-edges]
+  #js {:id       "root"
+       :children (apply array children)
+       :edges    (apply array elk-edges)})
+
+(defn- ->elk-edge [id sections]
+  #js {:id id :sections (apply array sections)})
+
+(deftest producer-consumer-bridge-routes-in-and-out-segments
+  (testing "rf2-r636q — end-to-end: a stubbed elk result whose edges use
+            the `<spec-edge-id>__in` / `<spec-edge-id>__out` ids flows
+            through `chart/elk-result->positions` (PRODUCER) into
+            `projection/xyflow-graph` (CONSUMER); the `__in` route lands
+            on the inbound xyflow edge and the `__out` route on the
+            outbound xyflow edge. (Pre-fix the consumer keyed on the bare
+            id and BOTH segments fell back to a straight bezier.)"
+    (let [parsed     (layout/parse-definition
+                       {:initial :idle
+                        :states  {:idle    {:on {:start :loading}}
+                                  :loading {}}})
+          start      (->> (:edges parsed)
+                          (filter #(= :start (:event %)))
+                          first)
+          spec-id    (:id start)
+          ;; An L-shaped __in route (source-state → event-node) and a
+          ;; distinct L-shaped __out route (event-node → target). Each
+          ;; has an interior bend so it is a genuine multi-point route,
+          ;; not a degenerate straight line.
+          in-edge    (->elk-edge
+                       (str spec-id "__in")
+                       [(->section (pt 0 0) [(pt 0 40) (pt 50 40)] (pt 50 80))])
+          out-edge   (->elk-edge
+                       (str spec-id "__out")
+                       [(->section (pt 50 80) [(pt 50 120) (pt 120 120)] (pt 120 160))])
+          elk-result (->elk-node-with-edges [] [in-edge out-edge])
+          ;; PRODUCER: lift the elk result. :edge-points is keyed by the
+          ;; elk edge ids (__in / __out).
+          {:keys [edge-points]} (chart/elk-result->positions elk-result)
+          ;; Sanity: the producer keyed by the elk edge ids, NOT the bare
+          ;; canonical id (the exact mismatch rf2-r636q fixes).
+          _          (is (contains? edge-points (str spec-id "__in")))
+          _          (is (contains? edge-points (str spec-id "__out")))
+          _          (is (not (contains? edge-points spec-id))
+                         "producer never emits a bare-canonical key")
+          ;; CONSUMER: feed the produced :edge-points straight in.
+          graph      (projection/xyflow-graph parsed {} {:edge-points edge-points})
+          xy-in      (first (filter #(= (str spec-id "__in")  (:id %)) (:edges graph)))
+          xy-out     (first (filter #(= (str spec-id "__out") (:id %)) (:edges graph)))]
+      (is (some? xy-in))
+      (is (some? xy-out))
+      (is (= [{:x 0 :y 0} {:x 0 :y 40} {:x 50 :y 40} {:x 50 :y 80}]
+             (:points (:data xy-in)))
+          "the __in route reaches the inbound edge end-to-end")
+      (is (= [{:x 50 :y 80} {:x 50 :y 120} {:x 120 :y 120} {:x 120 :y 160}]
+             (:points (:data xy-out)))
+          "the __out route reaches the outbound edge end-to-end")
+      ;; And the rendered geometry actually routes THROUGH the bends —
+      ;; the path string is a poly-path (Q segments), not a bezier (C).
+      (let [{:keys [d routed?]}
+            (edges/edge-path (assoc base-coords
+                                    :self-loop? false
+                                    :points (apply array
+                                                   (map #(pt (:x %) (:y %))
+                                                        (:points (:data xy-out))))))]
+        (is (true? routed?) "the outbound segment renders as a routed path")
+        (is (str/includes? d "Q") "routed path uses quadratic corner segments")
+        (is (not (str/includes? d "C")) "routed path is NOT a single bezier")))))

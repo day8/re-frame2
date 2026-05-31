@@ -232,9 +232,18 @@
     (when (> (count pts) 1)
       (vec pts))))
 
-(defn- elk-result->positions
+(defn elk-result->positions
   "Adapter: elk.js JS result → `{:positions {node-id {:x :y :width
   :height}} :edge-points {edge-id [{:x :y} …]}}`.
+
+  Public-by-convention as a test seam (mirrors `elk-edge-points` /
+  `invoke-elk-layout!`): the rf2-r636q regression bridges this PRODUCER
+  to the `projection/xyflow-graph` CONSUMER end-to-end, feeding a
+  stubbed elk result through here and asserting the projector attaches
+  the route — the integration the per-half pins (consumer-only /
+  producer-only) never exercised together, which is how the dead-G2
+  key-scheme mismatch shipped green. No production code outside this ns
+  calls it directly.
 
   Used by `xyflow-graph` to merge xyflow-side node objects with
   elk-laid-out positions, and (rf2-cz8v6 / G2) to route edges through
