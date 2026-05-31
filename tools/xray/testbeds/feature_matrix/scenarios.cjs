@@ -1217,21 +1217,21 @@ async function runHttpToggle(page) {
   // in this epoch" surface. Per rf2-639lc the panel default-focuses
   // the head (most-recent) cascade on mount — opening the tab after
   // the last `:go` dispatch surfaces its full numbered cascade.
-  // Assert the rendered panel carries the SIDE EFFECTS step (rf2-kt6js;
+  // Assert the rendered panel carries the EFFECT HANDLERS step (rf2-kt6js;
   // the `:rf.fx/handled` emits for the dispatched `:go` event are
   // projected into the step's `:fx` sub-step). The step header reads
-  // "SIDE EFFECTS" and the `:fx` sub-header reads ":fx".
+  // "EFFECT HANDLERS" and the `:fx` sub-header reads ":fx".
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
   const epochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
-  if (!epochText.includes('fx') && !epochText.includes('effects')) {
-    failWithDetails('Epoch panel did not surface the SIDE EFFECTS step', {
+  if (!epochText.includes('fx') && !epochText.includes('effect')) {
+    failWithDetails('Epoch panel did not surface the EFFECT HANDLERS step', {
       epochText: epochText.slice(0, 800),
     });
   }
   // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c)).
   // The fx outcomes for this scenario surface inline in the Epoch
-  // panel's SIDE EFFECTS step (asserted above); there is no dedicated
+  // panel's EFFECT HANDLERS step (asserted above); there is no dedicated
   // Issues tab to hand off to anymore.
 }
 
@@ -3056,7 +3056,7 @@ const SCENARIOS = [
     url: '/testbeds/schema-violation/',
     // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Post
     // rf2-gbz39 (Option (c)) the Issues tab was ALSO removed — schema
-    // violations now surface inline in the Epoch panel's SIDE EFFECTS
+    // violations now surface inline in the Epoch panel's EFFECT HANDLERS
     // step (rf2-kt6js).
     panels: ['epoch'],
     coveredRows: ['Epoch Panel'],
@@ -3070,7 +3070,7 @@ const SCENARIOS = [
     // Performance panel is gone too (Mike's call: use Chrome DevTools
     // Performance). rf2-5gl5r: `event` panel renamed to `epoch`.
     // rf2-gbz39: the Issues tab was removed (Option (c)) — fx outcomes
-    // surface inline in the Epoch panel's SIDE EFFECTS step.
+    // surface inline in the Epoch panel's EFFECT HANDLERS step.
     panels: ['epoch', 'trace'],
     coveredRows: ['Epoch Panel', 'Trace'],
     run: runHttpToggle,

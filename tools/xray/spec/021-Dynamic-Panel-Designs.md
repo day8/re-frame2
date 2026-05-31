@@ -2522,9 +2522,9 @@ outcome chips + MCP wire consumers + the pinned
 `outcome-enum-projection-pins-mapping` test. No spec/009 /
 Spec-Schemas edit was needed (rf2-ahhgn settle-first finding).
 
-### §9.1.10.6 SIDE EFFECTS step — flat per-effect ledger (rf2-j630b, supersedes the rf2-kt6js 3-tier · rf2-uffov · rf2-m8ac9)
+### §9.1.10.6 EFFECT HANDLERS step — flat per-effect ledger (rf2-j630b, supersedes the rf2-kt6js 3-tier · rf2-uffov · rf2-m8ac9)
 
-The pre-rf2-kt6js single `:fx` step became the **SIDE EFFECTS** step
+The pre-rf2-kt6js single `:fx` step became the **EFFECT HANDLERS** step
 (badge `:SIDE-EFFECTS`, the same `:orange` hue). rf2-j630b supersedes the
 rf2-kt6js 3-tier `:db` / `:fx` / other sub-step presentation with a
 **FLAT per-effect ledger**: ONE row per effect, down the page, in
@@ -2532,7 +2532,7 @@ EXECUTION order, with **NO `:db` / `:fx` / other group headers**. The
 leading per-row status glyph + effect-id + args edn-inspector + the row
 order carry the structure.
 
-**Single badge status (no labels).** After the "SIDE EFFECTS" badge the
+**Single badge status (no labels).** After the "EFFECT HANDLERS" badge the
 header paints **ONE overall glyph** — `✓` when every present row
 succeeded, `✗` when one or more FAILED (`projection/side-effects-badge-
 status` = the AND of the present rows; the view reads it via the generic

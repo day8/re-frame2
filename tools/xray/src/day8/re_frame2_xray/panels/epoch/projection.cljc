@@ -1099,7 +1099,7 @@
 ;; rf2-kt6js 3-tier `:db` / `:fx` / other sub-step grouping). One row per
 ;; effect, down the page, in EXECUTION order; NO group headers. Each row
 ;; carries a leading status glyph + the effect-id + the effect ARGS in an
-;; edn-inspector. After the "SIDE EFFECTS" badge the view paints ONE
+;; edn-inspector. After the "EFFECT HANDLERS" badge the view paints ONE
 ;; overall glyph — TICK when every present row succeeded, CROSS when one
 ;; or more FAILED (SKIPPED rows are NEUTRAL). No post-commit / best-effort
 ;; labels. Each row reuses the shared per-step `:status` (`:ok` /
@@ -1355,7 +1355,7 @@
 
   There are NO `:db` / `:fx` / other group headers — the leading status
   glyph + effect-id + args edn-inspector on each row + the execution
-  order carry the structure. After the \"SIDE EFFECTS\" badge the view
+  order carry the structure. After the \"EFFECT HANDLERS\" badge the view
   paints ONE overall glyph: TICK when every present row succeeded, CROSS
   when one or more FAILED (`side-effects-badge-status`; SKIPPED rows are
   NEUTRAL). No post-commit / best-effort labels.

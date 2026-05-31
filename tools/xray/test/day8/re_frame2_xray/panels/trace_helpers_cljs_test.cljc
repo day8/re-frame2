@@ -327,9 +327,9 @@
             badge label (DRY via panels.epoch.badge)"
     (is (= "DISPATCH"
            (h/stage-label {:op-type :rf.event :operation :rf.event/dispatched})))
-    (is (= "SIDE EFFECTS"
+    (is (= "EFFECT HANDLERS"
            (h/stage-label {:op-type :rf.fx :operation :rf.fx/handled}))
-        "SIDE-EFFECTS renders the Epoch label 'SIDE EFFECTS' (spaced)")
+        "SIDE-EFFECTS renders the Epoch label 'EFFECT HANDLERS'")
     (is (= "SUBSCRIPTIONS"
            (h/stage-label {:op-type :rf.sub :operation :rf.sub/run})))
     (is (= "VIEWS"
@@ -364,7 +364,7 @@
                                   :operation :rf.fx/handled
                                   :tags {:rf.fx/id :http-xhrio}}))]
       (is (= :SIDE-EFFECTS (:stage row)))
-      (is (= "SIDE EFFECTS" (:stage-label row)))
+      (is (= "EFFECT HANDLERS" (:stage-label row)))
       (is (= (epoch-badge/colour :SIDE-EFFECTS) (:stage-colour row))))))
 
 ;; ---- (8) band projection — spec/023 §2 / §13 --------------------------
