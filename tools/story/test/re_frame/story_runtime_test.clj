@@ -33,6 +33,7 @@
             [re-frame.story.async     :as async]
             [re-frame.story.config    :as config]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.fingerprint :as fp]
             [re-frame.story.frames    :as frames]
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
@@ -560,12 +561,27 @@
           (late-bind/set-fn! :schemas/app-schemas-digest prior))))))
 
 (deftest snapshot-identity-canonical-key-stable
-  (testing "the canonical-form key :rf/snapshot-canonical-v1 is included"
-    (let [canon (ident/canonical-form [:rf/snapshot-canonical-v1 :x])]
+  (testing "the canonical-version tag canonicalises and map key order is
+            hash-stable"
+    (let [canon (ident/canonical-form [fp/canonical-version :x])]
       (is (some? canon)))
     (is (= (ident/content-hash {:a 1 :b 2})
            (ident/content-hash {:b 2 :a 1}))
         "map key order doesn't affect the hash")))
+
+(deftest snapshot-tuple-canonical-slot-tracks-fingerprint-version
+  ;; rf2-e8hgr — doc↔code drift guard. The snapshot tuple's
+  ;; `:rf/snapshot-canonical` slot is NOT an independently-versioned
+  ;; marker: it reads its value straight from the single source of truth,
+  ;; `fingerprint/canonical-version`. This locks them together so a future
+  ;; canonical-version bump cannot leave the tuple slot pinned to a stale
+  ;; literal (the v1/v2 drift this bead fixed).
+  (testing "the tuple's :rf/snapshot-canonical slot equals fingerprint/canonical-version"
+    (story/reg-story :story.id-canon {:component :app/c})
+    (story/reg-variant :story.id-canon/v {:events []})
+    (is (= fp/canonical-version
+           (:rf/snapshot-canonical (ident/snapshot-tuple :story.id-canon/v)))
+        "the snapshot tuple stamps the live canonical-version, not a literal")))
 
 ;; ===========================================================================
 ;; LIFECYCLE STATE MACHINE

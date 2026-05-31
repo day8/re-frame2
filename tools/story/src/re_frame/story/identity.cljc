@@ -28,12 +28,18 @@
   value change). The later rf2-lvrqa *soundness* fix is a deliberate
   canonical-form REVISION: it type-tags the canonical form (so `{}` ≠ `[]`,
   `{:k 1}` ≠ `[:k 1]`) and folds functions to a stable sentinel, and BUMPS
-  `canonical-version` `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`.
-  Because the version is the first hashed slot, the snapshot content-hash
-  VALUE changes. External visual-regression baselines therefore re-capture
-  on their next run (the bump is the re-stamp signal); there are no in-repo
-  stored hash fixtures to migrate. The hashing CODE still lives in the
-  single fingerprint primitive — this ns only re-exports it.
+  the canonical-version tag `re-frame.story.fingerprint/canonical-version`
+  `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`. That tag is the
+  single source of truth for the version: `fingerprint/hash-canonical`
+  prepends it as the first hashed slot of EVERY hash (`content-hash`,
+  `canonical-hash`, `plan-hash`, `run-hash`), so the snapshot content-hash
+  VALUE changes with the bump. External visual-regression baselines
+  therefore re-capture on their next run (the bump is the re-stamp signal);
+  there are no in-repo stored hash fixtures to migrate. The hashing CODE
+  still lives in the single fingerprint primitive — this ns only re-exports
+  it. The snapshot tuple also carries a `:rf/snapshot-canonical` data slot,
+  which reads its value straight from `fingerprint/canonical-version` (it is
+  NOT a second, independently-versioned marker — it tracks the one tag).
 
   The volatile-field strip + `:variant-id` → `:variant/id` reconciliation
   live in the fingerprint `canonicalize` path that backs determinism /
@@ -85,10 +91,11 @@
   as a Stage 6+ extension when an external service needs cryptographic
   collision-resistance.
 
-  The canonical-form keyword `canonical-version`
-  (now `:rf/snapshot-canonical-v2`, bumped by rf2-lvrqa) is the first slot
-  of the hashed structure, so a canonical-form revision bumps the version
-  and old baselines are detectably stale rather than silently mis-compared."
+  The canonical-form version tag `fingerprint/canonical-version`
+  (now `:rf/snapshot-canonical-v2`, bumped by rf2-lvrqa) is prepended by
+  `fingerprint/hash-canonical` as the first slot of the hashed structure, so
+  a canonical-form revision bumps the version and old baselines are
+  detectably stale rather than silently mis-compared."
   (:require [re-frame.late-bind         :as late-bind]
             [re-frame.story.args        :as args]
             [re-frame.story.fingerprint :as fingerprint]
@@ -228,7 +235,7 @@
                                          {:active-modes   active-modes
                                           :cell-overrides cell-overrides})
          schema-digest (view-schema-digest)]
-     {:rf/snapshot-canonical :rf/snapshot-canonical-v1
+     {:rf/snapshot-canonical fingerprint/canonical-version
       :variant-id            variant-id
       :variant               variant
       :story                 story
