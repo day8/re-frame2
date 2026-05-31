@@ -439,11 +439,11 @@
   present), the replay routes through the non-validating
   `apply-patches*` rather than the public `apply-patches`."
   [epoch]
-  (let [da (when (map? epoch) (:db-after epoch))]
-    (if-not (and (map? da)
-                 (= :db-before (get da vocab/diff-from-key)))
+  (let [db-after (when (map? epoch) (:db-after epoch))]
+    (if-not (and (map? db-after)
+                 (= :db-before (get db-after vocab/diff-from-key)))
       epoch
-      (let [sections  (:sections da)
+      (let [sections  (:sections db-after)
             _         (validate-sections! (or sections []) 'mcp-base/decode-db-after)
             patches   (sg/sections->patches (or sections []))
             db-before (:db-before epoch)
