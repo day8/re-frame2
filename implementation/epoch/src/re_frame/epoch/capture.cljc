@@ -106,16 +106,22 @@
   #{:rf.sub/run
     :rf.sub/skip})
 
-(defn- in-flight-cascade?
+(defn in-flight-cascade?
   "True when the frame's in-flight capture buffer already holds an
   `:event/run-start` emit — the canonical signal that a cascade has
-  begun draining into this buffer (mirrors the gate
-  `re-frame.epoch.listeners/on-frame-destroyed!` uses for mid-drain
-  detection). A render that fires WITH a cascade in flight (synchronous
-  flush — SSR, a render triggered inside another render's reactive read)
-  genuinely belongs to that cascade and is buffered normally; a render
-  that fires with NO cascade in flight is a post-settle async re-render
-  and is back-filled to the cascade that caused it."
+  begun draining into this buffer. The single home for the
+  'is a cascade in flight for this frame?' question; both the
+  post-settle back-fill routing below and
+  `re-frame.epoch.listeners/on-frame-destroyed!`'s mid-drain detection
+  call it so the gate stays one predicate.
+
+  A render that fires WITH a cascade in flight (synchronous flush — SSR,
+  a render triggered inside another render's reactive read) genuinely
+  belongs to that cascade and is buffered normally; a render that fires
+  with NO cascade in flight is a post-settle async re-render and is
+  back-filled to the cascade that caused it. The destroy hook reads the
+  same signal to tell a mid-drain destroy (commit a `:halted-destroy`
+  partial record) from a registration-time tagalong."
   [frame-id]
   (some (fn [ev]
           (= :rf.event/run-start (:operation ev)))

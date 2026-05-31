@@ -215,11 +215,13 @@
     ;; state given `:outcome :halted-destroy` signals the destroy
     ;; context. The record is delivered to listeners only — the ring
     ;; buffer gets wiped in step 3.
-    (let [buffered-events  (state/buffer-for frame-id)
-          in-cascade?      (some (fn [ev]
-                                   (= :rf.event/run-start (:operation ev)))
-                                 buffered-events)]
-      (when in-cascade?
+    ;; Mid-drain detection reuses the canonical
+    ;; `capture/in-flight-cascade?` gate (the same predicate the
+    ;; post-settle render / sub-run back-fill routing uses) so the
+    ;; 'is a cascade in flight?' question lives in one place. The
+    ;; buffered events are read separately for the partial-record build.
+    (let [buffered-events (state/buffer-for frame-id)]
+      (when (capture/in-flight-cascade? frame-id)
         ;; Per rf2-wp70d: even on the halted-destroy partial-record
         ;; commit, `maybe-redact` runs once between `build-record`
         ;; and listener fan-out so listener consumers see the SAME
@@ -228,22 +230,14 @@
                        (assembly/build-record frame-id nil nil buffered-events
                                               :halted-destroy
                                               {:operation :rf.frame/destroyed-mid-drain}))]
-          (trace/emit! :rf.epoch :rf.epoch/snapshotted
-                       {:frame             frame-id
-                        :rf.epoch/id       (:epoch-id record)
-                        :rf.trace/event-id (:event-id record)
-                        :outcome           :halted-destroy})
-          ;; Per rf2-18g1w / rf2-jppad — consumer-facing tier (`:ok` /
-          ;; `:blocked` / `:error`) emitted alongside `:rf.epoch/snapshotted`
-          ;; so the trace stream carries both the detailed cause (snapshotted
-          ;; `:outcome`) and the coarse summary the Trace-panel close-row and
-          ;; Story outcome chips read directly. `:halted-destroy` → `:blocked`.
-          (trace/emit! :rf.epoch :rf.epoch/outcome
-                       {:frame             frame-id
-                        :rf.epoch/id       (:epoch-id record)
-                        :rf.trace/event-id (:event-id record)
-                        :outcome           (assembly/outcome->consumer-facing
-                                             :halted-destroy)})
+          ;; Per rf2-18g1w / rf2-jppad — the cascade-trailer pair (detailed
+          ;; `:rf.epoch/snapshotted` `:outcome :halted-destroy` plus the
+          ;; consumer-facing `:rf.epoch/outcome :blocked`). Shared with the
+          ;; clean/halt settle via `assembly/emit-snapshotted+outcome!` so
+          ;; the two-op trailer shape stays identical across both commit
+          ;; paths.
+          (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+                                              (:event-id record) :halted-destroy)
           (notify-listeners! record))))
     (let [silenced-cbs (->> (state/observations-snapshot)
                             (keep (fn [[cb-id frames]]
