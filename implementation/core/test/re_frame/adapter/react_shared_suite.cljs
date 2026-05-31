@@ -428,6 +428,57 @@
               "the explicit {:line 42 :column 7} coords land in the attribute"))))))
 
 ;; ===========================================================================
+;; React `:key` parity (Spec 006 §Source-coord annotation — CRITICAL key
+;; preservation note) — rf2-pt0u2, follow-up to rf2-1anbp
+;;
+;; rf2-1anbp pinned the Reagent path: a call-site ^{:key} propagates to
+;; React. The React-hook substrates (UIx / Helix) take a different route —
+;; the React `:key` rides the substrate's own `createElement` / `$` at the
+;; call site, NOT Reagent's hiccup-metadata extraction. The hazard that
+;; remains is the wrap-view pass itself: `inject-source-coord-attr` and
+;; `append-unmount-sentinel` both `React/cloneElement` the user's root
+;; output, and `cloneElement` is documented to preserve the `key` slot
+;; (see spine.cljs `inject-source-coord-attr` / `append-unmount-sentinel`
+;; docstrings — "SAME `type` and `key` slots"). This assertion pins that
+;; preservation by test rather than by argument: a seq of registered views,
+;; each whose root element carries a distinct per-item key, must emerge from
+;; the wrap-view passes with each key intact and all keys distinct (no
+;; collision). Parameterised ⇒ a gap on UIx is a gap on Helix.
+;; ===========================================================================
+
+(defn assert-reg-view-react-key-preserved
+  "rf2-pt0u2: a registered view whose root React element carries a `:key`
+  emerges from wrap-view's cloneElement passes (source-coord injection +
+  unmount-sentinel append) with that key intact. Across a seq of views
+  carrying distinct per-item keys the keys stay distinct — no collision.
+  Headless: `((rf/view id))` runs the full wrap-view path under node-test
+  (goog.DEBUG true), so the source-coord attribute also lands, proving the
+  cloneElement passes actually executed and the key survived them."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — React :key: per-item keys survive the wrap-view passes, stay distinct")
+    (let [n        3
+          rendered (for [i (range n)
+                         :let [id      (mint-kw substrate-kw (str "react-key-" i))
+                               item-key (str "rk-" i)
+                               user-fn (fn [] (React/createElement
+                                               "li" #js {:key item-key} (str "item " i)))]]
+                     (do (rf/reg-view* id user-fn)
+                         {:item-key item-key :out ((rf/view id))}))
+          rendered (vec rendered)]
+      (doseq [{:keys [item-key out]} rendered]
+        (is (some? out) "registered view returned a non-nil React element")
+        (is (= "li" (.-type out)) "root element type preserved through the wrap-view passes")
+        (is (= item-key (.-key out))
+            (str "the call-site React :key (" item-key ") survives cloneElement "
+                 "(source-coord injection + unmount-sentinel append)"))
+        (is (string? (source-coord out))
+            "data-rf2-source-coord present — the wrap-view pass ran, so key-preservation is meaningful"))
+      (let [keys (mapv :item-key rendered)]
+        (is (= n (count (distinct keys)))
+            (str "all " n " per-item keys are distinct after the wrap-view passes — no collision; got "
+                 (pr-str keys)))))))
+
+;; ===========================================================================
 ;; frame-context corrupted `_currentValue` (Spec 009 §Error contract) — G4
 ;; ===========================================================================
 
