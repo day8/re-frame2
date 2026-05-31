@@ -2219,9 +2219,12 @@
                  must NOT read as 'ran, returned no :db'.
     `:ok`      — otherwise (the step ran cleanly).
 
-  The view paints a ✓ (`:ok`) / ✗ (`:error`) / ⊘ (`:skipped`) glyph on
-  every step header off this primitive; rf2-kt6js's SIDE-EFFECTS sub-steps
-  reuse the same shape for their per-effect ticks.
+  The view no longer paints a per-stage glyph off this primitive (the
+  per-stage ✓/✗/⊘ retired in rf2-9wq0v — a clean run was all ticks / no
+  information, and a failure already shows on its inline exception card).
+  This status still drives the SKIPPED-body branch (`:skipped` → the
+  'did not run' placeholder) and the overall cascade-outcome banner
+  (`cascade-outcome` / `epoch-outcome` scan `:error`).
 
   A failure (`:error`) takes precedence over a skip — a step that both was
   marked skipped AND carries an attached error reads `:error` (the error is

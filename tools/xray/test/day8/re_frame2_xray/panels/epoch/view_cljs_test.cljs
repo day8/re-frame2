@@ -946,42 +946,24 @@
     :rows (vec rows)
     :threw threw}))
 
-(deftest side-effects-badge-single-status-test
-  (testing "rf2-j630b — after the SIDE EFFECTS badge the header paints ONE
-            overall glyph (no post-commit / best-effort labels, no threw
-            chip): CROSS when any row failed, TICK when all succeeded.
-            The per-row glyphs carry per-effect outcome."
+(deftest side-effects-header-no-caption-test
+  (testing "rf2-j630b · rf2-9wq0v — the SIDE EFFECTS header carries no
+            post-commit / best-effort caption and no threw-count chip; the
+            per-row ledger glyphs are the whole signal (the per-stage badge
+            glyph retired in rf2-9wq0v — the row-level AND-of-rows outcome
+            stays queryable via `proj/side-effects-badge-status`, covered
+            in projection tests)."
     (let [tree   (view/render-side-effects-step
                    (side-effects-step
                      [{:fx-id :db :status :ok}
                       {:fx-id :http/get :status :ok}
                       {:fx-id :bad :status :error}]
                      1))
-          header (text-of tree "rf-xray-epoch-side-effects-header")
-          status (th/find-by-testid tree "rf-xray-epoch-side-effects-status")]
+          header (text-of tree "rf-xray-epoch-side-effects-header")]
       (is (not (string/includes? header "(post-commit)"))
           "the post-commit caption is dropped (rf2-j630b)")
       (is (not (string/includes? header "threw"))
-          "the threw-count chip is dropped — the single badge carries it")
-      (is (= "error" (:data-rf-xray-step-status (second status)))
-          "the single badge reads ✗ when a row failed")))
-
-  (testing "rf2-j630b — all-clean ledger → badge ✓"
-    (let [tree   (view/render-side-effects-step
-                   (side-effects-step
-                     [{:fx-id :db :status :ok}
-                      {:fx-id :http/get :status :ok}]))
-          status (th/find-by-testid tree "rf-xray-epoch-side-effects-status")]
-      (is (= "ok" (:data-rf-xray-step-status (second status))))))
-
-  (testing "rf2-j630b — a SKIPPED row is NEUTRAL — badge stays ✓"
-    (let [tree   (view/render-side-effects-step
-                   (side-effects-step
-                     [{:fx-id :http/get :status :ok}
-                      {:fx-id :clipboard/write :status :skipped}]))
-          status (th/find-by-testid tree "rf-xray-epoch-side-effects-status")]
-      (is (= "ok" (:data-rf-xray-step-status (second status)))
-          "skipped does not trip the badge to cross"))))
+          "the threw-count chip is dropped — the per-row glyphs carry it"))))
 
 (deftest side-effects-flat-ledger-order-test
   (testing "rf2-j630b — rows render flat in execution order: :db first,
@@ -2493,23 +2475,21 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-handler-0-message")
             "boom in handler"))
-      (let [glyph (th/find-by-testid tree "rf-xray-epoch-handler-status")]
-        (is (some? glyph) "the per-step status glyph renders")
-        (is (= "error" (:data-rf-xray-step-status (th/attrs glyph)))
-            "the glyph data-attr reports :error")
-        (is (string/includes? (th/text-content glyph) "✗")
-            "a failed step paints the ✗ glyph")))))
+      ;; rf2-9wq0v — the per-stage ✗ glyph retired; the inline exception
+      ;; card under the step is the sole inline failure signal.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-status"))
+          "no per-stage status glyph (retired rf2-9wq0v)"))))
 
-(deftest handler-step-clean-paints-ok-glyph-test
-  (testing "rf2-ahhgn — a clean handler step paints the quiet ✓ glyph and
-            renders no error card"
+(deftest handler-step-clean-renders-no-error-card-test
+  (testing "rf2-ahhgn · rf2-9wq0v — a clean handler step renders no error
+            card and no per-stage status glyph (the glyph retired rf2-9wq0v
+            — a clean stage is silent now, not an all-tick row)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :counter/inc
                 :db-diff [] :fx [] :machine nil}
-          tree (view/render-handler-step step)
-          glyph (th/find-by-testid tree "rf-xray-epoch-handler-status")]
-      (is (= "ok" (:data-rf-xray-step-status (th/attrs glyph))))
-      (is (string/includes? (th/text-content glyph) "✓"))
+          tree (view/render-handler-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-status"))
+          "no per-stage status glyph on a clean step (retired rf2-9wq0v)")
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-errors-handler"))
           "a clean step renders no error block"))))
 
@@ -2541,8 +2521,9 @@
 
 ;; `outcome-banner-renders-on-error-test` retired (rf2-wnvid) — the
 ;; top-of-pipeline "This event failed" banner is gone; the failure
-;; surfaces inline (the failing step's ✗ glyph + the 'Exception Thrown'
-;; card). The panel root still stamps `data-rf-xray-outcome`.
+;; surfaces inline via the failing step's 'Exception Thrown' card (the
+;; per-stage ✗ glyph itself retired in rf2-9wq0v). The panel root still
+;; stamps `data-rf-xray-outcome`.
 
 ;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR + skipped ---
 
@@ -2575,9 +2556,9 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-coeffect-0-message")
             "cofx threw on purpose"))
-      ;; header glyph is ✗ (error)
-      (let [status (th/find-by-testid tree "rf-xray-epoch-coeffect-throwing-cofx-status")]
-        (is (= "error" (:data-rf-xray-step-status (second status))))))))
+      ;; rf2-9wq0v — no per-stage glyph; the exception card is the signal.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-coeffect-throwing-cofx-status"))
+          "no per-stage status glyph (retired rf2-9wq0v)"))))
 
 (deftest interceptor-step-renders-row-and-exception-card-test
   (testing "rf2-yz57h — the INTERCEPTOR step renders the throwing
@@ -2654,9 +2635,10 @@
             (text-of tree "rf-xray-epoch-handler-skipped")
             "did not run")
           "the body states the handler did not run")
-      (let [status (th/find-by-testid tree "rf-xray-epoch-handler-status")]
-        (is (= "skipped" (:data-rf-xray-step-status (second status)))
-            "the header glyph reads :skipped (⊘), not ✗/✓")))))
+      ;; rf2-9wq0v — the SKIPPED body itself carries the 'did not run'
+      ;; signal; the per-stage ⊘ glyph retired.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-status"))
+          "no per-stage status glyph (retired rf2-9wq0v)"))))
 
 (deftest side-effects-skipped-renders-as-skipped-test
   (testing "rf2-yz57h — a SIDE EFFECTS step marked :skipped renders the
@@ -2667,12 +2649,6 @@
                   :status :skipped})]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-side-effects-skipped"))
           "the SKIPPED body renders")
-      (let [status (th/find-by-testid tree "rf-xray-epoch-side-effects-status")]
-        (is (= "skipped" (:data-rf-xray-step-status (second status))))))))
-
-(deftest step-status-glyph-skipped-test
-  (testing "rf2-yz57h — the badge primitive paints ⊘ (muted) for :skipped"
-    (is (= "⊘" (badge/step-status-glyph :skipped)))
-    (is (= "✓" (badge/step-status-glyph :ok)))
-    (is (= "✗" (badge/step-status-glyph :error)))
-    (is (badge/step-status? :skipped))))
+      ;; rf2-9wq0v — no per-stage glyph; the SKIPPED body is the signal.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-side-effects-status"))
+          "no per-stage status glyph (retired rf2-9wq0v)"))))
