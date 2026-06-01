@@ -39,7 +39,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            [re-frame.trace :as trace]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -66,7 +67,10 @@
                   :states  {:running {}}}
           parent {:initial :idle
                   :on-spawn-actions
-                  {:record (fn [{:keys [id]}] (reset! observed id))}
+                  ;; Observational body — side-effect into an atom, returns
+                  ;; nil (the advisory contract drops the return; returning
+                  ;; nil keeps the dev-warn quiet, rf2-dtth6).
+                  {:record (fn [{:keys [id]}] (reset! observed id) nil)}
                   :states
                   {:idle      {:on {:start :working}}
                    :working   {:spawn {:machine-id :worker/proc
@@ -222,7 +226,9 @@
                   {:tear-down (fn [_ctx]
                                 {:fx [[:rf.machine/destroy @recorded]]})}
                   :on-spawn-actions
-                  {:record (fn [{:keys [id]}] (reset! recorded id))}
+                  ;; Sidechannel-atom capture — returns nil (advisory; the
+                  ;; runtime drops the return, rf2-dtth6).
+                  {:record (fn [{:keys [id]}] (reset! recorded id) nil)}
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :worker/proc
@@ -281,6 +287,78 @@
             snap       (get-in (frame-db) [:rf/runtime :machines :snapshots spawned-id])]
         (is (= {:foo :bar :version 7} (:meta snap))
             "spec-declared :meta is propagated to the spawned actor's snapshot")))))
+
+;; ---- (rf2-dtth6) dev-warn when :on-spawn returns a dropped value ---------
+;;
+;; `:on-spawn` is advisory: its return is DROPPED. A callback that returns a
+;; non-nil value (the canonical-looking `(assoc data :pending id)` trap) has
+;; that value silently swallowed. Per the no-silent-swallow principle the
+;; runtime turns the silent drop into a loud one — a dev-only
+;; `:rf.warning/on-spawn-return-ignored` trace naming the working
+;; id-recording alternatives. `trace/emit!` is gated on
+;; `interop/debug-enabled?` (true on the JVM by default) so the warn fires
+;; here; production CLJS bundles DCE it entirely.
+
+(defn- capture-warn-ops!
+  "Run `thunk` while a trace listener records every emitted `:operation`.
+  Returns the vector of operations seen during the body."
+  [thunk]
+  (let [seen (atom [])]
+    (trace/register-listener! ::on-spawn-warn (fn [ev] (swap! seen conj (:operation ev))))
+    (try (thunk) (finally (trace/unregister-listener! ::on-spawn-warn)))
+    @seen))
+
+(deftest on-spawn-returning-a-value-warns-exactly-once
+  (testing "an :on-spawn callback that returns a non-nil (dropped) value
+   emits exactly one :rf.warning/on-spawn-return-ignored"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :on-spawn-actions
+                  ;; The canonical TRAP body — returns a :data map that the
+                  ;; runtime drops. The warn is what flags it.
+                  {:record (fn [{data :data id :id}] (assoc data :pending id))}
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working {:spawn {:machine-id :worker/warn
+                                      :on-spawn   :record}}}}]
+      (rf/reg-machine :worker/warn child)
+      (rf/reg-machine :sup/warn parent)
+      (let [ops (capture-warn-ops!
+                  #(rf/dispatch-sync [:sup/warn [:start]]))]
+        (is (= 1 (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
+            "exactly one on-spawn-return-ignored warn for a non-nil return")))))
+
+(deftest on-spawn-returning-nil-is-silent
+  (testing "an :on-spawn callback that returns nil (observation-only) emits
+   NO :rf.warning/on-spawn-return-ignored — no false positive"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :on-spawn-actions
+                  ;; Honest observational body — side-effect, returns nil.
+                  {:observe (fn [{:keys [id]}] (tap> [::spawned id]) nil)}
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working {:spawn {:machine-id :worker/quiet
+                                      :on-spawn   :observe}}}}]
+      (rf/reg-machine :worker/quiet child)
+      (rf/reg-machine :sup/quiet parent)
+      (let [ops (capture-warn-ops!
+                  #(rf/dispatch-sync [:sup/quiet [:start]]))]
+        (is (zero? (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
+            "no warn when :on-spawn returns nil")))))
+
+(deftest no-on-spawn-callback-is-silent
+  (testing "a :spawn with NO :on-spawn at all emits no on-spawn-return-ignored warn"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:spawn {:machine-id :worker/none}}}}]
+      (rf/reg-machine :worker/none child)
+      (rf/reg-machine :sup/none parent)
+      (let [ops (capture-warn-ops!
+                  #(rf/dispatch-sync [:sup/none [:start]]))]
+        (is (zero? (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
+            "no callback ⇒ no warn")))))
 
 (deftest grandchild-spawn-allocates-from-childs-snapshot-counter
   (testing "a grandchild's id allocates from the child's :rf/spawn-counter, not the defensive fnil-inc backstop"

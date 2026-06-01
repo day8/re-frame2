@@ -926,19 +926,37 @@
   "Run `spawn-spec`'s `:on-spawn` advisory callback against `snap`'s `:data`.
   Per Spec 005 §Declarative `:spawn` (rf2-grw4i / rf2-v0rrr), the signature
   is `(fn [{:keys [data id]}] _)` — context-map input, advisory return
-  (any return value is ignored). Per rf2-t07u (Option A revised) the
+  (any return value is DROPPED). Per rf2-t07u (Option A revised) the
   runtime tracks the spawn-id at `[:rf/runtime :machines :spawned parent-id invoke-id]`;
   `:on-spawn` is purely observational — callers needing snapshot-level
   side effects emit `[:rf.machine/update-snapshot {:rf/machine-id <id>
   :rf/patch {...}}]` from a regular `:action`'s `:fx` vector instead (the
   fx is registered in `re-frame.machines` and handled by
-  `re-frame.machines.lifecycle-fx.update-snapshot`)."
+  `re-frame.machines.lifecycle-fx.update-snapshot`).
+
+  No-silent-swallow (rf2-dtth6): the snapshot is returned UNCHANGED — a
+  callback that returns a non-nil value (e.g. the canonical-looking
+  `(assoc data :pending id)`) has that value silently dropped, which is the
+  exact trap the advisory contract sets. Surface it: emit a dev-only
+  `:rf.warning/on-spawn-return-ignored` advisory naming the three working
+  id-recording alternatives. `trace/emit!` is gated on
+  `interop/debug-enabled?` (Closure DCE / JVM flag) so this is production-
+  free and adds no module-level mutable state — the engine stays a pure
+  function of `[machine snapshot event]`."
   [machine snap spawn-spec spawned-id]
   (when-let [f (let [aref (:on-spawn spawn-spec)]
                  (when aref
                    (or (chase-ref (:on-spawn-actions machine) aref)
                        (chase-ref (:actions machine) aref))))]
-    (f {:data (:data snap) :id spawned-id}))
+    (let [ret (f {:data (:data snap) :id spawned-id})]
+      (when (some? ret)
+        (trace/emit! :warning :rf.warning/on-spawn-return-ignored
+                     {:machine-id (or (:rf/parent-id machine) (:id machine))
+                      :spawned-id spawned-id
+                      :returned   ret
+                      :remedy     [:system-id
+                                   [:rf/runtime :machines :spawned :<parent> :<invoke-id>]
+                                   :rf.machine/update-snapshot]}))))
   snap)
 
 (defn- spawn-one
