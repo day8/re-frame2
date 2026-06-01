@@ -2468,10 +2468,12 @@ it in the design system the way the surrounding pipeline-step cards do —
 every colour / spacing value resolves through the theme token ns (`theme/
 tokens`), no hardcoded hex:
 
-- **Surface** — the raised panel surface (`:bg-2`), the same neutral the
-  other step cards read, NOT the saturated `:bg-violation` rose wash. The
-  card reads **quiet when collapsed**; the severity signal carries on the
-  edge + glyph, not a shouty fill.
+- **Surface (rf2-ksl5m)** — a **very-light-red** fill: `:error` mixed ~7%
+  over the raised `:bg-2` panel surface (an opaque 2-token `color-mix`, so
+  it paints cleanly on light + dark). Still **quiet** — a subtle tint, NOT
+  the saturated `:bg-violation` rose wash — but the error now reads on the
+  fill at a glance, joining the same `:error` tone the edge, rail, glow +
+  glyph already carry.
 - **Border + rail** — a refined hairline keyed to the error token via
   `tokens/with-alpha` (a tinted edge, not a solid-red box) plus a solid
   `:error` **left rail** (the same accented-left-edge language as the L4

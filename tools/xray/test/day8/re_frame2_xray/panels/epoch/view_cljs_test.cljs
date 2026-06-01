@@ -2402,11 +2402,12 @@
           "rf2-wnvid — the redundant jump-to-source link is dropped"))))
 
 (deftest error-block-styling-is-token-driven-test
-  (testing "rf2-ynvv7 — the sophistication pass styles the exception card
-            from the design tokens (the raised `:bg-2` surface, the solid
-            `:error` left rail, an `:error`-keyed elevation glow, and the
-            `:error`-accent glyph), NOT hardcoded hex. The card sits in the
-            design system like the surrounding step cards."
+  (testing "rf2-ynvv7 / rf2-ksl5m — the sophistication pass styles the
+            exception card from the design tokens (a very-light-red
+            `:error`-over-`:bg-2` fill, the solid `:error` left rail, an
+            `:error`-keyed elevation glow, and the `:error`-accent glyph),
+            NOT hardcoded hex. The card sits in the design system like the
+            surrounding step cards."
     (let [error-var (:error tokens/tokens)        ; "var(--rf-xray-error)"
           bg-2-var  (:bg-2  tokens/tokens)         ; "var(--rf-xray-bg-2)"
           tree      (view/error-block :handler 0
@@ -2423,10 +2424,13 @@
                                  first
                                  th/attrs
                                  :style))]
-      ;; The card root reads the raised panel surface + a token-keyed
+      ;; The card root reads a VERY-LIGHT-RED fill (rf2-ksl5m — `:error`
+      ;; mixed lightly over the raised `:bg-2` surface) + a token-keyed
       ;; left rail + an `:error`-tinted elevation — all from tokens.
-      (is (= bg-2-var (:background card))
-          "card surface is the raised `:bg-2` token (not the rose wash)")
+      (is (and (string/includes? (str (:background card)) error-var)
+               (string/includes? (str (:background card)) bg-2-var))
+          "card surface is a token-driven `:error`-over-`:bg-2` tint
+           (rf2-ksl5m — very-light-red, not the saturated rose wash)")
       (is (string/includes? (str (:border-left card)) error-var)
           "the severity left rail is the `:error` token")
       (is (string/includes? (str (:border card)) error-var)

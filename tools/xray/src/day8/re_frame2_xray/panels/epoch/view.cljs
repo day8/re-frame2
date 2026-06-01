@@ -1200,10 +1200,11 @@
 ;; skeleton. It now sits in the design system the way the surrounding
 ;; pipeline-step cards do, sophisticated rather than basic:
 ;;
-;;   - SURFACE — the raised panel surface (`:bg-2`) the other step cards
-;;     read, NOT the saturated rose wash. The card reads QUIET when
-;;     collapsed; the severity signal carries on the edge + glyph, not a
-;;     shouty fill.
+;;   - SURFACE — a VERY-LIGHT-RED fill (rf2-ksl5m): `:error` mixed ~7%
+;;     over the raised `:bg-2` surface the other step cards read. Still
+;;     QUIET, NOT the saturated rose wash — a subtle tint so the error
+;;     reads on the fill at a glance while the edge + glyph carry the
+;;     stronger severity signal.
 ;;   - BORDER + RAIL — a refined hairline keyed to the error token via
 ;;     `with-alpha` (a tinted edge, not a solid red box) plus a solid
 ;;     `:error` LEFT RAIL — the same "accented left edge" language the
@@ -1225,7 +1226,15 @@
    :gap            (:gap-2 spacing)
    :padding        (str (:gap-2 spacing) " " (:gap-3 spacing))
    :margin         (str (:gap-1 spacing) " 0")
-   :background     bg-2-colour
+   ;; A VERY-LIGHT-RED fill (rf2-ksl5m) — `:error` mixed ~7% over the
+   ;; raised `:bg-2` surface. The card still reads QUIET per rf2-ynvv7
+   ;; (a subtle tint, NOT a saturated rose wash), but the failure tone
+   ;; now joins the fill the same way it already keys the hairline, the
+   ;; left rail, the glow + the glyph. An OPAQUE 2-token `color-mix`
+   ;; (over `:bg-2`, not `transparent`) so it paints cleanly on both
+   ;; themes regardless of the surface the lifted card sits above.
+   :background     (str "color-mix(in srgb, " error-colour " 7%, "
+                        bg-2-colour ")")
    ;; Refined tinted hairline (not a shouty solid red box) + the solid
    ;; `:error` left rail carrying the severity at the column-1 anchor.
    :border         (str "1px solid " (with-alpha :error 38))
