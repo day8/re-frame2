@@ -1764,6 +1764,69 @@
                   :rows first)]
       (is (not (contains? (:sub-status row) [:counter/orphan]))))))
 
+(deftest views-row-render-args-diff-test
+  (testing "rf2-u3lii — `view-rows` carries the col-2 render-args DIFF
+            slots: `:render-args` (THIS render's args, consumed AS-IS
+            from the already-elided `:rf.view/render-args` slot) +
+            `:prev-render-args` (the SAME view INSTANCE's previous render
+            args this cascade, keyed by `:rf.view/render-key`)."
+    (testing "first render of an instance → `:render-args` present,
+              `:prev-render-args` ABSENT (renders plain, no diff)"
+      (let [row (-> (proj/views-step
+                      [(view-render-ev :app/Item [] 0.1
+                                       {:render-key  [:Item 0]
+                                        :render-args [{:label "a" :n 1}]})])
+                    :rows first)]
+        (is (= [{:label "a" :n 1}] (:render-args row))
+            "this render's args present")
+        (is (not (contains? row :prev-render-args))
+            "no previous render this cascade → :prev-render-args absent")))
+
+    (testing "a re-rendered SAME instance with CHANGED args → the
+              re-render row's `:prev-render-args` is the FIRST render's
+              args (so the view diffs against ITS previous, not a
+              neighbour's)"
+      (let [rows (-> (proj/views-step
+                       [(view-render-ev :app/Item [] 0.1
+                                        {:render-key  [:Item 0]
+                                         :render-args [{:label "a" :n 1}]})
+                        (view-render-ev :app/Item [] 0.1
+                                        {:render-key  [:Item 0]
+                                         :render-args [{:label "a" :n 2}]})])
+                     :rows)
+            [r1 r2] rows]
+        (is (= 2 (count rows)))
+        (is (not (contains? r1 :prev-render-args)) "first render: no prev")
+        (is (= [{:label "a" :n 2}] (:render-args r2)) "re-render's own args")
+        (is (= [{:label "a" :n 1}] (:prev-render-args r2))
+            "re-render diffs against the SAME instance's previous render")))
+
+    (testing "two DIFFERENT instances of the same view → each keys its
+              previous-args by ITS OWN render-key (no cross-instance
+              bleed)"
+      (let [rows (-> (proj/views-step
+                       [(view-render-ev :app/Item [] 0.1
+                                        {:render-key  [:Item 0]
+                                         :render-args [{:n 0}]})
+                        (view-render-ev :app/Item [] 0.1
+                                        {:render-key  [:Item 1]
+                                         :render-args [{:n 1}]})])
+                     :rows)
+            [a b] rows]
+        ;; both are FIRST renders of their respective instances —
+        ;; neither inherits the other's args.
+        (is (not (contains? a :prev-render-args)))
+        (is (not (contains? b :prev-render-args))
+            "instance [:Item 1] does NOT diff against instance [:Item 0]")))
+
+    (testing "a no-arg render → `:render-args` ABSENT (reads `(no args)`
+              in the view)"
+      (let [row (-> (proj/views-step
+                      [(view-render-ev :app/Plain [] 0.1
+                                       {:render-key [:Plain 0]})])
+                    :rows first)]
+        (is (not (contains? row :render-args)))))))
+
 ;; ---- top-level project --------------------------------------------------
 
 (deftest project-minimal-test

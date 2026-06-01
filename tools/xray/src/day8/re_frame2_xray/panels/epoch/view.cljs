@@ -1064,6 +1064,32 @@
    :color       text-tertiary-colour
    :word-break  "break-word"})
 
+;; rf2-u3lii — col-2 "render-args (DIFF)" cell. Sits BETWEEN col-1
+;; (view name + glyph) and col-3 (coloured subs). Mirrors the
+;; SUBSCRIPTIONS value cell's wrapper shape (`subs-value-cell-fill-style`)
+;; — fills the resizable-table track + lets the edn-inspector's tree
+;; wrap without overflow.
+(def ^:private views-cell-render-args-style
+  {:flex        "1 1 50%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :word-break  "break-word"})
+
+(def ^:private views-render-args-fill-style
+  "Wrapper for the col-2 render-args edn-inspector mount — fills the
+  grid track + permits the inspector's tree to wrap. Parity with
+  `subs-value-cell-fill-style`."
+  {:flex 1 :min-width 0})
+
+(def ^:private views-render-args-none-style
+  "Plain '(no args)' placeholder for a render that took no positional
+  args (the `:rf.view/render-args` slot was absent — `(seq render-args)`
+  was false at the emit site). Italic muted, parity with the col-3
+  `(none)` subs placeholder."
+  {:font-style "italic" :color text-tertiary-colour})
+
 (def ^:private views-cell-id-span-style
   {:color       accent-colour
    :display     "inline-flex"
@@ -3929,9 +3955,11 @@
 ;; VIEWS row. The mount/re-render GLYPH (`+` / `~`) now carries the
 ;; first-class "why did this render" signal; the col-3 sub colour-code
 ;; (green/orange/grey) shows WHICH dereffed sub drove a re-render. The
-;; render-args DIFF column that would have superseded the inferred
-;; `← props` cause is split to its own instrumentation + view beads
-;; (rf2-rpgq8 / rf2-u3lii).
+;; render-args DIFF column that supersedes the inferred `← props` cause
+;; landed as the col-2 `views-render-args-cell` (rf2-u3lii, consuming
+;; rf2-rpgq8's `:rf.view/render-args` trace slot) — a props-driven
+;; re-render now shows the actual prop delta inline rather than the
+;; inferred `← props` label.
 
 (defn- views-glyph
   "rf2-3b9w4 — the col-1 mount/re-render/unmount indicator. Mirrors the
@@ -3954,6 +3982,56 @@
             :data-rf-view-glyph kind
             :style             style}
      glyph]))
+
+(defn- views-render-args-cell
+  "rf2-u3lii — the col-2 'render-args (DIFF)' cell. Shows the positional
+  args/props passed to THIS render as an edn-inspector DIFF vs the SAME
+  view INSTANCE's PREVIOUS render (the projection keys the previous-args
+  retention by `:rf.view/render-key` — see `proj/view-rows`), so a
+  prop change is visible inline.
+
+  The args value (`render-args`) is ALREADY ELIDED at the substrate
+  emit chokepoint (rf2-rpgq8 PRIVACY treatment); we mount the elided
+  value directly — no re-elision (rf2-u3lii).
+
+  Three render states — the SAME `:before` diff-mode the App-db / subs
+  value cells ship (rf2-vv3m6 FULL+DIFF; reused, not reinvented):
+
+    - args CHANGED  → `prev-render-args` present + differs → mount
+                      `ei/edn-inspector` with `{:before <prev>}`; the
+                      inspector paints the R1-R8 diff grammar on the
+                      args VECTOR's changed elements (a vector is a
+                      container, so per-element deltas surface directly —
+                      no leaf-scalar row-level chrome needed, unlike the
+                      subs cell whose return may be a bare scalar).
+    - args UNCHANGED → `:before` == current → the inspector paints NO
+                      delta (browse posture); the operator reads the
+                      args plain.
+    - FIRST render   → `prev-render-args` ABSENT → plain mount (no
+                      `:before`), surfacing the args with no diff.
+
+  A no-arg render (`render-args` absent) reads `(no args)` — italic
+  muted, parity with the col-3 `(none)` subs placeholder. Unmounted
+  rows carry no `:render-args` so they read `(no args)` too."
+  [{:keys [view-id render-args prev-render-args]} idx]
+  [:div {:data-rf-xray-resizable-col "render-args"
+         :data-testid (str "rf-xray-epoch-view-row-render-args-" idx)
+         :style views-cell-render-args-style}
+   (if (some? render-args)
+     [:div {:style                  views-render-args-fill-style
+            :data-rf-render-args-diff (if (some? prev-render-args) "diff" "plain")}
+      [ei/edn-inspector render-args
+       (cond-> {:panel-id :rf.xray.epoch/view-render-args
+                :site-id  [:rf.xray.epoch/view-render-args view-id idx]
+                :default-expanded-depth 2}
+         ;; same `:before` diff-mode the App-db / subs value cells use —
+         ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
+         ;; instance had a previous render this cascade; first render =>
+         ;; plain mount (no `:before`), args shown without a delta.
+         (some? prev-render-args) (assoc :before prev-render-args))]]
+     [:span {:data-rf-render-args-diff "none"
+             :style views-render-args-none-style}
+      "(no args)"])])
 
 (defn- views-subs-cell
   "rf2-3b9w4 — the col-3 subs cell. Each dereffed sub renders through
@@ -3988,8 +4066,8 @@
      [:span {:style italic-style} "(none)"])])
 
 (defn- views-table
-  "Render the VIEWS table — 2 columns (view / subs) — for the rf2-3b9w4
-  redesign (Mike pair 2026-06-01).
+  "Render the VIEWS table — 3 columns (view / render-args / subs) — for
+  the rf2-3b9w4 redesign (Mike pair 2026-06-01) + the rf2-u3lii col-2.
 
   Each row carries:
     - a col-1 GLYPH (`+` mount / `~` re-render / `−` unmount) +
@@ -3997,6 +4075,10 @@
       inspectable data entity — syntax-token chrome, parity with the
       App-db / subs value cells) + the go-to-source coord-chip.
       The prior render-cause chip + duration are REMOVED.
+    - col-2 RENDER-ARGS (rf2-u3lii) — the positional args/props passed
+      to THIS render, as an edn-inspector DIFF vs the SAME instance's
+      previous render (`views-render-args-cell`). Args that changed show
+      the delta; unchanged show none; a first render shows them plain.
     - the subs the view dereffed, each colour-coded green/orange/grey
       by its `:new` / `:changed` / `:unchanged` posture this epoch
       (`views-subs-cell`).
@@ -4013,6 +4095,8 @@
   the `:rf.xray.epoch/views` table-id slot."
   [rows]
   (let [columns [{:id :view :label "view" :default-flex "1fr"}
+                 ;; rf2-u3lii — col-2 render-args DIFF, between view + subs.
+                 {:id :render-args :label "render-args" :default-flex "1fr"}
                  {:id :subs :label "subs" :default-flex "1fr"}]]
     [rt/resizable-table
      {:table-id        :rf.xray.epoch/views
@@ -4058,6 +4142,9 @@
            ;; jump-to-source in apps with coords.
            (coord-chip/coord-chip (view-coord view-id)
                                   (str "rf-xray-epoch-view-row-coord-" i))]]
+         ;; col-2 render-args DIFF (rf2-u3lii) — this render's args vs
+         ;; the SAME instance's previous render (edn-inspector :before).
+         (views-render-args-cell row i)
          ;; subs cell — colour-coded per-sub (green/orange/grey).
          (views-subs-cell subs-read sub-status i)])}]))
 

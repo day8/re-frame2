@@ -1696,12 +1696,13 @@
 
 (defn view-rows
   "Project view-render events into rows. Each row carries the view-id,
-  the subs the view dereffed during this render, the wall-clock
-  duration of the render-fn, the render `:cause` (rf2-bhi3t —
-  `:mount` / `{:kind :sub :sub-id <id>}` / `:props`), a `:status`
-  (`:rendered`), and a `:sub-status` map (rf2-3b9w4) joining each
-  dereffed sub to its `:new` / `:changed` / `:unchanged` posture this
-  epoch.
+  the instance (`:rf.view/render-key`), the subs the view dereffed
+  during this render, the wall-clock duration of the render-fn, the
+  render `:cause` (rf2-bhi3t — `:mount` / `{:kind :sub :sub-id <id>}` /
+  `:props`), a `:status` (`:rendered`), a `:sub-status` map (rf2-3b9w4)
+  joining each dereffed sub to its `:new` / `:changed` / `:unchanged`
+  posture this epoch, and the rf2-u3lii render-args slots
+  (`:render-args` + `:prev-render-args`).
 
   Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
   per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
@@ -1710,34 +1711,91 @@
   The pre-rf2-6djth read against the bare `render` marker returned nil
   for every payload slot, hence the VIEWS step rendered a count with
   no per-row detail. Legacy `:view-id` / `:subs-read` reads are
-  retained as fixture-compatibility fallbacks."
+  retained as fixture-compatibility fallbacks.
+
+  ## rf2-u3lii — render-args DIFF (col-2)
+
+  Each row carries `:render-args` — the positional render args/props
+  passed to THIS render, off the `:rf.view/render-args` trace slot
+  (rf2-rpgq8). The value is ALREADY ELIDED at the substrate emit
+  chokepoint (PRIVACY — `re-frame.marks/project-trace-event` routes it
+  through `elide-wire-value` against the frame's app-db elision
+  registry before delivery, the identical treatment `:rf.event/db`
+  gets); we consume the elided value as-is — NO re-elision.
+
+  `:prev-render-args` is the render-args from the SAME view INSTANCE's
+  PREVIOUS render earlier in THIS cascade, keyed by `:rf.view/render-key`
+  (the per-instance tuple). The view layer renders col-2 as an
+  edn-inspector DIFF of `:render-args` vs `:prev-render-args`, so a
+  re-render whose args changed shows the delta; unchanged args show no
+  delta; the FIRST render of an instance (no previous) carries
+  `:prev-render-args` ABSENT and renders the args plain.
+
+  INSTANCE KEYING. The accumulator is a `{render-key => render-args}`
+  map threaded LEFT-TO-RIGHT over the trace-ordered render events. Each
+  row's `:prev-render-args` is the accumulator's value for ITS OWN
+  render-key BEFORE this row updates it — so a re-rendered SAME instance
+  diffs against ITS previous render, never against a different view that
+  happened to render adjacently. Within one epoch a single instance
+  renders at most a handful of times; cross-epoch carry-over is out of
+  scope (the projection sees one epoch's `:trace-events`)."
   [events]
   (let [sub-idx (sub-status-index events)]
-    (vec
-      (for [ev (filter-op events :rf.view/rendered)]
-        (let [mount?       (common/tag-of ev :rf.view/mount?)
-              triggered-by (common/tag-of ev :rf.view/triggered-by)
-              subs-read    (or (common/tag-of ev :rf.view/deref-subs)
-                               (common/tag-of ev :rf.view/subs)
-                               (common/tag-of ev :subs-read)
-                               [])]
-          {:view-id      (or (common/tag-of ev :rf.view/id)
-                             (common/tag-of ev :view-id))
-           :subs-read    subs-read
-           ;; rf2-3b9w4 — per-sub status for the col-3 colour code.
-           ;; Keyed by the SAME value the view cell renders (sub-vec or
-           ;; bare keyword) so the cell looks up its colour directly.
-           :sub-status   (into {}
-                               (keep (fn [s]
-                                       (when-let [st (get sub-idx s)]
-                                         [s st])))
-                               (if (sequential? subs-read) subs-read [subs-read]))
-           :status       :rendered
-           :mount?       mount?
-           :triggered-by triggered-by
-           :cause        (render-cause mount? triggered-by)
-           :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
-                             (common/tag-of ev :duration-ms))})))))
+    ;; rf2-u3lii — thread a `{render-key => last-render-args}` accumulator
+    ;; left-to-right so each row's `:prev-render-args` is the SAME
+    ;; instance's prior render args (NOT a neighbouring view's). `reduce`
+    ;; (not `for`) because the previous-args lookup is order-dependent.
+    (-> (reduce
+          (fn [{:keys [rows prev-by-instance]} ev]
+            (let [mount?       (common/tag-of ev :rf.view/mount?)
+                  triggered-by (common/tag-of ev :rf.view/triggered-by)
+                  instance     (common/tag-of ev :rf.view/render-key)
+                  ;; ALREADY-ELIDED at the substrate emit chokepoint
+                  ;; (rf2-rpgq8) — consume as-is, no re-elision (rf2-u3lii).
+                  render-args  (common/tag-of ev :rf.view/render-args)
+                  ;; the SAME instance's previous render args (nil on the
+                  ;; instance's first render this cascade).
+                  prev-args    (get prev-by-instance instance)
+                  subs-read    (or (common/tag-of ev :rf.view/deref-subs)
+                                   (common/tag-of ev :rf.view/subs)
+                                   (common/tag-of ev :subs-read)
+                                   [])
+                  row (cond-> {:view-id      (or (common/tag-of ev :rf.view/id)
+                                                 (common/tag-of ev :view-id))
+                               :instance     instance
+                               :subs-read    subs-read
+                               ;; rf2-3b9w4 — per-sub status for the col-3
+                               ;; colour code. Keyed by the SAME value the
+                               ;; view cell renders (sub-vec or bare keyword)
+                               ;; so the cell looks up its colour directly.
+                               :sub-status   (into {}
+                                                   (keep (fn [s]
+                                                           (when-let [st (get sub-idx s)]
+                                                             [s st])))
+                                                   (if (sequential? subs-read) subs-read [subs-read]))
+                               :status       :rendered
+                               :mount?       mount?
+                               :triggered-by triggered-by
+                               :cause        (render-cause mount? triggered-by)
+                               :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
+                                                 (common/tag-of ev :duration-ms))}
+                        ;; rf2-u3lii — render-args slots (omit-by-absence):
+                        ;; absent on a no-arg render; `:prev-render-args`
+                        ;; absent on an instance's first render this cascade.
+                        (some? render-args) (assoc :render-args render-args)
+                        (some? prev-args)   (assoc :prev-render-args prev-args))]
+              {:rows (conj rows row)
+               ;; record THIS render's args under its instance so the
+               ;; instance's NEXT render this cascade diffs against them.
+               ;; Only record when args were present (a no-arg render
+               ;; leaves the prior args standing — a later arg-bearing
+               ;; render still has a prior to diff against).
+               :prev-by-instance (cond-> prev-by-instance
+                                   (some? render-args)
+                                   (assoc instance render-args))}))
+          {:rows [] :prev-by-instance {}}
+          (filter-op events :rf.view/rendered))
+        :rows)))
 
 (defn unmounted-views-rows
   "Project `:rf.view/unmounted` events into rows (rf2-gmw1i). Each row
