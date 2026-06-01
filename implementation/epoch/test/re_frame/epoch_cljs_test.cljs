@@ -45,6 +45,11 @@
             [re-frame.epoch :as epoch]
             [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
+            ;; rf2-lo28u — schemas + the Malli adapter so a `:schema`-bearing
+            ;; reg-event's `:where :event` violation actually fires (without
+            ;; the adapter the default validator soft-passes).
+            [re-frame.schemas]
+            [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -97,6 +102,58 @@
             ":outcome :ok pins the drain-settle outcome on the happy path")
         (is (vector? (:effects r))
             ":effects is a vector projection from the trace stream")))))
+
+;; ---- 1b. rf2-lo28u — event-args :where :event lands in epoch :trace-events --
+;;
+;; FAITHFUL repro for the standard_epochs button-18 symptom. Mirrors the
+;; live wiring: an app-db schema registered for the frame (button 19's
+;; [:auth]) PLUS a plain reg-event-db carrying the inline `:schema`
+;; metadata button 18 uses verbatim. Dispatch the bad arg; the
+;; `:rf.error/schema-validation-failure :where :event` violation MUST be
+;; captured into the triggering epoch's `:trace-events` — exactly where
+;; Xray's Issues / Schema-timeline lens reads it.
+;;
+;; This is the surface the prior `schemas_cljs_test` (which only watched
+;; the GLOBAL trace-listener stream) could not see: the violation always
+;; reached the global stream, but `epoch.capture/capture-event!` DROPS any
+;; trace whose tags lack `:frame`, so the `:where :event` trace (which did
+;; not tag `:frame`) never landed in the per-frame epoch record — so the
+;; live Xray lens (reading `:trace-events`) showed nothing while the
+;; `:where :app-db` path (which DOES tag `:frame`) surfaced. Asserting on
+;; the epoch record reproduces Mike's RED.
+;;
+;; RED (pre-fix): epoch `:trace-events` has NO :where :event violation.
+;; GREEN (post-fix): the violation is present in the triggering epoch.
+
+(deftest event-args-violation-captured-in-epoch-trace-events-cljs
+  (testing "rf2-lo28u — a plain reg-event :schema violation fires
+            :where :event AND lands in the triggering epoch's
+            :trace-events (parity with :where :app-db)"
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
+    (let [calls (atom 0)]
+      (rf/reg-event-db :lo28u/bad-event-args
+        {:schema [:cat [:= :lo28u/bad-event-args] pos-int?]}
+        (fn [db _ev] (swap! calls inc) (assoc db :baseline 1)))
+
+      (rf/dispatch-sync [:lo28u/bad-event-args "not-a-number"])
+
+      (is (= 0 @calls)
+          "handler skipped — the bad arg was rejected pre-handler")
+      (let [history    (rf/epoch-history :rf/default)
+            r          (last history)
+            violations (filter #(and (= :rf.error/schema-validation-failure
+                                        (:operation %))
+                                     (= :event (-> % :tags :where)))
+                               (:trace-events r))]
+        (is (= :lo28u/bad-event-args (:event-id r))
+            "the last epoch is the bad-event-args dispatch")
+        (is (= 1 (count violations))
+            "the :where :event violation is captured in THIS epoch's
+             :trace-events (RED pre-fix: dropped because the trace
+             carried no :frame tag)")
+        (when-let [v (first violations)]
+          (is (= :rf/default (-> v :tags :frame))
+              "the captured violation carries the :frame tag the fix adds"))))))
 
 ;; ---- 2. Restore happy path -------------------------------------------------
 

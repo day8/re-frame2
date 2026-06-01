@@ -334,14 +334,23 @@
   production-side surface, not this one). Gating the router-side
   caller collapses the late-bind lookup, the try/catch frame, and
   the `:schemas/validate-event!` keyword's interned slot to a
-  constant `true` on the hot path."
-  [event-id event handler-meta]
+  constant `true` on the hot path.
+
+  Per rf2-lo28u: `frame` is threaded so the `:where :event` failure
+  trace carries a `:frame` tag and is captured into the in-flight
+  cascade's epoch `:trace-events` by `epoch.capture/capture-event!`
+  (which drops any trace whose tags lack `:frame`). Without it the
+  violation fired on the global trace stream but never landed in the
+  epoch record — so the Xray Issues / Schema-timeline lens showed
+  nothing for an event-args schema failure, while the `:where :app-db`
+  path (which always tags `:frame`) surfaced correctly."
+  [event-id event handler-meta frame]
   (if interop/debug-enabled?
     ;; Sticky hook (rf2-f72pd) — `:schemas/validate-event!` is published
     ;; once at re-frame.schemas load and never withdrawn in dev; fires
     ;; per-dispatch.
     (if-let [validate! (late-bind/get-fn-cached :schemas/validate-event!)]
-      (try (validate! event-id event handler-meta)
+      (try (validate! event-id event handler-meta frame)
            (catch #?(:clj Throwable :cljs :default) _ true))
       true)
     true))
@@ -1301,7 +1310,7 @@
                                     :source            (:source envelope)
                                     :rf.trace/trace-id (:trace-id envelope)
                                     :rf.trace/phase    :run-start})
-            event-ok? (validate-event! event-id event handler-meta)
+            event-ok? (validate-event! event-id event handler-meta frame)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
             ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor
             ;; chain (`run-chain`) duration, captured BEFORE
