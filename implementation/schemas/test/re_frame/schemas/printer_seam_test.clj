@@ -12,8 +12,8 @@
       digest pipeline).
     - `set-schema-printer!` swaps the printer atom; the digest
       pipeline picks up the new bytes on the next call.
-    - Map-arity `(set-schema-validator! {:print fn})` swaps the
-      printer atomically alongside `:validate` / `:explain`.
+    - Bundle setter `(set-schema-fns! {:print fn})` swaps the
+      printer atomically alongside `:validate` / `:explain` (rf2-13meg).
     - `set-schema-printer! nil` falls back to the default (the
       digest is never undefined for a present schema set).
     - `reset-schema-validator!` restores the default printer
@@ -93,30 +93,30 @@
         "set-schema-printer! nil restores the default — the digest matches
          the rf2-xssfv `single-prim` literal byte-for-byte")))
 
-(deftest set-schema-validator!-map-arity-installs-printer
-  (testing "`(set-schema-validator! {:print fn})` swaps the printer
-            atom atomically alongside `:validate` / `:explain` — the
-            atomic-swap entry point is symmetrical across all three
-            fns (rf2-froe + rf2-wla45)."
-    (let [marker (fn [_] "::FROM-MAP-ARITY::")]
-      (schemas/set-schema-validator! {:print marker})
-      (is (= "::FROM-MAP-ARITY::" (validator/run-printer :int))
+(deftest set-schema-fns!-installs-printer
+  (testing "`(set-schema-fns! {:print fn})` swaps the printer atom
+            atomically alongside `:validate` / `:explain` — the bundle
+            entry point is symmetrical across all three fns (rf2-froe +
+            rf2-wla45 + rf2-13meg)."
+    (let [marker (fn [_] "::FROM-BUNDLE::")]
+      (schemas/set-schema-fns! {:print marker})
+      (is (= "::FROM-BUNDLE::" (validator/run-printer :int))
           "the registered printer reaches the hot path"))))
 
-(deftest set-schema-validator!-map-arity-nil-print-coerces-to-default
-  (testing "rf2-ee38b.6 — `(set-schema-validator! {:print nil})` coerces
-            to the default EDN canonicaliser, identically to
+(deftest set-schema-fns!-nil-print-coerces-to-default
+  (testing "rf2-ee38b.6 — `(set-schema-fns! {:print nil})` coerces to
+            the default EDN canonicaliser, identically to
             `(set-schema-printer! nil)`. Reconciles the two printer-
             setter paths so `printer-fn` is never nil (the read-site
-            guard in `run-printer` was dropped) — the map-arity
-            docstring's 'falls back to the default' promise is now true
-            at the write site."
+            guard in `run-printer` was dropped) — the bundle setter's
+            'falls back to the default' promise is true at the write
+            site (rf2-13meg)."
     ;; Poison first so a no-op would be observable.
     (schemas/set-schema-printer! (fn [_] "::POISONED::"))
     (is (= "::POISONED::" (validator/run-printer :int)))
-    (schemas/set-schema-validator! {:print nil})
+    (schemas/set-schema-fns! {:print nil})
     (is (some? @validator/printer-fn)
-        "printer-fn is never nil after a {:print nil} map-arity swap")
+        "printer-fn is never nil after a {:print nil} bundle swap")
     (is (= ":int" (validator/run-printer :int))
         "{:print nil} falls back to default-edn-print, not 'no printer'")))
 

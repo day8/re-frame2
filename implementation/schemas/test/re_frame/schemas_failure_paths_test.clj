@@ -232,8 +232,8 @@
     ;; Register a validator/explainer pair where validate fails but
     ;; explain returns no `:in` data — simulates a non-Malli or
     ;; structurally-different explainer.
-    (schemas/set-schema-validator! {:validate (fn [_ _] false)
-                                    :explain  (fn [_ _] nil)})
+    (schemas/set-schema-fns! {:validate (fn [_ _] false)
+                              :explain  (fn [_ _] nil)})
     (try
       (rf/reg-app-schema [:user]
                          [:map [:password {:sensitive? true} :string]])
@@ -258,8 +258,8 @@
   (testing "fallback path with a non-sensitive schema still emits the
             verbatim value — the fallback only conserves the privacy
             posture, not the failure shape"
-    (schemas/set-schema-validator! {:validate (fn [_ _] false)
-                                    :explain  (fn [_ _] nil)})
+    (schemas/set-schema-fns! {:validate (fn [_ _] false)
+                              :explain  (fn [_ _] nil)})
     (try
       (rf/reg-app-schema [:count] [:int])
       (let [traces (capture-trace

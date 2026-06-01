@@ -61,21 +61,41 @@
   drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle audit) swap
   in their own validator at boot.
 
-  Argument shapes:
-
     (rf/set-schema-validator! validate-fn)
       validate-fn :: (fn [schema value] truthy?)
                    | nil   ;; disables validation entirely
 
-    (rf/set-schema-validator! {:validate validate-fn :explain explain-fn})
-      Atomic swap of both fns at once.
+  Swaps ONLY the validator. The explainer / printer are left untouched
+  — call `set-schema-explainer!` / `set-schema-printer!`, or use
+  `set-schema-fns!` to install all three as one atomic bundle
+  (rf2-13meg).
 
   Default behaviour ships Malli's validate / explain pair; calling
-  this fn replaces them. Returns nil when the schemas artefact is
-  not on the classpath (apps that don't want schemas don't need to
-  pull `day8/re-frame2-schemas`)."
+  this fn replaces the validator. Returns nil when the schemas
+  artefact is not on the classpath (apps that don't want schemas don't
+  need to pull `day8/re-frame2-schemas`)."
   {:hook :schemas/set-schema-validator! :artefact schemas-artefact :on-absent :nil}
-  ([validate-fn-or-map] :delegate))
+  ([validate-fn] :delegate))
+
+(defwrapper set-schema-fns!
+  "Atomically install any subset of the validator / explainer / printer
+  bundle from a single map (rf2-13meg). The honest bundle setter — its
+  name says it sets all three schema-language fns, not just the
+  validator.
+
+    (rf/set-schema-fns! {:validate validate-fn
+                         :explain  explain-fn
+                         :print    print-fn})
+
+  Each key is optional; an absent key leaves the existing registration
+  in place. A `nil` `:print` coerces to the default EDN canonicaliser
+  (the digest is never undefined for a present schema set). This is the
+  one-call substitute-Malli boot pattern — a Zod / clojure.spec port
+  installs its validator, explainer, and digest-printer together so the
+  three never drift mid-boot. Returns nil when the schemas artefact is
+  not on the classpath. See `re-frame.schemas/set-schema-fns!`."
+  {:hook :schemas/set-schema-fns! :artefact schemas-artefact :on-absent :nil}
+  ([fns-map] :delegate))
 
 (defwrapper set-schema-explainer!
   "Register the explainer fn — `(fn [schema value] explanation)` — used

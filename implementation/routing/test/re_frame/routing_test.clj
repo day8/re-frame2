@@ -1374,8 +1374,8 @@
         prev-e   @schemas/explainer-fn
         validate (fn [schema value] (boolean (schema value)))
         explain  (fn [_schema value] {:reason :stub-explainer :value value})]
-    (schemas/set-schema-validator! {:validate validate :explain explain})
-    (fn [] (schemas/set-schema-validator! {:validate prev-v :explain prev-e}))))
+    (schemas/set-schema-fns! {:validate validate :explain explain})
+    (fn [] (schemas/set-schema-fns! {:validate prev-v :explain prev-e}))))
 
 (deftest match-url-flags-validation-failure
   (testing "match-url surfaces :validation-failed? + :validation-error

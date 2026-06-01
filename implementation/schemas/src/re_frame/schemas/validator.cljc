@@ -35,8 +35,12 @@
               EDN canonicaliser, which is the cross-runtime contract
               every Malli-EDN-compatible port shares.
 
-  A combined `(set-schema-validator! {:validate ... :explain ... :print ...})`
-  arity exists for callers who want to install all three atomically.
+  Each fn has a dedicated single-purpose setter — `set-schema-validator!`
+  / `set-schema-explainer!` / `set-schema-printer!`. `set-schema-fns!`
+  installs any subset of the three as one atomic bundle for callers
+  (a port's boot, a substitute-Malli swap) who want all three to land
+  together. The bundle setter is named for what it does — it does NOT
+  pretend to set only the validator (rf2-13meg).
 
   Per rf2-t0hq the CLJS default validator used to reach Malli through
   runtime `resolve` — but CLJS has no runtime resolve (the symbol is
@@ -220,25 +224,17 @@
   swap in their own validator at boot, before the first `reg-app-schema`
   or `:schema`-bearing `reg-*` lands.
 
-  Argument shapes:
-
     (set-schema-validator! validate-fn)
       validate-fn :: (fn [schema value] truthy?)
                    | nil   ;; disables validation entirely
       Same signature as `malli.core/validate` — truthy on conform,
-      falsey on fail. The explainer is left untouched (apps that want
-      to also swap explanations call `set-schema-explainer!`).
+      falsey on fail.
 
-    (set-schema-validator! {:validate validate-fn
-                            :explain  explain-fn
-                            :print    print-fn})
-      Atomic swap of any subset at once. Per rf2-wla45 the `:print`
-      key registers the schema-print companion the digest pipeline
-      hashes (Spec 010 §Schema digest line 491). Any key may be `nil`
-      to disable the corresponding hot path (the printer falls back
-      to the default EDN canonicaliser; the digest is never
-      undefined for a present schema set). Keys not supplied leave
-      the existing registration in place.
+  This setter swaps ONLY the validator. The explainer and printer are
+  left untouched — apps that also want to swap those call
+  `set-schema-explainer!` / `set-schema-printer!`, or use
+  `set-schema-fns!` to install all three as one atomic bundle
+  (rf2-13meg).
 
   Per Spec 010 §Non-Malli validators the validator-fn must be pure
   (same `(schema, value)` returns the same result) and must be
@@ -249,22 +245,50 @@
 
   Last-write-wins on re-registration. Returns the validator that was
   installed (may be nil)."
-  [validate-fn-or-map]
-  (if (map? validate-fn-or-map)
-    (let [m validate-fn-or-map]
-      (when (contains? m :validate) (reset! validator-fn (:validate m)))
-      (when (contains? m :explain)  (reset! explainer-fn (:explain m)))
-      ;; Per rf2-ee38b.6 (clarity P2): coerce `nil` to the default
-      ;; identically to the dedicated `set-schema-printer!` setter, so
-      ;; "printer-fn is never nil" is a true invariant established at the
-      ;; write site — not re-asserted defensively in `run-printer`. The
-      ;; map-arity docstring promises this fallback; the coercion makes
-      ;; it honest.
-      (when (contains? m :print)
-        (reset! printer-fn (or (:print m) default-edn-print)))
-      @validator-fn)
-    (do (reset! validator-fn validate-fn-or-map)
-        @validator-fn)))
+  [validate-fn]
+  (reset! validator-fn validate-fn)
+  @validator-fn)
+
+(defn set-schema-fns!
+  "Atomically install any subset of the validator / explainer / printer
+  bundle from a single map (rf2-13meg). The honest bundle setter — its
+  name says it sets all three schema-language fns, not just the
+  validator.
+
+    (set-schema-fns! {:validate validate-fn
+                      :explain  explain-fn
+                      :print    print-fn})
+
+  Each key is optional; a key that is absent leaves the existing
+  registration in place. Per Spec 010 §Non-Malli validators this is
+  the one-call substitute-Malli boot pattern — a Zod / clojure.spec
+  port installs its validator, explainer, and digest-printer together
+  so the three never drift out of sync mid-boot.
+
+    :validate  (fn [schema value] truthy?) | nil  — nil disables
+               validation (every site soft-passes).
+    :explain   (fn [schema value] explanation) | nil — nil omits the
+               failure trace's `:explain` key.
+    :print     (fn [schema-value] canonical-string) | nil — per
+               rf2-wla45 the schema-print companion the digest pipeline
+               hashes (Spec 010 §Schema digest line 491). nil coerces
+               to the default EDN canonicaliser (the digest is never
+               undefined for a present schema set) — identical to
+               `set-schema-printer!`'s nil fallback, so `printer-fn` is
+               never nil after any write (rf2-ee38b.6).
+
+  Last-write-wins per key. Returns the validator that was installed
+  (may be nil)."
+  [{:keys [validate explain print] :as m}]
+  (when (contains? m :validate) (reset! validator-fn validate))
+  (when (contains? m :explain)  (reset! explainer-fn explain))
+  ;; Per rf2-ee38b.6 (clarity P2): coerce `nil` to the default
+  ;; identically to the dedicated `set-schema-printer!` setter, so
+  ;; "printer-fn is never nil" is a true invariant established at the
+  ;; write site — not re-asserted defensively in `run-printer`.
+  (when (contains? m :print)
+    (reset! printer-fn (or print default-edn-print)))
+  @validator-fn)
 
 (defn set-schema-explainer!
   "Register the explainer fn — `(fn [schema value] explanation)` — that
@@ -349,8 +373,8 @@
   a single schema value. Per Spec 010 §Schema digest line 491 the digest
   pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8 bytes
   (rf2-wla45). `printer-fn` is never nil: both write sites
-  (`set-schema-printer!` and the `set-schema-validator!` map-arity)
-  coerce a nil `:print` to `default-edn-print` (rf2-ee38b.6), so the
+  (`set-schema-printer!` and `set-schema-fns!`'s `:print` key) coerce
+  a nil `:print` to `default-edn-print` (rf2-ee38b.6), so the
   cross-runtime digest contract holds without a read-site guard."
   [schema-value]
   (@printer-fn schema-value))

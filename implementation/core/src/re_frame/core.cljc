@@ -494,10 +494,11 @@
 
 (def ^{:doc "Register the validator fn every dev-time schema-validation
   site routes through — `(fn [schema value] truthy?)` (or nil to
-  disable). Map-arity atomically swaps `{:validate :explain}` together.
-  Per Spec 010 §Non-Malli validators. Default ships Malli;
-  callers swap to drop the ~24 KB gzipped Malli surface. Implementation
-  ships in `day8/re-frame2-schemas`."}
+  disable). Swaps ONLY the validator; use `set-schema-fns!` to install
+  the validator/explainer/printer bundle atomically. Per Spec 010
+  §Non-Malli validators. Default ships Malli; callers swap to drop the
+  ~24 KB gzipped Malli surface. Implementation ships in
+  `day8/re-frame2-schemas`."}
   set-schema-validator!  rf-schemas/set-schema-validator!)
 
 (def ^{:doc "Register the explainer fn — `(fn [schema value] explanation)`
@@ -511,6 +512,15 @@
   and cross-runtime deterministic. Per Spec 010 §Digest algorithm.
   Implementation ships in `day8/re-frame2-schemas`."}
   set-schema-printer!    rf-schemas/set-schema-printer!)
+
+(def ^{:doc "Atomically install the validator/explainer/printer bundle
+  from a single map — `(set-schema-fns! {:validate ... :explain ...
+  :print ...})`. The honest bundle setter (rf2-13meg): each key is
+  optional, an absent key leaves the existing registration in place,
+  and a nil `:print` coerces to the default EDN canonicaliser. The
+  one-call substitute-Malli boot pattern. Per Spec 010 §Non-Malli
+  validators. Implementation ships in `day8/re-frame2-schemas`."}
+  set-schema-fns!        rf-schemas/set-schema-fns!)
 
 ;; ---- data classification (Spec 015) -------------------------------------
 

@@ -128,13 +128,14 @@
                                :rf.warning/schema-validator-unavailable))
           "explicit non-default validator suppresses the warning"))))
 
-(deftest warning-suppressed-when-set-schema-validator-map-arity-installs-validate
-  (testing "set-schema-validator! with a {:validate ...} map also counts as
-            'explicit opt-out' — non-default validator-fn after the swap"
-    (let [recorded (record-traces! ::opt-out-map)]
+(deftest warning-suppressed-when-set-schema-fns-installs-validate
+  (testing "set-schema-fns! with a {:validate ...} bundle also counts as
+            'explicit opt-out' — non-default validator-fn after the swap
+            (rf2-13meg)"
+    (let [recorded (record-traces! ::opt-out-bundle)]
       (with-unbound-malli-validate
         (fn []
-          (rf/set-schema-validator! {:validate (fn [_ _] true)})
+          (rf/set-schema-fns! {:validate (fn [_ _] true)})
           (rf/reg-app-schema [:user] [:map])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))))))

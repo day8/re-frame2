@@ -70,7 +70,7 @@
 ;; This exercises the `:schemas/validate-with-registered-fn` seam without
 ;; pulling Malli onto the test classpath (Spec 010 §Non-Malli validators).
 (defn- install-predicate-validator! []
-  (schemas/set-schema-validator!
+  (schemas/set-schema-fns!
     {:validate (fn [schema value] (boolean (schema value)))
      :explain  (fn [schema value]
                  (when-not (schema value)
@@ -140,7 +140,7 @@
 (deftest absent-schema-skips-validation
   (testing "a flow without :schema never consults the validator (no violation even on a 'bad' value)"
     (let [validator-calls (atom 0)]
-      (schemas/set-schema-validator!
+      (schemas/set-schema-fns!
         {:validate (fn [_ _] (swap! validator-calls inc) false)})
       (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
       (rf/reg-flow {:id     :area
