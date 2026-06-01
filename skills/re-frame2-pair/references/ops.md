@@ -35,7 +35,9 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 
 ## Frames
 
-Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin set by `frames/select`, else the sole registered frame, else `:ambiguous-frame` for mutating ops. These ops wrap the preload's frame helpers, so the MCP form is `eval-cljs`.
+Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin, else the sole registered frame, else `:ambiguous-frame` for mutating ops.
+
+**Prefer the dedicated operating-frame tools (rf2-zomfq)** to set and read the session pin — `set-operating-frame {frame: ":foo"}` / `reset-operating-frame {}` / `get-operating-frame {}`. They are the wire-level surfacing of the pin and the escape from the tier-4 `:ambiguous-frame` refusal (see SKILL.md §Multi-frame model). The eval-based helpers below wrap the same preload functions (`select-frame!` / `current-frame` / `frame-meta`); reach for them only for `frames/meta`, which has no dedicated tool, or when you want the raw runtime return shape.
 
 | Op | Invocation | Returns |
 |---|---|---|
@@ -53,9 +55,15 @@ To target one op at a non-operating frame without pinning the session, pass the 
 | `dispatch --frame` | `mcp__re-frame2-pair__dispatch {event: "[:foo]", frame: ":stories"}` | Targets a specific frame via the `:frame` opt on `rf/dispatch`. |
 | `reg-event` / `reg-sub` / `reg-fx` | `mcp__re-frame2-pair__eval-cljs {form: "<full reg-* form>"}` | Re-registration replaces; emits `:rf.registry/handler-replaced` trace (Spec 001 §Hot-reload semantics). Ephemeral. |
 | `app-db/reset` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-reset! ...)"}` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |
-| `repl/eval` | `mcp__re-frame2-pair__eval-cljs {form: "<arbitrary form>"}` | Escape hatch. Prefer structured ops first. |
-| `repl/eval-await` | `mcp__re-frame2-pair__eval-cljs {form: "(-> (.layout instance input) (.then transform))", await: true, timeout-ms: 5000}` | Like `repl/eval` but the form may return a Promise — the server awaits it and returns the resolved value as `:value`. Use for `.layout()`, `fetch`, async fns, anything thenable. Rejections surface as `{:ok? false :reason :rf.error/eval-cljs-rejected :rejection "..."}`; timeouts as `{:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms n}`. Default `:timeout-ms` 5000. Replaces the `js/window.__probe__` mailbox dance (rf2-xn4f9). |
+| `repl/eval` | `mcp__re-frame2-pair__eval-cljs {form: "<arbitrary form>"}` | Escape hatch. Prefer structured ops first. Takes the same `frame: ":foo"` arg as every other op (rf2-ntuzf — see *Frame-scoping an eval form* below): the server wraps the form in `(re-frame.core/with-frame :foo <form>)` so `(rf/subscribe ...)` / `(rf/dispatch ...)` inside it resolve against `:foo` rather than the ambient `:rf/default`. |
+| `repl/eval-await` | `mcp__re-frame2-pair__eval-cljs {form: "(-> (.layout instance input) (.then transform))", await: true, timeout-ms: 5000}` | Like `repl/eval` but the form may return a Promise — the server awaits it and returns the resolved value as `:value`. Use for `.layout()`, `fetch`, async fns, anything thenable. Rejections surface as `{:ok? false :reason :rf.error/eval-cljs-rejected :rejection "..."}`; timeouts as `{:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms n}`. Default `:timeout-ms` 5000. Replaces the `js/window.__probe__` mailbox dance (rf2-xn4f9). Composes with `frame:` — but see the async caveat below. |
 | `fx-overrides/with` | `mcp__re-frame2-pair__dispatch {event: "[:cart/checkout]", fx-overrides: {":http": ":stub-http"}}` | Per-call `:fx-overrides` (Spec 002 §Per-frame and per-call overrides) — redirect a registered fx to a stub for one experiment, restore on completion. |
+
+### Frame-scoping an eval form (rf2-ntuzf)
+
+`eval-cljs` takes the same `frame: ":foo"` arg the other frame-aware ops do. Pre-rf2-ntuzf it didn't — a supplied form ran against the server's ambient frame context (`:rf/default`), so a `(rf/subscribe ...)` / `(rf/dispatch ...)` inside it silently targeted `:rf/default` even in a multi-frame app, the most common eval-probe footgun. Now the server wraps the form in `(re-frame.core/with-frame :foo <form>)`, binding `*current-frame*` for the form's dynamic extent; the success envelope echoes `:frame :foo`. Prefer `frame:` over hand-wrapping with `with-frame`.
+
+**Async caveat.** `with-frame`'s binding lasts only for the form's **synchronous** evaluation. Once a Promise resolves on a later tick the binding is gone (Spec 002 §with-frame), so a `(rf/dispatch ...)` inside a `.then` callback resolves against the *default* frame, not `:foo`. Long-running async forms that need to dispatch in a callback must capture the frame explicitly — grab a `frame-handle` or wrap the callback via `frame-bound-fn` / `frame-bound-fn*`. Most ad-hoc probes finish synchronously and never hit this.
 
 ## Trace
 

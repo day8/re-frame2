@@ -40,7 +40,7 @@ Per [`variant-as-frame.md`](variant-as-frame.md), the variant id *is* the frame 
 **Snapshot the variant via the variant-as-frame pattern.** Before driving a tool, ground yourself in the variant's current state — read it as a frame, not as a story-mcp value:
 
 ```
-frames/select :story.counter/loaded
+set-operating-frame {frame: ":story.counter/loaded"}
 app-db/snapshot                          ;; reads the variant's frame
 trace/last-epoch                         ;; epoch history from the variant's frame
 ```

@@ -77,7 +77,7 @@ narrowest one first.
 | `max-events` | `subscribe` | 0 (unbounded) | Terminate the subscription after N delivered events. Cheap kill-switch on a chatty stream. |
 | `max-ms` | `subscribe` | 0 (unbounded) | Hard time-bound on the subscription. |
 | `poll-ms` | `subscribe` | 100 | Server poll cadence. Raise to coalesce ticks; lower for tighter latency. |
-| `include-sensitive?` | epoch-carrying tools + `subscribe` | `false` | Per-call privacy override. Off by default; turn on for a debug session inspecting `:sensitive? true` cascades. |
+| `include-sensitive` | epoch-carrying tools + `subscribe` | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the runtime `configure-privacy!` opt and the walker option `:rf.size/include-sensitive?`, which keep the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
 
 ### Quick decision tree
 

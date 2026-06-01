@@ -10,7 +10,7 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
 - `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. Tell the user to call `(rf/init!)` (or wait for app boot).
-- `:ambiguous-frame` → multiple frames; ask the user to `frames/select` or pass `--frame :foo`.
+- `:ambiguous-frame` → multiple frames are registered and no session pin is set. Pin one with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
 - `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
 
 ## Pointing the user at the offending handler
@@ -18,6 +18,7 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}` — naming the handler that was executing when the error fired (event, sub, fx, cofx, view, interceptor, or late-bind hook). Report the `:source-coord` as `<file>:<line>` so the user can jump to source; the field is present in production traces too. The field is **absent** for dispatch-time errors where no handler is in scope yet (e.g. `:rf.error/no-such-event`); for those, the `:rf.error/data` is the only handle.
 - `:timed-out? true` on a `dispatch-and-collect` → drain didn't settle in the wait window (a long-running async cascade, or a stuck `:dispatch-later`). Inspect the in-flight cascade via the trace buffer.
 - `:connection :lost` → reconnect by calling `mcp__re-frame2-pair__discover-app` again.
+- `:unknown-tool` → you called a tool name the server doesn't expose (a typo or a renamed tool). The envelope is recovery-shaped (rf2-tkmik): `{:ok? false :reason :unknown-tool :tool <name> :hint "..." :available-tools [...] :did-you-mean <near>}`. Take the `:did-you-mean` suggestion when present, else scan `:available-tools`; the `:hint` also points at `tools/list`. Don't guess a third name — read the catalogue it handed back.
 - Restore failures (`:rf.epoch/restore-*`) → see the time-travel failure table in [ops.md](ops.md#time-travel-epoch-restore).
 
 ## `:on-error` policy violations

@@ -168,13 +168,17 @@ If you want a refresher on the MCP surface before the first real op, optionally 
 
 ## Multi-frame model — set the operating frame
 
-re-frame2 supports multiple, named frames (Spec 002). Most apps run with one frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op takes an implicit operating frame; on the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
+re-frame2 supports multiple, named frames (Spec 002). Most apps run with one frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op resolves an operating frame through a four-tier cascade: explicit per-call `frame` arg (tier 1) → session pin (tier 2) → the sole registered frame (tier 3) → nil/ambiguous (tier 4). On the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
 
-- `frames/list` — `(rf/frame-ids)` — set of registered, non-destroyed frame ids.
-- `frames/select` — set the session's default operating frame (the runtime caches it).
-- `frames/meta` — `(rf/frame-meta id)` — flat metadata map for one frame: `:id`, `:created-at`, the preset-expansion keys (`:preset`, `:fx-overrides`, `:drain-depth`, …), and lifecycle fields (`:destroyed?`, `:listeners`) all at the top level. See `:rf/frame-meta` in Spec-Schemas.
+**Set the session pin with the dedicated operating-frame tools (rf2-zomfq).** Three MCP tools surface tier 2 directly — no eval round-trip:
 
-When the operating frame is ambiguous (more than one is registered and the session hasn't selected one), **mutating ops refuse with `:ambiguous-frame`** and read ops proceed against `:rf/default` after warning. This mirrors the Spec 002 §Frame presets / lifecycle convention.
+- `set-operating-frame {frame: ":foo"}` — pin the session's operating frame. Validates that `:foo` is registered (`:no-such-frame` with the registered list otherwise), then returns the `{:frames :selected :operating}` triple. This is **the escape from the tier-4 `:ambiguous-frame` refusal** — pin once and every later frame-targeted op resolves to it.
+- `reset-operating-frame {}` — clear the pin; ops fall back to tier 3 / 4 again.
+- `get-operating-frame {}` — the read op. Returns the same triple; `:operating nil` means ambiguous (two-plus frames, no pin), so the next un-`frame`'d op will refuse.
+
+These three are NOT subject to the `:ambiguous-frame` refusal themselves — they are how you *resolve* the ambiguity. (The eval-based `frames-list` / `select-frame!` / `frames-meta` runtime helpers in [references/ops.md §Frames](references/ops.md#frames) are the lower-level surface the tools wrap; reach for them only for `frames/meta`, which has no dedicated tool.)
+
+When the operating frame is ambiguous (more than one is registered and the session hasn't pinned one), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write that lands in the wrong frame is unrecoverable without `restore-epoch`. (Read ops via the eval helpers warn-and-default to `:rf/default`; the dedicated `snapshot` / `get-path` tools refuse like the writes do.) This mirrors the Spec 002 §Frame presets / lifecycle convention.
 
 ---
 
@@ -213,11 +217,11 @@ Load at most two references for a single task. If you find yourself wanting thre
 - **Use the assembled epoch stream by default; reach for the raw trace stream when you need detail the projection drops.** `:sub-runs`, `:renders`, `:effects` are the routing surface; `:trace-events` is the escape hatch when the projection is incomplete (e.g. successful-fx attribution).
 - **One trace listener per skill.** This skill registers exactly one listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`). Multi-tool coexistence is the expected default — don't worry about other listeners; per Spec 009 §Listener ordering, ordering is not contract.
 - **Sensitive data does not cross the LLM boundary by default.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), re-frame2-pair-mcp ships with a `--allow-sensitive-reads` boot gate that is **OFF by default**; the CLI flag name is aligned across MCP servers. When OFF:
-  - `snapshot`, `get-path`, `trace-window`, `watch-epochs`, and `subscribe` always force `:include-sensitive? false` and `:elision true` regardless of the per-call MCP arg. Sensitive slots in `:app-db` / `:sub-cache` reads return `:rf/redacted`; declared-large slots return the `:rf.size/large-elided` marker.
+  - `snapshot`, `get-path`, `trace-window`, `watch-epochs`, and `subscribe` always force the wire arg `:include-sensitive false` (note: the MCP wire arg drops the `?` the internal walker option `:rf.size/include-sensitive?` and runtime `configure-privacy!` opt `:include-sensitive?` carry) and `:elision true` regardless of the per-call MCP arg. Sensitive slots in `:app-db` / `:sub-cache` reads return `:rf/redacted`; declared-large slots return the `:rf.size/large-elided` marker.
   - The preload's `app-db-reset!` taps default-elide both `:previous` and `:next` payloads through `re-frame.core/elide-wire-value` before any registered tap consumer sees them.
   - The streaming subscription dispatch additionally drops `:sensitive? true` trace events at source (the preload's `streaming-drop?` filter).
 
-  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive? true` and `:elision false` ride through). The retain-N ring buffer reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. The sibling `--no-eval` opt-out for `eval-cljs` keeps the inverse posture (default ON; rf2-a0z0h — eval is the REPL primitive of a pair-debug session), and the canonically-named `--allow-sensitive-reads` gate is mirrored on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
+  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive true` — the wire arg, no `?` — and `:elision false` ride through). The retain-N ring buffer reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. The sibling `--no-eval` opt-out for `eval-cljs` keeps the inverse posture (default ON; rf2-a0z0h — eval is the REPL primitive of a pair-debug session), and the canonically-named `--allow-sensitive-reads` gate is mirrored on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
 
 ---
 

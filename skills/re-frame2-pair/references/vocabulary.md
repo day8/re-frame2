@@ -94,7 +94,10 @@ ride the redacted/elided shape regardless of any per-call MCP arg or
 in-runtime `configure-privacy!` toggle:
 
 - `snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs` —
-  forced `:include-sensitive? false` + forced `:elision true`.
+  forced wire arg `:include-sensitive false` + forced `:elision true`.
+  (The MCP wire arg is `:include-sensitive`, no `?`; the runtime
+  `configure-privacy!` opt and the walker option
+  `:rf.size/include-sensitive?` keep the `?`.)
 - The preload's `app-db-reset!` — both `:previous` and `:next` slots in
   the `tap>` emission default-elide through `re-frame.core/elide-wire-value`
   before any registered tap consumer sees them.
@@ -114,9 +117,10 @@ inside a private network — opt in at server launch:
 }
 ```
 
-With `--allow-sensitive-reads` on, the per-call args win — `:include-sensitive?
-true` and `:elision false` pass through to the walker. Inside the
-runtime, the secondary toggle is:
+With `--allow-sensitive-reads` on, the per-call args win — the wire arg
+`:include-sensitive true` (no `?`) and `:elision false` pass through to
+the walker. Inside the runtime, the secondary toggle is the
+`configure-privacy!` opt `:include-sensitive?` (with `?`):
 
 ```clojure
 (re-frame2-pair.runtime/configure-privacy! {:include-sensitive? true})
