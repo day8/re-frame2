@@ -15,7 +15,6 @@ The shape deliberately echoes the v1 example's teaching split:
 - The canonical TodoMVC behavior: add, edit, toggle, clear completed, remaining count, and hash-filter routing.
 - Browser-only persistence via a registered fx and a cofx-backed initial load.
 - A v1-style separation of data/events/subs/views, but on the current re-frame2 API surface.
-- Headless browser verification through the Playwright example harness.
 
 ### Why localStorage and not :rf.http/managed?
 
@@ -23,7 +22,9 @@ TodoMVC persists locally so the example stays small and dependency-free. The can
 
 ## Official assets
 
-The example stages the official TodoMVC CSS packages at test/build time:
+The example uses the official TodoMVC CSS packages, pinned in
+`implementation/package.json` (so `npm install` fetches them into
+`node_modules/`) rather than vendored into this repo:
 
 - `todomvc-common` `1.0.5`
 - `todomvc-app-css` `2.4.3`
@@ -32,11 +33,18 @@ That keeps the rendered surface close to the current TodoMVC template without ve
 
 ## Running it
 
-From `implementation/`:
+From `implementation/`, iterate against a live browser:
 
 ```bash
 npm install
-npm run test:examples
+shadow-cljs watch examples/todomvc
 ```
 
-That compiles the example, stages its HTML and TodoMVC CSS assets into `out/examples/todomvc/`, serves the output, and runs the Playwright smoke spec.
+Stage the `index.html` (and the TodoMVC CSS from `node_modules/`) next
+to the build's `main.js` under `out/examples/todomvc/` and serve that
+directory over HTTP.
+
+Per the test-free examples policy this example carries no per-example
+spec; real-regression coverage of the primitives it exercises lives in
+the substrate contract tests (`npm run test:cljs`) and the framework
+gates (see [`examples/README.md`](../../README.md)).

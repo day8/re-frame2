@@ -1,8 +1,9 @@
 (ns state-machine-walkthrough.views
   "Browser entry-point for the state-machines walkthrough.
 
-  The pure machine, fxs, subs and headless tests live in `core.cljc`
-  alongside docs/guide/12-machines.md. This namespace is the
+  The pure machine, fxs and subs live in `core.cljc` alongside
+  docs/guide/12-machines.md; the headless tests live in the sibling
+  `test/state_machine_walkthrough/core_test.cljc`. This namespace is the
   CLJS-only browser layer: views + Reagent mount + a `run` fn that
   installs a per-frame `:fx-overrides` redirecting `:rf.http/managed`
   to the canned-failure stub registered in `core.cljc`.
@@ -10,8 +11,9 @@
   Why canned-failure: the chapter's headline scenario is the lockout
   flow — three failed attempts that cycle :submitting → :error-shown
   → :idle, then a fourth submit that fails the `:under-retry-limit`
-  guard and lands at `:locked-out`. The Playwright spec walks through
-  exactly that path, so the stub needs to fail every request."
+  guard and lands at `:locked-out`. That path is exactly what the
+  headless tests under `test/state_machine_walkthrough/` walk
+  through, so the stub needs to fail every request."
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
@@ -66,8 +68,8 @@
              "Dismiss"]])]))))
 
 (reg-view ^{:doc "Top banner reflecting the machine's current state. The
-                  Playwright spec watches this element to assert the lockout
-                  transition."}
+                  `data-state` attribute surfaces the state keyword so a
+                  test can assert the lockout transition."}
           status-banner []
   (let [state @(subscribe [:auth.login/state])]
     [:div.banner

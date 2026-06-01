@@ -38,7 +38,6 @@
 
    Run from `implementation/`:
 
-     npm run test:examples       (Playwright smoke + headless tests)
      shadow-cljs watch examples/long-running-work
                                   (iterate against a live browser)
 

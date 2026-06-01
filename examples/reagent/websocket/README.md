@@ -36,7 +36,7 @@ The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cl
 - **Auto-echo for `:request` messages** — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :ok true :echo ...}`, so the request-reply correlation slot lights up.
 - **Auth ack** — `{:type :auth :token ...}` produces `{:type :auth-ok}` for any non-empty token and `{:type :auth-failed :reason "Empty token"}` otherwise.
 - **Subscribe ack** — every `{:type :subscribe :topic ...}` is acked with one synthetic `{:type :push :topic ... :note "subscribed"}` so the example demonstrates the subscribe-then-push shape end-to-end.
-- **`messages/send-server-push!`** — used by the "Trigger server push" button (and the Playwright spec) to deliver a manual server-pushed event.
+- **`messages/send-server-push!`** — used by the "Trigger server push" button (and the headless tests) to deliver a manual server-pushed event.
 - **`messages/simulate-disconnect!`** — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade.
 
 The mock has two delivery modes — async via `setTimeout(_, 0)` (default, used by the browser) and sync (used by the headless tests via `messages/set-mock-sync!`) so `dispatch-sync` observes the full request/reply round-trip without yielding to the JS event loop.
