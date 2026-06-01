@@ -469,8 +469,11 @@
      ;; ── Panel position radio ────────────────────────────────────
      [:div {:style (field-style)}
       [:span {:style (label-style)} "Panel position"]
+      ;; rf2-czcg5 — the `:popout` "Popout window" option was dropped:
+      ;; the second-window pop-out is now launched from the chrome's
+      ;; visible `⛶` button (canonical) + the programmatic
+      ;; `(xray/popout!)` API, not via this panel-position radio.
       (for [[pos label] [[:right-rail "Right rail (inline)"]
-                         [:popout     "Popout window"]
                          [:fullscreen "Fullscreen overlay"]]]
         ^{:key pos}
         [:label {:style {:display "flex" :align-items "center" :gap "8px"

@@ -596,6 +596,38 @@
                 "re-show is CSS-only — no second substrate render")))))))
 
 ;; -------------------------------------------------------------------------
+;; (5c) popout-shell event — the chrome `⛶` button round-trip (rf2-czcg5)
+;; -------------------------------------------------------------------------
+;;
+;; The chrome `⛶` pop-out button dispatches `:rf.xray/popout-shell`
+;; (shell.cljs). That event returns `:rf.xray.fx/popout-shell`, the fx
+;; bridge `mount/install-fx!` registers, which lowers to `mount/popout!`.
+;; Mirrors the close-shell bridge — the button stays out of a direct
+;; mount require. We redef `popout!` to record the call rather than
+;; standing up a real second window.
+
+(deftest popout-shell-event-fires-popout!
+  (testing "rf2-czcg5 — dispatching :rf.xray/popout-shell lowers through
+            the :rf.xray.fx/popout-shell effect to mount/popout!, the
+            same bridge shape as :rf.xray/close-shell → close!"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)
+              popout-calls (atom 0)]
+          (with-redefs [substrate-adapter/render render-fn
+                        mount/popout! (fn [] (swap! popout-calls inc) nil)]
+            ;; install-fx! is called by register-xray-handlers! in the
+            ;; fixture, but redefine-after-register means the fx closure
+            ;; still resolves the redefined var at call time. Re-install
+            ;; to be explicit about the fx registration under test.
+            (mount/install-fx!)
+            (mount/open!)
+            (rf/with-frame :rf/xray
+              (rf/dispatch-sync [:rf.xray/popout-shell]))
+            (is (= 1 @popout-calls)
+                "popout-shell event drove mount/popout! exactly once")))))))
+
+;; -------------------------------------------------------------------------
 ;; (6) Teardown — full destroy
 ;; -------------------------------------------------------------------------
 
@@ -1542,3 +1574,86 @@
                 "popout-state cleared")
             (finally
               (set! (.-clearInterval js/globalThis) prior-clear))))))))
+
+;; -------------------------------------------------------------------------
+;; (12) Popout stylesheet hand-off (rf2-czcg5)
+;; -------------------------------------------------------------------------
+;;
+;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Styling: the
+;; pop-out document MUST carry Xray's stylesheet + the `:root`
+;; `--rf-xray-*` custom properties so the shell renders identically to
+;; the inline panel (the blocker before rf2-czcg5 — the detached window
+;; rendered unstyled). `style-popout-document!` injects the full
+;; stylesheet set into the pop-out's own document and stamps the
+;; persisted theme class on its `<html>`.
+
+(defn- mk-stub-classlist []
+  (let [classes (atom #{})]
+    (js-obj "add"      (fn [c] (swap! classes conj c) nil)
+            "remove"   (fn [c] (swap! classes disj c) nil)
+            "contains" (fn [c] (contains? @classes c))
+            "_classes" classes)))
+
+(defn- mk-stub-popout-doc-with-head
+  "A pop-out document stub carrying the `<head>` surface
+  `global-styles/install-into!` writes through plus a `documentElement`
+  with a stub classList for the theme-class write."
+  []
+  (let [by-id (atom {})
+        head  (js-obj "tagName" "HEAD")
+        html  (js-obj "tagName" "HTML")
+        clist (mk-stub-classlist)]
+    (set! (.-appendChild head)
+          (fn [node] (swap! by-id assoc (.-id node) node) node))
+    (set! (.-classList html) clist)
+    (let [style-node (fn []
+                       (let [n (js-obj "id" "" "tagName" "STYLE")]
+                         (set! (.-appendChild n) (fn [_child] _child))
+                         n))]
+      {:doc   (js-obj "head"            head
+                      "documentElement" html
+                      "createElement"   (fn [_tag] (style-node))
+                      "createTextNode"  (fn [css] (js-obj "text" css))
+                      "getElementById"  (fn [id] (get @by-id id)))
+       :by-id by-id
+       :html  html
+       :classlist clist})))
+
+(defn- style-popout-document!* [doc]
+  ((deref #'mount/style-popout-document!) doc))
+
+(deftest style-popout-document!-injects-stylesheet-and-theme-class
+  (testing "rf2-czcg5: style-popout-document! injects the Xray style
+            blocks into the pop-out document's <head> AND stamps the
+            persisted theme class on its <html> so the matching
+            .rf-xray-theme-* palette resolves."
+    (let [{:keys [doc by-id classlist]} (mk-stub-popout-doc-with-head)]
+      (config/update-setting! :theme nil :dark)
+      (try
+        (style-popout-document!* doc)
+        (is (some? (get @by-id "rf-xray-themes"))
+            "themes <style> injected into the pop-out <head>")
+        (is (some? (get @by-id "rf-xray-fonts"))
+            "fonts <style> injected")
+        (is ((.-contains classlist) "rf-xray-theme-dark")
+            "persisted :dark theme stamped on the pop-out <html>")
+        (is (not ((.-contains classlist) "rf-xray-theme-light"))
+            "the opposite theme class is not present (exclusive toggle)")
+        (finally
+          (config/update-setting! :theme nil :light))))))
+
+(deftest style-popout-document!-defaults-to-light-theme
+  (testing "rf2-czcg5: with no persisted theme override the pop-out
+            <html> carries the :light class (matching the config
+            default + the injected :root light palette)."
+    (let [{:keys [doc classlist]} (mk-stub-popout-doc-with-head)]
+      ;; config default-settings already has :theme :light after the
+      ;; fixture reset.
+      (style-popout-document!* doc)
+      (is ((.-contains classlist) "rf-xray-theme-light")
+          "default :light theme class stamped on the pop-out <html>"))))
+
+(deftest style-popout-document!-is-safe-without-document
+  (testing "rf2-czcg5: a nil document (popup-blocked / no-DOM) no-ops
+            rather than throwing."
+    (is (nil? (style-popout-document!* nil)))))

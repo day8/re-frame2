@@ -255,7 +255,7 @@ downstream consumers; there is no separate LIVE/RETRO pill widget.
 
 - `⚙` Settings — dispatches `:rf.xray/settings-open`; opens the Settings modal popup (see [§9 Settings popup](#9-settings-popup)).
 - `✕` Close — dispatches **`:rf.xray/close-shell`** (rf2-fq491), an app-db event handled in `mount.cljs` that actually hides the shell (an earlier draft only flipped a CSS class and could leave the shell stuck open). Host can re-open via `Ctrl+Shift+C`.
-- **`⛶` Popout is omitted from the ribbon** (rf2-g3ghh / rf2-yn86j — silent-by-default): the second-window UX ([`011-Launch-Modes.md`](011-Launch-Modes.md)) has not landed, so the ribbon does not show a broken-claim button. The programmatic `(xray/popout!)` API remains the supported pop-out path; the `⛶` slot is reserved for when the second-window UX ships.
+- **`⛶` Popout** — dispatches **`:rf.xray/popout-shell`** (rf2-czcg5), which lowers via the `:rf.xray.fx/popout-shell` effect to `mount/popout!` (mirrors the `✕` close → `:rf.xray.fx/hide-shell` bridge). The second-window UX has landed ([`011-Launch-Modes.md`](011-Launch-Modes.md) §Pop-out), so the ribbon now carries this VISIBLE button as the canonical chrome launch; the programmatic `(xray/popout!)` API remains the secondary path. (Supersedes the prior rf2-g3ghh / rf2-yn86j silent-by-default omission, which held only until the second-window UX shipped.)
 
 ---
 

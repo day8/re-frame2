@@ -730,6 +730,91 @@
     (is (nil? (gs/install!))
         "second call is also a no-op")))
 
+;; ---- install-into! — second-window pop-out stylesheet hand-off (rf2-czcg5)
+
+(defn- mk-stub-style-node []
+  (let [node (js-obj "id" "" "tagName" "STYLE")]
+    (set! (.-text node) "")
+    (set! (.-appendChild node)
+          (fn [child]
+            ;; createTextNode returns a node whose `.-text` carries the
+            ;; css string; mirror it onto the style node so the test can
+            ;; introspect the injected CSS.
+            (set! (.-text node) (str (.-text node) (.-text child)))
+            child))
+    node))
+
+(defn- mk-stub-document
+  "A minimal stub document with the exact surface `inject-style-node!`
+  touches: `head` (with `appendChild` + a child registry),
+  `createElement` → style stub, `createTextNode` → `{:text css}`,
+  `getElementById` resolving against appended-node ids. Mirrors the
+  `mount_cljs_test` stub pattern. Returns `{:doc … :by-id <atom>}` so
+  the test introspects the appended nodes via the atom directly (rather
+  than a hyphenated JS prop, which CLJS interop would munge)."
+  []
+  (let [by-id (atom {})
+        head  (js-obj "tagName" "HEAD")]
+    (set! (.-appendChild head)
+          (fn [node]
+            (swap! by-id assoc (.-id node) node)
+            node))
+    {:doc   (js-obj
+             "head"          head
+             "createElement" (fn [_tag] (mk-stub-style-node))
+             "createTextNode" (fn [css] (js-obj "text" css))
+             "getElementById" (fn [id] (get @by-id id)))
+     :by-id by-id}))
+
+(deftest install-into!-injects-the-full-stylesheet-set
+  (testing "rf2-czcg5 — install-into! writes every Xray style block
+            into an ARBITRARY document's <head> (the second-window
+            pop-out path), keyed by the fixed style ids so the shell's
+            var(--rf-xray-*) reads resolve in the detached window."
+    (let [{:keys [doc by-id]} (mk-stub-document)]
+      (is (nil? (gs/install-into! doc)) "returns nil for the chained idiom")
+      (doseq [id ["rf-xray-fonts"
+                  "rf-xray-motion-keyframes"
+                  "rf-xray-react-flow-base"
+                  "rf-xray-themes"
+                  "rf-xray-grain"]]
+        (is (some? (get @by-id id))
+            (str "style node injected: " id)))
+      ;; The themes block must carry the :root --rf-xray-* custom
+      ;; properties — the blocker the pop-out was missing.
+      (let [themes-css (.-text (get @by-id "rf-xray-themes"))]
+        (is (re-find #":root\s*\{" themes-css)
+            ":root block present so the var defaults resolve")
+        (is (re-find #"--rf-xray-bg-0:" themes-css)
+            "surface custom properties published")
+        (is (re-find #"--rf-xray-accent:" themes-css)
+            "accent custom property published (theme/accent ride together)")))))
+
+(deftest install-into!-is-idempotent-per-document
+  (testing "rf2-czcg5 — repeated install-into! on the same document
+            converges to one node per style id (the id-keyed DOM probe
+            is the guard, not a defonce — a pop-out document is a
+            distinct DOM the opener's @installed? flag knows nothing
+            about)."
+    (let [{:keys [doc by-id]} (mk-stub-document)
+          create-ct (atom 0)
+          orig      (.-createElement doc)]
+      (set! (.-createElement doc)
+            (fn [tag] (swap! create-ct inc) (orig tag)))
+      (gs/install-into! doc)
+      (let [first-count @create-ct]
+        (is (= 5 first-count) "five style nodes created on first install")
+        (gs/install-into! doc)
+        (is (= first-count @create-ct)
+            "second install creates NO new nodes — id-probe short-circuits")
+        (is (= 5 (count @by-id))
+            "still exactly five style nodes in <head>")))))
+
+(deftest install-into!-is-safe-without-document
+  (testing "rf2-czcg5 — install-into! no-ops on a nil document (the
+            no-DOM / popup-blocked guard) rather than throwing."
+    (is (nil? (gs/install-into! nil)))))
+
 ;; ---- host theme override (rf2-ee38b.2) ---------------------------------
 
 (deftest set-host-theme-css-is-safe-without-document

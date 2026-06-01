@@ -292,26 +292,46 @@
         (is (some? (find-by-testid tree "rf-xray-ribbon-icons"))
             "right-icons cluster present in the chrome ribbon")))))
 
-(deftest ribbon-omits-popout-button
-  (testing "rf2-u3qm1 — the right-icons cluster mounts only Settings +
-            Close. The legacy `⛶` pop-out (`rf-xray-icon-popout`) was
-            a broken-claim affordance (`title 'Pop out (o) — stubbed'`)
-            and is removed. Pop-out is programmatic-only via
-            `(xray/popout!)` until the second-window UX lands per
-            spec/011-Launch-Modes.md."
+(deftest ribbon-mounts-visible-popout-button
+  (testing "rf2-czcg5 — the second-window UX has landed, so the
+            right-icons cluster now mounts a VISIBLE `⛶` pop-out button
+            (the canonical chrome launch per spec/011-Launch-Modes.md)
+            alongside Settings + Close. The prior rf2-u3qm1 'omit the
+            broken-claim button' posture is superseded — the button is
+            now backed by `:rf.xray/popout-shell` → `mount/popout!`."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
-            icons (find-by-testid tree "rf-xray-ribbon-icons")]
+      (let [tree   (shell/shell-view)
+            icons  (find-by-testid tree "rf-xray-ribbon-icons")
+            popout (find-by-testid tree "rf-xray-icon-popout")]
         (is (some? icons) "right-icons cluster still mounts")
+        (is (some? popout)
+            "VISIBLE pop-out button present in the chrome right-icons")
         (is (some? (find-by-testid tree "rf-xray-icon-settings"))
             "Settings icon still present")
         (is (some? (find-by-testid tree "rf-xray-icon-close"))
             "Close icon still present")
-        (is (nil? (find-by-testid tree "rf-xray-icon-popout"))
-            "pop-out ribbon button is absent (silent-by-default)")
         (is (not (re-find #"stubbed" (text-nodes icons)))
-            "no `stubbed` copy in the right-icons cluster")))))
+            "no `stubbed` copy — the button is a real affordance")))))
+
+(deftest popout-icon-dispatches-popout-shell
+  (testing "rf2-czcg5 — the chrome `⛶` button dispatches the
+            `:rf.xray/popout-shell` event (which lowers to mount/popout!
+            via the :rf.xray.fx/popout-shell bridge); it does NOT call
+            mount directly — mirrors the close-icon → close-shell shape."
+    (xray-setup!)
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/xray
+          (let [tree    (shell/shell-view)
+                popout  (find-by-testid tree "rf-xray-icon-popout")
+                handler (:on-click (second popout))]
+            (is (some? popout) "pop-out icon present in the chrome ribbon")
+            (when handler (handler nil)))))
+      (is (some #(= :rf.xray/popout-shell (first %)) @dispatches)
+          "`⛶` click dispatches :rf.xray/popout-shell"))))
 
 ;; -------------------------------------------------------------------------
 ;; (2b) Two-ribbon redesign — chrome ribbon + events ribbon (rf2-4vp5j)

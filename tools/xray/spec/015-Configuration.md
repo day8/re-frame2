@@ -397,7 +397,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
 
 ```clojure
 {:general   {:text-size              13          ; px; slider range 10–18
-             :panel-position         :right-rail ; :right-rail | :popout | :fullscreen
+             :panel-position         :right-rail ; :right-rail | :fullscreen (rf2-czcg5 dropped :popout — pop-out launches from the chrome ⛶ button)
              :panel-width-px         480         ; number; clamped [320, 0.9 × viewport-width-px]
              :auto-open-on-error?    false
              :density                :cosy       ; #{:cosy :compact} — no :comfy in v1

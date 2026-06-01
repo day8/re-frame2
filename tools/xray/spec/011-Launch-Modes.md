@@ -316,17 +316,44 @@ optional debug mode and must not be described as the primary path.
 
 ### Pop-out to a second window
 
-Programmatic entry: `(xray/popout!)` from CLJS, or
-`window.day8.re_frame2_xray.popout_BANG_()` from a devtools console.
-A right-click → `Pop out` affordance on the launcher pill is the
-canonical chrome-side path. No keybinding is wired pre-alpha; the
-programmatic call is the contract.
+**Launch affordances.** The canonical chrome-side path is a **visible
+pop-out button** (`⛶`) in the panel top-bar / chrome ribbon's
+right-icons cluster (`data-testid="rf-xray-icon-popout"`). Clicking it
+dispatches `:rf.xray/popout-shell`, which lowers — via the
+`:rf.xray.fx/popout-shell` effect — to `popout!`; the event/fx bridge
+keeps the shell view free of a direct mount dependency, mirroring the
+`✕` close button's `:rf.xray/close-shell` → `:rf.xray.fx/hide-shell`
+bridge. The programmatic entry — `(xray/popout!)` from CLJS, or
+`window.day8.re_frame2_xray.popout_BANG_()` from a devtools console —
+is the secondary path. No keybinding is wired pre-alpha. (Pre-`rf2-czcg5`
+the only chrome path was an indirect Settings → panel-position →
+`:popout` radio; that radio has been removed — the visible button is
+the chrome launch, not a panel-position.)
 
 Mechanism: `window.open` whose JS realm is connected to the opener's
 via `window.opener`. The pop-out renders into the new window but
 **reads and dispatches against the opener's runtime atoms directly**
 — no `BroadcastChannel`, no `postMessage`, no structured-clone
 serialisation. Same JS realm, no protocol cost.
+
+**Styling (the second-window stylesheet hand-off).** The pop-out window
+is a distinct `document` whose `<head>` does NOT inherit the opener's
+injected Xray stylesheet. The shell's inline styles and class rules all
+resolve colours through `var(--rf-xray-…)` custom properties, so the
+pop-out **MUST** carry Xray's stylesheet + the `:root --rf-xray-*`
+custom-property definitions (and any font links) so the shell renders
+identically to the inline panel rather than unstyled. Per `rf2-czcg5`
+the implementation injects the full global-styles set into the pop-out's
+own document (`theme/global-styles/install-into!` — fonts, motion seam,
+React-Flow base sheet, the per-theme `:root` palette blocks, grain) and
+mirrors the persisted theme class onto the pop-out's `<html>` so the
+matching `.rf-xray-theme-*` palette (not merely the `:root` light
+default) resolves. The single accent token rides in those theme palette
+blocks, so the inject + theme-class write keep accent and theme in sync
+in the pop-out window. The opener-gone overlay deliberately keeps reading
+literal `dark-palette` hex (not `var(--rf-xray-*)`) so it remains legible
+as a broken-opener fallback even on the path where injection never ran or
+the substrate tree threw before the vars resolved.
 
 Constraints inherited from the `window.opener` posture:
 

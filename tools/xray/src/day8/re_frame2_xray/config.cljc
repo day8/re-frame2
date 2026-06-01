@@ -913,7 +913,7 @@
   `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
   out of column alignment."
   {:general   {:text-size              13              ; px — slider range 10–18
-               :panel-position         :right-rail     ; :right-rail | :popout | :fullscreen
+               :panel-position         :right-rail     ; :right-rail | :fullscreen (rf2-czcg5 dropped :popout — pop-out launches from the chrome ⛶ button)
                :panel-width-px         default-panel-width-px ; rf2-x8h9y resize handle
                :events-list-height-px  default-events-list-height-px ; rf2-t2dsh L2/L3 seam handle
                :auto-open-on-error?    false

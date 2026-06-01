@@ -21,12 +21,14 @@
     the whole shell in one assignment.
 
   - **panel-position** — routes to existing mount-layer fns:
-    `:right-rail` is the default inline mount; `:popout` opens the
-    popout window via `mount/popout!`; `:fullscreen` mounts as the
-    overlay via `mount/open-overlay!`. Switching position does not
-    tear down the current mount — the user can sit in two surfaces
-    at once if they choose. A follow-on bead can lock the
-    enumeration to single-mount-at-a-time.
+    `:right-rail` is the default inline mount; `:fullscreen` mounts as
+    the overlay via `mount/open-overlay!`. (Per rf2-czcg5 the `:popout`
+    option was removed — the second-window pop-out is launched from the
+    chrome's visible `⛶` button + the programmatic `(xray/popout!)` API,
+    not via panel-position.) Switching position does not tear down the
+    current mount — the user can sit in two surfaces at once if they
+    choose. A follow-on bead can lock the enumeration to
+    single-mount-at-a-time.
 
   - **auto-open-on-error?** — a re-frame subscription watcher set
     up by `install-auto-open-watcher!`. When the issues-ribbon sub
@@ -457,15 +459,20 @@
 
 (defn apply-panel-position!
   "Route to the matching mount-layer fn. `:right-rail` is the default
-  inline mount; `:popout` opens the popout window; `:fullscreen`
-  mounts the overlay. Switching to a position that's already mounted
-  is a no-op via the mount fns' singleton guards. The mount fns are
-  late-bound via the browser API exports (see ns docstring §Why we
-  late-bind mount via the browser API export)."
+  inline mount; `:fullscreen` mounts the overlay. Switching to a
+  position that's already mounted is a no-op via the mount fns'
+  singleton guards. The mount fns are late-bound via the browser API
+  exports (see ns docstring §Why we late-bind mount via the browser
+  API export).
+
+  Per rf2-czcg5 the `:popout` branch was removed: the second-window
+  pop-out is no longer a panel-position; it is launched from the
+  chrome's visible `⛶` button (`:rf.xray/popout-shell` → `mount/popout!`)
+  + the programmatic `(xray/popout!)` API. `apply-panel-position!` now
+  governs only the inline ⇄ fullscreen axis."
   [position]
   (case position
     :right-rail (call-mount-fn! "open_BANG_")
-    :popout     (call-mount-fn! "popout_BANG_")
     :fullscreen (call-mount-fn! "open_overlay_BANG_")
     ;; Unknown — log and skip. The popup's radio enumeration is the
     ;; sole emit point so an unknown value indicates a programmer

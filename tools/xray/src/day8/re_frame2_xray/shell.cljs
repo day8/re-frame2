@@ -39,9 +39,10 @@
     distinct frames. Excludes `:rf/xray` by default per §8 I1.
   - **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills
     + trailing `[+]` add-pill. Click any pill → edit popup.
-  - **Right icons** — `⚙` settings · `✕` close. (Pop-out is a
-    programmatic API only — `(xray/popout!)` — no ribbon affordance
-    until the second-window UX lands per spec/011-Launch-Modes.md.)
+  - **Right icons** — `⛶` pop-out · `⚙` settings · `✕` close. The
+    `⛶` button is the canonical chrome launch for the second-window
+    pop-out mode (rf2-czcg5, spec/011-Launch-Modes.md); `(xray/popout!)`
+    remains the secondary programmatic path.
 
   The REDACTED indicator (`[● REDACTED N]`) renders inline next to
   the right-icons cluster when the suppressed-sensitive count is
@@ -1014,12 +1015,15 @@
      [:span {:aria-hidden "true"} (if dark? "☀" "☾")]]))
 
 (defn- ribbon-right-icons
-  "Right-icons cluster — `⚙` settings · `✕` close. Per spec/018 §3
-  Right-icon behaviour the pop-out (`⛶`) slot is reserved for the
-  second-window UX (spec/011-Launch-Modes.md); the ribbon affordance
-  is omitted until that lands rather than showing a broken-claim
-  button (silent-by-default — rf2-g3ghh / rf2-yn86j). The programmatic
-  `(xray/popout!)` API remains the supported pop-out path.
+  "Right-icons cluster — `⛶` pop-out · `⚙` settings · `✕` close. Per
+  spec/018 §3 Right-icon behaviour + spec/011-Launch-Modes.md §Pop-out:
+  the second-window UX has landed (rf2-czcg5), so the reserved pop-out
+  (`⛶`) slot now carries a VISIBLE button — the canonical chrome launch
+  affordance for the pop-out window (Mike ruled: a visible top-bar
+  button, not the prior right-click-only path). It dispatches
+  `:rf.xray/popout-shell`, which fires the DOM-side
+  `:rf.xray.fx/popout-shell` effect (mount/install-fx!) → `mount/popout!`.
+  The programmatic `(xray/popout!)` API remains the secondary path.
 
   Settings opens the Settings popup modal (rf2-9poxq) via
   `:rf.xray/settings-open`; close dispatches `:rf.xray/close-shell`
@@ -1062,6 +1066,17 @@
                     :padding         "0"}]
     [:div {:data-testid "rf-xray-ribbon-icons"
            :style {:display "flex" :align-items "center" :gap "4px"}}
+     ;; rf2-czcg5 — VISIBLE pop-out (`⛶`) button, the canonical chrome
+     ;; launch affordance for the second-window mode (spec/011 §Pop-out).
+     ;; Dispatches through the captured frame-aware dispatcher so the
+     ;; event lands on the surrounding instance frame, then the event/fx
+     ;; bridge lowers it to `mount/popout!`.
+     [:button {:data-testid "rf-xray-icon-popout"
+               :title       "Pop out to a second window"
+               :aria-label  "Pop out Xray to a second window"
+               :on-click    #(dispatch-fn [:rf.xray/popout-shell])
+               :style       icon-style}
+      [:span {:aria-hidden "true"} "⛶"]]
      [:button {:data-testid "rf-xray-icon-settings"
                :title       "Settings (,)"
                :aria-label  "Open Xray settings"
