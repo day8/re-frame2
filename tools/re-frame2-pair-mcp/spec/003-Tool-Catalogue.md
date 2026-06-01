@@ -2,7 +2,7 @@
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
-> primitives (`get-frame-db`, `epoch-history`, `register-listener!`,
+> primitives (`frame-db`, `epoch-history`, `register-listener!`,
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
@@ -529,15 +529,15 @@ form in `(re-frame.core/with-frame <frame> <user-form>)` before
 sending it over nREPL. `with-frame` is the framework's lexical frame-
 binding macro (Spec 002 §with-frame); `*current-frame*` is bound to
 the named frame for the form's dynamic extent, so any
-`(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame)`
+`(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame-id)`
 inside the form resolves against the requested frame.
 
 **Composes with `:await`.** The `with-frame` wrap is the outer-most
 form; the await mailbox sentinel rides through the wrap unchanged.
 Note that `with-frame`'s lexical binding only lasts for the form's
 SYNCHRONOUS evaluation — once a Promise resolves on a later tick, the
-binding is gone (Spec 002 §with-frame: async closures must capture via
-`bound-fn` / `dispatcher` / `subscriber`). Most ad-hoc probes don't
+binding is gone (Spec 002 §with-frame: async closures must capture a
+`frame-handle`, or wrap via `frame-bound-fn` / `frame-bound-fn*`). Most ad-hoc probes don't
 hit this; long-running async forms that need to dispatch in a `.then`
 callback should capture the frame explicitly.
 
@@ -1281,7 +1281,7 @@ lines 79-137):
 Coarse-grained per-frame state read in **one round-trip**. The mega-op
 for investigate-X workflows that would otherwise chain 5-10 individual
 reads. Server-side composition over the existing per-slice runtime
-readers (`get-frame-db`, `sub-cache`, `machines` + frame-local
+readers (`frame-db`, `sub-cache`, `machines` + frame-local
 `[:rf/runtime :machines :snapshots]`, `epoch-history`, `trace-buffer`); no parallel
 implementation.
 

@@ -68,7 +68,7 @@
   Story is a deterministic fixture / test-driver runtime. Its internal
   helpers (`re-frame.story.runtime`, `re-frame.story.frames`,
   `re-frame.story.async`) use `rf/dispatch-sync` and direct
-  `get-frame-db` reads so a variant settles to a stable result before
+  `rf/frame-db` reads so a variant settles to a stable result before
   the assertions / render-snapshot stage runs. That posture is
   appropriate for Story's role and IS NOT a pattern to copy into normal
   interactive application code — UI event handlers should use

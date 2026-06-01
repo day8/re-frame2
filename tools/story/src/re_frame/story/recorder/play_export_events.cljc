@@ -15,7 +15,7 @@
 
   The translator itself (`re-frame.story.recorder.play-export`) stays
   pure. This namespace is the thin impure shell — it depends on
-  `re-frame.core` (for `get-frame-db` / `dispatch-sync*`) and the
+  `re-frame.core` (for `frame-db` / `dispatch-sync*`) and the
   runner-events ns (for `run!`), neither of which the translator
   should pull in.
 

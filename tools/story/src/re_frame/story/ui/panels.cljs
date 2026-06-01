@@ -224,9 +224,10 @@
   active variant's app-db (e.g. `:counter-with-stories.views/parity-
   badge` reads `:count-parity` from the variant's frame). The panel
   view runs OUTSIDE the canvas's React subtree, so it needs its own
-  `frame-provider` scoped to `variant-id` — otherwise `(subscriber)`
-  captures `:rf/default` and the deref returns nil, throwing in the
-  view. We wrap each panel in `frame-provider {:frame variant-id}`.
+  `frame-provider` scoped to `variant-id` — otherwise the view's
+  ambient `rf/subscribe` resolves `:rf/default` and the deref returns
+  nil, throwing in the view. We wrap each panel in
+  `frame-provider {:frame variant-id}`.
 
   Returns a hiccup vector wrapping the resolved panels."
   [placement variant-id panel-visibility]
