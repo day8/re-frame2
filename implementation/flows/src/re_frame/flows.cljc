@@ -165,11 +165,11 @@
   [frame-id db flow]
   (let [flow-id    (:id flow)
         new-inputs (read-inputs db flow)
-        ;; `last-inputs` is shaped {flow-id {frame-id inputs}} so the
-        ;; hot-reload invalidation hook can drop a flow's whole row
-        ;; with one O(1) dissoc (rf2-2xq8w / PERF Q10). Per-frame
-        ;; dirty-check windows stay independent.
-        old-inputs (get-in (registry/last-inputs-snapshot) [flow-id frame-id])]
+        ;; Per rf2-94ol5 dirty-check storage is PER-FRAME: read this
+        ;; flow's last-seen inputs from THIS frame's own `last-inputs`
+        ;; container. Per-frame dirty-check windows stay independent by
+        ;; construction — the read can't observe a sibling frame's row.
+        old-inputs (registry/get-frame-flow-last-inputs frame-id flow-id)]
     (if (= new-inputs old-inputs)
       (do
         ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/skip` records a
@@ -216,7 +216,9 @@
               old-output (when interop/debug-enabled?
                            (get-in db (:path flow)))
               new-db     (assoc-in db (:path flow) new-output)]
-          (registry/swap-last-inputs! assoc-in [flow-id frame-id] new-inputs)
+          ;; Advance the dirty-check row in THIS frame's own `last-inputs`
+          ;; container (rf2-94ol5) — frame-local, can't touch a sibling.
+          (registry/set-frame-flow-last-inputs! frame-id flow-id new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/computed`
           ;; records a successful recompute. The dirty-check is
           ;; `=`-equality so this only fires when inputs actually
@@ -345,26 +347,35 @@
   surfaces the cascade-level `:rf.error/flow-eval-exception`.
 
   Atomicity extends to the dirty-check bookkeeping: `evaluate-flow!`
-  advances the global `last-inputs` atom for each flow it computes, but
-  on a throw NOTHING is installed — so a prior flow's advanced
+  advances THIS frame's `last-inputs` container for each flow it computes,
+  but on a throw NOTHING is installed — so a prior flow's advanced
   `last-inputs` would (wrongly) suppress its recompute next drain even
   though its output never reached app-db, silently losing the write
-  forever. So we SNAPSHOT `last-inputs` before the walk and RESTORE it on
-  a throw: every flow — prior-successful and failing alike — re-attempts
-  cleanly on the next drain, matching the all-or-nothing `:db` install.
-  The `:rf.flow/failed-id` slot (stamped by `evaluate-flow!`) is
+  forever. So we SNAPSHOT this frame's `last-inputs` before the walk and
+  RESTORE it on a throw: every flow — prior-successful and failing alike —
+  re-attempts cleanly on the next drain, matching the all-or-nothing `:db`
+  install. The `:rf.flow/failed-id` slot (stamped by `evaluate-flow!`) is
   preserved on the re-thrown ex-info so the router can attribute the
-  cascade-level error to the failing flow."
+  cascade-level error to the failing flow.
+
+  Per rf2-94ol5 the snapshot / restore is scoped to the DRAINING frame's
+  OWN `last-inputs` container — `frame-id`'s atom, not a global. A sibling
+  frame draining concurrently on another JVM thread holds a different atom,
+  so this rollback cannot clobber its just-advanced dirty-check rows. The
+  per-frame-independence invariant (Spec 002 rule 1 / Spec 013
+  §Frame-scoping) holds by construction, not by careful keying."
   [frame-id db]
   (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
       (let [ordered (topo/topo-sort flow-map)
-            ;; Snapshot the dirty-check bookkeeping so a flow throw can
-            ;; roll it back wholesale — the event aborts, so prior flows'
-            ;; `last-inputs` advances must NOT survive (their outputs were
-            ;; never installed). Restored in the catch below.
-            last-inputs-before (registry/last-inputs-snapshot)]
+            ;; Snapshot ONLY the draining frame's dirty-check container so a
+            ;; flow throw can roll back the frame's own advances — the event
+            ;; aborts, so prior flows' `last-inputs` advances must NOT
+            ;; survive (their outputs were never installed). Scoped to
+            ;; `frame-id` (rf2-94ol5) so a concurrently-draining sibling
+            ;; frame is structurally untouched. Restored in the catch below.
+            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
         (try
           (loop [remaining  ordered
                  db         db
@@ -377,11 +388,12 @@
           (catch #?(:clj Throwable :cljs :default) e
             ;; Atomicity contract: discard ALL flow side-effects of this
             ;; aborted drain. The pending `:db` effect is dropped by the
-            ;; router; here we restore the pre-drain `last-inputs` so
-            ;; every flow re-attempts next drain. The throw (carrying
-            ;; `:rf.flow/failed-id` from `evaluate-flow!`) propagates
-            ;; unchanged for router attribution.
-            (registry/reset-last-inputs-to! last-inputs-before)
+            ;; router; here we restore THIS frame's pre-drain `last-inputs`
+            ;; (its own container only — rf2-94ol5) so every flow on this
+            ;; frame re-attempts next drain while sibling frames are
+            ;; untouched. The throw (carrying `:rf.flow/failed-id` from
+            ;; `evaluate-flow!`) propagates unchanged for router attribution.
+            (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
             (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
