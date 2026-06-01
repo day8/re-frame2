@@ -142,7 +142,7 @@ Two likely causes:
 
 Two preconditions, at least one must hold:
 
-- `(rf/configure :source-coords {:annotate-dom? true})` enabled at startup, *or*
+- `(rf/configure! :source-coords {:annotate-dom? true})` enabled at startup, *or*
 - re-com debug instrumentation enabled and the call site passed `:src (at)`.
 
 If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` for every element.

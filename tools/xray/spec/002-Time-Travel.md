@@ -68,7 +68,7 @@ with its own `:db-before` / `:db-after` / `:trace-events`. The scrubber
 walks events, not drains.
 
 - `(rf/epoch-history frame-id)` — vector of `:rf/epoch-record` values,
-  oldest-first, bounded by `(rf/configure :epoch-history {:depth N})`
+  oldest-first, bounded by `(rf/configure! :epoch-history {:depth N})`
   (default 50).
 - `(rf/restore-epoch frame-id epoch-id)` — rewinds `app-db` to the
   named epoch's `:db-after`. Emits `:rf.epoch/restored`.
@@ -82,7 +82,7 @@ already records.
 ### App-installed `:redact-fn`
 
 When the consuming app installs a `:redact-fn` on the epoch-history
-configure key (`(rf/configure :epoch-history {:redact-fn (fn [record] …)})`,
+configure key (`(rf/configure! :epoch-history {:redact-fn (fn [record] …)})`,
 per [Tool-Pair §Time-travel §Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
 and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)),
 the runtime invokes the fn once per assembled record at build-time
@@ -360,7 +360,7 @@ Increase depth in Settings."
 
 The default depth is 50 (per Tool-Pair). Settings → Performance →
 `epoch-history-depth` lets the user bump to 200 or 1000 for deep
-sessions. The setting calls `(rf/configure :epoch-history {:depth
+sessions. The setting calls `(rf/configure! :epoch-history {:depth
 N})` live; the new depth takes effect on the next epoch.
 
 ## The read-only constraint

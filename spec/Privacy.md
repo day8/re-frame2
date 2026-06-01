@@ -152,7 +152,7 @@ Both write through `[:rf/runtime :elision :sensitive-declarations]` + `[:rf/runt
 
 ### Runtime config — epoch redact hook
 
-- `(rf/configure :epoch-history {:redact-fn (fn [record] ...)})` — single-pass record-in / record-out hook at the epoch boundary.
+- `(rf/configure! :epoch-history {:redact-fn (fn [record] ...)})` — single-pass record-in / record-out hook at the epoch boundary.
 
 ---
 
@@ -228,7 +228,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │     - Per-frame, on drain-settle.                                           │
 │     - sensitive-rollup computes :rf.epoch/sensitive? from the raw trace     │
 │       events captured in this drain (BEFORE redact-fn runs).                │
-│     - Installed :redact-fn (from `(rf/configure :epoch-history {...})`)     │
+│     - Installed :redact-fn (from `(rf/configure! :epoch-history {...})`)     │
 │       runs once on the assembled record. Failures emit a warning and fall   │
 │       back to the raw record for that drain only.                           │
 │     - Ring-append + listener fan-out see the SAME redacted shape — no later │
@@ -306,7 +306,7 @@ Both default to suppress per Spec 009's default-private posture. A sixth consume
 
 Per [API.md §Configure keys](API.md) and [015](015-Data-Classification.md):
 
-| `(rf/configure <key> {...})` | Privacy-relevant opt | Default | Purpose |
+| `(rf/configure! <key> {...})` | Privacy-relevant opt | Default | Purpose |
 |---|---|---|---|
 | `:elision` | `:rf.size/threshold-bytes N` | `16384` | Wire-elision size cap. Non-negative integer; 0 disables runtime auto-detect (only declared / schema-marked entries elide). |
 | `:epoch-history` | `:redact-fn fn` | `nil` | Per-record redaction hook at the epoch boundary. See [Tool-Pair §Redaction hook](Tool-Pair.md). |
@@ -398,7 +398,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 ;; 6. (Optional) — install an epoch redact-fn for any defence-in-depth
 ;;    redaction of slots no path-mark covered (raw exception messages,
 ;;    custom slots in :trace-events captured during the drain).
-(rf/configure :epoch-history
+(rf/configure! :epoch-history
   {:redact-fn (fn [record]
                 ;; Scrub :exception-message on any captured trace event.
                 (update record :trace-events
@@ -464,7 +464,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
 - [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — schema-attached marks that boot-hydrate into the elision registry.
 - [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists and the per-call `:sensitive?` request arg.
-- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the `:redact-fn` config key on `(rf/configure :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
+- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the `:redact-fn` config key on `(rf/configure! :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.
 
 ### Cross-cutting conventions
@@ -483,7 +483,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 - [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker) — `elide-wire-value`, `elision-declarations`, `populate-elision-from-schemas!`.
 - [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) — `sensitive?`, `redact-interceptor`.
-- [API.md §Configure keys](API.md) — the four `(rf/configure ...)` keys, including `:elision` and `:epoch-history`.
+- [API.md §Configure keys](API.md) — the four `(rf/configure! ...)` keys, including `:elision` and `:epoch-history`.
 
 ### Author-side guide
 

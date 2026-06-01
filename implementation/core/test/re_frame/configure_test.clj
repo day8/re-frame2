@@ -1,5 +1,5 @@
 (ns re-frame.configure-test
-  "Lock the closed-key contract of `(rf/configure ...)` (rf2-mmlci).
+  "Lock the closed-key contract of `(rf/configure! ...)` (rf2-mmlci).
 
   `configure` is the process-level runtime-knob surface (per Conventions
   §Configuration surfaces bucket 1 and API.md §Configure keys). Its
@@ -46,20 +46,20 @@
   (try (test-fn)
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites.
-         (rf/configure :trace-buffer {:cascades-retained 50})
-         (rf/configure :elision {:rf.size/threshold-bytes 16384}))))
+         (rf/configure! :trace-buffer {:cascades-retained 50})
+         (rf/configure! :elision {:rf.size/threshold-bytes 16384}))))
 
 (use-fixtures :each reset-runtime)
 
 (deftest configure-known-keys-take-effect
   (testing ":trace-buffer cascades-retained is wired"
-    (rf/configure :trace-buffer {:cascades-retained 7})
+    (rf/configure! :trace-buffer {:cascades-retained 7})
     (rf/reg-event-db :ping (fn [db _] db))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 7)
         ":trace-buffer {:cascades-retained 7} caps retained cascades at 7"))
   (testing ":elision is wired (rf2-le2qu)"
-    (rf/configure :elision {:rf.size/threshold-bytes 4096})
+    (rf/configure! :elision {:rf.size/threshold-bytes 4096})
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
         ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
 
@@ -69,23 +69,23 @@
     ;; API.md §Configure keys must not throw, must not partially apply,
     ;; and must return nil so user code wrapping `configure` can safely
     ;; pass through unknown keys without branching.
-    (is (nil? (rf/configure :strict-subs true))
+    (is (nil? (rf/configure! :strict-subs true))
         ":strict-subs is NOT a v1 configure key (per API.md §Configure keys); call no-ops")
-    (is (nil? (rf/configure :ssr {:public-error-id :anything}))
+    (is (nil? (rf/configure! :ssr {:public-error-id :anything}))
         ":ssr is per-frame metadata, not a configure key (per Conventions §Configuration surfaces)")
-    (is (nil? (rf/configure :totally-made-up {:foo 1}))
+    (is (nil? (rf/configure! :totally-made-up {:foo 1}))
         "any unknown key returns nil")
     ;; rf2-cmfln — :sub-cache is no longer a valid configure key (sync
     ;; dispose has no grace-period to configure). The call must no-op.
-    (is (nil? (rf/configure :sub-cache {:grace-period-ms 71}))
+    (is (nil? (rf/configure! :sub-cache {:grace-period-ms 71}))
         ":sub-cache is retired (rf2-cmfln); the call no-ops"))
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
     ;; then assert known-key state is unchanged.
-    (rf/configure :trace-buffer {:cascades-retained 11})
-    (rf/configure :strict-subs  true)
-    (rf/configure :ssr          {:public-error-id :nope})
-    (rf/configure :no-such-key  {})
+    (rf/configure! :trace-buffer {:cascades-retained 11})
+    (rf/configure! :strict-subs  true)
+    (rf/configure! :ssr          {:public-error-id :nope})
+    (rf/configure! :no-such-key  {})
     (rf/reg-event-db :ping (fn [db _] db))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 11)

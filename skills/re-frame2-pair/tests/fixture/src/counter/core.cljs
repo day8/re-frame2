@@ -7,7 +7,7 @@
  exists so re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces
  have a stable target.
 
- Source-coord annotation is forced ON via `rf/configure` so the
+ Source-coord annotation is forced ON via `rf/configure!` so the
  `data--coord` attribute is present on the rendered DOM —
  re-frame2-pair's DOM ↔ source bridge depends on it (§Tool-Pair §Source-mapping,
  Spec 006 §Source-coord annotation)."
@@ -55,7 +55,7 @@
 (defn ^:export run []
  ;; Force source-coord DOM annotation on so re-frame2-pair's DOM bridge has
  ;; something to find. Spec 006 §Source-coord annotation.
- (rf/configure :source-coord {:annotate-dom? true})
+ (rf/configure! :source-coord {:annotate-dom? true})
  (rf/init! reagent-adapter/adapter)
  (rf/dispatch-sync [:counter/initialise])
  (rdc/render root [counter-app]))

@@ -186,7 +186,7 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Description**: Walk `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`.
+- **Description**: Walk `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure! :elision ...)` then `16384`.
 
 #### `elision-declarations`
 

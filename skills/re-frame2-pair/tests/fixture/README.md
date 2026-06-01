@@ -62,6 +62,6 @@ SHADOW_CLJS_BUILD_ID=app scripts/discover-app.sh
 | `(subscribe [:count])` | reads `:count` |
 | view `counter.core/counter-buttons` | rendered with `data-rf2-source-coord` annotation |
 
-The `(rf/configure :source-coord {:annotate-dom? true})` call is made
+The `(rf/configure! :source-coord {:annotate-dom? true})` call is made
 in `run` so the DOM bridge surfaces have something to find — see
 `docs/initial-spec.md` §8a item 3 and Spec 006.

@@ -127,7 +127,7 @@
             corruption. All four slots remain in the projected shape;
             scalar sentinels in non-projected leaves pass through."
     (rf/reg-frame :test/main {})
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 ;; Sentinel every payload slot wholesale.
                                 (-> r
@@ -167,7 +167,7 @@
             equality (= projected1 projected2)."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -197,7 +197,7 @@
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [invocations (atom 0)]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r]
                                   (swap! invocations inc)
                                   (cond-> r
@@ -232,7 +232,7 @@
     (install-two-sensitive-paths-schema! :test/main)
     ;; Redact-fn substitutes only :password. The projection's
     ;; schema-driven walker should then substitute :token too.
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -279,7 +279,7 @@
             bookkeeping slot."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -305,7 +305,7 @@
             projection preserves it"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (-> r
                                     (assoc :db-before    :rf/redacted)
@@ -449,7 +449,7 @@
             record carries the truthful figure."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 ;; Wipe :db-before / :db-after entirely
                                 ;; — if the counter were computed after,
@@ -608,7 +608,7 @@
     (rf/dispatch-sync [:login "secret-1"]  {:frame :test/main})
 
     ;; Install redact-fn mid-session.
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -643,7 +643,7 @@
   (testing "with a redact-fn installed but no cascades recorded,
             projected-history is the empty vector — the redact-fn is
             inert until a record reaches build-record"
-    (rf/configure :epoch-history {:redact-fn (fn [r] r)})
+    (rf/configure! :epoch-history {:redact-fn (fn [r] r)})
     (is (= [] (epoch/projected-history :rf/no-such-frame)))))
 
 ;; ============================================================================
@@ -658,7 +658,7 @@
             target value) and produces no further change."
     (rf/reg-frame :test/main {})
     (install-two-sensitive-paths-schema! :test/main)
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 ;; Half the work — sentinel :password
                                 ;; only; the projection picks up :token.

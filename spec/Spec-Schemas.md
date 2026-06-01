@@ -68,7 +68,7 @@ This catalogue is a **projection** of shapes that originate in the owning per-Sp
 Each schema in this catalogue belongs to exactly one of three layers. The layer tells consumers what role the schema plays in the contract:
 
 - **Runtime** — shapes the framework produces or consumes during normal operation (the dispatch envelope the runtime constructs, the effect-map a handler returns, the snapshot a machine writes, the trace event a tool reads). Implementations *must* match these on the wire; they are observable to every layer above.
-- **Public** — shapes the user passes into `reg-*` metadata or `(rf/configure ...)` opts. These describe *what tooling reads when introspecting registrations*: the metadata map shape, the frame-meta returned by `(frame-meta id)`, the route-metadata accepted by `reg-route`. Tools target this surface; implementations validate user input against it.
+- **Public** — shapes the user passes into `reg-*` metadata or `(rf/configure! ...)` opts. These describe *what tooling reads when introspecting registrations*: the metadata map shape, the frame-meta returned by `(frame-meta id)`, the route-metadata accepted by `reg-route`. Tools target this surface; implementations validate user input against it.
 - **Conformance** — shapes that exist for the conformance corpus and capability-tagging machinery. The handler-body DSL, the fixture-file format, the capability-tagging convention — none of these flow through the runtime; they exist so a host-agnostic test harness can drive any implementation.
 
 Layer membership is **disjoint**: a schema is exactly one of Runtime, Public, or Conformance. Each schema entry below carries a `> Layer:` header naming its layer.

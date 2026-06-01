@@ -724,7 +724,7 @@
    {:key         :trace.tooling/configure-trace-buffer!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
-    :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure :trace-buffer` so a no-tooling production build silently no-ops."}
+    :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure! :trace-buffer` so a no-tooling production build silently no-ops."}
    {:key         :trace.tooling/register-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"

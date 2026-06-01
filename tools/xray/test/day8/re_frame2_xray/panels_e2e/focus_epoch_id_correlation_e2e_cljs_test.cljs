@@ -27,7 +27,7 @@
   `:trace-events-keep` was lifted from 5 to 50 — matching `:depth`
   so trace evicts atomically with its epoch. To bite the elision
   path under test the elision-sensitive deftests below explicitly
-  shrink `:trace-events-keep` via `rf/configure`.)
+  shrink `:trace-events-keep` via `rf/configure!`.)
 
   ## Fix
 
@@ -143,7 +143,7 @@
     (frame/reg-frame frame-below {})
     (install-counter!)
     (mount-xray-with-target! frame-below)
-    (rf/configure :epoch-history {:trace-events-keep 3})
+    (rf/configure! :epoch-history {:trace-events-keep 3})
     ;; Drive 10 cascades so the earliest ones fall well outside the
     ;; keep-3 window (their `:trace-events` get dissoc'd).
     (dotimes [_ 10] (dispatch-host-frame [:counter/inc] frame-below))
@@ -186,7 +186,7 @@
     (frame/reg-frame frame-below {})
     (install-counter!)
     (mount-xray-with-target! frame-below)
-    (rf/configure :epoch-history {:trace-events-keep 3})
+    (rf/configure! :epoch-history {:trace-events-keep 3})
     (dotimes [_ 8] (dispatch-host-frame [:counter/inc] frame-below))
     (let [history (sub-xray [:rf.xray/epoch-history])
           elided  (filterv #(not (contains? % :trace-events)) history)]

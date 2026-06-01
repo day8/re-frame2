@@ -84,7 +84,7 @@ Read-only from the trace stream + epoch history.
 
 ## DOM source bridge
 
-**Why this family matters — read first.** When the runtime is configured to annotate rendered DOM (`(rf/configure :source-coords {:annotate-dom? true})` per Tool-Pair §Source-mapping), every rendered DOM node carries a `data-rf2-source-coord` attribute pointing back to the registration that produced it. The attribute's value resolves via `re-frame2-pair.runtime/parse-rf2-coord` to a structured `{:ns ... :line ... :file ...}` map keyed off the registration's source coords (auto-captured by `reg-*` macros, per Spec 001 §Source-coordinate capture). This gives you a direct, two-way bridge between a live DOM element and the exact line of source code that rendered it.
+**Why this family matters — read first.** When the runtime is configured to annotate rendered DOM (`(rf/configure! :source-coords {:annotate-dom? true})` per Tool-Pair §Source-mapping), every rendered DOM node carries a `data-rf2-source-coord` attribute pointing back to the registration that produced it. The attribute's value resolves via `re-frame2-pair.runtime/parse-rf2-coord` to a structured `{:ns ... :line ... :file ...}` map keyed off the registration's source coords (auto-captured by `reg-*` macros, per Spec 001 §Source-coordinate capture). This gives you a direct, two-way bridge between a live DOM element and the exact line of source code that rendered it.
 
 **Two attribute formats are recognised:**
 
@@ -93,7 +93,7 @@ Read-only from the trace stream + epoch history.
 
 **Prerequisites — at least one of:**
 
-- re-frame2 source-coord annotation enabled (`(rf/configure :source-coords {:annotate-dom? true})` at startup), *or*
+- re-frame2 source-coord annotation enabled (`(rf/configure! :source-coords {:annotate-dom? true})` at startup), *or*
 - re-com debug instrumentation enabled and the call site passed `:src (at)`.
 
 **Degradation is per-element.** When neither is present on a given element, the bridge returns `{:src nil :reason :no-coord-at-this-element}`. When neither annotation is enabled app-wide, every element returns `{:src nil :reason :source-coord-annotation-disabled}`. Tell the user which case they're hitting.
@@ -162,7 +162,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 |---|---|---|
 | `epoch/history` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/epoch-history :rf/default)"}` | The full ring of `:rf/epoch-record` values for the frame, oldest-first |
 | `epoch/restore` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}` | Rewind the frame's `app-db` to the named epoch's `:db-after`. Returns `true` on success, `false` on any documented failure mode (see below). |
-| `epoch/configure` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/configure :epoch-history {:depth 200})"}` | Bump the ring depth (default 50). |
+| `epoch/configure` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/configure! :epoch-history {:depth 200})"}` | Bump the ring depth (default 50). |
 | `undo/step-back` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-step-back)"}` | Sugar: restore the previous epoch in the operating frame |
 | `undo/to-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-to-epoch <id>)"}` | Sugar over `restore-epoch` for the operating frame |
 

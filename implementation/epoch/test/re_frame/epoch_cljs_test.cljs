@@ -10,7 +10,7 @@
        `:db-after`, `:effects`, `:outcome :ok`).
     2. Restore happy path — `restore-epoch` rewinds `app-db` to a named
        earlier epoch's `:db-after`.
-    3. Ring depth cap — `(rf/configure :epoch-history {:depth 3})`
+    3. Ring depth cap — `(rf/configure! :epoch-history {:depth 3})`
        followed by five dispatches keeps the last three; the oldest two
        are dropped.
     4. Per-dispatch fan-out — `register-epoch-listener!` fires once per
@@ -126,7 +126,7 @@
 
 (deftest ring-depth-evicts-oldest-cljs
   (testing "configure :depth 3, dispatch 5 events, oldest 2 are dropped"
-    (rf/configure :epoch-history {:depth 3})
+    (rf/configure! :epoch-history {:depth 3})
     (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
     (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
 

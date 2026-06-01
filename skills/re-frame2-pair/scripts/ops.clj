@@ -465,7 +465,7 @@
                               :note (str "Neither data-rf2-source-coord nor "
                                          "data-rc-src is on any element. The "
                                          "DOM->source ops will degrade. Enable "
-                                         "(rf/configure :source-coords {:annotate-dom? true}) "
+                                         "(rf/configure! :source-coords {:annotate-dom? true}) "
                                          "or use re-com with :src (at).")))
 
           :else
@@ -725,7 +725,7 @@
                        :note (str "The id we were tracking fell off the frame's "
                                   "epoch-history ring between polls — some matching "
                                   "epochs may have been missed. Bump depth via "
-                                  "(rf/configure :epoch-history {:depth N}).")}))
+                                  "(rf/configure! :epoch-history {:depth N}).")}))
               (doseq [m matches]
                 (swap! emitted inc)
                 (reset! last-hit (System/currentTimeMillis))

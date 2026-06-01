@@ -125,7 +125,7 @@
             annotation has been removed, the stamp is schema-derived
             only: a sensitive app-schema slot drives it."
   (rf/clear-trace-buffer! :rf/default)
-  (rf/configure :trace-buffer {:cascades-retained 100})
+  (rf/configure! :trace-buffer {:cascades-retained 100})
   (rf/reg-app-schema [:auth]
                      [:map [:password {:sensitive? true} :string]])
   (rf/reg-event-db :sensitive/buf

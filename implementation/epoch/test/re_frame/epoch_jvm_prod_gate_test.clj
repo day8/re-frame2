@@ -147,7 +147,7 @@
             sits in `@config` but the call path is gone)."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
-        (rf/configure :epoch-history
+        (rf/configure! :epoch-history
                       {:redact-fn (fn [r]
                                     (swap! invocations inc)
                                     r)})
@@ -161,7 +161,7 @@
              maybe-redact path is inert under the disabled gate")
         ;; Cleanup: clear the fn so it doesn't survive into other
         ;; tests via the global config atom.
-        (rf/configure :epoch-history {:redact-fn nil})))))
+        (rf/configure! :epoch-history {:redact-fn nil})))))
 
 (deftest redact-fn-not-invoked-on-reset-frame-db-under-disabled-gate
   (testing "Per rf2-wp70d.5: `reset-frame-db!` returns false under the
@@ -172,7 +172,7 @@
             preserved regardless of whether a fn is installed."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
-        (rf/configure :epoch-history
+        (rf/configure! :epoch-history
                       {:redact-fn (fn [r]
                                     (swap! invocations inc)
                                     r)})
@@ -181,7 +181,7 @@
         (is (zero? @invocations)
             ":redact-fn was never reached — perform-reset-frame-db!
              never ran")
-        (rf/configure :epoch-history {:redact-fn nil})))))
+        (rf/configure! :epoch-history {:redact-fn nil})))))
 
 (deftest redact-fn-warning-not-emitted-under-disabled-gate
   (testing "Per rf2-wp70d.5: a throwing :redact-fn cannot emit
@@ -197,7 +197,7 @@
                                (fn [ev]
                                  (when (= :warning (:op-type ev))
                                    (swap! warnings conj ev))))
-        (rf/configure :epoch-history
+        (rf/configure! :epoch-history
                       {:redact-fn (fn [_r]
                                     (throw (ex-info "boom" {})))})
         (rf/reg-event-db :prod-gate.redact/throw
@@ -212,7 +212,7 @@
               ":rf.warning/epoch-redact-fn-exception never fires —
                maybe-redact is unreachable under the disabled gate"))
         (rf/unregister-listener! ::warn-watch)
-        (rf/configure :epoch-history {:redact-fn nil})))))
+        (rf/configure! :epoch-history {:redact-fn nil})))))
 
 (deftest redact-fn-slot-survives-default-gate-as-sanity
   (testing "Sanity companion to the above: under the default-true
@@ -220,7 +220,7 @@
             future refactor accidentally inverts the gate polarity in
             the redact-fn surface."
     (let [invocations (atom 0)]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r]
                                   (swap! invocations inc)
                                   r)})
@@ -229,7 +229,7 @@
       (rf/dispatch-sync [:prod-gate.redact/dev-inc])
       (is (pos? @invocations)
           ":redact-fn fires under the default-true gate")
-      (rf/configure :epoch-history {:redact-fn nil}))))
+      (rf/configure! :epoch-history {:redact-fn nil}))))
 
 (deftest projected-record-pure-transform-survives-disabled-gate
   (testing "Per rf2-vq5o0: projected-record is a pure data transform

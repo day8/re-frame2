@@ -91,41 +91,41 @@
 ;; ============================================================================
 
 (deftest configure-accepts-fn
-  (testing "(rf/configure :epoch-history {:redact-fn f}) — fn? accepted
+  (testing "(rf/configure! :epoch-history {:redact-fn f}) — fn? accepted
             and the slot lands in current-config"
     (let [f (fn [r] r)]
-      (rf/configure :epoch-history {:redact-fn f})
+      (rf/configure! :epoch-history {:redact-fn f})
       (is (identical? f (:redact-fn (epoch/current-config)))
           ":redact-fn lands by identity — no wrapping"))))
 
 (deftest configure-accepts-nil-to-clear
-  (testing "(rf/configure :epoch-history {:redact-fn nil}) clears a
+  (testing "(rf/configure! :epoch-history {:redact-fn nil}) clears a
             previously-installed fn"
-    (rf/configure :epoch-history {:redact-fn (fn [r] r)})
+    (rf/configure! :epoch-history {:redact-fn (fn [r] r)})
     (is (some? (:redact-fn (epoch/current-config))))
 
-    (rf/configure :epoch-history {:redact-fn nil})
+    (rf/configure! :epoch-history {:redact-fn nil})
     (is (nil? (:redact-fn (epoch/current-config)))
         "explicit nil clears the slot")))
 
 (deftest configure-rejects-non-fn
-  (testing "(rf/configure :epoch-history {:redact-fn <bad>}) silently
+  (testing "(rf/configure! :epoch-history {:redact-fn <bad>}) silently
             drops other shapes; a previously-installed fn survives"
     (let [f (fn [r] r)]
-      (rf/configure :epoch-history {:redact-fn f})
-      (rf/configure :epoch-history {:redact-fn "not-a-fn"})
+      (rf/configure! :epoch-history {:redact-fn f})
+      (rf/configure! :epoch-history {:redact-fn "not-a-fn"})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "string silently dropped — prior fn survives")
 
-      (rf/configure :epoch-history {:redact-fn 42})
+      (rf/configure! :epoch-history {:redact-fn 42})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "number silently dropped")
 
-      (rf/configure :epoch-history {:redact-fn {:k :v}})
+      (rf/configure! :epoch-history {:redact-fn {:k :v}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "map silently dropped")
 
-      (rf/configure :epoch-history {:redact-fn [:a :b]})
+      (rf/configure! :epoch-history {:redact-fn [:a :b]})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "vector silently dropped"))))
 
@@ -134,8 +134,8 @@
             the previously-installed fn intact (the configure semantics
             are 'merge present keys' — absence is a no-op)"
     (let [f (fn [r] r)]
-      (rf/configure :epoch-history {:redact-fn f})
-      (rf/configure :epoch-history {:depth 17})
+      (rf/configure! :epoch-history {:redact-fn f})
+      (rf/configure! :epoch-history {:depth 17})
       (is (identical? f (:redact-fn (epoch/current-config)))
           ":redact-fn slot preserved across a :depth-only update")
       (is (= 17 (:depth (epoch/current-config)))
@@ -144,9 +144,9 @@
 (deftest configure-partial-update-mixed-validity
   (testing "a configure call carrying a valid :redact-fn and an
             invalid :depth applies the fn and drops the depth"
-    (rf/configure :epoch-history {:depth 9})
+    (rf/configure! :epoch-history {:depth 9})
     (let [f (fn [r] r)]
-      (rf/configure :epoch-history {:depth nil :redact-fn f})
+      (rf/configure! :epoch-history {:depth nil :redact-fn f})
       (is (identical? f (:redact-fn (epoch/current-config))))
       (is (= 9 (:depth (epoch/current-config)))
           ":depth nil dropped; prior 9 survives"))))
@@ -166,7 +166,7 @@
     ;; Redact-fn wipes the very slot the rollup keyed on. If the
     ;; rollup ran AFTER the fn, it would observe the wiped leaf and
     ;; report sensitive? false — silently breaking off-box consumers.
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -199,7 +199,7 @@
     ;; Track invocation count so we can assert ONE pass per record.
     (let [invocations (atom 0)
           listener-records (atom [])]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r]
                                   (swap! invocations inc)
                                   (assoc-in r [:db-after :auth :password]
@@ -237,7 +237,7 @@
           a-rec       (atom nil)
           b-rec       (atom nil)
           c-rec       (atom nil)]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r]
                                   (swap! invocations inc)
                                   (assoc-in r [:db-after :auth :password]
@@ -268,7 +268,7 @@
     (rf/reg-frame :test/main {})
 
     (let [warnings (record-warnings!)]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [_]
                                   (throw (ex-info "boom" {:why :test})))})
 
@@ -296,7 +296,7 @@
             ":ex-msg tag carries the exception message string"))
 
       ;; Drain not broken — next cascade records as normal.
-      (rf/configure :epoch-history {:redact-fn nil})
+      (rf/configure! :epoch-history {:redact-fn nil})
       (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
       (rf/dispatch-sync [:bump] {:frame :test/main})
       (let [r2 (last-record :test/main)]
@@ -309,7 +309,7 @@
             throw; the framework's posture is 'log and continue')"
     (rf/reg-frame :test/main {})
     (let [call-count (atom 0)]
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [_]
                                   (swap! call-count inc)
                                   (throw (ex-info "boom" {})))})
@@ -336,7 +336,7 @@
     ;; Sentinel :trace-events at build-time. The cap will later
     ;; dissoc :trace-events on records that fall outside the
     ;; keep-window — the sentinel makes that dissoc idempotent.
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:trace-events-keep 2
                    :redact-fn (fn [r]
                                 (assoc r :trace-events :rf/redacted))})
@@ -380,7 +380,7 @@
     ;; Redact-fn substitutes :rf/redacted in the same slot the
     ;; projected-record helper would also redact via the schema-
     ;; declared sensitive path.
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :auth :password])
@@ -414,7 +414,7 @@
             against the assembled record (the dominant per-event
             recording path)"
     (rf/reg-frame :test/main {})
-    (rf/configure :epoch-history
+    (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -429,7 +429,7 @@
     (rf/reg-frame :test/main {})
     (let [synthetic (atom nil)]
       (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
       (rf/reset-frame-db! :test/main {:injected :state})
       (is (= :redacted (:rf/test-tag @synthetic))
@@ -461,7 +461,7 @@
                              (fn [r]
                                (when (= :halted-destroy (:outcome r))
                                  (swap! halted-records conj r))))
-      (rf/configure :epoch-history
+      (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
       (rf/reg-event-fx :destroy-self
                        (fn [_ _]
@@ -502,7 +502,7 @@
   (testing "an explicitly-installed nil :redact-fn is equivalent to
             'no redact-fn' — same identity-passthrough shape"
     (rf/reg-frame :test/main {})
-    (rf/configure :epoch-history {:redact-fn nil})
+    (rf/configure! :epoch-history {:redact-fn nil})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]

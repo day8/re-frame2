@@ -608,7 +608,7 @@
 (defn configure
   "Generic config dispatch. Recognises :trace-buffer; future config knobs
   add cases here. Per Spec 009 §Per-frame trace rings
-  (`(rf/configure :trace-buffer {:cascades-retained N})`)."
+  (`(rf/configure! :trace-buffer {:cascades-retained N})`)."
   [k opts]
   (case k
     :trace-buffer (configure-trace-buffer! opts)
@@ -636,7 +636,7 @@
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
-;; `re-frame.core/configure :trace-buffer` routes through this hook so
+;; `re-frame.core/configure! :trace-buffer` routes through this hook so
 ;; consumer call sites don't have to thread the tooling-ns require
 ;; into the host's boot path. Keeping just THIS one knob hook (vs the
 ;; full set the listener / ring surface uses) is deliberate: the

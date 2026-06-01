@@ -9,7 +9,7 @@ microtask-coalesced mirror sync, and the retroactive-scrub-on-toggle-
 off behaviour.
 
 The framework owns the data plane: per-frame cascade-keyed rings with
-B4 dedup, depth knob via `(rf/configure :trace-buffer
+B4 dedup, depth knob via `(rf/configure! :trace-buffer
 {:cascades-retained N})`, oldest-first cascade vectors via
 `(rf/trace-buffer frame-id opts)`. Per [Spec 009 §Per-frame trace
 rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)
@@ -335,7 +335,7 @@ own filter vocabulary is the single source of truth.
 The Settings popup → Buffer tab exposes the framework's per-frame
 ring depth as a numeric input labelled
 "Cascades retained (:buffer/cascades-retained)" (default 50).
-Writes through to `(rf/configure :trace-buffer
+Writes through to `(rf/configure! :trace-buffer
 {:cascades-retained N})` once the Settings UX wires the runtime knob.
 
 Renamed from `:trace-buffer/keep` (events, default 1000) at

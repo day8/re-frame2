@@ -93,7 +93,7 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
 ### `re-frame.performance/enabled?`
 
 - **Kind**: Var (`^boolean`)
-- **Description**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op.
+- **Description**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure! ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op.
 
 ### `trace-buffer`
 
@@ -114,12 +114,12 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: Empty the ring.
 
-### `(rf/configure :trace-buffer …)`
+### `(rf/configure! :trace-buffer …)`
 
 - **Kind**: config key
 - **Signature**:
   ```clojure
-  (rf/configure :trace-buffer {:depth N})
+  (rf/configure! :trace-buffer {:depth N})
   ```
 - **Description**: Buffer depth knob. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
@@ -200,12 +200,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: The inverse.
 
-### `(rf/configure :epoch-history …)`
+### `(rf/configure! :epoch-history …)`
 
 - **Kind**: config key
 - **Signature**:
   ```clojure
-  (rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})
+  (rf/configure! :epoch-history {:depth N :trace-events-keep N :redact-fn fn})
   ```
 - **Description**: Buffer-depth and redactor knobs. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 

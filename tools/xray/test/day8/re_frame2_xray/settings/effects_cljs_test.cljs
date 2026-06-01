@@ -226,7 +226,7 @@
 
 (deftest apply-epoch-history-writes-substrate-depth
   (testing "rf2-3zyyx — apply-epoch-history! routes through
-            `(rf/configure :epoch-history {:depth N})` so the
+            `(rf/configure! :epoch-history {:depth N})` so the
             substrate's per-frame ring buffer matches the user's
             saved capacity. Reads the live depth from
             `re-frame.epoch.state` to assert the wire actually landed."
@@ -246,7 +246,7 @@
             "zero input is dropped at the effect boundary; substrate
              depth unchanged (the slider's min is 10 anyway)")
         (finally
-          (rf/configure :epoch-history {:depth orig}))))))
+          (rf/configure! :epoch-history {:depth orig}))))))
 
 (deftest update-event-applies-epoch-history-effect
   (testing "rf2-3zyyx — dispatching `:rf.xray/settings-update :general
@@ -263,7 +263,7 @@
         (is (= 150 (epoch-state/depth))
             "substrate ring depth follows the dispatch")
         (finally
-          (rf/configure :epoch-history {:depth orig}))))))
+          (rf/configure! :epoch-history {:depth orig}))))))
 
 (deftest apply-all-restores-epoch-history
   (testing "rf2-3zyyx — the boot path re-applies the persisted depth
@@ -276,7 +276,7 @@
         (is (= 88 (epoch-state/depth))
             "apply-all! routes the persisted value to the substrate")
         (finally
-          (rf/configure :epoch-history {:depth orig}))))))
+          (rf/configure! :epoch-history {:depth orig}))))))
 
 ;; ---- panel width (rf2-x8h9y) -------------------------------------------
 

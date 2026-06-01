@@ -187,7 +187,7 @@
   ;;      in touch-registrar! — the eventual queue-empty fires
   ;;      `:rf.epoch/snapshotted` through trace/emit!, sourcing the
   ;;      snapshotted sentinel.
-  (rf/configure :epoch-history {:depth 10})
+  (rf/configure! :epoch-history {:depth 10})
   ;; rf2-wp70d.5 — install a throwing :redact-fn so the gated
   ;; `maybe-redact` branch (and its `:rf.warning/epoch-redact-fn-
   ;; exception` emit site) is REACHED at probe time. Without an
@@ -202,7 +202,7 @@
   ;; closure alone. The throw is caught by `maybe-redact` itself
   ;; (`:rf.warning/epoch-redact-fn-exception` fires under DEBUG=true)
   ;; so the probe does not crash.
-  (rf/configure :epoch-history
+  (rf/configure! :epoch-history
                 {:redact-fn (fn [_record]
                               (throw (ex-info "probe-redact-throw" {})))})
   ;; Register an event we own here (not :probe/inc, which
@@ -216,7 +216,7 @@
   (rf/dispatch-sync [:probe/redact-fire])
   ;; Clear so subsequent probe sites (reset-frame-db! below,
   ;; on-frame-destroyed!) are not perturbed by the throwing fn.
-  (rf/configure :epoch-history {:redact-fn nil})
+  (rf/configure! :epoch-history {:redact-fn nil})
   (rf/register-epoch-listener! ::probe-epoch (fn [_record] nil))
   (let [_history (rf/epoch-history :rf/default)]
     nil)
