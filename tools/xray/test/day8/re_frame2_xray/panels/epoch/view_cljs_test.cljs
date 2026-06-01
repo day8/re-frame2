@@ -783,6 +783,55 @@
       (is (contains? statuses "changed") "value-changed sub coded :changed (orange)")
       (is (contains? statuses "unchanged") "unchanged sub coded grey"))))
 
+(deftest views-row-render-args-col2-diff-test
+  (testing "rf2-u3lii — col-2 'render-args (DIFF)' renders the args/props
+            passed to a render. A render whose args changed (the
+            projection threaded `:prev-render-args`) mounts the
+            edn-inspector in DIFF mode (`data-rf-render-args-diff
+            \"diff\"`); a first render with no previous mounts plain
+            (`\"plain\"`); a no-arg render reads `(no args)` (`\"none\"`)."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [;; row 0 — first render (args, no previous) → plain
+                       {:view-id :app/Item
+                        :subs-read []
+                        :sub-status {}
+                        :status :rendered
+                        :cause :mount
+                        :render-args [{:label "a" :n 1}]}
+                       ;; row 1 — re-render with CHANGED args → diff
+                       {:view-id :app/Item
+                        :subs-read []
+                        :sub-status {}
+                        :status :rendered
+                        :cause :props
+                        :render-args [{:label "a" :n 2}]
+                        :prev-render-args [{:label "a" :n 1}]}
+                       ;; row 2 — no-arg render → (no args)
+                       {:view-id :app/Plain
+                        :subs-read []
+                        :sub-status {}
+                        :status :rendered
+                        :cause :mount}]}
+          tree   (view/render-views-step step)
+          c0     (th/find-by-testid tree "rf-xray-epoch-view-row-render-args-0")
+          c1     (th/find-by-testid tree "rf-xray-epoch-view-row-render-args-1")
+          c2     (th/find-by-testid tree "rf-xray-epoch-view-row-render-args-2")
+          diff-attr (fn [cell]
+                      (->> (tree-seq vector? seq cell)
+                           (filter vector?)
+                           (keep #(:data-rf-render-args-diff (second %)))
+                           first))]
+      (is (some? c0) "first-render args cell renders")
+      (is (= "plain" (diff-attr c0))
+          "first render (no previous) mounts plain — args shown, no delta")
+      (is (= "diff" (diff-attr c1))
+          "a re-render with changed args mounts the inspector in :before DIFF mode")
+      (is (= "none" (diff-attr c2))
+          "a no-arg render reads `(no args)`")
+      (is (string/includes? (text-of tree "rf-xray-epoch-view-row-render-args-2")
+                            "(no args)")
+          "the no-args placeholder text renders"))))
+
 (deftest views-row-graceful-degrades-when-id-absent-test
   (testing "rf2-6djth — a row whose view-id is nil renders an
             anonymous-view placeholder rather than the bare keyword

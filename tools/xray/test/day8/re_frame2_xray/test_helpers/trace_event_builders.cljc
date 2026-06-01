@@ -262,7 +262,14 @@
                       shape — absent means re-render).
     `:triggered-by` — the single sub-id whose value changed in the
                       view's read-set (the per-view re-render cause).
-                      Absent on a structural / props-driven re-render."
+                      Absent on a structural / props-driven re-render.
+    `:render-key`   — the per-instance tuple (rf2-u3lii — drives the
+                      col-2 render-args DIFF's same-instance keying;
+                      `:rf.view/render-key`). Stamped only when present.
+    `:render-args`  — the positional args/props vector passed to THIS
+                      render (rf2-rpgq8 · `:rf.view/render-args`). The
+                      substrate stamps it only `(seq render-args)`;
+                      mirrored here — stamped only when non-empty."
   ([view-id deref-subs]
    (view-rendered-ev view-id deref-subs nil))
   ([view-id deref-subs elapsed-ms]
@@ -271,13 +278,15 @@
                 :rf.view/deref-subs deref-subs}
          (some? elapsed-ms)
          (assoc :rf.view/elapsed-ms elapsed-ms))))
-  ([view-id deref-subs elapsed-ms {:keys [mount? triggered-by]}]
+  ([view-id deref-subs elapsed-ms {:keys [mount? triggered-by render-key render-args]}]
    (ev :rf.view :rf.view/rendered
        (cond-> {:rf.view/id         view-id
                 :rf.view/deref-subs deref-subs}
          (some? elapsed-ms)   (assoc :rf.view/elapsed-ms elapsed-ms)
          (true? mount?)       (assoc :rf.view/mount? true)
-         (some? triggered-by) (assoc :rf.view/triggered-by triggered-by)))))
+         (some? triggered-by) (assoc :rf.view/triggered-by triggered-by)
+         (some? render-key)   (assoc :rf.view/render-key render-key)
+         (seq render-args)    (assoc :rf.view/render-args (vec render-args))))))
 
 (defn view-unmounted-ev
   "`:rf.view/unmounted` trace — drives the VIEWS UNMOUNTED sub-section
