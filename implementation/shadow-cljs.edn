@@ -81,6 +81,30 @@
                 "ssr-ring/test"
                 "epoch/src"
                 "epoch/test"
+                ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
+                ;; cross-artefact test tree probing the three security
+                ;; boundaries the pin-and-assert regime missed: SSR escaping
+                ;; (rf2-1uex4), schema redaction nested at arbitrary depth
+                ;; (rf2-g5auo), and AI/MCP-boundary egress redaction
+                ;; (rf2-6wvh5). The tests sit ABOVE several artefacts (core,
+                ;; schemas, ssr) + a tool (mcp-base), so they live in their
+                ;; own top-level `security/` surface rather than any single
+                ;; artefact's test tree — the cross-artefact node-test
+                ;; classpath already spans every required ns. Namespaces end
+                ;; in `-security-cljs-test`, so they run under BOTH the
+                ;; always-on `:node-test` gate (`cljs-test$` matches) AND the
+                ;; dedicated `:node-test-security` build below
+                ;; (`-security-cljs-test$`, wired as `npm run test:security`).
+                "security/test"
+                ;; tools/mcp-base — the security tier's MCP-egress surface
+                ;; (`re-frame.mcp-base.sensitive`, the spec/009 §Privacy
+                ;; default-suppress filter) is CLJC and lives here. Source
+                ;; path added so the `:node-test` / `:node-test-security`
+                ;; builds resolve the ns for the egress adversarial tests.
+                ;; Same bundle-isolation rationale as the story/xray source
+                ;; paths above — listing the path only widens the TEST
+                ;; classpath; nothing under implementation/ :requires it.
+                "../tools/mcp-base/src"
                 ;; tools/story (re-frame2-story Stage 2, rf2-32dk).
                 ;; Source paths added so the `:node-test` build picks up
                 ;; `tools/story/test/re_frame/story_cljs_test.cljs`. The
@@ -388,6 +412,29 @@
     ;; `implementation/core/src/re_frame/performance.cljc` for the
     ;; goog-define declaration.
     :closure-defines {re-frame.performance/enabled? true}}}
+
+  ;; rf2-3cfvt — dedicated adversarial-property SECURITY tier runner.
+  ;;
+  ;; A FOCUSED node-test build that runs ONLY the three security-boundary
+  ;; namespaces (`*_security_cljs_test.cljc` under `security/test/`), via
+  ;; the `-security-cljs-test$` ns-regexp. Wired as `npm run test:security`
+  ;; (implementation/package.json) so the tier has a named entry-point the
+  ;; gate menu + TESTING.md can point at, and so a security-focused local
+  ;; run doesn't compile + run the full ~3500-test node suite.
+  ;;
+  ;; The same namespaces ALSO match the default `:node-test` build's
+  ;; broader `cljs-test$` regex (`...-security-cljs-test` ends with
+  ;; `cljs-test`), so they additionally ride the always-on `npm run
+  ;; test:cljs` gate for free — the tier is covered on every PR whether or
+  ;; not `test:security` is invoked. This build is the *named* surface; it
+  ;; is not an additional required gate over `test:cljs`.
+  :node-test-security
+  {:target    :node-test
+   :output-to "out/node-test-security.js"
+   :ns-regexp "-security-cljs-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
