@@ -56,7 +56,7 @@
   "Hard ceiling on a single newline-delimited JSON-RPC frame from the
   stdio transport. 4 MB — well above any legitimate MCP message a
   cooperating client would send (the largest reasonable payload is a
-  `tools/list` response, which Stage 7's nineteen-tool registry
+  `tools/list` response, which Stage 7's twenty-tool registry
   prints in ~15 KB), but small enough that a hostile or runaway
   producer can't OOM the JVM by sending a one-frame `readLine` that
   never terminates. When a frame exceeds the cap, `read-frame` throws
@@ -114,7 +114,9 @@
 
 (defn parse-json
   "Parse a JSON string into a Clojure map. Returns the parsed value, or
-  throws `ex-info` with `:rf.error/parse-error` on a malformed payload.
+  throws `ex-info` with `:rf.error/id :rf.error/story-mcp-json-parse-failure`
+  on a malformed payload (the run-loop catches it and writes a `-32700`
+  parse-error response).
 
   Keys are converted to keywords for ergonomic dispatch — this matches
   what the rest of the namespace expects (`(:method m)`, `(:jsonrpc m)`,

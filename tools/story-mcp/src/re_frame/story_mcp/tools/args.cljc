@@ -12,7 +12,7 @@
   - `required-arg` — the missing-required-arg shape that returns an
     error-envelope rather than throwing.
   - `with-variant` / `with-variant-id` — the four-line variant-id
-    prelude shared by six handlers (see rf2-f0zxa), routing the agent-
+    prelude shared by ten handlers (see rf2-f0zxa), routing the agent-
     supplied id through the bounded variant-registry allowlist before
     coercing to a keyword (rf2-lqjbk).
   - `read-run-opts` — the `:substrate` / `:active-modes` /
@@ -140,10 +140,10 @@
       caller-supplied string is echoed; we don't have a keyword form
       because the safe-keyword gate refused to intern one).
 
-  Crystallises the four-line prelude shared by six tool handlers
-  (`preview-variant`, `get-variant`, `variant->edn`, `run-variant`,
-  `snapshot-identity`, `record-as-variant`). Tools that tolerate
-  unregistered variants (`run-a11y`, `read-failures`,
+  Crystallises the four-line prelude shared by seven tool handlers
+  (`preview-variant`, `get-variant`, `explain-variant`, `variant->edn`,
+  `run-variant`, `snapshot-identity`, `record-as-variant`). Tools that
+  tolerate unregistered variants (`run-a11y`, `read-failures`,
   `unregister-variant`) reach for `with-variant-id` instead."
   [arguments f]
   (let [[vid err] (required-arg arguments :variant-id)]
