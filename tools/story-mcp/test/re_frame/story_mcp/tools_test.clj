@@ -1267,11 +1267,11 @@
       (is (re-find #"variant-id" (-> r :content first :text))))))
 
 (deftest record-as-variant-zero-duration-empty-capture
-  (testing "duration 0 with no in-flight dispatches ⇒ empty :play-script snippet"
-    ;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
-    ;; phase-4 slot; the recorder's `gen-play-snippet` emits a
-    ;; `:play-script {:auto-run? true :script [...]}` body. With zero
-    ;; captured events the `:script` vector is empty.
+  (testing "duration 0 with no in-flight dispatches ⇒ empty public :script snippet"
+    ;; rf2-7mj4z: the recorder's `gen-play-snippet` emits the PUBLIC
+    ;; `:script {:auto-run? true :script [...]}` body, NOT the transitional
+    ;; `:play-script` spelling. With zero captured events the inner
+    ;; `:script` vector is empty.
     (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
       (is (success? r))
@@ -1279,7 +1279,9 @@
       (is (= 0 (:recorded-event-count s)))
       (is (false? (:written-back? s)))
       (is (string? (:play-snippet s)))
-      (is (re-find #":play-script" (:play-snippet s)))
+      (is (re-find #":script" (:play-snippet s)))
+      (is (not (re-find #":play-script" (:play-snippet s)))
+          "the snippet emits the public :script slot, not the transitional :play-script (rf2-7mj4z)")
       (is (re-find #":script\s+\[\]" (:play-snippet s)))
       (is (re-find #":story\.button/primary" (:play-snippet s))))))
 
@@ -1319,9 +1321,11 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/primary (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; rf2-50jzf: the source variant's `:play-script` slot now carries
-      ;; the captured events as a LIVE, replayable script — NOT the dead
-      ;; `:play` slot the schema dropped in rf2-0wrud (which no runner
+      ;; rf2-7mj4z: write-back assocs the PUBLIC `:script` authoring slot,
+      ;; which `reg-variant*` lowers to the shipping `:play-script` slot —
+      ;; so the STORED body (`variant->edn`) reads `:play-script` carrying
+      ;; the captured events as a LIVE, replayable script (NOT the dead
+      ;; `:play` slot the schema dropped in rf2-0wrud, which no runner
       ;; executes). Each captured event becomes a `[:dispatch ...]` step.
       ;; The exact count is derived from `:recorded-event-count` because
       ;; the live-recorder capture races the :duration-ms window.
@@ -1331,7 +1335,7 @@
         (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
                 :auto-run? true}
                (:play-script body))
-            "write-back emits the canonical :play-script slot the runner replays")
+            "the stored body carries the lowered :play-script shipping slot")
         ;; Pre-existing body keys survive (e.g. :doc).
         (is (= "Primary button." (:doc body)))))))
 
@@ -1350,9 +1354,9 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/recorded (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; rf2-50jzf: capture lands under the live `:play-script` slot
-      ;; (count derived from `:recorded-event-count` — capture races the
-      ;; :duration-ms window).
+      ;; rf2-7mj4z: write-back assocs the public `:script` slot, lowered to
+      ;; the shipping `:play-script` slot in storage (count derived from
+      ;; `:recorded-event-count` — capture races the :duration-ms window).
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
              (:play-script (story/variant->edn :story.button/recorded))))
       (is (nil? (:play (story/variant->edn :story.button/recorded))))
@@ -1361,7 +1365,7 @@
       (is (nil? (:play (story/variant->edn :story.button/primary)))))))
 
 (deftest record-as-variant-write-back-round-trips-and-replays
-  (testing "rf2-50jzf: a written-back recording's :play-script ACTUALLY replays"
+  (testing "rf2-50jzf: a written-back recording's :script body ACTUALLY replays"
     ;; The headline acceptance criterion for rf2-50jzf — the previous
     ;; write-back wrote a dead `:play` slot the schema dropped in
     ;; rf2-0wrud, so a round-tripped recording silently never replayed.
@@ -1393,18 +1397,19 @@
       (is (success? rec))
       (is (true? (:written-back? s)))
       (is (pos? n) "the recorder captured at least one :test/bump step")
-      ;; The written-back body carries the LIVE :play-script slot —
-      ;; n `[:dispatch [:test/bump]]` steps, NOT the dead `:play` slot.
+      ;; The written-back body carries the LIVE play body under the lowered
+      ;; `:play-script` shipping slot — n `[:dispatch [:test/bump]]` steps,
+      ;; NOT the dead `:play` slot.
       (let [body (story/variant->edn :story.button/replayed)]
         (is (nil? (:play body)) "no dead :play slot is written")
         (is (= {:script    (vec (repeat n [:dispatch [:test/bump]]))
                 :auto-run? true}
                (:play-script body))
-            "write-back emits the live :play-script slot, one :dispatch step per captured event"))
+            "write-back stores the lowered :play-script slot, one :dispatch step per captured event"))
       ;; Run the written-back variant: the replayed :test/bump dispatches
       ;; must land on the frame's app-db. This is the load-bearing
       ;; distinction — a dead `:play` slot is never executed by any runner,
-      ;; so :n would be nil; the live `:play-script` slot replays, so :n is
+      ;; so :n would be nil; the live `:script` slot replays, so :n is
       ;; a positive count.
       ;;
       ;; The recorder emits `:dispatch` (ASYNC) steps (per
@@ -1517,9 +1522,9 @@
       (is (pos? n) "the recorder captured at least one event")
       (is (= :story-mcp (:origin body))
           "write-back body must carry :origin :story-mcp")
-      ;; Pre-existing body keys + the captured :play-script slot still land
-      ;; (step count derived from `:recorded-event-count` — capture races
-      ;; the :duration-ms window).
+      ;; Pre-existing body keys + the captured play body (stored under the
+      ;; lowered :play-script shipping slot) still land (step count derived
+      ;; from `:recorded-event-count` — capture races the :duration-ms window).
       (is (= "Primary button." (:doc body)))
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
              (:play-script body)))

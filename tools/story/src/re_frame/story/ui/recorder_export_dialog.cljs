@@ -1,28 +1,29 @@
 (ns re-frame.story.ui.recorder-export-dialog
-  "Recorder → :play-script export dialog UI (rf2-x9zsr).
+  "Recorder → :script export dialog UI (rf2-x9zsr).
 
   The recorder's existing save-as-variant dialog
-  (`re-frame.story.ui.recorder/save-dialog`) emits the simple
-  `:play-script` body — each captured event vector wrapped as a
-  `[:dispatch-sync <event-vec>]` step (rf2-0wrud). The rich
-  `:play-script` DSL landed in rf2-8i2a9; this dialog is its
-  twin — same recording, different output shape:
+  (`re-frame.story.ui.recorder/save-dialog`) emits the simple play body
+  — each captured event vector wrapped as a `[:dispatch-sync
+  <event-vec>]` step (rf2-0wrud). The rich play DSL landed in rf2-8i2a9;
+  this dialog is its twin — same recording, different output shape. Per
+  rf2-7mj4z both emit the PUBLIC `:script` authoring slot (spec/017
+  §Public vocabulary), not the transitional `:play-script` spelling:
 
       (story/reg-variant :story.your/recorded
-        {:extends     :story.your/source
-         :play-script {:name      \"happy path\"
-                       :auto-run? true
-                       :script    [[:dispatch [:counter/inc]]
-                                   [:dispatch-sync [:rf.assert/path-equals
-                                                    [:n] 1]]]}})
+        {:extends :story.your/source
+         :script  {:name      \"happy path\"
+                   :auto-run? true
+                   :script    [[:dispatch [:counter/inc]]
+                               [:dispatch-sync [:rf.assert/path-equals
+                                                [:n] 1]]]}})
 
   ## UX
 
-  Opens off an `[Export as :play-script]` button on the existing
+  Opens off an `[Export as :script]` button on the existing
   recorder review dialog. The export dialog shows:
 
   - A `[Name]` text input — flows into the `:name` field of the
-    `:play-script` map.
+    `:script` map.
   - A `[Variant id]` text input — the new variant the form registers.
   - A `[x] Auto-assert app-db at end` checkbox — when on, trailing
     `[:assert-db <path> <expected>]` steps are derived from the
@@ -320,7 +321,7 @@
                  :on-click       (fn [e] (.stopPropagation e))}
            [:div {:id    title-id
                   :style (:title styles)}
-            "Recorder → :play-script export"
+            "Recorder → :script export"
             (replay-pill replay-status replay-failure-msg)]
            [:div {:style (:hint styles)}
             (str "Generated from " (count (:events state))

@@ -19,6 +19,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
+            [re-frame.story.async :as async]
             [re-frame.story.play.runner-events :as re]))
 
 (defn- reset-rf! [test-fn]
@@ -109,3 +110,38 @@
       (is (= :pass (:status result)))
       (is (= :pass (story/result-status result)))
       (is (true? (story/result-passed? result))))))
+
+(deftest story-is-honours-custom-timeout-ms
+  (testing "story/is :timeout-ms opt threads through to the JVM blocking
+            deref — a run that resolves inside the window is reported
+            normally; an extra opt is stripped before reaching the runner
+            (rf2-zaklu)"
+    (story/reg-variant :story.is/timeout
+      {:tags        #{:test}
+       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+                              [:assert-db [:status] :loaded]]}})
+    ;; A generous custom timeout still produces the normal unified result —
+    ;; proves the opt is accepted + stripped from the runner opts without
+    ;; disturbing the run.
+    (let [[result reports] (capture-reports
+                             #(story/is :story.is/timeout {:timeout-ms 5000}))]
+      (is (= :pass (:status result)) "the run resolves inside the window")
+      (is (= 1 (count reports)) "one report per assertion (1 assertion)")
+      (is (= :pass (:type (first reports)))))))
+
+(deftest story-is-custom-timeout-ms-bounds-the-deref
+  (testing "the :timeout-ms value is the literal bound handed to the JVM
+            blocking deref — a never-resolving promise + a tight custom
+            timeout throws promptly rather than blocking on the 30000ms
+            default (rf2-zaklu)"
+    ;; Drive `async/deref-blocking` directly with the custom bound: a
+    ;; CompletableFuture that never completes must throw a TimeoutException
+    ;; at the custom 50ms bound, not the 30000ms default. This is the unit
+    ;; that `story/is` now parameterises.
+    (let [never (java.util.concurrent.CompletableFuture.)
+          t0    (System/currentTimeMillis)]
+      (is (thrown? java.util.concurrent.TimeoutException
+                   (async/deref-blocking never 50))
+          "a tight custom timeout throws TimeoutException")
+      (is (< (- (System/currentTimeMillis) t0) 5000)
+          "the deref returned at the custom bound, nowhere near 30000ms"))))

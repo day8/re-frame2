@@ -76,6 +76,45 @@ All under `re-frame.story`.
 | `assertions-passing?` | `(assertions-passing? result)` | [`004-Assertions.md`](004-Assertions.md) |
 | `variant-share-url` | `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover) |
 
+### Execution verbs — `run` / `is` / `render-variant`
+
+The three public execution verbs (spec/017 §Public execution API). Each
+accepts a keyword (a registered variant) OR a map (an inline plan).
+
+| Fn | Signature | Spec |
+|---|---|---|
+| `run` | `(run target)` / `(run target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Public execution API. Returns a promise/future of the unified run-result. |
+| `is` | `(is target)` / `(is target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Public execution API. Runs `target` + reports each assertion to `clojure.test` / `cljs.test`. |
+| `render-variant` | `(render-variant target)` / `(render-variant target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Args, controls, and `render-variant`. |
+| `result-status` / `result-passed?` | `(result-status result)` / `(result-passed? result)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Run result. The unified verdict (`:pass` / `:fail` / `:cannot-run` / `:error`). There is NO `:passing?` boolean. |
+
+#### `story/is` — JVM blocks, CLJS hands back the promise (rf2-zaklu)
+
+`story/is` is **asymmetric across hosts by design**, and the asymmetry
+is load-bearing:
+
+- **JVM** (the canonical headless test gate) — `is` BLOCKS on the run
+  promise, fires one `clojure.test` report per assertion synchronously,
+  and returns the unified run-result. The block is bounded by
+  `:timeout-ms` (default `30000`); a run that does not resolve inside
+  the window throws a `java.util.concurrent.TimeoutException` rather
+  than hanging the test JVM. Pass a custom bound for a slow integration
+  run, or a tight one for a fast unit gate:
+
+  ```clojure
+  (story/is :story.slow/integration {:timeout-ms 120000})
+  ```
+
+- **CLJS** — the run is async and the caller cannot block, so `is`
+  returns the run **promise**. Chain `then` (or use `cljs.test`'s
+  `(async done …)` form) and call `(story/report-result! result)` when
+  it resolves. `:timeout-ms` is **inert on CLJS** — there is no blocking
+  deref to bound; the caller's own async deadline governs.
+
+`opts` other than `:timeout-ms` thread through to `story/run` (the
+runner / plan-compiler seams); `:timeout-ms` is stripped before the
+run so the runner never sees a key it does not own.
+
 ## Registry queries
 
 | Fn | Signature | Returns |
@@ -107,6 +146,29 @@ public; their unsuffixed macro counterparts cover authored cases.
 | `unregister!` | `(unregister! kind id)` | Remove a registration. |
 | `clear-kind!` | `(clear-kind! kind)` | Remove all of a kind. |
 | `clear-all!` | `(clear-all!)` | Reset Story state entirely. |
+
+## Test-fixture helper (`re-frame.story.test-support`) — rf2-lh99f
+
+The canonical per-test reset. **Require it DIRECTLY** —
+`(:require [re-frame.story.test-support :as story-test])` — it is NOT
+on the `re-frame.story` facade because it pulls `cljs.test` /
+`clojure.test` (which the production facade must not), mirroring
+`re-frame.test-support` itself (not re-exported on `re-frame.core` for
+the same reason).
+
+| Fn | Signature | Purpose |
+|---|---|---|
+| `use-fixtures` | `(use-fixtures {:adapter … :install …})` | Build a `clojure.test` / `cljs.test` `:each` fixture FUNCTION that does the canonical per-test reset. Use the fn form — never the map form (which silently skips every `deftest` on the JVM half of a `.cljc` test). |
+| `with-clean-registry` | `(with-clean-registry {:adapter … :install …} thunk)` | Programmatic bracket form — run `thunk` inside a full reset, return its value. |
+
+Both take `:adapter` (REQUIRED — the substrate adapter to install; Story
+src cannot pick one because the JVM and browser want different adapters)
+and `:install` (optional — a 0-arity fn or coll of them, called after the
+canonical vocabulary is re-installed). The helper resets the framework
+runtime via registrar **snapshot/restore**, so framework registrations
+(including the `:rf/machine` sub) survive — closing the silent
+`:pre-mount` footgun a hand-rolled `registrar/clear-all!` reset opens.
+Stop hand-rolling `reset-all!`; use this.
 
 ## Global decorators (`reg-global-decorator`) — rf2-835ey
 
@@ -142,13 +204,20 @@ transitional dual-acceptance. See [`001-Authoring.md`](001-Authoring.md)
 | `[:dispatch event-vec]`              | `rf/dispatch` (async) into the variant's frame             |
 | `[:dispatch-sync event-vec]`         | `rf/dispatch-sync` (synchronous) into the variant's frame  |
 | `[:wait ms]`                         | Sleep N ms                                                 |
-| `[:assert-db path value]`            | Assert `(= (get-in @app-db path) value)`                   |
-| `[:assert-db path :pred fn-or-sym]`  | Assert custom predicate                                    |
-| `[:assert-dom selector :visible]`    | Assert selector resolves to a visible DOM node             |
-| `[:assert-dom selector :hidden]`     | Assert selector resolves to nothing                        |
-| `[:assert-dom selector :text txt]`   | Assert selector's text-content matches `txt`               |
+| `[:assert assertion-atom]`           | Evaluate a canonical `[:rf.assert/…]` atom at this point — the primary assertion form (see [Canonical assertion events](#canonical-assertion-events--the-one-assertion-vocabulary)) |
+| `[:assert-db path value]`            | **Sugar** → folds to `[:assert [:rf.assert/path-equals path value]]` |
+| `[:assert-db path :pred fn-or-sym]`  | **Sugar** → folds to `[:assert [:rf.assert/path-matches path [:fn …]]]` |
+| `[:assert-dom selector :visible]`    | **Sugar** → folds to `[:assert [:rf.assert/dom-visible selector]]`  |
+| `[:assert-dom selector :hidden]`     | **Sugar** → folds to `[:assert [:rf.assert/dom-hidden selector]]`   |
+| `[:assert-dom selector :text txt]`   | **Sugar** → folds to `[:assert [:rf.assert/dom-text selector txt]]` |
 | `[:click selector]`                  | Synthetic click event at selector                          |
 | `[:type selector text]`              | Synthetic input event at selector with `text`              |
+
+The `:assert-db` / `:assert-dom` steps are ergonomic **sugar** the plan
+compiler folds onto the canonical `:rf.assert/*` atom before the run
+loop executes — they are NOT a second assertion vocabulary. See
+[Canonical assertion events — the ONE assertion vocabulary](#canonical-assertion-events--the-one-assertion-vocabulary)
+for the fold table and author guidance.
 
 Body forms (shown against the public `:script` key; the registrar
 lowers the transitional `:play-script` spelling to the same shape):
@@ -218,7 +287,16 @@ DOM-derived DSL `:require` the sub-namespace directly.
 | `:story/active-modes` | `[<mode-id> ...]` | The chrome-toolbar's active mode-set (rf2-p0mv). See [`010-Toolbar.md`](010-Toolbar.md). |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. See [`010-Toolbar.md`](010-Toolbar.md). |
 
-## Canonical assertion events
+## Canonical assertion events — the ONE assertion vocabulary
+
+**The `:rf.assert/*` events are the canonical, primary assertion
+vocabulary** (spec/004 §Canonical assertion vocabulary). Every
+assertion in Story — whether authored in a variant's `:assertions`
+slot, dispatched as an `[:assert [:rf.assert/…]]` script checkpoint, or
+written with an `:assert-db` / `:assert-dom` script step — resolves to
+ONE `:rf.assert/*` atom and produces ONE assertion-record shape. There
+is no second assertion vocabulary; `:assert-db` / `:assert-dom` are
+**script-step sugar**, not a parallel surface (see below).
 
 The seven `:rf.assert/*` events register at Story load. All record
 into `:assertions` rather than throwing — see
@@ -233,6 +311,32 @@ into `:assertions` rather than throwing — see
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
 | `:rf.assert/no-warnings` | `[]` | No `:rf.warn/*` events seen during play. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? `pred`, when present, is a unary fn `(pred fx-id) → truthy?` — see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/effect-emitted` payload shape. |
+
+### `:assert-db` / `:assert-dom` are sugar over `:rf.assert/*`
+
+The `:assert-db` / `:assert-dom` script steps in the [`:script` slot
+table](#variant-script-slot-rf2-0wrud) above are **ergonomic sugar**
+the plan compiler folds onto the canonical atoms BEFORE the run loop
+executes — they are not a second vocabulary:
+
+| Script-step sugar                    | Folds to canonical atom                       |
+|--------------------------------------|-----------------------------------------------|
+| `[:assert-db path expected]`         | `[:rf.assert/path-equals path expected]`      |
+| `[:assert-db path :pred fn-or-sym]`  | `[:rf.assert/path-matches path [:fn …]]`      |
+| `[:assert-dom sel :visible]`         | `[:rf.assert/dom-visible sel]`                |
+| `[:assert-dom sel :hidden]`          | `[:rf.assert/dom-hidden sel]`                 |
+| `[:assert-dom sel :text txt]`        | `[:rf.assert/dom-text sel txt]`               |
+
+The fold lives in `re-frame.story.assertions/fold-script` (pure data →
+data); the runtime consumes the folded plan, so `exec-step!` only ever
+sees the canonical `[:assert <atom>]` checkpoint. **Author guidance:**
+reach for `:assert-db` / `:assert-dom` for the common app-db-equality
+and DOM-presence checks (terser inline in a `:script`); drop to the
+explicit `[:assert [:rf.assert/…]]` checkpoint when you need an
+assertion the sugar doesn't cover (`:sub-equals`, `:state-is`,
+`:no-warnings`, `:effect-emitted`, `:dispatched?`). Both positions
+produce the same record. See [`004-Assertions.md`](004-Assertions.md)
+§Assertions — one atom, two positions.
 
 ## Shell lifecycle
 

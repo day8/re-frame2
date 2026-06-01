@@ -1,12 +1,14 @@
 (ns re-frame.story.recorder
-  "Test Codegen — record canvas-dispatched events as a `:play-script` body.
+  "Test Codegen — record canvas-dispatched events as a `:script` body.
 
   Per bead rf2-5fc15: Storybook 9's killer feature is the record-and-save
   workflow — the user interacts with the canvas, the tool watches the
   event bus, and on 'stop' it emits a code snippet the user appends to
-  a new variant. Story's `:play-script` body wraps each captured event
-  vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud), so the
-  captured trace is the codegen output verbatim — no Testing Library /
+  a new variant. The emitted snippet uses the PUBLIC `:script` authoring
+  slot (rf2-7mj4z — the recorder emits the public spelling, not the
+  transitional `:play-script`); the `:script` body wraps each captured
+  event vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud), so
+  the captured trace is the codegen output verbatim — no Testing Library /
   page-object translation layer is needed.
 
   ## What this namespace does
@@ -161,15 +163,16 @@
   [:rf/redacted])
 
 ;; ---------------------------------------------------------------------------
-;; Pure: code-gen — `(reg-variant ... :play-script {...})` snippet
+;; Pure: code-gen — `(reg-variant ... :script {...})` snippet
 ;;
-;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
-;; phase-4 slot. `gen-play-snippet` wraps each captured event vector as
-;; a `[:dispatch-sync <event-vec>]` step under `:play-script :script`.
-;; Assertion events (`:rf.assert/*`) ride the same dispatch-sync rail —
-;; the assertion handler is registered, so dispatch-sync runs it and
-;; the result lands in `:rf.story/assertions` exactly as it did under
-;; the legacy `:play` slot.
+;; rf2-7mj4z: `gen-play-snippet` emits the PUBLIC `:script` authoring slot
+;; (spec/017 §Public vocabulary), NOT the transitional `:play-script`
+;; spelling. It wraps each captured event vector as a `[:dispatch-sync
+;; <event-vec>]` step under the `:script` body's inner `:script` vector
+;; (rf2-0wrud — the one phase-4 step grammar). Assertion events
+;; (`:rf.assert/*`) ride the same dispatch-sync rail — the assertion
+;; handler is registered, so dispatch-sync runs it and the result lands
+;; in `:rf.story/assertions` exactly as it did under the legacy `:play` slot.
 ;; ---------------------------------------------------------------------------
 
 (defn- event->step
@@ -183,11 +186,13 @@
 (defn gen-play-snippet
   "Build the EDN snippet for the captured events. Pure data → string.
 
-  Returns a `(re-frame.story/reg-variant <id> {... :play-script
-  {:script [...]}})` form the user can paste into source. Per rf2-0wrud
-  (2026-05-20) `:play-script` is the canonical AND ONLY phase-4 slot;
-  each captured event vector is wrapped as `[:dispatch-sync <event-vec>]`
-  inside the script body.
+  Returns a `(re-frame.story/reg-variant <id> {... :script
+  {:script [...]}})` form the user can paste into source. `:script` is
+  the PUBLIC phase-4 authoring slot (spec/017 §Public vocabulary); the
+  recorder emits the public spelling so pasted code reads the way the
+  docs teach. Each captured event vector is wrapped as
+  `[:dispatch-sync <event-vec>]` inside the script body (rf2-0wrud — the
+  one phase-4 step grammar).
 
   Opts:
 
@@ -211,7 +216,7 @@
         ;; steps on continuation lines directly under the `[` of
         ;; `:script [` — derived from the literal first-line prefix so
         ;; the geometry is self-documenting.
-        script-prefix "                          :script ["
+        script-prefix "                     :script ["
         steps         (map event->step events)
         script-str    (if (seq steps)
                         (str "["
@@ -219,12 +224,14 @@
                                        (map pr-str steps))
                              "]")
                         "[]")
-        play-script-str (str "{:auto-run? true\n"
-                             "                          :script    " script-str "}")
+        ;; The public `:script` slot accepts the same `{:script …
+        ;; :auto-run?}` PlaySpec map the transitional `:play-script` took.
+        script-map-str (str "{:auto-run? true\n"
+                            "                     :script    " script-str "}")
         body-keys   (cond-> []
                       doc     (conj [:doc (pr-str doc)])
                       extends (conj [:extends (pr-str extends)])
-                      true    (conj [:play-script play-script-str]))
+                      true    (conj [:script script-map-str]))
         body-str    (->> body-keys
                          (map (fn [[k v]] (str k " " v)))
                          (str/join "\n   "))]

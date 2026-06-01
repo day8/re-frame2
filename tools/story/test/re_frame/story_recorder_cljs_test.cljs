@@ -137,10 +137,10 @@
   (is (= [] (recorder/recorded-events))))
 
 (defn- extract-play-script-vector
-  "Pull the `:script` vector substring out of the rendered snippet by
-  walking balanced brackets after the `:play-script` body's `:script`
-  token. Per rf2-0wrud the canonical phase-4 slot is `:play-script`
-  with a `{:auto-run? ... :script [...]}` body."
+  "Pull the inner `:script` vector substring out of the rendered snippet
+  by walking balanced brackets after the public `:script` body's inner
+  `:script` token. Per rf2-7mj4z the recorder emits the PUBLIC `:script`
+  slot with a `{:auto-run? ... :script [...]}` body."
   [snippet]
   (let [start (str/index-of snippet ":script")
         after (subs snippet start)
@@ -163,16 +163,18 @@
   (mapv second script-vec))
 
 (deftest gen-play-snippet-roundtrips
-  (testing "the rendered :play-script :script vector reads back as
+  (testing "the rendered public :script body vector reads back as
             [:dispatch-sync <event>] steps that unwrap to the original
-            events (per rf2-0wrud — :play-script is the canonical and
-            ONLY phase-4 slot; gen-play-snippet wraps each captured
-            event as a :dispatch-sync step)"
+            events (rf2-7mj4z — the recorder emits the public :script
+            slot; rf2-0wrud — gen-play-snippet wraps each captured event
+            as a :dispatch-sync step)"
     (let [events     [[:counter/inc] [:auth/login {:id 1}]]
           snip       (recorder/gen-play-snippet events {:variant-id :story.x/y})
           script-str (extract-play-script-vector snip)
           script-vec (edn/read-string script-str)]
       (is (some? script-str) "extractor found a :script vector substring")
+      (is (not (str/includes? snip ":play-script"))
+          "the snippet no longer emits the transitional :play-script slot (rf2-7mj4z)")
       (is (every? #(and (vector? %)
                         (= :dispatch-sync (first %)))
                   script-vec)
