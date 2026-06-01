@@ -11,7 +11,7 @@ When a finding routes **upstream to `re-frame2`** (the friction is in the framew
 - **Epoch history + restore** — the per-frame epoch ring buffer `(rf/epoch-history frame-id)`, the assembled-record listener `register-epoch-listener!`, and first-class time-travel `(rf/restore-epoch frame-id epoch-id)`. State injection bypassing the dispatch loop is `(rf/reset-frame-db! frame-id new-db)`.
 - **Schema reflection** — `app-schemas` returns the registered schemas for reflective validation / shape inspection.
 - **Source-coord annotation** — `data-rf2-source-coord` bridges live DOM elements back to source `{:ns :line :file}` (with re-com's `data-rc-src` as a fallback).
-- **Read `app-db` / run a sub** — `(rf/get-frame-db frame-id)` reads a frame's current `app-db` value; `(rf/compute-sub query-v db-value)` runs a sub against a db value.
+- **Read `app-db` / run a sub** — `(rf/frame-db frame-id)` reads a frame's current `app-db` value; `(rf/compute-sub query-v db-value)` runs a sub against a db value.
 
 The abbreviated five-name version some skills carry — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas` (plus source-coord annotation) — is the upstream-routing subset of the above. The fuller list lives in [`re-frame2-pair/README.md`](../re-frame2-pair/README.md).
 

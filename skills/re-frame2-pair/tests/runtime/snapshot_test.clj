@@ -122,7 +122,7 @@
  (set (keys (get snap fid))))
  (str fid " missing slice keys"))))))
 
-(deftest app-db-slice-delegates-to-get-frame-db
+(deftest app-db-slice-delegates-to-frame-db
  (let [snap (snapshot-state {:include [:app-db]})]
  (is (= {:cart {:items 3 :total 4200}
  :rf/runtime {:machines {:snapshots {:auth {:state :authed}}}}}

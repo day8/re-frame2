@@ -32,12 +32,14 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
 | `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
-| `rf/with-frame` | `(frame-id body)` / `([sym expr] body)` — bind active frame |
-| `rf/current-frame` | `()` — `:rf/default` outside any binding |
-| `rf/dispatcher` / `rf/subscriber` | `()` — frame-bound closure; captures `(current-frame)` at call time; safe during render AND from async callbacks |
-| `rf/bound-fn` | `([args] body+)` — macro form of `dispatcher` for callbacks; restores `*current-frame*` inside the body |
+| `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
+| `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
 | `rf/frame-provider` | (CLJS) Reagent component `[frame-provider {:frame ...} & children]` |
-| `rf/get-frame-db` | `(frame-id)` — value-form app-db read |
+| `rf/frame-handle` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — operation bundle captured at creation; survives async |
+| `rf/frame-bound-fn` | `([args] body+)` — macro: fn that re-binds the captured frame in its body (async callbacks) |
+| `rf/frame-bound-fn*` | `(f)` / `(frame-id f)` — `*`-twin of the macro; wraps an existing fn value |
+| `rf/current-frame-id` | `()` — active frame id; `:rf/default` outside any binding |
+| `rf/frame-db` | `(frame-id)` — value-form app-db read (plain map, no deref) |
 | `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame |
 | `rf/make-frame` / `rf/reset-frame!` / `rf/destroy-frame!` | low-level frame lifecycle |
 

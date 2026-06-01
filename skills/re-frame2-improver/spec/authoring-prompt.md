@@ -45,7 +45,7 @@ A self-contained prompt that re-authors the `re-frame2-improver` skill from this
 > *3. `manual-loading-flags.md` → Nine States (`spec/Pattern-NineStates.md`).*
 > *4. `schemaless-events.md` → Schemas at boundaries (Spec 010). May carry an additive "Regression example" section.*
 > *5. `imperative-effects.md` → Data-only fx via `reg-fx` (`spec/Conventions.md`). `:platforms` gating is owned by Spec 011 (SSR), NOT a non-existent Spec 003.*
-> *6. `view-side-hook-state.md` → `app-db` + `reg-sub` (Spec 004 / `spec/Principles.md`). The testing surface is `compute-sub` for subs and `dispatch-sync` + `get-frame-db` for events — there is no `compute-event`.*
+> *6. `view-side-hook-state.md` → `app-db` + `reg-sub` (Spec 004 / `spec/Principles.md`). The testing surface is `compute-sub` for subs and `dispatch-sync` + `frame-db` for events — there is no `compute-event`.*
 >
 > *Locks to preserve verbatim (from design.md §3):*
 >

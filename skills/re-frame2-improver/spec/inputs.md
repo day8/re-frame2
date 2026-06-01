@@ -29,7 +29,7 @@ The normative source each leaf footers to. Verified-current ownership the leaves
 | Views as pure projections | [004-Views](../../../spec/004-Views.md) |
 | Data-only fx convention | [Conventions](../../../spec/Conventions.md) |
 | `:platforms` fx/cofx gating | [011-SSR](../../../spec/011-SSR.md) — see [Ownership](../../../spec/Ownership.md) |
-| Testing surface (`dispatch-sync` + `get-frame-db` for events; `compute-sub` for subs — there is no `compute-event`) | [008-Testing](../../../spec/008-Testing.md) |
+| Testing surface (`dispatch-sync` + `frame-db` for events; `compute-sub` for subs — there is no `compute-event`) | [008-Testing](../../../spec/008-Testing.md) |
 | Surface ownership map ("where does X live?") | [Ownership](../../../spec/Ownership.md) |
 
 API claims in the leaves MUST be verified against the current spec + `implementation/` before authoring — a fabricated API is the cardinal failure mode (design.md L1/§2 pillar 1).
