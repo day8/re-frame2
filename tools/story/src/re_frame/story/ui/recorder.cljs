@@ -66,6 +66,7 @@
             [re-frame.story.config                       :as config]
             [re-frame.story.recorder                     :as recorder]
             [re-frame.story.recorder.dom-capture         :as recorder-dom]
+            [re-frame.story.recorder.play-export         :as play-export]
             [re-frame.story.review-dialog                :as review-dialog]
             [re-frame.story.ui.a11y-dialog               :as a11y-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
@@ -380,8 +381,13 @@
 
                        rec?
                        (let [_     (recorder-dom/flush-type-buffer!)
-                             {:keys [variant-id events]} (recorder/stop-recording!)]
-                         (when (seq events)
+                             {:keys [variant-id events entries]} (recorder/stop-recording!)]
+                         ;; rf2-nkjkj: open the dialog when EITHER stream
+                         ;; captured something — a recording of canvas
+                         ;; clicks/types only lands in :entries, never
+                         ;; :events, so gating on :events alone would
+                         ;; silently swallow DOM-only recordings.
+                         (when (or (seq events) (seq entries))
                            (open-dialog! variant-id events)))))]
     [:button
      {:style        (cond
@@ -732,8 +738,10 @@
                      ;; before sealing the recording so the final
                      ;; :dom/type entry lands in the script.
                      (recorder-dom/flush-type-buffer!)
-                     (let [{:keys [variant-id events]} (recorder/stop-recording!)]
-                       (when (seq events)
+                     (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+                       ;; rf2-nkjkj: open on EITHER stream — a DOM-only
+                       ;; recording lands only in :entries.
+                       (when (or (seq events) (seq entries))
                          (open-dialog! variant-id events))))}
         "stop"]])))
 
@@ -743,30 +751,59 @@
 
 (defn save-dialog
   "Modal dialog rendered after the user stops a non-empty recording.
-  Shows the EDN snippet — `(reg-variant <id> {... :play-script {...}})` —
+  Shows the EDN snippet — `(reg-variant <id> {... :script {...}})` —
   and a 'copy to clipboard' affordance.
 
   The user edits the variant id inline; the snippet re-generates on
-  every keystroke. Discard / close drop the captured events.
+  every keystroke. Discard / close drop the captured recording.
 
-  Reads `:events` + `:source-id` from the dialog state itself — the
+  ## Single source of truth — `:entries` (rf2-nkjkj)
+
+  The snippet is rendered from the recorder's RICH `:entries` snapshot
+  via the `recording->play-script` translator, NOT the bare `:events`
+  vector. `:entries` is the only stream that carries DOM interactions
+  (`:dom/click` / `:dom/type` / `:dom/submit`, captured off the canvas
+  root by `recorder.dom-capture`) — `:events` holds dispatched events
+  ONLY. Rendering the primary dialog off `:events` (the historical
+  `gen-play-snippet` path) SILENTLY DROPPED every recorded click /
+  type / submit, producing an incomplete, non-reproducing variant with
+  a misleading count. Consuming `:entries` here means a recording that
+  captured canvas clicks codegens `[:click ...]` / `[:type ...]` /
+  `[:wait ...]` steps in the primary save flow, and the displayed count
+  reflects the full rich recording.
+
+  The `:auto-run?` flag is forced off in the snippet so the pasted
+  variant doesn't replay on mount until the author opts in — the
+  secondary Export dialog owns the auto-run + auto-assert affordances.
+
+  Reads `:entries` + `:source-id` from the dialog state itself — the
   snapshot was taken at `open-dialog!` time so a subsequent
   `start-recording!` cannot mutate the visible snippet (rf2-8x9nb)."
   []
   (let [dialog                                  @ui-dialog
         {:keys [events entries source-id]}      dialog]
     (when (:open? dialog)
-      (let [draft-id (:draft-id dialog)
-            snippet  (recorder/gen-play-snippet
-                       events
-                       {:variant-id (or draft-id :story.recorded/example)
-                        :extends    source-id})]
+      (let [draft-id   (:draft-id dialog)
+            ;; Single source of truth: the rich :entries stream (the
+            ;; only one carrying DOM interactions). Fall back to the
+            ;; bare :events vector only when no rich entries were
+            ;; snapshotted (legacy callers / dispatch-only recordings).
+            src        (if (seq entries) entries events)
+            spec       (play-export/recording->play-script
+                         src
+                         {:auto-run? false})
+            snippet    (play-export/render-variant-form
+                         spec
+                         {:variant-id (or draft-id :story.recorded/example)
+                          :extends    source-id})
+            step-count (count (:script spec))]
         (review-dialog/review-dialog dialog
           {:title             "Test Codegen — save recording as variant"
            :hint              (str "EDN snippet generated from "
-                                   (count events) " captured event"
-                                   (when (not= 1 (count events)) "s")
-                                   " against " (pr-str source-id)
+                                   step-count " recorded step"
+                                   (when (not= 1 step-count) "s")
+                                   " (dispatches + DOM interactions) against "
+                                   (pr-str source-id)
                                    ". Edit the variant id then "
                                    "copy + paste into your stories namespace.")
            :snippet           snippet
@@ -775,10 +812,10 @@
            :on-edit-id        set-draft-id!
            :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
            :on-discard        (fn [] (recorder/clear!) (close-dialog!))
-           ;; rf2-x9zsr — open the :play-script export dialog with the
-           ;; captured snapshot. We DON'T close the parent dialog
-           ;; (user may want to copy the simple :play-script form too); the export
-           ;; dialog stacks on top via a higher z-index.
+           ;; rf2-x9zsr — open the export dialog with the captured
+           ;; snapshot for the auto-run / auto-assert affordances. We
+           ;; DON'T close the parent dialog; the export dialog stacks on
+           ;; top via a higher z-index.
            :on-export         (fn []
                                 (export-dialog/open-from-recorder-dialog!
                                   {:events    events

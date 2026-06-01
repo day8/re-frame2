@@ -93,6 +93,85 @@
          (is (str/includes? flat ":story.x/source")
              "the recorded variant-id appears via :extends")))))
 
+;; ---- CLJS-only: rf2-nkjkj — DOM interactions reach the PRIMARY snippet ---
+;;
+;; Before rf2-nkjkj the primary save-dialog rendered via
+;; `gen-play-snippet` over the bare `:events` stream, which holds
+;; dispatched events ONLY — every recorded click / type / submit
+;; (captured into `:entries` by `recorder.dom-capture`) was SILENTLY
+;; DROPPED from the snippet, and the displayed count counted `:events`
+;; (so a recording of three canvas clicks showed "0 captured events").
+;; The fix routes the primary dialog through the rich
+;; `recording->play-script` translation off `:entries`. These tests
+;; drive the FULL capture pipeline (record-event! + record-dom-event!),
+;; snapshot it through the real `open-dialog!`, and assert the rendered
+;; primary snippet carries the `[:click ...]` / `[:type ...]` steps.
+
+#?(:cljs
+   (deftest save-dialog-primary-snippet-includes-dom-interactions
+     (testing "rf2-nkjkj: a recording with DOM clicks/types codegens
+              :click / :type steps in the PRIMARY save dialog snippet —
+              RED before the fix (gen-play-snippet over :events dropped
+              them), GREEN after (recording->play-script over :entries)"
+       ;; Drive the actual capture pipeline so the test exercises the
+       ;; real two-stream model, not a hand-built snapshot.
+       (recorder/clear!)
+       (recorder/start-recording! :story.login/form 0)
+       (recorder/record-event! [:counter/inc])                       ; → :events + :entries
+       (recorder/record-dom-event! [:dom/click "#submit" 10])        ; → :entries ONLY
+       (recorder/record-dom-event! [:dom/type "#email" "a@b.co" 20]) ; → :entries ONLY
+       (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+         ;; Sanity: the streams desync exactly as documented — :events
+         ;; has the lone dispatch; :entries has all three interactions.
+         (is (= [[:counter/inc]] events)
+             ":events carries the dispatched event only (no DOM)")
+         (is (= 3 (count entries))
+             ":entries carries the dispatch + both DOM interactions")
+         ;; Open the primary dialog through the real UI entry point.
+         (reset! ui-rec/ui-dialog
+                 (recorder/open-dialog recorder/initial-dialog-state
+                                       variant-id events entries 0))
+         ;; `(str hiccup)` escapes the inner double-quotes of the
+         ;; rendered EDN, so the snippet selector "#submit" appears as
+         ;; \"#submit\" in the flattened tree — assert against that form.
+         (let [flat (str (ui-rec/save-dialog))]
+           (is (str/includes? flat ":dispatch [:counter/inc]")
+               "the dispatched event still appears as a :dispatch step")
+           (is (str/includes? flat "[:click \\\"#submit\\\"]")
+               "the recorded DOM click codegens a :click step (was DROPPED)")
+           (is (str/includes? flat "[:type \\\"#email\\\" \\\"a@b.co\\\"]")
+               "the recorded DOM type codegens a :type step (was DROPPED)")
+           (is (str/includes? flat ":story.login/form")
+               "the recorded variant-id rides into :extends")
+           ;; The displayed count must reflect the RICH entries, not the
+           ;; one-element :events vector. Three recorded steps → the hint
+           ;; reads "3 recorded steps", never "1 captured event".
+           (is (str/includes? flat "3 recorded steps")
+               "the hint count reflects the rich :entries, not :events")
+           (is (not (str/includes? flat "1 captured event"))
+               "the misleading :events-based count is gone"))))))
+
+#?(:cljs
+   (deftest save-dialog-opens-and-renders-dom-only-recording
+     (testing "rf2-nkjkj: a recording of canvas interactions ONLY (no
+              dispatched events) still produces a non-empty primary
+              snippet — :events is empty but :entries carries the clicks"
+       (recorder/clear!)
+       (recorder/start-recording! :story.x/canvas 0)
+       (recorder/record-dom-event! [:dom/click "#a" 5])
+       (recorder/record-dom-event! [:dom/click "#b" 9])
+       (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+         (is (empty? events) ":events is empty for a DOM-only recording")
+         (is (= 2 (count entries)))
+         (reset! ui-rec/ui-dialog
+                 (recorder/open-dialog recorder/initial-dialog-state
+                                       variant-id events entries 0))
+         (let [flat (str (ui-rec/save-dialog))]
+           (is (str/includes? flat "[:click \\\"#a\\\"]"))
+           (is (str/includes? flat "[:click \\\"#b\\\"]"))
+           (is (str/includes? flat "2 recorded steps")
+               "the count reflects the two DOM interactions"))))))
+
 ;; ---- CLJS-only: rf2-8x9nb regression ------------------------------------
 
 #?(:cljs
