@@ -587,12 +587,19 @@
         ;; (per `re-frame.core/epoch-history`'s contract) while the
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
         tape     (vec (rf/epoch-history variant-id))
+        ;; rf2-rkd14 — the runner-recorded per-dispatch-step settle
+        ;; boundaries light up the EXACT narrative attribution
+        ;; (`evidence/spans-from-stamps`) instead of the EVEN heuristic. The
+        ;; stamp is a `:rf.story/*` key the determinism projection strips, so
+        ;; the run-hash is unaffected (the `:epoch-tape` slot stays raw).
+        attribution (runner-events/settle-boundaries variant-id)
         ;; rf2-baah3 — project the tape ONCE here so the post-run evidence
         ;; validation (`requirements-unmet` → `validate-run-evidence`) reads
         ;; the SAME projected slots `result/run-result` derives the result
         ;; slots from. One tape, one projection — a duplicate accumulator
         ;; cannot report a proof present while the tape's slot is empty.
-        evidence (evidence/project-evidence tape {:script executed-script})
+        evidence (evidence/project-evidence tape {:script      executed-script
+                                                  :attribution attribution})
         ;; rf2-q5jw4 — the run-state's `:cannot-run` refusals (a no-DOM
         ;; `[:assert-dom …]` skip, a boundary `:cannot-run?`): steps that
         ;; recorded NO `:rf.story/assertions` entry, so without this fold the
@@ -614,6 +621,10 @@
         unified  (result/run-result
                    {:variant/id          variant-id
                     :epoch-tape          tape
+                    ;; rf2-rkd14 — the runner-recorded per-dispatch-step settle
+                    ;; boundaries (above) so `run-result`'s ONE evidence
+                    ;; projection attributes the `:narrative` EXACTLY.
+                    :attribution         attribution
                     :assertions          (or (:rf.story/assertions app-db) [])
                     :script              executed-script
                     :check->atoms        (plan-checks plan)
@@ -897,7 +908,14 @@
           ;; The folded steps the auto-plays ran, concatenated in order —
           ;; the script the unified result's two-level narrative spans.
           executed   (vec (mapcat :script auto-plays))
-          ctx'       (assoc ctx :executed-script executed)]
+          ctx'       (assoc ctx :executed-script executed)
+          ;; rf2-rkd14 — reset the per-dispatch-step settle boundaries before
+          ;; the auto-plays drive, so the narrative attribution windows onto
+          ;; THIS run's epoch tape. The boundaries snapshot the ABSOLUTE
+          ;; epoch-history length at each dispatch step (setup-phase epochs
+          ;; precede the first boundary → leading nil span), matching the
+          ;; absolute tape `record-result-map` reads.
+          _          (runner-events/clear-step-boundaries! variant-id)]
       (if (empty? auto-plays)
         ;; No script ran, but the world settled (phase-2 setup committed).
         ;; The terminal `:assertions` check the FINAL settled state, so they

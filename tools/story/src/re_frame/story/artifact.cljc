@@ -240,12 +240,31 @@
           (rf/uninstall-managed-request-stubs!)))
       (thunk))))
 
+(defn- epoch-count
+  "The current epoch-history length for `frame-id` — the append-only tape
+  cursor a replay settle boundary snapshots (rf2-rkd14). Tolerant: 0 when
+  the frame has no history / the epoch dep is absent (facade → `[]`)."
+  [frame-id]
+  (try (count (rf/epoch-history frame-id))
+       (catch #?(:clj Throwable :cljs :default) _ 0)))
+
 (defn replay-into-frame!
   "Replay an artifact's `:event-program` into the LIVE `frame-id`,
   reapplying `fx-decisions` and settling each `[:dispatch …]` step through
   `settled-boundary`. Returns a vector of per-step settle outcomes (one
   per dispatch step), in program order — `{:status :settled :boundary …}`
   on success, a `cannot-run-refusal` / `{:status :error …}` otherwise.
+
+  rf2-rkd14 — the returned vector carries an `:attribution` metadata slot:
+  the epoch-history LENGTH snapshotted at the start of each dispatch step's
+  settle, in dispatch-step order. `replay-result` reads it (via
+  `(:attribution (meta outcomes))`) and hands it to `project-evidence` so
+  the replay narrative is attributed EXACTLY (`evidence/spans-from-stamps`)
+  rather than via the EVEN heuristic. The metadata leaves the documented
+  return VALUE (the outcomes vector) unchanged. The boundaries are
+  positional — the Nth element is the Nth dispatch step's settle boundary —
+  so they zip directly onto the dispatch steps of the `:event-program` the
+  narrative spans.
 
   This is the IMPURE seam — it dispatches into a live frame. The caller
   owns frame allocation + teardown + the epoch-tape read; `replay-run-
@@ -258,14 +277,20 @@
    (replay-into-frame! frame-id artifact boundary/headless-flush-hooks))
   ([frame-id artifact hooks]
    (let [fx-decisions (:fx-decisions artifact {})
-         replay-hooks (replay-flush-hooks hooks fx-decisions)]
-     (into []
-           (keep (fn [step]
-                   (when-let [evec (runner/step-event step)]
-                     (let [required (boundary/step-required-boundary step)]
-                       (boundary/dispatch-and-settle!
-                         frame-id evec replay-hooks required step)))))
-           (:event-program artifact)))))
+         replay-hooks (replay-flush-hooks hooks fx-decisions)
+         boundaries   (volatile! [])
+         outcomes     (into []
+                            (keep (fn [step]
+                                    (when-let [evec (runner/step-event step)]
+                                      (let [required (boundary/step-required-boundary step)]
+                                        ;; Snapshot the tape cursor BEFORE the
+                                        ;; settle — this dispatch step owns the
+                                        ;; records committed from here forward.
+                                        (vswap! boundaries conj (epoch-count frame-id))
+                                        (boundary/dispatch-and-settle!
+                                          frame-id evec replay-hooks required step)))))
+                            (:event-program artifact))]
+     (with-meta outcomes {:attribution @boundaries}))))
 
 (defn replay-result
   "Build the replay run-result from the captured `epoch-tape`, the
@@ -289,7 +314,15 @@
   read green while the tape is red."
   [{:keys [epoch-tape artifact outcomes frame-id app-db]}]
   (let [evidence-slots (evidence/project-evidence
-                         epoch-tape {:script (:event-program artifact)})
+                         epoch-tape {:script      (:event-program artifact)
+                                     ;; rf2-rkd14 — the per-dispatch-step
+                                     ;; settle boundaries `replay-into-frame!`
+                                     ;; recorded (on the outcomes vector's
+                                     ;; metadata) light up EXACT narrative
+                                     ;; attribution. Absent (a hand-built
+                                     ;; `outcomes` with no metadata) → EVEN
+                                     ;; fallback, unchanged.
+                                     :attribution (:attribution (meta outcomes))})
         refusal        (some (fn [o] (when (= :cannot-run (:status o)) o)) outcomes)
         errored        (some (fn [o] (when (= :error (:status o)) o)) outcomes)
         tape-red?      (evidence/tape-shows-failure? epoch-tape)
