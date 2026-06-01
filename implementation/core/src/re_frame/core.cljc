@@ -635,9 +635,8 @@
   clear-fx    fx/clear-fx)
 
 (def ^{:doc "Dispose every cached entry in a frame's runtime sub-cache
-  and clear the cache. Cancels any pending grace-period timers before
-  disposing. For tests and hot-reload. Per spec/API.md §Clearing
-  registrations."}
+  and clear the cache. Disposal is synchronous and unconditional. For
+  tests and hot-reload. Per spec/API.md §Clearing registrations."}
   clear-sub-cache! subs-cache/clear-sub-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
