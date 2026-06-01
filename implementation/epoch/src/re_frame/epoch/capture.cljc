@@ -106,6 +106,31 @@
   #{:rf.sub/run
     :rf.sub/skip})
 
+;; ---- unmount op (rf2-59hx3) -----------------------------------------------
+;;
+;; The view-teardown sibling of render-ops. `:rf.view/unmounted`
+;; (`re-frame.views/emit-view-unmounted!`) fires when a registered-view
+;; instance tears down — at React `componentWillUnmount` / `useEffect`
+;; cleanup time, AFTER the cascade that removed the view settled. Like a
+;; render and a reactive sub-run it fires post-settle (no in-flight cascade
+;; for its frame) and carries a `:frame` tag but NO `:rf.trace/dispatch-id`.
+;;
+;; Pre-rf2-59hx3 it fell through to the orphan-drop branch below (no
+;; in-flight cascade AND no `:dispatch-id`) and was SILENTLY DROPPED — so a
+;; view unmount produced NO signal anywhere in the epoch record, and Xray's
+;; VIEWS-step `unmounted-views-rows` (which reads it off `:trace-events`)
+;; had nothing to surface. The teardown was an invisible absence.
+;;
+;; The fix attributes it through the SAME post-settle back-fill mechanism
+;; renders + sub-runs use (no parallel correlate-by-render-key path): it is
+;; back-filled into the cascade that CAUSED the teardown — the frame's
+;; most-recently-settled epoch — via the `:epoch/record-unmount!` hook. The
+;; unmount carries no structured projection row (it is neither a `:renders`
+;; nor a `:sub-runs` entry), so it rides ONLY the `:trace-events` slot,
+;; which is exactly where the Xray VIEWS projection reads it.
+(def ^:private unmount-ops
+  #{:rf.view/unmounted})
+
 (defn in-flight-cascade?
   "True when the frame's in-flight capture buffer already holds an
   `:event/run-start` emit — the canonical signal that a cascade has
@@ -162,7 +187,18 @@
   no in-flight cascade is back-filled into the causing epoch via the
   `:epoch/record-sub-run!` hook (sibling of `:epoch/record-render!`). An
   in-flight sub-run (a handler that subscribes, an SSR render) belongs to
-  the in-flight cascade and is buffered as before."
+  the in-flight cascade and is buffered as before.
+
+  Per rf2-59hx3: the same post-settle timing applies to a view UNMOUNT
+  (`:rf.view/unmounted`) — it fires at React teardown time, AFTER the
+  cascade that removed the view settled. Pre-fix it fell through to the
+  orphan-drop branch (no in-flight cascade + no `:dispatch-id`) and was
+  silently dropped, so a view teardown produced no signal. It is now
+  back-filled into the causing cascade (the most-recently-settled epoch)
+  via the `:epoch/record-unmount!` hook (sibling of the two above), where
+  it rides the epoch's `:trace-events` so Xray's VIEWS step can surface it.
+  An in-flight unmount (a synchronous teardown inside a drain) belongs to
+  that cascade and is buffered as before."
   [event]
   (when interop/debug-enabled?
     (let [op       (:operation event)
@@ -205,6 +241,25 @@
                (not (in-flight-cascade? frame-id)))
           (if-let [record-sub-run! (late-bind/get-fn-cached :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
+            (state/buffer-event! frame-id event))
+
+          ;; Post-settle view unmount — the teardown sibling (rf2-59hx3).
+          ;; A `:rf.view/unmounted` fires at React teardown time, AFTER the
+          ;; cascade that removed the view settled, so it carries a `:frame`
+          ;; tag but no `:dispatch-id` and arrives with an empty buffer.
+          ;; Pre-fix it hit the orphan-drop branch below and was silently
+          ;; dropped — the view teardown was an invisible absence. Back-fill
+          ;; it into the causing cascade (the most-recently-settled epoch)
+          ;; via `:epoch/record-unmount!` so it lands in that epoch's
+          ;; `:trace-events`, where Xray's VIEWS-step `unmounted-views-rows`
+          ;; reads it. An in-flight unmount (a synchronous teardown inside a
+          ;; drain) is buffered normally by the `:else` arm. Falls through to
+          ;; the normal buffer path during the pre-facade-install load-order
+          ;; window.
+          (and (contains? unmount-ops op)
+               (not (in-flight-cascade? frame-id)))
+          (if-let [record-unmount! (late-bind/get-fn-cached :epoch/record-unmount!)]
+            (record-unmount! frame-id event)
             (state/buffer-event! frame-id event))
 
           ;; Out-of-cascade orphan — drop from the capture buffer (rf2-avvwm).

@@ -166,6 +166,45 @@
         ;; render back-fill above.
         (notify-listeners! updated)))))
 
+;; ---- post-settle view-unmount back-fill (rf2-59hx3) -----------------------
+
+(defn record-unmount!
+  "Attribute a post-settle view-unmount emit to the cascade that CAUSED the
+  teardown (rf2-59hx3). The view-teardown sibling of `record-sub-run!`: a
+  `:rf.view/unmounted` trace fires at React `componentWillUnmount` /
+  `useEffect`-cleanup time — AFTER the cascade that removed the view settled
+  — so it cannot ride the in-flight cascade buffer (there is none).
+
+  Pre-rf2-59hx3 the unmount fell through `capture-event!`'s orphan-drop
+  branch (no in-flight cascade + no `:dispatch-id`) and was silently
+  dropped, so a view teardown produced NO signal in the epoch record and
+  Xray's VIEWS-step `unmounted-views-rows` — which reads `:rf.view/unmounted`
+  off `:trace-events` — had nothing to surface. The teardown was an
+  invisible absence.
+
+  This back-fills the unmount into the frame's most-recently-settled epoch
+  (the cascade that drove the teardown). Unlike `record-render!` there is NO
+  render-key mount-resolution and NO de-dup: an unmount is a one-shot
+  per-instance teardown that belongs to the settling cascade, exactly like a
+  post-settle sub-run. The unmount carries no structured projection row (it
+  is neither a `:renders` nor a `:sub-runs` entry), so `back-fill-event!` is
+  invoked with `row` nil — it rides ONLY the `:trace-events` slot. The
+  updated record is re-fanned to epoch listeners so snapshot consumers
+  (Xray's Views panel, which caches `epoch-history` at settle time) re-sync.
+
+  No-op when the frame has no settled epoch yet (an unmount before the first
+  cascade — e.g. a fixture teardown) or when the target epoch has been
+  evicted from the ring — `back-fill-unmount!` returns nil and we skip the
+  re-notify."
+  [frame-id event]
+  (when interop/debug-enabled?
+    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
+      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event)]
+        ;; Re-fan the corrected record so snapshot consumers re-read the
+        ;; ring. Same failure-isolated fan-out + no-loop contract as the
+        ;; render / sub-run back-fill above.
+        (notify-listeners! updated)))))
+
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):
