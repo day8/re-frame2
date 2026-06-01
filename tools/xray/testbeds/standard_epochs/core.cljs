@@ -690,11 +690,10 @@
    [:header {:style {:margin-bottom "0.5em"}}
     [:h2 {:style {:margin 0}} "Standard-epochs"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One frame, one tall column of test buttons. Each button bumps a shared "
-     [:strong "baseline"] " counter (so App-db / Epoch always show a delta) and "
-     "exercises exactly one more feature. The caption says what to watch in "
-     "Xray on the right — click top to bottom and any one panel is fully "
-     "exercised."]]
+     "Explore how the " [:code "Epoch"] " panel renders different scenarios. "
+     "It is the centerpiece panel, after all."]
+    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
+     "Work your way down the buttons from top to bottom."]]
    ;; Button 0 — Reset.
    [:button {:data-testid "reset-button"
              :on-click #(dispatch [:standard-epochs/reset])
