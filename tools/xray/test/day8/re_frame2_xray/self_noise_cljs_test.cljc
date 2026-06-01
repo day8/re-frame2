@@ -168,20 +168,36 @@
 ;; collect-trace! plumbing).
 
 (deftest xray-internal-event-id?-keyword-namespace
-  (testing "true iff event-id is a keyword in the `rf.xray` namespace"
+  (testing "true iff event-id is a keyword in the `rf.xray` ns or a `rf.xray.*` sub-ns"
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/focus-cascade)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/select-tab)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/open-settings)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/sync-trace-buffer)))
+    (testing "sub-namespaced internal events also classify (rf2-y8iqe)"
+      ;; Xray registers + dispatches many internal events under
+      ;; SUB-namespaces of rf.xray. The palette lowers
+      ;; `:palette/select-static-tab` into a FRAMELESS
+      ;; `[:dispatch [:rf.xray.static/select-tab …]]`
+      ;; (palette/events.cljs:304) — that chain-resolves onto
+      ;; :rf/default, so the frame gate misses it and this data-layer
+      ;; predicate is the only thing standing between it and the host's
+      ;; user-facing :rf.xray/cascades L2 list. Exact `= "rf.xray"`
+      ;; equality missed it; the segment-prefix match catches it.
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.static/select-tab)))
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.epoch/toggle-row-expand)))
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.filters/persist)))
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.edn-inspector/zoom)))
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.column-widths/persist))))
     (testing "user-app events stay false"
       (is (false? (self-noise/xray-internal-event-id? :cart/add-item)))
       (is (false? (self-noise/xray-internal-event-id? :checkout/start)))
       (is (false? (self-noise/xray-internal-event-id? :user/click))))
     (testing "framework + sibling reserved namespaces stay false"
-      ;; The filter is narrow: only `rf.xray`. Sibling reserved
-      ;; namespaces (`:rf/init`, `:rf.epoch/*`) are NOT Xray-internal
-      ;; — they're framework / epoch surface and must remain visible
-      ;; in the user-facing cascade list.
+      ;; The filter is narrow: only `rf.xray` + its `rf.xray.*`
+      ;; sub-namespaces. Sibling reserved namespaces (`:rf/init`,
+      ;; `:rf.epoch/*`) are NOT Xray-internal — they're framework /
+      ;; epoch surface and must remain visible in the user-facing
+      ;; cascade list.
       (is (false? (self-noise/xray-internal-event-id? :rf/init)))
       (is (false? (self-noise/xray-internal-event-id? :rf.epoch/begin)))
       (is (false? (self-noise/xray-internal-event-id? :rf.story/something))))
@@ -190,13 +206,18 @@
       (is (false? (self-noise/xray-internal-event-id? "rf.xray/foo")))
       (is (false? (self-noise/xray-internal-event-id? :unnamespaced)))
       (is (false? (self-noise/xray-internal-event-id? 42))))
-    (testing "namespace prefix collision guard"
-      ;; A keyword whose namespace STARTS with `rf.xray` but is not
-      ;; exactly `rf.xray` (e.g. `:rf.xray-test/x`, `:rf.xray-foo/y`)
-      ;; must NOT match. The contract is namespace equality, not
-      ;; prefix matching.
+    (testing "namespace prefix collision guard — segment boundary, not substring"
+      ;; A keyword whose namespace shares the leading characters
+      ;; `rf.xray` but is NOT exactly `rf.xray` nor a `rf.xray.`
+      ;; sub-namespace (e.g. `:rf.xray-test/x`, `:rf.xray-foo/y`,
+      ;; `:rf.xrayon/z`) must NOT match — the match is on the dot
+      ;; segment boundary, not a naive substring/character prefix. An
+      ;; app namespace that merely embeds `rf.xray` mid-string
+      ;; (`:my.rf.xray-ish/foo`) is also a host event, not Xray's.
       (is (false? (self-noise/xray-internal-event-id? :rf.xray-test/x)))
-      (is (false? (self-noise/xray-internal-event-id? :rf.xray-foo/y))))))
+      (is (false? (self-noise/xray-internal-event-id? :rf.xray-foo/y)))
+      (is (false? (self-noise/xray-internal-event-id? :rf.xrayon/z)))
+      (is (false? (self-noise/xray-internal-event-id? :my.rf.xray-ish/foo))))))
 
 (deftest xray-internal-cascade?-event-vector-head
   (testing "true iff the cascade's :event vector's head is xray-internal"
@@ -209,7 +230,20 @@
     (is (true?  (self-noise/xray-internal-cascade?
                   {:dispatch-id 3
                    :event       [:rf.xray/open-settings]}))
-        "single-element event vector (no payload) still classifies"))
+        "single-element event vector (no payload) still classifies")
+    (testing "frameless sub-namespaced internal cascade is filtered (rf2-y8iqe)"
+      ;; The concrete leak path: palette/events.cljs:304 lowers
+      ;; `:palette/select-static-tab` into a FRAMELESS
+      ;; `[:dispatch [:rf.xray.static/select-tab :machines]]`. With the
+      ;; old exact-equality predicate this cascade landed on :rf/default
+      ;; and surfaced as a spurious row in the host's :rf.xray/cascades
+      ;; L2 list. The segment-prefix match closes the hole.
+      (is (true?  (self-noise/xray-internal-cascade?
+                    {:dispatch-id 9
+                     :event       [:rf.xray.static/select-tab :machines]})))
+      (is (true?  (self-noise/xray-internal-cascade?
+                    {:dispatch-id 10
+                     :event       [:rf.xray.epoch/toggle-row-expand 3]})))))
   (testing "user-app cascades stay false"
     (is (false? (self-noise/xray-internal-cascade?
                   {:dispatch-id 4

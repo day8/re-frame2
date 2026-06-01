@@ -2349,7 +2349,13 @@
     (let [old-ms   1000000
           fresh-ms (+ old-ms 90000)]
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] old-ms))
-      (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:rf.xray.test/anchor] fresh-ms))
+      ;; Fixture event-id must be a genuine HOST app id — NOT a reserved
+      ;; `rf.xray.*` sub-namespace. Post rf2-y8iqe the self-noise filter
+      ;; correctly classifies any `rf.xray.*` id as xray-internal and
+      ;; drops it from the host cascade list; a `:rf.xray.test/*` fixture
+      ;; would never render its chip, defeating the assertion. `:foo/baz`
+      ;; mirrors the old row's `:foo/bar` host event.
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:foo/baz] fresh-ms))
       (rf/with-frame :rf/xray
         (let [tree     (shell/shell-view)
               chips    (find-all-by-testid tree "rf-xray-row-time-chip")
