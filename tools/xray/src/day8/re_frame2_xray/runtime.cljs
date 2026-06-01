@@ -29,13 +29,15 @@
     the runtime landed. A full page refresh wipes both — the next
     `discover-app` tool call reports `:reason :runtime-not-preloaded`
     with a setup hint.
-  - `current-origin` — `^:dynamic` var holding the `:tags :origin`
-    value the runtime stamps onto every mutation it performs. The
-    default `:xray-mcp` is grandfathered from the original
-    xray-mcp design; revising the default to a more accurate tag
-    (e.g. `:xray-runtime`) is tracked separately as a follow-on.
-    The MCP server is expected to rebind it for the synchronous
-    extent of an eval'd form to its own `:origin` identifier.
+  - `*current-origin*` — `^:dynamic` var holding the `:tags :origin`
+    value the runtime stamps onto every mutation it performs;
+    `current-origin` (no earmuffs) is the plain read accessor that
+    returns it. The default `:xray-mcp` is grandfathered from the
+    original xray-mcp design; revising the default to a more accurate
+    tag (e.g. `:xray-runtime`) is tracked separately as a follow-on.
+    The MCP server is expected to rebind `*current-origin*` for the
+    synchronous extent of an eval'd form to its own `:origin`
+    identifier.
   - `health` — one-call summary used by `discover-app`. Side-effect-free
     here; the runtime registers no listeners on its own.
 
@@ -79,7 +81,12 @@
             ;; panel's :devtools/preloads), so requiring the tooling ns
             ;; directly here is bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as interop]
+            ;; rf2-uv2q2: the canonical Editscript-A* diff engine. Used by
+            ;; get-app-db-diff to project the changed-paths slice diff its
+            ;; docstring promises ({:added :removed :changed}) instead of
+            ;; egressing two whole app-db snapshots.
+            [day8.re-frame2-xray.diff.engine :as diff-engine]))
 
 ;; ---------------------------------------------------------------------------
 ;; Session sentinel
@@ -125,8 +132,11 @@
 ;; Convention: every MCP-driven side-effect on the trace bus carries a
 ;; `:tags :origin <server-name>` tag. The MCP server renders a
 ;; `binding` form that wraps the runtime's accessor call with
-;; `(binding [current-origin <server-name>] ...)`; mutating accessors
-;; read the bound value when they construct the dispatch payload.
+;; `(binding [*current-origin* <server-name>] ...)`; mutating accessors
+;; read the bound value (via `*current-origin*` / `current-origin`) when
+;; they construct the dispatch payload. Note the earmuffs: the
+;; `^:dynamic` var is `*current-origin*` — `current-origin` (no
+;; earmuffs) is a plain read fn and cannot be `binding`-rebound.
 ;;
 ;; The default value is `:xray-mcp` (grandfathered from the original
 ;; xray-mcp design — see DESIGN-RATIONALE.md Lock #6 supersedence;
@@ -224,17 +234,27 @@
       (egress-value v)                            ; safe (defaults)
       (egress-value v {:include-sensitive? true}) ; opt back in
 
+  Optional `:path` — the ABSOLUTE app-db path the value sits at. The
+  framework's schema-declared sensitive / large declarations are keyed
+  by absolute path, so a SLICE egress'd in isolation (e.g. one
+  changed-path slice from `get-app-db-diff`, or a `:path`-scoped
+  `get-app-db` read) must tell the walker where the slice lives or the
+  declaration won't match. Defaults to `[]` (the value IS the whole
+  walked root). rf2-uv2q2 — the diff accessor threads each leaf's path
+  so per-slice elision honours schema declarations.
+
   Every direct-read accessor on this runtime calls this fn before a
   value crosses the off-box boundary (MUST-inventory rows #15 / #17 /
   #19). rf2-rcogp — the safe path is the short path."
   ([value]
    (egress-value value nil))
-  ([value {:keys [include-sensitive? include-large?]
+  ([value {:keys [include-sensitive? include-large? path]
            :or   {include-sensitive? false
                   include-large?     false}}]
    (rf/elide-wire-value value
-                        {:rf.size/include-sensitive? include-sensitive?
-                         :rf.size/include-large?     include-large?})))
+                        (cond-> {:rf.size/include-sensitive? include-sensitive?
+                                 :rf.size/include-large?     include-large?}
+                          (seq path) (assoc :path (vec path))))))
 
 (defn egress-record
   "The single named off-box safe-egress fn for one epoch record. On the
@@ -355,12 +375,63 @@
           :value (egress-value value {:include-sensitive? include-sensitive?
                                       :include-large?     include-large?})})))))
 
+(defn- project-changed-paths
+  "Project the `(before, after)` pair into the changed-paths slice diff
+  the `get-app-db-diff` docstring promises:
+
+      {:added   [{:path <vec> :value <egress'd after-slice>} ...]
+       :removed [{:path <vec> :value <egress'd before-slice>} ...]
+       :changed [{:path <vec>
+                  :before <egress'd before-slice>
+                  :after  <egress'd after-slice>} ...]}
+
+  Routes the per-path slices through `egress-value` (rf2-uv2q2) so the
+  off-box privacy + size defaults apply per-slice — never the whole-db
+  snapshot the prior impl egressed. Built off the canonical
+  Editscript-A* engine's `:flat-rows` lens (one row per non-`:same`
+  leaf op): `:added` / `:removed` map 1:1, and the engine's `:modified`
+  op (scalar change, container-kind flip, redaction) buckets into
+  `:changed`. `egress-opts` carries the caller's `:include-sensitive?`
+  / `:include-large?` opt-in so the diff slices honour the same
+  trust-boundary override the sibling accessors expose. Each slice is
+  egress'd at its ABSOLUTE leaf `:path` so schema-declared sensitive /
+  large paths still match against the isolated slice."
+  [before after egress-opts]
+  (let [{:keys [flat-rows]} (diff-engine/project before after)
+        egress-at (fn [v path] (egress-value v (assoc egress-opts :path path)))]
+    (reduce
+      (fn [acc {:keys [path op before after]}]
+        (case op
+          :added    (update acc :added conj
+                            {:path  path
+                             :value (egress-at after path)})
+          :removed  (update acc :removed conj
+                            {:path  path
+                             :value (egress-at before path)})
+          ;; :modified (scalar change / container-kind flip / R8
+          ;; one-sided redaction) buckets into :changed — both sides
+          ;; egress'd per-slice.
+          (update acc :changed conj
+                  {:path   path
+                   :before (egress-at before path)
+                   :after  (egress-at after path)})))
+      {:added [] :removed [] :changed []}
+      flat-rows)))
+
 (defn get-app-db-diff
   "Tool: `get-app-db-diff`. Slice diff for a named epoch — read
   `:db-before` + `:db-after` off the epoch record and project as
   `{:added [...] :removed [...] :changed [...]}` (the changed-paths
   shape per MUST-inventory row #13; the heavier nested diff lives in
   the MCP server's wire-pipeline layer).
+
+  Each entry carries its `:path` (a path vector into the app-db) plus
+  the wire-elided slice value(s) at that path — `:added` / `:removed`
+  carry a single `:value`, `:changed` carries `:before` + `:after`.
+  Every slice routes through `egress-value` (rf2-uv2q2) so only the
+  changed paths cross the off-box boundary, scrubbed per-slice — NOT
+  two whole app-db snapshots. Diff projection uses the canonical
+  Editscript-A* engine (`diff.engine/project`).
 
   Returns `{:ok? true :frame <id> :epoch-id <uuid> :diff <map>}` or
   `{:ok? false :reason :no-such-epoch ...}` / `:no-frame-resolved`."
@@ -383,10 +454,10 @@
            :frame fid :epoch-id epoch-id}
           (let [before (:db-before match)
                 after  (:db-after  match)
-                diff   {:before (egress-value before {:include-sensitive? include-sensitive?
-                                                      :include-large?     include-large?})
-                        :after  (egress-value after  {:include-sensitive? include-sensitive?
-                                                      :include-large?     include-large?})}]
+                diff   (project-changed-paths
+                         before after
+                         {:include-sensitive? include-sensitive?
+                          :include-large?     include-large?})]
             {:ok?      true
              :frame    fid
              :epoch-id epoch-id
@@ -489,17 +560,28 @@
   through `rf/registrations` (per-kind map of `{id metadata}`) to
   project `{:kind kw :id any :meta {:doc :source-coord ...}}` records.
 
+  Each handler's `:meta` map routes through `egress-value` before the
+  off-box boundary (rf2-yl0v8 — handler metadata can carry user-supplied
+  custom slots / a large `:doc` / a value-bearing `:tags` slot per
+  Spec 001 §registrar query API), holding the runtime's
+  every-read-routes-through-wire-elision invariant with no exceptions —
+  the safe path is the short path. `:include-sensitive?` /
+  `:include-large?` carry the same trust-boundary opt-in the sibling
+  accessors expose.
+
   Returns `{:ok? true :handlers <vec> :count <n>}`. Optional `:kind`
   arg narrows to a single registrar kind (`:event`, `:sub`, `:fx`,
   `:cofx`, `:machine`, `:flow`, `:frame`, `:view`, `:reg-machine`)."
   ([] (get-handlers {}))
-  ([{:keys [kind] :as _opts}]
-   (let [kinds   (if (some? kind) [kind] registrar-kinds)
+  ([{:keys [kind include-sensitive? include-large?] :as _opts}]
+   (let [egress-opts {:include-sensitive? include-sensitive?
+                      :include-large?     include-large?}
+         kinds   (if (some? kind) [kind] registrar-kinds)
          walked  (for [k kinds
                        [id meta] (rf/registrations k)]
                    {:kind k
                     :id   id
-                    :meta meta})]
+                    :meta (egress-value meta egress-opts)})]
      {:ok?      true
       :handlers (vec walked)
       :count    (count walked)})))
@@ -723,7 +805,7 @@
 
 (defn eval-form-result
   "Tool: `eval-cljs` (runtime-side companion). The MCP server renders
-  the user's CLJS form inside a `(binding [current-origin :xray-mcp]
+  the user's CLJS form inside a `(binding [*current-origin* :xray-mcp]
   ...)` wrapper, then `cljs-eval`'s the wrapped form directly — the
   form is NOT routed through this fn (which would force the eval form
   to be a string + a `read-string` here, defeating the purpose of the
