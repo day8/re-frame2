@@ -43,7 +43,7 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
 - Files modified: 14
 - Required rules applied:
   - M-0 (1 site): deps.edn coord swap.
-  - M-1 (3 sites): private `re-frame.db` requires removed; `@re-frame.db/app-db` → `(rf/frame-db :rf/default)` in 3 sites.
+  - M-1 (3 sites): private `re-frame.db` requires removed; `@re-frame.db/app-db` → `(rf/app-db-value :rf/default)` in 3 sites.
   - M-8 (3 sites): top-level `:dispatch` → `:fx [[:dispatch ...]]`.
   - M-9 (2 sites): `dispatch-sync` inside handlers → `:fx [[:dispatch ...]]`.
   - M-16 (1 site): `^:flush-dom` metadata → `:dispatch-later {:ms 0}`.

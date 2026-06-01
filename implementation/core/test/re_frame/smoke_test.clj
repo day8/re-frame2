@@ -64,7 +64,7 @@
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/frame-db :rf/default))))))
+    (is (= 2 (:n (rf/app-db-value :rf/default))))))
 
 (deftest dispatch-sync-event-fx
   (testing "dispatch-sync runs an event-fx handler with :db and :fx"
@@ -76,7 +76,7 @@
           {:db {:flag :set}
            :fx [[:test/incr-counter :go]]}))
       (rf/dispatch-sync [:do-it])
-      (is (= {:flag :set} (rf/frame-db :rf/default)))
+      (is (= {:flag :set} (rf/app-db-value :rf/default)))
       (is (= 1 @fired)))))
 
 ;; ---- standard interceptors ------------------------------------------------
@@ -226,11 +226,11 @@
                      (fn [db _]
                        (update db :received (fnil conj []) :landed)))
     (rf/dispatch-sync [:rf-l5q3.jvm/parent] {:frame :rf-l5q3.jvm/tenant-a})
-    (is (= [:landed] (:received (rf/frame-db :rf-l5q3.jvm/tenant-a)))
+    (is (= [:landed] (:received (rf/app-db-value :rf-l5q3.jvm/tenant-a)))
         ":landed event must land on :tenant-a, not :rf/default")
-    (is (empty? (:received (rf/frame-db :rf-l5q3.jvm/tenant-b)))
+    (is (empty? (:received (rf/app-db-value :rf-l5q3.jvm/tenant-b)))
         ":tenant-b sees nothing")
-    (is (empty? (:received (rf/frame-db :rf/default)))
+    (is (empty? (:received (rf/app-db-value :rf/default)))
         ":rf/default sees nothing — the dispatch was scoped to :tenant-a")))
 
 (deftest current-frame-inside-handler-reports-handlers-frame
@@ -342,10 +342,10 @@
       (fn [[a b] _] {:a a :b b}))
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:diamond/init] {:frame f})
-      (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/frame-db f)))
+      (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
           "initial state is fully consistent")
       (rf/dispatch-sync [:diamond/swap] {:frame f})
-      (is (= {:a 2 :b 1} (rf/compute-sub [:diamond/c] (rf/frame-db f)))
+      (is (= {:a 2 :b 1} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
           "post-swap state is fully consistent — never half-propagated"))))
 
 (deftest sub-topology-glitch-free-chain-jvm
@@ -357,10 +357,10 @@
     (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:chain/init] {:frame f})
-      (is (= 21 (rf/compute-sub [:chain/c] (rf/frame-db f)))
+      (is (= 21 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
           "initial: n=10 → b=20 → c=21")
       (rf/dispatch-sync [:chain/set 100] {:frame f})
-      (is (= 201 (rf/compute-sub [:chain/c] (rf/frame-db f)))
+      (is (= 201 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
           "after :n→100: b=200 → c=201; no transient intermediates"))))
 
 (deftest sub-correctness-on-value-equal-input-jvm
@@ -372,10 +372,10 @@
     (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:stable/init] {:frame f})
-      (is (= 25 (rf/compute-sub [:stable/squared] (rf/frame-db f)))
+      (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
           "initial value correct: 5*5 = 25")
       (rf/dispatch-sync [:stable/touch-unrelated] {:frame f})
-      (is (= 25 (rf/compute-sub [:stable/squared] (rf/frame-db f)))
+      (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
           "value still correct after a value-equal app-db replacement"))))
 
 ;; ---- subscription chain ---------------------------------------------------
@@ -413,7 +413,7 @@
     (rf/dispatch-sync [:h! 4])
     ;; The flow transform runs as the outermost :after (before :db
     ;; install) and its output lands in the installed app-db per Spec 013.
-    (is (= 12 (:area (rf/frame-db :rf/default))))))
+    (is (= 12 (:area (rf/app-db-value :rf/default))))))
 
 ;; ---- routing --------------------------------------------------------------
 
@@ -489,7 +489,7 @@
       (rf/dispatch-sync [:rf/hydrate payload])
       ;; Hydrate stashed the metadata.
       (is (= "server-hash-X"
-             (get-in (rf/frame-db :rf/default) [:rf/runtime :ssr :hydration :server-hash])))
+             (get-in (rf/app-db-value :rf/default) [:rf/runtime :ssr :hydration :server-hash])))
       ;; Now simulate the client render producing a different hash.
       (rf/register-listener! ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
@@ -586,8 +586,8 @@
           ;; the :flow machine's snapshot at [:rf/runtime :machines :snapshots :flow]; each
           ;; copy's counter advances independently. Read the counter
           ;; from each frame's snapshot directly.
-          (let [snap-left  (get-in (rf/frame-db :left)  [:rf/runtime :machines :snapshots :flow])
-                snap-right (get-in (rf/frame-db :right) [:rf/runtime :machines :snapshots :flow])]
+          (let [snap-left  (get-in (rf/app-db-value :left)  [:rf/runtime :machines :snapshots :flow])
+                snap-right (get-in (rf/app-db-value :right) [:rf/runtime :machines :snapshots :flow])]
             (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
                 "left frame's :flow snapshot counts one :worker spawn")
             (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
@@ -689,7 +689,7 @@
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "a@b.c" :password "secret"}]]
                             {:frame f})
-          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-db f)))
+          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
               "machine landed in :authed after canned success")
           (is (= "t-1" @stored)
               "session token was stored via the :auth.session/store fx")))
@@ -707,7 +707,7 @@
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "x@y.z" :password "wrong"}]]
                             {:frame f})
-          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/frame-db f)))
+          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
               "guarded multi-clause branch routed to :locked-out on 4th attempt"))))))
 
 (deftest rf-machine-sub
@@ -720,7 +720,7 @@
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
-      (let [db (rf/frame-db f)]
+      (let [db (rf/app-db-value f)]
         ;; Per rf2-gr8q the snapshot carries `:rf/spawn-counter` seeded
         ;; by `synthesise-initial-snapshot`. This machine never spawns,
         ;; so the slot stays empty (`{}`).

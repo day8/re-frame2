@@ -15,7 +15,7 @@
 
   The translator itself (`re-frame.story.recorder.play-export`) stays
   pure. This namespace is the thin impure shell — it depends on
-  `re-frame.core` (for `frame-db` / `dispatch-sync*`) and the
+  `re-frame.core` (for `app-db-value` / `dispatch-sync*`) and the
   runner-events ns (for `run!`), neither of which the translator
   should pull in.
 
@@ -37,7 +37,7 @@
             [re-frame.story.recorder.play-export  :as export]))
 
 ;; ---------------------------------------------------------------------------
-;; Impure: frame-db snapshot
+;; Impure: app-db-value snapshot
 ;; ---------------------------------------------------------------------------
 
 (defn snapshot-frame-db
@@ -46,7 +46,7 @@
   per runner-events convention)."
   [frame-id]
   (try
-    (rf/frame-db frame-id)
+    (rf/app-db-value frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 ;; ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@
 ;; (`:name :auto-assert?` …) and yields the canonical export tuple
 ;; `{:spec ...play-script... :rendered <string>}`.
 ;;
-;; The frame-db snapshot is the caller's job (so the pure path stays
+;; The app-db-value snapshot is the caller's job (so the pure path stays
 ;; pure) — the dialog calls `snapshot-frame-db` itself when
 ;; `:auto-assert?` is on, then threads the result into `:final-db`.
 ;; ---------------------------------------------------------------------------

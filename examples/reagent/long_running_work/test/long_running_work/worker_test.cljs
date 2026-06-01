@@ -40,14 +40,14 @@
 (defn- snapshot
   "Read the parent's machine snapshot from a frame's app-db."
   [frame]
-  (get-in (rf/frame-db frame) [:rf/runtime :machines :snapshots :work/flow]))
+  (get-in (rf/app-db-value frame) [:rf/runtime :machines :snapshots :work/flow]))
 
 (defn- join-state
   "Read the runtime-owned join-state slot at
    [:rf/runtime :machines :spawned :work/flow [:working]]. Returns nil after the
    cascade has cleared it."
   [frame]
-  (get-in (rf/frame-db frame) [:rf/runtime :machines :spawned :work/flow [:working]]))
+  (get-in (rf/app-db-value frame) [:rf/runtime :machines :spawned :work/flow [:working]]))
 
 (defn- new-frame
   "Spin up a fresh test frame. We dispatch :work/flow [:reset] inside the
@@ -153,8 +153,8 @@
       (is (= :working (:state snap)))
       (is (= {:s1 30 :s2 50 :s3 10} (-> snap :data :progress)))
       ;; The aggregate-progress sub: (30+50+10)/(3*100) = 90/300.
-      (is (= 90  (rf/compute-sub [:work/items-done]   (rf/frame-db f))))
-      (is (= 300 (rf/compute-sub [:work/total-items] (rf/frame-db f)))))
+      (is (= 90  (rf/compute-sub [:work/items-done]   (rf/app-db-value f))))
+      (is (= 300 (rf/compute-sub [:work/total-items] (rf/app-db-value f)))))
 
     ;; User clicks Cancel. The parent transitions :working →
     ;; :cancelled; the :spawn-all desugared :exit fires one

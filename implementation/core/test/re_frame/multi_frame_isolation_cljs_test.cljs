@@ -26,7 +26,7 @@
        [[feedback_frames_are_isolated_contexts]] — frames are isolated
        contexts; cross-frame sub computation is an anti-pattern). The
        only correct cross-frame read is the explicit framework API
-       `rf/frame-db` (used by Xray's panel layer, NOT by user
+       `rf/app-db-value` (used by Xray's panel layer, NOT by user
        subs).
     5. Frames can be destroyed independently — destroying `:below`
        leaves `:above`'s app-db / sub-cache / handler resolution
@@ -117,8 +117,8 @@
   (testing "after seed both frames carry {:counter 0 :ticks 0}; each is its own app-db value"
     (install-handlers!)
     (seed-frames!)
-    (let [above-db (rf/frame-db frame-above)
-          below-db (rf/frame-db frame-below)]
+    (let [above-db (rf/app-db-value frame-above)
+          below-db (rf/app-db-value frame-below)]
       (is (= {:counter 0 :ticks 0} above-db)
           ":above carries the seeded shape")
       (is (= {:counter 0 :ticks 0} below-db)
@@ -140,15 +140,15 @@
     ;; Three increments on :above.
     (dotimes [_ 3]
       (rf/dispatch-sync [::counter-inc] {:frame frame-above}))
-    (is (= 3 (:counter (rf/frame-db frame-above)))
+    (is (= 3 (:counter (rf/app-db-value frame-above)))
         ":above's counter advanced to 3 after three ::counter-inc dispatches")
-    (is (= 0 (:counter (rf/frame-db frame-below)))
+    (is (= 0 (:counter (rf/app-db-value frame-below)))
         "ISOLATION VIOLATION — :below's counter changed despite no ::counter-inc against it")
     ;; One increment on :below.
     (rf/dispatch-sync [::counter-inc] {:frame frame-below})
-    (is (= 3 (:counter (rf/frame-db frame-above)))
+    (is (= 3 (:counter (rf/app-db-value frame-above)))
         ":above stays at 3 after the :below dispatch (no cross-frame bleed)")
-    (is (= 1 (:counter (rf/frame-db frame-below)))
+    (is (= 1 (:counter (rf/app-db-value frame-below)))
         ":below advanced to 1 after its single ::counter-inc")))
 
 ;; ---- 3. Clock-tick isolation (Playwright assertions 11, 12) ---------------
@@ -159,14 +159,14 @@
     (seed-frames!)
     (rf/dispatch-sync [::clock-tick] {:frame frame-above})
     (rf/dispatch-sync [::clock-tick] {:frame frame-above})
-    (is (= 2 (:ticks (rf/frame-db frame-above)))
+    (is (= 2 (:ticks (rf/app-db-value frame-above)))
         ":above ticked twice")
-    (is (= 0 (:ticks (rf/frame-db frame-below)))
+    (is (= 0 (:ticks (rf/app-db-value frame-below)))
         "ISOLATION VIOLATION — :below's tick counter changed without a dispatch")
     (rf/dispatch-sync [::clock-tick] {:frame frame-below})
-    (is (= 2 (:ticks (rf/frame-db frame-above)))
+    (is (= 2 (:ticks (rf/app-db-value frame-above)))
         ":above's tick count stays at 2 (no fan-in from :below's tick)")
-    (is (= 1 (:ticks (rf/frame-db frame-below)))
+    (is (= 1 (:ticks (rf/app-db-value frame-below)))
         ":below ticked once")))
 
 ;; ---- 4. Subs scoped to the frame they run inside --------------------------
@@ -199,17 +199,17 @@
 ;; into another frame's app-db. The runtime contract is that
 ;; `with-frame` is the ONLY scoping affordance for subs; there is no
 ;; (sub :other-frame [...]) user-API. Cross-frame reads must go
-;; through the framework's explicit `rf/frame-db` (used by Xray,
+;; through the framework's explicit `rf/app-db-value` (used by Xray,
 ;; not by user subs).
 ;;
 ;; The negative pin here: a sub running under :above does NOT see
 ;; :below's data. The previous test (#4) showed the positive lens-
 ;; follows-frame behaviour; this test shows the absence-of-leakage in
-;; both directions at once and documents `rf/frame-db` as the
+;; both directions at once and documents `rf/app-db-value` as the
 ;; only correct cross-frame read.
 
-(deftest no-cross-frame-sub-leakage-and-frame-db-is-the-only-read
-  (testing "subs scope to their frame; rf/frame-db is the only legitimate cross-frame read"
+(deftest no-cross-frame-sub-leakage-and-app-db-value-is-the-only-read
+  (testing "subs scope to their frame; rf/app-db-value is the only legitimate cross-frame read"
     (install-handlers!)
     (seed-frames!)
     ;; Diverge the two frames so any leak would show up as the wrong
@@ -219,20 +219,20 @@
     ;; Subs scope to their frame — :above sees 5, :below sees 2.
     (is (= 5 (sub-in frame-above [::counter])))
     (is (= 2 (sub-in frame-below [::counter])))
-    ;; rf/frame-db (the explicit framework API) is the only
+    ;; rf/app-db-value (the explicit framework API) is the only
     ;; cross-frame read; it returns the requested frame's app-db
     ;; value REGARDLESS of which frame the caller is "inside".
-    (is (= 5 (:counter (rf/frame-db frame-above)))
-        "rf/frame-db :above returns :above's app-db")
-    (is (= 2 (:counter (rf/frame-db frame-below)))
-        "rf/frame-db :below returns :below's app-db")
-    ;; And running rf/frame-db from inside one frame returns the
+    (is (= 5 (:counter (rf/app-db-value frame-above)))
+        "rf/app-db-value :above returns :above's app-db")
+    (is (= 2 (:counter (rf/app-db-value frame-below)))
+        "rf/app-db-value :below returns :below's app-db")
+    ;; And running rf/app-db-value from inside one frame returns the
     ;; OTHER frame's value — proving the API is frame-id-keyed, not
     ;; ambient-frame-keyed. (This is the Xray panel-layer's read
     ;; path.)
     (rf/with-frame frame-above
-      (is (= 2 (:counter (rf/frame-db frame-below)))
-          "rf/frame-db is frame-id-keyed — works from any ambient frame"))))
+      (is (= 2 (:counter (rf/app-db-value frame-below)))
+          "rf/app-db-value is frame-id-keyed — works from any ambient frame"))))
 
 ;; ---- 6. Frames can be destroyed independently -----------------------------
 ;;
@@ -267,12 +267,12 @@
         (is (identical? above-sub-cache (:sub-cache above-record-post))
             ":above's sub-cache atom is unchanged"))
       ;; :above's app-db value is unchanged.
-      (is (= 4 (:counter (rf/frame-db frame-above)))
+      (is (= 4 (:counter (rf/app-db-value frame-above)))
           ":above's counter still reads 4")
       ;; :above's sub still resolves cleanly.
       (is (= 4 (sub-in frame-above [::counter]))
           ":above's ::counter sub still resolves to 4")
       ;; A new dispatch into :above still routes correctly post-destroy.
       (rf/dispatch-sync [::counter-inc] {:frame frame-above})
-      (is (= 5 (:counter (rf/frame-db frame-above)))
+      (is (= 5 (:counter (rf/app-db-value frame-above)))
           ":above's counter advanced to 5 after a post-destroy dispatch"))))

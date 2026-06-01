@@ -738,7 +738,7 @@
     ;; throwing drain and assert nothing landed.
     (reset! *captured* [])
     (rf/dispatch-sync [:seed])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       ;; Atomicity: the handler's own write does NOT land.
       (is (not (contains? db :n))
           ":n absent — the handler's :db write was discarded (no install)")
@@ -825,7 +825,7 @@
                   :output (fn [_] (throw (ex-info "boom" {})))
                   :path   [:b-out]})
     (rf/dispatch-sync [:n! 5])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :n))
           ":n absent — the handler's write was discarded on the flow throw")
       (is (not (contains? db :a-out))
@@ -834,14 +834,14 @@
           ":b-out absent — the failing flow's slot is never written"))
 
     (rf/dispatch-sync [:n! 7])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :a-out))
           ":a-out still absent after a second failing drain — every drain aborts wholesale")
       (is (not (contains? db :b-out))
           ":b-out still absent across drains"))
 
     (rf/dispatch-sync [:n! 11])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= {} db)
           "app-db remains the empty initial value — no failing drain ever committed anything"))))
 
@@ -885,7 +885,7 @@
           "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw")
       ;; Atomicity contract: the handler's :db write was DISCARDED — the
       ;; event aborted with no install (app-db unchanged).
-      (is (not (contains? (rf/frame-db :rf/default) :n))
+      (is (not (contains? (rf/app-db-value :rf/default) :n))
           ":n absent — the handler's :db did NOT land; a flow throw aborts the event with no install"))))
 
 (deftest fx-after-successful-flow-still-runs
@@ -907,7 +907,7 @@
       (rf/dispatch-sync [:run-with-ok-flow])
       (is (true? @child-fired?)
           "`:after-ok` DID dispatch — :fx walked because the flow succeeded")
-      (is (= 4 (:doubled (rf/frame-db :rf/default)))
+      (is (= 4 (:doubled (rf/app-db-value :rf/default)))
           "flow output landed in app-db (sanity)"))))
 
 (deftest fx-skip-on-flow-throw-still-emits-error-substrate
@@ -972,7 +972,7 @@
       ;; the dispatch (each fx is isolated per Spec 002 §Cascade
       ;; propagation); the drain continues. dispatch-sync returns normally.
       (rf/dispatch-sync [:commit-then-fx-throw])
-      (let [db (rf/frame-db :rf/default)]
+      (let [db (rf/app-db-value :rf/default)]
         (is (= 5 (:n db))
             ":n stayed committed — the handler's :db was installed before the
              post-commit :fx walk; the fx throw does NOT wind it back")
@@ -1281,7 +1281,7 @@
           (str "ordered: :rf.flow/failed (" p-failed ") < :rf.error/flow-eval-exception ("
                p-error ")"))
       ;; app-db is UNCHANGED — nothing the aborted drain produced landed.
-      (let [db (rf/frame-db :rf/default)]
+      (let [db (rf/app-db-value :rf/default)]
         (is (= {} db)
             "app-db is unchanged (empty initial value) — no install on a flow throw")
         (is (not (contains? db :n))

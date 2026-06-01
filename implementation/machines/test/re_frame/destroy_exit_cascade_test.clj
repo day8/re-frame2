@@ -157,7 +157,7 @@
       (rf/dispatch-sync [:ne/final-parent [:rf.machine.spawn/spawned]])
       (is (zero? @exit-fired) "no :exit yet — child still running")
       ;; Drive the child to :final?.
-      (let [spawned-id (get-in (rf/frame-db :rf/default)
+      (let [spawned-id (get-in (rf/app-db-value :rf/default)
                                [:rf/runtime :machines :spawned :ne/final-parent [:working]])]
         (is (some? spawned-id))
         (rf/dispatch-sync [spawned-id [:finish]]))
@@ -169,7 +169,7 @@
       ;; (per Spec 005 — :exit reads, doesn't write, the output slot).
       ;; Our :exit doesn't mutate :counter so this is just a sanity
       ;; check that the existing :on-done contract still holds.
-      (is (= 8 (get-in (get-in (rf/frame-db :rf/default)
+      (is (= 8 (get-in (get-in (rf/app-db-value :rf/default)
                                [:rf/runtime :machines :snapshots :ne/final-parent])
                        [:data :received]))
           ":on-done still received the :output-key slot — contract preserved"))))

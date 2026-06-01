@@ -234,8 +234,8 @@ When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
    mcp__re-frame2-pair__eval-cljs {
-     form: "(let [a (rf/frame-db :story.counter/empty)
-                  b (rf/frame-db :story.counter/loaded)]
+     form: "(let [a (rf/app-db-value :story.counter/empty)
+                  b (rf/app-db-value :story.counter/loaded)]
               (clojure.data/diff a b))"
    }
    ```

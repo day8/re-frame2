@@ -380,7 +380,7 @@ reference:
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
 | `(rf/reset-frame-db! frame-id value)` | Tool-Pair | Used for "try anyway" recovery. |
-| `(rf/frame-db frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
+| `(rf/app-db-value frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
 | `(rf/registrations kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
@@ -705,7 +705,7 @@ framework's `:rf.size/*` namespaced opt keys.
 |---|---|---|---|
 | `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). |
 | `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
-| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/frame-db` (optionally scoped by `:path`). |
+| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:before … :after …}}` | Reads `:db-before` + `:db-after` off a named epoch record. Heavier nested-diff projection lives MCP-side. |
 | `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <edn>}` | `rf/machine-meta` for the registered machine spec. |
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |

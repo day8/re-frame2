@@ -28,7 +28,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- seed-snapshot!
   "Force the snapshot for `machine-id` to a known value via an event-db.

@@ -142,7 +142,7 @@
       (is (= :headless (:boundary res)))
       ;; The entire synchronous cascade has settled — all three hops are
       ;; present immediately, no async tick required.
-      (is (= [:a :b :c] (:hops (rf/frame-db bf)))
+      (is (= [:a :b :c] (:hops (rf/app-db-value bf)))
           "queued re-dispatches drained to fixed point before return"))))
 
 (deftest headless-refuses-dom-required-step
@@ -175,7 +175,7 @@
       (let [res (boundary/dispatch-and-settle! bf [:dom/click] hooks :dom [:click "b"])]
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
-        (is (true? (:clicked (rf/frame-db bf))) "event dispatched")
+        (is (true? (:clicked (rf/app-db-value bf))) "event dispatched")
         (is (= [:headless :reactive :dom] @flushed)
             "flushes run in ladder order up to and including the required boundary")))))
 
@@ -217,7 +217,7 @@
         (is (not= :settled (:status res)) "a flush timeout is never a settled pass")
         (is (empty? @ran)
             "the over-budget flush phase ran no flush fn (deadline already past)")
-        (is (true? (:fired (rf/frame-db bf)))
+        (is (true? (:fired (rf/app-db-value bf)))
             "the event was dispatched before the bounded flush phase refused")))))
 
 (deftest timeout-ms-generous-budget-settles-normally
@@ -236,7 +236,7 @@
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
         (is (= [:reactive :dom] @ran) "all flushes ran under a generous budget")
-        (is (true? (:ok (rf/frame-db bf))))))))
+        (is (true? (:ok (rf/app-db-value bf))))))))
 
 (deftest no-timeout-ms-is-unbounded
   (testing "with no :timeout-ms the flush phase is unbounded — settlement
@@ -255,5 +255,5 @@
          :fx [[:dispatch [:seed/bump]]]}))
     (rf/reg-event-db :seed/bump (fn [db _] (update db :n inc)))
     (boundary/drain-sync! bf [:seed/start])
-    (is (= 1 (:n (rf/frame-db bf)))
+    (is (= 1 (:n (rf/app-db-value bf)))
         "the queued :seed/bump drained synchronously within drain-sync!")))

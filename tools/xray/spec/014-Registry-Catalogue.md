@@ -86,7 +86,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.xray/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:rf.privacy/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
-| `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/frame-db`). | Every settled epoch on the target frame. |
+| `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/app-db-value`). | Every settled epoch on the target frame. |
 | `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/event-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
 
 ### Events
@@ -165,7 +165,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | `:rf.xray/dismiss-pin-overflow-toast` | `[_]` | Dismisses the cap-reached toast. |
 | `:rf.xray/bump-restore-epoch-tick` | `[_]` | Internal no-trace event dispatched by the restore fx after each restore attempt; increments `:restore-epoch-tick` so the failure sub recomputes. |
 | `:rf.xray/reset-to-epoch` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/restore-epoch {:frame-id ... :epoch-id ...}]]}`. The confirmed-rewind branch (per spec §rewind = explicit). |
-| `:rf.xray/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/reset-frame-db! {:frame-id ... :frame-db ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
+| `:rf.xray/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/reset-frame-db! {:frame-id ... :app-db-value ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
 | `:rf.xray/set-target-frame` | `[_ frame-id]` | Sets the active target frame for the scrubber and refreshes `:epoch-history` from `(rf/epoch-history target)`. `nil` resets to the default target. Mirrored by `core/set-target-frame!` from the public CLJS API. |
 | `:rf.xray/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector AND focuses the LATEST seeded epoch — stamps the spine `[:focus :epoch-id]` (surfaced by `compose-focus` when no live cascade head is present) plus the `:selected-epoch-id` shim to `(:epoch-id (peek history))`; an empty `history` clears both. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read, and from history-only seeds (the panel-gallery Story variants) where no trace buffer exists for the trace-driven auto-follow to act on — without the head-focus the focus-keyed Dynamic panels (App-db, Epoch, …) would render their "nothing focused" empty-state (rf2-mdpfz). When a live trace buffer IS also seeded, `compose-focus`'s LIVE auto-follow re-derives `:epoch-id` from the head cascade; this stamp is authoritative only for history-only seeds. |
 | `:rf.xray/time-travel-set-label-input` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:label-input` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
@@ -175,14 +175,14 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | Fx | Args | Behaviour |
 |---|---|---|
 | `:rf.xray.fx/restore-epoch` | `{:frame-id :epoch-id}` | Calls `rf/restore-epoch`, writes `{:ok? :frame-id :epoch-id}` to the module-scope restore result atom, dispatches `:rf.xray/bump-restore-epoch-tick`, and clears `:rf.xray/selected-epoch-id` on failure. The indirection lets test fixtures stub the write and lets Xray surface failed confirmed rewinds inline. |
-| `:rf.xray.fx/reset-frame-db!` | `{:frame-id :frame-db}` | Thin delegation to `rf/reset-frame-db!`. |
+| `:rf.xray.fx/reset-frame-db!` | `{:frame-id :app-db-value}` | Thin delegation to `rf/reset-frame-db!`. |
 
 ## App-DB Diff panel
 
 Spec: [`004-App-DB-Diff.md`](./004-App-DB-Diff.md).
 
 Slice-centric `app-db` inspector. Reads the host frame's `app-db` via
-`rf/frame-db` + the target-frame's epoch-history; produces the
+`rf/app-db-value` + the target-frame's epoch-history; produces the
 `[op path before after]` diff triples the view consumes.
 
 ### Subscriptions

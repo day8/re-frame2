@@ -46,7 +46,7 @@
   "Read the machine's :tags union against a frame's app-db."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :ws/connection tag]
-                  (rf/frame-db frame)))
+                  (rf/app-db-value frame)))
 
 (defn- new-frame []
   ;; Suppress the real `:dispatch-later` fx — the connection machine's
@@ -81,7 +81,7 @@
 (defn initial-state-test []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/connection [:ws/noop]] {:frame f})
-    (let [s (snapshot (rf/frame-db f))]
+    (let [s (snapshot (rf/app-db-value f))]
       (assert (= :disconnected (:state s))
               (str "expected :disconnected got " (pr-str (:state s))))
       (assert (= [] (get-in s [:data :queue])))
@@ -100,7 +100,7 @@
                           {:frame f})
         ;; Sync-mode mock: the actor's open-then-send-auth-then-auth-ok
         ;; chain runs to completion inside the dispatch-sync stack.
-        (let [s (snapshot (rf/frame-db f))]
+        (let [s (snapshot (rf/app-db-value f))]
           (assert (= [:active :connected] (:state s))
                   (str "expected [:active :connected] got " (:state s)))
           (assert (true?  (machine-has-tag? f :websocket/connected)))
@@ -124,7 +124,7 @@
         (rf/dispatch-sync [:ws/connection
                            [:ws/send {:type :note :body "B"}]]
                           {:frame f})
-        (let [s (snapshot (rf/frame-db f))]
+        (let [s (snapshot (rf/app-db-value f))]
           (assert (= :disconnected (:state s)))
           (assert (= 2 (count (get-in s [:data :queue]))))
           (assert (= [{:type :note :body "A"}
@@ -137,7 +137,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [s (snapshot (rf/frame-db f))]
+        (let [s (snapshot (rf/app-db-value f))]
           (assert (true? (machine-has-tag? f :websocket/connected)))
           (assert (= [] (get-in s [:data :queue]))
                   ":connected entry's :flush-queue :always drained the queue"))))))
@@ -152,14 +152,14 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (assert (true? (machine-has-tag? f :websocket/connected)))
-        (let [pre-snap   (snapshot (rf/frame-db f))
+        (let [pre-snap   (snapshot (rf/app-db-value f))
               pre-socket (get-in pre-snap [:data :socket-id])]
           (assert (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
           ;; (with the source-socket-id) into the actor, which forwards
           ;; to the parent.
           (messages/simulate-disconnect!)
-          (let [s (snapshot (rf/frame-db f))]
+          (let [s (snapshot (rf/app-db-value f))]
             (assert (= :reconnecting (:state s))
                     (str "expected :reconnecting got " (:state s)))
             (assert (true?  (machine-has-tag? f :websocket/reconnecting)))
@@ -176,7 +176,7 @@
           ;; the resolved-delay-ms as the second slot. Look up the
           ;; current :after-epoch from :data and fire the after-elapsed
           ;; event keyed by the fn-form spec.
-          (let [snap-now (snapshot (rf/frame-db f))
+          (let [snap-now (snapshot (rf/app-db-value f))
                 ;; Per Spec 005 §Hierarchy interaction the epoch is
                 ;; per-decl-path; :reconnecting is the :after-bearing node.
                 epoch    (get-in snap-now [:data :rf/after-epoch [:reconnecting]])
@@ -204,7 +204,7 @@
           ;; After firing the :after timer the machine re-enters :active.
           ;; In sync-mode the open-auth-ok cascade runs to :connected
           ;; inside the synthetic-timer dispatch.
-          (let [s (snapshot (rf/frame-db f))]
+          (let [s (snapshot (rf/app-db-value f))]
             ;; Either :active is re-entered (and in sync-mode runs to
             ;; :connected) OR the synthetic event was dropped as stale
             ;; (in which case the test asserts the precondition only).
@@ -235,7 +235,7 @@
         ;; Seed the snapshot's :data :retries past :max-retries via a
         ;; direct write to the machine's :data slot. This is a test
         ;; helper — production code never does this.
-        (let [db (rf/frame-db f)
+        (let [db (rf/app-db-value f)
               max-retries (get-in db [:rf/runtime :machines :snapshots :ws/connection :data :max-retries])
               new-db (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
                                 assoc :retries (inc max-retries))]
@@ -243,12 +243,12 @@
             (re-frame.frame/app-db-container f) new-db))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
-        (let [snap-before (snapshot (rf/frame-db f))]
+        (let [snap-before (snapshot (rf/app-db-value f))]
           (rf/dispatch-sync [:ws/connection
                              [:ws/closed {:source-socket-id (get-in snap-before [:data :socket-id])
                                           :code 1006}]]
                             {:frame f}))
-        (let [s (snapshot (rf/frame-db f))]
+        (let [s (snapshot (rf/app-db-value f))]
           (assert (= :failed (:state s))
                   (str "expected :failed got " (:state s)
                        " retries=" (get-in s [:data :retries])
@@ -262,29 +262,29 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [live-socket-id (get-in (snapshot (rf/frame-db f))
+        (let [live-socket-id (get-in (snapshot (rf/app-db-value f))
                                      [:data :socket-id])
               stale-id       (str "stale-" (random-uuid))]
           ;; A :ws/received event with a stale source-socket-id is
           ;; dropped by :current-socket?. The :messages slice doesn't
           ;; gain the body.
           (assert (not= stale-id live-socket-id))
-          (let [pre-msgs (count (get-in (rf/frame-db f) [:messages :received]))]
+          (let [pre-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
             (rf/dispatch-sync [:ws/connection
                                [:ws/received {:source-socket-id stale-id
                                               :body {:type :stale-push}}]]
                               {:frame f})
-            (let [post-msgs (count (get-in (rf/frame-db f) [:messages :received]))]
+            (let [post-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
               (assert (= pre-msgs post-msgs)
                       "stale :ws/received was suppressed by :current-socket?")))
           ;; A :ws/received event with the LIVE source-socket-id lands
           ;; — the :messages slice grows.
-          (let [pre-msgs (count (get-in (rf/frame-db f) [:messages :received]))]
+          (let [pre-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
             (rf/dispatch-sync [:ws/connection
                                [:ws/received {:source-socket-id live-socket-id
                                               :body {:type :live-push :note "hi"}}]]
                               {:frame f})
-            (let [post-msgs (count (get-in (rf/frame-db f) [:messages :received]))]
+            (let [post-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
               (assert (= (inc pre-msgs) post-msgs)
                       "live :ws/received passed the :current-socket? guard"))))))))
 
@@ -299,13 +299,13 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "old-token"}]]
                           {:frame f})
-        (assert (= "old-token" (get-in (snapshot (rf/frame-db f))
+        (assert (= "old-token" (get-in (snapshot (rf/app-db-value f))
                                        [:data :auth-token])))
         ;; Refresh from :connected.
         (rf/dispatch-sync [:ws/connection
                            [:ws/refresh-token "new-token"]]
                           {:frame f})
-        (assert (= "new-token" (get-in (snapshot (rf/frame-db f))
+        (assert (= "new-token" (get-in (snapshot (rf/app-db-value f))
                                        [:data :auth-token])))))))
 
 (defn disconnect-cleanly-test []
@@ -318,7 +318,7 @@
                           {:frame f})
         (assert (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
-        (let [s (snapshot (rf/frame-db f))]
+        (let [s (snapshot (rf/app-db-value f))]
           (assert (= :disconnected (:state s)))
           (assert (false? (machine-has-tag? f :websocket/connected)))
           (assert (false? (machine-has-tag? f :websocket/reconnecting)))

@@ -202,10 +202,10 @@
       (is (play/play-stepper-active? :story.stepper/v))
       (let [s1 (play/step-once! :story.stepper/v)]
         (is (= [:dispatch-sync [:step/one]] s1))
-        (is (true? (-> (rf/frame-db :story.stepper/v) :one?))))
+        (is (true? (-> (rf/app-db-value :story.stepper/v) :one?))))
       (let [s2 (play/step-once! :story.stepper/v)]
         (is (= [:dispatch-sync [:step/two]] s2))
-        (is (true? (-> (rf/frame-db :story.stepper/v) :two?))))
+        (is (true? (-> (rf/app-db-value :story.stepper/v) :two?))))
       ;; Stepper exhausted.
       (is (nil? (play/step-once! :story.stepper/v)))
       (play/end-stepper! :story.stepper/v)

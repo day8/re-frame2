@@ -40,7 +40,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- (1) `parallel/build-initial-snapshot` unit contract -------------------
 ;;
@@ -102,7 +102,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
-      (let [spawned-id (get-in (rf/frame-db :rf/default)
+      (let [spawned-id (get-in (rf/app-db-value :rf/default)
                                [:rf/runtime :machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (= :worker/proc#1 spawned-id) "(precondition) spawn happened")
@@ -129,7 +129,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
-      (let [spawned-id (get-in (rf/frame-db :rf/default)
+      (let [spawned-id (get-in (rf/app-db-value :rf/default)
                                [:rf/runtime :machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (some? child-snap) "(precondition) snapshot installed")

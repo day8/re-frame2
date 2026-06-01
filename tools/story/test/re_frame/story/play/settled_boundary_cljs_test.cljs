@@ -62,7 +62,7 @@
                 :headless [:dispatch [:cljs.chain/a]])]
       (is (= :settled (:status res)))
       (is (= :headless (:boundary res)))
-      (is (= [:a :b :c] (:hops (rf/frame-db bf)))
+      (is (= [:a :b :c] (:hops (rf/app-db-value bf)))
           "the queued re-dispatch cascade drained to fixed point before return"))))
 
 (deftest cljs-headless-refuses-dom-step

@@ -89,13 +89,13 @@
       ;; for the in-flight event.
       (is (= [[:v1-start :a] [:v1-end :a]] @observations)
           "in-flight handler ran v1 body to completion")
-      (is (= :v1 (:ran-version (rf/frame-db :rf/default)))
+      (is (= :v1 (:ran-version (rf/app-db-value :rf/default)))
           ":db effect from the v1 closure committed")
       ;; The next dispatch picks up the new body via fresh registry lookup.
       (rf/dispatch-sync [:step :b])
       (is (= [[:v1-start :a] [:v1-end :a] [:v2 :b]] @observations)
           "post-drain dispatches resolve to v2")
-      (is (= :v2 (:ran-version (rf/frame-db :rf/default)))
+      (is (= :v2 (:ran-version (rf/app-db-value :rf/default)))
           ":db effect from v2 committed for the post-drain event")))
 
   (testing "in a multi-event chain, the handler currently executing keeps its
@@ -118,12 +118,12 @@
       (rf/dispatch-sync [:tick 1])
       (is (= [[:v1-pre 1] [:v1-post 1]] @observations)
           "handler's body completes against its captured v1 fn")
-      (is (= :v1 (:seen-version (rf/frame-db :rf/default))))
+      (is (= :v1 (:seen-version (rf/app-db-value :rf/default))))
       ;; A subsequent dispatch sees the new body.
       (rf/dispatch-sync [:tick 2])
       (is (= [[:v1-pre 1] [:v1-post 1] [:v2 2]] @observations)
           "the next dispatch resolves the new v2 body")
-      (is (= :v2 (:seen-version (rf/frame-db :rf/default)))))))
+      (is (= :v2 (:seen-version (rf/app-db-value :rf/default)))))))
 
 ;; ---- (2) :sub re-register evicts cache across all frames -----------------
 
@@ -191,7 +191,7 @@
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     ;; Capture pre-reregistration state.
-    (let [pre-db          (rf/frame-db :tenant)
+    (let [pre-db          (rf/app-db-value :tenant)
           pre-snapshot    (get-in pre-db [:rf/runtime :machines :snapshots :traffic-light])
           pre-app-db-cont (frame/app-db-container :tenant)]
       (is (= :yellow (:state pre-snapshot))
@@ -206,7 +206,7 @@
       (is (identical? pre-app-db-cont (frame/app-db-container :tenant))
           "frame's app-db container is preserved (same identity)")
       ;; The [:rf/runtime :machines :snapshots] snapshot is preserved verbatim.
-      (let [post-db (rf/frame-db :tenant)]
+      (let [post-db (rf/app-db-value :tenant)]
         (is (= pre-snapshot
                (get-in post-db [:rf/runtime :machines :snapshots :traffic-light]))
             "machine snapshot is preserved across frame re-registration"))
@@ -218,7 +218,7 @@
           "new :version key is present in the merged metadata")
       ;; The machine still progresses against its preserved snapshot.
       (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
-      (let [final-snapshot (get-in (rf/frame-db :tenant)
+      (let [final-snapshot (get-in (rf/app-db-value :tenant)
                                    [:rf/runtime :machines :snapshots :traffic-light])]
         (is (= :red (:state final-snapshot))
             "post-rereg :tick advances :yellow → :red — snapshot was live")

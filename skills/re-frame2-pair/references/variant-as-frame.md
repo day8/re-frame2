@@ -51,7 +51,7 @@ Use Idiom 1 for long sessions inside one variant; Idiom 2 for cross-variant work
 
 Each variant has its own isolated copy of every per-frame surface. State does not leak between variants — that's the whole point.
 
-- **`app-db`** — each variant starts with `{}` (or whatever loaders + events populate). `(rf/frame-db :story.counter/loaded)` and `:story.counter/empty` return independent values.
+- **`app-db`** — each variant starts with `{}` (or whatever loaders + events populate). `(rf/app-db-value :story.counter/loaded)` and `:story.counter/empty` return independent values.
 - **Epoch history** — `(rf/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's history.
 - **Sub cache** — `(rf/sub-cache)` is per-frame; `[:count]` materialised in `:story.counter/loaded` is independent of `[:count]` materialised in `:story.counter/empty`.
 - **Trace events** — `:frame` is stamped on every emitted trace event (Spec 009 §Per-frame stamping). Filter raw trace by `{:frame :story.counter/loaded}` to scope.

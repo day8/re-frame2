@@ -537,7 +537,7 @@
 ;;                         (deftest something
 ;;                           (async done
 ;;                             (-> (test-support/poll-until
-;;                                   #(some? (rf/frame-db :rf/default)))
+;;                                   #(some? (rf/app-db-value :rf/default)))
 ;;                                 (.then (fn [db] (is (...)) (done)))
 ;;                                 (.catch (fn [e] (is false (.-message e))
 ;;                                                 (done))))))
@@ -619,7 +619,7 @@
          (deftest drains
            (async done
              (-> (test-support/poll-until
-                   #(= 3 (:n (rf/frame-db :rf/default)))
+                   #(= 3 (:n (rf/app-db-value :rf/default)))
                    {:label \"counter reached 3\"})
                  (.then (fn [_] (is (= 3 ...)) (done)))
                  (.catch (fn [e] (is false (.-message e)) (done))))))"

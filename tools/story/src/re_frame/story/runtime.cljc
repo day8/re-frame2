@@ -412,7 +412,7 @@
 (defn read-assertions
   "Return the assertions vector for `variant-id`'s frame, or `[]`."
   [variant-id]
-  (or (:rf.story/assertions (rf/frame-db variant-id)) []))
+  (or (:rf.story/assertions (rf/app-db-value variant-id)) []))
 
 ;; ---- run-variant ---------------------------------------------------------
 ;;
@@ -577,7 +577,7 @@
   same result through one path."
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script
            plan runner-selection]} start-ms]
-  (let [app-db   (rf/frame-db variant-id)
+  (let [app-db   (rf/app-db-value variant-id)
         ;; rf2-5x1wt.19 follow-through — read the epoch tape through the
         ;; late-bound `re-frame.core/epoch-history` facade (mirroring
         ;; `re-frame.story.artifact`'s replay-path read), NOT a hard
@@ -789,7 +789,7 @@
   [{:keys [variant-id plan] :as ctx}]
   (when-let [seed (not-empty (get-in plan [:world :db-seed]))]
     (rf/dispatch-sync [::apply-db-seed seed] {:frame variant-id})
-    (let [violations (db-seed-violations variant-id (rf/frame-db variant-id))]
+    (let [violations (db-seed-violations variant-id (rf/app-db-value variant-id))]
       (when (seq violations)
         (throw (ex-info
                  (str "re-frame2-story: variant " variant-id

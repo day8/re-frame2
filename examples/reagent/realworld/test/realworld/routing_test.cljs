@@ -9,20 +9,20 @@
 (defn routing-tests []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
-    (assert (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-db f))))
-    (assert (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/frame-db f)))))
+    (assert (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+    (assert (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/app-db-value f)))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (assert (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-db f))))
+    (assert (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
-    (assert (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-db f))))
+    (assert (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/?tag=clojure"] {:frame f})
-    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-db f)))))
+    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/garbage/path"] {:frame f})
-    (assert (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-db f))))))
+    (assert (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))))
 
 (defn auth-guard-test []
   ;; The auth-guard is a plain interceptor (Spec 012 §Redirects and
@@ -34,16 +34,16 @@
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
-    (assert (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-db f)))
+    (assert (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
             "unauthenticated nav to a :requires-auth route redirects to login")
 
     ;; A non-guarded route is unaffected by the guard.
     (rf/dispatch-sync [:rf.route/navigate :realworld/home {}] {:frame f})
-    (assert (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-db f)))
+    (assert (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
             "unguarded route navigates normally with the guard installed")
 
     ;; Authenticated: the same guarded nav now proceeds.
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
-    (assert (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-db f)))
+    (assert (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
             "authenticated nav to a :requires-auth route proceeds")))

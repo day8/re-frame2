@@ -186,4 +186,4 @@
       (let [acc (drain! frame (rt/sync-rf))]
         (is (= 5 (count (:steps acc))))
         (is (= {:n 1} (:db acc))
-            "frame-db is constant across envelopes in the scaffold")))))
+            "app-db is constant across envelopes in the scaffold")))))

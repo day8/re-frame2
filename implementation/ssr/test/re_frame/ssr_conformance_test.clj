@@ -576,7 +576,7 @@
       ;; ---- assertion gathering -----------------------------------------
       (let [expect        (or (:fixture/expect fixture) {})
             expected-db   (:final-app-db expect)
-            final-db      (rf/frame-db :rf/default)
+            final-db      (rf/app-db-value :rf/default)
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]

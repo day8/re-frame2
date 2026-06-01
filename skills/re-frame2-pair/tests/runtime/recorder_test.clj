@@ -202,7 +202,7 @@
       (is (not (str/includes? recorder-src mutator))
           (str "recorder must be read-only — found mutator " mutator)))
     (testing "the signal samplers DO read"
-      (is (str/includes? recorder-src "frame-db") "reads app-db")
+      (is (str/includes? recorder-src "app-db-value") "reads app-db")
       (is (str/includes? recorder-src "querySelector") "reads the DOM")
       (is (str/includes? recorder-src "activeElement") "reads focus"))))
 

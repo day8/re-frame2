@@ -155,7 +155,7 @@
     (is (some? (registrar/lookup :event :test.6z20/foo))
         "the event handler is reachable via registrar/lookup pre-clear")
     (rf/dispatch-sync [:test.6z20/foo])
-    (is (true? (:touched? (rf/frame-db :rf/default)))
+    (is (true? (:touched? (rf/app-db-value :rf/default)))
         "the handler ran when registered")
 
     ;; Clear.
@@ -223,7 +223,7 @@
     (let [recorded (record-traces! ::bad-string)]
       (rf/reg-event-fx :test.k3bj/string-return
         (fn [_ _] "hello"))
-      (let [db-before (rf/frame-db :rf/default)]
+      (let [db-before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:test.k3bj/string-return])
         (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
           (is (= 1 (count errs))
@@ -236,7 +236,7 @@
             (is (string? (:reason t)))
             (is (re-find #"non-map" (:reason t))))
           (is (= :no-recovery (:recovery (first errs)))))
-        (is (= db-before (rf/frame-db :rf/default))
+        (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a no-op recovery"))))
 
   (testing "handler returning a number emits :rf.error/effect-handler-bad-return"
@@ -262,11 +262,11 @@
     (let [recorded (record-traces! ::nil-quiet)]
       (rf/reg-event-fx :test.k3bj/nil-return
         (fn [_ _] nil))
-      (let [db-before (rf/frame-db :rf/default)]
+      (let [db-before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:test.k3bj/nil-return])
         (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
             "nil is the documented no-op return and must not fire the bad-return error")
-        (is (= db-before (rf/frame-db :rf/default))
+        (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a nil-return no-op")))))
 
 (deftest reg-event-fx-map-return-still-works
@@ -277,7 +277,7 @@
       (rf/dispatch-sync [:test.k3bj/map-return])
       (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
           "a map return must not fire the bad-return error")
-      (is (true? (:k3bj/touched? (rf/frame-db :rf/default)))
+      (is (true? (:k3bj/touched? (rf/app-db-value :rf/default)))
           ":db was applied as the effect-map specifies"))))
 
 ;; ---- normalise-args: all four documented user-facing shapes (rf2-fuudi) --
@@ -305,7 +305,7 @@
       (rf/reg-event-db :test.fuudi/shape-1
         (fn [db _] (assoc db :test.fuudi/touched-1? true)))
       (rf/dispatch-sync [:test.fuudi/shape-1])
-      (is (true? (:test.fuudi/touched-1? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-1)]
         (is (= :db (:event/kind meta)))
         (is (= 1 (count (:interceptors meta)))
@@ -316,7 +316,7 @@
         {:doc "metadata-only middle slot"}
         (fn [db _] (assoc db :test.fuudi/touched-2? true)))
       (rf/dispatch-sync [:test.fuudi/shape-2])
-      (is (true? (:test.fuudi/touched-2? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/touched-2? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
         (is (= "metadata-only middle slot" (:doc meta))
             ":doc from the metadata-map is retained on the registry entry")
@@ -328,7 +328,7 @@
         [marker]
         (fn [db _] (assoc db :test.fuudi/touched-3? true)))
       (rf/dispatch-sync [:test.fuudi/shape-3])
-      (is (true? (:test.fuudi/touched-3? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/touched-3? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-3)
             ids  (mapv :id (:interceptors meta))]
         (is (= [:test.fuudi/marker :rf/db-handler] ids)
@@ -343,7 +343,7 @@
         [marker]
         (fn [db _] (assoc db :test.fuudi/touched-4? true)))
       (rf/dispatch-sync [:test.fuudi/shape-4])
-      (is (true? (:test.fuudi/touched-4? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/touched-4? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
             ids  (mapv :id (:interceptors meta))]
         (is (= "metadata AND positional interceptors" (:doc meta))
@@ -363,7 +363,7 @@
         [marker]
         (fn [_ _] {:db {:test.fuudi/fx-touched? true}}))
       (rf/dispatch-sync [:test.fuudi/fx-shape-4])
-      (is (true? (:test.fuudi/fx-touched? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/fx-touched? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/fx-shape-4)
             ids  (mapv :id (:interceptors meta))]
         (is (= :fx (:event/kind meta)))
@@ -382,7 +382,7 @@
             (interceptor/assoc-effect ctx :db
                                       (assoc db :test.fuudi/ctx-touched? true)))))
       (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
-      (is (true? (:test.fuudi/ctx-touched? (rf/frame-db :rf/default))))
+      (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
             ids  (mapv :id (:interceptors meta))]
         (is (= :ctx (:event/kind meta)))

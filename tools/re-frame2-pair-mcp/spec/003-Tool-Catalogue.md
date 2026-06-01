@@ -2,7 +2,7 @@
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
-> primitives (`frame-db`, `epoch-history`, `register-listener!`,
+> primitives (`app-db-value`, `epoch-history`, `register-listener!`,
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
@@ -1308,7 +1308,7 @@ lines 79-137):
 Coarse-grained per-frame state read in **one round-trip**. The mega-op
 for investigate-X workflows that would otherwise chain 5-10 individual
 reads. Server-side composition over the existing per-slice runtime
-readers (`frame-db`, `sub-cache`, `machines` + frame-local
+readers (`app-db-value`, `sub-cache`, `machines` + frame-local
 `[:rf/runtime :machines :snapshots]`, `epoch-history`, `trace-buffer`); no parallel
 implementation.
 
@@ -2175,7 +2175,7 @@ Unlike the other read tools, `list-streams` reads the runtime's
 internal subscription registry rather than routing through one of the
 Tool-Pair primitives listed in the intro — its peer surface is the
 streaming registry that `subscribe` / `unsubscribe` mutate, not the
-frame-db / epoch-history / trace-buffer / sub-cache surfaces.
+app-db-value / epoch-history / trace-buffer / sub-cache surfaces.
 
 > **NOT the reactive sub-cache.** For "what reactive subscriptions are
 > currently active in a frame?" use

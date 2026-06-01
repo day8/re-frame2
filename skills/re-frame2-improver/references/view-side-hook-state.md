@@ -21,7 +21,7 @@ The re-frame2 mental model has one source of truth per frame: `app-db`. Subs pro
 - **Invisible to events** — handlers cannot consult the value as part of their decision (they'd have to reach into the view module, breaking the data-flow direction).
 - **Invisible to tools** — Xray's tabs and re-frame2-pair's `app-db` reads + time-travel surfaces see only `app-db` plus the runtime trace/epoch surfaces. A view-side atom is dark to every diagnostic.
 - **Invisible to SSR / Story / replay** — the story artefact serialises `app-db`; the view-atom is reconstructed only when the view mounts, and its value at render time is not what produced the snapshot.
-- **Not testable** — `compute-sub` (and `dispatch-sync` + `frame-db` for events) operate on `app-db` values; a test for "what does the view show when state is X" requires mounting the view to set the atom.
+- **Not testable** — `compute-sub` (and `dispatch-sync` + `app-db-value` for events) operate on `app-db` values; a test for "what does the view show when state is X" requires mounting the view to set the atom.
 
 A `reagent/atom` is legitimate when its state is **render-local** — a hovered-over flag, an in-flight input draft that never leaves the component, an animation tick. The smell is using it as a stand-in for `app-db`.
 

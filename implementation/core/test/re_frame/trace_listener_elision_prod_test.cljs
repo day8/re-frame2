@@ -53,7 +53,7 @@
       ;; The handler still runs (router is not elision-gated; only the
       ;; trace surface is).
       (rf/dispatch-sync [:prod/ping])
-      (is (= true (:pinged? (rf/frame-db :rf/default)))
+      (is (= true (:pinged? (rf/app-db-value :rf/default)))
           "the handler ran — only the trace surface is gated, not dispatch")
       (is (empty? @seen)
           "no events observed — Spec 009 §Production builds elision contract holds")

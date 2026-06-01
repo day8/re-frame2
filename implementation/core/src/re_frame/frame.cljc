@@ -195,7 +195,7 @@
   only: tools, tests, and core machinery that need to call
   `read-container` / `replace-container!` against the cell.
 
-  Distinct from `re-frame.core/frame-db`, which returns the deref'd
+  Distinct from `re-frame.core/app-db-value`, which returns the deref'd
   app-db **value** (a plain map). User handlers receive `db` via cofx.
 
   Returns `nil` when the frame is not registered or has been destroyed."

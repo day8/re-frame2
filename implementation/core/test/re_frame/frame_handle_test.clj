@@ -1,7 +1,7 @@
 (ns re-frame.frame-handle-test
   "Design-pinning tests for the frame-affordance redesign (rf2-kkut0.1):
   `frame-handle` (the keystone OPERATION BUNDLE), `frame-bound-fn` /
-  `frame-bound-fn*`, `current-frame-id`, `frame-db`, and the absence of
+  `frame-bound-fn*`, `current-frame-id`, `app-db-value`, and the absence of
   the removed public names (`bound-fn`, `dispatcher`, `subscriber`,
   `get-frame-db`, `current-frame`). Per Spec 002 §frame-handle and
   `re-frame.core.cljc`.
@@ -58,11 +58,11 @@
       ;; route to :fh/A.
       (dispatch [:fh/inc])
       (dispatch [:fh/inc])
-      (test-support/poll-until #(= 2 (:n (rf/frame-db :fh/A)))
+      (test-support/poll-until #(= 2 (:n (rf/app-db-value :fh/A)))
                                {:label "captured handle drains to :fh/A"})
-      (is (= 2 (:n (rf/frame-db :fh/A)))
+      (is (= 2 (:n (rf/app-db-value :fh/A)))
           "the captured handle routed events to :fh/A after the scope unwound")
-      (is (nil? (:n (rf/frame-db :rf/default)))
+      (is (nil? (:n (rf/app-db-value :rf/default)))
           ":rf/default's app-db was NOT touched — capture is frame-faithful"))))
 
 (deftest frame-handle-subscribe-captures-frame
@@ -89,11 +89,11 @@
     (let [{:keys [dispatch]} (rf/frame-handle :fh/locked)]
       ;; Attempt to redirect to :fh/other via a per-call :frame opt.
       (dispatch [:fh/touch] {:frame :fh/other})
-      (test-support/poll-until #(:touched? (rf/frame-db :fh/locked))
+      (test-support/poll-until #(:touched? (rf/app-db-value :fh/locked))
                                {:label "locked handle drains to :fh/locked"})
-      (is (true? (:touched? (rf/frame-db :fh/locked)))
+      (is (true? (:touched? (rf/app-db-value :fh/locked)))
           "the event landed in the CAPTURED frame :fh/locked")
-      (is (nil? (:touched? (rf/frame-db :fh/other)))
+      (is (nil? (:touched? (rf/app-db-value :fh/other)))
           "the per-call :frame :fh/other was IGNORED — the handle is locked"))))
 
 ;; ---- contract: (frame-handle) outside any with-frame captures :rf/default --
@@ -105,9 +105,9 @@
       (is (= :rf/default (:frame h))
           "the captured :frame is :rf/default outside any with-frame")
       ((:dispatch h) [:fh/default-touch])
-      (test-support/poll-until #(:touched? (rf/frame-db :rf/default))
+      (test-support/poll-until #(:touched? (rf/app-db-value :rf/default))
                                {:label "default handle drains to :rf/default"})
-      (is (true? (:touched? (rf/frame-db :rf/default)))
+      (is (true? (:touched? (rf/app-db-value :rf/default)))
           "the handle outside any with-frame routes to :rf/default"))))
 
 ;; ---- frame-bound-fn (macro) + frame-bound-fn* (fn, both arities) ---------
@@ -121,9 +121,9 @@
                (rf/frame-bound-fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "the with-frame scope has unwound")
       (cb)
-      (test-support/poll-until #(= 1 (:n (rf/frame-db :fbf/A)))
+      (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/A)))
                                {:label "frame-bound-fn macro drains to :fbf/A"})
-      (is (= 1 (:n (rf/frame-db :fbf/A)))
+      (is (= 1 (:n (rf/app-db-value :fbf/A)))
           "the macro re-established :fbf/A inside the body"))))
 
 (deftest frame-bound-fn*-one-arity-captures-frame
@@ -133,9 +133,9 @@
     (let [cb (rf/with-frame :fbf/B
                (rf/frame-bound-fn* (fn [] (rf/dispatch [:fbf/inc]))))]
       (cb)
-      (test-support/poll-until #(= 1 (:n (rf/frame-db :fbf/B)))
+      (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/B)))
                                {:label "frame-bound-fn* 1-arity drains to :fbf/B"})
-      (is (= 1 (:n (rf/frame-db :fbf/B)))
+      (is (= 1 (:n (rf/app-db-value :fbf/B)))
           "frame-bound-fn* captured :fbf/B at wrap time"))))
 
 (deftest frame-bound-fn*-two-arity-explicit-frame
@@ -146,9 +146,9 @@
     (let [cb (rf/frame-bound-fn* :fbf/C (fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "no with-frame scope was ever entered")
       (cb)
-      (test-support/poll-until #(= 1 (:n (rf/frame-db :fbf/C)))
+      (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/C)))
                                {:label "frame-bound-fn* 2-arity drains to :fbf/C"})
-      (is (= 1 (:n (rf/frame-db :fbf/C)))
+      (is (= 1 (:n (rf/app-db-value :fbf/C)))
           "the explicit frame-id was re-established inside the body"))))
 
 ;; ---- renamed reads -------------------------------------------------------
@@ -162,17 +162,17 @@
     (is (= :cfi/probe (rf/with-frame :cfi/probe (rf/current-frame-id)))
         "inside with-frame: the bound id")))
 
-(deftest frame-db-returns-a-value
-  (testing "(frame-db frame-id) returns the app-db VALUE (a plain map), not a container"
+(deftest app-db-value-returns-a-value
+  (testing "(app-db-value frame-id) returns the app-db VALUE (a plain map), not a container"
     (rf/reg-frame :fdb/probe {:doc "probe"})
     (rf/reg-event-db :fdb/seed (fn [_ _] {:k :v}))
     (rf/dispatch-sync [:fdb/seed] {:frame :fdb/probe})
-    (let [db (rf/frame-db :fdb/probe)]
-      (is (map? db) "frame-db returns a plain map value")
+    (let [db (rf/app-db-value :fdb/probe)]
+      (is (map? db) "app-db-value returns a plain map value")
       (is (= :v (:k db)) "the value reflects app-db state")
       (is (not (instance? clojure.lang.IDeref db))
           "it is a VALUE — not a deref-able container"))
-    (is (nil? (rf/frame-db :fdb/never-registered))
+    (is (nil? (rf/app-db-value :fdb/never-registered))
         "nil for an unregistered frame")))
 
 ;; ---- removed public names are absent -------------------------------------

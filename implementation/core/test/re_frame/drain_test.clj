@@ -170,7 +170,7 @@
       ;; Per-event durability: the four completed events' writes survive —
       ;; NO whole-drain rollback.
       (is (= {:step :mid-drain :counter 4}
-             (rf/frame-db :drain.rollback/main))
+             (rf/app-db-value :drain.rollback/main))
           "the durable per-event writes survive; there is no whole-drain rollback")
       ;; Sanity: the depth-exceeded trace fired and tags :rollback? false
       ;; (no rollback under per-event epochs).
@@ -197,7 +197,7 @@
     (rf/reg-event-db :advance (fn [db _] (assoc db :phase :first-settled)))
     (rf/dispatch-sync [:advance] {:frame :drain.rollback/two})
     (is (= {:phase :first-settled :n 0}
-           (rf/frame-db :drain.rollback/two))
+           (rf/app-db-value :drain.rollback/two))
         "first drain settled cleanly; that's the new baseline")
     ;; Second drain: trip the depth limit. Per rf2-nj6p7 the three events
     ;; that ran each made a durable :n write — no rollback.
@@ -207,7 +207,7 @@
          :fx [[:dispatch [:overflow2]]]}))
     (rf/dispatch-sync [:overflow2] {:frame :drain.rollback/two})
     (is (= {:phase :poisoned :n 3}
-           (rf/frame-db :drain.rollback/two))
+           (rf/app-db-value :drain.rollback/two))
         "the overflow drain's per-event writes are durable — no whole-drain rollback")))
 
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
@@ -289,7 +289,7 @@
       (rf/dispatch-sync [:seed])
       (is (= [:seed :bump :bump] @order)
           "both :fx-side :dispatch events ran inside the same dispatch-sync cycle")
-      (is (= 2 (:n (rf/frame-db :rf/default)))
+      (is (= 2 (:n (rf/app-db-value :rf/default)))
           "their effects are visible the moment dispatch-sync returns")))
 
   (testing "rf/dispatch (the async API) defers to AFTER the current dispatch-sync drain"
@@ -344,7 +344,7 @@
       ;; Now wait for the async one to settle.
       (is (= :ok (deref done 2000 :timeout))
           ":outside-async eventually drained on the executor")
-      (is (true? (:outside? (rf/frame-db :rf/default)))
+      (is (true? (:outside? (rf/app-db-value :rf/default)))
           ":outside-async's effect lands on app-db after its drain")
       (is (some #{:sync-only} @order) ":sync-only ran")
       (is (some #{:outside-async} @order) ":outside-async ran"))))
@@ -382,13 +382,13 @@
           "A's handler ran end-to-end without B interleaving inside it")
       (is (= :ok (deref b-done 2000 :timeout))
           "B's drain eventually fires on the executor")
-      (is (true? (:a-ran? (rf/frame-db :drain.test/A)))
+      (is (true? (:a-ran? (rf/app-db-value :drain.test/A)))
           "A's :db commit landed in A's app-db only")
-      (is (nil? (:b-ran? (rf/frame-db :drain.test/A)))
+      (is (nil? (:b-ran? (rf/app-db-value :drain.test/A)))
           "B's :db commit did NOT spill into A's app-db")
-      (is (true? (:b-ran? (rf/frame-db :drain.test/B)))
+      (is (true? (:b-ran? (rf/app-db-value :drain.test/B)))
           "B's :db commit landed in B's app-db")
-      (is (nil? (:a-ran? (rf/frame-db :drain.test/B)))
+      (is (nil? (:a-ran? (rf/app-db-value :drain.test/B)))
           "A's :db commit did NOT spill into B's app-db")))
 
   (testing "two interleaved dispatch-sync calls keep their queues separate"
@@ -400,8 +400,8 @@
     (rf/dispatch-sync [:tick] {:frame :drain.test/X})
     (rf/dispatch-sync [:tick] {:frame :drain.test/Y})
     (rf/dispatch-sync [:tick] {:frame :drain.test/X})
-    (is (= 2 (:n (rf/frame-db :drain.test/X))))
-    (is (= 1 (:n (rf/frame-db :drain.test/Y))))))
+    (is (= 2 (:n (rf/app-db-value :drain.test/X))))
+    (is (= 1 (:n (rf/app-db-value :drain.test/Y))))))
 
 ;; ---- rf2-6guf: drain-depth-exceeded preserves OTHER frames' app-db --------
 ;;
@@ -428,7 +428,7 @@
                    :drain-depth 4})
 
     ;; Capture :A's pre-dispatch state — this is what we'll compare to.
-    (let [a-pre  (rf/frame-db :drain.iso/A)
+    (let [a-pre  (rf/app-db-value :drain.iso/A)
           traces (atom [])]
       (rf/register-listener! ::iso (fn [ev] (swap! traces conj ev)))
 
@@ -450,14 +450,14 @@
 
       ;; --- (a) :B's per-event writes are durable (4 events ran).
       (is (= {:where :B :counter 4 :marker :mid-cascade}
-             (rf/frame-db :drain.iso/B))
+             (rf/app-db-value :drain.iso/B))
           ":B's durable per-event writes survive; no whole-drain rollback")
 
       ;; --- (b) :A's app-db is byte-identical to its pre-dispatch state.
-      (is (= a-pre (rf/frame-db :drain.iso/A))
+      (is (= a-pre (rf/app-db-value :drain.iso/A))
           ":A's app-db is untouched (value-equal to pre-dispatch)")
       (is (= {:where :A :counter 0 :marker :pristine}
-             (rf/frame-db :drain.iso/A))
+             (rf/app-db-value :drain.iso/A))
           ":A's app-db remains exactly its :on-create state")
 
       ;; --- (c) the depth-exceeded trace carries :B, not :A.

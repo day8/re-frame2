@@ -35,5 +35,5 @@
   naming — the canonical host frame). Read via the `:rf.xray/target-
   frame` sub or written via the `:rf.xray/set-target-frame` event;
   every panel that needs the host db reads through `:rf.xray/target-
-  frame-db`."
+  app-db-value`."
   :rf/default)

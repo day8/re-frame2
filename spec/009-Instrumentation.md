@@ -719,7 +719,7 @@ Filters compose AND-wise — supplying both `:op-type :error` and `:flat true` k
 - **Production elision.** The ring, like the rest of the trace surface, is compile-time eliminated in production builds (per [§Production builds](#production-builds-zero-overhead-zero-code)). `(rf/trace-buffer frame-id)` returns an empty vector in production, and the ring itself is not allocated.
 - **Cascades-retained-zero semantics.** When configured with `{:cascades-retained 0}`, the ring is disabled but the surface remains live: `(rf/trace-buffer frame-id)` returns `[]`, `(rf/trace-buffer frame-id opts)` returns `[]`, and `(rf/clear-trace-buffer! frame-id)` is a no-op (returns `nil`). Synchronous-delivery to registered listeners continues to fire — only the queryable history is suppressed.
 - **Lowering cascades-retained on a populated ring.** Applied while the ring holds more than `N` cascades, drops the oldest cascades first to fit (same eviction order as the ring discipline). Raising it keeps existing cascades and grows the slot count.
-- **Reads against a destroyed / missing frame.** `(rf/trace-buffer <unknown-frame-id>)` returns `[]` (parity with `(rf/frame-db <unknown>)` returning `nil` and the destroyed-frame read posture in [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)).
+- **Reads against a destroyed / missing frame.** `(rf/trace-buffer <unknown-frame-id>)` returns `[]` (parity with `(rf/app-db-value <unknown>)` returning `nil` and the destroyed-frame read posture in [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)).
 
 #### Rejected alternatives
 
@@ -1254,12 +1254,12 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 | Hoisted top-level fields (`:source`, `:recovery`) | Preserved |
 | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | Preserved |
 | Compile-time elision via `goog.DEBUG=false` + `:advanced` | Preserved |
-| Public registrar query API (`registrations`/`handler-meta`/`frame-ids`/`frame-meta`/`frame-db`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
+| Public registrar query API (`registrations`/`handler-meta`/`frame-ids`/`frame-meta`/`app-db-value`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Hot-reload notifications (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`, `:rf.frame/created`, `:rf.frame/destroyed`) | Trace events |
 
 ### Capabilities tools depend on
 
-- **Multi-frame UI** — frame selector; per-frame trace slicing via `(get-in ev [:tags :frame])`; per-frame app-db via `(frame-db id)`.
+- **Multi-frame UI** — frame selector; per-frame trace slicing via `(get-in ev [:tags :frame])`; per-frame app-db via `(app-db-value id)`.
 - **Epoch-per-event semantics** — each dequeued event is its own epoch (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); a drain may settle several events run-to-completion, but each (incl. an `:fx`-dispatched child or the frame-init event) yields its own record. Per-cascade correlation rides on `:dispatch-id` / `:parent-dispatch-id` (per [§Dispatch correlation](#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id)). The fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) provides the structured projection.
 - **Machine trace types** — `:op-type` values (`:rf.machine/transition`, etc.) for state-machine activity.
 - **Per-frame override visibility** — `:fx-overrides`/`:interceptor-overrides` are inspectable via `(frame-meta id)`.

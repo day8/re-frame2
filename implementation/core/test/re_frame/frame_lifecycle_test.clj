@@ -74,7 +74,7 @@
             ":lifecycle map was preserved (not bumped to a new :created-at)"))
 
       ;; The seeded app-db value survives the re-registration.
-      (is (= {:n 42 :payload "live"} (rf/frame-db :tenant))
+      (is (= {:n 42 :payload "live"} (rf/app-db-value :tenant))
           "app-db value survived the surgical update")
       ;; The pinned reaction still resolves to the same value.
       (is (= 42 @pinned)
@@ -209,7 +209,7 @@
       (is (= 3 (count (filter #{:rf2-vsigt/child#1
                                  :rf2-vsigt/child#2
                                  :rf2-vsigt/child#3}
-                              (keys (get-in (rf/frame-db :rf2-vsigt/auth)
+                              (keys (get-in (rf/app-db-value :rf2-vsigt/auth)
                                             [:rf/runtime :machines :snapshots])))))
           "three spawned actor snapshots live at [:rf/runtime :machines :snapshots <id>]")
       ;; Destroy the frame.
@@ -368,7 +368,7 @@
 
         ;; The moment reg-frame returned, app-db must already reflect
         ;; the :on-create event's commit.
-        (reset! observed (rf/frame-db :booted))
+        (reset! observed (rf/app-db-value :booted))
         (is (true? (:booted? @observed))
             ":on-create ran synchronously — app-db reflects its commit")
         (is (= {:hello "world"} (:payload @observed))
@@ -600,7 +600,7 @@
         ;; state (fresh {}, not the booted shape).
         (let [child (frame/frame :child)]
           (is (some? child) ":child frame is registered")
-          (is (= {} (rf/frame-db :child))
+          (is (= {} (rf/app-db-value :child))
               "child app-db is still {} — :on-create has not yet drained")
           ;; The child's router queue holds exactly the :on-create event.
           (let [queue (:queue @(:router child))]
@@ -619,7 +619,7 @@
              @event-order)
           ":child/boot ran AFTER the parent cascade settled, on the
            child's own drain cycle")
-      (is (true? (:child-booted? (rf/frame-db :child)))
+      (is (true? (:child-booted? (rf/app-db-value :child)))
           "child app-db reflects :on-create commit once the child drain fires"))))
 
 (deftest top-level-reg-frame-on-create-still-runs-synchronously
@@ -635,7 +635,7 @@
       (rf/reg-frame :top {:on-create [:top/init]})
       (is (= [:top/init-ran] @order)
           ":top/init ran inside reg-frame (synchronous top-level path)")
-      (is (true? (:initialised? (rf/frame-db :top)))
+      (is (true? (:initialised? (rf/app-db-value :top)))
           "top-level app-db reflects :on-create commit by reg-frame return"))))
 
 (deftest child-frame-via-make-frame-also-async-from-handler
@@ -659,7 +659,7 @@
         (is (= [:parent/before-make-frame :parent/after-make-frame] @order)
             ":sub-actor/boot did not run inline")
         (is (some? @child-id) "make-frame returned a gensym'd id")
-        (is (= {} (rf/frame-db @child-id))
+        (is (= {} (rf/app-db-value @child-id))
             "child app-db is still empty before its own drain runs"))
       ;; Drain the child's tick.
       (doseq [tick @captured-tick] (tick))
@@ -668,7 +668,7 @@
               :sub-actor/boot-ran]
              @order)
           ":sub-actor/boot ran on the child's own drain cycle")
-      (is (true? (:booted? (rf/frame-db @child-id)))
+      (is (true? (:booted? (rf/app-db-value @child-id)))
           "child app-db reflects :on-create commit after its drain"))))
 
 ;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
@@ -1026,13 +1026,13 @@
       ;; First :on-create dispatch increments the counter.
       (is (= 1 @boot-count) ":on-create ran once at reg-frame time")
       (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
-             (rf/frame-db :app/main))
+             (rf/app-db-value :app/main))
           "app-db reflects :on-create commit")
 
       ;; Mutate app-db: a subsequent event extends the value.
       (rf/reg-event-db :extend (fn [db _] (assoc db :runtime-write? true)))
       (rf/dispatch-sync [:extend] {:frame :app/main})
-      (is (true? (:runtime-write? (rf/frame-db :app/main)))
+      (is (true? (:runtime-write? (rf/app-db-value :app/main)))
           "mutation is visible before reset-frame!")
 
       ;; Capture the original frame record so we can compare.
@@ -1072,9 +1072,9 @@
         ;; The runtime mutation is gone — fresh app-db reflects only
         ;; :on-create's commit, not the prior :extend.
         (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
-               (rf/frame-db :app/main))
+               (rf/app-db-value :app/main))
             "app-db is reset to :on-create state; runtime writes are gone")
-        (is (nil? (:runtime-write? (rf/frame-db :app/main)))
+        (is (nil? (:runtime-write? (rf/app-db-value :app/main)))
             "the :extend handler's write is absent — reset wiped runtime state")))))
 
 (deftest reset-frame-on-missing-id-is-noop

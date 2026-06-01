@@ -11,7 +11,7 @@
     (richer runners supply reactive / DOM flushes through flush-hooks).
     `:dispatch-sync` → the low-level `rf/dispatch-sync*` escape.
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
-  - `:assert-db` path value → read from `rf/frame-db` and compare.
+  - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
     handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
     is resolved at run time via `requiring-resolve` (JVM) or a
@@ -444,7 +444,7 @@
   is gone."
   [frame-id]
   (try
-    (rf/frame-db frame-id)
+    (rf/app-db-value frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn- pred-label

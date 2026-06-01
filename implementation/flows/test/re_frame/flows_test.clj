@@ -79,12 +79,12 @@
                   :output (fn [w h] (* w h))
                   :path   [:rect :area]})
     (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/frame-db :rf/default) [:rect :area]))
+    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "flow ran on the drain after :seed and materialised :rect/:area")
     (rf/clear-flow :area)
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :area))
         "the per-frame registry no longer carries :area")
-    (is (not (contains? (get (rf/frame-db :rf/default) :rect) :area))
+    (is (not (contains? (get (rf/app-db-value :rf/default) :rect) :area))
         "clear-flow dissoc'd the leaf at the flow's :path"))
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (rf/clear-flow :no-such-flow)))
@@ -107,10 +107,10 @@
     (rf/reg-event-db :touch-wizard (fn [db _] (assoc-in db [:wizard :seed] 1)))
     (rf/dispatch-sync [:seed-wizard])
     (rf/dispatch-sync [:touch-wizard])
-    (is (= 42 (get-in (rf/frame-db :rf/default) [:wizard :result]))
+    (is (= 42 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow materialised its output at the leaf")
     (rf/clear-flow :wizard/result)
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? (get db :wizard) :result))
           "the leaf value is fully vacated")
       (is (contains? db :wizard)
@@ -131,9 +131,9 @@
                   :inputs [[:n]]
                   :output (fn [_] "never-runs")
                   :path   [:step-2 :result]})
-    (let [db-before (rf/frame-db :rf/default)]
+    (let [db-before (rf/app-db-value :rf/default)]
       (rf/clear-flow :pending)
-      (let [db-after (rf/frame-db :rf/default)]
+      (let [db-after (rf/app-db-value :rf/default)]
         (is (= db-before db-after)
             "app-db is unchanged when clearing a never-materialised nested-path flow")
         (is (not (contains? db-after :step-2))
@@ -150,7 +150,7 @@
   ;; The value-equality test above (`...before-first-compute...`) proves
   ;; the db VALUE is unchanged; this test proves the db REFERENCE is
   ;; unchanged — i.e. the container was not rewritten at all. On the JVM
-  ;; persistent maps are immutable, so two `frame-db` reads return the
+  ;; persistent maps are immutable, so two `app-db-value` reads return the
   ;; IDENTICAL object iff no `replace-container!` ran between them.
   ;; Precondition for the no-op branch: the flow's `:path` must never be
   ;; materialised. We seed app-db FIRST, then register the flow, then
@@ -164,9 +164,9 @@
                   :inputs [[:n]]
                   :output (fn [_] "never-runs")
                   :path   [:step-2 :result]})
-    (let [db-ref-before (rf/frame-db :rf/default)]
+    (let [db-ref-before (rf/app-db-value :rf/default)]
       (rf/clear-flow :pending)
-      (let [db-ref-after (rf/frame-db :rf/default)]
+      (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (identical? db-ref-before db-ref-after)
             "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc (rf2-2vpac)"))))
   (testing "clearing a single-element-path flow whose top-level key is absent also skips the rewrite"
@@ -179,9 +179,9 @@
                   :inputs [[:n]]
                   :output (fn [_] "never-runs")
                   :path   [:never-written]}) ;; single-element path, never materialised
-    (let [db-ref-before (rf/frame-db :rf/default)]
+    (let [db-ref-before (rf/app-db-value :rf/default)]
       (rf/clear-flow :absent-top)
-      (is (identical? db-ref-before (rf/frame-db :rf/default))
+      (is (identical? db-ref-before (rf/app-db-value :rf/default))
           "single-element absent key: container reference unchanged (no rewrite)")))
   (testing "POSITIVE control — clearing a MATERIALISED slot DOES rewrite the container (guard must not over-suppress real clears)"
     ;; The guard is `(when-not (identical? new-db db) (replace-container! ...))`.
@@ -194,11 +194,11 @@
                   :output (fn [w h] (* w h))
                   :path   [:rect :area]})
     (rf/dispatch-sync [:seed3])
-    (is (= 12 (get-in (rf/frame-db :rf/default) [:rect :area]))
+    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "precondition: the flow materialised [:rect :area]")
-    (let [db-ref-before (rf/frame-db :rf/default)]
+    (let [db-ref-before (rf/app-db-value :rf/default)]
       (rf/clear-flow :area3)
-      (let [db-ref-after (rf/frame-db :rf/default)]
+      (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (not (identical? db-ref-before db-ref-after))
             "the container WAS rewritten — a real dissoc installs a fresh reference")
         (is (not (contains? (get db-ref-after :rect) :area))
@@ -232,11 +232,11 @@
     ;; Clear must NOT throw, and must leave the scalar parent intact.
     (is (nil? (rf/clear-flow :pending))
         "clear-flow returns nil (no throw) when the intermediate is a non-map")
-    (is (= 1 (:step-2 (rf/frame-db :rf/default)))
+    (is (= 1 (:step-2 (rf/app-db-value :rf/default)))
         ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
     ;; Sanity: siblings untouched.
-    (is (= 3 (:foo (rf/frame-db :rf/default))))
-    (is (= 4 (:bar (rf/frame-db :rf/default))))))
+    (is (= 3 (:foo (rf/app-db-value :rf/default))))
+    (is (= 4 (:bar (rf/app-db-value :rf/default))))))
 
 (deftest clear-flow-handles-single-element-path
   (testing "rf2-aqt7: clear-flow with a single-element :path dissocs the top-level key"
@@ -249,10 +249,10 @@
                   :output (fn [w h] (* w h))
                   :path   [:area]})
     (rf/dispatch-sync [:seed])
-    (is (= 12 (get (rf/frame-db :rf/default) :area))
+    (is (= 12 (get (rf/app-db-value :rf/default) :area))
         "flow ran on the drain after :seed and materialised :area")
     (rf/clear-flow :area)
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :area))
           "single-element :path is dissoc'd cleanly")
       (is (not (contains? db nil))
@@ -626,13 +626,13 @@
                   :output (fn [w h] (* w h))
                   :path   [:rect :area]})
     (rf/dispatch-sync [:init])
-    (is (= 0 (get-in (rf/frame-db :rf/default) [:rect :area]))
+    (is (= 0 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "first drain after :init fires the flow with 0 × 0 = 0")
     (rf/dispatch-sync [:w! 5])
-    (is (= 0 (get-in (rf/frame-db :rf/default) [:rect :area]))
+    (is (= 0 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         ":h is still 0 → 5 × 0 = 0; flow ran")
     (rf/dispatch-sync [:h! 6])
-    (is (= 30 (get-in (rf/frame-db :rf/default) [:rect :area]))
+    (is (= 30 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "5 × 6 = 30 after both inputs are populated")))
 
 (deftest flow-noop-on-equal-input-rewrite
@@ -648,18 +648,18 @@
                     :path   [:derived :doubled]})
       (rf/dispatch-sync [:init])
       (is (= 1 @calls) "first drain fires the flow once (initial evaluation)")
-      (is (= 10 (get-in (rf/frame-db :rf/default) [:derived :doubled])))
+      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
       ;; Replace :n with the same value (5 → 5).
       (rf/dispatch-sync [:replace-n 5])
       (is (= 1 @calls)
           ":n was replaced with =-equal value; flow did NOT recompute")
-      (is (= 10 (get-in (rf/frame-db :rf/default) [:derived :doubled]))
+      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
           "output unchanged")
       ;; Now flip :n to a different value.
       (rf/dispatch-sync [:replace-n 7])
       (is (= 2 @calls)
           ":n changed to 7; flow recomputed")
-      (is (= 14 (get-in (rf/frame-db :rf/default) [:derived :doubled]))))))
+      (is (= 14 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))))))
 
 (deftest flow-no-recompute-when-unrelated-path-changes
   (testing "writing an unrelated path does not re-fire a flow whose inputs are stable"
@@ -674,7 +674,7 @@
                     :path   [:user :uppercase-name]})
       (rf/dispatch-sync [:init])
       (is (= 1 @calls) "first evaluation always fires")
-      (is (= "ALICE" (get-in (rf/frame-db :rf/default)
+      (is (= "ALICE" (get-in (rf/app-db-value :rf/default)
                              [:user :uppercase-name])))
       (dotimes [_ 5] (rf/dispatch-sync [:bump-other]))
       (is (= 1 @calls)
@@ -699,11 +699,11 @@
                   :output (fn [a] (* 2 a))
                   :path   [:rect :area*2]})
     (rf/dispatch-sync [:init])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 6  (get-in db [:rect :area]))   "A fired with 2 × 3 = 6")
       (is (= 12 (get-in db [:rect :area*2])) "B fired in the same drain with 6 × 2 = 12"))
     (rf/dispatch-sync [:w! 5])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 15 (get-in db [:rect :area]))   "A re-fired: 5 × 3 = 15")
       (is (= 30 (get-in db [:rect :area*2])) "B saw A's new output and re-fired: 30"))))
 
@@ -725,7 +725,7 @@
                                  (pr-str (vec (sort (keys u))))))
                   :path   [:summary :note]})
     (rf/dispatch-sync [:init])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= "ALICE" (get-in db [:user :uppercase]))
           "A wrote :user :uppercase")
       (is (= "user-keys:[:name :uppercase]"
@@ -745,7 +745,7 @@
                   :output (fn [n] (* 2 n))
                   :path   [:derived :doubled]})
     (rf/dispatch-sync [:init])
-    (is (= 10 (get-in (rf/frame-db :rf/default) [:derived :doubled])))
+    (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
     ;; Re-register with a body that produces the SAME output for the
     ;; current input. Per Spec 013 §Re-registration the next drain
     ;; re-evaluates; the user-visible output stays 10.
@@ -754,7 +754,7 @@
                   :output (fn [n] (+ n n))
                   :path   [:derived :doubled]})
     (rf/dispatch-sync [:tick])
-    (is (= 10 (get-in (rf/frame-db :rf/default) [:derived :doubled]))
+    (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "value-equivalent re-registration leaves the output stable")))
 
 (deftest flow-hot-reload-new-body-recomputes-on-next-drain
@@ -766,14 +766,14 @@
                   :output (fn [n] (* 2 n))
                   :path   [:derived :doubled]})
     (rf/dispatch-sync [:init])
-    (is (= 10 (get-in (rf/frame-db :rf/default) [:derived :doubled])))
+    (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
     ;; Re-register with a 100x body; same input still 5.
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 100 n))
                   :path   [:derived :doubled]})
     (rf/dispatch-sync [:tick])
-    (is (= 500 (get-in (rf/frame-db :rf/default) [:derived :doubled]))
+    (is (= 500 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "after re-registration the new body produces 5 × 100 = 500")))
 
 ;; ---------------------------------------------------------------------------
@@ -793,7 +793,7 @@
     (rf/reg-event-fx :leave (fn [_ _]
                               {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
     (rf/dispatch-sync [:init])
-    (is (nil? (get-in (rf/frame-db :rf/default) [:wizard :result]))
+    (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "no flow yet — :result is unset")
     ;; Register the flow during :enter. Per Spec 013 §Sequencing the flow
     ;; first runs on the NEXT event drain.
@@ -802,13 +802,13 @@
         "registry now carries :step-2/computed")
     ;; Drive a drain with a benign event; the flow first-fires here.
     (rf/dispatch-sync [:foo! 5])
-    (is (= 9 (get-in (rf/frame-db :rf/default) [:wizard :result]))
+    (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow ran on this drain with 5 + 4 = 9")
     ;; Now clear via fx.
     (rf/dispatch-sync [:leave])
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed))
         "registry slot removed")
-    (is (not (contains? (get (rf/frame-db :rf/default) :wizard) :result))
+    (is (not (contains? (get (rf/app-db-value :rf/default) :wizard) :result))
         ":rf.fx/clear-flow dissoc-in'd the output path")))
 
 (deftest fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround
@@ -844,13 +844,13 @@
     (rf/dispatch-sync [:enter-bare])
     (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
         "flow IS registered after :enter-bare")
-    (is (nil? (get-in (rf/frame-db :rf/default) [:wizard :result]))
+    (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "but :result is STILL unset — the flow did not run on the registering event's drain"))
 
   (testing "the workaround — a follow-up :dispatch materialises the value on the next drain"
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:enter-with-settle])
-    (is (= 7 (get-in (rf/frame-db :rf/default) [:wizard :result]))
+    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "the :dispatch [:wizard/settle] re-triggered the drain, so the flow computed 3 + 4 = 7")))
 
 ;; ---------------------------------------------------------------------------
@@ -880,7 +880,7 @@
                   :output (fn [n] (* 2 n))
                   :path   [:doubled]})
     (rf/dispatch-sync [:init])
-    (is (= 10 (:doubled (rf/frame-db :rf/default)))
+    (is (= 10 (:doubled (rf/app-db-value :rf/default)))
         "flow evaluated; last-inputs row populated for [:double :rf/default]")
     (is (some? (get-in (flows/last-inputs-snapshot) [:double :rf/default]))
         "last-inputs has the dirty-check entry before reset")
@@ -973,9 +973,9 @@
                  {:frame :right})
     (rf/dispatch-sync [:seed 5] {:frame :left})
     (rf/dispatch-sync [:seed 5] {:frame :right})
-    (is (= 10  (:result (rf/frame-db :left)))
+    (is (= 10  (:result (rf/app-db-value :left)))
         "left frame's :compute used the 2x formula (5 * 2)")
-    (is (= 500 (:result (rf/frame-db :right)))
+    (is (= 500 (:result (rf/app-db-value :right)))
         "right frame's :compute used the 100x formula (5 * 100)")
     (is (contains? (get (flows/flows-snapshot) :left)  :compute)
         ":left's per-frame registry slot carries :compute")
@@ -992,9 +992,9 @@
 
   (testing ":left's app-db output path is dissoc'd; :right's app-db is unchanged"
     ;; Branch 3: app-db dissoc-in is frame-local.
-    (is (not (contains? (rf/frame-db :left) :result))
+    (is (not (contains? (rf/app-db-value :left) :result))
         ":left's :result was dissoc'd by the frame-scoped clear")
-    (is (= 500 (:result (rf/frame-db :right)))
+    (is (= 500 (:result (rf/app-db-value :right)))
         ":right's :result is preserved (the previous compute's output)"))
 
   (testing "after clear, a re-drain does NOT recompute :left but DOES recompute :right"
@@ -1006,9 +1006,9 @@
     ;; flow stopped firing on subsequent drains.
     (rf/dispatch-sync [:seed 7] {:frame :left})
     (rf/dispatch-sync [:seed 7] {:frame :right})
-    (is (not (contains? (rf/frame-db :left) :result))
+    (is (not (contains? (rf/app-db-value :left) :result))
         ":left's :result stays absent — the cleared flow does not recompute")
-    (is (= 700 (:result (rf/frame-db :right)))
+    (is (= 700 (:result (rf/app-db-value :right)))
         ":right's :compute still active — 7 * 100 = 700"))
 
   (testing "the :flow registrar slot survives clear-from-one-frame (multi-frame retention)"
@@ -1243,9 +1243,9 @@
                   :output (fn [n] (* 2 n))
                   :path   [:doubled]})
     (rf/dispatch-sync [:init])
-    (is (= 10 (:doubled (rf/frame-db :rf/default))))
+    (is (= 10 (:doubled (rf/app-db-value :rf/default))))
     (rf/dispatch-sync [:inc-n])
-    (is (= 12 (:doubled (rf/frame-db :rf/default))))
+    (is (= 12 (:doubled (rf/app-db-value :rf/default))))
     ;; Re-register with a NEW formula. Inputs haven't changed yet — but the
     ;; flow body did, so the next drain should re-evaluate.
     (rf/reg-flow {:id     :double
@@ -1254,7 +1254,7 @@
                   :path   [:doubled]})
     ;; Trigger ANY event to drive the drain (no input change).
     (rf/dispatch-sync [:inc-n])
-    (is (= 700 (:doubled (rf/frame-db :rf/default)))
+    (is (= 700 (:doubled (rf/app-db-value :rf/default)))
         "after re-registration the flow body re-evaluates on the next drain")))
 
 ;; ---------------------------------------------------------------------------
@@ -1301,7 +1301,7 @@
                     :path   [:doubled]})
       ;; init: flow first-computes 0 * 2 = 0 into [:doubled].
       (rf/dispatch-sync [:init])
-      (is (= 0 (:doubled (rf/frame-db :rf/default)))
+      (is (= 0 (:doubled (rf/app-db-value :rf/default)))
           "after :init the flow wrote :doubled = 0")
       (reset! seen-db :unset)
       ;; set-n 7: the user :after captures the pending :db effect BEFORE
@@ -1317,7 +1317,7 @@
            (rf2-u0zz5 ordering)")
       ;; The recomputed flow output IS in app-db after install — the
       ;; deliverable path for consumers that need flow output.
-      (is (= 14 (:doubled (rf/frame-db :rf/default)))
+      (is (= 14 (:doubled (rf/app-db-value :rf/default)))
           "the recomputed flow output (7 * 2 = 14) landed in the installed app-db"))))
 
 (deftest fx-sees-flow-derived-app-db
@@ -1327,7 +1327,7 @@
       ;; after the flow-augmented install, it must see :doubled.
       (rf/reg-fx :test/peek-db
                  (fn [_m _args]
-                   (reset! fx-saw (rf/frame-db :rf/default))))
+                   (reset! fx-saw (rf/app-db-value :rf/default))))
       (rf/reg-event-db :init (fn [_ _] {:n 0}))
       (rf/reg-event-fx :go
                        (fn [_ [_ v]]
@@ -1375,14 +1375,14 @@
                   :path   [:counter :doubled]})
     (rf/dispatch-sync [:seed])
     (rf/dispatch-sync [:inc])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 1 (get-in db [:counter :n]))
           "the path-scoped handler incremented :counter/:n")
       (is (= 2 (get-in db [:counter :doubled]))
           "the flow read the FULL-db [:counter :n] (=1) and wrote 1 * 2 = 2 —
            it ran against the reshaped full db, not the path slice"))
     (rf/dispatch-sync [:inc])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 2 (get-in db [:counter :n])))
       (is (= 4 (get-in db [:counter :doubled]))
           "second increment: flow recomputed 2 * 2 = 4 off the full db"))))
@@ -1406,7 +1406,7 @@
             (swap! changed-count inc)
             ;; At the db-changed emit the container has been replaced, so
             ;; reading the live app-db reflects the just-installed value.
-            (reset! db-at-changed (rf/frame-db :rf/default)))))
+            (reset! db-at-changed (rf/app-db-value :rf/default)))))
       (try
         (rf/reg-event-db :init (fn [_ _] {:n 0}))
         (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))

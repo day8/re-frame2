@@ -363,7 +363,7 @@
 ;; once the auth slot is established.
 
 (defn- bearer-auth-interceptor [ctx]
-  (let [token (some-> (rf/frame-db (:frame ctx))
+  (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
     (cond-> ctx
       token (assoc-in [:request :headers "Authorization"]

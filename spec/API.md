@@ -126,14 +126,14 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 - **Scope:** `with-frame`, `with-new-frame`, `frame-provider`.
 - **Hold** (carry a frame's ops as a value, across async): `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced).
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
-- **Reads / lifecycle:** `frame-db`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
+- **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | 002 |
 | `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | 002 |
-| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. A per-call `:frame` opt MUST NOT override the captured frame (the handle is locked). Read app-db via `(frame-db (:frame h))`, not the handle | v1 | 002, 004 |
+| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. A per-call `:frame` opt MUST NOT override the captured frame (the handle is locked). Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | 002, 004 |
 | `frame-bound-fn` | M | `(frame-bound-fn [args] body)` → frame-rebinding closure (`fn`-syntax sugar over `frame-bound-fn*`). Re-establishes `*current-frame*` (captured at lex-binding) for the body | v1 | 002 |
 | `frame-bound-fn*` | Fn | `(frame-bound-fn* f)` *or* `(frame-bound-fn* frame-id f)` → frame-rebinding closure. The `*`-twin of the `frame-bound-fn` macro — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Advanced; prefer `frame-handle` for the common dispatch / subscribe case | v1 | 002 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | 001, 004 |
@@ -398,7 +398,7 @@ For tooling, agents, story tools, 10x.
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | 002 |
-| `frame-db` | Fn | `(frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
+| `app-db-value` | Fn | `(app-db-value frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
 | `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
@@ -491,7 +491,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 | `register-epoch-listener!` | Fn | `(register-epoch-listener! key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
 | `unregister-epoch-listener!` | Fn | `(unregister-epoch-listener! key)` | v1 (dev-only) | Tool-Pair, 009 |
 | `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
-| `frame-db` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
+| `app-db-value` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
 
 Trace events emitted by epoch-history machinery:
 
@@ -597,7 +597,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|
@@ -822,7 +822,7 @@ The **public execution surface is exactly the three verbs** `run` / `is` / `expl
 | `subscriber` | Use `(:subscribe (rf/frame-handle))` *or* the `subscribe` injected in a `reg-view` body | 002 |
 | `frame-bound-fn` (fn form, 1- and 2-arity) | Renamed to `frame-bound-fn*` (the `*`-twin); `frame-bound-fn` is now the macro | 002 |
 | `current-frame` | Renamed to `current-frame-id` (returns a frame-id keyword) | 002 |
-| `get-frame-db` | Renamed to `frame-db` (returns the app-db VALUE, a plain map) | 002 |
+| `get-frame-db` | Renamed to `app-db-value` (returns the app-db VALUE, a plain map) | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-listener!` / `unregister-listener!` | 009 |
 | `register-trace-listener` / `unregister-trace-listener` (no-bang, proposed earlier) | Renamed to `register-listener!` / `unregister-listener!` (bang form matches the side-effecting nature of listener registration) | 009 |

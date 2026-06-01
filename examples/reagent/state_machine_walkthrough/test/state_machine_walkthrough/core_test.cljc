@@ -79,7 +79,7 @@
                                           {:email "a@b.com"
                                            :password "secret"}]]
                       {:frame f})
-    (let [state (rf/compute-sub [:auth.login/state] (rf/frame-db f))]
+    (let [state (rf/compute-sub [:auth.login/state] (rf/app-db-value f))]
       (assert (= :authed state)
               (str "expected :authed after canned success, got " state)))
     :ok))
@@ -104,7 +104,7 @@
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                             {:email "x@y.z" :password "wrong"}]]
                         {:frame f}))
-    (let [state (rf/compute-sub [:auth.login/state] (rf/frame-db f))]
+    (let [state (rf/compute-sub [:auth.login/state] (rf/app-db-value f))]
       (assert (= :locked-out state)
               (str "expected :locked-out on 4th attempt, got " state)))
     :ok))

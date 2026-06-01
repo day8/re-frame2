@@ -211,7 +211,7 @@
                   :platform  :server
                   :on-create [:rf/server-init]})]
        (rf/with-frame f
-         (let [final-db (rf/frame-db f)
+         (let [final-db (rf/app-db-value f)
                hiccup   ((rf/view :app/root))
                  ;; render-to-string with :emit-hash? embeds
                  ;; data-rf-render-hash="<hex>" on the root element. The

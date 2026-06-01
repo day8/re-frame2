@@ -58,7 +58,7 @@
                        (inc slice)))
     (rf/dispatch-sync [:path-test/init])
     (rf/dispatch-sync [:path-test/inc])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 11 (get-in db [:foo :bar]))
           "the handler's return value was spliced back at [:foo :bar]")
       (is (= :untouched (get-in db [:foo :keep]))
@@ -92,7 +92,7 @@
           "path interceptor stashes its stack under the reserved :rf/path-stack key")
       (is (not (contains? @seen-keys :path-stack))
           "the bare :path-stack key must NOT appear (reserved-namespace contract)")
-      (is (= 11 (get-in (rf/frame-db :rf/default) [:foo :bar]))
+      (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
           "the rename did not break the path interceptor's splice-back behaviour"))))
 
 (deftest path-interceptor-nesting
@@ -110,7 +110,7 @@
                      (fn [slice _] (inc slice)))
     (rf/dispatch-sync [:path-nest/init])
     (rf/dispatch-sync [:path-nest/inc])
-    (let [db (rf/frame-db :rf/default)]
+    (let [db (rf/app-db-value :rf/default)]
       (is (= 8 (get-in db [:a :b :c]))
           "inner+outer path splice the inner slice back through both levels")
       (is (= :keep (get-in db [:a :sib]))
@@ -162,7 +162,7 @@
 
       ;; Final app-db value is unchanged — the handler asked for
       ;; nothing and got nothing.
-      (let [db (rf/frame-db :rf/default)]
+      (let [db (rf/app-db-value :rf/default)]
         (is (= 10 (get-in db [:foo :bar]))
             "slice value is preserved when handler emits no :db effect")
         (is (= :preserved (:other db))
@@ -179,7 +179,7 @@
                        {:db (inc db)}))
     (rf/dispatch-sync [:path-emit/init])
     (rf/dispatch-sync [:path-emit/inc])
-    (is (= 11 (get-in (rf/frame-db :rf/default) [:foo :bar]))
+    (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
         "handler that emits :db still gets its slice spliced back")))
 
 ;; Per rf2-mas2y: when an EARLIER interceptor's `:before` throws,
