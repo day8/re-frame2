@@ -563,6 +563,19 @@
   [frame-id epoch-id sub-event sub-run-row]
   (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row))
 
+(defn back-fill-unmount!
+  "Back-fill a `:rf.view/unmounted` `unmount-event` into the already-
+  committed epoch `epoch-id` for `frame-id` (rf2-59hx3). Thin wrapper over
+  `back-fill-event!` — an unmount produces NO structured projection row (it
+  is neither a `:renders` nor a `:sub-runs` entry), so `row` is nil and the
+  event rides ONLY the `:trace-events` slot. That is exactly where Xray's
+  VIEWS-step `unmounted-views-rows` reads view teardowns. The `:slot`
+  argument is irrelevant when `row` is nil; `:renders` is passed for
+  documentary parity with the render sibling. Symmetric with
+  `back-fill-render!` / `back-fill-sub-run!`."
+  [frame-id epoch-id unmount-event]
+  (back-fill-event! frame-id epoch-id :renders unmount-event nil))
+
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;
 ;; Per Tool-Pair §Per-cascade capture: the drain runs traces through

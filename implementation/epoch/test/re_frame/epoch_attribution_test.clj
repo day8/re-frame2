@@ -149,6 +149,22 @@
                  {:rf.view/render-key render-key
                   :frame      frame-id})))
 
+(defn- emit-unmount!
+  "Emit a `:rf.view/unmounted` at React-TEARDOWN timing — op-type `:rf.view`,
+  tags carrying `:rf.view/id` + `:rf.view/render-key` + `:frame`, fired
+  post-settle (empty buffer, no `:rf.trace/dispatch-id`). Mirrors
+  `re-frame.views/emit-view-unmounted!`, which fires at React
+  componentWillUnmount / useEffect cleanup AFTER the cascade that removed
+  the view settled (rf2-59hx3). Pass a `view-id` (canonical `[view-id 0]`
+  render-key) or a full render-key tuple."
+  [frame-id view-or-rk]
+  (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])
+        view-id    (first render-key)]
+    (trace/emit! :rf.view :rf.view/unmounted
+                 {:rf.view/id         view-id
+                  :rf.view/render-key render-key
+                  :frame              frame-id})))
+
 (defn- emit-sub-run!
   "Emit a reactive `:rf.sub/run` at React-DEREF timing — op-type `:rf.sub/run`,
   tags carrying `:rf.sub/id` + `:rf.sub/query-v` + `:frame` plus the rf2-l1jz8
@@ -1086,3 +1102,136 @@
       ;; reset-mount-attribution! wipes everything left.
       (state/reset-mount-attribution!)
       (is (nil? (state/mount-epoch-for :test/dq2b7-b render-key))))))
+
+;; ===========================================================================
+;; INVARIANT 8 — a view UNMOUNT is back-filled into its CAUSING cascade's
+;;                :trace-events, not silently dropped (rf2-59hx3)
+;; ===========================================================================
+;;
+;; The teardown sibling of inv-2 (render) and inv-1 (sub-run). A
+;; `:rf.view/unmounted` fires at React teardown time — AFTER the cascade that
+;; removed the view settled — so it arrives at `capture-event!` with an empty
+;; in-flight buffer and no `:rf.trace/dispatch-id`.
+;;
+;; THE GAP (Mike-confirmed, button-deck button 13): pre-rf2-59hx3 the unmount
+;; was NOT in render-ops / sub-run-ops, so it fell through to the orphan-drop
+;; branch (no in-flight cascade + no dispatch-id) and was SILENTLY DROPPED.
+;; The view teardown produced no signal anywhere in the epoch record, so
+;; Xray's VIEWS-step `unmounted-views-rows` (which reads `:rf.view/unmounted`
+;; off `:trace-events`) had nothing to surface — an invisible absence.
+;;
+;; THE FIX: route the post-settle unmount through the SAME back-fill
+;; mechanism renders + sub-runs use (`:epoch/record-unmount!`), attributing
+;; it to the most-recently-settled epoch (the cascade that caused the
+;; teardown). The unmount carries no structured projection row, so it rides
+;; ONLY `:trace-events` — exactly where Xray reads it.
+
+(defn- unmounted-view-ids
+  "The view-ids carried by `:rf.view/unmounted` ops in a record's
+  :trace-events. nil-safe — a record whose :trace-events was elided
+  returns #{}."
+  [record]
+  (->> (:trace-events record)
+       (filter #(= :rf.view/unmounted (:operation %)))
+       (map #(-> % :tags :rf.view/id))
+       set))
+
+(deftest inv-8-view-unmount-back-filled-into-its-causing-cascade
+  (testing "rf2-59hx3 — a :rf.view/unmounted that fires AFTER the cascade
+            that removed the view settled (React-teardown timing) is
+            back-filled into that causing cascade's :trace-events, NOT
+            silently dropped. THE regression guard: pre-fix the unmount hit
+            the orphan-drop branch and produced no signal, so Xray's VIEWS
+            step had nothing to surface (button-deck button 13)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed         (fn [_ _] {:show-child? true}))
+    (rf/reg-event-db :hide-child   (fn [db _] (assoc db :show-child? false)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; The cascade that removes the child view from the tree. It settles,
+    ;; THEN (next tick, React teardown) the child instance's unmount fires.
+    (rf/dispatch-sync [:hide-child] {:frame :test/main})
+    (let [hide-epoch (last-epoch :test/main)]
+      (emit-unmount! :test/main :child-view)
+
+      (let [e (epoch-by-id :test/main hide-epoch)]
+        (is (= :hide-child (:event-id e)))
+        (is (contains? (unmounted-view-ids e) :child-view)
+            "the hide-child cascade carries the child-view unmount in its
+             :trace-events — the teardown is OBSERVABLE, not a silent
+             absence (pre-fix it was dropped at the capture seam)")
+        ;; The unmount carries no structured :renders row — it is a teardown,
+        ;; not a render. It rides ONLY :trace-events, where Xray reads it.
+        (is (not (contains? (rendered-view-ids e) :child-view))
+            "an unmount produces NO :renders row — it is a teardown, not a
+             render; it surfaces via :trace-events only")))))
+
+(deftest inv-8-unmount-attributed-to-its-own-cascade-multi-cascade
+  (testing "rf2-59hx3 — two cascades that tear down DIFFERENT views each
+            carry their OWN unmount, attributed to the cascade that caused
+            it (no one-epoch lag, no cross-attribution). The multi-cascade
+            assertion mirroring inv-2 for renders."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed       (fn [_ _] {:a? true :b? true}))
+    (rf/reg-event-db :hide-a     (fn [db _] (assoc db :a? false)))
+    (rf/reg-event-db :hide-b     (fn [db _] (assoc db :b? false)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (rf/dispatch-sync [:hide-a] {:frame :test/main})
+    (let [epoch-a (last-epoch :test/main)]
+      (emit-unmount! :test/main :view-a)
+
+      (rf/dispatch-sync [:hide-b] {:frame :test/main})
+      (let [epoch-b (last-epoch :test/main)]
+        (emit-unmount! :test/main :view-b)
+
+        (let [a (epoch-by-id :test/main epoch-a)
+              b (epoch-by-id :test/main epoch-b)]
+          (is (= :hide-a (:event-id a)))
+          (is (= :hide-b (:event-id b)))
+          (is (contains? (unmounted-view-ids a) :view-a)
+              "cascade A carries its OWN view-a unmount")
+          (is (not (contains? (unmounted-view-ids a) :view-b))
+              "cascade A does NOT carry cascade B's view-b unmount")
+          (is (contains? (unmounted-view-ids b) :view-b)
+              "cascade B carries its OWN view-b unmount")
+          (is (not (contains? (unmounted-view-ids b) :view-a))
+              "cascade B does NOT carry cascade A's lagged view-a unmount"))))))
+
+(deftest inv-8-in-flight-unmount-rides-current-cascade
+  (testing "rf2-59hx3 — an unmount that fires WITH a cascade in flight (a
+            synchronous teardown inside a drain) belongs to that cascade and
+            is buffered normally, NOT back-filled. Pins that the post-settle
+            routing does not poach an in-flight unmount."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :unmount-during
+      (fn [db _]
+        (trace/emit! :rf.view :rf.view/unmounted
+                     {:rf.view/id         :inline-view
+                      :rf.view/render-key [:inline-view 0]
+                      :frame              :test/main})
+        (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:unmount-during] {:frame :test/main})
+
+    (let [epoch (last-epoch :test/main)]
+      (is (= :unmount-during (:event-id epoch)))
+      (is (contains? (unmounted-view-ids epoch) :inline-view)
+          "an in-flight unmount rides its own cascade (buffered, not
+           back-filled to a prior settled epoch)"))))
+
+(deftest inv-8-orphan-unmount-before-any-cascade-is-noop
+  (testing "rf2-59hx3 — an unmount that fires before any cascade has settled
+            (no last-settled epoch for the frame) is a silent no-op: no
+            record materialises, no listener fan-out, no throw."
+    (rf/reg-frame :test/main {})
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (emit-unmount! :test/main :orphan-view)
+      (is (= [] (rf/epoch-history :test/main))
+          "no record materialised from an orphan unmount")
+      (is (= [] @seen)
+          "no listener fan-out for an unmount with no causing cascade"))))

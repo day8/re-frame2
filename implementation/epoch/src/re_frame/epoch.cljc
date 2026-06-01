@@ -653,6 +653,13 @@
    ;; `:epoch/record-render!`. Same React-deref-time async recompute
    ;; problem; same attribution fix.
    :epoch/record-sub-run!     listeners/record-sub-run!
+   ;; rf2-59hx3: post-settle view-unmount back-fill — the teardown sibling
+   ;; of the two above. A `:rf.view/unmounted` fires at React teardown time,
+   ;; after the cascade that removed the view settled; pre-fix it was
+   ;; silently dropped at the capture seam so the teardown left no signal.
+   ;; Back-fills it into the causing (most-recently-settled) epoch's
+   ;; `:trace-events`, where Xray's VIEWS step surfaces it.
+   :epoch/record-unmount!     listeners/record-unmount!
    :epoch/on-frame-destroyed  listeners/on-frame-destroyed!
 
    ;; ---- introspection + Tool-Pair write surface --------------------
