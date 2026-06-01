@@ -1730,11 +1730,11 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 
 **Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
-**Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data) and [§Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn):
+**Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data) and [§Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn):
 - Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` (the latter two only for declarative-`:spawn` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
-**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn).
+**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn).
 
 ### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
