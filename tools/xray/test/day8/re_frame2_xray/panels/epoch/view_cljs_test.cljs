@@ -65,7 +65,7 @@
             header already names it) — that assertion is retired."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :no-such/handler
-                :db-diff [] :fx [] :machine nil}
+                :fx [] :machine nil}
           tree (view/render-handler-step step)
           header-text (text-of tree "rf-xray-epoch-handler-header")]
       (is (string/includes? header-text "reg-event-db"))
@@ -563,7 +563,7 @@
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-db :event-id :nop
-                      :db-diff [] :fx [] :machine nil}))
+                      :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
             ":db diff sub-section is always present even when empty")
@@ -575,7 +575,6 @@
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-db :event-id :counter/inc
-                      :db-diff [[[:counter :value] 5 6 :modified]]
                       :db-post-handler {:counter {:value 6}} :db-write? true
                       :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
@@ -587,7 +586,7 @@
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-fx :event-id :navigate
-                      :db-diff [] :fx [{:fx-id :navigate :value "/x"}]
+                      :fx [{:fx-id :navigate :value "/x"}]
                       :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
@@ -607,7 +606,7 @@
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-db :event-id :standard-epochs/throw-handler
-                      :db-diff [] :db-write? false :fx [] :machine nil
+                      :db-write? false :fx [] :machine nil
                       :status :error
                       :errors [{:operation :rf.error/handler-exception
                                 :message "boom"}]}))]
@@ -622,7 +621,7 @@
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
                       :flavour :reg-event-fx :event-id :navigate
-                      :db-diff [] :db-write? false
+                      :db-write? false
                       :fx [{:fx-id :navigate :value "/x"}] :machine nil}))]
         (is (string/includes?
               (text-of tree "rf-xray-epoch-handler-db-no-write")
@@ -638,7 +637,6 @@
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine :event-id :ws/start
-                  :db-diff [[[:rf/runtime :machines :snapshots :ws/conn] {} {} :modified]]
                   :fx []
                   :machine {:transition nil :guards []
                             :lifecycle [] :timers []}})]
@@ -701,7 +699,7 @@
             look and when the substrate hasn't captured."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :no-such/handler
-                :db-diff [] :fx [] :machine nil}
+                :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
           "the source slot is present even on graceful-degrade")
@@ -1149,69 +1147,14 @@
             (is (nil? chip)
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
-;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
+;; ---- rf2-zkiu5 — retired cascade steps (APP-DB DIFF + CHILD DISPATCHES) --
 ;;
-;; The `view/render-app-db-diff-step` fn was deleted in commit
-;; 862288aca along with the standalone APP-DB DIFF projection step.
-;; HANDLER `:db` `[diff][all]` toggle covers the same surface
-;; in-context (tests for that ride in the rf2-93436 section above).
-
-;; ---- rf2-yx1ae — child-dispatches section -----------------------------
-
-(deftest child-dispatches-step-renders-rows-test
-  (testing "rf2-yx1ae — CHILD-DISPATCHES step renders one row per child
-            with via-chip + event vector"
-    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
-                :step-number 5
-                :rows [{:event [:other/x 1] :via :dispatch :delay-ms nil}
-                       {:event [:retry]     :via :dispatch-later :delay-ms 250}]}
-          ctx  {:dispatch-id   1
-                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
-                                 :trigger-event [:other/x 1]}]}
-          tree (view/render-child-dispatches-step step ctx)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-child-dispatches")))
-      (is (= 2 (count (th/find-by-testid-prefix
-                        tree "rf-xray-epoch-child-dispatch-row-"))))
-      (let [header (text-of tree "rf-xray-epoch-child-dispatches-header")]
-        (is (string/includes? header "2 events dispatched")))
-      (let [via0 (text-of tree "rf-xray-epoch-child-dispatch-via-0")
-            via1 (text-of tree "rf-xray-epoch-child-dispatch-via-1")
-            ev0  (text-of tree "rf-xray-epoch-child-dispatch-event-0")
-            ev1  (text-of tree "rf-xray-epoch-child-dispatch-event-1")]
-        (is (string/includes? via0 "dispatch"))
-        (is (string/includes? via1 "dispatch-later"))
-        (is (string/includes? ev0  ":other/x"))
-        (is (string/includes? ev1  ":retry")))
-      ;; delay chip on the dispatch-later row only
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-1")))
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-0"))))))
-
-(deftest child-dispatches-jump-resolves-when-in-buffer-test
-  (testing "rf2-yx1ae — child epoch in the buffer renders a jump button
-            with the child's :epoch-id"
-    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
-                :step-number 5
-                :rows [{:event [:other/x 1] :via :dispatch}]}
-          ctx  {:dispatch-id   1
-                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
-                                 :trigger-event [:other/x 1]}]}
-          tree (view/render-child-dispatches-step step ctx)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))
-          "jump button is present when child is resolvable")
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0"))
-          "no `not in buffer` marker when child is resolved"))))
-
-(deftest child-dispatches-missing-when-not-in-buffer-test
-  (testing "rf2-yx1ae — child not in buffer (aged out / never landed)
-            renders the muted `not in buffer` marker"
-    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
-                :step-number 5
-                :rows [{:event [:other/x 1] :via :dispatch}]}
-          ctx  {:dispatch-id   1
-                :epoch-history []}
-          tree (view/render-child-dispatches-step step ctx)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0")))
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))))))
+;; The `view/render-app-db-diff-step` + `view/render-child-dispatches-step`
+;; renderers were deleted along with the standalone APP-DB DIFF (rf2-rrykz)
+;; + CHILD-DISPATCHES (rf2-yx1ae) projection steps. Both are redundant
+;; with existing steps — HANDLER `:db` (rf2-93436 section above) covers
+;; the post-handler diff; the FX step surfaces every dispatch-family fx
+;; entry. rf2-btt0s deleted the lingering dead code + these renderer tests.
 
 ;; ---- rf2-u69j7 — machine handler section: time-ordered cascade ----------
 ;;
@@ -1226,7 +1169,7 @@
             REPLACED (not augmented)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :guard :step 1
                                      :guard-id :ready? :outcome :pass}
                                     {:kind :action :step 2
@@ -1259,7 +1202,7 @@
             assert the kind-sequence."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :guard :step 1
                                      :guard-id :ok? :outcome :pass}
                                     {:kind :action :step 2
@@ -1282,7 +1225,7 @@
             :after-action / :initial-entry / :destroy-exit`) fired."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :action :step 1
                                      :action-id :open-socket
                                      :phase :entry}]
@@ -1299,7 +1242,7 @@
             'action X emitted fx Y' in one place."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :action :step 1
                                      :action-id :open-socket
                                      :phase :entry
@@ -1322,7 +1265,7 @@
           ;; outcome {:opened-count 1}.
           mutating {:step :handler :badge :HANDLER :step-number 3
                     :flavour :reg-machine :event-id :door/main
-                    :db-diff [] :fx []
+                    :fx []
                     :machine {:cascade [{:kind :action :step 1
                                          :action-id :count-open
                                          :phase :entry
@@ -1338,7 +1281,7 @@
     ;; slot (the inspector renders the value with no delta).
     (let [noop {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :action :step 1
                                      :action-id :clear-hold
                                      :phase :exit
@@ -1356,7 +1299,7 @@
             (`state <from> → <to>` line + echoed `event [...]`) is GONE."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade [{:kind :transition :step 1
                                      :machine-id :ws/conn
                                      :before {:state [:idle]}
@@ -1401,7 +1344,7 @@
         (let [step {:step :handler :badge :HANDLER :step-number 3
                     :flavour :reg-machine
                     :event-id :rf2-wwc3j.view/inline-entry
-                    :db-diff [] :fx []
+                    :fx []
                     :machine {:cascade [{:kind :action :step 1
                                          :action-id inline-fn
                                          :phase :entry
@@ -1430,7 +1373,7 @@
         (let [step {:step :handler :badge :HANDLER :step-number 3
                     :flavour :reg-machine
                     :event-id :rf2-wwc3j.view/inline-guard
-                    :db-diff [] :fx []
+                    :fx []
                     :machine {:cascade [{:kind :guard :step 1
                                          :guard-id inline-guard
                                          :outcome :pass
@@ -1456,7 +1399,7 @@
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine
                   :event-id :rf2-wwc3j.view/transition-row
-                  :db-diff [] :fx []
+                  :fx []
                   :machine {:cascade [{:kind :transition :step 1
                                        :machine-id :rf2-wwc3j.view/transition-row
                                        :from-state :idle
@@ -1487,7 +1430,7 @@
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine
                   :event-id :rf2-wwc3j.view/timer-row
-                  :db-diff [] :fx []
+                  :fx []
                   :machine {:cascade [{:kind :timer :step 1
                                        :state :idle :delay 500
                                        :reason :on-exit}]
@@ -1504,7 +1447,7 @@
             least one `:rf.machine/transition`."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
+                :fx []
                 :machine {:cascade []
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
@@ -1517,11 +1460,10 @@
             machine-specific; non-machine rendering must not regress)."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :counter/inc
-                :db-diff [[[:counter] 5 6 :modified]]
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
-          "the standard :db-diff sub-section renders for non-machine handlers")
+          "the standard :db sub-section renders for non-machine handlers")
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine"))
           "no machine block on a non-machine handler")
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
@@ -1533,7 +1475,7 @@
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-event-db :event-id :rf.test.epoch.view/slow-handler
-                  :db-diff [] :fx [] :machine nil
+                  :fx [] :machine nil
                   :duration-ms 42})]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-duration-long"))
           "the long-duration testid is stamped on slow steps")
@@ -1544,7 +1486,7 @@
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-event-db :event-id :rf.test.epoch.view/fast-handler
-                  :db-diff [] :fx [] :machine nil
+                  :fx [] :machine nil
                   :duration-ms 0.1})]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-duration"))
           "fast step keeps the standard duration testid"))))
@@ -1560,7 +1502,7 @@
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-event-db
                   :event-id :rf.test.epoch.view/srctest-handler
-                  :db-diff [] :fx [] :machine nil}
+                  :fx [] :machine nil}
             tree (view/render-handler-step step)]
         (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source-body"))
             "the code-block widget mounts under the source slot")
@@ -1594,7 +1536,7 @@
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-event-db
                   :event-id :rf.test.epoch.view/ehd8v-never-registered
-                  :db-diff [] :fx [] :machine nil}
+                  :fx [] :machine nil}
             tree (view/render-handler-step step)]
         (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-coord"))
             "no coord-row when :file meta is absent")
@@ -1631,7 +1573,7 @@
             event-id keyword + args paint with the canonical
             syntax-token chrome (keyword magenta, number orange,
             string green). Pre-fix the body was plain text via
-            `proj/event-display`."
+            `format/event-display`."
     (let [tree (view/render-dispatch-step
                  {:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:counter/inc 7 "x"] :source :ui :coord nil})]
@@ -1658,7 +1600,6 @@
     (let [tree    (view/render-handler-step
                     {:step :handler :badge :HANDLER :step-number 3
                      :flavour :reg-event-fx :event-id :do/it
-                     :db-diff []
                      :fx-vec  [[:dispatch [:foo 1]]
                                [:http/get {:url "/x"}]]
                      :other-effects {:navigate "/home"}
@@ -1743,23 +1684,12 @@
       (is (>= (count (mini-mounts subs)) 2)
           "subs-read column mounts one mini per consumed sub"))))
 
-;; `app-db-diff-values-route-through-mini-test` retired in rf2-xu5iv
-;; (commit 862288aca dropped `view/render-app-db-diff-step` along with
-;; the projection step). HANDLER `:db` diff mini-mount coverage rides
-;; on `handler-db-diff-values-route-through-mini-test` above.
-
-(deftest child-dispatches-event-routes-through-mini-test
-  (testing "rf2-8w8er — CHILD-DISPATCHES row renders the event vector
-            through `ei/mini`."
-    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
-                :step-number 5
-                :rows [{:event [:other/x 1] :via :dispatch}]}
-          ctx  {:dispatch-id 1 :epoch-history []}
-          tree (view/render-child-dispatches-step step ctx)
-          ev   (th/find-by-testid tree "rf-xray-epoch-child-dispatch-event-0")]
-      (is (some? ev))
-      (is (pos? (count (mini-mounts ev)))
-          "the dispatched-event slot mounts a mini-render"))))
+;; `app-db-diff-values-route-through-mini-test` +
+;; `child-dispatches-event-routes-through-mini-test` retired with the
+;; APP-DB DIFF + CHILD-DISPATCHES steps (rf2-zkiu5 / rf2-btt0s). HANDLER
+;; `:db` diff mini-mount coverage rides on
+;; `handler-db-diff-values-route-through-mini-test` above; dispatch-family
+;; fx coverage rides on the FX step's `ei/mini` mounts.
 
 ;; ---- rf2-atqkg — pipeline-view realises step-seq inside reactive scope ---
 ;;
@@ -1821,7 +1751,6 @@
                   :event [:counter/inc] :source :ui :coord nil}
                  {:step :handler :badge :HANDLER :step-number 2
                   :flavour :reg-event-db :event-id :counter/inc
-                  :db-diff [[[:counter :value] 5 6 :modified]]
                   :fx [] :machine nil}]
           tree  (view/pipeline-view steps)
           step-seq (pipeline-steps-seq tree)]
@@ -2698,7 +2627,7 @@
             header's ✗ status glyph"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :standard-epochs/throw-handler
-                :db-diff [] :fx [] :machine nil
+                :fx [] :machine nil
                 :status :error
                 :errors [{:operation :rf.error/handler-exception
                           :message "boom in handler"
@@ -2722,7 +2651,7 @@
             — a clean stage is silent now, not an all-tick row)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :counter/inc
-                :db-diff [] :fx [] :machine nil}
+                :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-status"))
           "no per-stage status glyph on a clean step (retired rf2-9wq0v)")
@@ -2918,7 +2847,7 @@
                  (view/render-handler-step
                    {:step :handler :badge :HANDLER :step-number 4
                     :flavour :reg-event-db :event-id :standard-epochs/throw-interceptor
-                    :db-diff [] :db-write? true :fx [] :machine nil
+                    :db-write? true :fx [] :machine nil
                     :status :skipped}))]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-skipped"))
           "the SKIPPED body renders")

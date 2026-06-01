@@ -82,10 +82,6 @@
   violation sub-block lives inline now. Hot-reload drift carries
   on a standalone SCHEMA-HOT-RELOAD tail step (same `:warning`
   token; renamed badge to flag the narrowed scope).
-  rf2-yx1ae — CHILD-DISPATCHES pulls `:text-tertiary` (the same muted
-  grey as DISPATCH — same hue family, same cascade-link semantics).
-  rf2-rrykz — APP-DB-DIFF pulls `:accent` (the same blue as HANDLER /
-  FLOW — same state-mutation lens semantics).
   rf2-yz57h — INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
@@ -97,9 +93,7 @@
    :SIDE-EFFECTS      :orange
    :SUBSCRIPTIONS     :magenta-pink
    :VIEWS             :success
-   :SCHEMA-HOT-RELOAD :warning
-   :CHILD-DISPATCHES  :text-tertiary
-   :APP-DB-DIFF       :accent})
+   :SCHEMA-HOT-RELOAD :warning})
 
 (def ^:private badge->label
   "Map from badge keyword → uppercase label rendered in the badge
@@ -112,9 +106,7 @@
    :SIDE-EFFECTS      "EFFECT HANDLERS"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
    :VIEWS             "VIEWS"
-   :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"
-   :CHILD-DISPATCHES  "DISPATCHED EVENTS"
-   :APP-DB-DIFF       "APP-DB DIFF"})
+   :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"})
 
 (defn token-key
   "Return the theme-token KEYWORD for `badge` (e.g. `:accent` for

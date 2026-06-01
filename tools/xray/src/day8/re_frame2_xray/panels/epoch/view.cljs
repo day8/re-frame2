@@ -55,6 +55,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
+            [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
@@ -1464,53 +1465,6 @@
 ;; banner has no caller. Downstream-mute treatment lives on via
 ;; `rolled-back-mute-style` (applied in `render-pipeline-steps`).
 
-;; -- CHILD DISPATCHES -----------------------------------------------------
-
-(def ^:private child-dispatch-row-style
-  {:display     "flex"
-   :align-items "center"
-   :gap         "8px"
-   :padding     "3px 0"
-   :font-family mono-stack
-   :font-size   "12px"
-   :flex-wrap   "wrap"})
-
-(def ^:private child-dispatch-via-style
-  {:color          text-tertiary-colour
-   :font-size      "10px"
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"
-   :font-weight    600})
-
-(def ^:private child-dispatch-event-style
-  {:color      text-primary-colour
-   :min-width  0
-   :flex       1
-   :word-break "break-word"})
-
-(def ^:private child-dispatch-delay-style
-  {:color text-tertiary-colour :font-size "10px"})
-
-(def ^:private child-dispatch-jump-style
-  {:background     "transparent"
-   :border         border-default-1px
-   :border-radius  "3px"
-   :color          accent-colour
-   :cursor         "pointer"
-   :font-family    sans-stack
-   :font-size      "10px"
-   :padding        "2px 8px"
-   :display        "inline-flex"
-   :align-items    "center"
-   :gap            "4px"
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"})
-
-(def ^:private child-dispatch-missing-style
-  {:color      text-tertiary-colour
-   :font-size  "10px"
-   :font-style "italic"})
-
 ;; -- pipeline -------------------------------------------------------------
 
 (def ^:private pipeline-host-style
@@ -1690,7 +1644,7 @@
          [:span {:aria-hidden true
                  :style duration-chip-long-glyph-style}
           "▲"])
-       (proj/format-duration-ms duration-ms)])))
+       (fmt/format-duration-ms duration-ms)])))
 
 ;; coord-chip moved to `panels.shared.coord-chip/coord-chip` (rf2-xjgdk
 ;; audit L2 — the icon-only chip was duplicated across panels; one
@@ -2099,7 +2053,7 @@
                           (catch :default _ nil)))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})
-        label      (proj/ns-keyword id)]
+        label      (fmt/ns-keyword id)]
     [:div {:key (str "cofx-" idx)
            :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
            :style coeffect-row-style}
@@ -2130,7 +2084,7 @@
                           (catch :default _ nil)))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})
-        label      (proj/ns-keyword id)]
+        label      (fmt/ns-keyword id)]
     [:div {:data-testid (str "rf-xray-epoch-step-coeffect-" (name id))
            :data-step-kw "coeffect"
            :data-cofx-id (name id)}
@@ -2163,12 +2117,12 @@
        [:div {:data-testid (str "rf-xray-epoch-coeffect-failed-" (name id))
               :style coeffect-body-style}
         [:span {:style coeffect-body-path-style}
-         (str "injection of [" (proj/ns-keyword id) "] threw")]]
+         (str "injection of [" (fmt/ns-keyword id) "] threw")]]
        [:div {:data-testid (str "rf-xray-epoch-coeffect-value-" (name id))
               :style coeffect-body-style}
         [:span {:style coeffect-body-plus-style} "+"]
         [:span {:style coeffect-body-path-style}
-         (str "[" (proj/ns-keyword id) "]")]
+         (str "[" (fmt/ns-keyword id) "]")]
         [:span {:style coeffect-body-value-style}
          [ei/mini value 80]]])
      ;; rf2-yz57h — a coeffect-injection EXCEPTION attaches here as the
@@ -2257,7 +2211,7 @@
   `->interceptor*` fn, is a framework interceptor, or the bundle elided
   the coord in production."
   [idx {:keys [interceptor-id phase errors coord]}]
-  (let [label (proj/ns-keyword interceptor-id)]
+  (let [label (fmt/ns-keyword interceptor-id)]
     [:div {:key (str "interceptor-row-" idx)
            :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
            :data-interceptor-phase (when phase (name phase))}
@@ -2353,7 +2307,7 @@
   Returns nil when no coord was captured (production builds, fixture
   fn-form machines)."
   [machine-meta row]
-  (when-let [k (proj/cascade-row-source-key row)]
+  (when-let [k (fmt/cascade-row-source-key row)]
     (let [idx (or (get-in machine-meta [:rf/machine :rf.machine/source-coords])
                   (:rf.machine/source-coords machine-meta))
           c   (get idx k)]
@@ -2395,7 +2349,7 @@
   Returns nil for rows whose source-key is nil (no spec-path could be
   derived — e.g. transition rows with no `:event-id`)."
   [machine-meta row]
-  (when-let [k (proj/cascade-row-source-key row)]
+  (when-let [k (fmt/cascade-row-source-key row)]
     (let [spec        (machine-spec-from-meta machine-meta)
           ;; rf2-ypu5i — named-handler source-string preferred for
           ;; `[:actions <id>]` / `[:guards <id>]`. The macro stamps
@@ -2627,7 +2581,7 @@
             [:span {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
                                       (:step row) "-" j)
                     :style cascade-detail-fx-chip-style}
-             (proj/ns-keyword fx-id)])])
+             (fmt/ns-keyword fx-id)])])
        ;; Threw path — the action halted the cascade. Surface a
        ;; compact error chip so the operator can pivot to the
        ;; exception body via the Issues panel.
@@ -2647,7 +2601,7 @@
 ;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
 ;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
 ;; <before-state → after-state>` (the verb IS the state change — see
-;; `projection/cascade-row-label`, which now emits just `<from> → <to>`),
+;; `format/cascade-row-label`, which now emits just `<from> → <to>`),
 ;; rendered visually PRIMARY via `cascade-transition-verb-link-style`. The
 ;; prior repetitive body (`cascade-row-transition-details`) is REMOVED: it
 ;; re-stated the state change on a labelled `state <from> → <to>` line and
@@ -2676,8 +2630,8 @@
   (let [{:keys [kind step phase duration-ms outcome threw?]} row
         coord       (cascade-row-coord machine-meta row)
         source-form (cascade-row-source-form machine-meta row)
-        verb        (proj/cascade-row-label row)
-        outcome-lbl (proj/cascade-outcome-label row)
+        verb        (fmt/cascade-row-label row)
+        outcome-lbl (fmt/cascade-outcome-label row)
         long?       (and (number? duration-ms)
                          (> duration-ms proj/long-step-threshold-ms))]
     [:div {:key (str "cascade-row-" step)
@@ -2748,7 +2702,7 @@
                   (when (number? total)
                     [:span {:data-testid "rf-xray-epoch-machine-cascade-total"
                             :style machine-cascade-total-style}
-                     (str "· " (proj/format-duration-ms total))])])
+                     (str "· " (fmt/format-duration-ms total))])])
      (if (zero? n)
        [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-empty"
               :style machine-cascade-empty-style}
@@ -2891,7 +2845,7 @@
                    (try (rf/handler-meta :event event-id)
                         (catch :default _ nil)))
         coord    (coord-from-handler-meta meta)
-        label    (proj/handler-flavour-label flavour)]
+        label    (fmt/handler-flavour-label flavour)]
     ;; rf2-vw5pi — the HANDLER verb-as-link routes through the shared
     ;; `coord-link`. Single testid across both branches (the prior
     ;; `…-verb-plain` variant was a hand-rolled artefact, not pinned);
@@ -2973,9 +2927,6 @@
   or a pre-rf2-ta0y7 runtime) the block falls back to the record's
   `:db-after` so older epochs still render.
 
-  The `:db-diff` arg is unused under the single rendering but stays in
-  the parent's `handler-body` signature for projection compatibility.
-
   rf2-wnvid — PHANTOM-`:db` fix. When the handler wrote NO `:db` effect
   (`db-write?` false — e.g. it returned only `:fx`), the block renders a
   `— no :db (handler returned no :db)` placeholder instead of falling
@@ -2993,7 +2944,7 @@
   the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
-  [_db-diff db-post-handler db-write?]
+  [db-post-handler db-write?]
   (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
         db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
@@ -3065,7 +3016,7 @@
   Either, both, or neither may render — sections are
   `seq`-conditioned. The `:db` part stays in its own dedicated
   block (the [diff][full][full+diff] toggle) above."
-  [{:keys [flavour event-id db-diff db-post-handler db-write? fx-vec other-effects
+  [{:keys [flavour event-id db-post-handler db-write? fx-vec other-effects
            machine errors] :as _row}]
   (let [machine? (= :reg-machine flavour)
         ;; rf2-wnvid — the handler threw iff a `:rf.error/handler-exception`
@@ -3088,7 +3039,7 @@
      ;; inline 'Exception Thrown' card below is the signal). The slot
      ;; stays present for a clean handler that simply returned no `:db`.
      (when (and (not machine?) (not threw?))
-       (handler-db-diff-block db-diff db-post-handler db-write?))
+       (handler-db-diff-block db-post-handler db-write?))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -3206,7 +3157,7 @@
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
-        label      (proj/ns-keyword flow-id)
+        label      (fmt/ns-keyword flow-id)
         ;; rf2-4wywy / rf2-48oc4 — render a `:db` diff scoped to this
         ;; flow's path. db-pre-flow (effective post-handler db) lacks this
         ;; flow's write; db-post-flow (t2) carries it. Scoping to the path
@@ -3244,7 +3195,7 @@
        ;; flow's path → the inspector paints the flow's slot reshape.
        [:div {:data-testid (str "rf-xray-epoch-flow-db-diff-" (name flow-id))
               :style handler-db-all-style}
-        (sub-header ":db" (proj/path-display path))
+        (sub-header ":db" (fmt/path-display path))
         [ei/edn-inspector diff-after
          {:site-id [:rf.xray.epoch/flow-db-diff flow-id]
           :before  diff-before
@@ -3258,7 +3209,7 @@
           [:span {:style coeffect-body-plus-style}
            (if (some? before) "~" "+")]
           [:span {:style coeffect-body-path-style}
-           (proj/path-display path)]
+           (fmt/path-display path)]
           (when (some? before)
             [:span {:style diff-before-style} [ei/mini before 30]])
           (when (and (some? before) (some? after))
@@ -3357,7 +3308,7 @@
              :title (when skipped? badge/skipped-hover)}
       (badge/fx-row-status-glyph status)]
      [:span {:style fx-row-id-style}
-      (proj/ns-keyword fx-id)
+      (fmt/ns-keyword fx-id)
       ;; rf2-g1mfc — click-to-source via the shared `coord-chip`, exact
       ;; parity with the SUBSCRIPTIONS (~3000) + VIEWS rows + the HANDLER
       ;; verb. The coord lookup keys off `fx-id` and resolves the
@@ -3385,15 +3336,15 @@
                           :default-expanded-depth 1}]])
      (when (number? duration-ms)
        [:span {:style fx-row-duration-style}
-        (proj/format-duration-ms duration-ms)])
+        (fmt/format-duration-ms duration-ms)])
      ;; rf2-uffov — per-action attribution chip (for machine cascades)
      (when-let [{:keys [action-id phase]} attributed-to]
        [:span {:data-testid (str "rf-xray-epoch-fx-row-attribution-" idx)
-               :title (str "emitted by " (proj/ns-keyword action-id)
+               :title (str "emitted by " (fmt/ns-keyword action-id)
                            (when phase (str " (" (name phase) " action)")))
                :style fx-row-attribution-style}
         [:span {:aria-hidden true} "←"]
-        (proj/ns-keyword action-id)
+        (fmt/ns-keyword action-id)
         (when phase
           [:span {:style fx-row-attribution-phase-style}
            (str "(" (name phase) ")")])])]))
@@ -4624,121 +4575,19 @@
 ;; case in `render-step` are removed; the projection no longer
 ;; emits the step (rf2-7gf7v / projection.cljc).
 
-;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 -------------------
-;;
-;; Replaced by the HANDLER step's `:db` `[diff][all]` toggle which
-;; surfaces the same data in-context. `render-app-db-diff-step` +
-;; `app-db-diff-row-view` deleted along with the step.
-
-
-;; ---- CHILD DISPATCHES step (rf2-yx1ae) ----------------------------------
-
-(defn- child-dispatch-via-label
-  "Render the `:via` slot (the fx-id that emitted the row) as a UI
-  chip label (rf2-yx1ae)."
-  [via]
-  (case via
-    :dispatch        "dispatch"
-    :dispatch-n      "dispatch-n"
-    :dispatch-later  "dispatch-later"
-    (when (keyword? via) (name via))))
-
-(defn- child-dispatch-row-view
-  "Render one child-dispatch row. Carries:
-
-  - child event vector (the operator's primary read)
-  - `:via` chip (which fx-id emitted the row)
-  - `:delay-ms` chip (for `:dispatch-later`)
-  - jump-to button when the child epoch is in the buffer; otherwise
-    a muted `not in buffer` marker
-
-  rf2-yx1ae. The jump-to dispatches `:rf.xray/select-epoch` against
-  the resolved child `:epoch-id`."
-  [{:keys [dispatch-id epoch-history]} idx {:keys [event delay-ms via]}]
-  ;; rf2-nesy9 — render-time frame capture for the deferred jump click.
-  (let [frame          (rf/current-frame-id)
-        child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
-    [:div {:key (str "child-dispatch-" idx)
-           :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)
-           :data-child-resolved (str (some? child-epoch-id))
-           :style child-dispatch-row-style}
-     ;; via fx-id chip (muted)
-     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-via-" idx)
-             :style child-dispatch-via-style}
-      (child-dispatch-via-label via)]
-     ;; event vector (primary) — rf2-8w8er routes through `mini` so
-     ;; the dispatched event vector carries syntax-token chrome.
-     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-event-" idx)
-             :style child-dispatch-event-style}
-      [ei/mini event 80]]
-     ;; delay chip (for :dispatch-later)
-     (when (number? delay-ms)
-       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-delay-" idx)
-               :style child-dispatch-delay-style}
-        (str "+" delay-ms "ms")])
-     ;; jump-to or "not in buffer"
-     (if child-epoch-id
-       [:button {:data-testid (str "rf-xray-epoch-child-dispatch-jump-" idx)
-                 :data-child-epoch-id (str child-epoch-id)
-                 :aria-label "jump to child cascade"
-                 :on-click (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.xray/select-epoch child-epoch-id]
-                                          {:frame frame}))
-                 :style child-dispatch-jump-style}
-        (icons/arrow-right)
-        "jump"]
-       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-missing-" idx)
-               :title "the child cascade has aged out of the epoch buffer (or has not yet completed)"
-               :style child-dispatch-missing-style}
-        "not in buffer"])]))
-
-(defn render-child-dispatches-step
-  "Render the CHILD-DISPATCHES step (rf2-yx1ae — only present when
-  the handler returned dispatch-family fx).
-
-  Header: `N events dispatched` (per the bead's acceptance §4).
-  Per-row: event vector + via-fx chip + delay chip + jump-to
-  affordance (resolves child epoch via `proj/find-child-epoch`).
-
-  `ctx` carries this cascade's `:dispatch-id` + the
-  `:epoch-history` slice; the row-view uses both to find the
-  child's `:epoch-id`."
-  [{:keys [rows step-number]} ctx]
-  [:div {:data-testid "rf-xray-epoch-step-child-dispatches"
-         :data-step-kw "child-dispatches"}
-   (numbered-circle step-number :CHILD-DISPATCHES)
-   (step-header
-     {:step :child-dispatches
-      :badge :CHILD-DISPATCHES
-      :verb (str (count rows) " event"
-                 (when (not= 1 (count rows)) "s")
-                 " dispatched")
-      :expandable? false
-      :testid "rf-xray-epoch-child-dispatches"}
-     nil)
-   [:div {:style margin-top-5-style}
-    (map-indexed (fn [idx row]
-                   (child-dispatch-row-view ctx idx row))
-                 rows)]])
-
 ;; ---- step dispatcher -----------------------------------------------------
-
-(declare render-child-dispatches-step)
 
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
   is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS
   later retired by rf2-xgeag in favour of inline attachment + a
-  hot-reload-only tail step; rf2-yx1ae added CHILD-DISPATCHES;
-  rf2-rrykz added APP-DB-DIFF).
+  hot-reload-only tail step; rf2-yx1ae's CHILD-DISPATCHES + rf2-rrykz's
+  APP-DB-DIFF steps were retired by rf2-zkiu5).
 
-  `ctx` carries the cascade-level pieces a row may need (e.g. the
-  parent `:dispatch-id` + the `:epoch-history` slice for the
-  CHILD-DISPATCHES section's child-epoch resolution + rf2-5qp4g
-  DISPATCH `:fx-dispatch` parent-epoch link resolution). Most steps
-  ignore it."
+  `ctx` carries the cascade-level pieces a row may need (the rf2-5qp4g
+  DISPATCH `:fx-dispatch` parent-epoch link resolution index). Most
+  steps ignore it."
   [step ctx]
   (case (:step step)
     :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
@@ -4749,10 +4598,6 @@
     :side-effects      (render-side-effects-step step)
     :subscriptions     (render-subscriptions-step step)
     :views             (render-views-step step)
-    ;; :schema-hot-reload case retired per rf2-7gf7v — the
-    ;; projection no longer emits the step.
-    :child-dispatches  (render-child-dispatches-step step ctx)
-    ;; :app-db-diff removed pair-debug 2026-05-26 — see comment above.
     nil))
 
 ;; ---- pipeline view -------------------------------------------------------
@@ -4773,10 +4618,10 @@
       Row spacing: 13px vertical gap between entries
 
   `ctx` is an optional map carrying cascade-level pieces individual
-  step renderers may need (`:dispatch-id`, `:epoch-history` — used
-  by the CHILD-DISPATCHES section to resolve child epochs via
-  `proj/find-child-epoch`). Defaulted to `{}` for back-compat with
-  direct test callers."
+  step renderers may need (`:dispatch-id->epoch-id` — the precomputed
+  index the DISPATCH step's `:fx-dispatch` parent-epoch link reads,
+  rf2-x25e0). Defaulted to `{}` for back-compat with direct test
+  callers."
   ([steps]
    (pipeline-view steps {}))
   ([steps ctx]
@@ -4860,7 +4705,7 @@
   e2e; the pre-rf2-wnvid top banner is retired (it merely restated the
   inline signal)."
   []
-  (let [{:keys [status steps dispatch-id epoch-history outcome]}
+  (let [{:keys [status steps epoch-history outcome]}
         @(rf/subscribe [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
                :data-rf-xray-outcome (when outcome (name outcome))
@@ -4876,9 +4721,7 @@
            ;; parent-epoch resolver (O(1) lookup instead of an O(N)
            ;; epoch-history scan per render).
            (pipeline-view steps
-                          {:dispatch-id           dispatch-id
-                           :epoch-history         epoch-history
-                           :dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
+                          {:dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
                                                     epoch-history)})]
           (empty-state-view :no-events))
 

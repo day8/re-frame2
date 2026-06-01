@@ -2088,9 +2088,12 @@ Vanilla sources carry no enrichment; the renderer falls through to
 the pre-rf2-5qp4g call-site link.
 
 **Parent-epoch resolution.** The view layer resolves
-`:parent-dispatch-id → :parent-epoch-id` against the Xray
-`:epoch-history` slice threaded through `pipeline-view`'s `ctx`
-(`(proj/find-parent-epoch epoch-history parent-dispatch-id)`). When
+`:parent-dispatch-id → :parent-epoch-id` against a precomputed
+`{dispatch-id → epoch-id}` index (rf2-x25e0 — built once per render
+via `proj/dispatch-id->epoch-id-index` over the Xray `:epoch-history`
+slice and threaded through `pipeline-view`'s `ctx` as
+`:dispatch-id->epoch-id`; `(proj/find-parent-epoch index
+parent-dispatch-id)` is an O(1) lookup). When
 the parent epoch is in the buffer the chip renders as a clickable
 `<button>` carrying `parent epoch #N`; when not (root cascade, or
 the parent was evicted from the ring) the chip renders as a muted
@@ -2146,6 +2149,14 @@ exercise the algebra without spinning a CLJS runtime. The view
 layer (`panels/epoch/view.cljs`) consumes the projection's output
 verbatim; no DOM concern bleeds into the data layer.
 
+The view-presentation string formatters (`format-duration-ms`,
+`event-display`, `ns-keyword`, `cascade-row-label`,
+`cascade-outcome-label`, `cascade-row-source-key`,
+`handler-flavour-label`, …) live in the sibling
+`panels/epoch/format.cljc` (rf2-qkygs) — also `.cljc` and JVM-testable
+— so the projection ns stays the pure step-derivation engine and the
+presentation boundary reads as one named ns the view imports.
+
 ### §9.1.9 Queries
 
 | Sub | Reads | Yields |
@@ -2191,7 +2202,9 @@ and silently rendered empty rows. The binding inventory:
 Each step row carries `:duration-ms` (a number when the substrate
 stamped it; nil otherwise). The view paints it as a right-aligned
 monospace chip on every step's header — pure-data via
-`projection/format-duration-ms`, which formats `0.1ms` / `12ms` /
+`format/format-duration-ms` (rf2-qkygs extracted the view-presentation
+string formatters out of the pure-data `projection` ns into the
+sibling `panels/epoch/format.cljc`), which formats `0.1ms` / `12ms` /
 `1.2s` per scale.
 
 Per-row predicate driving long-step chrome:
