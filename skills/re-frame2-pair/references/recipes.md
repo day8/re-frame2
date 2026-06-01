@@ -208,14 +208,14 @@ When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__
    This dispatches loaders + events + (optionally) play into the variant's frame.
 3. Scope the re-frame2-pair session to that variant:
    ```
-   frames/select :story.counter/loaded
+   set-operating-frame {frame: ":story.counter/loaded"}
    ```
    Subsequent reads/writes/watches inherit this frame.
 4. Operate normally — `app-db/snapshot`, `dispatch`, `trace/last-epoch`, etc. The variant's isolated state is what you see.
 
 **Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `app-db/snapshot` returns whatever the variant's loaders + events seeded; `trace/last-epoch` returns the last dispatch (often the last `:play-script` step if the variant just mounted).
 
-**Gotcha.** If you forget the `frames/select` (or `--frame` per call), dispatches land in `:rf/default` and you'll see nothing in the variant's history. See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
+**Gotcha.** If you forget to pin the frame (`set-operating-frame`) or pass a per-call `frame:` arg, dispatches land in `:rf/default` and you'll see nothing in the variant's history. See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
 
 ## "Diff two variants of the same component"
 
