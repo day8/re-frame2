@@ -25,8 +25,10 @@
   IS picked up under both; the gate keeps node-test green without
   any per-test rename/exclude dance."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.story.config :as config]
             [re-frame.story.recorder :as recorder]
             [re-frame.story.recorder.dom-capture :as dom]
+            [re-frame.story.recorder.play-export :as export]
             [re-frame.story.recorder.selector :as sel]))
 
 ;; ---- runtime gate --------------------------------------------------------
@@ -61,6 +63,8 @@
       (recorder/clear!)
       (dom/set-enabled! true)
       (dom/set-debounce-ms! 0)
+      (config/set-show-sensitive! false)
+      (config/reset-suppressed-count!)
       (let [_ (mount-root!)]
         (dom/install! @test-root)
         (try
@@ -69,6 +73,8 @@
             (dom/remove!)
             (unmount-root!)
             (recorder/clear!)
+            (config/set-show-sensitive! false)
+            (config/reset-suppressed-count!)
             (dom/set-debounce-ms! 250)))))))
 
 (use-fixtures :each reset-all!)
@@ -258,3 +264,100 @@
             ":t is non-negative ms since :started-ms")
         (is (< t 10000)
             "sanity: not an absolute epoch")))))
+
+;; ---- sensitive-input redaction (rf2-0qoi0) -------------------------------
+;;
+;; The DOM-capture rail is the SECOND credential/PII egress (the dispatch
+;; rail being the first, redacted by `recorder/trace-listener`). Post
+;; rf2-nkjkj `:entries` is the PRIMARY codegen source, so a typed password
+;; would otherwise ride verbatim into the generated `:play-script` step.
+;; These tests pin the record-but-redact policy on the DOM rail: a
+;; password field's value is scrubbed at the capture boundary so the
+;; generated snippet carries the placeholder, not the plaintext.
+
+(defn- mk-input!
+  "Create + mount an `<input>` carrying the given attribute map, return it."
+  [attrs]
+  (let [input (.createElement js/document "input")]
+    (doseq [[k v] attrs]
+      (.setAttribute input (name k) v))
+    (.appendChild @test-root input)
+    input))
+
+(deftest password-field-type-is-redacted-in-generated-snippet
+  (when (dom-available?)
+    (testing "RED→GREEN (rf2-0qoi0): a typed <input type=password> value is
+              SCRUBBED — neither the recorded :dom/type entry nor the
+              generated play-script :type step carries the plaintext"
+      (recorder/start-recording! :story.login/flow)
+      (let [pw (mk-input! {:type "password" :id "pw"})]
+        (set! (.-value pw) "hunter2-secret")
+        (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
+        (let [{:keys [text] :as entry}
+              (first (filterv #(= :dom/type (:kind %)) (recorder/recorded-entries)))]
+          ;; The recorded entry carries the placeholder, not the password.
+          (is (= dom/redacted-type-text text)
+              "the recorded :dom/type text is the redacted placeholder")
+          (is (not= "hunter2-secret" text)
+              "the plaintext password never reaches the recorder atom")
+          ;; The generated play-script step carries the placeholder too.
+          (let [spec (export/recording->play-script (recorder/recorded-entries))
+                type-steps (filterv #(= :type (first %)) (:script spec))]
+            (is (= [[:type (:selector entry) dom/redacted-type-text]] type-steps)
+                "the generated :type step is scrubbed")
+            (is (not (re-find #"hunter2-secret" (export/render-play-script spec)))
+                "the rendered snippet text leaks no plaintext")))))))
+
+(deftest email-and-tel-and-autocomplete-fields-are-redacted
+  (when (dom-available?)
+    (testing "email / tel inputs + a credential autocomplete token are scrubbed"
+      (doseq [attrs [{:type "email" :id "e"}
+                     {:type "tel" :id "t"}
+                     {:type "text" :autocomplete "current-password" :id "c"}
+                     {:type "text" :autocomplete "cc-number" :id "n"}]]
+        (recorder/clear!)
+        (recorder/start-recording! :story.login/flow)
+        (let [el (mk-input! attrs)]
+          (set! (.-value el) "secret-value")
+          (.dispatchEvent el (js/Event. "change" #js {:bubbles true}))
+          (let [text (:text (first (filterv #(= :dom/type (:kind %))
+                                            (recorder/recorded-entries))))]
+            (is (= dom/redacted-type-text text)
+                (str "scrubbed for attrs " (pr-str attrs)))))))))
+
+(deftest ordinary-text-field-is-not-redacted
+  (when (dom-available?)
+    (testing "a plain <input type=text> + a <select> choice flow through verbatim
+              — only sensitive typed inputs are scrubbed (no over-redaction)"
+      (recorder/start-recording! :story.x/y)
+      (let [name-input (mk-input! {:type "text" :id "name"})]
+        (set! (.-value name-input) "alice")
+        (.dispatchEvent name-input (js/Event. "change" #js {:bubbles true}))
+        (is (= "alice"
+               (:text (first (filterv #(= :dom/type (:kind %))
+                                      (recorder/recorded-entries))))))))))
+
+(deftest show-sensitive-flag-opts-into-verbatim-capture
+  (when (dom-available?)
+    (testing ":rf.privacy/show-sensitive? true → the DOM rail captures the
+              verbatim password (host opt-in, mirrors the dispatch rail)"
+      (config/set-show-sensitive! true)
+      (recorder/start-recording! :story.login/flow)
+      (let [pw (mk-input! {:type "password" :id "pw"})]
+        (set! (.-value pw) "hunter2-secret")
+        (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
+        (is (= "hunter2-secret"
+               (:text (first (filterv #(= :dom/type (:kind %))
+                                      (recorder/recorded-entries))))))))))
+
+(deftest redacting-a-password-bumps-the-suppressed-counter
+  (when (dom-available?)
+    (testing "the suppressed-events counter for the recording variant is bumped
+              on redaction so the UI's REDACTED hint stays accurate"
+      (config/reset-suppressed-count!)
+      (recorder/start-recording! :story.login/flow)
+      (let [pw (mk-input! {:type "password" :id "pw"})]
+        (set! (.-value pw) "hunter2-secret")
+        (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
+        (is (pos? (config/suppressed-count :story.login/flow))
+            "redaction bumped the per-variant suppressed counter")))))

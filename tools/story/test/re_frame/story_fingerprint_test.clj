@@ -319,9 +319,13 @@
             primitive BEFORE the fix; if any drifts, an ordinary value's hash
             moved and goldens would silently mis-compare."
     ;; [value  expected-canonical-form  expected-content-hash]
+    ;; NB: the large-bigint case that used to live here (rf2-vvqeo) MOVED to
+    ;; `large-integers-canonicalize-host-portably` (rf2-7w1vp) — a bigint of
+    ;; magnitude > 2^53-1 is NOT an ordinary value; it legitimately changes
+    ;; canonical form (to the lossy `[:rf/double …]`) to agree cross-host.
     (let [cases [[42                    "42"                     "211a4621"]
                  [-7                     "-7"                     "ab492c45"]
-                 [(bigint 100000000000000000000) "100000000000000000000N" "86b7e419"]
+                 [9007199254740991       "9007199254740991"       "9f16836d"]
                  ["hello"                "\"hello\""              "3409cbf2"]
                  [:foo/bar               ":foo/bar"               "3ac20368"]
                  ['sym                   "sym"                    "2bdbe3fa"]
@@ -342,6 +346,42 @@
             (str "canonical form of " (pr-str v) " drifted — golden rebase!"))
         (is (= ch (fp/content-hash v))
             (str "content-hash of " (pr-str v) " drifted — golden rebase!"))))))
+
+(deftest large-integers-canonicalize-host-portably
+  (testing "an INTEGER beyond the IEEE-754 safe-integer range (±2^53-1) takes
+            the SAME lossy `[:rf/double <hex>]` path CLJS is forced onto, so the
+            same logical large integer hashes EQUAL cross-host (rf2-7w1vp). On
+            the JVM a `bigint`/`Long`/`BigInteger` past 2^53 used to `pr-str`
+            verbatim (\"…N\") while CLJS routed it through `double->bits-hex` —
+            divergent canonical form, divergent hash."
+    (let [big (bigint 100000000000000000000)]
+      (is (= [fp/double-tag (#'fp/double->bits-hex (double big))]
+             (fp/canonical-form big))
+          "a large bigint folds to the lossy bit-double form, NOT \"…N\"")
+      ;; the JVM Long path agrees with the bigint path for the same magnitude
+      (is (= (fp/canonical-form big)
+             (fp/canonical-form (.toBigInteger (bigdec big))))
+          "BigInteger of the same magnitude shares the canonical form")
+      ;; cross-host equivalence: the CLJS double `1e20` (what CLJS reads
+      ;; `100000000000000000000` as) reaches the SAME bits — the CLJS companion
+      ;; pins `(fp/canonical-form 1e20)` to this exact form + hash.
+      (is (= (fp/canonical-form big) (fp/canonical-form 1e20))
+          "the large integer and its double approximation share the canonical
+           form — the cross-host agreement point (CLJS has only the double)")))
+  (testing "boundary: an integer AT ±max-safe-integer still passes through
+            verbatim — only STRICTLY out-of-range integers change (rf2-7w1vp)"
+    (is (= fp/max-safe-integer (fp/canonical-form fp/max-safe-integer)))
+    (is (= (- fp/max-safe-integer) (fp/canonical-form (- fp/max-safe-integer))))
+    (is (= 9007199254740992N
+           ;; one past max-safe-integer is out of range → bit-double path
+           (let [over (inc (bigint fp/max-safe-integer))]
+             (is (= [fp/double-tag (#'fp/double->bits-hex (double over))]
+                    (fp/canonical-form over)))
+             over))))
+  (testing "ordinary small integers are untouched — no golden rebase"
+    (is (= 42 (fp/canonical-form 42)))
+    (is (= -7 (fp/canonical-form -7)))
+    (is (= 1000000 (fp/canonical-form 1000000)))))
 
 (deftest ratios-canonicalize-host-portably
   (testing "a JVM Ratio canonicalises to the SAME bit-stable double form its

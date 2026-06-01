@@ -45,8 +45,37 @@
   would catch chrome interactions (sidebar / toolbar / scrubber)
   and pollute the recording. By scoping to the canvas root we
   only capture interactions the user is making against the
-  variant under test."
-  (:require [re-frame.story.config           :as config]
+  variant under test.
+
+  ## Sensitive input redaction (rf2-0qoi0 — record-but-redact for DOM)
+
+  The dispatched-event rail redacts `:sensitive? true` events
+  (`recorder/trace-listener` → `config/suppress-sensitive?` →
+  `recorder/redacted-event`) per the rf2-hdadz record-but-redact
+  policy. The DOM-capture rail is the SECOND egress and carries the
+  SAME obligation: a user recording a login flow types a real password,
+  and (post rf2-nkjkj, with `:entries` the primary codegen source) that
+  plaintext would otherwise ride verbatim into the generated
+  `:play-script` `[:type selector \"…\"]` step.
+
+  So `handle-input!` / `handle-change!` detect a SENSITIVE input —
+  `<input type=password|email|tel>` or one whose `autocomplete` token
+  is a credential / payment field (`current-password`, `new-password`,
+  `cc-number`, etc.) — and substitute `redacted-type-text`
+  (`\"[:rf/redacted]\"`, the string mirror of the dispatch rail's
+  `[:rf/redacted]` placeholder) for the typed value BEFORE it is
+  buffered, so the secret never reaches the recorder atom. The
+  suppressed-events counter is bumped (`config/note-suppressed!`) so the
+  UI's REDACTED hint reflects the scrubbed rows, exactly as the dispatch
+  rail does. Hosts debugging redaction policy flip
+  `:rf.privacy/show-sensitive?` true via `story/configure!` for the
+  verbatim opt-in path — the SAME flag the dispatch rail honours.
+
+  `<select>` is NOT treated as sensitive (a choice from visible options
+  is not a typed secret); only typed `<input>` fields are scrubbed."
+  (:require [clojure.set                     :as set]
+            [clojure.string                  :as str]
+            [re-frame.story.config           :as config]
             [re-frame.story.recorder         :as recorder]
             [re-frame.story.recorder.selector :as selector]))
 
@@ -188,6 +217,80 @@
   [el]
   (or (.-value el) ""))
 
+;; ---- sensitive-input redaction (rf2-0qoi0) ------------------------------
+
+(def ^:const redacted-type-text
+  "The placeholder text the DOM rail substitutes for a SENSITIVE input's
+  typed value (rf2-0qoi0). The STRING mirror of the dispatch rail's
+  `recorder/redacted-event` `[:rf/redacted]` placeholder — a string
+  because the `:dom/type` → `[:type selector text]` play-step requires a
+  string `text` slot (the runner's `step-arity-ok?`). Reads the same way
+  the dispatch rail's `[:rf/redacted]` placeholder does, so a recording
+  that scrubbed a password shows `[:type \"[id=pw]\" \"[:rf/redacted]\"]`
+  rather than the plaintext."
+  "[:rf/redacted]")
+
+(def ^:private sensitive-input-types
+  "`<input type=…>` values whose typed value is presumed sensitive
+  (rf2-0qoi0). `password` is the obvious credential field; `email` and
+  `tel` are PII the record-but-redact policy scrubs by default. Compared
+  case-insensitively against the element's `type` attribute."
+  #{"password" "email" "tel"})
+
+(def ^:private sensitive-autocomplete-tokens
+  "`autocomplete` attribute tokens that mark a field as a credential or
+  payment input (rf2-0qoi0, WHATWG autofill detail tokens). A field
+  carrying any of these is scrubbed even when its `type` is plain `text`
+  (e.g. a one-time-code or a card number rendered as `type=text`)."
+  #{"current-password" "new-password" "one-time-code"
+    "cc-number" "cc-csc" "cc-exp" "cc-exp-month" "cc-exp-year"})
+
+(defn- input-type
+  "The lowercased `type` attribute of an `<input>` (`\"text\"` when
+  absent — the HTML default). Non-INPUT tags have no meaningful type."
+  [el]
+  (if (= "INPUT" (.-tagName el))
+    (-> (or (.-type el) "text") str .toLowerCase)
+    ""))
+
+(defn- autocomplete-tokens
+  "The set of whitespace-separated `autocomplete` tokens on `el`,
+  lowercased. Empty when the attribute is absent."
+  [el]
+  (let [raw (or (.getAttribute el "autocomplete") "")]
+    (into #{}
+          (comp (map str/lower-case) (remove empty?))
+          (str/split (str raw) #"\s+"))))
+
+(defn- sensitive-element?
+  "True iff typed input into `el` is presumed sensitive and MUST be
+  redacted out of the recording (rf2-0qoi0): a `<input>` whose `type` is
+  password / email / tel, OR whose `autocomplete` names a credential /
+  payment token. `<select>` / `<textarea>` are NOT sensitive — a choice
+  from visible options or free-form prose is not a typed secret."
+  [el]
+  (boolean
+    (and el
+         (= "INPUT" (.-tagName el))
+         (or (contains? sensitive-input-types (input-type el))
+             (seq (set/intersection sensitive-autocomplete-tokens
+                                    (autocomplete-tokens el)))))))
+
+(defn- capture-value
+  "Read the value to RECORD for `el` (rf2-0qoi0). For a non-sensitive
+  field, the verbatim `.value`. For a SENSITIVE field, the redacted
+  placeholder — UNLESS `:rf.privacy/show-sensitive?` is set (the host's
+  explicit verbatim opt-in, same flag the dispatch rail honours), in
+  which case the verbatim value flows through. Bumps the suppressed
+  counter for the recording's variant when it redacts, so the UI's
+  REDACTED hint stays accurate."
+  [el]
+  (let [v (target-value el)]
+    (if (and (sensitive-element? el) (not (config/get-show-sensitive)))
+      (do (config/note-suppressed! (recorder/recording-variant))
+          redacted-type-text)
+      v)))
+
 (defn- should-capture?
   "Top-level gate: is the recorder running AND DOM capture enabled?"
   []
@@ -212,13 +315,15 @@
 
 (defn- handle-input!
   "input / change handler — stashes the latest value into the
-  per-selector type buffer + (re)arms the debounce timer."
+  per-selector type buffer + (re)arms the debounce timer. A SENSITIVE
+  input's value is redacted at the capture boundary (rf2-0qoi0) via
+  `capture-value`, so the secret never reaches the recorder atom."
   [ev]
   (when (should-capture?)
     (when-let [el (.-target ev)]
       (when (typeable-element? el)
         (when-let [sel (selector/pick-for-element el)]
-          (buffer-type! sel (target-value el)))))))
+          (buffer-type! sel (capture-value el)))))))
 
 (defn- handle-change!
   "change handler — fires on blur for inputs / immediately for
@@ -232,9 +337,11 @@
         (let [sel (selector/pick-for-element el)]
           ;; Stash the most-recent value FIRST (so a `change` on a
           ;; `<select>` — which never fires `input` — still has a
-          ;; value to flush).
+          ;; value to flush). Sensitive `<input>` values are redacted at
+          ;; the capture boundary (rf2-0qoi0); `<select>` is never
+          ;; sensitive, so its choice flows through verbatim.
           (when sel
-            (buffer-type! sel (target-value el))
+            (buffer-type! sel (capture-value el))
             (flush-type-buffer! sel)))))))
 
 (defn- handle-submit!

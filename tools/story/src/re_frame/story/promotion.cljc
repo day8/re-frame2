@@ -66,11 +66,69 @@
   is the single impure entry; it gates on `re-frame.story.config/enabled?`
   so a production CLJS build short-circuits before touching the side-table
   (mirroring `save-variant`)."
-  (:require [re-frame.story.artifact   :as artifact]
-            [re-frame.story.config     :as config]
+  (:require [re-frame.story.config     :as config]
             [re-frame.story.plan       :as plan]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar  :as registrar]))
+
+;; ===========================================================================
+;; Runnable reproducibility slots (rf2-vf8es)
+;; ===========================================================================
+;;
+;; A promoted variant must RUN to the same result as the source artifact —
+;; the docstring promises it is "indistinguishable from a hand-authored one
+;; except for its :run-artifact provenance slot." For a `:network`-stubbed
+;; or `:fx-override`-bearing run that promise was FALSE: the variant body
+;; carried only the program (`:setup`/`:script`) + the provenance link, so
+;; the registered variant's `[:world :network]` / `[:world :frame
+;; :fx-overrides]` were EMPTY. Run normally, a managed HTTP request
+;; fail-closed ("no stub matched") and any fx-decision redirect was gone —
+;; a SILENT fidelity gap (the gallery cell renders a degraded run).
+;;
+;; rf2-87duu preserved `:network` on the provenance LINK so
+;; `replay-run-artifact` could re-derive the run from the artifact. That is
+;; a DIFFERENT path: it replays the artifact, not the registered variant.
+;; This fix lifts the runnable inputs onto the variant BODY itself:
+;;
+;;   - the artifact's `:network` route map → the body's `:network` slot
+;;     (the plan compiler keeps it at `[:world :network]` and lowers it to
+;;     the managed-stub fx-override the runner installs);
+;;   - the artifact's `:fx-decisions` → the body's `:fx-overrides` slot
+;;     (the same `{fx-id override}` shape the per-frame `:fx-overrides`
+;;     takes — Spec 002 §`:fx-overrides`).
+;;
+;; THE MANAGED-STUB REDIRECT OVERLAP. A `:network`-stubbed artifact's
+;; `:fx-decisions` ALSO carries the lowered redirect `{:rf.http/managed
+;; :rf.http/managed-test-stub}` (the plan lowered `:network` to it at
+;; capture time). The body's `:network` slot re-derives that SAME redirect
+;; via `plan/lower-network`, and the compiler's `check-network-fx-conflict!`
+;; HARD-FAILS when both `:network` and an explicit `:fx-overrides` target
+;; `:rf.http/managed`. So when `:network` is present we DROP `:rf.http/managed`
+;; from the lifted `:fx-overrides` — `:network` owns that key. Any OTHER
+;; fx-decision (a non-HTTP override) still rides `:fx-overrides`.
+
+(def managed-fx-id
+  "Re-export of the managed-HTTP fx id (`plan/managed-fx-id`,
+  `:rf.http/managed`) the `:network` slot owns. A `:network`-stubbed
+  artifact's `:fx-decisions` carries the lowered redirect for this id; we
+  drop it from the lifted `:fx-overrides` so it does not conflict with the
+  body's `:network` slot (rf2-vf8es)."
+  plan/managed-fx-id)
+
+(defn lift-fx-overrides
+  "Project an artifact's `:fx-decisions` onto a variant body's
+  `:fx-overrides` slot (rf2-vf8es). Pure data → data.
+
+  Drops the `:rf.http/managed` redirect when `network?` is true: the
+  body's `:network` slot re-derives that redirect through
+  `plan/lower-network`, and carrying it on BOTH surfaces is a hard
+  `:rf.error/story-network-fx-conflict`. Returns nil when nothing
+  survives (so the caller omits the slot rather than emitting an empty
+  map)."
+  [fx-decisions network?]
+  (let [fx (cond-> (or fx-decisions {})
+             network? (dissoc managed-fx-id))]
+    (when (seq fx) fx)))
 
 ;; ===========================================================================
 ;; Source-artifact provenance link
@@ -172,6 +230,17 @@
   the primary play); an empty partition omits the slot. The source-artifact
   link rides on `:run-artifact` (see `provenance-link`).
 
+  The RUNNABLE reproducibility inputs are lifted onto the body too
+  (rf2-vf8es) so a promoted variant runs the SAME as the source artifact,
+  not just the artifact's replay:
+  - `:network` — the artifact's per-route HTTP reply map, onto the body's
+    `:network` slot (compiler keeps it at `[:world :network]` and lowers
+    it to the managed-stub fx-override the runner installs);
+  - `:fx-overrides` — the artifact's `:fx-decisions`, onto the body's
+    `:fx-overrides` slot. The `:rf.http/managed` redirect is dropped when
+    `:network` is present (the `:network` slot owns it — see
+    `lift-fx-overrides`), so the two surfaces never conflict.
+
   `opts`:
   - `:setup` / `:script` / `:setup-count` — the program partition policy
     (see `partition-program`).
@@ -188,7 +257,10 @@
   the only provenance."
   ([artifact] (artifact->variant-body artifact nil))
   ([artifact {:keys [doc extends tags args] :as opts}]
-   (let [{:keys [setup script]} (partition-program artifact opts)]
+   (let [{:keys [setup script]} (partition-program artifact opts)
+         network       (:network artifact)
+         has-network?  (boolean (seq network))
+         fx-overrides  (lift-fx-overrides (:fx-decisions artifact) has-network?)]
      (cond-> {:run-artifact (provenance-link artifact)
               :doc          (or doc
                                 (str "Promoted from a "
@@ -196,6 +268,8 @@
                                      " run artifact (spec/017 §Promotion)."))}
        (seq setup)    (assoc :setup setup)
        (seq script)   (assoc :script script)
+       has-network?   (assoc :network network)
+       (some? fx-overrides) (assoc :fx-overrides fx-overrides)
        (some? extends) (assoc :extends extends)
        (some? tags)   (assoc :tags tags)
        (some? args)   (assoc :args args)))))

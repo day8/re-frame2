@@ -325,3 +325,89 @@
              :network in provenance-link-keys")
         (is (= {:items [{:sku "A"}]} (:value got))
             "the link round-trips to the SAME recorded reply as the source run")))))
+
+;; ===========================================================================
+;; rf2-vf8es — the promoted VARIANT BODY carries the runnable :network +
+;; :fx-decisions, so running the variant reproduces the run (NOT just the
+;; provenance-link replay rf2-87duu covers)
+;; ===========================================================================
+;;
+;; rf2-87duu preserved :network on the provenance LINK so `replay-run-artifact`
+;; re-derives the run FROM THE ARTIFACT. But the whole point of promotion is to
+;; RUN THE VARIANT — `artifact->variant-body` builds the body the registrar
+;; stores and the runner executes. Before this fix the body carried only the
+;; program (:setup/:script) + the link, so the registered variant's
+;; [:world :network] / [:world :frame :fx-overrides] were EMPTY: run normally a
+;; managed HTTP request fail-closed ("no stub matched"), a SILENT fidelity gap.
+;;
+;; These tests pin the runnable contract on the VARIANT BODY:
+;;   1. the body carries :network + :fx-overrides (the runnable slots, NOT just
+;;      the :run-artifact link);
+;;   2. compiling the body populates [:world :network] (so the run installs the
+;;      route stubs) + lowers :rf.http/managed to the managed-stub fx;
+;;   3. a full round-trip — body → plan → ->artifact → replay — reproduces the
+;;      SAME :success reply as a direct replay of the source artifact. RED
+;;      (pre-fix, body without :network): the round-trip artifact's :network is
+;;      empty and the request fail-closes. GREEN: it reproduces.
+
+(deftest promoted-variant-body-carries-runnable-network-and-fx
+  (testing "the variant body lifts the artifact's :network + :fx-decisions onto
+            the RUNNABLE :network / :fx-overrides slots (rf2-vf8es)"
+    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
+          body   (promotion/artifact->variant-body art)]
+      (is (= routes (:network body))
+          "the per-route reply map rides the body's runnable :network slot")
+      ;; The artifact's :fx-decisions carries the lowered managed-stub redirect;
+      ;; the body's :network slot OWNS :rf.http/managed (it re-derives the same
+      ;; redirect through plan/lower-network), so the lifted :fx-overrides must
+      ;; NOT also set it — else check-network-fx-conflict! hard-fails.
+      (is (not (contains? (:fx-overrides body) plan/managed-fx-id))
+          ":rf.http/managed is dropped from :fx-overrides — :network owns it"))))
+
+(deftest promoted-variant-body-compiles-to-installed-network
+  (testing "compiling the promoted body keeps the routes at [:world :network]
+            (so the run installs the stubs) + lowers :rf.http/managed to the
+            managed-stub fx — NOT an empty network that fail-closes (rf2-vf8es)"
+    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
+          body   (promotion/artifact->variant-body art)
+          ;; compile the body as an inline plan target (read-only, no register)
+          plan   (plan/variant-plan body)]
+      (is (= routes (get-in plan [:world :network]))
+          "the compiled plan keeps the route map at [:world :network]")
+      (is (= plan/managed-stub-fx-id
+             (get-in plan [:world :frame :fx-overrides plan/managed-fx-id]))
+          ":rf.http/managed is lowered to the managed-stub fx the runner installs"))))
+
+(deftest promoted-network-variant-runs-to-the-same-result
+  (testing "RED→GREEN (rf2-vf8es): running the PROMOTED VARIANT reproduces the
+            source run's :success reply. The body → plan → ->artifact → replay
+            round-trip re-installs the route stubs from the body's :network slot;
+            without the fix the body has no :network, the round-trip artifact's
+            :network is empty, and the managed request fail-closes ('no stub
+            matched') — a DIFFERENT run."
+    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
+          ;; the run the variant was promoted FROM (the source artifact replay).
+          src    (artifact/replay-run-artifact art)
+          ;; the PROMOTED VARIANT: body → compiled plan → run-artifact. Running
+          ;; the variant = compiling its body + executing it; ->artifact is the
+          ;; real materialize-to-run seam, and replay re-installs the body's
+          ;; :network route stubs (with-network-stubs!).
+          body   (promotion/artifact->variant-body art)
+          plan   (plan/variant-plan body)
+          var-art (determinism/->artifact plan)
+          ran    (artifact/replay-run-artifact var-art)]
+      (is (= routes (:network var-art))
+          "the promoted variant's run-artifact carries the route map (NOT empty)")
+      (is (= (:status src) (:status ran) :pass)
+          "the promoted variant runs to the SAME status as the source run")
+      (is (= (:got (:app-db src)) (:got (:app-db ran)))
+          "the promoted variant reproduces the SAME recorded reply")
+      (is (= :success (:kind (:got (:app-db ran))))
+          "the route stub matched on the promoted-variant run — NOT a
+           fail-closed 'no stub matched' transport failure"))))
