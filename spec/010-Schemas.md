@@ -88,7 +88,7 @@ Per the plural `reg-app-schemas` takes a `{path -> schema}` map and registers ev
                      [:cart :coupon]          [:maybe CouponSchema]})
 ```
 
-The optional `opts` map is identical to the singular form's — `:frame` names the frame to register against (the default is `(frame/current-frame)`); the opt applies to every entry in the map (you cannot mix frames in a single call). Each entry routes through the singular `reg-app-schema`, so source-coords captured at the call site stamp every registrar slot. Returns the vector of paths registered, in iteration order; last-write-wins on duplicate paths.
+The optional `opts` map is identical to the singular form's — `:frame` names the frame to register against (the default is `(current-frame-id)`); the opt applies to every entry in the map (you cannot mix frames in a single call). Each entry routes through the singular `reg-app-schema`, so source-coords captured at the call site stamp every registrar slot. Returns the vector of paths registered, in iteration order; last-write-wins on duplicate paths.
 
 The singular `reg-app-schema` remains available — use it when a feature spans only one or two paths, when `:frame` differs per entry, or when deterministic ordering matters (the plural form relies on map iteration order, which for hash maps is undefined; small map literals preserve source order).
 
