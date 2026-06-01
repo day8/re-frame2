@@ -277,7 +277,7 @@ tab per Mike's Option (c) ruling. The 4-layer shell switches over the
 L3 tab ids in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §The 6 tabs — these
 six are the surviving `Panel` exports. The L4 display label for
-`reactive-panel/Panel` is **Reactive** (per `spec/021 §11.5`); the
+`reactive-panel/Panel` is **Views** (per `spec/021 §11.5`); the
 panel-registry key stays `:views` for the smaller diff — the
 namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
 (rf2-yxw57 corrected the stale `panels.views/Panel` symbol).
