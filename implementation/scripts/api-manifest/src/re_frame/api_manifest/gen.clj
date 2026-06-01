@@ -40,11 +40,14 @@
   CLJS-ONLY SURFACES. The Reagent / UIx / Helix adapter namespaces, the
   Xray `mount-*!` family, and the pair-MCP server are ClojureScript-only
   and cannot be `require`d on the JVM. Their rows live in the sidecar
-  under `:cljs-only` and are emitted verbatim with
-  `:runtime-verified? false`. They are part of the manifest (so the
-  spec/API.md projection check covers the adapter rows) but the
-  existence half of the drift-guard does not apply to them — a follow-on
-  bead adds a CLJS-side enumeration probe."
+  under `:cljs-only` and are carried through verbatim. The JVM
+  existence-check does not reach them; instead a CLJS-side enumeration
+  probe (rf2-2mtte, implementation/scripts/api-manifest/probe/, run by
+  `npm run test:cljs`) reconciles each covered namespace's live public
+  vars against its rows. A `:cljs-only` row carries its own
+  `:runtime-verified?` flag — `true` once the probe covers its
+  namespace, `false` otherwise — and the generator emits that flag
+  verbatim (it does not itself run the probe)."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -233,7 +236,15 @@
            :owner             (:owner r)
            :status            (:status r)
            :facade?           (boolean (:facade? r))
-           :runtime-verified? false})
+           ;; Per-row flag (rf2-2mtte): a `:cljs-only` row is
+           ;; `:runtime-verified? true` once the CLJS-side enumeration
+           ;; probe (implementation/scripts/api-manifest/probe/, run by
+           ;; `npm run test:cljs`) covers its namespace — the probe is the
+           ;; CLJS equivalent of the JVM `ns-publics` existence-check.
+           ;; Rows the probe does not (yet) cover stay `false`. The JVM
+           ;; generator carries the curated flag through verbatim; it does
+           ;; not itself run the CLJS probe.
+           :runtime-verified? (boolean (:runtime-verified? r))})
         rows (->> (concat jvm-rows cljs-rows)
                   (sort-by (juxt :namespace :var))
                   vec)]

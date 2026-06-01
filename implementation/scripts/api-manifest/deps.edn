@@ -13,7 +13,10 @@
 ;; CLJS-only public surfaces (the Reagent / UIx / Helix adapter
 ;; namespaces, the Xray `mount-*!` family, the pair-MCP server) cannot
 ;; be `require`d on the JVM — their rows are carried in the curated
-;; sidecar marked `:runtime-verified? false` and passed through verbatim.
+;; sidecar and passed through verbatim. The CLJS-side enumeration probe
+;; (rf2-2mtte, ../api-manifest/probe/, run by `npm run test:cljs`)
+;; runtime-verifies the covered namespaces; each row carries its own
+;; `:runtime-verified?` flag (true once the probe covers it).
 ;;
 ;; Run from this directory:
 ;;   clojure -M -m re-frame.api-manifest.gen          ; regenerate
