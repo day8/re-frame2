@@ -1580,26 +1580,40 @@ only opt is `:frame`) — the v1.0 host-facing embed contract is the
 
 ### Mountable surface inventory
 
-The Xray panel-surface inventory totals **13 panels** across four
-tiers — **11 are independently mountable** as standalone user-facing
-mount targets, and **2 are internal sub-components** that render
-under their owning panel. The 4-tier split is:
+> **Single source of truth (rf2-rapnr).** The mount-fn column of the
+> tables below is a PROJECTION of the authoritative panel enumeration
+> in `day8.re-frame2-xray.panel-enum/panel-enum`. A drift between this
+> inventory, the `mount-<panel>!` facade in
+> `day8.re-frame2-xray.panels`, and the api-manifest `:cljs-only` rows
+> goes RED in CI via the single-source guard
+> (`tools/xray/test/day8/re_frame2_xray/panel_enum_guard_cljs_test.cljs`).
+> Adding / removing / renaming a panel starts with a one-line edit to
+> the enum; this table follows. See the `panel-enum` ns docstring.
 
-- **Tier 1 — L3 tab panels (7):** one per L3 detail-panel tab.
+The Xray panel-surface inventory totals **14 surfaces** across five
+tiers — **12 are independently mountable** via a `mount-<panel>!` fn
+(the panel-enum set), and **2 are internal sub-components** that render
+under their owning panel and expose no standalone mount fn. The split:
+
+- **Tier 1 — L3 tab panels (6):** one per L3 detail-panel tab.
+- **Spine — embeddable event spine (1):** the L2 event list mounted
+  standalone (`008-Embedding-Contract.md` §Embeddable event spine).
 - **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
   the shell composes at its root.
 - **Tier 3 — inline content surface (1):** the managed-fx
   wire-boundary diff template embedded in the Epoch panel's
   "EFFECTS HANDLERS RAN" section.
+- **Full shell — master entry (1):** `mount-shell!`, the full 4-layer
+  chrome that composes every panel above.
 - **Tier 4 — internal sub-components (2):** auxiliary inspectors
   geometry-coupled to `machine-inspector/Panel` (after-rings
-  overlay, sim side-rail).
+  overlay, sim side-rail) — NOT in the panel-enum set.
 
-Tiers 1 + 2 + 3 sum to the **10 independently mountable** surfaces;
-adding Tier 4's 2 internal sub-components reaches the **12-panel**
-total. Modal overlays managed by the shell (Settings dialog,
-command palette, share modal) are NOT counted here — they are shell
-chrome, not panel content.
+The 6 + 1 + 3 + 1 + 1 mountable surfaces sum to the **12** entries of
+`panel-enum`; adding Tier 4's 2 internal sub-components reaches the
+**14-surface** total. Modal overlays managed by the shell (Settings
+dialog, command palette, share modal) are NOT counted here — they are
+shell chrome, not panel content.
 
 **Tier 1 — L3 tab panels (6):** one per `:rf.xray/selected-tab`
 value. (Post rf2-5gl5r the Event/Handler tab was retired in favour
@@ -1614,10 +1628,19 @@ numbered vertical cascade per
 |---|---|---|
 | Epoch tab    | `epoch-panel/Panel`      | `mount-epoch-panel!` |
 | App-db tab   | `app-db-diff/Panel`      | `mount-app-db-diff!` |
-| Views tab    | `views/Panel`            | `mount-views!` |
+| Reactive tab | `reactive-panel/Panel`   | `mount-reactive-panel!` |
 | Trace tab    | `trace/Panel`            | `mount-trace!` |
 | Machines tab | `machine-inspector/Panel`| `mount-machine-inspector!` |
 | Routing tab  | `routing/Panel`          | `mount-routing!` |
+
+**Spine — embeddable event spine (1):** the L2 event list mounted
+standalone — the SAME `shell/event-list` reg-view the full shell
+composes at L2. See [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
+§Embeddable event spine for the contract.
+
+| Panel | View | Mount fn |
+|---|---|---|
+| Event spine | `shell/event-list` | `mount-event-spine!` |
 
 (rf2-gbz39 — the Issues tab + its `issues-ribbon/Panel` + `mount-issues-ribbon!` were removed per Mike's Option (c) ruling; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal. The `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source.)
 
@@ -1640,6 +1663,17 @@ that want JUST the managed-fx list for the focused cascade.
 | Panel | View | Mount fn |
 |---|---|---|
 | Managed-fx records list | `panels/ManagedFxList` | `mount-managed-fx!` |
+
+**Full shell — master entry (1):** `mount-shell!` mounts the complete
+4-layer chrome (ribbon + event-list + tab-bar + detail-panel),
+composing every panel above. The same mount path `mount.cljs/open!`
+uses for the default in-app `[data-rf-xray-host]` mount; exposed here
+so hosts that own their DOM (Story, custom dev surfaces) mount the full
+shell at any element.
+
+| Panel | View | Mount fn |
+|---|---|---|
+| Full 4-layer shell | `shell/shell-view` | `mount-shell!` |
 
 **Tier 4 — internal sub-components:** auxiliary inspectors that
 depend on `machine-inspector/Panel`'s positioned graph for their
