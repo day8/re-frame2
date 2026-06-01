@@ -768,13 +768,31 @@ The independence rule applies to the per-adapter tier too: adapters depend on co
 
 ### Optional-artefact wrapper convention
 
+<a id="facade-re-export-artefact-require"></a>
+
+**The pattern, named — *facade re-export, artefact require*.** This is re-frame2's optional-capability shape: the public-API surface is **re-exported from the always-loaded facade** (`re-frame.core`), but each surface's **implementation lives in a separate, optionally-present Maven artefact** (`day8/re-frame2-<feature>`) that the facade reaches only at call time through the late-bind hook table. The facade carries the name and the contract; the artefact carries the code. The single-import ergonomics of a monolith are preserved while the bundle-isolation of a modular split is kept — but the binding is invisible at the call site, so the pattern carries two paired obligations (the self-explaining front-porch and the require-carrying error, both below) that make the invisibility safe.
+
 Each optional-artefact wrapper lives in core under `re-frame.core-<feature>` (e.g. `re-frame.core-routing`, `re-frame.core-flows`). The wrapper publishes the public-API fns that consumers reach via `re-frame.core` re-exports, but the **implementation** of each fn lives in a separate Maven artefact (`day8/re-frame2-<feature>`).
 
-Core MUST NOT statically `:require` the producing namespace — that would pull the feature's implementation onto every consumer's classpath even when no feature surface is used. Each wrapper fn instead looks the producing fn up through the [late-bind hook table](#) at call time, which the producing artefact populates from its own ns-load.
+Core MUST NOT statically `:require` the producing namespace — that would pull the feature's implementation onto every consumer's classpath even when no feature surface is used. Each wrapper fn instead looks the producing fn up through the [late-bind hook table](../implementation/core/src/re_frame/late_bind/directory.cljc) at call time, which the producing artefact populates from its own ns-load.
 
 The single-import contract is preserved: users continue to write `rf/reg-flow` after `(:require [re-frame.core :as rf])` — the wrapper ns is reached via `re-frame.core`'s re-export. When the producing artefact is absent the wrapper raises a documented `:rf.error/<feature>-artefact-missing` ex-info with `:where 'rf/<surface>`, `:recovery :no-recovery`, and a `:reason` string naming the artefact and the ns to require at boot.
 
 The wrappers live in sibling namespaces rather than in `core.cljc` itself so `core.cljc` stays free of optional-artefact glue. The file naming uses `core_<feature>` rather than `core/<feature>` because CLJS goog.provide for `re-frame.core` overwrites its parent object.
+
+#### Obligation 1 — every artefact-missing error carries the require
+
+The late-binding is invisible at the call site: a developer who forgets to `:require` the impl artefact calls a re-exported fn that *exists*. An opaque "no such hook" failure would leave them stranded. So the pattern is HARD-CONSTRAINED: **every artefact-missing error MUST carry the exact copy-pasteable Maven coordinate and the namespace to require at app boot.** The CLJS reference centralises this in [`re-frame.late-bind/require-fn!`](../implementation/core/src/re_frame/late_bind.cljc) — the single throw skeleton the `re-frame.core-<feature>` wrappers route through. Its `:reason` slot reads `"<where> requires <maven> on the classpath; add it to deps and require <require-ns> at app boot."`, and its ex-data carries `:rf.error/id`, `:where`, `:recovery :no-recovery`. A port MUST mirror this: an artefact-missing error that does not name its fix is a contract break, not a stylistic difference.
+
+#### Obligation 2 — the feature-inspection front-porch
+
+The inverse query — *which* optional features are present, and what to add for the absent ones — is exposed as three production-shipping `re-frame.core` surfaces (per [API §Feature inspection](API.md#feature-inspection)):
+
+- `(rf/features)` → a map of every optional feature keyword to its coordinate data (`:maven` / `:require` / `:spec`) merged with a live `:loaded?` boolean.
+- `(rf/feature-loaded? :epoch)` → boolean presence check.
+- `(rf/require-feature! :epoch)` → asserts presence, throwing the exact copy-pasteable coordinate when absent (an early, self-explaining guard).
+
+**Static-data hard constraint (the production implication).** The feature→coordinate mapping these surfaces read MUST be **static data in the always-loaded facade** — a plain table of `{:feature {:maven … :require … …}}` strings. It MUST NOT `:require` (live-reach) into the optional impl namespaces. A live reach-in would create exactly the hard facade→optionals reference the whole pattern exists to avoid: it would pull every optional artefact (epoch, machines, schemas, flows, routing, http, ssr) onto every production classpath and break [§Bundle-isolation conformance](#bundle-isolation-conformance). Presence is therefore detected without reaching in — `feature-loaded?` does a pure keyword lookup in the always-loaded late-bind hooks atom against a representative key the impl publishes at its own ns-load. These three fns ship to production (runtime queries, not instrumentation — NOT elided), and the CLJS reference proves the static-table claim through the bundle-isolation, elision, and perf-bundle gates.
 
 ### Late-bind hook key grammar
 

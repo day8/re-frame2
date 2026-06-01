@@ -697,6 +697,24 @@ Reserved fx-ids for runtime flow management via `:fx`:
 
 ---
 
+## Feature inspection
+
+re-frame2's optional capabilities ship as separate Maven artefacts (`day8/re-frame2-<feature>`) whose implementation namespaces core reaches through the late-bind hook registry at call time (per [Conventions §Facade re-export, artefact require](Conventions.md#facade-re-export-artefact-require)). The upside is bundle-isolation — an app that omits a feature does not carry its code. The downside this front-porch closes: the late-binding is otherwise invisible, so a developer who forgets to `:require` the impl artefact calls a re-exported fn that *exists* and is met with an opaque artefact-missing error. These three surfaces make the optional-feature inventory self-explaining.
+
+The known optional features are `:schemas`, `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch` (the closed per-feature split set per [Conventions §Artefact tiers](Conventions.md#artefact-tiers)).
+
+**These three fns ship to production.** They are runtime queries, not dev-time instrumentation, so — unlike the trace / epoch surfaces — they are NOT gated on `interop/debug-enabled?` and do NOT elide under `:advanced` + `goog.DEBUG=false`. A production caller may legitimately probe `(rf/feature-loaded? :routing)` before taking a routing-dependent path. The feature→coordinate mapping is **static data in the always-loaded `re-frame.core` facade** (a plain table of `{:feature {:maven … :require … :spec …}}` strings), never a live `:require` reaching into the optional impl namespaces — a live reach-in would create a hard facade→optionals reference that pulls every optional artefact into every production bundle, breaking bundle-isolation. `feature-loaded?` detects presence by a pure keyword lookup in the always-loaded late-bind hooks atom against a representative key the impl publishes at ns-load — no reach into the optional namespace.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `features` | Fn | `(features)` → map of every optional feature keyword to its inspection entry: the static coordinate data (`:maven` / `:require` / `:spec`) merged with the live `:loaded?` boolean. E.g. `{:epoch {:maven "day8/re-frame2-epoch" :require "re-frame.epoch" :spec "Tool-Pair (Time-travel / epoch)" :loaded? true} …}`. Ships to production (NOT elided). | v1 | — |
+| `feature-loaded?` | Fn | `(feature-loaded? feature)` → `true` when the feature's impl artefact is on the classpath, `false` otherwise (including for an unknown feature keyword). Pure keyword lookup against the always-loaded late-bind hooks atom — no require into the optional namespace. Ships to production (NOT elided). | v1 | — |
+| `require-feature!` | Fn | `(require-feature! feature)` → `true` when the feature is loaded; otherwise throws `:rf.error/feature-not-loaded` carrying the EXACT copy-pasteable Maven coordinate (`:maven`) + require namespace (`:require-ns`) and a `:reason` string naming both (an unknown feature keyword throws `:rf.error/unknown-feature` with the `:known` set). Use as a self-explaining early guard at the top of feature-dependent code. Ships to production (NOT elided). | v1 | — |
+
+> **Artefact-missing errors carry the require.** This front-porch is paired with a hard rule: *every* artefact-missing error in the framework — including the existing late-bind facade throws (`:rf.error/<feature>-artefact-missing`, raised via `re-frame.late-bind/require-fn!` from the `re-frame.core-<feature>` wrappers) — carries the exact copy-pasteable Maven coordinate and the namespace to require at app boot in its `:reason` slot. The named pattern is documented once at [Conventions §Facade re-export, artefact require](Conventions.md#facade-re-export-artefact-require).
+
+---
+
 ## Configure keys
 
 Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every framework-owned key is enumerated here. Keys are plural-noun-shaped; opts are an open map of per-key settings.
