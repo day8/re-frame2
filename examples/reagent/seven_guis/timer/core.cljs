@@ -59,14 +59,9 @@
 ;; never observably show 0.0), each tick carries the :tick-gen value it was
 ;; scheduled with. Reset bumps :tick-gen, so any in-flight tick from the
 ;; previous generation no-ops when it eventually fires. Reset also schedules
-;; a fresh tick under the new generation, so the chain continues.
-;;
-;; The Reset *click handler* (see view) calls `dispatch-sync`, not
-;; `dispatch`. Under Reagent 2 (flushSync render), this guarantees the
-;; app-db update and DOM commit complete before the next scheduled tick
-;; (or before a polling test observer reads the DOM), so the brief 0.0
-;; reading is observable. The :tick-gen guard above and the synchronous
-;; commit here address two distinct races and are both required.
+;; a fresh tick under the new generation, so the chain continues. This
+;; generation guard makes the 0.0 reading correct regardless of dispatch
+;; timing — Reset uses ordinary `dispatch`, like every other UI handler.
 
 (rf/reg-event-fx :timer/initialise
   {:doc "Seed the timer slice and start the periodic tick."}
@@ -154,24 +149,27 @@
                                       (js/parseInt (.. % -target -value))])}]
       [:span (.toFixed (/ duration 1000.0) 1) " s"]]
      [:div.row
-      ;; dispatch-sync (not dispatch): under Reagent 2's flushSync render
-      ;; model, this guarantees app-db is updated and the DOM commits the
-      ;; 0.0 reading before control returns to the browser — and crucially
-      ;; before the next scheduled :timer/tick can fire. With async dispatch
-      ;; the post-Reset DOM commit could lag the next tick (and the test's
-      ;; 50ms poll), causing the brief 0.0 window to be missed.
+      ;; Ordinary `dispatch` — the idiom for every UI event handler.
+      ;; The 0.0 reading is made observable by the :tick-gen generation
+      ;; guard (see EVENTS header note), not by synchronous dispatch.
       [:button {:data-testid "timer-reset"
-                :on-click #(rf/dispatch-sync [:timer/reset])} "Reset"]]]))
+                :on-click #(dispatch [:timer/reset])} "Reset"]]]))
 
 ;; ============================================================================
 ;; MOUNT
 ;; ============================================================================
 
-(defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+(defonce react-root (atom nil))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:timer/initialise])
-  (rdc/render root [timer-view]))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [timer-view])))

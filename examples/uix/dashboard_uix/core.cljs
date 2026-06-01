@@ -247,10 +247,17 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce react-root
-  (uix-dom/create-root (js/document.getElementById "app")))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+;; This matches the sibling notebook / process_monitor_helix mount shape.
+(defonce react-root (atom nil))
 
 (defn run []
   (rf/init! uix-adapter/adapter)
   (rf/dispatch-sync [:dashboard/initialise])
-  (uix-dom/render-root ($ dashboard) react-root))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
+    (uix-dom/render-root ($ dashboard) @react-root)))

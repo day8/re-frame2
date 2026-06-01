@@ -9,8 +9,11 @@
             [todomvc.subs]
             [todomvc.views :as views]))
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+(defonce react-root (atom nil))
 
 ;; ---- hash → Spec 012 path adapter -----------------------------------------
 ;;
@@ -40,4 +43,7 @@
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])
   (.addEventListener js/window "hashchange"
     (fn [_] (rf/dispatch [:rf.route/handle-url-change (current-path)])))
-  (rdc/render react-root [views/root-view]))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [views/root-view])))
