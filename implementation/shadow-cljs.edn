@@ -1142,7 +1142,13 @@
    :compiler-options {:closure-defines
                       {re-frame.testbed.config/repo-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
-   :modules          {:main {:init-fn counter-with-stories.core/run}}}
+   :modules          {:main {:init-fn counter-with-stories.core/run}}
+   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this Story showcase's live runtime alongside Xray (the
+   ;; variant-as-frame pairing workflow). Matches the standard-epochs
+   ;; testbed shape (both pair runtime AND the inline Xray panel).
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Nine States Story + Xray showcase (rf2-rgyia). The
   ;; examples/reagent/nine_states example wired up as a Story showcase:
@@ -1167,7 +1173,10 @@
    :output-dir "out/examples/nine-states-with-stories"
    :asset-path "."
    :modules    {:main {:init-fn nine-states.stories-host/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this Story showcase's live runtime alongside Xray.
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; Login Story + Xray showcase (rf2-p8v0q). The examples/reagent/login
   ;; example wired up as a Story showcase: `login.stories` registers one
@@ -1193,7 +1202,10 @@
    :output-dir "out/examples/login-with-stories"
    :asset-path "."
    :modules    {:main {:init-fn login.stories-host/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this Story showcase's live runtime alongside Xray.
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
   ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
@@ -1223,7 +1235,10 @@
                       {re-frame.testbed.config/repo-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn login-form.core/run}}
-   :devtools         {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this Story showcase's live runtime alongside Xray.
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Story static-export build (rf2-8wgpm) — see
   ;; tools/story/spec/013-Static-Build.md. Same source tree as
