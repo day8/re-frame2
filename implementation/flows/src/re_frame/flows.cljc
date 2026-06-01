@@ -296,7 +296,9 @@
                           :frame   frame-id}))
           ;; Per rf2-je5p8: wrap the throw in an ex-info carrying the
           ;; flow-attribution slot `:rf.flow/failed-id`.
-          ;; The router's `run-flows!` catch reads it and stamps
+          ;; The router's `flows-after-interceptor` catch stashes the
+          ;; throw under `:rf/flow-error`, then `emit-flow-eval-exception!`
+          ;; reads `:rf.flow/failed-id` off the ex-data and stamps
           ;; `:flow-id` into the substrate record's `:tags` so ops in
           ;; CLJS production (where `:rf.flow/failed` DCEs) can attribute
           ;; the cascade-level `:rf.error/flow-eval-exception` to a
