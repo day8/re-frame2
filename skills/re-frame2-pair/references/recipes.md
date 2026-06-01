@@ -283,8 +283,8 @@ When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
    ```
-6. If `:passing? false`, repeat from step 3 with a refined body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
+6. If `:status :fail` (`result-passed?` is false), repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
 
-**Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:passing?` boolean + `:assertions` list from `read-failures`. Successful loop ends with `:passing? true`.
+**Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
 
 **Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. an `app-db/reset` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:events` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.

@@ -16,8 +16,8 @@ The `re-frame2-pair` skill's `allowed-tools` (per the SKILL.md frontmatter) pull
 
 | Tool | What it does | Returns |
 |---|---|---|
-| `mcp__re-frame2-story-mcp__run-variant` | Full four-phase lifecycle against an existing variant — loaders → events → render → play | `{:passing? :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :lifecycle}` |
-| `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | Vector of `{:assertion :path :expected :actual :passed? :source}` |
+| `mcp__re-frame2-story-mcp__run-variant` | Full four-phase lifecycle against an existing variant — loaders → events → render → play | `{:status :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :narrative}` — `:status` is the verdict (`:pass`/`:fail`/`:cannot-run`/`:error`), read via `result-status`/`result-passed?` |
+| `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | `{:variant-id :status :total :failures :assertions}` (each record carries a derived `:status`) |
 | `mcp__re-frame2-story-mcp__snapshot-identity` | Content hash of `(variant × args × decorators × loaders × substrate × modes)` | `{:identity <hash>}` — use to skip cells unchanged since a prior run |
 | `mcp__re-frame2-story-mcp__run-a11y` | axe-core results for the variant's rendered DOM | `{:violations [...]}` (JVM-standalone hosts return `[]` + a hint) |
 | `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back` re-registers | `{:snippet <string> :events <vector>}` |
@@ -71,7 +71,7 @@ The dispatch lands in the variant's app-db; the next `run-variant` calls `reset-
 The four-step loop from [`story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md) — author → run → assert → refine — becomes richer when re-frame2-pair is attached. The re-frame2-pair-augmented loop:
 
 ```
-run-variant fails (:passing? false)
+run-variant fails (:status :fail — result-passed? is false)
    ↓
 read-failures — narrow to the offending :rf.assert/*
    ↓
@@ -83,8 +83,10 @@ dispatch a fix via re-frame2-pair mcp__re-frame2-pair__dispatch {frame: ...}
    ↓
 re-run via run-variant
    ↓
-loop until :passing? true
+loop until :status :pass (result-passed? true)
 ```
+
+A `:status :cannot-run` is the distinct third verdict — the runner could not even attempt the plan. Handle it as "not runnable here", NOT as a fail: fix the runner/environment, don't refine the body.
 
 What re-frame2-pair adds over the bare story-mcp loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` lets you probe candidate fixes without re-registering the variant; `trace/last-epoch` shows you the cascade `read-failures` won't (it only reads the assertion accumulator, not the trace stream).
 
