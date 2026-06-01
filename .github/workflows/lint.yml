@@ -49,6 +49,10 @@ on:
       - 'testbeds/**'
       - '.clj-kondo/**'
       - '.github/workflows/lint.yml'
+      # Public-API manifest drift-check surface (rf2-3nbl5.2).
+      - 'spec/API.md'
+      - 'spec/api-manifest.edn'
+      - 'spec/api-manifest-metadata.edn'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
@@ -102,6 +106,12 @@ jobs:
             [ -z "$file" ] && continue
             case "$file" in
               implementation/*|tools/*|examples/*|testbeds/*|.clj-kondo/*|.github/workflows/lint.yml)
+                lint_surface=true ;;
+              # spec/ feeds the public-API manifest drift-check (the
+              # api-manifest job below): API.md, the curated sidecar, and
+              # the generated manifest all live under spec/. A pure-spec PR
+              # that touches them must still run the drift-check (rf2-3nbl5.2).
+              spec/API.md|spec/api-manifest.edn|spec/api-manifest-metadata.edn)
                 lint_surface=true ;;
             esac
           done <<< "$files"
@@ -237,6 +247,67 @@ jobs:
             ../testbeds
 
   # ---------------------------------------------------------------------------
+  # Public-API manifest drift-check (rf2-3nbl5.2 — API-governance keystone).
+  #
+  # Regenerates the machine-readable public-API manifest from the LIVE public
+  # vars (core + every optional artefact + Story + the MCP support
+  # namespaces) joined against the curated tier/owner/status sidecar, then
+  # FAILS if the result differs from the committed `spec/api-manifest.edn`.
+  # Adding / removing / renaming ANY public var — or leaving it unclassified
+  # in `spec/api-manifest-metadata.edn` — turns this red until the manifest +
+  # sidecar are regenerated. A second step validates the `spec/API.md`
+  # projection: every API.md var-row's Tier must match the manifest.
+  #
+  # Surface-gated on the same `detect` job as the linters (the manifest can
+  # only drift when implementation/, tools/, or spec/ changes); the
+  # `Lint required` aggregator below includes it so a drift goes red and
+  # blocks the merge. Fast + deterministic: pure JVM `ns-publics`
+  # introspection, no shadow-cljs build.
+  # ---------------------------------------------------------------------------
+  api-manifest:
+    name: Public-API manifest drift-check
+    needs: detect
+    if: needs.detect.outputs.lint_surface == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-api-manifest-${{ hashFiles('implementation/**/deps.edn', 'tools/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-api-manifest-
+            ${{ runner.os }}-clj-
+
+      # The generator + both checks live on a self-contained classpath
+      # (implementation/scripts/api-manifest/deps.edn) that pulls core +
+      # every optional artefact + Story + mcp-base onto one JVM classpath.
+      - name: Regenerate manifest + assert no drift
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.gen --check
+
+      - name: Assert spec/API.md projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.api-md-check
+
+  # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-aemyt).
   #
   # ONE stable status context — `Lint required` — that is ALWAYS present on
@@ -262,6 +333,7 @@ jobs:
       - detect
       - clj-kondo
       - splint
+      - api-manifest
     steps:
       - name: Fail if any required lint job failed or was cancelled
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

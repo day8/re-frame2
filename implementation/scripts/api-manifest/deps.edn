@@ -1,0 +1,35 @@
+;; Public-API manifest generator (rf2-3nbl5.2 — API-governance keystone).
+;;
+;; Self-contained classpath that pulls BOTH the implementation artefacts
+;; (core + every optional feature artefact) AND the JVM-loadable tool
+;; artefacts (Story, MCP-base) onto one classpath, so the generator can
+;; introspect every JVM-loadable public namespace in a single process.
+;;
+;; This is a build/governance tool, NOT a published artefact and NOT a
+;; runtime dependency of anything. It does not change the
+;; tool→implementation dependency arrow (the generator merely *reads*
+;; both sides' public vars; nothing under implementation/ requires it).
+;;
+;; CLJS-only public surfaces (the Reagent / UIx / Helix adapter
+;; namespaces, the Xray `mount-*!` family, the pair-MCP server) cannot
+;; be `require`d on the JVM — their rows are carried in the curated
+;; sidecar marked `:runtime-verified? false` and passed through verbatim.
+;;
+;; Run from this directory:
+;;   clojure -M -m re-frame.api-manifest.gen          ; regenerate
+;;   clojure -M -m re-frame.api-manifest.gen --check   ; drift-check (CI)
+{:paths ["src"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
+         ;; Implementation artefacts (JVM-loadable public namespaces).
+         day8/re-frame2          {:local/root "../../core"}
+         day8/re-frame2-schemas  {:local/root "../../schemas"}
+         day8/re-frame2-machines {:local/root "../../machines"}
+         day8/re-frame2-routing  {:local/root "../../routing"}
+         day8/re-frame2-flows    {:local/root "../../flows"}
+         day8/re-frame2-http     {:local/root "../../http"}
+         day8/re-frame2-ssr      {:local/root "../../ssr"}
+         day8/re-frame2-ssr-ring {:local/root "../../ssr-ring"}
+         day8/re-frame2-epoch    {:local/root "../../epoch"}
+         ;; Tool artefacts with JVM-loadable (.cljc) public namespaces.
+         day8/re-frame2-story    {:local/root "../../../tools/story"}
+         day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}}

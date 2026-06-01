@@ -1,0 +1,602 @@
+;; ===========================================================================
+;; Public-API manifest — CURATED metadata sidecar (rf2-3nbl5.2).
+;;
+;; This file is the human-curated half of the public-API manifest's
+;; single-source design. The generator
+;; (implementation/scripts/api-manifest/) derives EXISTENCE + :kind +
+;; :facade? from live public vars; it joins those against the
+;; :classification map here for the three human-classification axes that
+;; cannot be derived from code:
+;;
+;;   :tier   — the closed Tier vocabulary (spec/API.md §Tier taxonomy):
+;;             :front-porch | :advanced | :tooling | :adapter | :testing
+;;             | :internal-public | :deprecated. Restrictive-by-default:
+;;             when ambiguous, pick the MORE restrictive tier.
+;;   :owner  — the canonical owning Spec doc (e.g. "002", "Tool-Pair",
+;;             "009", "007") — the "where does the contract live" anchor.
+;;   :status — shipping lineage (spec/API.md §Conventions Status).
+;;
+;; HAND-EDIT THIS FILE; never hand-edit spec/api-manifest.edn (generated).
+;; Adding a public var? Add its [namespace var] entry here, then
+;; regenerate. The CI drift-check (lint.yml → api-manifest job) goes red
+;; until both this sidecar and the generated manifest are updated.
+;;
+;; The :classification map is keyed by ["namespace" "var"] (both strings).
+;; ===========================================================================
+{:meta
+ {:doc      "Curated tier/owner/status sidecar for the public-API manifest."
+  :keystone "rf2-3nbl5.2"}
+
+ ;; --------------------------------------------------------------------------
+ ;; CLJS-ONLY surfaces — public vars in ClojureScript-only namespaces that
+ ;; cannot be `require`d on the JVM, so the generator carries them verbatim
+ ;; (`:runtime-verified? false`). Each row is the FULL manifest row.
+ ;;
+ ;; The substrate-adapter surfaces (per spec/API.md §UIx/Helix adapter and
+ ;; the Reagent adapter), the Xray `mount-*!` host-embed family (per §Tiering
+ ;; of cross-tool surfaces — `internal-public`), plus the panel-mounted? read.
+ ;; A follow-on bead adds a CLJS-side enumeration probe so these too become
+ ;; runtime-verified (see PR follow-on beads).
+ ;; --------------------------------------------------------------------------
+ :cljs-only
+ [;; --- re-frame.core CLJS-only front-porch surface ---
+  ;; `frame-provider` is a Reagent component re-exported from re-frame.core
+  ;; under a `#?(:cljs ...)` reader-conditional, so it is absent from the
+  ;; JVM `ns-publics` of re-frame.core. Rowed front-porch in spec/API.md
+  ;; §View ergonomics.
+  {:namespace "re-frame.core" :var "frame-provider" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1"}
+  ;; --- Reagent adapter (day8/re-frame2-reagent) ---
+  {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  ;; --- UIx adapter (day8/re-frame2-uix) ---
+  {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  ;; --- Helix adapter (day8/re-frame2-helix) ---
+  {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  {:namespace "re-frame.adapter.helix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  ;; --- Xray mount family (day8/re-frame2-xray) — host-embed surface,
+  ;;     internal-public per spec/API.md §Tiering of cross-tool surfaces. ---
+  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib"}]
+
+ ;; --------------------------------------------------------------------------
+ ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
+ ;; spec/API.md projection check (api-md-check) skips these by bare var
+ ;; name. Each is a `post-v1 lib` surface the spec describes normatively
+ ;; but the CLJS reference implementation does not yet ship — so there is
+ ;; no live var to introspect and no honest manifest row. They are listed
+ ;; here (not silently ignored) so the projection check still catches any
+ ;; OTHER unexplained API.md/manifest divergence. When the surface ships,
+ ;; move it into the manifest (delete its entry here).
+ :api-md-known-unmanifested
+ #{"machine->xstate-json"   ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
+   "machine->mermaid"       ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
+   "story-view"}            ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
+
+ ;; --------------------------------------------------------------------------
+ ;; JVM-introspected classification — keyed ["namespace" "var"].
+ ;; --------------------------------------------------------------------------
+ :classification
+ {;; =========================================================================
+  ;; re-frame.core — the user-facing façade.
+  ;; =========================================================================
+  ;; Registration (spec/API.md §Registration).
+  ["re-frame.core" "reg-event-db"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "reg-event-fx"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "reg-event-ctx"]       {:tier :advanced    :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "reg-fx"]              {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "reg-cofx"]            {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
+  ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
+  ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
+  ["re-frame.core" "reg-machine*"]        {:tier :advanced    :owner "005" :status "v1"}
+  ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"}
+  ["re-frame.core" "reg-app-schemas"]     {:tier :advanced    :owner "010" :status "v1"}
+  ["re-frame.core" "add-marks"]           {:tier :advanced    :owner "015" :status "v1"}
+  ["re-frame.core" "set-marks"]           {:tier :advanced    :owner "015" :status "v1"}
+  ["re-frame.core" "reg-flow"]            {:tier :advanced    :owner "013" :status "v1"}
+  ["re-frame.core" "reg-route"]           {:tier :advanced    :owner "012" :status "v1"}
+  ["re-frame.core" "reg-head"]            {:tier :advanced    :owner "011" :status "v1"}
+  ["re-frame.core" "reg-error-projector"] {:tier :advanced    :owner "011" :status "v1"}
+  ["re-frame.core" "reg-http-interceptor"] {:tier :advanced   :owner "014" :status "v1 (optional capability)"}
+  ;; Clearing registrations (spec/API.md §Clearing registrations).
+  ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "clear-sub"]           {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "clear-fx"]            {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "clear-flow"]          {:tier :advanced :owner "013" :status "v1"}
+  ["re-frame.core" "clear-http-interceptor"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "reset-frame!"]        {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "clear-sub-cache!"]    {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ;; Dispatch & subscribe (spec/API.md §Dispatch and subscribe).
+  ["re-frame.core" "dispatch"]            {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "dispatch*"]           {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "dispatch-sync"]       {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "dispatch-sync*"]      {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "dispatch-to-system"]  {:tier :advanced    :owner "005" :status "v1"}
+  ["re-frame.core" "subscribe"]           {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
+  ["re-frame.core" "subscribe*"]          {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1"}
+  ["re-frame.core" "unsubscribe"]         {:tier :advanced    :owner "006" :status "v1"}
+  ["re-frame.core" "sub-machine"]         {:tier :advanced    :owner "005" :status "v1"}
+  ;; View ergonomics (spec/API.md §View ergonomics).
+  ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "with-new-frame"]      {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "frame-handle"]        {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "make-frame-handle"]   {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "frame-bound-fn"]      {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "frame-bound-fn*"]     {:tier :advanced    :owner "002" :status "v1"}
+  ["re-frame.core" "view"]                {:tier :advanced    :owner "004" :status "v1"}
+  ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"}
+  ;; Interceptor authoring (spec/API.md §Interceptors).
+  ["re-frame.core" "->interceptor"]       {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "->interceptor*"]      {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "inject-cofx"]         {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "inject-cofx*"]        {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "get-coeffect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "assoc-coeffect"]      {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "get-effect"]          {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "assoc-effect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "path"]                {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ["re-frame.core" "unwrap-interceptor"]  {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"}
+  ["re-frame.core" "redact-interceptor"]  {:tier :advanced :owner "009" :status "post-v1 (planned)"}
+  ;; Lifecycle / adapter bootstrap.
+  ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "init-platform"]        {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "install-adapter!"]     {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.core" "destroy-adapter!"]     {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.core" "adapter-disposed?"]    {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.core" "current-adapter"]      {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.core" "current-adapter-spec"] {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"}
+  ;; Feature registry (optional-artefact presence checks).
+  ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
+  ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
+  ["re-frame.core" "require-feature!"]     {:tier :advanced :owner "Conventions" :status "v1"}
+  ;; Public registrar query API (spec/API.md §Public registrar query API).
+  ["re-frame.core" "registrations"]        {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "handler-ids"]          {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "machines"]             {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.core" "machine-meta"]         {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.core" "machine-by-system-id"] {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.core" "machine-has-tag?"]     {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.core" "machine-transition"]   {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.core" "make-machine-handler"] {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
+  ["re-frame.core" "snapshot-of"]          {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "sub-topology"]         {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "sub-cache"]            {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "compute-sub"]          {:tier :testing :owner "008" :status "v1"}
+  ;; Schema introspection re-exports (canonical home: re-frame.schemas).
+  ["re-frame.core" "app-schemas"]          {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.core" "app-schema-at"]        {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.core" "app-schema-meta-at"]   {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.core" "app-schemas-digest"]   {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.core" "set-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.core" "set-schema-explainer!"] {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.core" "set-schema-printer!"]   {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.core" "set-schema-fns!"]       {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.core" "validate-at-boundary-interceptor"] {:tier :advanced :owner "010" :status "v1"}
+  ;; SSR query-surface re-exports (canonical home: re-frame.ssr).
+  ["re-frame.core" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "render-head"]                   {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "active-head"]                   {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.core" "head-snapshot"]                 {:tier :advanced :owner "011" :status "v1"}
+  ;; Routing re-exports (canonical home: re-frame.routing).
+  ["re-frame.core" "match-url"]      {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "route-url"]      {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "current-url"]    {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "unregister-route!"] {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
+  ;; HTTP test-support re-exports (canonical home: re-frame.http-test-support).
+  ["re-frame.core" "with-managed-request-stubs"]      {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
+  ["re-frame.core" "with-managed-request-stubs*"]     {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
+  ["re-frame.core" "install-managed-request-stubs!"]  {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
+  ["re-frame.core" "uninstall-managed-request-stubs!"] {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
+  ;; Event-emit / error-emit (always-on, production-survivable) — §009.
+  ["re-frame.core" "register-event-listener!"]   {:tier :tooling :owner "009" :status "v1"}
+  ["re-frame.core" "unregister-event-listener!"] {:tier :tooling :owner "009" :status "v1"}
+  ["re-frame.core" "register-error-listener!"]   {:tier :tooling :owner "009" :status "v1"}
+  ["re-frame.core" "unregister-error-listener!"] {:tier :tooling :owner "009" :status "v1"}
+  ;; Tracing (dev-only) — §009.
+  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "trace-buffer"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "clear-trace-buffer!"]   {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "clear-listeners!"]      {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "group-cascades"]        {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
+  ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "reset-frame-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; Size-elision / privacy wire surfaces — §009.
+  ["re-frame.core" "elide-wire-value"]                  {:tier :tooling  :owner "009" :status "v1"}
+  ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
+  ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
+  ["re-frame.core" "populate-elision-from-schemas!"]    {:tier :advanced :owner "009" :status "v1"}
+  ["re-frame.core" "populate-sensitive-from-schemas!"]  {:tier :advanced :owner "009" :status "v1"}
+  ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"}
+
+  ;; --- Individually-named extra-vars (generator `extra-vars`) ---
+  ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home
+  ;; namespaces are otherwise internal plumbing.
+  ["re-frame.interop" "debug-enabled?"]   {:tier :tooling :owner "009" :status "v1"}
+  ["re-frame.performance" "enabled?"]     {:tier :tooling :owner "009" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.test-support — runtime-state test helpers (tier: testing).
+  ;; =========================================================================
+  ["re-frame.test-support" "dispatch-sequence"]         {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "assert-path-equals"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "assert-db-equals"]          {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "poll-until"]                {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "make-reset-runtime-fixture"] {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "with-fresh-registrar"]      {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.test-helpers — view-tree assertion helpers (tier: testing).
+  ;; =========================================================================
+  ["re-frame.test-helpers" "find-by-testid"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "find-by-testid-prefix"] {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "find-all-by-testid"]    {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "find-by-attr"]          {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "find-by-attr-prefix"]   {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "find-all-by-attr"]      {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "text-content"]          {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "expect-text"]           {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "extract-handler"]       {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "invoke-handler"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "testid"]                {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "expand-tree"]           {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "attrs"]                 {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "children"]              {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "wait-until"]            {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "with-app-fixture"]      {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "*current-root-view*"]      {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-helpers" "*current-root-view-args*"] {:tier :testing :owner "008" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.
+  ;; Introspection accessors are `tooling`; validator-install seams
+  ;; `advanced`; the lower-level lifecycle/cache/validation helpers are
+  ;; stable-but-not-app-facing → internal-public (restrictive default).
+  ;; =========================================================================
+  ["re-frame.schemas" "app-schemas"]             {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.schemas" "app-schema-at"]           {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.schemas" "app-schema-meta-at"]      {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.schemas" "app-schemas-digest"]      {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.schemas" "set-schema-validator!"]   {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "set-schema-explainer!"]   {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "set-schema-printer!"]     {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "reset-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "reg-app-schema"]          {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "reg-app-schemas"]         {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validator-fn"]            {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "explainer-fn"]            {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "printer-fn"]              {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "schemas-by-frame"]        {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "frame-schema-entries"]      {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-app-schema!"]      {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-event!"]           {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-fx!"]              {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-cofx!"]            {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-sub!"]             {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-with-registered-fn"] {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "walk-flagged-schema"]                {:tier :internal-public :owner "015" :status "v1"}
+  ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :internal-public :owner "015" :status "v1"}
+  ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :internal-public :owner "015" :status "v1"}
+  ["re-frame.schemas" "extract-sensitive-paths-from-schema"] {:tier :internal-public :owner "015" :status "v1"}
+  ["re-frame.schemas" "extract-large-paths-from-schema"]     {:tier :internal-public :owner "015" :status "v1"}
+  ["re-frame.schemas" "clear-sensitive-paths-cache!"]    {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-edn-print-cache!"]          {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-validator-unavailable-warned!"] {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-walker-opaque-warned!"]     {:tier :internal-public :owner "010" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.machines — optional artefact (day8/re-frame2-machines), §005.
+  ;; Query accessors `tooling`; spec/handler builders `advanced`; the fx
+  ;; impls + validators + timer reset are internal-public.
+  ;; =========================================================================
+  ["re-frame.machines" "machines"]              {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.machines" "machine-meta"]          {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.machines" "machine-by-system-id"]  {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.machines" "reg-machine*"]          {:tier :advanced :owner "005" :status "v1"}
+  ["re-frame.machines" "spawn-fx"]              {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "spawn-all-init-fx"]     {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "destroy-machine-fx"]    {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "after-schedule-fx"]     {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "after-cancel-fx"]       {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-machine!"]     {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-machine-data!"] {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-spawn-data!"]  {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "reset-timers!"]         {:tier :internal-public :owner "005" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.routing — optional artefact (day8/re-frame2-routing), §012.
+  ;; =========================================================================
+  ["re-frame.routing" "match-url"]              {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.routing" "reg-route"]              {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "unregister-route!"]      {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.routing" "malformed-url?"]         {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "url-owner-frame-id"]     {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "route-sub-fn"]           {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "route-link-render-ssr"]  {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "save-scroll-position"]   {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "lookup-scroll-position"] {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "scroll-positions-cap"]   {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "default-max-decoded-keys"] {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-counters!"]        {:tier :internal-public :owner "012" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
+  ;; =========================================================================
+  ["re-frame.flows" "reg-flow"]              {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "clear-flow"]            {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
+  ["re-frame.flows" "last-inputs-snapshot"]  {:tier :tooling :owner "013" :status "v1"}
+  ["re-frame.flows" "run-flows-on-db"]       {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "reset-flows!"]          {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "reset-last-inputs!"]    {:tier :internal-public :owner "013" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.http — optional artefact (day8/re-frame2-http), §014.
+  ;; The verb helpers are advanced; the sensitive-declaration seams tooling.
+  ;; =========================================================================
+  ["re-frame.http" "get"]     {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "post"]    {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "put"]     {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "delete"]  {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "patch"]   {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "head"]    {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "options"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "declare-sensitive-header!"]      {:tier :tooling :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "declare-sensitive-query-param!"] {:tier :tooling :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "clear-sensitive-headers!"]       {:tier :tooling :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http" "clear-sensitive-query-params!"]  {:tier :tooling :owner "014" :status "v1 (optional capability)"}
+
+  ;; =========================================================================
+  ;; re-frame.ssr — optional artefact (day8/re-frame2-ssr), §011.
+  ;; The rowed query surface is advanced; the request/response plumbing +
+  ;; templating + projection internals are internal-public (host territory).
+  ;; =========================================================================
+  ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-render-shell"]        {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-render-continuation"] {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "reg-error-projector"]           {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "adapter"]                       {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "install-render-to-string!"]     {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "hydrate!"]                      {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "verify-hydration!"]             {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "set-request!"]                  {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "get-request"]                   {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "clear-request!"]                {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "get-response"]                  {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "peek-response"]                 {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "flush-response!"]               {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "default-response"]              {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "apply-error-projection!"]       {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "project-render-exception!"]     {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "default-error-projector-fn"]    {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "public-error-keys"]             {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "fallback-public-error"]         {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "on-frame-destroyed!"]           {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-fallback-template"]   {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-resolved-template"]   {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-failed-template"]     {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :internal-public :owner "011" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.ssr.ring — Ring host-adapter (day8/re-frame2-ssr-ring), §011.
+  ;; The host-adapter surface; a host wires it — internal-public.
+  ;; =========================================================================
+  ["re-frame.ssr.ring" "ssr-handler"]               {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "ssr-middleware"]            {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "stream-handler"]            {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-html-shell"]        {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-streaming-prefix"]  {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-streaming-suffix"]  {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-on-error"]          {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "make-default-on-error"]     {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "handler-defaults"]          {:tier :internal-public :owner "011" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.
+  ;; The whole surface is the Tool-Pair time-travel surface (tooling).
+  ;; =========================================================================
+  ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "reset-frame-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "clear-history!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "configure!"]                 {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "current-config"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "settle!"]                    {:tier :internal-public :owner "Tool-Pair" :status "v1 (dev-only)"}
+
+  ;; =========================================================================
+  ;; re-frame.story — Story facade (day8/re-frame2-story), §007.
+  ;; The public execution verbs + registration macros are `tooling`
+  ;; (a Storybook-shaped dev surface, per spec/API.md §Tiering). The
+  ;; implementation/migration vocabulary + internal projections are
+  ;; internal-public (restrictive default).
+  ;; =========================================================================
+  ;; Public execution verbs (tooling).
+  ["re-frame.story" "run"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "is"]       {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "explain"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Registration macros + fn-twins (tooling).
+  ["re-frame.story" "reg-story"]         {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-story*"]        {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-variant"]       {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-variant*"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-workspace"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-workspace*"]    {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-tag"]           {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-tag*"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-decorator"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-decorator*"]    {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-story-panel"]   {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-story-panel*"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-fragment"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-fragment*"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-check"]         {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-check*"]        {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-mode"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-mode*"]         {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reg-global-decorator"]   {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "unreg-global-decorator!"] {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "global-decorators"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "configure!"]             {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "install-canonical-vocabulary!"] {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Registry query surface (tooling).
+  ["re-frame.story" "registrations"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "handler-meta"]           {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "ids"]                    {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "registered?"]            {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "all-kinds-with-counts"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variants-of"]            {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variants-by-story"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variants-with-tags"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "list-tags"]              {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "list-modes"]             {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tags-by-axis"]           {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tags-without-axis"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tags-default-excluded"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tag->axis-index"]        {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "add-marks"]              {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "set-marks"]              {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Canonical vocabulary values (tooling — read-only vocab).
+  ["re-frame.story" "canonical-tags"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-axes"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-status-values"] {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-role-values"]   {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-state-values"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-state-tags"]    {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-assertion-ids"] {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Lifecycle / cleanup (tooling).
+  ["re-frame.story" "clear-all!"]   {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "clear-kind!"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "unregister!"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Implementation / migration vocabulary + internal projections
+  ;; (not a public surface per spec/API.md §Tiering — internal-public).
+  ["re-frame.story" "run-variant"]            {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reset-variant"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "watch-variant"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "destroy-variant!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "render-variant"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant->edn"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "workspace->edn"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-plan"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-frame?"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-frames"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-share-url"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "execute-play!"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "gen-play-snippet"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "resolve-args"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "resolve-decorators"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-result"]             {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-result-schema"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "valid-run-result?"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result->reports"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result-passed?"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result-status"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "report-result!"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "explain-run-result"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assertions-passing?"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tape-shows-failure?"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "narrative-beats"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-count"]             {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-at"]                {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-epoch-ids"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "project-evidence"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "snapshot-identity"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonicalize"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-hash"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "content-hash"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "plan-hash"]              {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-hash"]               {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "make-run-artifact"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-artifact?"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "replay-run-artifact"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "diff-run-artifacts"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assert-deterministic"]   {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "check-property!"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "capture-golden"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "compare-golden"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "golden-match?"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "start-recording!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "stop-recording!"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "clear-recording!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "sweep-faults!"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "static-mode?"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "force-fx-stub-id"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-measure-id"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-outline-id"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-pseudo-id"]  {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "lifecycle-state"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "match-schema-expectations"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "materialize-variant-plan"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "promote-run-artifact!"]   {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "read-assertions"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recorder-state"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recording->play-script"]  {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recording?"]              {:tier :internal-public :owner "007" :status "post-v1 lib"}
+
+  ;; =========================================================================
+  ;; re-frame.mcp-base.* — MCP support namespaces (day8/re-frame2-mcp-base).
+  ;; The trace/egress surfaces the pair-MCP servers consume → tooling
+  ;; (per spec/API.md §Tiering of cross-tool surfaces).
+  ;; =========================================================================
+  ["re-frame.mcp-base.elision" "count-elided-markers"]   {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ["re-frame.mcp-base.sensitive" "scrub-snapshot"]       {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ["re-frame.mcp-base.sensitive" "strip-sensitive"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ["re-frame.mcp-base.sensitive" "sensitive-event?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ["re-frame.mcp-base.sensitive" "malformed-count"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}}}
