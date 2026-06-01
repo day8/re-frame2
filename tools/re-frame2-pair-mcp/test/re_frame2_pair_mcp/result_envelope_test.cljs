@@ -50,6 +50,44 @@
         "an outer try guards the classifier itself so it never throws on the wire")))
 
 ;; ---------------------------------------------------------------------------
+;; REPL-special pass-through (rf2-cum40 CI repair).
+;;
+;; shadow only honours `require` / `ns` / etc. special compilation at the
+;; top level; wrapping them in the classifier's expression context breaks
+;; them (`SyntaxError: Unexpected token ';'` → the require's module never
+;; loads). `wrap-form` MUST return these verbatim.
+;; ---------------------------------------------------------------------------
+
+(deftest repl-special?-matches-the-special-heads
+  (is (renv/repl-special? "(require 're-frame.epoch)") "require")
+  (is (renv/repl-special? "  (require 'foo)") "leading whitespace tolerated")
+  (is (renv/repl-special? "(ns my.app)") "ns")
+  (is (renv/repl-special? "(in-ns 'foo)") "in-ns")
+  (is (renv/repl-special? "(import [goog.string])") "import")
+  (is (renv/repl-special? "(require-macros 'm)") "require-macros")
+  (is (renv/repl-special? "(load-file \"x.cljs\")") "load-file"))
+
+(deftest repl-special?-rejects-ordinary-forms
+  (is (not (renv/repl-special? "(+ 1 2)")) "arithmetic is not special")
+  (is (not (renv/repl-special? "(require-something)"))
+      "a longer symbol that merely starts with 'require' is NOT the require special")
+  (is (not (renv/repl-special? "(requirements)")) "near-miss head rejected")
+  (is (not (renv/repl-special? "42")) "a bare value is not special")
+  (is (not (renv/repl-special? "(re-frame.core/dispatch [:e])")) "namespaced call")
+  (is (not (renv/repl-special? "'(require 'x)"))
+      "a QUOTED require is data, not a special invocation"))
+
+(deftest wrap-form-returns-repl-special-verbatim
+  (let [form "(require 're-frame.epoch)"]
+    (is (= form (renv/wrap-form form))
+        "a require form rides VERBATIM — NOT wrapped (shadow needs it top-level)")
+    (is (not (str/includes? (renv/wrap-form form) ":rf.mcp/result"))
+        "no codec wrapper around a REPL special"))
+  ;; an ordinary form is still wrapped
+  (is (str/includes? (renv/wrap-form "(+ 1 2)") ":rf.mcp/result")
+      "ordinary forms still get the classifier wrap"))
+
+;; ---------------------------------------------------------------------------
 ;; envelope->result — the four tags.
 ;; ---------------------------------------------------------------------------
 
