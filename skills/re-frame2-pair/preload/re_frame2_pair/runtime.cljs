@@ -75,7 +75,32 @@
             [re-frame.interop :as interop]
             [clojure.data :as data]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            ;; cljs.reader is load-bearing for the eval-cljs typed result
+            ;; codec (rf2-qobqy): both `re-frame2-pair-mcp.tools.result-envelope/
+            ;; wrap-form` (the DEFAULT eval path) and `…tools.await-promise/
+            ;; read-mailbox-form` (the `:await true` path) emit wrapper
+            ;; source that calls `cljs.reader/read-string` to round-trip-
+            ;; probe serializability inside the running runtime. cljs.reader
+            ;; is NOT auto-loaded by an arbitrary consumer build, so without
+            ;; this require shadow's `cljs-eval` resolves the wrapper's
+            ;; `cljs.reader/read-string` as an :undeclared-var, returns an
+            ;; empty `:results`, and the server reads the blank value as a
+            ;; bare `nil` — collapsing EVERY wrapped eval to `:value nil`
+            ;; (the exact regression the typed codec exists to PREVENT; it
+            ;; turned the live-overflow conformance gate RED because the
+            ;; over-budget string came back as nil and the cap never tripped).
+            ;; The runtime preload is the codec's guaranteed-present
+            ;; substrate (re-frame2-pair-mcp refuses every tool with
+            ;; `:runtime-not-preloaded` when this ns is absent), so pinning
+            ;; the require here makes the symbol resolvable in every app the
+            ;; pair tool can attach to. The require exists purely to pull
+            ;; the namespace into the compiled bundle; the only references
+            ;; are inside `pr-str`'d wire-form STRINGS (the fully-qualified
+            ;; `cljs.reader/read-string`), invisible to the analyzer. Left
+            ;; bare (no `:as`) — clj-kondo does not flag an unaliased
+            ;; load-for-side-effect require as unused.
+            cljs.reader))
 
 ;; ---------------------------------------------------------------------------
 ;; Session sentinel

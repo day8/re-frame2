@@ -245,21 +245,62 @@ runWithWatchdog(
       // the server rejected with `:reason :missing-event` and the
       // streaming trace bus never fired (no event → no trace frame →
       // 0 ticks → :max-ms-reached with delivered 0).
-      arguments: { event: '[:rf-conformance/subscribe-probe :hello]' },
+      //
+      // The event MUST be a handler that is REGISTERED in the fixture
+      // (rf2-3bu3d.3): `dispatch` now validates the event-id against the
+      // LIVE registry at the wire boundary and REFUSES an unknown id with
+      // `:ok? false :dispatched? false :nearest [...]` — it does NOT enter
+      // the dispatch loop, so an unregistered probe event fires NO trace
+      // cascade and the streaming gate sees 0 ticks. The earlier
+      // `[:rf-conformance/subscribe-probe :hello]` probe pre-dated that
+      // call-time validation; under the old contract any event vector
+      // entered the loop and emitted a `:rf.event/dispatched` trace even
+      // with no handler. We dispatch the fixture's real `:counter/inc`
+      // event-db handler (counter/core.cljs) so the dispatch actually
+      // lands and the trace bus emits — the precondition for the
+      // `notifications/progress` frame this test exists to observe. The
+      // handler is a pure `(update :count inc)`.
+      //
+      // `:queued true` routes through the runtime `pair-dispatch!`
+      // transport-ack path rather than the default `dispatch-consequence!`
+      // (rf2-3bu3d.2) — see the NOTE block below for why (the fixture
+      // boots with epoch recording at depth 0, so the consequence read
+      // would report `:no-epoch-recorded`; the trace cascade fires
+      // regardless of epoch recording).
+      arguments: { event: '[:counter/inc]', queued: true },
     });
 
     // Wait for both calls to settle. subscribe returns the terminal
     // summary; dispatch returns whatever the runtime echoed.
     const [subResp, dispatchResp] = await Promise.all([subscribePromise, dispatchPromise]);
 
-    // Surface dispatch result for diagnostics (don't fail the test on
-    // its result — the trace-bus emission is what we care about, and
-    // a `:rf-conformance/*` event with no handler is a no-op).
+    // Surface the dispatch result for diagnostics. We do NOT fail on it:
+    // this gate's load-bearing assertion is the `notifications/progress`
+    // frame, which the trace bus emits whenever the event runs. The
+    // dispatch's OWN result is a separate concern.
+    //
+    // Note on the dispatch envelope under the new contract: we send
+    // `:queued true` (below) so the dispatch routes through the runtime's
+    // `pair-dispatch!` transport-ack path rather than the default
+    // `dispatch-consequence!` (rf2-3bu3d.2). `dispatch-consequence!`
+    // reads back the RECORDED EPOCH to report `:db-changed?` /
+    // `:changed-paths`; the re-frame2-pair fixture boots with epoch
+    // recording at depth 0 (it never enables it), so the consequence path
+    // returns `:ok? false :reason :no-epoch-recorded` even though the
+    // event dispatched and the TRACE cascade fired. The trace bus is
+    // independent of epoch recording, so `:queued` gives us the cascade
+    // (the progress-frame precondition) without coupling this streaming
+    // gate to the fixture's epoch-recording posture. `:counter/inc` is a
+    // registered fixture handler, so the rf2-3bu3d.3 event-id validation
+    // passes regardless of path.
     if (dispatchResp && dispatchResp.isError) {
       console.log(
-        'NOTE dispatch returned isError (no handler is expected): ' +
-          (dispatchResp.content?.[0]?.text || '').slice(0, 120),
+        'NOTE dispatch returned isError (non-fatal — the trace cascade is ' +
+          'what this gate needs): ' +
+          (dispatchResp.content?.[0]?.text || '').slice(0, 160),
       );
+    } else {
+      console.log('OK   tools/call dispatch [:counter/inc] (:queued) acked');
     }
 
     // subscribe MUST return a terminal `ok? true` summary — a
