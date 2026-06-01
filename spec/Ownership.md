@@ -9,7 +9,7 @@ Other docs may reference any surface, but those references are non-normative —
 
 **Host scope.** The pattern itself is scoped to the eight in-scope JS-cross-compile hosts defined in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). Companion-doc rows below describe pattern-level contracts; non-target server-side hosts (Python, Ruby, Rust, server-side Kotlin / Java / Swift) are **out of scope** as first-class implementation targets, and surfaces that look "host-specific" are scoped to those eight.
 
-The **Artefact** column names the Maven artefact that ships the surface in the CLJS reference. Surfaces marked `core (split pending: rf2-NNNN)` are currently in `day8/re-frame2` and will move to `day8/re-frame2-<feature-id>` under the named bead. The packaging architecture (artefact tiers, naming, independence rule) is normative in [Conventions §Packaging conventions](Conventions.md#packaging-conventions).
+The **Artefact** column names the Maven artefact that ships the surface in the CLJS reference. Surfaces marked `core (split pending: <bead>)` are currently in `day8/re-frame2` and will move to `day8/re-frame2-<feature-id>` under the named bead (the concrete id is in the **Artefact** cell of each such row). The packaging architecture (artefact tiers, naming, independence rule) is normative in [Conventions §Packaging conventions](Conventions.md#packaging-conventions).
 
 | Contract surface | Canonical home spec | Artefact | Referenced in (informational) |
 |---|---|---|---|

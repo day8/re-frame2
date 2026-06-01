@@ -928,7 +928,7 @@ The motivating concern is the audit finding: an SSR / headless JVM process runni
 
 The contract above is enforced by an automated test in CI:
 
-1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-listener!`, `emit-trace-event!`, the per-frame trace rings (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer {:cascades-retained N})`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-listener!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
+1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-listener!`, `emit-trace-event!`, the per-frame trace rings (`trace-buffer` / `clear-trace-buffer!` / `(configure! :trace-buffer {:cascades-retained N})`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-listener!` / `epoch-history` / `restore-epoch` / `(configure! :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
 2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
    - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
    - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
@@ -954,7 +954,7 @@ The elision contract above is uncompromising — in a `:advanced` build with `go
 A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machinery. Concretely, the following surfaces have been DCEd and the runtime cannot reach them at all:
 
 - `register-listener!` / `unregister-listener!` — listener registration is a no-op because the gate around `trace/emit!` is constant-folded out. Even if user code registered a listener at boot (which it shouldn't, per [§User-side listener registration](#user-side-listener-registration)), nothing would ever invoke it.
-- The per-frame trace rings (`trace-buffer`, `clear-trace-buffer!`, `(configure :trace-buffer {:cascades-retained N})`) — pulling "the last N cascades from a prod session" is not supported. The ring's `swap!` site is inside the same elision gate.
+- The per-frame trace rings (`trace-buffer`, `clear-trace-buffer!`, `(configure! :trace-buffer {:cascades-retained N})`) — pulling "the last N cascades from a prod session" is not supported. The ring's `swap!` site is inside the same elision gate.
 - `register-epoch-listener` and the per-event `:rf/epoch-record` assembly — epoch projection runs inside the trace surface and elides with it.
 - Every `:rf.error/*`, `:rf.warning/*`, `:rf.info/*`, `:rf.fx/*`, `:rf.ssr/*`, and `:rf.epoch/*` trace event documented in [§Error event catalogue](#error-event-catalogue). They are not emitted, not buffered, and not deliverable to any listener. (The `:on-error` per-frame slot — per [002-Frames §`:on-error`](002-Frames.md) — is a documented exception: it rides a small always-on error-emit substrate that survives `goog.DEBUG=false`. See [§What IS available in production](#what-is-available-in-production) below.)
 - Source-coord enrichment (`:rf.trace/trigger-handler`), `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation, `:rf.event/origin` tagging — all ride the trace event and elide with it.
@@ -1473,7 +1473,7 @@ Shape (flat map, mirrors `:source-coord` under `:rf.trace/trigger-handler`):
 
 ```clojure
 {:ns     <sym>     ;; the calling namespace
- :file   <string>  ;; the source file, per  `:file` resolution
+ :file   <string>  ;; the source file, per `:file` resolution
  :line   <int>     ;; the line of the macro form
  :column <int>}    ;; optional refinement
 ```
@@ -1917,7 +1917,7 @@ Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per
 
 ### Per-frame trace rings — cascade-keyed retention
 
-Resolved per **** (2026-05-25). The trace surface is partitioned per-frame and sized by cascade count, not event count. Five resolved sub-questions:
+Resolved per **rf2-g1b2m** (2026-05-25). The trace surface is partitioned per-frame and sized by cascade count, not event count. Five resolved sub-questions:
 
 1. **Cross-frame cascades.** Each frame retains the traces of cascades that executed in it, keyed by their own `:rf.trace/dispatch-id`. Cross-frame consumers (pair-mcp, monitoring tools, multi-frame story sessions) merge by `:dispatch-id` across rings; the framework does not maintain a process-global cross-frame index.
 2. **Frameless trace events.** Original ruling **B** (frameless events → `:rf/default` + `nil`-id cluster) was overturned the same day by hot-reload memory-leak analysis. Amended ruling: **B3 + B4 combined.** B3 — frameless trace events skip rings entirely; they stream live to listeners only, never retained anywhere. B4 — hot-reload re-emits are deduplicated by shape at the emit site (the registrar tracks last-emitted shape per `(kind, id)` pair and suppresses unchanged re-emits). Together: rings hold cascades exclusively; the live stream filters reload-noise; the registry is the source of truth for "what's registered right now". Hot-reload is a non-event for the trace bus.
@@ -2023,7 +2023,7 @@ The **user-controllable config knob** each consumer exposes for the default-supp
 
 #### Retroactive-scrub on `set-show-sensitive!` false
 
-Resolved per ****.
+Resolved per **rf2-lqmje**.
 
 The on-box `show-sensitive?` knob is **not a one-way trapdoor**. Each consumer's `(set-show-sensitive! v)` is gated at ingest time only — it decides whether the next emit lands in the consumer's downstream buffer (or in the framework's per-frame ring), not whether buffer reads see existing payloads. Without an explicit retroactive-scrub rule the toggle has a privacy hole:
 
