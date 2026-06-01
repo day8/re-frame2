@@ -1,8 +1,11 @@
-;; deps-new template config for day8/re-frame2-template (rf2-dolpf §2.1).
+;; deps-new template config for day8/re-frame2-template
+;; (rf2-dolpf §2.2-2.4, rf2-c2770).
 ;;
-;; Spike scope: Reagent-only. The full three-substrate matrix lands in
-;; §2.2 (rf2-c2770). See tools/template/spec/003-DepsNew-Rebuild-Plan.md
-;; for the migration plan.
+;; Scope: the full three-substrate matrix (Reagent / UIx / Helix), with
+;; an optional Story playground on Reagent. The matrix is built at run
+;; time by `template-fn` (see the `:transform` note below); this EDN only
+;; declares the hook fns. See tools/template/spec/003-DepsNew-Rebuild-Plan.md
+;; for the migration plan and §-by-§ status.
 ;;
 ;; deps-new resolution mechanics:
 ;;
@@ -13,7 +16,7 @@
 ;;     `day8/re_frame2_template/template.edn`. This file lives at
 ;;     that path under `tools/template/resources/`.
 ;;
-;;   - §2.1 spike — local-dev / smoke:
+;;   - Current (pre-§3-split) local-dev / smoke:
 ;;     `clojure -Sdeps '{:deps {day8/re-frame2-template
 ;;                              {:local/root "./tools/template"}}}'
 ;;       -Tnew create :template day8/re-frame2-template
@@ -35,9 +38,9 @@
 ;;     `io/github/day8/re_frame2_template/template.edn`). §3 moves
 ;;     the resources to the `io/github/day8/...` path inside the
 ;;     extracted `day8/re-frame2-template` repo so the steady-state
-;;     invocation works against the published artefact. §2.1 ships
-;;     the `day8/...` path only — switching to the published path
-;;     is mechanical (a directory rename) once the repo split lands.
+;;     invocation works against the published artefact. The current
+;;     tree ships the `day8/...` path only — switching to the published
+;;     path is mechanical (a directory rename) once the repo split lands.
 ;;
 ;; The static `:transform` is intentionally absent — `template-fn`
 ;; (in `src/day8/re_frame2_template/hooks.clj`) builds the transform
