@@ -85,9 +85,9 @@
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   ;; Exercise the slim's pure-CLJS render-to-static-markup so the
-  ;; bundle DOES compile in the SSR path. The bundle-isolation
-  ;; contract (S3-008) is then non-vacuous: even with SSR pulled in,
-  ;; the bundle still must NOT contain `react-dom/server` symbols,
+  ;; bundle DOES compile in the SSR path. The pure-CLJS-SSR contract
+  ;; (S3-005) is then non-vacuous: even with SSR pulled in, the
+  ;; bundle still must NOT contain `react-dom/server` symbols,
   ;; because reagent2.dom.server is pure-CLJS (no
   ;; `["react-dom/server" :as ...]` import — see IMPL-SPEC §8).
   ;;
