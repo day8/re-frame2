@@ -7,11 +7,16 @@
   Background — Spec 010 §Recommended soft-pass: the schemas artefact
   ships with a Malli-delegating default validator that returns true
   ('pass') when the `:schemas/malli-validate` late-bind hook is
-  unbound — i.e. when `re-frame.schemas.malli` hasn't been required
-  at app boot. This is intentional (apps that swap in a non-Malli
-  validator must work), but it has a footgun: a `reg-app-schema`
-  call with no validator wired up validates nothing. The warning
-  surfaces this misconfiguration once per process.
+  unbound. This is intentional (apps that swap in a non-Malli
+  validator must work), but a `reg-app-schema` call with no validator
+  wired up validates nothing. The warning surfaces this once per
+  process.
+
+  Post-rf2-v96fh the `re-frame.schemas` facade auto-requires the Malli
+  adapter, so the common path keeps the hook bound and the warning is
+  effectively reserved for a substitute-validator port or this test's
+  deliberate unbind (see `with-unbound-malli-validate`, which simulates
+  the unbound state rather than unloading the ns).
 
   The warning is suppressed when:
     - The Malli adapter is loaded (`:schemas/malli-validate` is
