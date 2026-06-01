@@ -25,6 +25,7 @@
             [re-frame.story.determinism :as determinism]
             [re-frame.story.fingerprint :as fingerprint]
             [re-frame.story.plan :as plan]
+            [re-frame.story.play.evidence :as evidence]
             [re-frame.story.play.settled-boundary :as boundary]))
 
 ;; ===========================================================================
@@ -408,3 +409,99 @@
       (is (= :pass (:status res)))
       (is (true? (:ran (:app-db res))))
       (is (nil? (:network art)) "no :network slot on a non-HTTP artifact"))))
+
+;; ===========================================================================
+;; EXACT narrative attribution from runner-recorded settle boundaries (rf2-rkd14)
+;; ===========================================================================
+;;
+;; The narrative supports EXACT (`:rf.story/script-idx` stamps) and EVEN (an
+;; arbitrary forward partition) beat→step attribution. Before rf2-rkd14 the
+;; stamp was WRITTEN nowhere, so `explicit-beats?` was always false and every
+;; run fell to EVEN — which mis-attributes re-dispatch fan-out. `replay-into-
+;; frame!` now records each dispatch step's settle boundary (the epoch-history
+;; length at the start of its settle) on the outcomes metadata, and
+;; `replay-result` feeds it through `project-evidence` as `:attribution`, so
+;; the narrative is attributed EXACTLY.
+;;
+;; THE DISCRIMINATING CASE. Two dispatch steps where the SECOND re-dispatches:
+;;
+;;   step 0  [:dispatch [:rkd/a]]                 → 1 committed epoch (e0)
+;;   step 1  [:dispatch [:rkd/c]] (re-dispatches  → 2 committed epochs (e1 e2)
+;;                                  :rkd/d)
+;;
+;; Tape = [e0 e1 e2]; 2 dispatch steps. EVEN partitions 3 across 2 as [2 1]
+;; (remainder front-loaded), so it WRONGLY groups {e0 e1} under step 0 and
+;; {e2} under step 1 — e1 belongs to step 1. EXACT groups {e0} under step 0
+;; and {e1 e2} under step 1. This is the RED-before / GREEN-after pin: the
+;; commented assertion below is what the EVEN partition produced (RED for the
+;; correct grouping); the live assertions prove EXACT now fires.
+
+(defn- beats-by-step
+  "Group the flattened narrative beats of run-`result` by their owning
+  `:step`, returning `{step [trigger-event …]}` so a test can assert WHICH
+  authored step each beat (by its `:trigger-event`) landed under."
+  [result]
+  (->> (evidence/narrative-beats (:narrative result))
+       (reduce (fn [m {:keys [step trigger-event]}]
+                 (update m step (fnil conj []) trigger-event))
+               {})))
+
+(deftest replay-narrative-exact-attribution-of-redispatch-fanout
+  (testing "a step that re-dispatches has its fan-out attributed to THAT
+            step's span — EXACT (`:rf.story/script-idx`), not the EVEN
+            forward partition that mis-groups it (rf2-rkd14)"
+    ;; :rkd/a — a plain leaf dispatch (1 epoch).
+    (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+    ;; :rkd/c — re-dispatches :rkd/d, so step 1 settles to 2 epochs.
+    (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+    (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+    (let [a   (artifact/make-run-artifact
+                {:event-program [[:dispatch [:rkd/a]]
+                                 [:dispatch [:rkd/c]]]})
+          res (artifact/replay-run-artifact a)
+          by  (beats-by-step res)]
+      (is (= :pass (:status res)))
+      ;; THREE committed epochs: a, c, and c's re-dispatched d.
+      (is (= 3 (count (:epoch-tape res)))
+          "the re-dispatch settled to a 3-epoch tape")
+      ;; EXACT: step 0 owns ONLY :rkd/a; step 1 owns BOTH :rkd/c and the
+      ;; re-dispatched :rkd/d (the fan-out attaches to the step that produced
+      ;; it).
+      (is (= [[:rkd/a]] (get by [:dispatch [:rkd/a]]))
+          "step 0's span holds ONLY its own leaf epoch")
+      (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch [:rkd/c]]))
+          "step 1's span holds its dispatch AND its re-dispatch fan-out — EXACT")
+      ;; RED-before pin: the EVEN forward partition [2 1] would have grouped
+      ;; {:rkd/a :rkd/c} under step 0 and {:rkd/d} under step 1, i.e.
+      ;;   (is (= [[:rkd/a] [:rkd/c]] (get by [:dispatch [:rkd/a]])))  ; EVEN
+      ;; which mis-attributes :rkd/c's epoch to step 0. EXACT corrects it.
+      (is (not= [[:rkd/a] [:rkd/c]] (get by [:dispatch [:rkd/a]]))
+          "step 0 does NOT swallow step 1's epoch (the EVEN mis-grouping)"))))
+
+(deftest replay-narrative-stamp-does-not-perturb-run-hash
+  (testing "the :rf.story/script-idx stamp is a :rf.story/* accumulator key
+            the determinism projection strips — so the EXACT-attributed run
+            and a stamp-free baseline canonicalize + run-hash IDENTICALLY
+            (rf2-rkd14 determinism guard: :narrative is not in
+            run-hash-input-keys AND the :epoch-tape slot stays raw)"
+    (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+    (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+    (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+    (let [a    (artifact/make-run-artifact
+                 {:event-program [[:dispatch [:rkd/a]]
+                                  [:dispatch [:rkd/c]]]})
+          res  (artifact/replay-run-artifact a)
+          ;; The verbatim :epoch-tape slot must be RAW — no stamp leaked into
+          ;; the hashed slice.
+          tape-keys (into #{} (mapcat keys) (:epoch-tape res))]
+      (is (not (contains? tape-keys :rf.story/script-idx))
+          "the retained :epoch-tape slot is the RAW tape (no stamp leak)")
+      ;; The run-hash over an EXACT-attributed result equals the run-hash over
+      ;; the SAME result with the narrative dropped — proving the stamp (which
+      ;; rides only the narrative projection) is invisible to the hash.
+      (is (= (fingerprint/run-hash res)
+             (fingerprint/run-hash (dissoc res :narrative)))
+          "dropping the stamped :narrative does not change the run-hash")
+      ;; And the run-hash is stable / idempotent on the stamped result.
+      (is (= (fingerprint/run-hash res) (fingerprint/run-hash res))
+          "run-hash is idempotent on the EXACT-attributed result"))))

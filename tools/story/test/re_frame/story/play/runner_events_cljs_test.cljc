@@ -23,15 +23,26 @@
             [re-frame.story.loaders     :as loaders]
             [re-frame.story.play        :as legacy-play]
             [re-frame.story.play.runner-events :as re]
+            ;; rf2-rkd14 — the EXACT narrative attribution tests read a live
+            ;; epoch tape via `rf/epoch-history`; requiring the epoch artefact
+            ;; installs its late-bind capture hooks so the tape is real (it
+            ;; degrades to `[]` without the dep, mirroring artifact-test). The
+            ;; fixture's `epoch/clear-history!` runs on both runtimes, so this
+            ;; require is unconditional.
+            [re-frame.epoch             :as epoch]
             [re-frame.machines          :as machines]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.registrar         :as registrar]
             ;; `re-frame.story.async/deref-blocking` is JVM-only (it
             ;; blocks a thread) and `config/set-global-args!` is only
             ;; needed by the JVM `reset-all` lineage — the integration
-            ;; tests below that use them are themselves JVM-gated.
+            ;; tests below that use them are themselves JVM-gated. The
+            ;; rf2-rkd14 EXACT-attribution tests are likewise `:clj`-gated, so
+            ;; their `evidence` / `fingerprint` deps ride this block too.
             #?@(:clj [[re-frame.story.async  :as async]
-                      [re-frame.story.config :as config]])))
+                      [re-frame.story.config :as config]
+                      [re-frame.story.play.evidence :as evidence]
+                      [re-frame.story.fingerprint :as fingerprint]])))
 
 ;; ---- CLJS+JVM: the dispatch→assertion outcome-matching bridge -----------
 ;;
@@ -69,6 +80,10 @@
   (story/clear-all!)
   (registrar/clear-all!)
   (reset! frame/frames {})
+  ;; rf2-rkd14 — clear the epoch ring + listeners so each EXACT-attribution
+  ;; test reads only its own freshly-captured tape.
+  (epoch/clear-history!)
+  (epoch/clear-epoch-listeners!)
   (try (rf/init! plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   #?(:clj (require 're-frame.machines :reload))
@@ -384,6 +399,85 @@
              "the result map's :assertions slot includes the failed assertion")
          (is (false? (story/assertions-passing? result))
              "assertions-passing? on the result map flips to false")))))
+
+;; ---- rf2-rkd14: EXACT narrative attribution on the LIVE run path ---------
+;;
+;; The runtime records each dispatch step's settle boundary
+;; (`runner-events/step-boundaries`) and `record-result-map` feeds it to
+;; `project-evidence` as `:attribution`, so the unified result's `:narrative`
+;; is attributed EXACTLY (`:rf.story/script-idx` stamps) instead of the EVEN
+;; forward partition that mis-groups re-dispatch fan-out. The discriminating
+;; case: a SECOND dispatch step that re-dispatches — EVEN [2 1] mis-groups
+;; the first re-dispatched epoch onto step 0; EXACT keeps the fan-out under
+;; the step that produced it.
+
+#?(:clj
+   (deftest run-variant-narrative-exact-attribution-of-redispatch-fanout
+     (testing "the unified result's :narrative attributes a re-dispatching
+              step's fan-out to THAT step's span — EXACT, not the EVEN
+              partition that mis-groups it (rf2-rkd14, live run path)"
+       (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+       ;; :rkd/c re-dispatches :rkd/d, so step 1 settles to 2 epochs.
+       (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+       (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+       (story/reg-variant :story.rkd/redispatch
+         {:events      []
+          :play-script {:script [[:dispatch-sync [:rkd/a]]
+                                  [:dispatch-sync [:rkd/c]]]}})
+       (let [result (async/deref-blocking
+                      (story/run-variant :story.rkd/redispatch) 5000)
+             ;; Group the flattened beats by their owning :step. The leading
+             ;; (nil-step) span collects the lifecycle setup-phase epochs the
+             ;; runtime commits before the script runs.
+             by     (->> (evidence/narrative-beats (:narrative result))
+                         (reduce (fn [m {:keys [step trigger-event]}]
+                                   (update m step (fnil conj []) trigger-event))
+                                 {}))]
+         (is (= :pass (:status result)))
+         ;; The two authored steps committed THREE script epochs (a, c, c's
+         ;; re-dispatch d) — the rest of the tape is the leading setup phase.
+         (let [script-beats (concat (get by [:dispatch-sync [:rkd/a]])
+                                    (get by [:dispatch-sync [:rkd/c]]))]
+           (is (= [[:rkd/a] [:rkd/c] [:rkd/d]] (vec script-beats))
+               "the three script epochs land under the two authored steps"))
+         ;; EXACT: step 0 owns ONLY :rkd/a; step 1 owns :rkd/c AND its
+         ;; re-dispatched :rkd/d (the fan-out attaches to the producing step).
+         (is (= [[:rkd/a]] (get by [:dispatch-sync [:rkd/a]]))
+             "step 0's span holds ONLY its own leaf epoch")
+         (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch-sync [:rkd/c]]))
+             "step 1's span holds its dispatch AND its re-dispatch — EXACT")
+         ;; RED-before pin: the EVEN partition (5 script-attributable epochs
+         ;; split [3 2] front-loaded, or any forward split) front-loads
+         ;; :rkd/c onto step 0; EXACT keeps :rkd/c under step 1.
+         (is (not= [[:rkd/a] [:rkd/c]] (get by [:dispatch-sync [:rkd/a]]))
+             "step 0 does NOT swallow step 1's epoch (the EVEN mis-grouping)")
+         ;; The leading setup epochs are NOT mis-attributed to step 0 — they
+         ;; lead under the nil span (the EXACT model's leading-setup behaviour;
+         ;; the EVEN partition would have front-loaded them onto step 0).
+         (is (seq (get by nil))
+             "the setup-phase epochs lead under the nil span — not step 0")))))
+
+#?(:clj
+   (deftest run-variant-narrative-stamp-does-not-perturb-run-hash
+     (testing "the :rf.story/script-idx stamp is stripped by the determinism
+              projection — the EXACT-attributed result's run-hash equals its
+              narrative-free baseline, and the :epoch-tape slot stays raw
+              (rf2-rkd14 determinism guard)"
+       (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+       (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+       (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+       (story/reg-variant :story.rkd/hash
+         {:events      []
+          :play-script {:script [[:dispatch-sync [:rkd/a]]
+                                  [:dispatch-sync [:rkd/c]]]}})
+       (let [result    (async/deref-blocking
+                         (story/run-variant :story.rkd/hash) 5000)
+             tape-keys (into #{} (mapcat keys) (:epoch-tape result))]
+         (is (not (contains? tape-keys :rf.story/script-idx))
+             "the retained :epoch-tape slot is the RAW tape (no stamp leak)")
+         (is (= (fingerprint/run-hash result)
+                (fingerprint/run-hash (dissoc result :narrative)))
+             "dropping the stamped :narrative does not change the run-hash")))))
 
 #?(:clj
    (deftest assert-dom-skipped-on-jvm-is-cannot-run

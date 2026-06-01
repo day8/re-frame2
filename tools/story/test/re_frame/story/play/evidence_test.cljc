@@ -275,6 +275,47 @@
       (is (= [:dispatch [:b]] (:step (nth n 3))))
       (is (= [4] (mapv :epoch-id (:epochs (nth n 3))))))))
 
+(deftest stamp-tape-from-settle-boundaries
+  (testing "stamp-tape maps runner-recorded per-dispatch-step settle
+            boundaries onto the raw tape — the discriminating re-dispatch
+            case the EVEN partition mis-groups (rf2-rkd14)"
+    ;; Two dispatch steps; the SECOND re-dispatches → settles to 2 epochs.
+    ;; Tape = [a c d]; boundaries = [0 1] (e0 committed before step 1's
+    ;; settle began at count 1). EXACT: step 0 owns {a}; step 1 owns {c d}.
+    (let [script     [[:dispatch [:a]] [:dispatch [:c]]]
+          tape       [(epoch 1 {:trigger-event [:a]})
+                      (epoch 2 {:trigger-event [:c]})
+                      (epoch 3 {:trigger-event [:d]})] ; c's re-dispatch
+          stamped    (evidence/stamp-tape script tape [0 1])]
+      (is (= [0 1 1] (mapv :rf.story/script-idx stamped))
+          "a → step 0; c + its re-dispatch d → step 1 (fan-out attaches to
+           the producing step)")
+      ;; The stamped tape lights up EXACT attribution end-to-end.
+      (let [n (evidence/narrative script stamped)]
+        (is (= [[:a]]    (mapv :trigger-event (:epochs (first n)))))
+        (is (= [[:c] [:d]] (mapv :trigger-event (:epochs (second n))))
+            "EXACT — NOT the EVEN [2 1] split that mis-groups c onto step 0"))))
+
+  (testing "records before the first boundary lead under the nil setup span"
+    (let [script  [[:dispatch [:act]]]
+          tape    [(epoch 1 {:trigger-event [:setup]})  ; pre-dispatch cascade
+                   (epoch 2 {:trigger-event [:act]})]
+          ;; The one dispatch step's settle began at count 1 (after setup).
+          stamped (evidence/stamp-tape script tape [1])]
+      (is (= [nil 0] (mapv :rf.story/script-idx stamped))
+          "the setup epoch leads (nil); the dispatched epoch → step 0")))
+
+  (testing "with no boundaries the tape is returned verbatim → EVEN fallback"
+    (let [script [[:dispatch [:a]]]
+          tape   [(epoch 1 {:trigger-event [:a]})]]
+      (is (= tape (evidence/stamp-tape script tape nil))
+          "absent attribution leaves the tape unstamped")
+      (is (= tape (evidence/stamp-tape script tape []))
+          "an empty boundary vector also degrades to the raw tape")
+      (is (not (contains? (first (evidence/stamp-tape script tape nil))
+                          :rf.story/script-idx))
+          "no stamp key is added on the fallback path"))))
+
 (deftest narrative-no-dispatch-steps-leads-whole-tape
   (testing "a script with no dispatch steps puts the whole tape in a leading span"
     (let [script [[:assert-db [:k] 1] [:wait 10]]

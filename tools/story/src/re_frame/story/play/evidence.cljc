@@ -531,6 +531,74 @@
     (mapv (fn [j] (+ per-step (if (< j remainder) 1 0)))
           (range n-dispatch))))
 
+;; ---- exact stamping from runner-recorded settle boundaries ---------------
+;;
+;; This is the PRODUCER-side bridge that lights up `explicit-beats?` /
+;; `spans-from-stamps` (rf2-rkd14). The runner / replay path records, per
+;; dispatch-opening step (in executed-script order), the epoch-history
+;; LENGTH at the moment that step's settle began (`settle-boundaries`). The
+;; epoch tape is append-only during a run, so dispatch step K owns the
+;; contiguous run of records `[boundary_K, boundary_{K+1})` — and the LAST
+;; dispatch step owns through the tape end. This naturally rolls any epochs
+;; committed by intervening non-dispatch steps (an `[:assert …]` checkpoint
+;; that dispatches its `:rf.assert/*` verdict, a `:wait-until`) into the
+;; PRECEDING dispatch span, exactly the forward-attribution model the
+;; narrative documents (spec/017 §Epoch tape and narrative). Records before
+;; the first boundary (setup-phase cascades, framework bootstrap) are
+;; stamped nil → the leading span.
+;;
+;; `boundaries` is positional, NOT keyed by step index: its Nth element is
+;; the settle boundary of the Nth DISPATCH step in `script` (in order). This
+;; is what makes the mechanism runtime-agnostic — the live multi-play runner
+;; and the replay path both execute the concatenated dispatch steps in the
+;; same order the boundaries are recorded, so the zip is exact without any
+;; cross-play index arithmetic.
+
+(defn stamp-tape
+  "Stamp each `:rf/epoch-record` in `tape` with the 0-based
+  `:rf.story/script-idx` of the authored `script` step whose settle
+  produced it, using the runner-recorded `boundaries` (the epoch-history
+  length at the start of each dispatch step's settle, in dispatch-step
+  order). Pure data → data; the stamped tape is what the EXACT narrative
+  attribution (`explicit-beats?` / `spans-from-stamps`) consumes.
+
+  The stamp is a `:rf.story/*` accumulator key, so the deterministic
+  projection (`re-frame.story.fingerprint/project`) strips it before the
+  run-hash is taken — it is evidence-fidelity metadata on the narrative
+  projection, NOT a behavioural slice (rf2-rkd14 determinism guard).
+
+  Degrades gracefully: with no `boundaries` (a bare tape — replay/live
+  paths that did not record settle boundaries) the tape is returned
+  verbatim (unstamped), so `narrative` falls back to the EVEN partition
+  exactly as before. A record at or past the last boundary belongs to the
+  last dispatch step; records before the first boundary are stamped nil
+  (the leading setup span)."
+  [script tape boundaries]
+  (let [records       (vec (or tape []))
+        bounds        (vec (or boundaries []))
+        ;; The 0-based script index of each DISPATCH step, in order — the
+        ;; Nth dispatch step's authored position in `script`. `boundaries`
+        ;; is parallel to this vector.
+        dispatch-idxs (vec (keep-indexed (fn [i step] (when (dispatch-step? step) i))
+                                         (or script [])))]
+    (if (empty? bounds)
+      records
+      (mapv
+        (fn [pos record]
+          (let [;; The index into `bounds` of the LAST dispatch step whose
+                ;; settle had already begun at this record's tape position —
+                ;; i.e. the dispatch step that owns this record. A record
+                ;; before the first boundary owns to no step (leading nil).
+                owner (loop [k (dec (count bounds))]
+                        (cond
+                          (neg? k)                  nil
+                          (<= (nth bounds k) pos)    k
+                          :else                     (recur (dec k))))]
+            (assoc record :rf.story/script-idx
+                   (when (some? owner) (nth dispatch-idxs owner nil)))))
+        (range)
+        records))))
+
 (defn narrative
   "Two-level narrative projection (spec/017 §Run result, §Epoch tape and
   narrative): author `:script` steps form the outer spans; the epoch beats
@@ -544,13 +612,19 @@
 
   Attribution has two modes:
 
-  - EXACT — when every record carries a `:rf.story/script-idx` stamp (the
-    runner's per-step settle boundary), each beat lands in the span of the
-    step that produced it; unstamped / setup beats lead under a `nil`
-    span. This is the precise model the runner SHOULD feed.
-  - EVEN — absent stamps (a bare `epoch-history` tape), records are
-    partitioned across the dispatch steps by an even forward split, with
-    re-dispatch surplus front-loaded onto the earliest dispatch spans.
+  - EXACT — when every record carries a `:rf.story/script-idx` stamp, each
+    beat lands in the span of the step that produced it; unstamped / setup
+    beats lead under a `nil` span. This is the precise model the
+    PRODUCER feeds: the runner / replay path records each dispatch step's
+    settle boundary (the epoch-history length at the start of its settle),
+    and `project-evidence` stamps the tape via `stamp-tape` before handing
+    it here (rf2-rkd14). A re-dispatch step that settles to N committed
+    epochs has all N attributed to the one authored step — exactly.
+  - EVEN — absent stamps (a bare `epoch-history` tape with no recorded
+    attribution — e.g. a hand-built tape or a host that did not record
+    settle boundaries), records are partitioned across the dispatch steps
+    by an even forward split, with re-dispatch surplus front-loaded onto
+    the earliest dispatch spans. The deterministic, total fallback.
 
   Pure assertion / wait steps that commit no epoch produce empty spans
   (the step is in the narrative, with no beats). No epoch is ever dropped:
@@ -759,6 +833,15 @@
   - `:script` — the coerced script-step vector, used to build the
     two-level `:narrative` spans. Absent, the narrative is a single
     `nil`-step span over the whole tape.
+  - `:attribution` — the runner-recorded per-dispatch-step settle
+    boundaries (the epoch-history length at the start of each dispatch
+    step's settle, in dispatch-step order). When present, the
+    `:narrative` is attributed EXACTLY via these boundaries
+    (`stamp-tape` → `spans-from-stamps`); absent, the narrative falls
+    back to the EVEN forward partition (rf2-rkd14). The stamp lands ONLY
+    on the records the narrative projection consumes — the verbatim
+    `:epoch-tape` slot stays RAW — and is a `:rf.story/*` key the
+    determinism projection strips, so the run-hash is unaffected.
 
   Returned slots (all spec/017 §Run-result names):
 
@@ -786,7 +869,7 @@
   absent slot correctly refuses a reactive-count assertion the run never
   exercised."
   ([epoch-tape] (project-evidence epoch-tape nil))
-  ([epoch-tape {:keys [script] :as _opts}]
+  ([epoch-tape {:keys [script attribution] :as _opts}]
    (let [tape        (vec (or epoch-tape []))
          ;; Project the structured reactive rows ONCE: they are both the
          ;; `:sub-runs` / `:renders` slots AND the input `reactive-counts`
@@ -794,14 +877,21 @@
          ;; (one tape, one projection).
          sub-rows    (sub-runs tape)
          render-rows (renders tape)
-         rc          (reactive-counts sub-rows render-rows)]
+         rc          (reactive-counts sub-rows render-rows)
+         ;; rf2-rkd14 — when the runner / replay path recorded per-dispatch-
+         ;; step settle boundaries, stamp the tape so the narrative is
+         ;; attributed EXACTLY (`spans-from-stamps`). The stamp lives ONLY on
+         ;; the narrative's input records; the `:epoch-tape` slot below stays
+         ;; the verbatim raw tape. (`stamp-tape` returns the tape unchanged
+         ;; when `attribution` is absent → EVEN fallback.)
+         narr-tape   (stamp-tape script tape attribution)]
      (cond-> {:epoch-tape        tape
               :schema-violations (schema-violations tape)
               :warnings          (warnings tape)
               :effects           (effects tape)
               :sub-runs          sub-rows
               :renders           render-rows
-              :narrative         (narrative script tape)}
+              :narrative         (narrative script narr-tape)}
        (some? rc) (assoc :reactive-counts rc)))))
 
 ;; ===========================================================================

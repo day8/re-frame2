@@ -45,6 +45,7 @@
             [re-frame.story.play        :as play]
             [re-frame.story.play.browser :as browser]
             [re-frame.story.play.dom    :as dom]
+            [re-frame.story.play.evidence :as evidence]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.predicates  :as pred]
@@ -86,10 +87,53 @@
   #?(:cljs (r/atom {})
      :clj  (atom  {})))
 
+(defonce
+  ^{:doc "frame-id → vector of per-dispatch-step settle boundaries
+         (rf2-rkd14). Each element is the epoch-history LENGTH at the
+         moment a dispatch-opening step's settle began, recorded in
+         dispatch-step execution order. The evidence projection
+         (`runtime/record-result-map`) reads this through
+         `settle-boundaries` and hands it to
+         `evidence/project-evidence` as `:attribution`, lighting up the
+         EXACT narrative attribution (`spans-from-stamps`) instead of the
+         EVEN heuristic. Plain atom on both runtimes — it is read once at
+         result-build time, not a reactive UI input."}
+  step-boundaries
+  (atom {}))
+
 (defn current-state
   "Read the current run-state for `frame-id`, or nil if no run exists."
   [frame-id]
   (get @run-state frame-id))
+
+(defn settle-boundaries
+  "Read the recorded per-dispatch-step settle boundaries for `frame-id`,
+  or nil. rf2-rkd14 — the runner-recorded narrative attribution the
+  evidence projection consumes to stamp `:rf.story/script-idx`."
+  [frame-id]
+  (get @step-boundaries frame-id))
+
+(defn- epoch-count
+  "The current epoch-history length for `frame-id` (the append-only tape
+  cursor the settle boundary snapshots). Tolerant — 0 when the frame has
+  no history / the epoch dep is absent (the facade degrades to `[]`)."
+  [frame-id]
+  (try (count (rf/epoch-history frame-id))
+       (catch #?(:clj Throwable :cljs :default) _ 0)))
+
+(defn- record-settle-boundary!
+  "Snapshot the epoch-history length at the START of a dispatch-opening
+  `step`'s settle (rf2-rkd14). No-op for non-dispatch steps (assert / wait
+  / unknown) — those commit no span of their own; their epochs roll into
+  the preceding dispatch span (the narrative's forward-attribution model).
+  The boundaries accumulate in dispatch-step execution order, which — for
+  both the single-play and multi-play (sequential) runner — is exactly the
+  order the dispatch steps appear in the concatenated executed-script the
+  narrative spans."
+  [frame-id step]
+  (when (evidence/dispatch-step? step)
+    (swap! step-boundaries update frame-id (fnil conj []) (epoch-count frame-id)))
+  nil)
 
 (defn current-state-for-play
   "Read the run-state for `(frame-id, play-key)`, or nil. rf2-tl7zk:
@@ -111,6 +155,14 @@
   (swap! active-play assoc frame-id play-key)
   nil)
 
+(defn clear-step-boundaries!
+  "Reset the per-dispatch-step settle boundaries for `frame-id` (rf2-rkd14).
+  Called at the START of a fresh script run so the narrative attribution
+  windows onto THIS run's epoch tape, not a previous run's boundaries."
+  [frame-id]
+  (swap! step-boundaries dissoc frame-id)
+  nil)
+
 (defn clear-state!
   "Wipe the run-state for `frame-id`. Called from frame teardown +
   before each fresh run."
@@ -120,6 +172,7 @@
                         (into {} (remove (fn [[[fid _]]]
                                            (= fid frame-id)) m))))
   (swap! active-play dissoc frame-id)
+  (swap! step-boundaries dissoc frame-id)
   nil)
 
 (defn clear-all-runs!
@@ -129,9 +182,10 @@
   doesn't observe a previous test's play outcomes; `clear-state!` is
   the per-frame counterpart called from teardown."
   []
-  (reset! run-state    {})
-  (reset! runs-by-play {})
-  (reset! active-play  {})
+  (reset! run-state      {})
+  (reset! runs-by-play   {})
+  (reset! active-play    {})
+  (reset! step-boundaries {})
   nil)
 
 (defn- update-state!
@@ -988,6 +1042,7 @@
   `play.cljc` via the `:run-play-step` late-bind hook to avoid the
   play ↔ runner-events require cycle."
   [frame-id idx step]
+  (record-settle-boundary! frame-id step)
   (let [result (try
                  (exec-step! frame-id idx step)
                  (catch #?(:clj Throwable :cljs :default) e
@@ -1098,7 +1153,8 @@
             (schedule! (or ms 0) #(run-loop! frame-id play-key token done-cb)))
 
           :else
-          (let [result (try
+          (let [_      (record-settle-boundary! frame-id step)
+                result (try
                          (exec-step! frame-id idx step)
                          (catch #?(:clj Throwable :cljs :default) e
                            (runner/step-exception idx step

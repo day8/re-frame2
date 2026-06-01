@@ -689,10 +689,17 @@
   green while the tape is red, and the verdict is computed from the
   PROJECTED evidence, not a sibling accumulator."
   [{:keys [epoch-tape assertions script check->atoms consumed-selectors
-           schema-expectations causal-expectations unmet app-db]
+           schema-expectations causal-expectations unmet app-db attribution]
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
-        evidence-slots (evidence/project-evidence tape {:script script})
+        ;; rf2-rkd14 — `:attribution` (the runner / replay-recorded
+        ;; per-dispatch-step settle boundaries) lights up EXACT narrative
+        ;; attribution. Absent → EVEN fallback, unchanged. The stamp rides
+        ;; only the narrative projection; the `:epoch-tape` slot stays raw
+        ;; and the stamp is a `:rf.story/*` key the determinism projection
+        ;; strips, so the run-hash is unaffected.
+        evidence-slots (evidence/project-evidence
+                         tape {:script script :attribution attribution})
         ;; The tape is projected ONCE (`project-evidence` above); the
         ;; schema-violation + effect vectors it already produced are threaded
         ;; into the schema match and the agreement floor below rather than
