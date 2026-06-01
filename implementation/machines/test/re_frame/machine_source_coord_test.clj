@@ -42,6 +42,7 @@
   full path-tuple surface."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -289,3 +290,100 @@
     (is (= {:initial :a :states {:a {}}}
            (rf/machine-meta :rf2-8bp3/plain))
         "spec round-trips verbatim")))
+
+;; ---- defmachine: value-registered per-element source capture (rf2-gwj8l) --
+;;
+;; The common app shape is `(def m {…}) … (reg-machine :id m)`. `reg-machine`
+;; sees only the `m` symbol at its call site, so its literal-walk captures
+;; nothing (proven by `reg-machine-skips-stamping-for-non-literal-spec` above).
+;; `defmachine` walks the literal AT THE DEFINITION SITE and stamps the
+;; per-element source onto the def'd VALUE, so it travels into `reg-machine`
+;; and the `:machine-guard` / `:machine-action` registrar handler-metas (the
+;; Epoch machine-cascade source surface) light up for value-registered
+;; machines exactly as for inline ones.
+
+;; The value-registered door-machine shape (mirrors machine_epochs/core.cljs).
+(rf/defmachine value-door-machine
+  {:initial :locked
+   :data    {:opened-count 0 :held-open? false}
+   :guards  {:may-close? (fn guard-may-close? [{data :data}] (not (:held-open? data)))}
+   :actions {:count-open (fn action-count-open [{data :data}] {:data (update data :opened-count (fnil inc 0))})
+             :clear-hold (fn action-clear-hold [{data :data}] {:data (assoc data :held-open? false)})}
+   :states  {:locked {:on {:door/insert-coin :closed}}
+             :closed {:exit :clear-hold :on {:door/push :open}}
+             :open   {:entry :count-open :on {:door/close {:target :closed :guard :may-close?}}}}})
+
+;; A plain `(def …)` of the SAME spec — the foil that carries NO source.
+(def plain-door-machine
+  {:initial :locked
+   :data    {:opened-count 0 :held-open? false}
+   :guards  {:may-close? (fn guard-may-close? [{data :data}] (not (:held-open? data)))}
+   :actions {:count-open (fn action-count-open [{data :data}] {:data (update data :opened-count (fnil inc 0))})
+             :clear-hold (fn action-clear-hold [{data :data}] {:data (assoc data :held-open? false)})}
+   :states  {:locked {:on {:door/insert-coin :closed}}
+             :closed {:exit :clear-hold :on {:door/push :open}}
+             :open   {:entry :count-open :on {:door/close {:target :closed :guard :may-close?}}}}})
+
+(deftest plain-def-value-registered-has-no-per-element-source
+  (testing "a plain (def m …) + (reg-machine :id m): the macro sees only the
+  symbol, so :rf.machine/source-coords + :rf.machine/handler-source are ABSENT
+  and the :machine-guard / :machine-action handler-metas are nil — the
+  rf2-gwj8l bug shape (the foil for defmachine below)"
+    (rf/reg-machine :rf2-gwj8l/plain-door plain-door-machine)
+    (let [meta (rf/machine-meta :rf2-gwj8l/plain-door)]
+      (is (not (contains? meta :rf.machine/source-coords)))
+      (is (not (contains? meta :rf.machine/handler-source)))
+      (is (nil? (rf/handler-meta :machine-action [:rf2-gwj8l/plain-door :clear-hold])))
+      (is (nil? (rf/handler-meta :machine-guard [:rf2-gwj8l/plain-door :may-close?]))))))
+
+(deftest defmachine-value-registered-carries-per-element-source
+  (testing "a (defmachine m …) + (reg-machine :id m): the definition-site
+  walk stamps :rf.machine/source-coords (keyed [:guards id] / [:actions id])
+  and :rf.machine/handler-source onto the def'd value, so source travels into
+  reg-machine and the :machine-guard / :machine-action handler-metas carry
+  :rf.handler/source + coords — exactly what the Epoch machine-cascade reads
+  (cascade-row-coord / cascade-row-source-form). rf2-gwj8l."
+    (rf/reg-machine :rf2-gwj8l/value-door value-door-machine)
+    (let [meta (rf/machine-meta :rf2-gwj8l/value-door)
+          idx  (:rf.machine/source-coords meta)
+          src  (:rf.machine/handler-source meta)]
+      ;; Stamps present on the spec.
+      (is (contains? meta :rf.machine/source-coords)
+          "value-registered defmachine carries :rf.machine/source-coords")
+      (is (contains? meta :rf.machine/handler-source)
+          "value-registered defmachine carries :rf.machine/handler-source")
+      ;; Per-element coords keyed by [:guards id] / [:actions id].
+      (is (some? (get idx [:guards :may-close?])))
+      (is (some? (get idx [:actions :count-open])))
+      (is (some? (get idx [:actions :clear-hold])))
+      (let [c (get idx [:actions :clear-hold])]
+        (is (= 're-frame.machine-source-coord-test (:ns c)))
+        (is (integer? (:line c))))
+      ;; Per-id fn-form source strings.
+      (is (string? (get-in src [:guards :may-close?])))
+      (is (string? (get-in src [:actions :count-open])))
+      (is (string? (get-in src [:actions :clear-hold])))
+      ;; Registrar handler-metas — the Epoch machine-cascade source surface.
+      (let [exit-meta  (rf/handler-meta :machine-action [:rf2-gwj8l/value-door :clear-hold])
+            entry-meta (rf/handler-meta :machine-action [:rf2-gwj8l/value-door :count-open])
+            guard-meta (rf/handler-meta :machine-guard  [:rf2-gwj8l/value-door :may-close?])]
+        (is (some? exit-meta)  ":clear-hold (exit) handler-meta present")
+        (is (some? entry-meta) ":count-open (entry) handler-meta present")
+        (is (some? guard-meta) ":may-close? (guard) handler-meta present")
+        (is (string? (:rf.handler/source exit-meta))
+            "exit action handler-meta carries the fn source")
+        (is (= :clear-hold (:rf/action-id exit-meta)))
+        (is (= :may-close? (:rf/guard-id guard-meta)))
+        (is (some? (:line guard-meta)) "guard handler-meta carries source coords")))))
+
+(deftest defmachine-accepts-optional-docstring
+  (testing "defmachine accepts an optional leading docstring like def, riding
+  it onto the def'd var's metadata, and still stamps source on the value"
+    (rf/defmachine documented-machine
+      "A documented machine."
+      {:initial :a
+       :guards  {:g? (fn [_] true)}
+       :states  {:a {}}})
+    (is (= "A documented machine." (:doc (meta #'documented-machine))))
+    (is (contains? documented-machine :rf.machine/handler-source))
+    (is (string? (get-in documented-machine [:rf.machine/handler-source :guards :g?])))))

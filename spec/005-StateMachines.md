@@ -688,6 +688,7 @@ Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Regi
 
 - `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and stamps a per-element source-coord index onto the spec's `:rf.machine/source-coords` key (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
 - `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (make-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
+- `(rf/defmachine name [doc] spec)` — **macro** (`def`-shape). Defines a Var holding the spec value with per-element source stamped at the definition site, for the `def`-then-register shape `(defmachine m {…})` / `(reg-machine :id m)`. Does not register. See [§Value-registered machines](#value-registered-machines--defmachine).
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
@@ -708,10 +709,11 @@ The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn
 
 | Form | Shape | Source-coord stamping | Use case |
 |---|---|---|---|
-| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot, AND per-element coord index walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)) | Standard form. The literal-spec contract enables the macro to walk and stamp at expansion time. |
+| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes when `machine-spec` is an inline literal — call-site coords on the registry slot, AND per-element coord index walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)). When `machine-spec` is a symbol / non-literal, only the call-site coords are stamped (per-element source comes from `defmachine` instead). | Standard form. Inline literal → full capture; value-registered (symbol) → pair with `defmachine` ([§Value-registered machines](#value-registered-machines--defmachine)). |
 | `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the call-site predates the registration; the spec is opaque data | Code-gen pipelines that produce specs at runtime, REPL exploration, conformance harnesses that synthesise machines from EDN fixtures. |
+| `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and stamps the per-element source-coord index + per-id fn-form source onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
 
-The macro lives at the `re-frame.core` boundary; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is exposed publicly under `re-frame.core/reg-machine*` for both JVM and CLJS programmatic callers. The macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
+The `reg-machine` / `defmachine` macros live at the `re-frame.core` boundary; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is exposed publicly under `re-frame.core/reg-machine*` for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
 
 ### Source-coord stamping
 
@@ -781,6 +783,40 @@ Clojure's `LispReader` only attaches `:line` / `:column` metadata to *list* form
 #### Programmatic registration
 
 `reg-machine*` (the plain-fn surface) and any `reg-machine` macro call where the spec arg is a non-literal (a symbol, a let-bound expression) skip the per-element walk: there's no literal tree to walk at expansion time. The registered spec carries no `:rf.machine/source-coords` key in those cases — tools fall back to the call-site coords on `handler-meta`.
+
+#### Value-registered machines — `defmachine`
+
+The common app shape defines the spec as a top-level value and registers it by symbol:
+
+```clojure
+(def door-machine {:initial :locked :guards {…} :actions {…} :states {…}})
+(rf/reg-machine :door/main door-machine)
+```
+
+Here the `reg-machine` macro sees only the symbol `door-machine` at its call site — **not** the inline literal — so the per-element walk above captures nothing and the registered spec carries no `:rf.machine/source-coords` / `:rf.machine/handler-source`. The fix is `defmachine`, a `def`-replacement that walks the literal **at the definition site** and stamps the source onto the def'd value, so it travels into `reg-machine` with the value:
+
+```clojure
+(rf/defmachine door-machine
+  "Optional docstring."
+  {:initial :locked
+   :guards  {:may-close? (fn [_] …)}
+   :actions {:count-open (fn [_] …)
+             :clear-hold (fn [_] …)}
+   :states  {…}})
+
+(rf/reg-machine :door/main door-machine)
+;; (:rf.machine/source-coords (rf/machine-meta :door/main)) is now populated,
+;; and (rf/handler-meta :machine-action [:door/main :clear-hold]) carries the fn source.
+```
+
+Normative rules:
+
+- **`defmachine` performs exactly the same literal-spec walk as the inline `reg-machine` macro** — the same `:rf.machine/source-coords` path-tuple index ([§What gets stamped](#what-gets-stamped)) and the same `:rf.machine/handler-source` per-id fn-form source-string map — but `assoc`s them onto the def'd **value** rather than at a registration call site. Both stamps ride the same `interop/debug-enabled?` gate and DCE identically under `:advanced` + `goog.DEBUG=false`.
+- **`defmachine` is a drop-in for `def`**: `(defmachine name spec)` or `(defmachine name "doc" spec)`. It introduces a Var holding the (source-stamped) spec map. The optional docstring rides onto the Var's metadata.
+- **`defmachine` does NOT register the machine** — it only defines the stamped value. A subsequent `(reg-machine id name)` performs the registration; because the value already carries source, `reg-machine` (even seeing only the symbol) registers a spec that the runtime reads source off, writing the `:machine-guard` / `:machine-action` registrar handler-metas exactly as for an inline-registered machine.
+- **Use `defmachine` for the `def`-then-register shape; use the `reg-machine` macro directly for inline-literal registration.** Both yield identical per-element source; the choice is purely whether the spec value is named.
+
+Without `defmachine`, the Epoch machine-cascade (and any tool reading `cascade-row-coord` / `cascade-row-source-form`) has no per-element source to render for value-registered machines, even though the inline-registered case works — this is the gap `defmachine` closes.
 
 ## Design rule — data DSLs vs functions
 

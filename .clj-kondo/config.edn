@@ -64,6 +64,7 @@
              re-frame.core/reg-head
              re-frame.core/reg-http-interceptor
              re-frame.core/reg-machine
+             re-frame.core/defmachine
              re-frame.core/reg-view
              re-frame.story/reg-story
              re-frame.story/reg-variant
@@ -100,6 +101,13 @@
   re-frame.core/reg-head            clojure.core/do
   re-frame.core/reg-http-interceptor clojure.core/do
   re-frame.core/reg-machine         clojure.core/do
+
+  ;; `defmachine` (rf2-gwj8l) is `(defmachine name [doc] spec)` — a
+  ;; `def`-shaped wrapper that introduces a Var holding the (source-
+  ;; stamped) machine-spec value. Unlike the `reg-*` family it really IS
+  ;; a top-level def, so it lints-as `clojure.core/def` (name resolved as
+  ;; a Var, optional docstring + body expression analysed).
+  re-frame.core/defmachine          clojure.core/def
 
   ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
   ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
