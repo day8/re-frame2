@@ -119,7 +119,15 @@
                           (:fragment route-slice))
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
-(defn capture-scroll-fx-entry [db]
+(defn capture-scroll-fx-entry
+  "Build the `[:rf.nav/capture-scroll {:url ...}]` fx entry that saves
+  the scroll position of the route the user is LEAVING, keyed by that
+  route's reconstructed URL. Returns nil when the current slice has no
+  reconstructable URL (no active route, or `route-url` throws — e.g. the
+  route was unregistered mid-session), so navigation never fails on a
+  capture miss. Emitted by both nav entry points before the transition
+  commits so a later `:restore` to this URL finds the saved position."
+  [db]
   (when-let [url (current-route-url (get-in db [:rf/runtime :routing :current]))]
     [:rf.nav/capture-scroll {:url url}]))
 
