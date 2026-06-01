@@ -82,7 +82,8 @@
   Legacy untagged values (a runtime that hasn't been re-preloaded, or a
   tool that doesn't wrap) flow through `envelope->result` unchanged via
   the fall-through arm — the codec is additive, never a hard cutover."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]))
+  (:require [clojure.string :as str]
+            [re-frame.mcp-base.vocab :as base-vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire vocabulary.
@@ -99,6 +100,54 @@
   wire as `:preview`. Long enough to identify the shape, short enough to
   stay well under the token cap on its own."
   240)
+
+;; ---------------------------------------------------------------------------
+;; REPL-special pass-through (rf2-cum40 CI repair).
+;;
+;; shadow-cljs's `cljs-eval` compiles a handful of forms as REPL SPECIALS
+;; — `require`, `require-macros`, `import`, `use`, `ns`, `in-ns`, `refer`,
+;; `refer-clojure`, `load`, `load-file`, `load-namespace`. These only get
+;; their special handling (e.g. `require`'s async module-load machinery)
+;; at the TOP LEVEL of the eval'd form. The moment one is buried inside an
+;; expression context — `(try (let [...] (do (require ...))))`, exactly
+;; what `wrap-form` builds — shadow emits a top-level `;`-terminated
+;; statement into an expression slot and the browser REPL throws
+;; `SyntaxError: Unexpected token ';'` → `:repl/exception!`. The require's
+;; module never loads, and a follow-on form referencing the namespace dies
+;; with `Cannot read properties of undefined`. (Surfaced by the
+;; live-redaction conformance gate, whose seed `(require 're-frame.epoch)`
+;; broke the moment the typed codec actually executed.)
+;;
+;; The codec can't classify a module-load side effect anyway — `require`
+;; returns nil — so wrapping buys nothing here. `wrap-form` detects a
+;; leading REPL-special and returns the form VERBATIM so shadow gives it
+;; the top-level handling it needs; the untagged nil result then flows
+;; through `envelope->result`'s legacy passthrough arm as `(on-value nil)`,
+;; i.e. `:ok? true :value nil` — the correct shape for a require.
+;; ---------------------------------------------------------------------------
+
+(def ^:private repl-special-heads
+  "Leading symbols shadow-cljs treats as REPL specials needing top-level
+  compilation. Wrapping any of these breaks them (see the comment above)."
+  #{"require" "require-macros" "import" "use" "ns" "in-ns"
+    "refer" "refer-clojure" "load" "load-file" "load-namespace"})
+
+(defn repl-special?
+  "True when `form-str` is a top-level call to a shadow REPL-special op
+  that must NOT be wrapped (rf2-cum40). Cheap textual probe: strip leading
+  whitespace + a single opening paren, then read the first token. A
+  `(require ...)` / `(ns ...)` / etc. matches; `(+ 1 2)`, `(require-foo)`
+  (not an exact match), and a bare value do not. Quote-prefixed forms
+  (`'(require ...)`) are data, not a special invocation, and correctly do
+  NOT match."
+  [form-str]
+  (when (string? form-str)
+    (let [t (str/triml form-str)]
+      (when (str/starts-with? t "(")
+        (let [after (str/triml (subs t 1))
+              ;; first whitespace- or paren- or close-delimited token
+              head  (re-find #"^[^\s()\[\]{}]+" after)]
+          (boolean (contains? repl-special-heads head)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Runtime-side wrap — classify the eval result into a tagged envelope.
@@ -132,9 +181,17 @@
 
   The whole wrap is itself wrapped in an outer `try` so a failure in the
   classification machinery degrades to an `:eval-error` envelope rather
-  than throwing on the wire."
+  than throwing on the wire.
+
+  REPL-special forms (`require` / `ns` / `import` / …) are returned
+  VERBATIM (rf2-cum40) — shadow only honours their special compilation at
+  the top level, and burying them in the wrapper's expression context
+  breaks them (`SyntaxError: Unexpected token ';'`). Their untagged result
+  flows through `envelope->result`'s legacy passthrough."
   [form-str]
-  (str
+  (if (repl-special? form-str)
+    form-str
+    (str
     "(try"
     "  (let [result# (try {:rf2pair/ok (do " form-str ")}"
     "                     (catch :default e# {:rf2pair/threw e#}))]"
@@ -167,7 +224,7 @@
     "  (catch :default e#"
     "    {" (pr-str result-key) " :eval-error"
     "     :reason :rf.error/result-envelope-wrap-failed"
-    "     :ex (cljs.core/pr-str e#)}))"))
+    "     :ex (cljs.core/pr-str e#)}))")))
 
 ;; ---------------------------------------------------------------------------
 ;; Server-side projection — tagged envelope → tool result.
