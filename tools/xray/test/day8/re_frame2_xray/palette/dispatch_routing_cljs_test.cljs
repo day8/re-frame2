@@ -130,7 +130,7 @@
   "Poll until `pred` of `:rf/xray`'s app-db returns truthy."
   [pred label]
   (test-support/poll-until
-    #(pred (rf/get-frame-db :rf/xray))
+    #(pred (rf/frame-db :rf/xray))
     {:label label :timeout-ms 1000}))
 
 (defn- render-open-palette []
@@ -151,15 +151,15 @@
           handler  (on-click backdrop)]
       (is (some? handler) "backdrop exposes an :on-click handler")
       ;; Pre-condition — palette is open on :rf/xray.
-      (is (true? (boolean (:palette-open? (rf/get-frame-db :rf/xray)))))
+      (is (true? (boolean (:palette-open? (rf/frame-db :rf/xray)))))
       (handler (fake-event))
       (async done
         (-> (await-xray-db #(false? (boolean (:palette-open? %)))
                             "palette-open? flips false after backdrop click")
             (.then (fn [_]
-                     (is (false? (boolean (:palette-open? (rf/get-frame-db :rf/xray))))
+                     (is (false? (boolean (:palette-open? (rf/frame-db :rf/xray))))
                          ":rf/xray's :palette-open? flips to false")
-                     (is (nil? (:palette-open? (rf/get-frame-db :rf/default)))
+                     (is (nil? (:palette-open? (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by the dispatch")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -177,9 +177,9 @@
         (-> (await-xray-db #(false? (boolean (:palette-open? %)))
                             "palette-open? flips false after Esc")
             (.then (fn [_]
-                     (is (false? (boolean (:palette-open? (rf/get-frame-db :rf/xray))))
+                     (is (false? (boolean (:palette-open? (rf/frame-db :rf/xray))))
                          ":rf/xray's :palette-open? flips to false")
-                     (is (nil? (:palette-open? (rf/get-frame-db :rf/default)))
+                     (is (nil? (:palette-open? (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by Esc dispatch")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -195,15 +195,15 @@
           handler  (on-key-down input)]
       (is (some? handler) "input exposes an :on-key-down handler")
       ;; Pre-condition — cursor at 0.
-      (is (= 0 (:palette-cursor (rf/get-frame-db :rf/xray))))
+      (is (= 0 (:palette-cursor (rf/frame-db :rf/xray))))
       (handler (fake-key-event "ArrowDown"))
       (async done
         (-> (await-xray-db #(pos? (or (:palette-cursor %) 0))
                             "palette-cursor advances past 0 after ArrowDown")
             (.then (fn [_]
-                     (is (pos? (or (:palette-cursor (rf/get-frame-db :rf/xray)) 0))
+                     (is (pos? (or (:palette-cursor (rf/frame-db :rf/xray)) 0))
                          ":rf/xray's :palette-cursor advances after ArrowDown")
-                     (is (nil? (:palette-cursor (rf/get-frame-db :rf/default)))
+                     (is (nil? (:palette-cursor (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by the cursor dispatch")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -218,15 +218,15 @@
           rendered (rf/with-frame :rf/xray (palette/Modal))
           input    (find-by-testid rendered "rf-xray-palette-input")
           handler  (on-key-down input)]
-      (is (= 2 (:palette-cursor (rf/get-frame-db :rf/xray))))
+      (is (= 2 (:palette-cursor (rf/frame-db :rf/xray))))
       (handler (fake-key-event "ArrowUp"))
       (async done
         (-> (await-xray-db #(< (or (:palette-cursor %) 0) 2)
                             "palette-cursor decrements after ArrowUp")
             (.then (fn [_]
-                     (is (< (or (:palette-cursor (rf/get-frame-db :rf/xray)) 0) 2)
+                     (is (< (or (:palette-cursor (rf/frame-db :rf/xray)) 0) 2)
                          ":rf/xray's :palette-cursor decrements after ArrowUp")
-                     (is (nil? (:palette-cursor (rf/get-frame-db :rf/default)))
+                     (is (nil? (:palette-cursor (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by ArrowUp")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -246,9 +246,9 @@
         (-> (await-xray-db #(= "search" (:palette-query %))
                             "palette-query flips to 'search' after on-change")
             (.then (fn [_]
-                     (is (= "search" (:palette-query (rf/get-frame-db :rf/xray)))
+                     (is (= "search" (:palette-query (rf/frame-db :rf/xray)))
                          ":rf/xray's :palette-query reflects the typed text")
-                     (is (nil? (:palette-query (rf/get-frame-db :rf/default)))
+                     (is (nil? (:palette-query (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by typing")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))

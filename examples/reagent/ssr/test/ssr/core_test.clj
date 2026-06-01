@@ -41,7 +41,7 @@
                         :platform     :server
                         :on-create    [:rf/server-init]
                         :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
-        final-db     (rf/get-frame-db f)
+        final-db     (rf/frame-db f)
         ;; The root view's body invokes the articles-page render fn,
         ;; which calls (rf/subscribe-once [:articles]). Both run
         ;; INSIDE render-to-string's tree walk; with-frame binds

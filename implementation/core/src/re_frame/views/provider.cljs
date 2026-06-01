@@ -84,7 +84,7 @@
 (defn frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
   children in the shared frame Context Provider — inside the subtree,
-  `(rf/dispatcher)` / `(rf/subscriber)` / `reg-view`-registered
+  `(rf/frame-handle)` / `reg-view`-registered
   descendants resolve to the named frame. Per Spec 002 §What
   `frame-provider` is.
 

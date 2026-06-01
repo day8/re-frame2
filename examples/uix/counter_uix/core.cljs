@@ -44,7 +44,7 @@
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
        ($ :span {:style #js {:margin "0 1em"} :data-testid "counter-value"} count)

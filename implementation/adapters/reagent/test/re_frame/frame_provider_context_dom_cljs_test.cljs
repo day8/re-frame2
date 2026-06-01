@@ -6,7 +6,7 @@
   subscribe / dispatch call site is
 
     1. `re-frame.frame/*current-frame*` (dynamic var; set by `with-frame`
-       / `bound-fn`)
+       / `frame-bound-fn`)
     2. closest enclosing `frame-provider` via React context
     3. `:rf/default`
 
@@ -128,7 +128,7 @@
             resolved-value (atom nil)]
         (rf/reg-view* :rf.22ds-1/probe
                       (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-frame (rf/current-frame-id))
                         (reset! resolved-value @(rf/subscribe [:scenario-1/v]))
                         [:div "probe"]))
         (let [render-fn  (rf/view :rf.22ds-1/probe)
@@ -172,7 +172,7 @@
             resolved-value (atom nil)]
         (rf/reg-view* :rf.22ds-2/probe
                       (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-frame (rf/current-frame-id))
                         (reset! resolved-value @(rf/subscribe [:scenario-2/n]))
                         [:div "default"]))
         (let [render-fn  (rf/view :rf.22ds-2/probe)
@@ -363,9 +363,9 @@
             (fn []
               (rdc/render root [rf/frame-provider {:frame target}
                                 [render-fn]])))
-          (is (= :here (:stamped (rf/get-frame-db target)))
+          (is (= :here (:stamped (rf/frame-db target)))
               "the wrapped frame's app-db carries the stamp — dispatch routed there")
-          (is (not= :here (:stamped (rf/get-frame-db :rf/default)))
+          (is (not= :here (:stamped (rf/frame-db :rf/default)))
               ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
@@ -410,7 +410,7 @@
         (rf/reg-view* :rf.22ds-6/probe
                       (fn []
                         (swap! invocation-count inc)
-                        (swap! observed-frames conj (rf/current-frame))
+                        (swap! observed-frames conj (rf/current-frame-id))
                         (swap! observed-values conj @(rf/subscribe [:scenario-6/s]))
                         [:div "strict"]))
         (let [render-fn  (rf/view :rf.22ds-6/probe)
@@ -504,7 +504,7 @@
               observed-values (atom [])
               _ (rf/reg-view* :rf.22ds-7/probe
                               (fn []
-                                (swap! observed-frames conj (rf/current-frame))
+                                (swap! observed-frames conj (rf/current-frame-id))
                                 (swap! observed-values conj @(rf/subscribe [:scenario-7/n]))
                                 [:div "concurrent"]))
               render-fn  (rf/view :rf.22ds-7/probe)
@@ -581,7 +581,7 @@
 ;;
 ;; This test pins the namespace-preservation contract end-to-end:
 ;; mount a frame-provider with a namespaced frame-id, render a
-;; reg-view'd probe under it, and assert that `(rf/current-frame)`
+;; reg-view'd probe under it, and assert that `(rf/current-frame-id)`
 ;; from inside the probe returns the FULL namespaced keyword.
 
 (deftest namespaced-frame-id-survives-react-context-round-trip
@@ -602,7 +602,7 @@
             observed-value (atom nil)]
         (rf/reg-view* :rf-22ds-ns/probe
                       (fn []
-                        (reset! observed-frame (rf/current-frame))
+                        (reset! observed-frame (rf/current-frame-id))
                         (reset! observed-value @(rf/subscribe [:rf-22ds-ns/tag]))
                         [:div "probe"]))
         (let [render-fn  (rf/view :rf-22ds-ns/probe)

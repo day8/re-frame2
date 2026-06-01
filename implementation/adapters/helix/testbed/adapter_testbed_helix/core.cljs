@@ -30,7 +30,7 @@
 
 (defnc root []
   (let [n        (helix-adapter/use-subscribe [:counter/value])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     (d/div
       (d/h1 {:data-testid "rf-adapter-testbed-helix"}
             "Helix adapter testbed")

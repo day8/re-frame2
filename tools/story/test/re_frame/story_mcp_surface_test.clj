@@ -193,17 +193,17 @@
     ;; Allocate the variant frame so the dispatch has somewhere to land.
     (story-async/deref-blocking
       (story/run-variant :story.mcp.dispatch/probe) 5000)
-    (is (some? (rf/get-frame-db :story.mcp.dispatch/probe))
+    (is (some? (rf/frame-db :story.mcp.dispatch/probe))
         "frame was allocated by run-variant")
     ;; The MCP dispatch tool's underlying call.
     (rf/dispatch-sync [:mcp.dispatch/set "hello"]
                       {:frame :story.mcp.dispatch/probe})
-    (let [db (rf/get-frame-db :story.mcp.dispatch/probe)]
+    (let [db (rf/frame-db :story.mcp.dispatch/probe)]
       (is (= "hello" (:payload db))
           "the dispatch landed on the variant's frame — not the default frame"))
     ;; The default frame must NOT have received the dispatch — proves
     ;; the {:frame ...} routing actually scoped the write.
-    (let [default-db (rf/get-frame-db :rf/default)]
+    (let [default-db (rf/frame-db :rf/default)]
       (is (not= "hello" (:payload default-db))
           "default frame is uncontaminated — :frame routing isolates"))))
 
@@ -219,7 +219,7 @@
     (doseq [v ["a" "b" "c"]]
       (rf/dispatch-sync [:mcp.dispatch/push v]
                         {:frame :story.mcp.dispatch.seq/probe}))
-    (let [db (rf/get-frame-db :story.mcp.dispatch.seq/probe)]
+    (let [db (rf/frame-db :story.mcp.dispatch.seq/probe)]
       (is (= ["a" "b" "c"] (:log db))
           "three dispatches in order — frame's app-db carries all three"))))
 

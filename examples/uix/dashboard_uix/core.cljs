@@ -201,7 +201,7 @@
 
 (defui filter-chips []
   (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
-        dispatch    (rf/dispatcher)]
+        dispatch    (:dispatch (rf/frame-handle))]
     ($ :div.dash-chips
        (for [{:keys [id label]} all-tags]
          ($ :button {:key id
@@ -213,7 +213,7 @@
 
 (defui range-picker []
   (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
-        dispatch        (rf/dispatcher)]
+        dispatch        (:dispatch (rf/frame-handle))]
     ($ :div.dash-chips
        (for [{:keys [id label]} ranges]
          ($ :button {:key id

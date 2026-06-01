@@ -259,7 +259,7 @@
   app-db. Used by `run-variant`'s result-map builder + by the public
   `passing?` predicate."
   [frame-id]
-  (or (:rf.story/assertions (rf/get-frame-db frame-id)) []))
+  (or (:rf.story/assertions (rf/frame-db frame-id)) []))
 
 (defn passing?
   "Per IMPL-SPEC §3.5 + Phase-2 §5.1 #9: true iff every entry in

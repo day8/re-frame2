@@ -46,7 +46,7 @@
   per runner-events convention)."
   [frame-id]
   (try
-    (rf/get-frame-db frame-id)
+    (rf/frame-db frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 ;; ---------------------------------------------------------------------------

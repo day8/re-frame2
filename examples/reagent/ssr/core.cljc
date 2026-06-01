@@ -162,7 +162,7 @@
 ;; callers below use match the registrations.
 ;;
 ;; Server-side (JVM) the auto-injected `subscribe` in `reg-view` is a
-;; macro-time concept that resolves to (rf/subscriber) — a frame-bound
+;; macro-time concept that resolves to (:subscribe (rf/frame-handle)) — a frame-bound
 ;; subscribe fn — at runtime. On the JVM render path, deref of a
 ;; subscription yields its current value; on the client, deref tracks
 ;; the reaction so re-renders fire on app-db changes. Same code, both
@@ -211,7 +211,7 @@
                   :platform  :server
                   :on-create [:rf/server-init]})]
        (rf/with-frame f
-         (let [final-db (rf/get-frame-db f)
+         (let [final-db (rf/frame-db f)
                hiccup   ((rf/view :app/root))
                  ;; render-to-string with :emit-hash? embeds
                  ;; data-rf-render-hash="<hex>" on the root element. The

@@ -537,7 +537,7 @@
 ;;                         (deftest something
 ;;                           (async done
 ;;                             (-> (test-support/poll-until
-;;                                   #(some? (rf/get-frame-db :rf/default)))
+;;                                   #(some? (rf/frame-db :rf/default)))
 ;;                                 (.then (fn [db] (is (...)) (done)))
 ;;                                 (.catch (fn [e] (is false (.-message e))
 ;;                                                 (done))))))
@@ -619,7 +619,7 @@
          (deftest drains
            (async done
              (-> (test-support/poll-until
-                   #(= 3 (:n (rf/get-frame-db :rf/default)))
+                   #(= 3 (:n (rf/frame-db :rf/default)))
                    {:label \"counter reached 3\"})
                  (.then (fn [_] (is (= 3 ...)) (done)))
                  (.catch (fn [e] (is false (.-message e)) (done))))))"
@@ -662,7 +662,7 @@
 ;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
 ;; `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`
 ;; — mirrors how `re-frame.core`'s call-site macros (`with-frame`,
-;; `bound-fn`, …) ship.
+;; `frame-bound-fn`, …) ship.
 
 #?(:clj
    (defmacro with-trace-recorder!

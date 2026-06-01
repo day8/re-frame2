@@ -82,7 +82,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (is (true? (boolean (:settings-open?
-                       (rf/get-frame-db :rf/xray))))
+                       (rf/frame-db :rf/xray))))
       "modal is open before Esc")
   ;; Simulate the keydown handler running. We don't have a DOM-event
   ;; here so call the dispatch directly — the handler's only side
@@ -91,7 +91,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-close]))
   (is (false? (boolean (:settings-open?
-                        (rf/get-frame-db :rf/xray))))
+                        (rf/frame-db :rf/xray))))
       "modal closes after dispatch"))
 
 ;; ---- Each section renders ----------------------------------------------
@@ -331,17 +331,17 @@
     (rf/dispatch-sync [:rf.xray/settings-select-tab :buffer])
     (rf/dispatch-sync [:rf.xray/settings-close])
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (is (= :general (:settings-active-tab (rf/get-frame-db :rf/xray)))
+  (is (= :general (:settings-active-tab (rf/frame-db :rf/xray)))
       "reopening returns to :general default"))
 
 (deftest toggle-cycles-open-state
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-toggle]))
-  (is (true? (boolean (:settings-open? (rf/get-frame-db :rf/xray)))))
+  (is (true? (boolean (:settings-open? (rf/frame-db :rf/xray)))))
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-toggle]))
-  (is (false? (boolean (:settings-open? (rf/get-frame-db :rf/xray))))))
+  (is (false? (boolean (:settings-open? (rf/frame-db :rf/xray))))))
 
 ;; ---- Modal positioning (rf2-om6fa) -------------------------------------
 

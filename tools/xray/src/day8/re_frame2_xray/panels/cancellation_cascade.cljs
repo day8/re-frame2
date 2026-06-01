@@ -215,7 +215,7 @@
   ;; rf2-nesy9 — render-time frame capture so the deferred row click
   ;; dispatches into the surrounding instance frame, not a `:rf/xray`
   ;; literal. The row renders inside the SidePanel / Popover reg-views.
-  (let [frame      (rf/current-frame)
+  (let [frame      (rf/current-frame-id)
         clickable? (boolean (:dispatch-id decision))]
     [:div {:data-testid "rf-xray-cancellation-cascade-decision-row"
            :on-click    (when clickable?
@@ -244,7 +244,7 @@
 
 (defn- teardown-row
   [{:keys [child-id t inflight-count reason dispatch-id trace-id]}]
-  (let [frame      (rf/current-frame)
+  (let [frame      (rf/current-frame-id)
         clickable? (boolean dispatch-id)]
     [:div {:data-testid (str "rf-xray-cancellation-cascade-teardown-row-"
                              (str child-id))
@@ -282,7 +282,7 @@
            dispatch-id trace-id]
     :as row}
    last?]
-  (let [frame      (rf/current-frame)
+  (let [frame      (rf/current-frame-id)
         clickable? (boolean dispatch-id)]
     [:div {:data-testid (str "rf-xray-cancellation-cascade-abort-row-"
                              (str (or trace-id correlation-id)))
@@ -333,7 +333,7 @@
   list when collapse is active."
   [collapsed-count total-count expanded?]
   ;; rf2-nesy9 — render-time frame capture for the deferred toggle click.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    [:div {:data-testid "rf-xray-cancellation-cascade-expander"
          :style       expander-container-style}
    [:button {:data-testid "rf-xray-cancellation-cascade-expand-toggle"

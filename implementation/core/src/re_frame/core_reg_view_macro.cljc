@@ -1,8 +1,8 @@
 (ns re-frame.core-reg-view-macro
   "Helpers for the view-registration and frame-scope lexical macros —
-  `reg-view`, `reg-machine`, `with-frame`, `bound-fn`, `with-fx-
+  `reg-view`, `reg-machine`, `with-frame`, `frame-bound-fn`, `with-fx-
   overrides`, `with-managed-request-stubs`. Per Spec 004 §reg-view,
-  Spec 005 §Source-coord stamping, Spec 002 §with-frame / §bound-fn /
+  Spec 005 §Source-coord stamping, Spec 002 §with-frame / §frame-bound-fn /
   §`:fx-overrides`, Spec 014 §Testing.
 
   Carved out of `re-frame.core` so the public namespace stays a thin
@@ -138,10 +138,11 @@
              ;; Per rf2-cry25 §Production elision: the view's dev source-
              ;; coord literal (WITH `:column`, via `coords-form`), reused
              ;; for the `*pending-coords*` binding in the `do` form below.
-             ;; The injected dispatcher/subscriber args ride their OWN
-             ;; outer `interop/debug-enabled?` gate (see `dispatch-opts-
-             ;; form` / `sub-coord-form`) so the `:rf.trace/call-site`
-             ;; keyword + coord literal DCE wholesale under `:advanced` +
+             ;; The injected frame-handle's `:dispatch-opts` /
+             ;; `:subscribe-call-site` args ride their OWN outer
+             ;; `interop/debug-enabled?` gate (see `dispatch-opts-form` /
+             ;; `sub-coord-form`) so the `:rf.trace/call-site` keyword +
+             ;; coord literal DCE wholesale under `:advanced` +
              ;; `goog.DEBUG=false` — mirroring `core-call-site-macros`'
              ;; `gate` (the elision probe's `rf.trace/call-site` sentinel
              ;; must stay ABSENT in the prod bundle). `:source :ui` is NOT
@@ -164,21 +165,30 @@
              ;; reaching it via `(rf/view :id)` see the tag without a
              ;; registry-slot round-trip.
              ;;
-             ;; Per rf2-cry25 (Option A, Mike-ruled): the reg-view-injected
-             ;; `dispatch` / `subscribe` NOUNS shadow the coord-capturing
-             ;; `dispatch` / `subscribe` MACROS for the whole view body, so
-             ;; a view's on-click `#(dispatch [...])` would otherwise
-             ;; classify as `:source :unknown` with no call-site. We pass
-             ;; the view's coord into the nouns so the dispatch carries
-             ;; `:source :ui` + the view's `:rf.trace/call-site`, and the
-             ;; subscribe carries the same call-site on its synchronous
-             ;; error path. The body stays spliced VERBATIM (`~@body`) — no
-             ;; code-walking, no rewriting of user view code; the blast
-             ;; radius is the noun arguments only. Render-time frame
-             ;; capture is preserved by the nouns unchanged.
+             ;; Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25
+             ;; (Option A, Mike-ruled): the reg-view injection is now SUGAR
+             ;; over a single `make-frame-handle` — the handle captures the
+             ;; render-time frame ONCE, and the injected `dispatch` /
+             ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
+             ;; They shadow the coord-capturing `dispatch` / `subscribe`
+             ;; MACROS for the whole view body, so a view's on-click
+             ;; `#(dispatch [...])` would otherwise classify as
+             ;; `:source :unknown` with no call-site. We pass the view's
+             ;; coord into the handle's `:dispatch-opts` so the dispatch
+             ;; carries `:source :ui` + the view's `:rf.trace/call-site`,
+             ;; and `:subscribe-call-site` so the subscribe carries the
+             ;; same call-site on its synchronous error path. The body
+             ;; stays spliced VERBATIM (`~@body`) — no code-walking, no
+             ;; rewriting of user view code; the blast radius is the
+             ;; handle's opts only. Render-time frame capture is preserved
+             ;; (`make-frame-handle` captures `(current-frame-id)` once).
              fn-body  `(fn ~sym ~args
-                         (let [~'dispatch  (re-frame.core/dispatcher ~dispatch-opts-form)
-                               ~'subscribe (re-frame.core/subscriber ~sub-coord-form)]
+                         (let [handle#    (re-frame.core/make-frame-handle
+                                            (re-frame.core/current-frame-id)
+                                            {:dispatch-opts       ~dispatch-opts-form
+                                             :subscribe-call-site ~sub-coord-form})
+                               ~'dispatch  (:dispatch handle#)
+                               ~'subscribe (:subscribe handle#)]
                            ~@body))
              fn-form  (cond-> fn-body
                         form-tag (with-meta {:reagent2/form form-tag}))]
@@ -291,10 +301,10 @@
                  :got         bindings})))))
 
 #?(:clj
-   (defn expand-bound-fn
+   (defn expand-frame-bound-fn
      [argv body]
      (let [frame-sym (gensym "frame__")]
-       `(let [~frame-sym (re-frame.core/current-frame)]
+       `(let [~frame-sym (re-frame.core/current-frame-id)]
           (fn ~argv
             (binding [re-frame.frame/*current-frame* ~frame-sym]
               ~@body))))))

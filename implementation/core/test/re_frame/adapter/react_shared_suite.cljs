@@ -103,7 +103,7 @@
             [re-frame.adapter.react-test-support :as react-test-support]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace.tooling :as trace-tooling])
-  (:require-macros [re-frame.core :refer [with-frame with-new-frame bound-fn]]))
+  (:require-macros [re-frame.core :refer [with-frame with-new-frame frame-bound-fn]]))
 
 ;; ===========================================================================
 ;; helpers
@@ -517,10 +517,10 @@
             (is (= 1 (count errs)) "one error trace per corrupted read")
             (is (= :number (-> errs first :tags :type)))
             (is (= 42 (-> errs first :tags :received)) ":tags :received echoes the offending value")))
-        (testing "routed read via rf/current-frame also recovers"
+        (testing "routed read via rf/current-frame-id also recovers"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) "")
-          (is (= :rf/default (rf/current-frame))
+          (is (= :rf/default (rf/current-frame-id))
               "adapter-routed read recovers to :rf/default")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -1039,13 +1039,13 @@
           ":rf.route/id sub resolves under the adapter")
       (is (= {:id "intro"} (rf/subscribe-once f [params-sub]))
           ":rf.route/params sub resolves under the adapter")
-      (is (true? (:article-loaded? (rf/get-frame-db f)))
+      (is (true? (:article-loaded? (rf/frame-db f)))
           ":on-match dispatched and ran")
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/welcome")] {:frame f})
       (is (= {:id "welcome"} (rf/subscribe-once f [params-sub]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/get-frame-db f) [:rf/runtime :routing :current :nav-token]))
+      (is (some? (get-in (rf/frame-db f) [:rf/runtime :routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 (defn assert-routing-multi-frame
@@ -1083,7 +1083,7 @@
             "right is unaffected by left's navigation")))))
 
 ;; ===========================================================================
-;; headless runtime slice (dispatch / subs / with-frame / bound-fn /
+;; headless runtime slice (dispatch / subs / with-frame / frame-bound-fn /
 ;; isolation / hot-reload / machines / error paths) — port of `*_runtime`
 ;; ===========================================================================
 
@@ -1096,7 +1096,7 @@
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/get-frame-db :rf/default))))))
+    (is (= 2 (:n (rf/frame-db :rf/default))))))
 
 (defn assert-sub-chain
   "layer-1 + layer-2 subs return computed values under the adapter."
@@ -1115,23 +1115,23 @@
   [{:keys [name]}]
   (testing (str name " — with-frame binds *current-frame*")
     (with-frame :left
-      (is (= :left (rf/current-frame))))
+      (is (= :left (rf/current-frame-id))))
     (testing "with-new-frame [sym expr] binds the symbol AND the dynamic var"
       (with-new-frame [f :right]
         (is (= :right f))
-        (is (= :right (rf/current-frame)))))
+        (is (= :right (rf/current-frame-id)))))
     (testing "outside any binding the dynamic var falls back to :rf/default"
-      (is (= :rf/default (rf/current-frame))))))
+      (is (= :rf/default (rf/current-frame-id))))))
 
 (defn assert-bound-fn-captures-frame
-  "bound-fn captures the current frame and re-binds it inside the body."
+  "frame-bound-fn captures the current frame and re-binds it inside the body."
   [{:keys [name]}]
-  (testing (str name " — bound-fn captures the current frame")
+  (testing (str name " — frame-bound-fn captures the current frame")
     (rf/reg-frame :side {:doc "side frame"})
     (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [captured (with-frame :side (bound-fn [] (rf/current-frame)))]
-      (is (= :rf/default (rf/current-frame)))
+    (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
+      (is (= :rf/default (rf/current-frame-id)))
       (is (= :side (captured))))))
 
 (defn assert-multi-frame-state-isolation
@@ -1454,7 +1454,7 @@
                  {:request {:method :get :url "/articles/hello"} :decode :json}]]})))
     (rf/dispatch-sync [:article/load {:slug "hello"}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (is (= {:stubbed true} (:article (rf/get-frame-db :rf/default)))
+    (is (= {:stubbed true} (:article (rf/frame-db :rf/default)))
         "default-reply addressing routed the synthesised reply back to :article/load")))
 
 (defn assert-http-canned-failure-on-failure
@@ -1468,7 +1468,7 @@
     (rf/reg-event-db :auth/login-error (fn [db [_ payload]] (assoc db :auth-error payload)))
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= :failure (get-in db [:auth-error :kind])))
       (is (= :rf.http/transport (get-in db [:auth-error :failure :kind]))
           "default canned-failure :kind classifies as :rf.http/transport"))))
@@ -1484,7 +1484,7 @@
     (rf/reg-event-db :article/loaded (fn [db [_ payload]] (assoc db :article payload)))
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= :success (get-in db [:article :kind])))
       (is (= {:stubbed true} (get-in db [:article :value]))))))
 
@@ -1515,7 +1515,7 @@
       (fn []
         (rf/dispatch-sync [:articles/list]
                           {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-        (let [db (rf/get-frame-db :rf/default)]
+        (let [db (rf/frame-db :rf/default)]
           (is (= :success (get-in db [:result :kind])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
@@ -1534,7 +1534,7 @@
       (fn []
         (rf/dispatch-sync [:articles/list]
                           {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-        (let [db (rf/get-frame-db :rf/default)]
+        (let [db (rf/frame-db :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
           (is (= 404 (get-in db [:result :failure :status]))))))))
@@ -1554,9 +1554,9 @@
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})
       (rf/dispatch-sync [:article/load] {:frame right})
-      (is (= {:stubbed true} (:article (rf/get-frame-db left))))
-      (is (= {:stubbed true} (:article (rf/get-frame-db right))))
-      (is (nil? (:article (rf/get-frame-db :rf/default)))))))
+      (is (= {:stubbed true} (:article (rf/frame-db left))))
+      (is (= {:stubbed true} (:article (rf/frame-db right))))
+      (is (nil? (:article (rf/frame-db :rf/default)))))))
 
 ;; ===========================================================================
 ;; Cross-Spec interactions (spec/Cross-Spec-Interactions.md) — port of
@@ -1615,7 +1615,7 @@
     (rf/reg-event-db :init-shape
       (fn [_ _] {:rf/runtime {:machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
     (rf/reg-frame :booted {:on-create [:init-shape]})
-    (is (= :armed (get-in (rf/get-frame-db :booted) [:rf/runtime :machines :snapshots :flow/boot :state]))
+    (is (= :armed (get-in (rf/frame-db :booted) [:rf/runtime :machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — app-db carries the seed")))
 
 (defn assert-xspec-machines-under-ssr
@@ -1659,10 +1659,10 @@
   [{:keys [name]}]
   (testing (str name " — #9 reactive substrate without React-context")
     (rf/reg-frame :alt {:doc "alt frame"})
-    (is (= :rf/default (rf/current-frame)) "no dynamic binding → resolves to :rf/default")
+    (is (= :rf/default (rf/current-frame-id)) "no dynamic binding → resolves to :rf/default")
     (rf/with-frame :alt
-      (is (= :alt (rf/current-frame)) "dynamic-var tier wins over :rf/default"))
-    (is (= :rf/default (rf/current-frame)) "with-frame's binding is scoped — dynamic var reverts on exit")))
+      (is (= :alt (rf/current-frame-id)) "dynamic-var tier wins over :rf/default"))
+    (is (= :rf/default (rf/current-frame-id)) "with-frame's binding is scoped — dynamic var reverts on exit")))
 
 (defn assert-xspec-machine-action-throws
   "#11 Machine action throws."
@@ -1683,7 +1683,7 @@
           (is (some #(= :boom (get-in % [:tags :action-id])) errs) "the trace identifies the action that threw"))
         (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
             "the generic :rf.error/handler-exception does NOT also fire")
-        (is (= :before (:val (rf/get-frame-db :rf/default)))
+        (is (= :before (:val (rf/frame-db :rf/default)))
             "a non-machine app-db slice is not touched when the cascade halts")))))
 
 (defn assert-xspec-machine-fx-handler-throws
@@ -1704,7 +1704,7 @@
                           (= :throwy (get-in % [:tags :rf.fx/id]))) @traces)
               "the throwing fx surfaces as :rf.error/fx-handler-exception")
           (is (= [:b] @seen) ":fx walk continued past the throwing fx — :record still ran")
-          (is (= :done (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
+          (is (= :done (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
               "the machine snapshot committed even though a downstream :fx threw"))))))
 
 (defn assert-xspec-hot-reload-machine-action
@@ -1718,11 +1718,11 @@
           machine-v2 (assoc-in machine-v1 [:actions :tag] (fn [data _] {:data (assoc data :who :v2)}))]
       (rf/reg-machine :test/m machine-v1)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v1 (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
+      (is (= :v1 (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
           "v1 action ran on the first dispatch")
       (rf/reg-machine :test/m machine-v2)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v2 (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
+      (is (= :v2 (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
           "the next dispatched event resolves to the new action body"))))
 
 (defn assert-xspec-dispatch-sync-from-handler-raises
@@ -1746,15 +1746,15 @@
                    :states  {:idle {:on {:go {:target :working}}} :working {:on {:go {:target :idle}}}}}]
       (rf/reg-machine :test/m machine)
       (rf/dispatch-sync [:test/m [:go]])
-      (let [post-go-db (rf/get-frame-db :rf/default)]
+      (let [post-go-db (rf/frame-db :rf/default)]
         (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state])) "machine reached :working")
         (let [container (frame/app-db-container :rf/default)
               reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
           (substrate-adapter/replace-container! container reverted))
-        (is (= :idle (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
+        (is (= :idle (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "after replace-container! the snapshot reads back as :idle")
         (rf/dispatch-sync [:test/m [:go]])
-        (is (= :working (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
+        (is (= :working (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "re-dispatch after revert advances from the restored state")))))
 
 (defn assert-xspec-server-error-projection
@@ -1934,16 +1934,16 @@
         50))))
 
 (defn assert-dfc-dispatcher-survives-set-timeout
-  "(rf/dispatcher) captures the in-flight frame; the captured fn is safe to
+  "(:dispatch (rf/frame-handle)) captures the in-flight frame; the captured fn is safe to
   call from setTimeout (rf2-l5q3). ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
-  (testing (str name " — (rf/dispatcher) survives setTimeout")
+  (testing (str name " — (:dispatch (rf/frame-handle)) survives setTimeout")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent-bound")
           landed (mint-kw substrate-kw "dfc-landed-bound")]
       (rf/reg-event-fx parent
         (fn [_ _]
-          (let [d (rf/dispatcher)]
+          (let [d (:dispatch (rf/frame-handle))]
             (js/setTimeout (fn [] (d [landed])) 0))
           {}))
       (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-bound)))
@@ -1953,7 +1953,7 @@
           (js/setTimeout
             (fn []
               (is (= [:landed-bound] (dfc-received tenant-a))
-                  "(rf/dispatcher) captured tenant-a at call time; the setTimeout callback dispatches there")
+                  "(:dispatch (rf/frame-handle)) captured tenant-a at call time; the setTimeout callback dispatches there")
               (is (empty? (dfc-received :rf/default)) ":rf/default sees nothing")
               (done))
             10))

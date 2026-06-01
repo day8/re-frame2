@@ -145,7 +145,7 @@ Why the locked path — the load-bearing reason is [Goal 2 — Frame state rever
 
 1. **Encapsulation.** A machine's snapshot is its private state; the rest of `app-db` is the rest of the app. Co-locating all snapshots under one reserved key keeps the boundary visible at a glance.
 2. **No path collisions.** Two features that both want a `[:foo :flow]` machine cannot accidentally share a snapshot location. Ids are already unique within a frame; reusing them as the in-`app-db` key inherits that uniqueness for free.
-3. **Tooling.** `(get-in (get-frame-db frame-id) [:rf/runtime :machines :snapshots])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
+3. **Tooling.** `(get-in (frame-db frame-id) [:rf/runtime :machines :snapshots])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
 4. **Per-frame isolation is automatic.** Each frame has its own `app-db`, and thus its own `[:rf/runtime :machines :snapshots]` map. The same machine id can exist in multiple frames; their snapshots are isolated by virtue of living in different frames' app-dbs (per [002 §Frames](002-Frames.md)). Inside one frame, the id is unique.
 5. **AI-amenability.** "Where is the snapshot?" has one answer at all times. AIs do not need to consult per-machine metadata to find state.
 
@@ -2828,7 +2828,7 @@ The framework exposes two surfaces, both equivalent:
     (rf/subscribe [:rf/machine machine-id]))
   ```
 
-  > **Name parse — the `sub-` prefix is the subscription family, NOT child-machine.** Per audit-of-audits state-machines #11, `sub-machine` returns a **reactive subscription** on the named machine's state. The `sub-` prefix is re-frame's subscription-family verb (sibling of `subscribe`, `sub-once`, `subscriber`) — it does NOT denote a child-machine / sub-machine relationship. Declarative child-machine binding uses `:spawn`, not `sub-machine`. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," `sub-machine` is the call.
+  > **Name parse — the `sub-` prefix is the subscription family, NOT child-machine.** Per audit-of-audits state-machines #11, `sub-machine` returns a **reactive subscription** on the named machine's state. The `sub-` prefix is re-frame's subscription-family verb (sibling of `subscribe`, `sub-once`) — it does NOT denote a child-machine / sub-machine relationship. Declarative child-machine binding uses `:spawn`, not `sub-machine`. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," `sub-machine` is the call.
 
 - **`(rf/subscribe [:rf/machine :drawer/editor])`** — explicit registry use. The `:rf/machine` sub is in `(registrations :sub)`, traceable, introspectable. Power-users and tools use this form.
 

@@ -124,7 +124,7 @@
         (rf/reg-event-db :flows-absent/init (fn [_ _] {:probe :ok}))
         (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
             "dispatch completes without throwing when the run-flows! hook is absent")
-        (is (= {:probe :ok} (rf/get-frame-db :rf/default))
+        (is (= {:probe :ok} (rf/frame-db :rf/default))
             ":db commit lands even though the outermost-`:after` flow walker is a no-op")))))
 
 (deftest reset-last-inputs!-no-ops-when-flows-artefact-missing

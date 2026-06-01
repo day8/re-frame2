@@ -27,7 +27,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- capture-error-traces []
   (let [captured (atom [])

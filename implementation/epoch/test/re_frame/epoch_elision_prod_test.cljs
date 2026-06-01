@@ -68,7 +68,7 @@
     (rf/dispatch-sync [:prod-epoch/inc])
     (rf/dispatch-sync [:prod-epoch/inc])
     (rf/dispatch-sync [:prod-epoch/inc])
-    (is (= 3 (:n (rf/get-frame-db :rf/default)))
+    (is (= 3 (:n (rf/frame-db :rf/default)))
         "handler ran the expected number of times — only epoch surface elided")
     (is (empty? (rf/epoch-history :rf/default))
         "no records appended to per-frame history under prod —
@@ -120,12 +120,12 @@
                      (fn [_db _] {:original true}))
     (rf/dispatch-sync [:prod-epoch/seed])
     (is (= {:original true}
-           (rf/get-frame-db :rf/default))
+           (rf/frame-db :rf/default))
         "baseline: app-db has the seeded value")
     (is (false? (rf/reset-frame-db! :rf/default {:replaced :should-not-stick}))
         "reset-frame-db! returns false under prod")
     (is (= {:original true}
-           (rf/get-frame-db :rf/default))
+           (rf/frame-db :rf/default))
         "app-db is UNCHANGED under prod — Pair-tool write firewalled
          from production state")))
 

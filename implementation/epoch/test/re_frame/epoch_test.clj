@@ -529,7 +529,7 @@
           recorded    (record-trace!)
           ok?         (rf/restore-epoch :test/main target-eid)]
       (is (true? ok?) "restore returned true")
-      (is (= {:n 1} (rf/get-frame-db :test/main))
+      (is (= {:n 1} (rf/frame-db :test/main))
           "app-db rewound to the named epoch's :db-after")
 
       (let [events @recorded]
@@ -558,11 +558,11 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    (let [pre        (rf/get-frame-db :test/main)
+    (let [pre        (rf/frame-db :test/main)
           recorded   (record-trace!)
           ok?        (rf/restore-epoch :test/main :no-such-epoch)]
       (is (false? ok?))
-      (is (= pre (rf/get-frame-db :test/main)) "app-db unchanged")
+      (is (= pre (rf/frame-db :test/main)) "app-db unchanged")
       (let [events @recorded
             ev     (some #(when (= :rf.epoch/restore-unknown-epoch (:operation %)) %) events)]
         (is (some? ev) ":rf.epoch/restore-unknown-epoch fired")
@@ -592,7 +592,7 @@
     ;; against that frame, not the (current-frame)-default :rf/default.
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
 
-    (let [pre      (rf/get-frame-db :test/main)
+    (let [pre      (rf/frame-db :test/main)
           history  (rf/epoch-history :test/main)
           target   (some (fn [r]
                            (when (= "not-an-int" (:n (:db-after r)))
@@ -602,7 +602,7 @@
           ok?      (rf/restore-epoch :test/main (:epoch-id target))]
       (is (some? target) "we recorded the bad-db cascade")
       (is (false? ok?)   "restore rejected")
-      (is (= pre (rf/get-frame-db :test/main)) "app-db unchanged")
+      (is (= pre (rf/frame-db :test/main)) "app-db unchanged")
       (let [ev (some (fn [ev]
                        (when (= :rf.epoch/restore-schema-mismatch (:operation ev))
                          ev))
@@ -685,10 +685,10 @@
       (registrar/unregister! :route :route/users)
 
       (let [recorded (record-trace!)
-            pre      (rf/get-frame-db :test/main)
+            pre      (rf/frame-db :test/main)
             ok?      (rf/restore-epoch :test/main (:epoch-id target))]
         (is (false? ok?))
-        (is (= pre (rf/get-frame-db :test/main)) "app-db unchanged")
+        (is (= pre (rf/frame-db :test/main)) "app-db unchanged")
         (let [ev (some (fn [ev]
                          (when (= :rf.epoch/restore-missing-handler (:operation ev))
                            ev))
@@ -723,10 +723,10 @@
       (registrar/unregister! :event :machine/tl)
 
       (let [recorded (record-trace!)
-            pre      (rf/get-frame-db :test/main)
+            pre      (rf/frame-db :test/main)
             ok?      (rf/restore-epoch :test/main (:epoch-id target))]
         (is (false? ok?))
-        (is (= pre (rf/get-frame-db :test/main)) "app-db unchanged")
+        (is (= pre (rf/frame-db :test/main)) "app-db unchanged")
         (let [ev (some (fn [ev]
                          (when (= :rf.epoch/restore-missing-handler (:operation ev))
                            ev))
@@ -794,10 +794,10 @@
          :states  {:red {:on {:tick :green}} :green {}}})
 
       (let [recorded (record-trace!)
-            pre      (rf/get-frame-db :test/main)
+            pre      (rf/frame-db :test/main)
             ok?      (rf/restore-epoch :test/main (:epoch-id target))]
         (is (false? ok?))
-        (is (= pre (rf/get-frame-db :test/main)))
+        (is (= pre (rf/frame-db :test/main)))
         (let [ev (some (fn [ev]
                          (when (= :rf.epoch/restore-version-mismatch (:operation ev))
                            ev))
@@ -1655,7 +1655,7 @@
           "frame A's sub sees the rewound value")
       (is (= 101 (rf/subscribe-once :frame/b [:n]))
           "frame B's sub is unchanged by the cross-frame restore")
-      (is (= 101 (:n (rf/get-frame-db :frame/b)))
+      (is (= 101 (:n (rf/frame-db :frame/b)))
           "frame B's app-db is unchanged"))))
 
 (deftest restore-fixed-point-same-epoch-twice
@@ -1676,14 +1676,14 @@
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)
           target-eid (:epoch-id target)]
       (is (true? (rf/restore-epoch :test/main target-eid)) "first restore ok")
-      (let [db-after-1 (rf/get-frame-db :test/main)
+      (let [db-after-1 (rf/frame-db :test/main)
             sub-1      (rf/subscribe-once :test/main [:n])]
         (is (= {:n 1} db-after-1))
         (is (= 1     sub-1))
 
         ;; Restore again to the SAME epoch.
         (is (true? (rf/restore-epoch :test/main target-eid)) "second restore ok")
-        (is (= db-after-1 (rf/get-frame-db :test/main))
+        (is (= db-after-1 (rf/frame-db :test/main))
             "app-db unchanged across the second restore")
         (is (= sub-1 (rf/subscribe-once :test/main [:n]))
             "sub value unchanged across the second restore")))))
@@ -1705,7 +1705,7 @@
     (rf/dispatch-sync [:init]    {:frame :test/main})  ;; area=6
     (rf/dispatch-sync [:w! 5]    {:frame :test/main})  ;; area=15
     (rf/dispatch-sync [:h! 10]   {:frame :test/main})  ;; area=50
-    (is (= 50 (get-in (rf/get-frame-db :test/main) [:rect :area])))
+    (is (= 50 (get-in (rf/frame-db :test/main) [:rect :area])))
 
     (let [history (rf/epoch-history :test/main)
           ;; Find the epoch whose db-after has area=15 (after :w! 5).
@@ -1713,7 +1713,7 @@
                         history)]
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= 15 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+      (is (= 15 (get-in (rf/frame-db :test/main) [:rect :area]))
           "the restored db carries the flow's value at :path"))))
 
 (deftest restore-then-dispatch-recomputes-flow-correctly
@@ -1740,15 +1740,15 @@
           target  (some (fn [r] (when (= 4 (get-in (:db-after r) [:rect :area])) r))
                         history)]
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= 4 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+      (is (= 4 (get-in (rf/frame-db :test/main) [:rect :area]))
           "restored db carries the flow output value at :path")
 
       ;; Drive a new event that changes :w. The flow must recompute
       ;; against the post-restore inputs, not against any leftover
       ;; last-inputs cache from the pre-restore history.
       (rf/dispatch-sync [:w! 6] {:frame :test/main})
-      (is (= 6 (get-in (rf/get-frame-db :test/main) [:w])))
-      (is (= 6 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+      (is (= 6 (get-in (rf/frame-db :test/main) [:w])))
+      (is (= 6 (get-in (rf/frame-db :test/main) [:rect :area]))
           "flow recomputed correctly post-restore (6 * 1 = 6)"))))
 
 (deftest restore-rewinds-route-slice-and-route-sub
@@ -1778,7 +1778,7 @@
                         history)]
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/runtime :routing :current :id]))
+      (is (= :route/home (get-in (rf/frame-db :test/main) [:rf/runtime :routing :current :id]))
           "the [:rf/runtime :routing] slice is rewound by restore")
       (is (= :route/home (rf/subscribe-once :test/main [:current-route]))
           "a sub reading the routing slice returns the restored value"))))
@@ -1804,10 +1804,10 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= {:n 0} (rf/get-frame-db :test/main)))
+    (is (= {:n 0} (rf/frame-db :test/main)))
 
     (is (true? (rf/reset-frame-db! :test/main {:n 99 :injected? true})))
-    (is (= {:n 99 :injected? true} (rf/get-frame-db :test/main))
+    (is (= {:n 99 :injected? true} (rf/frame-db :test/main))
         "container holds the injected value")))
 
 (deftest reset-frame-db!-records-undo-epoch
@@ -1838,7 +1838,7 @@
                                 history)]
         (is (some? pre-injection))
         (is (true? (rf/restore-epoch :test/main (:epoch-id pre-injection))))
-        (is (= {:n 7} (rf/get-frame-db :test/main))
+        (is (= {:n 7} (rf/frame-db :test/main))
             "restoring the seed epoch rewinds past the pair-tool injection")))))
 
 (deftest reset-frame-db!-emits-trace
@@ -1912,7 +1912,7 @@
       (rf/dispatch-sync [:try-reset] {:frame :test/main})
 
       (is (false? @attempt) "reset returned false from inside the drain")
-      (is (= {:n 0} (rf/get-frame-db :test/main))
+      (is (= {:n 0} (rf/frame-db :test/main))
           "app-db unchanged — the in-drain reset was rejected")
       (let [ev (some (fn [ev]
                        (when (= :rf.epoch/reset-frame-db-during-drain
@@ -1932,11 +1932,11 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    (let [pre      (rf/get-frame-db :test/main)
+    (let [pre      (rf/frame-db :test/main)
           recorded (record-trace!)
           ok?      (rf/reset-frame-db! :test/main {:n "not-an-int"})]
       (is (false? ok?) "reset rejected on schema mismatch")
-      (is (= pre (rf/get-frame-db :test/main))
+      (is (= pre (rf/frame-db :test/main))
           "app-db unchanged after a rejected reset")
       (let [ev (some (fn [ev]
                        (when (= :rf.epoch/reset-frame-db-schema-mismatch
@@ -1959,7 +1959,7 @@
 
     (is (true? (rf/reset-frame-db! :test/loose {:totally :different :shape true})))
     (is (= {:totally :different :shape true}
-           (rf/get-frame-db :test/loose)))))
+           (rf/frame-db :test/loose)))))
 
 (deftest reset-frame-db!-subs-re-fire
   (testing "Subscribers route off the post-reset app-db value (the
@@ -2166,7 +2166,7 @@
 ;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
 ;;   - read-shaped surfaces return empty/nil:
 ;;       (rf/epoch-history destroyed)  → []
-;;       (rf/get-frame-db   destroyed) → nil
+;;       (rf/frame-db   destroyed) → nil
 ;;   - mutate-shaped surfaces raise :rf.error/no-such-handler (kind :frame):
 ;;       (rf/restore-epoch    destroyed _) → false + :rf.error/no-such-handler
 ;;       (rf/reset-frame-db!  destroyed _) → false + :rf.error/no-such-handler
@@ -2189,20 +2189,20 @@
     (is (= [] (rf/epoch-history :no.such/frame))
         "for a never-registered frame, epoch-history returns the empty vector")))
 
-(deftest destroyed-frame-get-frame-db-returns-nil
-  (testing "(rf/get-frame-db frame-id) returns nil for a destroyed frame
+(deftest destroyed-frame-frame-db-returns-nil
+  (testing "(rf/frame-db frame-id) returns nil for a destroyed frame
             and for a never-registered frame"
     (rf/reg-frame :test/short-lived {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-    (is (some? (rf/get-frame-db :test/short-lived))
-        "before destroy, get-frame-db returns the live app-db")
+    (is (some? (rf/frame-db :test/short-lived))
+        "before destroy, frame-db returns the live app-db")
 
     (rf/destroy-frame! :test/short-lived)
-    (is (nil? (rf/get-frame-db :test/short-lived))
-        "after destroy, get-frame-db returns nil")
-    (is (nil? (rf/get-frame-db :no.such/frame))
-        "for a never-registered frame, get-frame-db returns nil")))
+    (is (nil? (rf/frame-db :test/short-lived))
+        "after destroy, frame-db returns nil")
+    (is (nil? (rf/frame-db :no.such/frame))
+        "for a never-registered frame, frame-db returns nil")))
 
 (deftest destroyed-frame-restore-epoch-raises-no-such-handler
   (testing "(rf/restore-epoch destroyed _) emits :rf.error/no-such-handler
@@ -2363,7 +2363,7 @@
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-20. Currently reached only
 ;; via destroyed-frame-epoch-history-returns-empty and
-;; destroyed-frame-get-frame-db-returns-nil; no direct unit pins the
+;; destroyed-frame-frame-db-returns-nil; no direct unit pins the
 ;; contract. on-frame-destroyed! is the late-bind hook
 ;; (`re-frame.frame/destroy-frame!` calls it via `:epoch/on-frame-destroyed`).
 ;; Tools and alternate-destroy paths invoke it directly; pin the
@@ -2942,7 +2942,7 @@
       (dotimes [_ 4] (rf/dispatch-sync [:inc] {:frame :test/main}))
 
       (let [history-after (rf/epoch-history :test/main)
-            pre-restore   (rf/get-frame-db :test/main)
+            pre-restore   (rf/frame-db :test/main)
             recorded      (record-trace!)
             ok?           (rf/restore-epoch :test/main evicted-id)]
         (is (= 3 (count history-after))
@@ -2950,7 +2950,7 @@
         (is (not-any? #(= evicted-id (:epoch-id %)) history-after)
             "the captured epoch-id is no longer in history")
         (is (false? ok?) "restore rejected — epoch evicted")
-        (is (= pre-restore (rf/get-frame-db :test/main))
+        (is (= pre-restore (rf/frame-db :test/main))
             "app-db unchanged across the rejected restore")
 
         (let [ev (some (fn [ev]

@@ -1,18 +1,22 @@
 (ns hooks.re-frame.core
   "clj-kondo macro hook for `re-frame.core/reg-view`.
 
-  Per spec/004-Views.md, `reg-view` is a defn-shape macro that auto-
-  injects two lexical bindings — `dispatch` (from `(re-frame.core/
-  dispatcher)`) and `subscribe` (from `(re-frame.core/subscriber)`) —
-  into the body. clj-kondo doesn't macroexpand by default, so without
-  this hook the body's `dispatch` / `subscribe` references all read as
-  `Unresolved symbol`.
+  Per spec/004-Views.md and rf2-kkut0 (frame-affordance redesign),
+  `reg-view` is a defn-shape macro that auto-injects two lexical
+  bindings — `dispatch` and `subscribe` — into the body, sourced from a
+  single `frame-handle` (the keystone OPERATION BUNDLE):
+  `(:dispatch (re-frame.core/make-frame-handle ...))` and
+  `(:subscribe (re-frame.core/make-frame-handle ...))`. clj-kondo doesn't
+  macroexpand by default, so without this hook the body's `dispatch` /
+  `subscribe` references all read as `Unresolved symbol`.
 
   The hook rewrites `(reg-view sym [args] body)` into
 
       (defn sym [args]
-        (let [dispatch  (re-frame.core/dispatcher)
-              subscribe (re-frame.core/subscriber)]
+        (let [handle    (re-frame.core/make-frame-handle
+                          (re-frame.core/current-frame-id) {})
+              dispatch  (:dispatch handle)
+              subscribe (:subscribe handle)]
           body))
 
   preserving any leading docstring + optional attr-map, so kondo's
@@ -103,10 +107,20 @@
                           (api/vector-node
                             [(api/token-node 'dispatch)
                              (api/list-node
-                               [(api/token-node 're-frame.core/dispatcher)])
+                               [(api/keyword-node :dispatch)
+                                (api/list-node
+                                  [(api/token-node 're-frame.core/make-frame-handle)
+                                   (api/list-node
+                                     [(api/token-node 're-frame.core/current-frame-id)])
+                                   (api/map-node [])])])
                              (api/token-node 'subscribe)
                              (api/list-node
-                               [(api/token-node 're-frame.core/subscriber)])])
+                               [(api/keyword-node :subscribe)
+                                (api/list-node
+                                  [(api/token-node 're-frame.core/make-frame-handle)
+                                   (api/list-node
+                                     [(api/token-node 're-frame.core/current-frame-id)])
+                                   (api/map-node [])])])])
                           ;; Insert a leading no-op reference to
                           ;; `dispatch` / `subscribe` so kondo's
                           ;; unused-binding linter sees both bindings

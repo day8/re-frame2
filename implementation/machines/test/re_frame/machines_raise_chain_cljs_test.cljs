@@ -26,7 +26,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (deftest machine-raise-chain-cljs
   (testing "an action's [:raise <event>] re-enters machine-transition and fires the chained transition (rf2-c0nt)"

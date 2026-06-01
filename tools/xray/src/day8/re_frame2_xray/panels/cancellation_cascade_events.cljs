@@ -73,7 +73,7 @@
       ;; instance frame captured at handler entry (the handler runs in
       ;; the dispatching frame's context), not a `{:frame :rf/xray}`
       ;; literal that pins the singleton.
-      (let [here (rf/current-frame)]
+      (let [here (rf/current-frame-id)]
         {:fx (cond-> []
                dispatch-id
                (conj [:dispatch [[:rf.xray/select-dispatch-id

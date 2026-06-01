@@ -293,7 +293,7 @@
 
       ;; Sibling parent received the notification.
       (is (= :child-gone
-             (:last-notification (rf/get-frame-db :composed/parent)))
+             (:last-notification (rf/frame-db :composed/parent)))
           ":on-destroy's cross-frame dispatch-sync committed on the parent")
 
       ;; The warn trace fired (cross-frame dispatch-sync mid-drain

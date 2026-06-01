@@ -132,7 +132,7 @@
   the async router drain that queued click-dispatches go through."
   [pred label]
   (test-support/poll-until
-    #(pred (rf/get-frame-db :rf/xray))
+    #(pred (rf/frame-db :rf/xray))
     {:label label :timeout-ms 1000}))
 
 (defn- render-open-modal []
@@ -157,9 +157,9 @@
         (-> (await-xray-db #(false? (boolean (:settings-open? %)))
                             "settings-open? flips false after X click")
             (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/get-frame-db :rf/xray))))
+                     (is (false? (boolean (:settings-open? (rf/frame-db :rf/xray))))
                          ":rf/xray's :settings-open? flips to false")
-                     (is (nil? (:settings-open? (rf/get-frame-db :rf/default)))
+                     (is (nil? (:settings-open? (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by the dispatch")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -177,7 +177,7 @@
         (-> (await-xray-db #(false? (boolean (:settings-open? %)))
                             "settings-open? flips false after backdrop click")
             (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/get-frame-db :rf/xray))))
+                     (is (false? (boolean (:settings-open? (rf/frame-db :rf/xray))))
                          ":rf/xray's :settings-open? flips to false")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -194,7 +194,7 @@
         (-> (await-xray-db #(false? (boolean (:settings-open? %)))
                             "settings-open? flips false after Esc")
             (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/get-frame-db :rf/xray))))
+                     (is (false? (boolean (:settings-open? (rf/frame-db :rf/xray))))
                          ":rf/xray's :settings-open? flips to false")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
@@ -219,9 +219,9 @@
         (-> (await-xray-db #(= :buffer (:settings-active-tab %))
                             "active-tab flips :buffer after click")
             (.then (fn [_]
-                     (is (= :buffer (:settings-active-tab (rf/get-frame-db :rf/xray)))
+                     (is (= :buffer (:settings-active-tab (rf/frame-db :rf/xray)))
                          "tab click flips :settings-active-tab to :buffer")
-                     (is (nil? (:settings-active-tab (rf/get-frame-db :rf/default)))
+                     (is (nil? (:settings-active-tab (rf/frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by the tab dispatch")
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))

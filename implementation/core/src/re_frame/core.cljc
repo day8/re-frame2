@@ -73,9 +73,6 @@
             [re-frame.core-reg-view-macro    :as rvm]
             [re-frame.substrate.plain-atom :as plain-atom]
             #?@(:cljs [[re-frame.views :as views]]))
-  ;; `bound-fn` shadows clojure.core/bound-fn — the v2 surface
-  ;; deliberately reuses the name (per Spec 002 §bound-fn).
-  (:refer-clojure :exclude [bound-fn])
   ;; The macros are defined in this ns's `#?(:clj ...)` blocks below.
   ;; CLJS users see them under `rf/<name>` via this self-`:require-
   ;; macros`, so `(:require [re-frame.core :as rf])` is the only import
@@ -89,7 +86,7 @@
                                     reg-view reg-machine
                                     dispatch dispatch-sync subscribe inject-cofx
                                     ->interceptor
-                                    with-frame with-new-frame bound-fn
+                                    with-frame with-new-frame frame-bound-fn
                                     with-fx-overrides
                                     with-managed-request-stubs]])))
 
@@ -719,81 +716,117 @@
       (csm/build-inject-cofx-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                   cofx-id value))))
 
-;; ---- frame-aware closures (runtime side) ---------------------------------
+;; ---- frame-handle (the keystone) + frame-aware closures ------------------
 ;;
-;; The public `current-frame` exposes the 3-tier resolution chain
-;; (dynamic var → React context → `:rf/default`) at every user-facing
-;; surface that flows through `(dispatcher)` / `(subscriber)` /
-;; `bound-fn`. Single-sourced through `frame/resolve-current-frame`.
+;; `current-frame-id` exposes the 3-tier resolution chain (dynamic var →
+;; React context → `:rf/default`), single-sourced through
+;; `frame/resolve-current-frame`. `frame-handle` is the keystone: a
+;; per-frame OPERATION BUNDLE (`{:frame :dispatch :dispatch-sync
+;; :subscribe}`) captured at CREATION time, so its ops survive async
+;; boundaries that unwind the dynamic-var / React-context binding.
 
-(defn current-frame
-  "Return the active frame at the call site. Resolution chain: dynamic
+(defn current-frame-id
+  "Return the active frame id at the call site. Resolution chain: dynamic
   var -> React context (CLJS only, via `:adapter/current-frame` late-
-  bind hook) -> `:rf/default`. Per Spec 002 §Reading the frame from
-  React context."
+  bind hook) -> `:rf/default`. A keyword. Per Spec 002 §Reading the
+  frame from React context."
   []
   (frame/resolve-current-frame))
 
-(defn dispatcher
-  "Return a fn that dispatches under the current frame, captured at call
-  time so closures need not thread it. Per Spec 004 §Affordance for
-  plain fns:
-    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])
+(defn make-frame-handle
+  "Internal constructor for `frame-handle` (and the `reg-view` injection
+  sugar). Not part of the public front-porch/back-room tiers — call
+  `frame-handle` instead. It is a plain (technically public) Var rather
+  than `defn-` ONLY so the `reg-view` macro's emitted body can reference
+  it fully-qualified (a `defn-` private would fail the CLJ analyzer when
+  the expansion compiles on the JVM); the precedent is `reg-view*` /
+  `view`, which are likewise public plumbing.
 
-  **Noun form is deliberate (rf2-knz3l).** The noun is a convenience
-  for capturing the current frame in closures; it is distinct from the
-  router's internal \"dispatcher\" concept (the engine that drains the
-  event queue). The verb-form alternative `bound-dispatcher` was
-  considered and cut as a pure alias — the noun's capture-at-call-time
-  semantics are part of the contract here.
+  Build an OPERATION BUNDLE locked to `frame`:
 
-  Per rf2-cry25 (Spec 005 §Source-coord stamping) the optional
-  `view-opts` map is a base set of dispatch opts merged BELOW the
-  captured `:frame` and any per-call `opts`. `reg-view` injects
-  `{:source :ui :rf.trace/call-site <view-coord>}` here so a view's
-  on-click `#(dispatch [...])` — which shadows the coord-capturing
-  `dispatch` MACRO with this noun — still classifies as `:source :ui`
-  and carries the reg-view definition's call-site for Xray's dispatch
-  'go to code'. The render-time frame capture is unchanged: `:frame`
-  is assoc'd LAST so it always wins, and the click-time closure routes
-  to the render frame, not a click-time `:rf/default` fall-through."
-  ([] (dispatcher nil))
-  ([view-opts]
-   (let [frame (current-frame)]
-     (fn dispatch-fn
-       ([event]      (dispatch* event (assoc view-opts :frame frame)))
-       ([event opts] (dispatch* event (merge view-opts opts {:frame frame})))))))
+    {:frame         frame
+     :dispatch      (fn ([event] [event opts]))
+     :dispatch-sync (fn ([event] [event opts]))
+     :subscribe     (fn [query-v])}
 
-(defn subscriber
-  "Return a fn that subscribes under the current frame, captured at call
-  time. Sibling of `dispatcher`. Per Spec 004 §Affordance for plain fns.
+  The captured `frame` is closed over by every op — no dynamic-var read
+  at op-call time — so the bundle dispatches / subscribes into `frame`
+  even when an op fires after the surrounding `with-frame` /
+  `frame-provider` scope has unwound (the async-boundary case).
 
-  **Noun form is deliberate (rf2-knz3l).** The noun is a convenience
-  for capturing the current frame in closures so async callbacks need
-  not thread the frame id; `subscriber` is distinct from the router or
-  reactive-substrate notion of a \"subscriber\" (a subscribed
-  reaction). The verb-form alternative `bound-subscriber` was
-  considered and cut as a pure alias.
+  Per the frame-affordance redesign (rf2-kkut0) the captured frame is
+  AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
+  per-call `:frame` in `opts` CANNOT override it — the handle is locked
+  to one frame.
 
-  Per rf2-cry25 (Spec 005 §Source-coord stamping) the optional
-  `view-coord` is the reg-view definition's source-coord; `reg-view`
-  injects it here so a view's `#(subscribe [...])` — which shadows the
-  coord-capturing `subscribe` MACRO with this noun — carries the
-  view's `:rf.trace/call-site` on any error emitted inside the
-  synchronous miss path (`:rf.error/no-such-sub`,
-  `:rf.error/frame-destroyed`). Mirrors the `subscribe` macro's
-  `trace/with-call-site` wrapper (subscriptions carry no `:source`
-  axis). The binding rides `interop/debug-enabled?` so it DCEs in
-  production; the render-time frame capture is unchanged."
-  ([] (subscriber nil))
-  ([view-coord]
-   (let [frame (current-frame)]
-     (fn subscribe-fn
-       [query-v]
-       (if (and view-coord interop/debug-enabled?)
-         (trace/with-call-site view-coord
-           (subs/subscribe frame query-v))
-         (subs/subscribe frame query-v))))))
+  `opts` (the second arg) supports the `reg-view` source-coord sugar:
+    :dispatch-opts        base dispatch opts merged BELOW the captured
+                          `:frame` (and below any per-call `opts`). The
+                          `reg-view` macro injects
+                          `{:source :ui :rf.trace/call-site <view-coord>}`
+                          here so a view's on-click `#((:dispatch h) [...])`
+                          classifies as `:source :ui` + carries the view's
+                          call-site for Xray's dispatch 'go to code'.
+    :subscribe-call-site  a source-coord stamped (under
+                          `interop/debug-enabled?`) onto any error emitted
+                          inside the synchronous subscribe miss path
+                          (`:rf.error/no-such-sub`, `:rf.error/frame-
+                          destroyed`). Mirrors the `subscribe` macro's
+                          `trace/with-call-site` wrapper; subscriptions
+                          carry no `:source` axis. DCEs in production."
+  [frame {:keys [dispatch-opts subscribe-call-site]}]
+  {:frame frame
+   :dispatch
+   (fn dispatch-fn
+     ([event]      (dispatch* event (assoc dispatch-opts :frame frame)))
+     ([event opts] (dispatch* event (merge dispatch-opts opts {:frame frame}))))
+   :dispatch-sync
+   (fn dispatch-sync-fn
+     ([event]      (dispatch-sync* event (assoc dispatch-opts :frame frame)))
+     ([event opts] (dispatch-sync* event (merge dispatch-opts opts {:frame frame}))))
+   :subscribe
+   (fn subscribe-fn
+     [query-v]
+     (if (and subscribe-call-site interop/debug-enabled?)
+       (trace/with-call-site subscribe-call-site
+         (subs/subscribe frame query-v))
+       (subs/subscribe frame query-v)))})
+
+(defn frame-handle
+  "Return a per-frame OPERATION BUNDLE — the keystone affordance for
+  carrying a frame into closures and across async boundaries. Per Spec
+  002 §frame-handle and Spec 004 §Affordance for plain fns.
+
+  Two arities:
+    (frame-handle)            — capture the ambient frame
+                                (`(current-frame-id)`) at CREATION time.
+    (frame-handle frame-id)   — bundle locked to an explicit `frame-id`;
+                                no surrounding `with-frame` / frame-
+                                provider needed.
+
+  Returns:
+
+    {:frame         <id>
+     :dispatch      (fn ([event] [event opts]))
+     :dispatch-sync (fn ([event] [event opts]))
+     :subscribe     (fn [query-v])}
+
+  The frame is captured at CREATION; every op targets the captured
+  frame and survives async — the bundle is the answer to \"ambient
+  frame lookup does not survive `setTimeout` / `Promise.then` /
+  WebSocket `onmessage` / observer callbacks\":
+
+    (rf/reg-view StreamView [_]
+      (let [{:keys [dispatch]} (rf/frame-handle)]   ;; captures render frame
+        (ws/subscribe! (fn [msg] (dispatch [:ws/incoming msg])))
+        [:div \"streaming…\"]))
+
+  A per-call `:frame` in the dispatch opts MUST NOT override the
+  captured frame — the handle is LOCKED to one frame. It is an
+  OPERATION BUNDLE, not a container: read the frame's app-db value via
+  `(rf/frame-db (:frame handle))`, not the handle itself."
+  ([]         (make-frame-handle (current-frame-id) nil))
+  ([frame-id] (make-frame-handle frame-id nil)))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
 
@@ -809,7 +842,7 @@
      compile time on a vector argument.
 
      For async closures that fire after body returns, capture via
-     `bound-fn` / `frame-bound-fn` / `dispatcher` / `subscriber`. Per
+     `frame-handle` / `frame-bound-fn` / `frame-bound-fn*`. Per
      Spec 002 §with-frame."
      {:arglists '([frame-id body+])}
      [frame-id & body]
@@ -830,38 +863,40 @@
      existing frame-id.
 
      For async closures that fire after body returns, capture via
-     `bound-fn` / `frame-bound-fn` — the body's dynamic binding has
+     `frame-handle` / `frame-bound-fn` — the body's dynamic binding has
      unwound and `destroy-frame!` has already run by then. Per Spec 002
      §with-frame."
      {:arglists '([[sym expr] body+])}
      [bindings & body]
      (rvm/expand-with-new-frame bindings body)))
 
-#?(:clj
-   (defmacro bound-fn
-     "Return a fn that captures the current frame and re-binds
-     `*current-frame*` inside its body. Per Spec 002 §bound-fn."
-     [argv & body]
-     (rvm/expand-bound-fn argv body)))
-
-(defn frame-bound-fn
-  "Higher-order callback wrapper: take an existing fn `f` and return a
-  new fn that re-establishes `*current-frame*` for `f`'s body. The
-  captured frame value is closed over — no dynamic-var read at call
-  time, so the wrapped fn dispatches into the captured frame even when
-  it fires after the surrounding `with-frame` / `frame-provider`
-  lexical scope has unwound.
+(defn frame-bound-fn*
+  "Higher-order callback wrapper (the `*`-twin of the `frame-bound-fn`
+  macro, matching `dispatch`/`dispatch*` and `subscribe`/`subscribe*`):
+  take an existing fn `f` and return a new fn that re-establishes
+  `*current-frame*` for `f`'s body. The captured frame value is closed
+  over — no dynamic-var read at call time, so the wrapped fn dispatches
+  into the captured frame even when it fires after the surrounding
+  `with-frame` / `frame-provider` lexical scope has unwound.
 
   Two arities:
-    (frame-bound-fn f)            — capture `(current-frame)` at wrap time.
-    (frame-bound-fn frame-id f)   — explicit frame-id; no surrounding
-                                    `with-frame` or frame-provider needed
-                                    at wrap time.
+    (frame-bound-fn* f)            — capture `(current-frame-id)` at wrap time.
+    (frame-bound-fn* frame-id f)   — explicit frame-id; no surrounding
+                                     `with-frame` or frame-provider needed
+                                     at wrap time.
 
-  Use `frame-bound-fn` when a callback is constructed in one
-  synchronous moment (a render-fn, an event handler body, a module
-  install! routine) but invoked LATER, across an async boundary that
-  unwinds the `*current-frame*` dynamic binding:
+  Use the `frame-bound-fn` MACRO when you want both `fn` syntax and
+  frame-capture in one step; reach for `frame-bound-fn*` (this fn) when
+  you already hold a fn value (HoF / programmatic wrap). For the common
+  dispatch / subscribe case prefer `frame-handle` — `frame-bound-fn*`
+  is the advanced surface for re-establishing the dynamic binding
+  around an arbitrary fn body (e.g. one that itself calls
+  `current-frame-id`).
+
+  Use it when a callback is constructed in one synchronous moment (a
+  render-fn, an event handler body, a module install! routine) but
+  invoked LATER, across an async boundary that unwinds the
+  `*current-frame*` dynamic binding:
 
     - `setTimeout` / `setInterval` callbacks
     - `Promise.then` / `js/await` continuations
@@ -871,36 +906,17 @@
     - IntersectionObserver / MutationObserver callbacks
     - Custom event subscribers, deferred fns, third-party callback APIs
 
-  Pair with the `bound-fn` macro — the macro form is sugar over this fn
-  when you want both `fn` syntax and frame-capture in one step.
-
-  Example (Reagent / UIx / Helix view body, all substrates):
-
-      (rf/reg-view MyToggle [mode]
-        (let [on-message (rf/frame-bound-fn
-                           (fn [msg] (rf/dispatch [:ws/incoming msg])))]
-          (ws/subscribe! on-message)
-          [:div \"streaming…\"]))
-
-  Why `frame-bound-fn` over threading `(rf/dispatch [...] {:frame :id})`
-  at the call site: explicit-opt threading is verbose at every dispatch
-  site and brittle when `*current-frame*` is genuinely lost across an
-  async boundary (the callback fires AFTER the surrounding `with-frame`
-  has unwound). `frame-bound-fn` captures the frame at wrap time and
-  closes over it, so the callback always dispatches in the wrapped
-  frame regardless of how deep the async chain goes.
-
   See also spec/006 §Lazy-seq deref tracking (Reagent adapter) for an
   adjacent but DIFFERENT bug class — \"view doesn't update on click\"
   that looks superficially like \"frame lost across React onClick\" but
   is actually a Reagent reactive-tracking failure (a lazy `(for ...)`
   in a `reg-view` body whose elements deref subscriptions must be
   realised with `doall` / `mapv` / `into` inside the render scope).
-  Reach for `frame-bound-fn` when you have a genuine async-boundary
+  Reach for `frame-bound-fn*` when you have a genuine async-boundary
   case; reach for `doall` when you have a reactive-tracking case. Per
   rf2-atqkg the two are not interchangeable."
   ([f]
-   (let [frame (current-frame)]
+   (let [frame (current-frame-id)]
      (fn [& args]
        (binding [frame/*current-frame* frame]
          (apply f args)))))
@@ -908,6 +924,26 @@
    (fn [& args]
      (binding [frame/*current-frame* frame-id]
        (apply f args)))))
+
+#?(:clj
+   (defmacro frame-bound-fn
+     "Return a fn that captures the current frame and re-binds
+     `*current-frame*` inside its body. The `fn`-syntax sugar over
+     `frame-bound-fn*` — write the argv + body inline:
+
+       (rf/frame-bound-fn [msg] (rf/dispatch [:ws/incoming msg]))
+
+     is equivalent to
+
+       (rf/frame-bound-fn* (fn [msg] (rf/dispatch [:ws/incoming msg])))
+
+     The captured frame is closed over, so the returned fn dispatches
+     into the captured frame even when it fires after the surrounding
+     `with-frame` / `frame-provider` scope has unwound (the async-
+     boundary case). For the common dispatch / subscribe case prefer
+     `frame-handle`. Per Spec 002 §frame-bound-fn."
+     [argv & body]
+     (rvm/expand-frame-bound-fn argv body)))
 
 #?(:clj
    (defmacro with-fx-overrides
@@ -937,7 +973,7 @@
 
 #?(:cljs (def ^{:doc "Reagent component that puts a frame on React context
   for descendant views. Usage: `[rf/frame-provider {:frame :todo} &
-  children]`. Children resolve `(current-frame)` to the provided frame
+  children]`. Children resolve `(current-frame-id)` to the provided frame
   unless a lexical `with-frame` or dynamic binding overrides. Per
   Spec 002 §Reading the frame from React context."}
          frame-provider views/frame-provider))
@@ -1087,22 +1123,22 @@
   §`:rf/frame-meta`."}
   frame-meta   frame/frame-meta)
 
-(defn get-frame-db
-  "Return the current `app-db` value (plain map) for the named frame, or
-  `nil` if not registered. Value-form accessor (no deref). Per Spec 002
-  §The public registrar query API."
+(defn frame-db
+  "Return the current `app-db` VALUE (a plain map) for the named frame,
+  or `nil` if not registered. Value-form accessor (no deref, no
+  container). Per Spec 002 §The public registrar query API."
   [frame-id]
   (frame/frame-app-db-value frame-id))
 
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db — convenience over
-  `(get-in (rf/get-frame-db frame-id) path)`. Frame resolution:
-  `(:frame opts)` if supplied, else `(current-frame)`. Returns `nil` if
-  the frame is missing or the path resolves to nothing. Per Spec 002
+  `(get-in (rf/frame-db frame-id) path)`. Frame resolution:
+  `(:frame opts)` if supplied, else `(current-frame-id)`. Returns `nil`
+  if the frame is missing or the path resolves to nothing. Per Spec 002
   §The public registrar query API."
   ([path] (snapshot-of path nil))
   ([path opts]
-   (let [frame-id (or (:frame opts) (current-frame))]
+   (let [frame-id (or (:frame opts) (current-frame-id))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
 ;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
@@ -1121,7 +1157,7 @@
        `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
        reaction values). No-arg form uses the active frame. Per Spec 002
        §The public registrar query API."
-       ([] (sub-cache (current-frame)))
+       ([] (sub-cache (current-frame-id)))
        ([frame-id]
         (subs/sub-cache-snapshot frame-id)))
 

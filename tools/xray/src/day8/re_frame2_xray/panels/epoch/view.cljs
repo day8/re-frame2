@@ -1782,7 +1782,7 @@
   ;; focus click dispatches into the surrounding instance frame (the
   ;; affordance renders inside the Epoch Panel reg-view), not a
   ;; `:rf/xray` literal.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    (cond
     (some? parent-epoch-id)
     [:button {:data-testid "rf-xray-epoch-dispatch-parent-epoch-link"
@@ -3149,7 +3149,7 @@
   to `:app-db` is the whole navigation). Render-time frame capture
   mirrors the CHILD-DISPATCHES jump affordance."
   [idx]
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
     [:button {:data-testid (str "rf-xray-epoch-fx-row-db-destination-" idx)
               :aria-label "jump to the App-db panel for this epoch"
               :title "the committed db change is shown in the App-db panel"
@@ -3342,7 +3342,7 @@
   ;; `:rf/xray` singleton. Supersedes the prior `with-frame :rf/xray`
   ;; pin (the rf2-p56sk frame-anchor reasoning held only while Xray was
   ;; a single global frame).
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
           :data-mode (when (keyword? mode) (name mode))
           :style subs-filter-bar-style}
@@ -3723,7 +3723,7 @@
   writes + reads hit THIS instance's Xray app-db (N isolated shells
   stay independent), not the `:rf/xray` singleton."
   [{:keys [rows disposed-rows step-number violations]}]
-  (let [frame         (rf/current-frame)
+  (let [frame         (rf/current-frame-id)
         mode          @(rf/subscribe frame
                                      [:rf.xray.epoch/subs-filter-mode])
         visible-rows  (case mode
@@ -4452,7 +4452,7 @@
   the resolved child `:epoch-id`."
   [{:keys [dispatch-id epoch-history]} idx {:keys [event delay-ms via]}]
   ;; rf2-nesy9 — render-time frame capture for the deferred jump click.
-  (let [frame          (rf/current-frame)
+  (let [frame          (rf/current-frame-id)
         child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
     [:div {:key (str "child-dispatch-" idx)
            :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)

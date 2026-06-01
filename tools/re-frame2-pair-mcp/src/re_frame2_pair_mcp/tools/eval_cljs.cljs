@@ -102,7 +102,7 @@
   sent over nREPL. `with-frame` is the framework's lexical frame-
   binding macro (per Spec 002 §with-frame) — `*current-frame*` is
   bound to the named frame for the form's dynamic extent, so any
-  `(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame)`
+  `(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame-id)`
   inside the form resolves against the requested frame.
 
   The wrap composes orthogonally with `:await true`: a Promise-

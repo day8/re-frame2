@@ -208,7 +208,7 @@
                             ;; state is independent (Spec 002 §Rules
                             ;; rule 1) and this thread holds the only
                             ;; writer for this frame.
-                            (let [actor-id (get-in (rf/get-frame-db frame-id)
+                            (let [actor-id (get-in (rf/frame-db frame-id)
                                                    [:rf/runtime :machines :spawned driver-mid [:working]])]
                               (when actor-id
                                 (rf/dispatch-sync [actor-id [:tick]]
@@ -260,7 +260,7 @@
         ;; --- Invariants 3 + 4: clean destroy lifecycle and
         ;;     spawn-counter monotonicity, per frame.
         (doseq [{:keys [frame-id worker-mid driver-mid]} per-thread]
-          (let [db       (rf/get-frame-db frame-id)
+          (let [db       (rf/frame-db frame-id)
                 machines (get-in db [:rf/runtime :machines :snapshots])
                 ;; The driver itself is a singleton machine reg'd on
                 ;; the GLOBAL registrar (singleton-registration path);

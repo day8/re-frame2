@@ -2796,7 +2796,7 @@
 
   Both gestures dispatch through the lexically-captured `dispatch-fn` —
   the frame-aware dispatcher the surrounding `reg-view` body bound via
-  `(rf/dispatcher)` at render time. The closure captured the instance
+  `(:dispatch (rf/frame-handle))` at render time. The closure captured the instance
   frame synchronously during render, so the dispatch lands on the
   SURROUNDING instance frame even though the gesture fires later (after
   React's synthetic-event timing has popped the dynamic frame context).
@@ -2965,7 +2965,7 @@
 
   The popup OPEN event dispatches through the lexically-captured
   `dispatch-fn` — the frame-aware dispatcher the surrounding `reg-view`
-  body bound via `(rf/dispatcher)` at render time. The closure captured
+  body bound via `(:dispatch (rf/frame-handle))` at render time. The closure captured
   `(current-frame)` synchronously during render, so the popup-open
   write lands on the SURROUNDING instance frame even though the click
   fires after React's synthetic-event timing has popped the dynamic

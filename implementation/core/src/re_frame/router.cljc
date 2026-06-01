@@ -1372,8 +1372,8 @@
 
       The binding does NOT survive async escapes (setTimeout,
       Promise.then, requestAnimationFrame): the JS callback fires on
-      a fresh stack with no dynamic binding. Use `(rf/dispatcher)`
-      (capture-at-call-time), `:fx [[:dispatch ...]]` (fx-walker
+      a fresh stack with no dynamic binding. Use `(rf/frame-handle)`
+      (capture-at-creation), `:fx [[:dispatch ...]]` (fx-walker
       threads the frame), or `:dispatch-later` (frame captured in
       closure) for those paths. Per rf2-l5q3."
   [envelope]

@@ -32,7 +32,7 @@
             [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame
-                                          bound-fn reg-view]]))
+                                          frame-bound-fn reg-view]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework
@@ -53,7 +53,7 @@
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/get-frame-db :rf/default))))))
+    (is (= 2 (:n (rf/frame-db :rf/default))))))
 
 (deftest sub-chain-cljs
   (testing "layer-1 + layer-2 subs return computed values"
@@ -69,25 +69,25 @@
 (deftest with-frame-binds-current-frame
   (testing "with-frame :foo binds *current-frame* in the body"
     (with-frame :left
-      (is (= :left (rf/current-frame))))
+      (is (= :left (rf/current-frame-id))))
     (testing "with-new-frame [sym expr] binds the symbol AND the dynamic var"
       (with-new-frame [f :right]
         (is (= :right f))
-        (is (= :right (rf/current-frame))))))
+        (is (= :right (rf/current-frame-id))))))
   (testing "outside any binding the dynamic var falls back to :rf/default"
-    (is (= :rf/default (rf/current-frame)))))
+    (is (= :rf/default (rf/current-frame-id)))))
 
-;; ---- bound-fn macro ---------------------------------------------------------
+;; ---- frame-bound-fn macro ---------------------------------------------------
 
-(deftest bound-fn-captures-frame
-  (testing "bound-fn captures the current frame and re-binds it inside the body"
+(deftest frame-bound-fn-captures-frame
+  (testing "frame-bound-fn captures the current frame and re-binds it inside the body"
     (rf/reg-frame :side {:doc "side frame"})
     (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [captured (with-frame :side (bound-fn [] (rf/current-frame)))]
-      ;; Outside the with-frame, dynamic var has reverted; the bound-fn
+    (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
+      ;; Outside the with-frame, dynamic var has reverted; the frame-bound-fn
       ;; preserves :side.
-      (is (= :rf/default (rf/current-frame)))
+      (is (= :rf/default (rf/current-frame-id)))
       (is (= :side       (captured))))))
 
 ;; ---- reg-view macro ---------------------------------------------------------
@@ -253,7 +253,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
-    (is (= 12 (:area (rf/get-frame-db :rf/default))))))
+    (is (= 12 (:area (rf/frame-db :rf/default))))))
 
 ;; ---- routing --------------------------------------------------------------
 
@@ -490,7 +490,7 @@
           "ref-count reflects two outstanding subscribes for [:n]")
       (is (= 1     (get-in snapshot [[:name*] :ref-count])))
       ;; Default no-arg form uses the active frame.
-      (is (= snapshot (subs-tooling/sub-cache-snapshot (rf/current-frame)))
+      (is (= snapshot (subs-tooling/sub-cache-snapshot (rf/current-frame-id)))
           "no-arg form returns the active frame's snapshot")
       (rf/unsubscribe [:n])
       (rf/unsubscribe [:n])

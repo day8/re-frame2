@@ -19,7 +19,7 @@
   ## Frame discipline (de-singletoned shell — rf2-1w07r)
 
   The chrome's `shell-view` takes a `:frame-id` opt; the `chrome-shell`
-  wrapper threads the Story per-variant frame (`(rf/current-frame)`)
+  wrapper threads the Story per-variant frame (`(rf/current-frame-id)`)
   into it, so the ribbon + the modal it mounts read from THIS variant's
   frame. Story's runtime dispatches every `:setup` step into that same
   variant frame, so a variant seeds its pills + opens the popup with the

@@ -274,7 +274,7 @@
                                            :description (str "Operating frame for the form's lexical scope (rf2-ntuzf). "
                                                              "When supplied, the form is wrapped in "
                                                              "(re-frame.core/with-frame <frame> <form>) server-side so "
-                                                             "(rf/subscribe ...) / (rf/dispatch ...) / (rf/current-frame) "
+                                                             "(rf/subscribe ...) / (rf/dispatch ...) / (rf/current-frame-id) "
                                                              "inside the form resolve against the named frame. Accepts "
                                                              "bare names (\"rf/default\") or EDN-shaped strings "
                                                              "(\":rf/default\"). When omitted, the form runs in the MCP "

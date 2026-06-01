@@ -57,7 +57,7 @@
   [recs]
   (doseq [r recs]
     (rf/dispatch-sync [::seed r] {:frame bridge-frame}))
-  (count (:rf.story/assertions (rf/get-frame-db bridge-frame))))
+  (count (:rf.story/assertions (rf/frame-db bridge-frame))))
 
 (defn- bridge-reset!
   "Single namespace fixture (rf2-uhq5j unified the prior JVM-only
@@ -174,7 +174,7 @@
   terminal assertion has a FINAL settled state to read."
   [m]
   (rf/dispatch-sync [::seed-db m] {:frame bridge-frame})
-  (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+  (:rf.story/assertions (rf/frame-db bridge-frame)))
 
 (deftest run-terminal-assertions-records-handler-backed-pass-and-fail
   (testing "run-terminal-assertions! dispatches each handler-backed terminal
@@ -186,7 +186,7 @@
       bridge-frame
       [[:rf.assert/path-equals [:status] :loaded]    ; passes
        [:rf.assert/path-equals [:status] :idle]])    ; fails
-    (let [recs (vec (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+    (let [recs (vec (:rf.story/assertions (rf/frame-db bridge-frame)))
           pe   (filterv #(= :rf.assert/path-equals (:assertion %)) recs)]
       (is (= 2 (count pe)) "both handler-backed terminal atoms recorded")
       (is (true?  (:passed? (first pe)))  "the matching expectation passed")
@@ -204,7 +204,7 @@
       bridge-frame
       [[:rf.assert/path-equals [:status] :loaded]
        [:rf.assert/schema-error {:where :event :event :some/evt}]])
-    (let [recs (vec (:rf.story/assertions (rf/get-frame-db bridge-frame)))]
+    (let [recs (vec (:rf.story/assertions (rf/frame-db bridge-frame)))]
       (is (= 1 (count (filterv #(= :rf.assert/path-equals (:assertion %)) recs)))
           "the handler-backed atom recorded exactly once")
       (is (empty? (filterv #(= :rf.assert/schema-error (:assertion %)) recs))
@@ -217,7 +217,7 @@
     (seed-db! {:status :loaded})
     (re/run-terminal-assertions! bridge-frame [])
     (re/run-terminal-assertions! bridge-frame nil)
-    (is (empty? (:rf.story/assertions (rf/get-frame-db bridge-frame)))
+    (is (empty? (:rf.story/assertions (rf/frame-db bridge-frame)))
         "an empty / nil terminal-assertions vector is a clean no-op")))
 
 ;; ---- CLJS-runnable: pure-data coverage of the script lift ---------------

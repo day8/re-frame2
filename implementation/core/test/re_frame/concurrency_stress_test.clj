@@ -248,8 +248,8 @@
       ;;     was entered at least once — observability surface live).
       ;;     We do NOT assert an upper bound: schedule is timing-
       ;;     dependent and 0/N hits are equally valid framework behaviour.
-      (let [a-actual (:n (rf/get-frame-db :rgj.sync/a))
-            b-actual (:n (rf/get-frame-db :rgj.sync/b))]
+      (let [a-actual (:n (rf/frame-db :rgj.sync/a))
+            b-actual (:n (rf/frame-db :rgj.sync/b))]
         (is (= (inc n-a) a-actual)
             (str "Frame A: expected " (inc n-a)
                  " bumps processed; got " a-actual))
@@ -334,7 +334,7 @@
         ;; Validate: exactly stress-iters events processed. If ANY
         ;; event ran twice or got skipped under the registry-swap race,
         ;; :n would diverge.
-        (let [n (:n (rf/get-frame-db :rgj.reload/main))]
+        (let [n (:n (rf/frame-db :rgj.reload/main))]
           (is (= stress-iters n)
               (str "Expected " stress-iters " events processed under "
                    "hot-reload churn; got " n)))))))

@@ -120,20 +120,27 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 
 ## View ergonomics
 
+The multi-frame surface is organised by **intent**, not mechanism (a front-porch / back-room split — per [002 §The multi-frame surface](002-Frames.md#the-multi-frame-surface--choose-by-intent)):
+
+- **Single-frame** (no frames in play): `dispatch`, `dispatch-sync`, `subscribe`.
+- **Scope:** `with-frame`, `with-new-frame`, `frame-provider`.
+- **Hold** (carry a frame's ops as a value, across async): `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced).
+- **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
+- **Reads / lifecycle:** `frame-db`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | 002 |
 | `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | 002 |
-| `bound-fn` | M | `(bound-fn [args] body)` | v1 | 002 |
-| `frame-bound-fn` | Fn | `(frame-bound-fn f)` *or* `(frame-bound-fn frame-id f)` → frame-rebinding closure. Higher-order sibling of `bound-fn` — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Canonical React click-handler shape | v1 | 002 |
-| `dispatcher` | Fn | `(dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a frame-bound dispatch fn. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound | v1 | 002, 004 |
-| `subscriber` | Fn | `(subscriber)` → `(fn [query-v] ...)` — companion to `dispatcher` for subscribe. Captures the current frame at call time | v1 | 002, 004 |
+| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. A per-call `:frame` opt MUST NOT override the captured frame (the handle is locked). Read app-db via `(frame-db (:frame h))`, not the handle | v1 | 002, 004 |
+| `frame-bound-fn` | M | `(frame-bound-fn [args] body)` → frame-rebinding closure (`fn`-syntax sugar over `frame-bound-fn*`). Re-establishes `*current-frame*` (captured at lex-binding) for the body | v1 | 002 |
+| `frame-bound-fn*` | Fn | `(frame-bound-fn* f)` *or* `(frame-bound-fn* frame-id f)` → frame-rebinding closure. The `*`-twin of the `frame-bound-fn` macro — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Advanced; prefer `frame-handle` for the common dispatch / subscribe case | v1 | 002 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | 001, 004 |
 
 `with-frame` (pin) and `with-new-frame` (eval-bind-run-destroy) are documented in [002 §with-frame and with-new-frame](002-Frames.md#with-frame-and-with-new-frame). The macros are non-overlapping: each rejects the other's argument shape at compile time, with `:recovery` pointing the caller at the right sibling. Per rf2-twoc5.
 
-`bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`. `frame-bound-fn` is a plain fn, available on both CLJS and JVM (no macro indirection).
+`frame-handle` is the keystone affordance — it replaces the removed `dispatcher` / `subscriber` nouns and is the single answer to "carry a frame's dispatch/subscribe ops across an async boundary." `frame-bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/frame-bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [frame-bound-fn]]`. `frame-bound-fn*` is a plain fn, available on both CLJS and JVM (no macro indirection).
 
 ---
 
@@ -151,7 +158,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 | `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
 | `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | 006, 011 |
 
-Per Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
+Per Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
 The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — both the Reagent adapter and the UIx adapter consume the same `createContext` object so a future mixed-substrate app's frame-provider chain composes across substrates.
 
@@ -171,7 +178,7 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
 | `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
 | `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | 006, 011 |
 
-Per (transferring Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
+Per (transferring Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
 The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent, UIx, and Helix adapters all consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
 
@@ -385,7 +392,7 @@ For tooling, agents, story tools, 10x.
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | 002 |
-| `get-frame-db` | Fn | `(get-frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
+| `frame-db` | Fn | `(frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
 | `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
@@ -477,7 +484,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 | `register-epoch-listener!` | Fn | `(register-epoch-listener! key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
 | `unregister-epoch-listener!` | Fn | `(unregister-epoch-listener! key)` | v1 (dev-only) | Tool-Pair, 009 |
 | `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
-| `get-frame-db` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
+| `frame-db` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
 
 Trace events emitted by epoch-history machinery:
 
@@ -583,7 +590,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|
@@ -782,8 +789,13 @@ See [007-Stories.md](007-Stories.md).
 | `dispatch-sync-with` (master) | Use `(dispatch-sync event {:fx-overrides {...}})` | MIGRATION M-4 |
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
-| `frame-dispatcher` (proposed earlier) | Use `dispatcher` (captures current frame at call time; safe to call during render and from async callbacks) | 002 |
-| `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Cut as pure aliases for `dispatcher` / `subscriber`. The verb-form names already imply capture-at-call-time semantics | 002 |
+| `frame-dispatcher` / `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Use `(rf/frame-handle)` (the keystone OPERATION BUNDLE — captures the frame at creation; safe during render and from async callbacks) | 002 |
+| `bound-fn` (CLJS macro) | Use `frame-bound-fn` (the macro is renamed; same `fn`-syntax + frame-capture) | 002 |
+| `dispatcher` | Use `(:dispatch (rf/frame-handle))` *or* the `dispatch` injected in a `reg-view` body | 002 |
+| `subscriber` | Use `(:subscribe (rf/frame-handle))` *or* the `subscribe` injected in a `reg-view` body | 002 |
+| `frame-bound-fn` (fn form, 1- and 2-arity) | Renamed to `frame-bound-fn*` (the `*`-twin); `frame-bound-fn` is now the macro | 002 |
+| `current-frame` | Renamed to `current-frame-id` (returns a frame-id keyword) | 002 |
+| `get-frame-db` | Renamed to `frame-db` (returns the app-db VALUE, a plain map) | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-listener!` / `unregister-listener!` | 009 |
 | `register-trace-listener` / `unregister-trace-listener` (no-bang, proposed earlier) | Renamed to `register-listener!` / `unregister-listener!` (bang form matches the side-effecting nature of listener registration) | 009 |

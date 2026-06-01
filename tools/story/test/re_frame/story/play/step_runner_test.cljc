@@ -221,7 +221,7 @@
             the event has committed by the time exec-step! returns"
     (let [res (exec-step! step-frame 0 [:dispatch [:step/inc]])]
       (is (nil? (:passed? res)) "a plain dispatch contributes no pass/fail")
-      (is (= 1 (:n (rf/get-frame-db step-frame)))
+      (is (= 1 (:n (rf/frame-db step-frame)))
           "the dispatch drained synchronously through settled-boundary"))))
 
 (deftest wait-until-settles-when-predicate-true
@@ -254,7 +254,7 @@
     (rf/dispatch-sync* [:step/set :ready] {:frame step-frame})
     (let [res (exec-step! step-frame 0 [:assert [:rf.assert/path-equals [:v] :ready]])]
       (is (true? (:passed? res)) "the checkpoint passed at this point")
-      (let [recs (:rf.story/assertions (rf/get-frame-db step-frame))]
+      (let [recs (:rf.story/assertions (rf/frame-db step-frame))]
         (is (= 1 (count recs)) "exactly one assertion record landed")
         (is (= :rf.assert/path-equals (:assertion (last recs))))
         (is (true? (:passed? (last recs)))))))
@@ -263,14 +263,14 @@
     (rf/dispatch-sync* [:step/set :ready] {:frame step-frame})
     (let [res (exec-step! step-frame 1 [:assert [:rf.assert/path-equals [:v] :NOPE]])]
       (is (false? (:passed? res)) "the checkpoint failed at this point")
-      (let [recs (:rf.story/assertions (rf/get-frame-db step-frame))]
+      (let [recs (:rf.story/assertions (rf/frame-db step-frame))]
         (is (false? (:passed? (last recs)))))))
   (testing "the checkpoint records exactly ONE assertion (no double-count
             from the assertion-slot mirror bridge)"
     (rf/dispatch-sync* [:step/set 7] {:frame step-frame})
-    (let [before (count (:rf.story/assertions (rf/get-frame-db step-frame)))]
+    (let [before (count (:rf.story/assertions (rf/frame-db step-frame)))]
       (exec-step! step-frame 0 [:assert [:rf.assert/path-equals [:v] 7]])
-      (is (= 1 (- (count (:rf.story/assertions (rf/get-frame-db step-frame))) before))
+      (is (= 1 (- (count (:rf.story/assertions (rf/frame-db step-frame))) before))
           "the wrapped :rf.assert/* handler is the SOLE recorder for [:assert …]"))))
 
 (deftest focus-refuses-cannot-run-under-headless

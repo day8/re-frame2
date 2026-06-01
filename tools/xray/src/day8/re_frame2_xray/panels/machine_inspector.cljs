@@ -588,7 +588,7 @@
   ;; rf2-nesy9 — render-time frame capture so the deferred toggle click
   ;; dispatches into the surrounding instance frame, not a `:rf/xray`
   ;; literal. Rendered inside the machine-inspector Panel reg-view.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    [:button
    {:data-testid (str "rf-xray-machine-chart-toggle-"
                       (machine-id-suffix machine-id))
@@ -680,7 +680,7 @@
   ;; node-ids for the focused-event lens highlight.
   (let [;; rf2-nesy9 — render-time frame capture for the deferred
         ;; right-click filter dispatch.
-        frame      (rf/current-frame)
+        frame      (rf/current-frame-id)
         from-id    (when from-state (chart-layout/highlight-id from-state))
         to-id      (when to-state   (chart-layout/highlight-id to-state))
         engine     "xyflow+elkjs"
@@ -889,7 +889,7 @@
   focused machine. Disabled when no machine is in scope."
   [machine-id]
   ;; rf2-nesy9 — render-time frame capture for the deferred nav clicks.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    (when machine-id
     [:div {:data-testid "rf-xray-machine-inspector-prev-next-nav"
            :data-machine-id (str machine-id)
@@ -1022,7 +1022,7 @@
   "Top-right Share button in the panel toolbar."
   []
   ;; rf2-nesy9 — render-time frame capture for the deferred share click.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    [:button
    {:data-testid "rf-xray-machine-inspector-share-button"
     :on-click    (fn [_]

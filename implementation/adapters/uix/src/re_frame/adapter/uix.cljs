@@ -44,7 +44,7 @@
   right frame and vice versa.
 
   React-context tier only. For the full resolution chain
-  (dynamic-var → React-context → :rf/default) use `(rf/current-frame)`;
+  (dynamic-var → React-context → :rf/default) use `(rf/current-frame-id)`;
   the routed `:adapter/current-frame` hook (registered below) covers
   that chain. Per rf2-84myk."
   (:use-current-frame spine-fns))

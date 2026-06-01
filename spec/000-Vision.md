@@ -214,7 +214,7 @@ re-frame currently uses `re-frame.interop` (with separate `.clj` and `.cljs` imp
 - Machine transition evaluation (`machine-transition` is a pure function; `make-machine-handler` is a pure factory producing a JVM-runnable event handler body).
 - Sub-graph *static topology* (`sub-topology` — the dependency graph derived from `:<-` declarations, pure data from the registrar).
 - Sub-graph *computation* (computing a sub's value from `app-db` directly, without the reactive-tracking layer).
-- The public registrar query API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `get-frame-db`, `snapshot-of`, `sub-topology`).
+- The public registrar query API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `frame-db`, `snapshot-of`, `sub-topology`).
 
 These cover the entire business-logic layer — enough for `deftest`-style unit and integration tests without a JS runtime.
 
@@ -438,7 +438,7 @@ The downstream Specs own their respective contracts in full; 000 only records th
 - **Views — [004-Views.md](004-Views.md).** Views are pure `(state, props) → render-tree`. The CLJS reference's `reg-view` injects frame-bound `dispatch`/`subscribe` lexically; plain Reagent fns continue to work but target `:rf/default`.
 - **Features (modularity) — [Construction-Prompts.md §CP-6](Construction-Prompts.md).** A feature is a coherent registry slice (events + subs + views + schemas + optional machine + `app-db` slice) addressable by a shared id-prefix. The pattern's mechanism is convention, not a registry kind: tooling enforces prefix discipline; the runtime needs no `:feature` registry kind because slices are auditable from `(rf/registrations …)` directly.
 - **Schemas — [010-Schemas.md](010-Schemas.md).** Malli in the CLJS reference; schemas register on every `reg-*` via `:schema` and on `app-db` paths via `reg-app-schema`. Validation runs in dev, elides in production. (Other-language hosts use their type system; see the host-profile matrix.)
-- **Tooling and agent surface — [002-Frames.md §The public registrar query API](002-Frames.md#the-public-registrar-query-api).** Public, queryable registrar (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `get-frame-db`, `snapshot-of`, `sub-topology`); per-frame trace stream feeding 10x and re-frame-pair; observable hot-reload notifications; machine-readable errors as maps with documented keys.
+- **Tooling and agent surface — [002-Frames.md §The public registrar query API](002-Frames.md#the-public-registrar-query-api).** Public, queryable registrar (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `frame-db`, `snapshot-of`, `sub-topology`); per-frame trace stream feeding 10x and re-frame-pair; observable hot-reload notifications; machine-readable errors as maps with documented keys.
 - **Migration — [MIGRATION.md](../migration/from-re-frame-v1/README.md).** The executable contract for the AI-driven upgrade path under [C1](#c1-mechanical-migration-via-ai-agent). M-rules, O-rules, classifications, agent verification steps. 000 records the principle; MIGRATION.md owns the rule set.
 
 ## Scope and roadmap
@@ -531,7 +531,7 @@ Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/READM
 
 ### Plain Reagent fns under non-default frames
 
-Plain fns continue to work; the runtime emits a `:rf.warning/plain-fn-under-non-default-frame-once` trace event the first time a plain fn renders under a non-default frame, suppressed thereafter on the same `(component-id, frame-id)` pair. `(rf/dispatcher)` / `(rf/subscriber)` render-time helpers give frame-awareness without registering. See [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning).
+Plain fns continue to work; the runtime emits a `:rf.warning/plain-fn-under-non-default-frame-once` trace event the first time a plain fn renders under a non-default frame, suppressed thereafter on the same `(component-id, frame-id)` pair. `(rf/frame-handle)` gives frame-awareness without registering (its `:dispatch` / `:subscribe` ops capture the render frame). See [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning).
 
 ### Event shape and dispatch envelope
 

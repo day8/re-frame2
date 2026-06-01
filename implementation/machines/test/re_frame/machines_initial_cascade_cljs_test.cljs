@@ -18,7 +18,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (deftest machine-initial-cascade-on-first-dispatch
   (testing "compound :initial chain descends to a leaf on first-dispatch snapshot synthesis (rf2-m1tv)"

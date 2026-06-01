@@ -25,17 +25,17 @@
   (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                 :auth.session/persist :rf/no-op}})]
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
+    (assert (= :idle (rf/compute-sub [:auth/state] (rf/frame-db f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
                                                 :password "correct-horse"}]]
                       {:frame f})
-    (assert (= :authed (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (= "alice" (:username (rf/compute-sub [:auth/user] (rf/get-frame-db f)))))
+    (assert (= :authed (rf/compute-sub [:auth/state] (rf/frame-db f))))
+    (assert (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-db f)))))
 
     (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (nil? (rf/compute-sub [:auth/user] (rf/get-frame-db f))))))
+    (assert (= :idle (rf/compute-sub [:auth/state] (rf/frame-db f))))
+    (assert (nil? (rf/compute-sub [:auth/user] (rf/frame-db f))))))
 
 (defn session-token-cofx-shape-test []
   ;; Cofx-shape contract — the :auth.session/token cofx must assoc its
@@ -66,8 +66,8 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
                       {:frame f})
-    (assert (= :error (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (some? (rf/compute-sub [:auth/error] (rf/get-frame-db f))))
+    (assert (= :error (rf/compute-sub [:auth/state] (rf/frame-db f))))
+    (assert (some? (rf/compute-sub [:auth/error] (rf/frame-db f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/dismiss]] {:frame f})
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))))
+    (assert (= :idle (rf/compute-sub [:auth/state] (rf/frame-db f))))))

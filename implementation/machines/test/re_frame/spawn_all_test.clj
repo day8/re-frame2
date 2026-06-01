@@ -25,7 +25,7 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- frame-db []
-  (rf/get-frame-db :rf/default))
+  (rf/frame-db :rf/default))
 
 (defn- snapshot
   [machine-id]

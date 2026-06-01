@@ -172,7 +172,7 @@
   ;; rf2-nesy9 — render-time frame capture (rendered inside the schemas
   ;; Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 — the flex-row
   ;; markup lives in the shared `search-box` component.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
     [search-box/search-box
      {:testid-prefix   "rf-xray-static-schemas"
       :dispatch        (fn [ev] (rf/dispatch ev {:frame frame}))
