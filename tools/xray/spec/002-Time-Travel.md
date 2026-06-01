@@ -218,7 +218,7 @@ Xray's version stays inside Lock #4 (no session export — see below).
 
 ### What a pin captures
 
-A pin is the **4-tuple** `(epoch-id × frame-db-value × dispatch-id × user-label)`:
+A pin is the **4-tuple** `(epoch-id × app-db-value × dispatch-id × user-label)`:
 
 | Slot | Source | Why it's pinned |
 |---|---|---|

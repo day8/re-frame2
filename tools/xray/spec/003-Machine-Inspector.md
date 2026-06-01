@@ -244,12 +244,20 @@ action id. Production-elided per Spec 009 §Production builds — under
 `:advanced` + `goog.DEBUG=false` the macro emission drops the
 source-string stamp and the runtime registrar writes no-op,
 keeping fn-body bytes out of prod bundles (verified by the
-elision-probe `rf.machine/handler-source` sentinel). The
-`reg-machine*` plain-fn surface bypasses the macro walker, so
-programmatic registrations carry no fn-source — tools fall back to
-the call-site coords on the top-level `(rf/handler-meta :event
-<machine-id>)`, per the standard `reg-machine` / `reg-machine*`
-contract (Spec 005 §reg-machine vs reg-machine*).
+elision-probe `rf.machine/handler-source` sentinel). The inline
+`reg-machine` macro is not the only capture site: a machine defined
+with `defmachine` (the `def`-replacement that walks the inline literal
+at the DEFINITION site, rf2-gwj8l) carries the same per-element
+`:rf.machine/source-coords` + `:rf.machine/handler-source` stamps on
+the def'd VALUE, so a value-registered machine — `(defmachine m …)`
+then `(reg-machine :id m)` — surfaces source in the inspector exactly
+as an inline `reg-machine` does. The `reg-machine*` plain-fn surface
+and a plain `(def m {…})` value bypass both walkers, so those
+registrations carry no fn-source — tools fall back to the call-site
+coords on the top-level `(rf/handler-meta :event <machine-id>)`, per
+the standard `reg-machine` / `reg-machine*` contract (Spec 005
+§reg-machine vs reg-machine* and §Value-registered machines —
+defmachine).
 
 ### Operator decision — Dynamic resolved, other modes pending (rf2-99rhe + rf2-8og3k)
 

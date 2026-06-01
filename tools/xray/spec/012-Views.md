@@ -512,7 +512,7 @@ isolation filter) is never elided at runtime.
 ## Embedding
 
 The Views tab ships as
-`day8.re-frame2-xray.panels.views/Panel`. Embeddability is **v1.1**;
+`day8.re-frame2-xray.panels.reactive-panel/Panel`. Embeddability is **v1.1**;
 v1.0 ships the panel as part of Xray's tab bar only.
 
 ## Cross-references
