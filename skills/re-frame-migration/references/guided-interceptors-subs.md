@@ -104,7 +104,7 @@ The author picks the flow's `:id`; the agent suggests `:legacy/<original-event-i
 **Risk**: ran an arbitrary fn `:after` the handler; could modify `db`. Three replacement paths:
 
 1. **Computing derived state** → Spec 013 flow. Same rewrite as `on-changes`.
-2. **Post-handler validation** → registered `:spec` per Spec 010 (Malli schema on the registration's metadata map).
+2. **Post-handler validation** → registered `:schema` per Spec 010 (Malli schema on the registration's metadata map; `:spec` is no longer accepted — see M-54).
 3. **Imperative escape hatch** → custom `->interceptor` with the original body.
 
 Read the `enrich` body and propose the path; author confirms.
