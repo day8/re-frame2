@@ -145,6 +145,58 @@
         (is (number? (:rf.view/elapsed-ms t)) ":rf.view/elapsed-ms is a number")
         (is (>= (:rf.view/elapsed-ms t) 0) ":rf.view/elapsed-ms is non-negative")))))
 
+(deftest rf-view-rendered-carries-render-args
+  (testing ":rf.view/rendered carries :rf.view/render-args — the vector of
+   positional render args/props passed to THIS render (rf2-rpgq8). Captured
+   by the substrate-agnostic views.cljs frame-aware-view wrapper. A no-arg
+   render omits the slot (additive — existing consumers unaffected)."
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
+      (rf/reg-view ^{:rf/id :rf2-rpgq8/with-args} args-view [_label _n]
+        [:span "ok"])
+      ((rf/view :rf2-rpgq8/with-args) {:label "hi"} 42)
+      (let [ev (first @traces)
+            t  (:tags ev)]
+        (is (some? ev) "an :rf.view/rendered event was emitted")
+        (is (= [{:label "hi"} 42] (:rf.view/render-args t))
+            ":rf.view/render-args is the vector of positional render args")))))
+
+(deftest rf-view-rendered-omits-render-args-on-no-arg-render
+  (testing ":rf.view/render-args is ABSENT on a no-arg render (rf2-rpgq8 —
+   additive contract)."
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
+      (rf/reg-view ^{:rf/id :rf2-rpgq8/no-args} no-args-view []
+        [:span "static"])
+      ((rf/view :rf2-rpgq8/no-args))
+      (let [ev (first @traces)
+            t  (:tags ev)]
+        (is (some? ev) ":rf.view/rendered still fires")
+        (is (not (contains? t :rf.view/render-args))
+            ":rf.view/render-args omitted when the view took no args")))))
+
+(deftest rf-view-rendered-render-args-elided-at-emit
+  (testing "PRIVACY (rf2-rpgq8 / Spec 009 §Privacy): render args are
+   arbitrary user data, so :rf.view/render-args routes through the SAME
+   emit-time elision chokepoint as :rf.event/db — the marks projection runs
+   `elide-wire-value` against the frame's app-db elision registry. A
+   schema-declared `{:sensitive? true}` path inside a render arg reaches the
+   trace surface as :rf/redacted, never raw."
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
+      (rf/reg-app-schema [:auth]
+                         [:map
+                          [:username :string]
+                          [:password {:sensitive? true} :string]])
+      (rf/populate-sensitive-from-schemas!)
+      (rf/reg-view ^{:rf/id :rf2-rpgq8/sensitive} sensitive-view [_props]
+        [:span "ok"])
+      ((rf/view :rf2-rpgq8/sensitive) {:auth {:username "ada" :password "hunter2"}})
+      (let [ev   (first @traces)
+            arg0 (first (get-in ev [:tags :rf.view/render-args]))]
+        (is (some? ev) "an :rf.view/rendered event was emitted")
+        (is (= :rf/redacted (get-in arg0 [:auth :password]))
+            "the [:auth :password] leaf inside the render arg is redacted at emit")
+        (is (= "ada" (get-in arg0 [:auth :username]))
+            "a non-sensitive sibling leaf is preserved")))))
+
 (deftest rf-sub-run-carries-elapsed-ms
   (testing ":rf.sub/run carries :rf.sub/elapsed-ms — the wall-clock duration
    of the sub body recompute (rf2-hhh92). The reactive memo wrapper brackets

@@ -243,15 +243,23 @@ const DEV_ONLY_SENTINELS = [
   // string literal must elide in :advanced + goog.DEBUG=false.
   { source: 're-frame.epoch/maybe-redact (rf.warning/epoch-redact-fn-exception)',
     sentinel: 'rf.warning/epoch-redact-fn-exception' },
-  // re-frame.views — :view/render trace op (Spec 004 §Render-tree
+  // re-frame.views — :rf.view/render trace op (Spec 004 §Render-tree
   // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit
   // body sits inside `(when interop/debug-enabled? ...)`. The
   // operation keyword's string fragment must elide in production —
   // along with the instance-token mint, the *render-key* binding,
   // and the late-bind lookup.
-  { source: 're-frame.views/reg-view* frame-aware-view (view/render)',
-    sentinel: 'view/render' },
+  //
+  // The sentinel includes the trailing keyword-terminator quote
+  // (`rf.view/render"`) so it matches ONLY the `:rf.view/render` op
+  // keyword and NOT the longer `:rf.view/render-args` slot keyword
+  // (rf2-rpgq8) that legitimately survives in production via the
+  // always-reachable `re-frame.marks/project-trace-event` chokepoint.
+  // A bare `view/render` substring would superstring-collide with
+  // `rf.view/render-args` and fire a false production-leak positive.
+  { source: 're-frame.views/reg-view* frame-aware-view (rf.view/render)',
+    sentinel: 'rf.view/render"' },
   // re-frame.views — :rf.view/rendered cascade-attribution op (rf2-25zo2).
   // Emitted alongside :view/render from the same `(when interop/debug-
   // enabled? ...)`-gated emit-render-trace! body; carries :view-id,
@@ -261,6 +269,28 @@ const DEV_ONLY_SENTINELS = [
   // goog.DEBUG=false alongside the existing view/render sentinel.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/rendered)',
     sentinel: 'rf.view/rendered' },
+  // re-frame.views — :rf.view/render-args (rf2-rpgq8). The view's
+  // positional render args/props are captured in the views.cljs
+  // frame-aware-view wrapper under `(when interop/debug-enabled? args)`
+  // and stamped under `:rf.view/render-args` inside the SAME gated
+  // emit-view-rendered-trace! body as the `rf.view/rendered` op keyword
+  // above. Both the capture and the assoc DCE under :advanced +
+  // goog.DEBUG=false, so NO raw user render-args reach the production
+  // bundle — that absence rides the existing `rf.view/rendered` sentinel
+  // (same gated emit body, no separate sentinel needed, exactly like the
+  // rf2-9hoos `:mount?` / `:deref-subs` slots).
+  //
+  // NOTE — we deliberately do NOT add a `rf.view/render-args` keyword
+  // sentinel: the keyword literal LEGITIMATELY survives in production via
+  // `re-frame.marks/project-trace-event` (the always-reachable marks
+  // chokepoint, gated at the trace/emit! CALL site, not internally), the
+  // same way `:rf.event/db` / `:rf.cofx/value` / `:rf.sub/run` keyword
+  // literals survive there. The privacy guarantee is that the VALUES never
+  // leak (capture DCEs in views.cljs; the in-dev marks projection elides
+  // the slot value against the frame registry), not that the slot keyword
+  // is absent. (Also, `rf.view/render-args` superstring-matches the
+  // `view/render` sentinel, so a keyword sentinel here would be a
+  // self-defeating false positive.)
   // re-frame.views — :rf.view/unmounted teardown op (rf2-9hoos). Emitted
   // by `emit-view-unmounted!` (via the per-render-instance reaction
   // dispose installed by `install-unmount-hook!`) when a registered view

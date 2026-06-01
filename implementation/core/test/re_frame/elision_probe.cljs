@@ -286,6 +286,21 @@
     (fn render-probe [] [:span "probe"]))
   (let [wrapper (rf/view :probe/render-key)]
     (when wrapper (wrapper)))
+  ;; rf2-rpgq8 — render a view WITH args so the render-args capture path
+  ;; (`(when interop/debug-enabled? args)` in the wrapper + the
+  ;; `:rf.view/render-args` `cond->` assoc in the gated emit body) sits in
+  ;; the reachability graph. Both ride `interop/debug-enabled?`, so under
+  ;; :advanced + goog.DEBUG=false the capture + assoc DCE and no raw
+  ;; user render-args reach the production bundle — that absence rides the
+  ;; existing `rf.view/rendered` sentinel (same gated body). (The
+  ;; `:rf.view/render-args` slot KEYWORD itself legitimately survives via
+  ;; the always-reachable `re-frame.marks/project-trace-event` chokepoint,
+  ;; same as `:rf.event/db` — so no keyword sentinel is added for it.)
+  (rf/reg-view* :probe/render-args
+    {:ns 're-frame.elision-probe :file "probe.cljs" :line 1 :column 1}
+    (fn render-args-probe [_props] [:span "probe-args"]))
+  (let [wrapper (rf/view :probe/render-args)]
+    (when wrapper (wrapper {:probe-prop "value"})))
   ;; Also touch the public mint / current-render-key entry points so
   ;; their bodies stay in the reachability graph (DCE only proves the
   ;; gated branches dead; the public surface itself remains).
