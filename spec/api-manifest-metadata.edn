@@ -29,44 +29,61 @@
 
  ;; --------------------------------------------------------------------------
  ;; CLJS-ONLY surfaces — public vars in ClojureScript-only namespaces that
- ;; cannot be `require`d on the JVM, so the generator carries them verbatim
- ;; (`:runtime-verified? false`). Each row is the FULL manifest row.
+ ;; cannot be `require`d on the JVM, so the generator carries them verbatim.
+ ;; Each row is the FULL manifest row, and carries its own
+ ;; `:runtime-verified?` flag.
  ;;
- ;; The substrate-adapter surfaces (per spec/API.md §UIx/Helix adapter and
- ;; the Reagent adapter), the Xray `mount-*!` host-embed family (per §Tiering
- ;; of cross-tool surfaces — `internal-public`), plus the panel-mounted? read.
- ;; A follow-on bead adds a CLJS-side enumeration probe so these too become
- ;; runtime-verified (see PR follow-on beads).
+ ;; RUNTIME VERIFICATION (rf2-2mtte). The CLJS-side enumeration probe
+ ;; (implementation/scripts/api-manifest/probe/, run by `npm run test:cljs`)
+ ;; reconciles the LIVE public vars of each covered namespace against these
+ ;; rows — the CLJS equivalent of the JVM `ns-publics` existence-check. A
+ ;; row whose namespace the probe covers is `:runtime-verified? true`:
+ ;;   - the three adapter namespaces (Reagent / UIx / Helix) are
+ ;;     fully-rowed (their public surface IS the documented adapter API per
+ ;;     spec/API.md §UIx/Helix adapter), so a var added / removed / renamed
+ ;;     there turns the probe RED;
+ ;;   - the Xray `mounted?` read is a curated row off the `internal-public`
+ ;;     mount surface (the host-embed machinery is "otherwise unrowed-
+ ;;     internal" per §Tiering of cross-tool surfaces) — the probe verifies
+ ;;     it still resolves to a live var (removed / renamed → RED).
+ ;; The `re-frame.core` `frame-provider` reader-conditional row is owned by
+ ;; the JVM generator's view of re-frame.core, not this probe, so it stays
+ ;; `:runtime-verified? false`. The pair-MCP server (a CLJS-only surface
+ ;; named by the keystone) compiles under its own shadow-cljs build and is
+ ;; a follow-on probe target (see rf2-2mtte PR notes); it carries no rows
+ ;; here yet.
  ;; --------------------------------------------------------------------------
  :cljs-only
  [;; --- re-frame.core CLJS-only front-porch surface ---
   ;; `frame-provider` is a Reagent component re-exported from re-frame.core
   ;; under a `#?(:cljs ...)` reader-conditional, so it is absent from the
   ;; JVM `ns-publics` of re-frame.core. Rowed front-porch in spec/API.md
-  ;; §View ergonomics.
-  {:namespace "re-frame.core" :var "frame-provider" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1"}
-  ;; --- Reagent adapter (day8/re-frame2-reagent) ---
-  {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  ;; --- UIx adapter (day8/re-frame2-uix) ---
-  {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  ;; --- Helix adapter (day8/re-frame2-helix) ---
-  {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
-  {:namespace "re-frame.adapter.helix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1"}
+  ;; §View ergonomics. Not covered by the CLJS probe (which loads the
+  ;; adapter / Xray namespaces, not re-frame.core's CLJS branch).
+  {:namespace "re-frame.core" :var "frame-provider" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1" :runtime-verified? false}
+  ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
+  {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
+  {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; --- Helix adapter (day8/re-frame2-helix) — probe fully-rowed ---
+  {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- Xray mount family (day8/re-frame2-xray) — host-embed surface,
-  ;;     internal-public per spec/API.md §Tiering of cross-tool surfaces. ---
-  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib"}]
+  ;;     internal-public per spec/API.md §Tiering of cross-tool surfaces.
+  ;;     Curated row (direction-1 only): probe verifies it still resolves. ---
+  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The

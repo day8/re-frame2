@@ -16,23 +16,23 @@
   :internal-public
   :deprecated]}
  :vars
- [{:namespace "day8.re-frame2-xray.mount", :var "mounted?", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.helix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.reagent", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.reagent", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.adapter.uix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+ [{:namespace "day8.re-frame2-xray.mount", :var "mounted?", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.core", :var "->interceptor", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "->interceptor*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "active-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}

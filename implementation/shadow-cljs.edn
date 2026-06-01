@@ -29,6 +29,22 @@
                 "test-quiet/src"
                 "core/src"
                 "core/test"
+                ;; rf2-2mtte — CLJS-side public-API manifest enumeration
+                ;; probe. The macro (analyzer-driven publics enumeration)
+                ;; + the pure reconciliation ns + the probe `*_cljs_test`
+                ;; live beside the JVM manifest generator under
+                ;; scripts/api-manifest/probe/ (kept OUT of the
+                ;; generator's own src/ so its analyzer-macro classpath
+                ;; never reaches the JVM `gen` build). Listing the paths
+                ;; here puts the probe test on the consolidated
+                ;; `:node-test` classpath so `npm run test:cljs` runs it
+                ;; — the test reconciles the LIVE Reagent/UIx/Helix
+                ;; adapter + Xray mount publics against the `:cljs-only`
+                ;; rows in spec/api-manifest-metadata.edn. Bundle-isolation
+                ;; holds: probe code is test-only and nothing under a
+                ;; production build :requires it.
+                "scripts/api-manifest/probe/src"
+                "scripts/api-manifest/probe/test"
                 "adapters/reagent/src"
                 "adapters/reagent/test"
                 ;; rf2-eceuv — per-adapter testbed (Reagent). Standalone

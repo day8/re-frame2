@@ -127,7 +127,7 @@
   Spec 009 §Production builds."
   (:wrap-view spine-fns))
 
-(def clear-warned-non-dom-roots!
+(def ^:no-doc clear-warned-non-dom-roots!
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
   between cases (via `make-reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's
