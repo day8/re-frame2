@@ -584,6 +584,111 @@
              (:event @captured-ctx))
           "ctx :event is the originating event vector"))))
 
+;; ---- 7b. :fx-overrides fn-value of a RESERVED fx-id (rf2-nrpj1) ------------
+;;
+;; The four reserved fx-ids (:dispatch, :dispatch-later, :rf.fx/reg-flow,
+;; :rf.fx/clear-flow) live only in fx.cljc's `reserved-fx-handlers` table —
+;; they are NOT in the registrar. Before rf2-nrpj1 a function-value override
+;; of a reserved fx-id was SILENTLY IGNORED: the reserved body ran while the
+;; override fn never fired AND a misleading :rf.fx/override-applied trace was
+;; still emitted. Mike ruled (2026-06-01) Option A — HONOUR fn-value
+;; :fx-overrides of reserved fx-ids: the override fn pre-empts the reserved
+;; body (matches spec/002 §`:fx-overrides` resolution model, where
+;; `(fn? override) → override` runs in place of the registered fx), and the
+;; :rf.fx/override-applied trace fires only when the override actually
+;; applies. This enables reserved-fx stubbing in tests/stories (e.g.
+;; capturing dispatches without queueing them).
+
+(deftest reserved-fx-fn-value-override-pre-empts-reserved-body
+  (testing ":dispatch fn-value override FIRES + the real :dispatch does NOT run"
+    ;; (fn [m args] (record! args)) — the natural test stub that captures the
+    ;; dispatched event vector without round-tripping it through the queue.
+    (let [captured-args (atom nil)
+          captured-ctx  (atom nil)
+          target-ran    (atom 0)]
+      (rf/reg-event-db :fx-test.nrpj1/target
+        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event-fx :fx-test.nrpj1/emits-dispatch
+        (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/target :payload]]]}))
+      (rf/dispatch-sync
+        [:fx-test.nrpj1/emits-dispatch]
+        {:fx-overrides {:dispatch (fn [m args]
+                                    (reset! captured-ctx m)
+                                    (reset! captured-args args))}})
+      (is (= [:fx-test.nrpj1/target :payload] @captured-args)
+          "the fn-value override fires and receives the :dispatch args (the event vector)")
+      (is (= :rf/default (:frame @captured-ctx))
+          "the override receives the standard fx-handler ctx map (frame, …)")
+      (is (= 0 @target-ran)
+          "the real reserved :dispatch body MUST NOT run — the override pre-empts it")))
+
+  (testing ":dispatch-later fn-value override pre-empts the reserved body too"
+    (let [later-args (atom nil)]
+      (rf/reg-event-fx :fx-test.nrpj1/emits-later
+        (fn [_ _] {:fx [[:dispatch-later {:ms 50 :event [:fx-test.nrpj1/target]}]]}))
+      (rf/dispatch-sync
+        [:fx-test.nrpj1/emits-later]
+        {:fx-overrides {:dispatch-later (fn [_ args] (reset! later-args args))}})
+      (is (= {:ms 50 :event [:fx-test.nrpj1/target]} @later-args)
+          "the fn-value override of :dispatch-later fires with the reserved-fx args"))))
+
+(deftest reserved-fx-fn-value-override-trace-honesty
+  (testing ":rf.fx/override-applied fires only when the reserved-fx override truly applies"
+    ;; rf2-nnma3: the trace previously fired at resolution time even though
+    ;; the reserved body ran instead. It now rides the actual override-fn
+    ;; invocation — fires when the override applies, absent otherwise.
+    (let [traces (collect-traces! ::reserved-override-trace)]
+      (rf/reg-event-db :fx-test.nrpj1/sink (fn [db _] db))
+      (rf/reg-event-fx :fx-test.nrpj1/traced-dispatch
+        (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/sink]]]}))
+      (rf/dispatch-sync
+        [:fx-test.nrpj1/traced-dispatch]
+        {:fx-overrides {:dispatch (fn [_ _] :stubbed)}})
+      (rf/unregister-listener! ::reserved-override-trace)
+      (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
+        (is (= 1 (count applied))
+            "exactly one :rf.fx/override-applied trace — emitted because the override fired")
+        (is (= :dispatch (get-in (first applied) [:tags :rf.fx/from]))
+            ":rf.fx/from carries the reserved fx-id that was overridden")))))
+
+(deftest reserved-fx-with-no-override-runs-reserved-body
+  (testing "a reserved :dispatch with NO override still queues + runs the real event"
+    ;; Regression guard: the fn-value-override detection must not perturb the
+    ;; ordinary reserved-fx path. With no :fx-overrides, :dispatch runs its
+    ;; reserved body and the target event handler fires.
+    (let [target-ran (atom 0)]
+      (rf/reg-event-db :fx-test.nrpj1/plain-target
+        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event-fx :fx-test.nrpj1/plain-dispatch
+        (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/plain-target]]]}))
+      (rf/dispatch-sync [:fx-test.nrpj1/plain-dispatch])
+      (is (= 1 @target-ran)
+          "the reserved :dispatch body ran and the queued event drained"))))
+
+(deftest reserved-fx-id-redirect-override-unchanged
+  (testing "id-redirect TO a reserved fx-id still falls through (reserved ids aren't registered)"
+    ;; Per the bead: {:my-fx :dispatch} → (registrar/lookup :fx :dispatch) is
+    ;; nil → :rf.error/override-fallthrough → runs the original :my-fx. The
+    ;; reserved fx-ids live only in `reserved-fx-handlers`, not the registrar,
+    ;; so a keyword-redirect targeting one is a coherent, surfaced no-op. This
+    ;; behaviour is intentionally UNCHANGED by rf2-nrpj1.
+    (let [original-fired (atom 0)
+          traces         (collect-traces! ::redirect-to-reserved)]
+      (rf/reg-fx :fx-test.nrpj1/my-fx
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! original-fired inc)))
+      (rf/reg-event-fx :fx-test.nrpj1/issue-redirect
+        (fn [_ _] {:fx [[:fx-test.nrpj1/my-fx {}]]}))
+      (rf/dispatch-sync
+        [:fx-test.nrpj1/issue-redirect]
+        {:fx-overrides {:fx-test.nrpj1/my-fx :dispatch}})
+      (rf/unregister-listener! ::redirect-to-reserved)
+      (is (= 1 @original-fired)
+          "the original :fx-test.nrpj1/my-fx ran — the redirect to the un-registered :dispatch fell through")
+      (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
+        (is (= 1 (count fallthrough))
+            "exactly one :rf.error/override-fallthrough trace surfaced the un-registered redirect target")))))
+
 ;; ---- rf2-twt7m Change 2 — :rf.fx/do-fx carries :fx + :db-present? ---------
 ;;
 ;; The handler's return shape is otherwise invisible at the trace level —

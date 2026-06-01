@@ -327,18 +327,25 @@
 
   Returns the resolved fx-id (keyword); for the fn-value branch, returns
   the original-fx-id (used only for trace shape — the actual handler
-  invocation goes through `:rf.fx/override-applied` and the synthesised
-  meta returned by `resolved-fx-meta`)."
+  invocation goes through the synthesised meta returned by
+  `resolved-fx-meta`, and `handle-one-fx` emits the
+  `:rf.fx/override-applied` trace at the point the override fn actually
+  fires so the trace cannot claim an override applied while the original
+  ran; see rf2-nrpj1)."
   [original-fx-id overrides]
   (if (contains? overrides original-fx-id)
     (let [override-target (get overrides original-fx-id)]
       (cond
-        ;; (3) function value — CLJS-reference convenience.
+        ;; (3) function value — CLJS-reference convenience. The
+        ;; `:rf.fx/override-applied` trace is emitted by `handle-one-fx`
+        ;; when the override fn actually fires (not here), because a
+        ;; fn-value override of a *reserved* fx-id must pre-empt the
+        ;; reserved body — emitting the trace here would fire it even on
+        ;; paths that (counterfactually) declined the override. Returns
+        ;; the original-fx-id unchanged; `resolved-fx-meta` synthesises
+        ;; the meta carrying the user's fn.
         (fn? override-target)
-        (do
-          (trace/emit! :rf.fx :rf.fx/override-applied
-                       {:rf.fx/from original-fx-id :rf.fx/to ::fn-value})
-          original-fx-id)
+        original-fx-id
 
         ;; (2) id-redirect to a registered fx.
         (keyword? override-target)
@@ -459,7 +466,23 @@
   ([frame-id [original-fx-id args] active-platform overrides origin-event parent-envelope]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)
         resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)
-        origin-event-id (when (vector? origin-event) (first origin-event))]
+        origin-event-id (when (vector? origin-event) (first origin-event))
+        ;; rf2-nrpj1: a function-value override (`{:dispatch (fn [m args] ...)}`)
+        ;; must run IN PLACE OF the registered/reserved fx — per spec/002
+        ;; §`:fx-overrides` the resolution model consults `:fx-overrides`
+        ;; FIRST and `(fn? override) → override` runs unconditionally. For
+        ;; the four RESERVED fx-ids (`:dispatch`, `:dispatch-later`,
+        ;; `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) `fx-id` is still the
+        ;; reserved keyword (the fn-value branch of
+        ;; `resolve-fx-with-overrides` returns it unchanged), so the
+        ;; `reserved-fx-handlers` lookup below would otherwise fire the
+        ;; reserved body and silently ignore the override. We detect the
+        ;; fn-value override here and route it down the user-fx branch
+        ;; (which invokes `resolved-meta`'s synthesised `:handler-fn`),
+        ;; pre-empting the reserved body for reserved ids and matching the
+        ;; spec resolution order for user ids.
+        fn-value-override? (and (contains? overrides original-fx-id)
+                                (fn? (get overrides original-fx-id)))]
    ;; Per Spec 009 §Performance instrumentation (rf2-du3i): every fx
    ;; invocation — reserved or user-registered — runs inside a perf
    ;; bracket so prod builds with the perf flag enabled produce a
@@ -471,7 +494,8 @@
    ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
    ;; flag on.
    (performance/mark-and-measure :fx fx-id
-    (if-let [reserved-body (get reserved-fx-handlers fx-id)]
+    (if-let [reserved-body (and (not fn-value-override?)
+                                (get reserved-fx-handlers fx-id))]
       ;; Reserved fx-id — dispatch through the table; one uniform
       ;; `:rf.fx/handled` emit follows. The `:rf.machine/spawn` and
       ;; `:rf.machine/destroy` machine fx-ids are NOT in this table —
@@ -602,6 +626,19 @@
           ;; `:dispatch-id` are inherited from the outer scope.
           (trace/with-handler-scope
             (trace/handler-scope-from-meta :fx fx-id meta)
+            ;; rf2-nrpj1: emit `:rf.fx/override-applied` HERE — at the
+            ;; point the fn-value override actually fires — not during
+            ;; resolution. This is the trace-honesty half of the fix: the
+            ;; trace previously fired at resolution time even for reserved
+            ;; fx-ids where the override was then silently ignored and the
+            ;; reserved body ran instead (claiming an override applied
+            ;; while the original ran). It now fires iff the override fn is
+            ;; about to be invoked. `:rf.fx/to ::fn-value` marks the
+            ;; CLJS-reference fn-value form (the keyword form's trace is
+            ;; emitted by `resolve-fx-with-overrides` with its target id).
+            (when fn-value-override?
+              (trace/emit! :rf.fx :rf.fx/override-applied
+                           {:rf.fx/from original-fx-id :rf.fx/to ::fn-value}))
             ;; rf2-hhh92: wall-clock the user fx-handler invoke (dev-only)
             ;; so `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The
             ;; `now-ms` brackets ride `interop/debug-enabled?` (nil in
