@@ -1448,11 +1448,22 @@
         source-tag     (l2-timeline/origin-source-tag source)
         ev-id       (event-id-of-cascade cascade)
         event-vec   (:event cascade)
-        ;; rf2-pjjwh — the active row is marked by BACKGROUND ONLY
-        ;; (Figma EventList's `isActive` → `bg-[var(--devtools-hover)]`).
-        ;; No border ring, no trailing status stripe — those are not in
-        ;; the mock.
-        bg          (if focused? (:hover tokens) "transparent")
+        ;; rf2-pjjwh — the active row is marked by background (Figma
+        ;; EventList's `isActive` → `bg-[var(--devtools-hover)]`). No
+        ;; border ring, no trailing status stripe — those are not in the
+        ;; mock.
+        ;;
+        ;; rf2-hga49 — the selected background is the dedicated
+        ;; `:selected-row-bg` (a step DARKER than `:hover`) rather than
+        ;; `:hover` itself. Two reasons: selection now reads as a state
+        ;; distinct from mere hover, AND the darker grey survives UNDER
+        ;; the issue-row pink wash (a low-opacity rose painted as a
+        ;; `:background-image` layer over this `:background-color`). With
+        ;; the old `:hover` grey + the prior heavier wash, a SELECTED
+        ;; ERROR row was indistinguishable from an unselected one — the
+        ;; wash drowned the selection. The leading ">" caret (below) is
+        ;; the background-independent belt-and-braces selection signal.
+        bg          (if focused? (:selected-row-bg tokens) "transparent")
         ;; rf2-b8guz — light-pink WASH when this event's epoch CONTAINS
         ;; AN ISSUE (any error / warning / schema-violation / … — the
         ;; SAME set the Issues ribbon/feed aggregates, via the canonical
@@ -1600,15 +1611,33 @@
                           :overflow      "hidden"
                           :text-overflow "ellipsis"}}
            ref-fn (assoc :ref ref-fn))
+     ;; rf2-hga49 — leading SELECTION CARET gutter. A small ">" glyph
+     ;; sits in a FIXED-WIDTH leading gutter when the row is focused, and
+     ;; the gutter renders empty (same width) otherwise — so selecting a
+     ;; row never shifts the columns. This is the background-INDEPENDENT
+     ;; selection signal: it reads on any row state (clean / issue) where
+     ;; the grey-vs-pink background channels can fight (the selected error
+     ;; row that prompted the bead). It consciously reintroduces the
+     ;; leading gutter glyph rf2-pjjwh removed for the Figma
+     ;; background-only mock — that mock is exactly what failed on an
+     ;; error row, so the override is deliberate.
+     [:span {:data-testid "rf-xray-row-selection-caret"
+             :aria-hidden "true"
+             :style {:flex-shrink 0
+                     :width "10px"
+                     :display "inline-flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :color (:accent tokens)
+                     :font-weight 700}}
+      (when focused? ">")]
      ;; rf2-pjjwh — column order: `event id` · `source` · `timestamp` ·
-     ;; `duration` (Figma-Make EventList). No leading focus gutter — that
-     ;; was a Xray affordance the mock didn't carry, retired with the
-     ;; focus feature. The bare event-id keyword leads the row as the
-     ;; primary read; the source tag follows as secondary context. The
-     ;; full event vector with args moves to the row's hover tooltip + the
-     ;; L4 Epoch panel detail. The event-id column is LEFT-aligned (Figma
-     ;; `text-left`) so the keyword sits flush under the header's
-     ;; `event id` label.
+     ;; `duration` (Figma-Make EventList). The bare event-id keyword leads
+     ;; the data columns as the primary read; the source tag follows as
+     ;; secondary context. The full event vector with args moves to the
+     ;; row's hover tooltip + the L4 Epoch panel detail. The event-id
+     ;; column is LEFT-aligned (Figma `text-left`) so the keyword sits
+     ;; flush under the header's `event id` label.
      [:span {:data-testid "rf-xray-row-event-id"
              :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
@@ -1854,8 +1883,13 @@
                    :border        "1px solid transparent"
                    :background    (:bg-1 tokens)
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     ;; rf2-pjjwh — no leading focus-gutter spacer (the gutter was a Xray
-     ;; affordance the mock didn't carry, retired with the focus feature).
+     ;; rf2-hga49 — empty leading-gutter spacer matching the data rows'
+     ;; 10px selection-caret gutter so the `event id` header label sits
+     ;; flush over the row keywords (no 10px column drift). Shares the
+     ;; row's gutter width + flex-shrink:0 exactly.
+     [:span {:data-testid "rf-xray-event-list-col-caret-gutter"
+             :aria-hidden "true"
+             :style {:flex-shrink 0 :width "10px"}}]
      ;; rf2-xawwb — column order is `event id` FIRST, then `source`
      ;; (Figma-Make surface). The event-id is the primary read; source is
      ;; secondary context, so the id leads. The `event id` column is
@@ -2133,9 +2167,30 @@
   mounted alongside a host nav, every Story integration test using
   the role failed (rf2-q7who Thread B — discovered via rf2-drprn).
   Per-tab buttons carry `role='tab'` + `aria-selected` (see
-  `tab-button`). `data-testid='rf-xray-tab-bar'` is unchanged."
+  `tab-button`). `data-testid='rf-xray-tab-bar'` is unchanged.
+
+  ## rf2-hga49 — `Reset` rewind button (far right)
+
+  The ribbon's far-right (after a `margin-left:auto` spacer) carries
+  the `Reset` button — the UI half of the inspect-vs-rewind principle.
+  It dispatches `:rf.xray/reset-to-epoch` with the OBSERVED frame
+  (`:rf.xray/observed-frame` — the frame-switcher selection, NOT
+  `:rf/xray`) and the currently-focused epoch-id
+  (`:rf.xray/focus-epoch-id`), rewinding that frame's live `app-db` to
+  the epoch's `:db-after`. No dialog, no confirmation. Disabled when
+  no epoch is focused. On the rare framework failure (epoch aged out /
+  restore-during-drain) the effect sets `:rf.xray/reset-flash` — a
+  brief inline message, never a modal, never a silent lie."
   []
-  (let [selected @(rf/subscribe [:rf.xray/selected-tab])]
+  (let [selected     @(rf/subscribe [:rf.xray/selected-tab])
+        ;; rf2-hga49 — rewind target: the OBSERVED app frame + the
+        ;; focused epoch. `:subscribe` (the reg-view-injected handle)
+        ;; resolves both off `:rf/xray`'s own app-db where the spine
+        ;; lives, but the values it returns point at the OBSERVED frame.
+        observed     @(subscribe [:rf.xray/observed-frame])
+        focus-epoch  @(subscribe [:rf.xray/focus-epoch-id])
+        reset-flash  @(subscribe [:rf.xray/reset-flash])
+        can-reset?   (some? focus-epoch)]
     [:div {:data-testid "rf-xray-tab-bar"
            :role        "tablist"
            :aria-label  "Xray panel tabs"
@@ -2169,14 +2224,65 @@
                      :font-size    (:caption type-scale)
                      :white-space  "nowrap"}}
       [:span {:aria-hidden "true"} "↳"]
-      "for selected event"]
+      ;; rf2-hga49 — relabelled from `for selected event` to the terser
+      ;; `selected` (the glyph + styling already carry the "this is the
+      ;; selected event" sense; the long copy was redundant).
+      "selected"]
      ;; rf2-2moh1 — iterate `dynamic-tabs` (registry-derived) rather
      ;; than a literal vector. Tab order follows each entry's `:order`.
      (for [{:keys [id] :as tab} (dynamic-tabs)]
        ^{:key id}
        ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
        ;; tab click's select-tab write lands on the instance frame.
-       [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)])]))
+       [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)])
+     ;; rf2-hga49 — `margin-left:auto` spacer pushes the Reset cluster to
+     ;; the FAR RIGHT of the ribbon, past the tab buttons.
+     [:span {:data-testid "rf-xray-tab-bar-spacer"
+             :style {:margin-left "auto"}}]
+     ;; rf2-hga49 — the inline failure flash (rendered ONLY on failure).
+     ;; Sits just LEFT of the Reset button so the operator sees it where
+     ;; they clicked. `role=status` so AT announces it; never a modal.
+     (when reset-flash
+       [:span {:data-testid "rf-xray-reset-flash"
+               :role        "status"
+               :style {:align-self  "center"
+                       :margin-right "8px"
+                       :color       (:error tokens)
+                       :font-family sans-stack
+                       :font-size   (:caption type-scale)
+                       :white-space "nowrap"}}
+        reset-flash])
+     ;; rf2-hga49 — `Reset` rewind button. Dispatches
+     ;; `:rf.xray/reset-to-epoch` against the OBSERVED frame + focused
+     ;; epoch. Disabled (and visibly dimmed) when no epoch is focused.
+     ;; The icon is a unicode anticlockwise-arrow (↺) matching the
+     ;; lucide `RotateCcw` rewind glyph used elsewhere; inline SVG isn't
+     ;; idiomatic in this pure-hiccup view (see `ribbon-icons`).
+     [:button {:data-testid "rf-xray-tab-bar-reset"
+               :type        "button"
+               :disabled    (not can-reset?)
+               :title       (if can-reset?
+                              "revert the app to this state"
+                              "select an event to enable Reset")
+               :aria-label  "Reset the app to the selected event's state"
+               :on-click    (when can-reset?
+                              #(dispatch [:rf.xray/reset-to-epoch observed focus-epoch]))
+               :style {:display       "inline-flex"
+                       :align-items   "center"
+                       :gap           "4px"
+                       :align-self    "center"
+                       :background    "rgba(255,255,255,0.12)"
+                       :border        "none"
+                       :border-radius "4px"
+                       :color         (:chrome-ribbon-text-muted tokens)
+                       :cursor        (if can-reset? "pointer" "not-allowed")
+                       :opacity       (if can-reset? 1 0.4)
+                       :padding       "3px 10px"
+                       :font-family   sans-stack
+                       :font-size     (:caption type-scale)
+                       :white-space   "nowrap"}}
+      "Reset"
+      [:span {:aria-hidden "true"} "↺"]]]))
 
 ;; ---- L4 detail panel -----------------------------------------------------
 

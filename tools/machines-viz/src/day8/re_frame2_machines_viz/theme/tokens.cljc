@@ -117,8 +117,15 @@
    ;; light-pink wash Xray paints behind an L2 event row whose epoch
    ;; contains an issue. machines-viz never paints it, but the drift gate
    ;; (rf2-z7ms8) requires the dark-palette key set to match Xray's, so the
-   ;; token is mirrored here at its Xray value.
-   :bg-issue-row   "#f8514926"
+   ;; token is mirrored here at its Xray value. rf2-hga49 paled it (~15% →
+   ;; ~10%) so Xray's darker selected-row-bg reads through it — mirrored.
+   :bg-issue-row   "#f851491a"
+
+   ;; L2 selected-row background (rf2-hga49 · key parity mirror with Xray).
+   ;; Xray's darker-than-hover selected-row fill. machines-viz never paints
+   ;; it, but the dark drift gate (rf2-z7ms8) asserts full key-set parity,
+   ;; so the key is mirrored here at its Xray value.
+   :selected-row-bg "#3a3a3a"
 
    ;; functional categorical hues (spec/022 carve-out)
    ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
@@ -221,7 +228,14 @@
    ;; light-theme mirror of Xray's `:bg-issue-row`. machines-viz never
    ;; paints it; mirrored here at its Xray value so the two light palettes
    ;; stay symmetric (the dark drift gate asserts full key-set parity).
-   :bg-issue-row   "#c844442e"
+   ;; rf2-hga49 paled it (~18% → ~12%) in lock-step with Xray.
+   :bg-issue-row   "#c844441f"
+
+   ;; L2 selected-row background (rf2-hga49 · key parity mirror with Xray).
+   ;; Light-theme mirror of Xray's darker-than-hover selected-row fill.
+   ;; machines-viz never paints it; mirrored so its own light/dark key sets
+   ;; stay symmetric and the Xray↔machines-viz dark drift gate passes.
+   :selected-row-bg "#d4d4d4"
 
    ;; functional categorical hues
    ;; Two pink/violet-family hues — see Xray's `light-palette` block for

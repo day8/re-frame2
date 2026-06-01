@@ -114,6 +114,17 @@
    :dim            "#6e7681"   ; dimmed / inert / unchanged (Figma --devtools-unchanged)
    :hover          "#2a2a2a"   ; hover background (Figma --devtools-hover, = bg-3)
 
+   ;; ── L2 selected-row background (rf2-hga49) ──
+   ;; The L2 event row's SELECTED (focused) background — a step DARKER
+   ;; than `:hover` so selection reads as a distinct state from mere
+   ;; hover AND survives under the issue-row pink wash (which previously
+   ;; drowned the `:hover`-grey selection on an error row — the selected
+   ;; error row was indistinguishable from an unselected one). Paired
+   ;; with the now-paler `:bg-issue-row` below + the leading ">" caret
+   ;; the row paints when focused, so selection is unmistakable on any
+   ;; row state (clean / issue, focused / not).
+   :selected-row-bg "#3a3a3a"  ; darker than :hover (#2a2a2a) — selection (dark)
+
    ;; ── violation wash (rf2-xgeag) ──
    ;; Soft pink wash for the inline SCHEMA VIOLATION sub-block that
    ;; rides under its owning pipeline step. Distinct from the
@@ -134,9 +145,12 @@
    ;; Same rose hue as `:bg-violation` but as an 8-digit-hex wash
    ;; (#RRGGBBAA, mirroring the `:diff-*-wash` pattern) so it COMPOSES
    ;; over the focused-row / hover background without clobbering it.
-   ;; Alpha `26` = 38/255 ≈ 15% — operator-noticeable over the dark
-   ;; canvas while the row text + existing L2 signals stay legible.
-   :bg-issue-row   "#f8514926"  ; :error rose @ ~15% (dark)
+   ;; Alpha `1a` = 26/255 ≈ 10% (rf2-hga49 — paled from the prior `26`
+   ;; ≈ 15% so the darker `:selected-row-bg` grey reads THROUGH the wash
+   ;; on a selected error row; the wash stays an operator-noticeable
+   ;; cross-epoch cue while no longer fighting the selection signal on
+   ;; the same channel).
+   :bg-issue-row   "#f851491a"  ; :error rose @ ~10% (dark)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    ;; These do REAL semantic work — perf tiers, machine state, route
@@ -310,6 +324,12 @@
    :dim            "#8c959f"   ; Figma --devtools-unchanged
    :hover          "#e8e8e8"   ; Figma --devtools-hover
 
+   ;; ── L2 selected-row background (rf2-hga49) ──
+   ;; Light-theme mirror of the dark `:selected-row-bg` — a step DARKER
+   ;; than `:hover` so selection reads distinctly from hover and shows
+   ;; through the paled `:bg-issue-row` wash on a selected error row.
+   :selected-row-bg "#d4d4d4"  ; darker than :hover (#e8e8e8) — selection (light)
+
    ;; ── violation wash (rf2-xgeag) ──
    ;; Light-theme mirror of the dark `:bg-violation`. A soft rose
    ;; pink — alert-grade on white without overpowering the cascade.
@@ -320,9 +340,11 @@
    ;; wash painted behind an L2 row whose epoch contains an issue. An
    ;; 8-digit-hex wash (#RRGGBBAA) so it composes over the focused-row
    ;; / hover background. Light-theme washes need a touch more alpha
-   ;; than dark ones to read over the near-white canvas — alpha `2e` =
-   ;; 46/255 ≈ 18% of the light-error rose.
-   :bg-issue-row   "#c844442e"  ; :error rose @ ~18% (light)
+   ;; than dark ones to read over the near-white canvas — alpha `1f` =
+   ;; 31/255 ≈ 12% (rf2-hga49 — paled from the prior `2e` ≈ 18% so the
+   ;; darker `:selected-row-bg` grey reads through the wash on a selected
+   ;; error row; moves in lock-step with the dark variant above).
+   :bg-issue-row   "#c844441f"  ; :error rose @ ~12% (light)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    :green          "#1a7f37"

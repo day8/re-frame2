@@ -289,6 +289,9 @@
    :rf.xray.static.interceptors/registry
    :rf.xray.static.interceptors/registry-override
    :rf.xray.static.interceptors/tab-data
+   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the transient
+   ;; inline failure-flash slot the ribbon reads.
+   :rf.xray/reset-flash
    :rf.xray/selected-epoch-diff
    ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
    ;; lens + redacted-modified-count surface for the App-DB diff panel.
@@ -441,6 +444,8 @@
    ;; indicator (resets IN/OUT pills + frame pin + mutes).
    :rf.xray/clear-all-filters
    :rf.xray/clear-machine-selection
+   ;; rf2-hga49 — clear the tab-ribbon Reset failure flash.
+   :rf.xray/clear-reset-flash
    :rf.xray/clear-selected-dispatch-id
    :rf.xray/clear-slice-focus
    :rf.xray/clear-trace-buffer
@@ -570,6 +575,11 @@
    ;; rf2-t2dsh — L2/L3 seam-handle double-click reset.
    :rf.xray/reset-events-list-height
    :rf.xray/reset-suppressed-counters
+   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the event-fx that
+   ;; trampolines into `:rf.xray.fx/restore-epoch`, plus its inline
+   ;; failure-flash setter.
+   :rf.xray/reset-to-epoch
+   :rf.xray/reset-flash-failed
    :rf.xray/restore-from-share-url
    :rf.xray/save-edit-popup
    :rf.xray/select-dispatch-id
@@ -711,6 +721,10 @@
   adding fxs produce rebase-clean diffs."
   (sorted-set
    :rf.xray.fx/copy-to-clipboard
+   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: calls
+   ;; `rf/restore-epoch` against the observed frame + focused epoch, and
+   ;; dispatches the inline failure flash on a false return.
+   :rf.xray.fx/restore-epoch
    ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
    :rf.xray.fx/open-in-new-tab
    ;; rf2-0us27 — Per-cascade structured export: text-file download fx.
