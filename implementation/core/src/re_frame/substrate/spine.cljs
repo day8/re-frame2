@@ -115,16 +115,36 @@
   [{:keys [flushing? queue queued] :as _scheduler}]
   (when-not @flushing?
     (vreset! flushing? true)
-    (try
-      (loop []
-        (when (seq @queue)
-          (let [thunk (nth @queue 0)]
-            (vreset! queue (subvec @queue 1))
-            (vswap! queued disj thunk)
-            (thunk))
-          (recur)))
-      (finally
-        (vreset! flushing? false)))))
+    ;; Walk the live `@queue` by index rather than re-slicing the head: a
+    ;; thunk may `schedule-flush!` downstream thunks, which `conj` onto the
+    ;; same vector, so re-reading `(count @queue)` each step keeps the
+    ;; running loop observing newly-enqueued thunks in enqueue order —
+    ;; identical to the previous incremental-`subvec` drain, but without
+    ;; building a chain of nested subvec views per cascade step. The
+    ;; cursor advances and the entry leaves `queued` BEFORE the thunk runs,
+    ;; so a thunk that throws is already considered consumed (matching the
+    ;; old head-pop-before-call ordering); the `finally` then compacts
+    ;; `@queue` to exactly the not-yet-drained tail on every exit path.
+    (let [cursor (volatile! 0)]
+      (try
+        (loop []
+          (when (< @cursor (count @queue))
+            (let [thunk (nth @queue @cursor)]
+              (vswap! queued disj thunk)
+              (vswap! cursor inc)
+              (thunk))
+            (recur)))
+        (finally
+          ;; Drop the drained prefix in ONE pass (a single fresh vector,
+          ;; not a per-step subvec chain): normally the tail is empty so
+          ;; this releases the backing vector for the next epoch; on a
+          ;; thunk throw it leaves the un-drained remainder, exactly as the
+          ;; incremental-subvec drain did.
+          (let [q @queue]
+            (vreset! queue (if (< @cursor (count q))
+                             (into [] (subvec q @cursor))
+                             [])))
+          (vreset! flushing? false))))))
 
 (defn- schedule-flush!
   "Enqueue `thunk` on the scheduler (dedup by identity within the current

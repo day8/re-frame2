@@ -99,11 +99,10 @@
 ;; / `now-ms` in `re-frame.interop`. These are the spec-canonical names
 ;; the machines timer layer (`re-frame.machines.timer`) reaches for; the
 ;; generic `set-timeout!` / `clear-timeout!` above stay the host-timeout
-;; primitive every other core surface (`:dispatch-later`, the sub-cache
-;; grace timer, the spine dispose timer, HTTP retry) uses. Same
-;; setTimeout / clearTimeout realisation; distinct, intention-named
-;; surfaces so an AI re-implementing the machines clock from Spec 005
-;; finds the names the spec promises.
+;; primitive every other core surface (`:dispatch-later`, HTTP retry)
+;; uses. Same setTimeout / clearTimeout realisation; distinct,
+;; intention-named surfaces so an AI re-implementing the machines clock
+;; from Spec 005 finds the names the spec promises.
 (def schedule-after!  set-timeout!)
 (def cancel-scheduled! clear-timeout!)
 

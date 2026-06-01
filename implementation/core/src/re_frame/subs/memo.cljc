@@ -375,8 +375,7 @@
           ;; first cached value happens to be `nil`. The
           ;; `validate-and-trace` emit then stamps `:rf.sub/first-run?`
           ;; from `(= unset prev-value)`.
-          (let [first-run?  (= ::unset @last-db)
-                prev-result (if first-run? unset @last-result)
+          (let [prev-result (if (= ::unset @last-db) unset @last-result)
                 computed    (validate-and-trace
                               body-fn (list db) query-id query-v
                               frame-id [] sub-meta prev-result unset)]
@@ -437,8 +436,7 @@
           ;; the `::unset` sentinel here). `last-result` is `nil` then
           ;; too but keying on `last-v0` keeps the discriminator well-
           ;; defined regardless of the first cached value's shape.
-          (let [first-run?   (= ::unset @last-v0)
-                prev-result  (if first-run? unset @last-result)
+          (let [prev-result  (if (= ::unset @last-v0) unset @last-result)
                 prev-v0      @last-v0
                 prev-in-vals (if (= unset prev-v0)
                                unset
@@ -496,8 +494,7 @@
           ;; still the `::unset` sentinel here). Keying on `last-in-vals`
           ;; rather than `last-result` so a sub whose first cached value
           ;; is `nil` still flags as `:first-run?` true.
-          (let [first-run?   (= ::unset @last-in-vals)
-                prev-result  (if first-run? unset @last-result)
+          (let [prev-result  (if (= ::unset @last-in-vals) unset @last-result)
                 prev-in-vals @last-in-vals
                 computed     (validate-and-trace
                                body-fn in-vals query-id query-v
