@@ -38,7 +38,8 @@
   - `re-frame.routing.history`        — popstate listener install/remove + current-url
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
-  (:require [re-frame.error-emit :as error-emit]
+  (:require [re-frame.cofx :as cofx]
+            [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -138,6 +139,17 @@
                      url-change/transitioned-handler)
 (events/reg-event-fx :rf.route/handle-url-change
                      url-change/handle-url-change-handler)
+
+;; :nav-token cofx — Spec 012 §Navigation tokens — stale-result
+;; suppression step 2. Injects the current navigation epoch token under
+;; `:coeffects :nav-token` for any `:on-match`-reached handler that
+;; declares `(inject-cofx :nav-token)`, so the documented
+;; `(fn [{:keys [db nav-token]} _] ...)` shape resolves the live token
+;; (not nil). Registered in the façade so a `:reload` re-wires it on a
+;; fresh registrar.
+(cofx/reg-cofx :nav-token
+               nav-token/nav-token-cofx-meta
+               nav-token/nav-token-cofx)
 
 ;; :rf.test/simulate-http-resolution + :rf.route/with-nav-token — Spec
 ;; 012 §Navigation tokens — stale-result suppression.

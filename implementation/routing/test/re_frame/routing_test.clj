@@ -362,6 +362,118 @@
                               @traces)))
           "exactly one stale-suppressed trace fired — the fresh :do did NOT trip the validation"))))
 
+;; ---- Spec 012 §Navigation tokens step 2 — the `:nav-token` cofx ----------
+;;
+;; rf2-8fnwq: the spec promised an `:on-match`-reachable `:nav-token` cofx
+;; (step 2 / step 4 "validating cofx") but no `reg-cofx :nav-token` was
+;; registered. A handler that followed the spec — declared
+;; `(inject-cofx :nav-token)` and read `{:keys [db nav-token]}` — threaded
+;; `nil`, which mismatched the current token in `:rf.route/with-nav-token`
+;; EVERY time, so the documented stale-suppression pattern silently ate
+;; the result. These tests are the failing-before / passing-after guard.
+
+(deftest nav-token-cofx-injects-the-live-token
+  (testing "(inject-cofx :nav-token) injects the current slice token — not nil"
+    ;; The minimal contract: a handler declaring the cofx sees the live
+    ;; navigation epoch. Pre-fix this was nil (no reg-cofx :nav-token).
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [seen (atom :unset)]
+      ;; An :on-match-reached handler that captures the injected token.
+      (rf/reg-event-fx :article/capture-token
+                       [(rf/inject-cofx :nav-token)]
+                       (fn [{:keys [nav-token]} _]
+                         (reset! seen nav-token)
+                         {}))
+      ;; Land on the route, then fire the on-match-style continuation.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (let [current (get-in (rf/frame-db :rf/default)
+                            [:rf/runtime :routing :current :nav-token])]
+        (rf/dispatch-sync [:article/capture-token])
+        (is (= current @seen)
+            "the cofx injected the slice's live :nav-token (pre-fix: nil)")
+        (is (some? @seen)
+            "the injected token is non-nil (pre-fix the documented shape threaded nil)")))))
+
+(deftest nav-token-cofx-drives-documented-stale-suppression
+  (testing "the spec step-2/step-3 example runs: capture via cofx, thread via
+            :rf.route/with-nav-token; stale → suppressed, fresh → applied"
+    ;; This is the documented pattern end-to-end, using ONLY the public
+    ;; surface (no :rf.test/simulate-http-resolution). The :on-match-reached
+    ;; loader declares the cofx and captures `nav-token` live; we stash the
+    ;; captured token so the test can replay the async completion AFTER a
+    ;; superseding navigation (modelling a real out-of-order http race —
+    ;; A's request started first but its response lands after B's). The
+    ;; completion threads the captured token through :rf.route/with-nav-token,
+    ;; which validates against the current slice: stale → suppressed,
+    ;; fresh → applied.
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Terminal commit handler.
+    (rf/reg-event-db :article/loaded
+                     (fn [db [_ id payload]]
+                       (assoc db :article {:id id :payload payload})))
+    ;; The async completion: threads a captured token through the framework
+    ;; fx, which validates against the current slice.
+    (rf/reg-event-fx :article/completed
+                     (fn [_ctx [_ {:keys [captured-token id payload]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:do        [:dispatch [:article/loaded id payload]]
+                               :nav-token captured-token}]]}))
+
+    (let [traces   (atom [])
+          captured (atom {})]
+      (rf/register-listener! ::cofx-flow (fn [ev] (swap! traces conj ev)))
+      ;; The :on-match-reached loader: declares the cofx, captures the live
+      ;; token at scheduling time (exactly the documented step-2 shape).
+      ;; The capture closes over `captured` so the test replays the
+      ;; completion later, out of order.
+      (rf/reg-event-fx :article/load
+                       [(rf/inject-cofx :nav-token)]
+                       (fn [{:keys [nav-token]} [_ id]]
+                         (swap! captured assoc id nav-token)
+                         {}))
+
+      ;; 1. Navigate to A; the loader captures A's token via the cofx.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:article/load "A"])
+
+      ;; 2. Navigate to B BEFORE A's response lands — fresh token captured.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:article/load "B"])
+
+      ;; 3. A's response lands LATE, carrying the stale cofx-captured token.
+      (rf/dispatch-sync [:article/completed
+                         {:captured-token (@captured "A") :id "A" :payload "A-payload"}])
+      ;; 4. B's response lands, carrying the fresh cofx-captured token.
+      (rf/dispatch-sync [:article/completed
+                         {:captured-token (@captured "B") :id "B" :payload "B-payload"}])
+
+      (rf/unregister-listener! ::cofx-flow)
+
+      (is (not= (@captured "A") (@captured "B"))
+          "the cofx injected DIFFERENT live tokens for the two navigations")
+      (is (every? some? (vals @captured))
+          "both captured tokens are non-nil (pre-fix the cofx threaded nil)")
+      (is (= {:id "B" :payload "B-payload"}
+             (:article (rf/frame-db :rf/default)))
+          "only B committed — A's stale completion was suppressed via the cofx-captured token")
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
+                @traces)
+          "A's stale completion produced :rf.route.nav-token/stale-suppressed")
+      (is (= 1 (count (filter #(= :rf.route.nav-token/stale-suppressed
+                                  (:operation %))
+                              @traces)))
+          "exactly one suppression — B's fresh completion applied cleanly"))))
+
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 
 (deftest routing-scroll-metadata-preserved
