@@ -1,0 +1,99 @@
+;; Conformance fixture: routing/plus-decode
+;;
+;; Per rf2-9a9ix (Mike-ruled 2026-06-01) + Spec 012 §`+` is a literal:
+;; url-decode is HOST-SYMMETRIC for `+`. A bare `+` decodes to a LITERAL
+;; `+` on BOTH JVM (SSR) and CLJS (browser) — it is NOT swapped to a
+;; space. `js/decodeURIComponent` (CLJS) leaves `+` untouched; the JVM
+;; `java.net.URLDecoder/decode` is the application/x-www-form-urlencoded
+;; decoder that would turn `+` into a space, so the JVM path pre-escapes
+;; `+` → `%2B` before decoding to reproduce decodeURIComponent exactly.
+;;
+;; A host-divergent `+` would yield a different :params / :query slice
+;; for the same URL on each host — exactly the Spec 011 hydration-
+;; mismatch class, and a violation of Spec 012's "same handler server and
+;; client" contract + Spec 000 Goal 2 cross-host conformance bar. This is
+;; the same bug-class spec/012 already pins for :int coercion (rf2-oyw04).
+;;
+;; This fixture is run by BOTH the JVM harness (conformance_test.clj) and
+;; the CLJS harness (conformance_corpus_cljs_test.cljs), so a host that
+;; re-introduces the `+`→space swap fails the corpus.
+;;
+;; Also pins finding 2: a trailing `?`, leading `&`, or doubled `&&`
+;; injects a spurious empty query pair `{"" ""}`. The parser skips blank
+;; pairs, so the slice's :query stays clean.
+;;
+;; Per [012 §Query strings and fragments]
+;; (../../012-Routing.md#query-strings-and-fragments) and
+;; [012 §`+` is a literal](../../012-Routing.md#-is-a-literal).
+
+{:fixture/id           :routing/plus-decode
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url}
+ :fixture/doc          "url-decode is host-symmetric for `+`: a bare `+` stays a LITERAL `+` on both JVM and CLJS (NOT a space), `%2B` decodes to `+`, and `%20` (or a real space) decodes to a space — in path captures AND query values. A trailing `?` / doubled `&&` does NOT inject a spurious `{\"\" \"\"}` query pair; an explicit empty VALUE (`?foo=`) keeps the key with an empty string."
+
+ :fixture/registry
+ {:route
+  {:route/files  {:path "/files/:name" :params [:map [:name :string]]}
+   :route/search {:path "/search"}}}
+
+ :fixture/calls
+ [;; `+` in a path capture decodes to a LITERAL `+` on every host
+  ;; (RFC-3986 path semantics). Pre-fix JVM yielded "a b".
+  {:call :match-url :url "/files/a+b"
+   :expect {:route-id :route/files
+            :params   {:name "a+b"}
+            :query    {}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; `+` in a query value decodes to a LITERAL `+` on every host.
+  ;; Pre-fix JVM yielded {"q" "a b"}.
+  {:call :match-url :url "/search?q=a+b"
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {"q" "a+b"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; `%20` still decodes to a real space on every host — the fix removes
+  ;; only the `+`→space swap, not the %20 decode.
+  {:call :match-url :url "/search?q=a%20b"
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {"q" "a b"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; `%2B` decodes to a literal `+` (the percent-escaped form) on every host.
+  {:call :match-url :url "/search?q=a%2Bb"
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {"q" "a+b"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; Finding 2 — a trailing `?` yields an EMPTY query, not `{"" ""}`.
+  {:call :match-url :url "/search?"
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; Finding 2 — a doubled `&&` drops the empty pair; only real pairs survive.
+  {:call :match-url :url "/search?a=1&&b=2"
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {"a" "1" "b" "2"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; An explicit empty VALUE (`?foo=`) is NOT a blank pair — the key
+  ;; survives with an empty-string value (distinct from the blank-pair
+  ;; filter above).
+  {:call :match-url :url "/search?foo="
+   :expect {:route-id :route/search
+            :params   {}
+            :query    {"foo" ""}
+            :fragment nil
+            :validation-failed? false}}]}

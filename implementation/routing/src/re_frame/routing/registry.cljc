@@ -504,30 +504,41 @@
                 (let [pairs (clojure.string/split query-str #"&")]
                   (reduce
                     (fn [acc pair]
-                      (let [[k v] (clojure.string/split pair #"=" 2)
-                            ;; Per Spec 012 §Routing failure semantics
-                            ;; (rf2-wbvme + rf2-4ic0f): malformed %-encoding
-                            ;; in a query key or value FAILS CLOSED — the
-                            ;; whole URL is treated as a route-miss (rather
-                            ;; than dropping the offending pair, which would
-                            ;; let hostile URLs into the slice when the host
-                            ;; route had no required keys). The empty-value
-                            ;; branch (`v` is nil → "") is distinct from a
-                            ;; malformed value and must not be conflated.
-                            kstr  (url/safe-url-decode k)
-                            vstr  (if v (url/safe-url-decode v) "")]
-                        (if (or (nil? kstr) (nil? vstr))
-                          (reduced ::malformed-query)
-                          (let [acc' (assoc acc kstr vstr)]
-                            (when (> (count acc') default-max-decoded-keys)
-                              (throw (route-error
-                                       :rf.error/route-too-many-keys
-                                       'rf/match-url
-                                       (str "the query string exceeded the per-call unique-key cap (" default-max-decoded-keys ") — a keyword-interning DoS guard; the URL is treated as a route-miss")
-                                       {:url   url
-                                        :limit default-max-decoded-keys
-                                        :count (count acc')})))
-                            acc'))))
+                      ;; Skip empty pairs. A trailing `?` (`/x?`), a leading
+                      ;; `&` (`/x?&a=1`), or a doubled `&&` (`/x?a=1&&b=2`)
+                      ;; splits to an empty `""` token; decoding it would
+                      ;; inject a spurious `{"" ""}` key into the slice's
+                      ;; :query — junk that breaks identical-route-target?
+                      ;; no-op detection, counts toward the keyword-interning
+                      ;; cap, and never round-trips through route-url. Per
+                      ;; Spec 012 §Query strings and fragments §`+` is a
+                      ;; literal (rf2-9a9ix finding 2).
+                      (if (clojure.string/blank? pair)
+                        acc
+                        (let [[k v] (clojure.string/split pair #"=" 2)
+                              ;; Per Spec 012 §Routing failure semantics
+                              ;; (rf2-wbvme + rf2-4ic0f): malformed %-encoding
+                              ;; in a query key or value FAILS CLOSED — the
+                              ;; whole URL is treated as a route-miss (rather
+                              ;; than dropping the offending pair, which would
+                              ;; let hostile URLs into the slice when the host
+                              ;; route had no required keys). The empty-value
+                              ;; branch (`v` is nil → "") is distinct from a
+                              ;; malformed value and must not be conflated.
+                              kstr  (url/safe-url-decode k)
+                              vstr  (if v (url/safe-url-decode v) "")]
+                          (if (or (nil? kstr) (nil? vstr))
+                            (reduced ::malformed-query)
+                            (let [acc' (assoc acc kstr vstr)]
+                              (when (> (count acc') default-max-decoded-keys)
+                                (throw (route-error
+                                         :rf.error/route-too-many-keys
+                                         'rf/match-url
+                                         (str "the query string exceeded the per-call unique-key cap (" default-max-decoded-keys ") — a keyword-interning DoS guard; the URL is treated as a route-miss")
+                                         {:url   url
+                                          :limit default-max-decoded-keys
+                                          :count (count acc')})))
+                              acc')))))
                     (array-map)
                     pairs))))]
         ;; Iterate the pre-sorted table; the first pattern that matches is
