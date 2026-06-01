@@ -46,7 +46,7 @@ The naive answer is "re-do all the work" — the client runs the same `:on-creat
 
 ```clojure
 ;; ---- Server side ----
-(let [final-db (rf/get-frame-db request-frame)
+(let [final-db (rf/app-db-value request-frame)
       hiccup   [(rf/view :app/root)]
       html     (rf/render-to-string hiccup {:frame request-frame})
       payload  {:rf/version     "1.0"
@@ -64,7 +64,7 @@ The naive answer is "re-do all the work" — the client runs the same `:on-creat
     (rdc/render root [(rf/view :app/root)])))
 ```
 
-A couple of shape notes so the code reads cleanly: `get-frame-db` returns the current `app-db` *value* — a plain map, not a deref-able container — so there's no `@`. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
+A couple of shape notes so the code reads cleanly: `app-db-value` returns the current `app-db` *value* — a plain map, not a deref-able container — so there's no `@`. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
 
 The default `:rf/hydrate` behaviour is **`:replace-app-db`**: the server's serialised slice replaces whatever the client bootstrap pre-seeded. This is locked, and the reasoning is sound — the server is authoritative for the initial `app-db`, and a defaulting *merge* policy would bury "which slice wins?" ordering bugs. If you genuinely need client-only transient state to survive (a `:browser/window-size` set by a resize listener that fired before hydration arrived), the customisation point is to re-register `:rf/hydrate` with your own handler that performs an explicit merge in the order *you* intend. The default replaces; opt-in merge is your choice and you own its semantics.
 

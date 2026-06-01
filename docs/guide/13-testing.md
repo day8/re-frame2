@@ -45,7 +45,7 @@ There are three shapes for getting a fresh frame, and you reach for them in roug
 (deftest auth-flow
   (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (rf/dispatch-sync [:auth/login-pressed])
-    (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))))
+    (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))))
 ```
 
 That's the shape you'll write ninety per cent of the time. Make a frame, drive events, assert against its db.
@@ -57,7 +57,7 @@ That's the shape you'll write ninety per cent of the time. Make a frame, drive e
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (try
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-      (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
+      (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
 ```
@@ -77,7 +77,7 @@ Functionally identical to the first. Use it only when you genuinely need the sea
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
-  (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
+  (is (= :validating (get-in (rf/app-db-value :test-fixture) [:auth :state]))))
 ```
 
 `reset-frame!` wipes `app-db` back to `{}` and re-fires `:on-create`, so every test starts from the same clean seed; the registration cost is paid once for the group.
@@ -144,7 +144,7 @@ A sub is a cache over a derivation, but the derivation itself is a pure function
     (rf/dispatch-sync [:todos/add {:id 1 :status :pending}])
     (rf/dispatch-sync [:todos/add {:id 2 :status :done}])
     (rf/dispatch-sync [:todos/add {:id 3 :status :pending}])
-    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/get-frame-db f)))))))
+    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/app-db-value f)))))))
 ```
 
 Prefer the second form, and here's the reason it's worth the extra lines: it builds the state through the *same code paths your app uses*. If you later rename `:items` to `:todos` in `app-db`, the events change, the sub changes, and this test keeps passing *unmodified* because it never hard-codes the shape — it just asserts the behaviour. The literal-value form (number 1) hard-codes the shape, so it breaks the day the shape moves, which means it's testing your db layout as much as your logic. Use it for a quick check; reach for the dispatch-driven form for anything you want to live.
@@ -189,7 +189,7 @@ Machines ([chapter 12](12-machines.md)) are the densest logic in most apps — "
 (rf/with-new-frame [f (rf/make-frame {})]
   (rf/reg-machine :auth.login/flow login-flow)
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {...}]])
-  (is (= :submitting (get-in (rf/get-frame-db f)
+  (is (= :submitting (get-in (rf/app-db-value f)
                               [:rf/runtime :machines :snapshots :auth.login/flow :state]))))
 ```
 
@@ -207,7 +207,7 @@ For the integration-shaped test — several events in sequence, assert at the en
     (rf/dispatch-sync [:auth/login-pressed]
                       {:fx-overrides {:rf.http/managed
                                       (fn [_ _] {:status 200 :body {:user/id 42}})}})
-    (is (= :authed (get-in (rf/get-frame-db f) [:auth :state])))))
+    (is (= :authed (get-in (rf/app-db-value f) [:auth :state])))))
 ```
 
 Two things are quietly doing the heavy lifting.
@@ -243,9 +243,9 @@ It's a small, blunt surface: `find-by-testid` / `find-all-by-testid` / `find-by-
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
     ;; state assertion — the handler updated the db
-    (is (= 2 (:n (rf/get-frame-db f))))
+    (is (= 2 (:n (rf/app-db-value f))))
     ;; view assertion — the view actually shows that value
-    (let [tree  (counter-view {:n (:n (rf/get-frame-db f))})
+    (let [tree  (counter-view {:n (:n (rf/app-db-value f))})
           label (h/find-by-testid tree "counter-label")]
       (is (= "Count: 2" (h/text-content label))))))
 ```
@@ -260,7 +260,7 @@ The `:data-testid` is a stable handle that survives layout churn. Search the cod
     (let [tree (counter-view {:n 0})
           btn  (h/find-by-testid tree "counter-inc")]
       (h/invoke-handler btn :on-click nil)            ;; fires :on-click
-      (is (= 1 (:n (rf/get-frame-db f)))))))         ;; state moved
+      (is (= 1 (:n (rf/app-db-value f)))))))         ;; state moved
 ```
 
 `invoke-handler` finds the element, pulls the handler off its attrs map, and calls it. If the view's `:on-click` is `#(rf/dispatch [:counter/inc])`, that dispatch threads through whatever frame `with-new-frame` bound, the cascade drains synchronously, and the next line sees the result. Wrong frame? The host-frame assertion fails — the bug is loud, reproducible, and browserless.
@@ -460,7 +460,7 @@ After a test run, `@recorded` holds the events in order — handy for asserting 
     (rf/with-new-frame [f (rf/make-frame {})]
       (rf/dispatch-sync [:todo/add "buy milk"])
       (is (= #inst "2026-01-01T12:00:00.000Z"
-             (-> (rf/get-frame-db f) :todos first val :created-at))))))
+             (-> (rf/app-db-value f) :todos first val :created-at))))))
 ```
 
 `with-fresh-registrar` scopes the stub to this test, so production `:now` is intact for the next one. The full cofx story — `reg-cofx`, `inject-cofx`, the common cofxes — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.

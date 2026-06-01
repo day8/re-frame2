@@ -53,6 +53,12 @@ on:
       - 'spec/API.md'
       - 'spec/api-manifest.edn'
       - 'spec/api-manifest-metadata.edn'
+      # Secondary projection drift-check surfaces (rf2-gkp0t): the skills +
+      # doc-guide are manifest projections; a var rename there must run the
+      # api-manifest job. (tools/story/spec + tools/xray/spec already ride
+      # the tools/** entry above.)
+      - 'skills/**'
+      - 'docs/guide/**'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
@@ -112,6 +118,12 @@ jobs:
               # the generated manifest all live under spec/. A pure-spec PR
               # that touches them must still run the drift-check (rf2-3nbl5.2).
               spec/API.md|spec/api-manifest.edn|spec/api-manifest-metadata.edn)
+                lint_surface=true ;;
+              # The skills + doc-guide are secondary manifest projections
+              # (rf2-gkp0t): a var rename there is caught by the api-manifest
+              # job's skills-check / doc-guide-check. A pure-skills or
+              # pure-doc-guide PR must still run the drift-check.
+              skills/*|docs/guide/*)
                 lint_surface=true ;;
             esac
           done <<< "$files"
@@ -306,6 +318,28 @@ jobs:
       - name: Assert spec/API.md projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.api-md-check
+
+      # Secondary projection drift-checks (rf2-gkp0t). Each validates a
+      # surface's public-var references against the same manifest the way
+      # api-md-check validates spec/API.md: Story API spec, Xray API spec
+      # (report-only — the spec file is owned elsewhere; the check flags
+      # drift), the skills, and the doc-guide. Each goes RED on a renamed /
+      # removed / never-manifested var the surface still names.
+      - name: Assert tools/story/spec/API.md projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.story-spec-check
+
+      - name: Assert tools/xray/spec/API.md projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.xray-spec-check
+
+      - name: Assert skills/ projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.skills-check
+
+      - name: Assert docs/guide/ projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.doc-guide-check
 
   # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-aemyt).
