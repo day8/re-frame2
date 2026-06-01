@@ -7,8 +7,11 @@
   Per Spec 006 §Subscription cache and §Reference counting and disposal.
   This ns owns the per-frame `:sub-cache` shape:
 
-    {<cache-key> {:value v :reaction r :inputs [...] :ref-count n
-                  :on-dispose [...]}}
+    {<cache-key> {:reaction r :inputs [...] :ref-count n}}
+
+  The cached value is NOT a stored slot — it lives on the reaction, read
+  via deref. Disposal is wired on the reaction (interop/add-on-dispose!),
+  not an entry-level callback slot.
 
   Disposal is **synchronous on derefer-count → 0** (rf2-cmfln, per
   Spec 006 §Reference counting and disposal). When the last subscriber
