@@ -46,6 +46,8 @@
   `:include-sensitive` opt-out escape hatch as `:app-db`."
   (:require [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
+            [re-frame.mcp-base.elision :as base-elision]
+            [re-frame.mcp-base.envelope :as base-envelope]
             [re-frame.mcp-base.sensitive :as sensitive]))
 
 ;; ---------------------------------------------------------------------------
@@ -88,27 +90,40 @@
                     (refresh-elision-from-schemas! variant-id)
                     (rf/elide-wire-value app-db {:frame variant-id}))))
 
-(defn scrub-assertions
+(defn scrub-assertions+count
   "Default-drop any assertion records carrying the top-level
   `:sensitive? true` stamp. Reuses `strip-sensitive` (the shared trace-
   event filter from `mcp-base.sensitive`) — assertion records and trace
   events both honour the same convention, so a single primitive covers
   both surfaces.
 
+  Returns `[kept dropped-count]` — the kept vec PLUS the number of
+  sensitive records dropped. The count is the `:dropped-sensitive`
+  indicator the caller threads onto its response envelope via
+  `with-indicators` (Conventions §Cross-MCP indicator-field vocabulary,
+  MUST-level): an agent that sees redacted leaves but no scalar summary
+  cannot tell HOW MUCH the egress filtered. This is the canonical
+  silent-swallow failure mode the indicator count closes (rf2-koq5m).
+
   Two short-circuits avoid pointless work on the opt-in / empty paths:
 
-    - `include? true` returns `(vec (or records []))` directly — the
+    - `include? true` returns `[(vec (or records [])) 0]` directly — the
       walker would yield the input unchanged anyway (no drops with the
       escape hatch open), so we skip the traversal.
-    - `nil`/empty records short-return `[]`.
-
-  Returns the kept-vec (the `dropped-count` second slot is suppressed
-  here; the caller is the wire egress, not an audit surface)."
+    - `nil`/empty records short-return `[[] 0]`."
   [records include?]
   (cond
-    include?       (vec (or records []))
-    (nil? records) []
-    :else          (first (sensitive/strip-sensitive records false))))
+    include?       [(vec (or records [])) 0]
+    (nil? records) [[] 0]
+    :else          (sensitive/strip-sensitive records false)))
+
+(defn scrub-assertions
+  "Kept-vec-only projection of `scrub-assertions+count` — the historical
+  signature for call sites that don't surface the dropped count. New
+  egress paths SHOULD prefer `scrub-assertions+count` and thread the
+  count onto the envelope via `with-indicators` (rf2-koq5m)."
+  [records include?]
+  (first (scrub-assertions+count records include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Derived-tree value-based redaction (rf2-ee38b.17)
@@ -178,3 +193,48 @@
                       (if (empty? secrets)
                         tree
                         (redact-matching tree secrets)))))
+
+;; ---------------------------------------------------------------------------
+;; Wire-egress indicator counts (rf2-koq5m).
+;;
+;; story-mcp's egress drops `:sensitive? true` assertion records and
+;; replaces over-threshold / schema-`:large?` leaves with the
+;; `:rf.size/large-elided` marker — but until rf2-koq5m it surfaced
+;; NEITHER count. spec/Conventions.md §Cross-MCP indicator-field
+;; vocabulary is MUST-level: a tool that walks a tree-typed payload MUST
+;; carry an `:elided-large` count alongside the `:dropped-sensitive`
+;; count, omitting each slot when zero. The sibling pair-mcp already
+;; wires `re-frame.mcp-base.envelope/with-indicators` +
+;; `re-frame.mcp-base.elision/count-elided-markers` across its tools;
+;; story-mcp now reuses the SAME mcp-base primitives so the omit-when-
+;; zero rule lives in one place and the count bytes stay byte-identical
+;; across the pair.
+;; ---------------------------------------------------------------------------
+
+(defn count-elided
+  "Count the `{:rf.size/large-elided ...}` markers `elide-app-db` /
+  `scrub-rendered` left in `payload`, via the shared mcp-base walker.
+  This is the `:elided-large` indicator the caller threads onto its
+  response envelope. Walk the FINAL payload (post-elision) so every
+  elided slot — `:app-db`, `:rendered-hiccup`, `:snapshot`, the evidence
+  trees — contributes; the marker is the same shape regardless of which
+  slot produced it.
+
+  Returns an integer >= 0; cheap on the common path (no markers => one
+  walk producing zero)."
+  [payload]
+  (base-elision/count-elided-markers payload))
+
+(defn with-indicators
+  "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,
+  `:elided-large`) onto a tool's payload map, honouring the MUST-level
+  omit-when-zero rule (Conventions §Cross-MCP indicator-field
+  vocabulary; Spec 009 §Indicator field on tool responses).
+
+  Thin pass-through to `re-frame.mcp-base.envelope/with-indicators` —
+  the rule body lives in mcp-base so both servers in the pair re-export
+  the same emit-path (the conformance gate pins the single source). The
+  `counts` map is `{:dropped <n> :elided <n>}`; a zero / nil count omits
+  its slot, so a clean read returns the payload unchanged."
+  [payload counts]
+  (base-envelope/with-indicators payload counts))

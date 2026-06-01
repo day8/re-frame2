@@ -135,13 +135,14 @@
                             :checks     []}))
             incl?      (targs/include-sensitive? arguments)
             raw-db     (:app-db outcome)
+            [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
             payload    {:variant-id   vk
                         :share-url    share-url
                         :status       (:status outcome)
                         :lifecycle    (:lifecycle outcome)
                         :elapsed-ms   (:elapsed-ms outcome)
                         :app-db       (egress/elide-app-db raw-db vk incl?)
-                        :assertions   (egress/scrub-assertions (:assertions outcome) incl?)
+                        :assertions   assertions
                         :checks       (vec (:checks outcome))
                         ;; Derived trees re-key the same sensitive value at a
                         ;; non-app-db path, so the path-based walker can't
@@ -149,7 +150,14 @@
                         :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                         :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                         :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
-        (result/edn-result payload)))))
+        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; how many sensitive assertion records were dropped + how many
+        ;; over-threshold leaves were elided across the payload. Omitted
+        ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
+        (result/edn-result
+          (egress/with-indicators payload
+                                  {:dropped dropped
+                                   :elided  (egress/count-elided payload)}))))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set

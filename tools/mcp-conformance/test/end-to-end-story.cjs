@@ -329,7 +329,21 @@ runWithWatchdog(
           JSON.stringify(failResp),
       );
     }
-    console.log('OK   read-failures -> total=0, failures=[], :status="pass"');
+    // rf2-koq5m — egress indicator omit-when-zero MUST: a clean read
+    // (no sensitive records dropped, nothing elided) carries NEITHER
+    // `:dropped-sensitive` nor `:elided-large`. The positive-count side
+    // is pinned by the JVM `tools_test.clj` indicator deftests; the live
+    // SDK driver pins the omit-when-zero contract end-to-end.
+    if ('dropped-sensitive' in failStruct || 'elided-large' in failStruct) {
+      throw new Error(
+        'read-failures clean read must OMIT indicator slots when zero ' +
+          '(Conventions §Cross-MCP indicator-field vocabulary, rf2-koq5m); got: ' +
+          JSON.stringify(failResp),
+      );
+    }
+    console.log(
+      'OK   read-failures -> total=0, failures=[], :status="pass", indicators omitted (omit-when-zero)',
+    );
 
     // 7b. explain-variant — the agent mirror of the human Explain panel
     // (rf2-ba86n.17). Assert the source-chain / merge / runner-requirement

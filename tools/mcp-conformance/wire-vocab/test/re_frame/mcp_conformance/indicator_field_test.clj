@@ -425,10 +425,25 @@
 ;; ---------------------------------------------------------------------------
 ;; Cross-server posture pin — story-mcp.
 ;;
-;; The sibling `wire_vocab_test.clj` already pins:
-;; - story-mcp emits ZERO cross-MCP markers
-;; - story-mcp emits ZERO envelope indicators (it doesn't walk
-;;   tree-typed payloads today)
+;; The sibling `wire_vocab_test.clj` pins:
+;; - story-mcp emits ZERO UNCONTRACTED cross-MCP markers (it is
+;;   contracted for `:rf.mcp/dedup-table` only)
+;; - story-mcp NOW emits both envelope indicators (rf2-koq5m): its
+;;   `run-variant` / `preview-variant` / `read-failures` payload
+;;   builders drop `:sensitive? true` assertion records and elide
+;;   over-threshold `:app-db` leaves, surfacing the counts via the
+;;   centralised `egress/with-indicators` helper (delegating to
+;;   `re-frame.mcp-base.envelope/with-indicators`) +
+;;   `egress/count-elided` (delegating to
+;;   `re-frame.mcp-base.elision/count-elided-markers`). The
+;;   `envelope-slot-parity-across-emitting-servers` +
+;;   `story-mcp-routes-envelope-through-the-centralised-helper` gates in
+;;   `wire_vocab_test.clj` pin that routing.
+;;
+;; The story-mcp tool sources are CLJC (not CLJS), so the
+;; `re-frame2-pair-mcp-source-files` walker above (CLJS-only) does not
+;; cover them; the story-mcp routing pin lives in `wire_vocab_test.clj`
+;; against the `.cljc` helper + tool sources.
 ;;
 ;; The xray-mcp T-Insp cluster (historic rf2-8xzoe.14..22) was
 ;; reverted in rf2-bu21t — `tools/xray-mcp/` is now absent. Xray

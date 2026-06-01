@@ -64,6 +64,40 @@ Per
 the boundary between Story core and this jar is: Story core exposes
 the read primitives; this jar packages them as MCP tools.
 
+## Egress indicator counts (`:dropped-sensitive` / `:elided-large`, rf2-koq5m)
+
+The three tools that walk a tree-typed payload — `preview-variant`,
+`run-variant`, `read-failures` — drop `:sensitive? true` assertion
+records and replace over-threshold / schema-`:large?` `:app-db` leaves
+with the `:rf.size/large-elided` marker at the wire egress. Per
+[`spec/Conventions.md` §Cross-MCP indicator-field vocabulary][conv]
+(MUST-level) and [Spec 009 §Indicator field on tool responses][s009],
+each of those tools MUST carry a scalar summary of how much the egress
+filtered:
+
+| Slot | Meaning |
+|---|---|
+| `:dropped-sensitive` | count of `:sensitive? true` assertion records dropped at egress |
+| `:elided-large` | count of `:rf.size/large-elided` markers across the response payload |
+
+Both keys are **unqualified** and ride alongside the tool's own
+result slots. Each is **omitted entirely when its count is zero**
+(omit-when-zero) — a clean read carries neither. The counts are spliced
+by the centralised `egress/with-indicators` helper, which delegates to
+the shared `re-frame.mcp-base.envelope/with-indicators`; the
+`:elided-large` count is produced by `egress/count-elided` →
+`re-frame.mcp-base.elision/count-elided-markers`. story-mcp reuses the
+SAME mcp-base primitives the sibling `re-frame2-pair-mcp` wires across
+its tree-walking tools, so the slot bytes stay byte-identical across the
+pair and the cross-MCP conformance gate
+(`tools/mcp-conformance/wire-vocab`) pins the parity. Without the scalar
+summary an agent sees the inline `:rf/redacted` sentinels / vanished
+assertions but no signal that the payload was filtered, or by how much —
+the canonical silent-swallow failure mode this MUST closes.
+
+[conv]: ../../../spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
+[s009]: ../../../spec/009-Instrumentation.md#size-elision-in-traces
+
 ## Dev — for agents helping build new stories
 
 Three tools that help an agent get its bearings before generating
