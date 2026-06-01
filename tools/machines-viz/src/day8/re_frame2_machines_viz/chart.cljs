@@ -53,8 +53,6 @@
             [day8.re-frame2-machines-viz.chart.edges :as edges]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as after-rings]
-            [day8.re-frame2-machines-viz.chart.overlays.label-collisions
-             :as label-collisions]
             [day8.re-frame2-machines-viz.chart.overlays.spawn-all-join
              :as overlay-spawn-all]
             [day8.re-frame2-machines-viz.chart.overlays.cancellation-cascade
@@ -853,15 +851,11 @@
                                   (str " across " n-regions " parallel "
                                        (if (= 1 n-regions) "region" "regions")))
                                 ".")
-                ;; rf2-7w4qr — the `:overlays` descriptor vector, with a
-                ;; unified tick. Per-descriptor `:tick` replaces the old
-                ;; flat `:after-ring-tick` + `:overlay-tick`; the always-
-                ;; on label-collisions overlay re-measures on the FIRST
-                ;; non-nil descriptor tick (one rAF clock per chart, Lock
-                ;; #8 — whichever overlay the host's clock drives shares
-                ;; its tick). nil when no host-fed overlay is ticking.
-                overlay-descriptors (filterv map? overlays)
-                overlays-tick       (some :tick overlay-descriptors)]
+                ;; rf2-7w4qr — the `:overlays` descriptor vector. Each
+                ;; descriptor carries its own `:tick` (one rAF clock per
+                ;; chart, Lock #8 — the host's clock drives whichever
+                ;; overlay it ticks).
+                overlay-descriptors (filterv map? overlays)]
             [:div {:data-testid testid
                    :data-machine-id (str machine-id)
                    :data-node-count (str n-states)
@@ -1016,24 +1010,6 @@
                              (pr-str (:id descriptor)))}
                  [render-overlay descriptor])
                overlay-descriptors)
-             ;; rf2-r7vsr — post-render label-collision avoidance.
-             ;; Sibling overlay that walks the rendered DOM after
-             ;; xyflow paints, finds every label that intersects a
-             ;; node body (typically a cross-hierarchy edge whose
-             ;; routed path threads a label on top of a populated
-             ;; state's interior), slides the label along its edge's
-             ;; path until the conflict resolves, and stamps the
-             ;; residue count on this root as `data-label-collisions`.
-             ;; Pure post-process — does not change the projector or
-             ;; any React state. `transition-edge` emits the path
-             ;; string + geometric anchor on each label's data-attrs
-             ;; (`data-edge-path-d` + `data-label-anchor-x/y`) so the
-             ;; overlay is purely DOM-driven (no React-state
-             ;; coupling). Always-on: the chart always renders
-             ;; labels, and clean layouts measure zero collisions
-             ;; (the overlay is a no-op).
-             [label-collisions/LabelCollisionsOverlay
-              {:tick overlays-tick}]
              ;; rf2-qo5xy — `:machine-data` corner panel. The Stately
              ;; graph view paints the machine's current `:data` /
              ;; context as a top-left panel so the operator reads it
