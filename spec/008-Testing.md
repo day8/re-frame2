@@ -16,7 +16,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `sub-topology`, `compute-sub`, `machine-transition` |
+| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `frame-db`, `snapshot-of`, `sub-topology`, `compute-sub`, `machine-transition` |
 | `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals`, `assert-db-equals`, `poll-until` |
 | `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) + single-frame e2e fixture (view-tree axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid`, `with-app-fixture`, `expect-text`, `wait-until` |
 
@@ -56,7 +56,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
-| Assertion: read app-db | `(rf/get-frame-db :test-frame)` |
+| Assertion: read app-db | `(rf/frame-db :test-frame)` |
 | Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/runtime :machines :snapshots :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
 | Machine cleanup on destroy | `(rf/destroy-frame! f)` — disposes sub-cache, stops router, clears overrides |
@@ -85,7 +85,7 @@ Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. T
 (rf/with-new-frame [binding-sym expr] body...)
 ```
 
-Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame!` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown. Rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`); use `with-frame` to pin.
+Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame!` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown. Rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`); use `with-frame` to pin.
 
 Both macros are part of the normative test surface; tests, fixtures, and helper macros MAY freely use either, and hosts MUST support both.
 
@@ -122,7 +122,7 @@ The most common shape. Each test creates a frame, runs assertions, tears down.
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (try
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-      (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
+      (is (= :validating (get-in (rf/frame-db f) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
 ```
@@ -135,7 +135,7 @@ For tests that don't need explicit teardown logic, `with-new-frame` handles the 
 (deftest auth-flow
   (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (rf/dispatch-sync [:auth/login-pressed])         ;; uses :frame f via the binding
-    (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))))
+    (is (= :validating (get-in (rf/frame-db f) [:auth :state])))))
 ```
 
 `with-new-frame` evaluates the bound expression, binds the frame for the body's duration, dispatch-syncs/subscribes inside the body resolve to that frame via the dynamic-var tier of the resolution chain, and the frame is destroyed on exit (success or exception).
@@ -155,7 +155,7 @@ For test groups that share setup, register a named test frame once and reset bet
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
-  (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
+  (is (= :validating (get-in (rf/frame-db :test-fixture) [:auth :state]))))
 ```
 
 `reset-frame!` (per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
@@ -305,7 +305,7 @@ The recommended pattern is to drive `db` state via dispatches against a fixture 
     (rf/dispatch-sync [:todos/add {:id 1 :status :pending}])
     (rf/dispatch-sync [:todos/add {:id 2 :status :done}])
     (rf/dispatch-sync [:todos/add {:id 3 :status :pending}])
-    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/get-frame-db f)))))))
+    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/frame-db f)))))))
 ```
 
 Composed subs (`:<-`) are computed transitively — the inputs are computed first, then the output. All without spinning up the reactive cache.
@@ -425,7 +425,7 @@ Drive a click and assert state changed downstream:
     (let [tree (counter-view {})
           btn  (th/find-by-testid tree "counter-inc")]
       (th/invoke-handler btn :on-click)
-      (is (= 1 (:n (rf/get-frame-db (rf/current-frame))))))))
+      (is (= 1 (:n (rf/frame-db (rf/current-frame-id))))))))
 ```
 
 Assert rendered text after dispatching:
@@ -458,15 +458,15 @@ This complements the JVM-runnable list in [§Normative surface §JVM-runnable bo
 
 The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion helpers) describe *what is possible*. This section captures the **judgement** for choosing among them. Match the spec/Principles.md voice: terse, fact-dense, AI-first.
 
-### Sub testing — `compute-sub` vs dispatch-sync + `get-frame-db`
+### Sub testing — `compute-sub` vs dispatch-sync + `frame-db`
 
-- **`compute-sub` against a dispatch-driven `app-db`** is the recommended pattern (per [§Sub computation without the reactive runtime](#sub-computation-without-the-reactive-runtime)). Drive state via `dispatch-sync` calls against a fixture frame, then `(compute-sub [:sub-id arg] (get-frame-db f))`. This tests the sub against state produced by the same code paths the application uses, and survives `app-db` schema changes — when `:items` becomes `:todos`, the events update, the sub updates, the test keeps working.
+- **`compute-sub` against a dispatch-driven `app-db`** is the recommended pattern (per [§Sub computation without the reactive runtime](#sub-computation-without-the-reactive-runtime)). Drive state via `dispatch-sync` calls against a fixture frame, then `(compute-sub [:sub-id arg] (frame-db f))`. This tests the sub against state produced by the same code paths the application uses, and survives `app-db` schema changes — when `:items` becomes `:todos`, the events update, the sub updates, the test keeps working.
 - **`compute-sub` against a literal `db`** is the escape hatch for very simple readers where the dispatch path adds no value. Pass a literal map directly. Use sparingly — a sub against a hand-rolled `app-db` shape decouples the test from event behaviour and silently rots when handler-side schema evolves.
 - **Avoid `subscribe` + deref in tests.** The reactive runtime is overhead for an assertion against an `app-db` value. `compute-sub` is JVM-runnable and pure; `subscribe` requires a live reactive cache and an installed adapter.
 
-### Event testing — `dispatch-sync` + `get-frame-db` vs the `assert-*-equals` fn-family
+### Event testing — `dispatch-sync` + `frame-db` vs the `assert-*-equals` fn-family
 
-- **`dispatch-sync` + `(get-in (get-frame-db f) [path])` + `(is (= ...))`** is the canonical shape for event handler tests. Dispatch settles synchronously; the assertion reads committed state.
+- **`dispatch-sync` + `(get-in (frame-db f) [path])` + `(is (= ...))`** is the canonical shape for event handler tests. Dispatch settles synchronously; the assertion reads committed state.
 - **`assert-path-equals`** is the `clojure.test`-aware sugar for the path/value form. Reaches for `do-report` directly so the failure message names the frame and path. Reach for it when the test asserts on many path/value pairs in sequence; the inline form reads better for a single assertion. **Mirrors the `:rf.assert/path-equals` event** used inside a Story `:script` block (per [007 §Play functions](007-Stories.md#play-functions)) — same name root so a reader navigating between the fn-side and the event-side does not need a translation table.
 - **`assert-db-equals`** is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed). Reach for it in small fixtures where "the whole thing should equal this" is the natural assertion shape.
 - **`dispatch-sequence`** composes a vector of events through `dispatch-sync` and optionally runs an `:after-each` between dispatches. Reach for it when the test asserts on a fan-out chain (3+ events with intermediate state) — the `doseq` shape reads worse than the vector form.
@@ -502,7 +502,7 @@ The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion hel
 Rank by signal-to-noise:
 
 1. **`(is (= expected-value (compute-sub [:sub] db)))`** — pure value, no runtime, smallest blast radius.
-2. **`(is (= expected-value (get-in (get-frame-db f) [path])))`** — direct state read after a dispatch.
+2. **`(is (= expected-value (get-in (frame-db f) [path])))`** — direct state read after a dispatch.
 3. **`(th/expect-text testid expected)`** — view content under the fixture-stashed root.
 4. **`(is (= expected (render-to-string view-fn args)))`** — HTML markup.
 5. **`(th/invoke-handler node :on-click) → assert downstream state`** — handler-wiring test, catches wrong-frame dispatch.
@@ -514,8 +514,8 @@ Earlier ranks are cheaper and catch a tighter bug class; later ranks catch view-
 ### Reading app-db
 
 ```clojure
-(is (= :validating (get-in (rf/get-frame-db :test-frame) [:auth :state])))
-(is (= 3 (count (get-in (rf/get-frame-db :test-frame) [:items]))))
+(is (= :validating (get-in (rf/frame-db :test-frame) [:auth :state])))
+(is (= 3 (count (get-in (rf/frame-db :test-frame) [:items]))))
 ```
 
 ### Reading machine snapshots
@@ -547,11 +547,11 @@ For tests that exercise event sequences and want to assert at intermediate point
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
   (rf/dispatch-sync [:auth/email-changed "alice@example.com"])
-  (is (= "alice@example.com" (get-in (rf/get-frame-db f) [:auth :form :email])))
+  (is (= "alice@example.com" (get-in (rf/frame-db f) [:auth :form :email])))
   (rf/dispatch-sync [:auth/password-changed "hunter2"])
-  (is (some? (get-in (rf/get-frame-db f) [:auth :form :password])))
+  (is (some? (get-in (rf/frame-db f) [:auth :form :password])))
   (rf/dispatch-sync [:auth/login-pressed])
-  (is (= :validating (get-in (rf/get-frame-db f) [:auth :state]))))
+  (is (= :validating (get-in (rf/frame-db f) [:auth :state]))))
 ```
 
 Because run-to-completion drain settles each `dispatch-sync` before returning, assertions between dispatches reflect committed state — no race conditions.
@@ -573,7 +573,7 @@ The testing surface is framework-agnostic — `make-frame` and friends work from
 
 (deftest example-test
   (rf/dispatch-sync [:some-event] {:frame :test-fixture})
-  (is (= ... (get-in (rf/get-frame-db :test-fixture) [...]))))
+  (is (= ... (get-in (rf/frame-db :test-fixture) [...]))))
 ```
 
 ### clojure.test on the JVM
@@ -602,7 +602,7 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 
 - `(make-frame {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
-- `(get-frame-db f)` — current `app-db` value (a plain map) for the named frame.
+- `(frame-db f)` — current `app-db` value (a plain map) for the named frame.
 - `(snapshot-of path {:frame f})` — exact opts arg.
 - `(destroy-frame! f)` — exact teardown contract.
 - Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
@@ -760,11 +760,11 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ### Snapshot / fixture serialization (post-v1)
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (get-frame-db f)))`); a helper is user-space. Deferred to.
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (frame-db f)))`); a helper is user-space. Deferred to.
 
 #### Post-v1 Tracking
 
-- **Foundation in v1.** `get-frame-db` returns a plain value; `pr-str` / EDN reader round-trips it. No framework change is needed for the raw capture/replay path.
+- **Foundation in v1.** `frame-db` returns a plain value; `pr-str` / EDN reader round-trips it. No framework change is needed for the raw capture/replay path.
 - **Scope deferred.** A packaged helper (`golden-master`, `regression-check`) with the ergonomic API (file-naming convention, diff rendering, `clojure.test`-style failure report) is user-space library work.
 - **Reconsideration trigger.** A repeated pattern emerging across `examples/` or downstream tests that all hand-roll the same snapshot/diff scaffolding.
 - **Out of scope for the bead.** Cross-process replay (record-on-prod, replay-on-dev) — that wants the trace-buffer surface, not a snapshot helper.
@@ -816,7 +816,7 @@ The canonical helper inventory is the union of three namespaces:
 
 | Helper | Namespace | Purpose |
 |---|---|---|
-| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `subscribe-once`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). `subscribe-once` is the **canonical read-then-discard primitive** — `(rf/subscribe-once [:query])` returns the current sub value and synchronously disposes its ref-count contribution (per [006 §`subscribe-once`](006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-frame-id-query-v--value)). Use it from JVM SSR pre-hydration assertions and CLJS post-hydration assertions alike: same call shape, same semantics, no live ratom returned. Pairs with `compute-sub` (pure / cache-bypassing JVM unit-test form) — pick `subscribe-once` when you want what the running frame would see right now (cache-aware), `compute-sub` when you want to assert sub-body correctness against an explicit `app-db` snapshot. |
+| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `with-fx-overrides`, `frame-db`, `snapshot-of`, `subscribe-once`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). `subscribe-once` is the **canonical read-then-discard primitive** — `(rf/subscribe-once [:query])` returns the current sub value and synchronously disposes its ref-count contribution (per [006 §`subscribe-once`](006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-frame-id-query-v--value)). Use it from JVM SSR pre-hydration assertions and CLJS post-hydration assertions alike: same call shape, same semantics, no live ratom returned. Pairs with `compute-sub` (pure / cache-bypassing JVM unit-test form) — pick `subscribe-once` when you want what the running frame would see right now (cache-aware), `compute-sub` when you want to assert sub-body correctness against an explicit `app-db` snapshot. |
 | `dispatch-sequence` | `re-frame.test-support` | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
 | `assert-path-equals` / `assert-db-equals` | `re-frame.test-support` | `(assert-path-equals path expected-val)` for a path check, `(assert-db-equals expected-db)` for a full-db check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). **The `assert-*-equals` fn-family shares a name root with the `:rf.assert/*` event-vector family** (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, …) used inside a Story `:script` block — that surface lives in Spec 007 §Play functions (`:rf.assert/*` is registered, enumerable, and reserved under `:rf.assert/*` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The fn-side is the in-process `clojure.test` sync surface (reports via `do-report`); the event-side is dispatches handled by the story library's test runner (rendered as a checked-step list in dev/docs, fail loudly in test mode, simulation breakpoints in agent mode). Same intent (db-shape assertion), shared `path-equals` root so a reader navigating between the two surfaces does not need a translation table — see [007 §Play functions](007-Stories.md#play-functions). |
 | `poll-until` | `re-frame.test-support` | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
@@ -824,7 +824,7 @@ The canonical helper inventory is the union of three namespaces:
 | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` | `re-frame.test-helpers` | Hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Full inventory and contract: [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers). |
 | `with-app-fixture`, `expect-text`, `wait-until` | `re-frame.test-helpers` | Single-frame e2e fixture trio. `with-app-fixture` brackets a body with a fresh frame + `:install` hook + `:root-view` stash; `expect-text` walks the stashed view for a testid'd node and asserts text content; `wait-until` polls a condition or a testid's text until a deadline elapses (JVM-sync / CLJS-Promise). Compresses the 5-line single-frame e2e pattern to 2 lines. See [§Pattern 5 — single-frame e2e fixture](#pattern-5--single-frame-e2e-fixture). |
 
-This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
+This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
 
 #### `dispatch-sequence` example
 
@@ -872,9 +872,9 @@ JVM (synchronous — returns the truthy value, throws on timeout):
 
 ```clojure
 (rf/dispatch [:cross-frame/fan-out])
-(ts/poll-until #(= 3 (:count (rf/get-frame-db :other-frame)))
+(ts/poll-until #(= 3 (:count (rf/frame-db :other-frame)))
                {:timeout-ms 5000 :label "fan-out reached :other-frame"})
-(is (= 3 (:count (rf/get-frame-db :other-frame))))
+(is (= 3 (:count (rf/frame-db :other-frame))))
 ```
 
 CLJS (returns a `js/Promise` — compose with `(.then ...)` under `cljs.test/async`):
@@ -882,10 +882,10 @@ CLJS (returns a `js/Promise` — compose with `(.then ...)` under `cljs.test/asy
 ```clojure
 (deftest cross-frame-drain
   (async done
-    (-> (ts/poll-until #(= 3 (:count (rf/get-frame-db :other-frame)))
+    (-> (ts/poll-until #(= 3 (:count (rf/frame-db :other-frame)))
                        {:timeout-ms 5000 :label "fan-out drained"})
         (.then (fn [_]
-                 (is (= 3 (:count (rf/get-frame-db :other-frame))))
+                 (is (= 3 (:count (rf/frame-db :other-frame))))
                  (done)))
         (.catch (fn [e]
                   (is false (str "poll-until timed out: " (.-message e)))

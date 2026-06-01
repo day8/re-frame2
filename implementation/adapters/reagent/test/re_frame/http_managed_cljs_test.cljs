@@ -71,7 +71,7 @@
                   :decode  :json}]]})))
     (rf/dispatch-sync [:article/load {:slug "hello"}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= {:stubbed true} (:article db))
           "default-reply addressing routed the synthesised reply back to :article/load"))))
 
@@ -89,7 +89,7 @@
         (assoc db :auth-error payload)))
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= :failure (get-in db [:auth-error :kind])))
       (is (= :rf.http/transport (get-in db [:auth-error :failure :kind]))
           "default canned-failure :kind classifies as :rf.http/transport"))))
@@ -108,7 +108,7 @@
         (assoc db :article payload)))
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= :success (get-in db [:article :kind])))
       (is (= {:stubbed true} (get-in db [:article :value]))))))
 
@@ -157,7 +157,7 @@
       (fn []
         (rf/dispatch-sync [:articles/list]
                           {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-        (let [db (rf/get-frame-db :rf/default)]
+        (let [db (rf/frame-db :rf/default)]
           (is (= :success (get-in db [:result :kind])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
@@ -178,7 +178,7 @@
       (fn []
         (rf/dispatch-sync [:articles/list]
                           {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-        (let [db (rf/get-frame-db :rf/default)]
+        (let [db (rf/frame-db :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
           (is (= 404 (get-in db [:result :failure :status]))))))))
@@ -200,7 +200,7 @@
       (fn []
         (rf/dispatch-sync [:unmatched/load]
                           {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-        (let [db (rf/get-frame-db :rf/default)]
+        (let [db (rf/frame-db :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/transport (get-in db [:result :failure :kind]))))))))
 
@@ -221,7 +221,7 @@
       (fn [db [_ payload]]
         (assoc db :error payload)))
     (rf/dispatch-sync [:flaky/load])
-    (let [db (rf/get-frame-db :rf/default)]
+    (let [db (rf/frame-db :rf/default)]
       (is (= :failure (get-in db [:error :kind])))
       (is (= :rf.http/http-5xx (get-in db [:error :failure :kind])))
       (is (= 503 (get-in db [:error :failure :status]))))))
@@ -245,7 +245,7 @@
                                 {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})
       (rf/dispatch-sync [:article/load] {:frame right})
-      (is (= {:stubbed true} (:article (rf/get-frame-db left))))
-      (is (= {:stubbed true} (:article (rf/get-frame-db right))))
+      (is (= {:stubbed true} (:article (rf/frame-db left))))
+      (is (= {:stubbed true} (:article (rf/frame-db right))))
       ;; The default frame stays empty — no cross-frame leakage.
-      (is (nil? (:article (rf/get-frame-db :rf/default)))))))
+      (is (nil? (:article (rf/frame-db :rf/default)))))))

@@ -93,14 +93,14 @@
 
 (defn- await-reply!
   "Wait up to `timeout-ms` for `(pred db)` to be truthy against
-  `(rf/get-frame-db :rf/default)`. Returns the final db on success;
+  `(rf/frame-db :rf/default)`. Returns the final db on success;
   throws `:rf.test/poll-timeout` on timeout. Thin alias over
   `test-support/poll-until` (rf2-fun38) — preserves the per-file
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
    (test-support/poll-until
-     #(let [db (rf/get-frame-db :rf/default)] (when (pred db) db))
+     #(let [db (rf/frame-db :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-managed reply"})))
 
 ;; ---- 1. canned-success: round-trip default reply addressing ---------------
@@ -193,14 +193,14 @@
     (canned-success-reply-event {:value {:n 1}})
     ;; Immediate path runs inside the dispatch-sync drain — the reply is
     ;; already present without polling a timer.
-    (is (= {:n 1} (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+    (is (= {:n 1} (get-in (rf/frame-db :rf/default) [:j1mo4 :value]))
         "reply landed synchronously")))
 
 (deftest after-ms-zero-is-immediate
   (testing ":after-ms 0 (and any non-positive value) is treated as immediate —
             absent/0 must preserve current behaviour"
     (canned-success-reply-event {:value {:n 2} :after-ms 0})
-    (is (= {:n 2} (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+    (is (= {:n 2} (get-in (rf/frame-db :rf/default) [:j1mo4 :value]))
         "reply landed synchronously with :after-ms 0")))
 
 (deftest after-ms-positive-defers-via-dispatch-later
@@ -215,7 +215,7 @@
         (canned-success-reply-event {:value {:n 3} :after-ms 30})
         ;; The reply must NOT be present synchronously — the dispatch-sync
         ;; drain only schedules the :dispatch-later; nothing has delivered yet.
-        (is (nil? (get-in (rf/get-frame-db :rf/default) [:j1mo4 :value]))
+        (is (nil? (get-in (rf/frame-db :rf/default) [:j1mo4 :value]))
             "reply deferred — not present immediately after dispatch-sync")
         ;; After the timer tick the reply lands.
         (let [db (await-reply! #(some? (get-in % [:j1mo4 :value])))]
@@ -251,7 +251,7 @@
     (rf/dispatch-sync [:j1mo4/fail-delayed]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     ;; Deferred — not present synchronously after the dispatch-sync drain.
-    (is (nil? (:j1mo4-error (rf/get-frame-db :rf/default)))
+    (is (nil? (:j1mo4-error (rf/frame-db :rf/default)))
         "failure reply deferred — not present immediately")
     (let [db (await-reply! #(some? (:j1mo4-error %)))]
       (is (= :rf.http/transport (get-in db [:j1mo4-error :failure :kind]))

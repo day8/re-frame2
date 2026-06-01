@@ -651,9 +651,8 @@
 (defn frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
   children in the shared frame Context Provider — inside the subtree,
-  `(rf/dispatcher)` / `(rf/subscriber)` / `reg-view`-registered
-  descendants resolve to the named frame. Per Spec 002 §What
-  `frame-provider` is.
+  `(rf/frame-handle)` / `reg-view`-registered descendants resolve to
+  the named frame. Per Spec 002 §What `frame-provider` is.
 
   Reads `:frame` from props. When missing or `nil`, falls through to
   `:rf/default` — defensive default that matches the no-provider
@@ -1297,7 +1296,7 @@
 ;;   :adapter/current-frame — rf2-d4sf. Function components have no
 ;;     class-component (.-context cmp) slot, so the shared impl in
 ;;     `re-frame.adapter.context` reads `_currentValue` directly. This is
-;;     the WIDER surface — `(rf/current-frame)` reaches the dynamic-var-
+;;     the WIDER surface — `(rf/current-frame-id)` reaches the dynamic-var-
 ;;     fallback chain via this hook; the per-adapter `use-current-frame`
 ;;     hook is the NARROWER React-context-tier-only read (rf2-84myk).
 ;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-

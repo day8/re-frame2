@@ -47,10 +47,10 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- frame-db []
-  (rf/get-frame-db :rf/default))
+  (rf/frame-db :rf/default))
 
 ;; ---- (1) spawn writes [:rf/runtime :machines :spawned <parent> <invoke-id>] ------------------
 

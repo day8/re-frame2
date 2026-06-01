@@ -424,7 +424,7 @@
       ;; the async clipboard continuations dispatch back to the instance
       ;; frame (the handler runs in the event's frame context), not a
       ;; `{:frame :rf/xray}` literal that pins the singleton.
-      (let [frame (rf/current-frame)
+      (let [frame (rf/current-frame-id)
             state (let [machine-id  (:selected-machine-id db)
                         tab         (or (:selected-tab db) :event)
                         position    (:machine-inspector/scrubber-position db)]
@@ -482,7 +482,7 @@
     (fn [{:keys [db]} _event]
       (let [;; rf2-nesy9 — capture the surrounding frame for the async
             ;; clipboard continuations (see copy-share-url above).
-            frame  (rf/current-frame)
+            frame  (rf/current-frame-id)
             ;; Build the export by reading the same sub the modal does.
             ;; The sub is layer-2 over `:rf.xray/event-detail` /
             ;; `:rf.xray/epoch-history` / `:rf.xray/focus` so the
@@ -515,7 +515,7 @@
     (fn [{:keys [db]} _event]
       (let [;; rf2-nesy9 — capture the surrounding frame for the
             ;; setTimeout status-flip continuations.
-            frame    (rf/current-frame)
+            frame    (rf/current-frame-id)
             export   @(rf/subscribe [:rf.xray/cascade-export])
             edn      (when export (export-cascade/to-edn-string export))
             ts       (try (.toISOString (js/Date.)) (catch :default _ nil))

@@ -9,7 +9,7 @@
   parameterized the shell frame and made every out-of-render dispatch
   capture the SURROUNDING instance frame via a frame-aware dispatcher
   (`reg-view`'s injected `(dispatcher)` / `rf/frame-bound-fn` /
-  `rf/current-frame`), so N instances stay isolated.
+  `rf/current-frame-id`), so N instances stay isolated.
 
   This SOURCE-TEXT guard (JVM, runs in the fast `clojure -M:test`
   gate) flags the two singleton-class anti-patterns so they cannot
@@ -24,7 +24,7 @@
        `:on-*` handler — the bare global dispatch that leaks to
        `:rf/default` after render unwinds. The fix is to dispatch
        through a captured frame-aware dispatcher (the reg-view-injected
-       `dispatch`, a threaded `dispatch-fn`, or `(rf/dispatcher)`).
+       `dispatch`, a threaded `dispatch-fn`, or `(:dispatch (rf/frame-handle))`).
 
   ## Migration state — COMPLETE (rf2-1w07r EPIC closed via rf2-nesy9)
 
@@ -75,7 +75,7 @@
   "Files NOT YET de-singletoned. The rf2-nesy9 sweep BURNED THIS DOWN TO
   EMPTY — every panel / modal / static surface now captures the
   surrounding instance frame (the reg-view-injected `dispatch`, a
-  threaded `dispatch-fn`, or a render-time `(rf/current-frame)` capture)
+  threaded `dispatch-fn`, or a render-time `(rf/current-frame-id)` capture)
   rather than pinning the `:rf/xray` singleton. This CLOSES the
   rf2-1w07r frame-singleton EPIC: N isolated Xray instances on one page
   each route to their own frame.
@@ -166,8 +166,8 @@
              "file. The render-tree singleton literal entrenches the "
              "one-shell lock. Capture the surrounding instance frame "
              "instead — the reg-view-injected `dispatch` / `subscribe`, a "
-             "threaded `dispatch-fn`, or `(rf/dispatcher)` / "
-             "`(rf/current-frame)`. (The single permitted `:rf/xray` is "
+             "threaded `dispatch-fn`, or `(:dispatch (rf/frame-handle))` / "
+             "`(rf/current-frame-id)`. (The single permitted `:rf/xray` is "
              "`defaults/default-frame-id`, a bare `def`, not a map "
              "literal.) Offenders:\n  "
              (report offs)))))
@@ -181,7 +181,7 @@
              "gone, so a bare global dispatch leaks to `:rf/default`. "
              "Dispatch through a captured frame-aware dispatcher (the "
              "reg-view-injected `dispatch`, a threaded `dispatch-fn`, or "
-             "`(rf/dispatcher)`). Offenders:\n  "
+             "`(:dispatch (rf/frame-handle))`). Offenders:\n  "
              (report offs)))))
 
 (deftest pending-migration-allowlist-stays-honest

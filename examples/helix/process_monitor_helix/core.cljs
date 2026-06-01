@@ -163,7 +163,7 @@
 
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:monitor/level-filter])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     (d/div {:class "pm-chips"}
       (for [level [:info :warn :error]]
         (d/button {:key   (name level)
@@ -174,7 +174,7 @@
           (name level))))))
 
 (defnc process-row [{:keys [process selected?]}]
-  (let [dispatch (rf/dispatcher)
+  (let [dispatch (:dispatch (rf/frame-handle))
         {:keys [id status cpu mem pid] process-name :name} process
         cpu-pct (min 100 cpu)]
     (d/li {:class (str "pm-row"

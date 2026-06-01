@@ -46,7 +46,7 @@
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)

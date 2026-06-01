@@ -29,7 +29,7 @@
 
 (defui root []
   (let [n        (uix-adapter/use-subscribe [:counter/value])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     ($ :div
        ($ :h1 {:data-testid "rf-adapter-testbed-uix"}
           "UIx adapter testbed")

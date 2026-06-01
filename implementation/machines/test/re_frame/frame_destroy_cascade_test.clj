@@ -150,7 +150,7 @@
       (rf/reg-machine :si/boot parent)
       (rf/dispatch-sync [:si/boot [:bind]] {:frame :si/auth})
       ;; The reverse index is bound before destroy.
-      (let [db (rf/get-frame-db :si/auth)]
+      (let [db (rf/frame-db :si/auth)]
         (is (= :si/child#1 (get-in db [:rf/runtime :machines :system-ids :session/primary]))
             "system-id was bound to the spawned actor before destroy"))
       (rf/destroy-frame! :si/auth)

@@ -210,7 +210,7 @@
   (let [busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
                                                :auth.login/flow :auth/busy])
         err      (helix-adapter/use-subscribe [:auth.login/error])
-        dispatch (rf/dispatcher)
+        dispatch (:dispatch (rf/frame-handle))
         [email    set-email!]    (helix-hooks/use-state "")
         [password set-password!] (helix-hooks/use-state "")]
     (d/form

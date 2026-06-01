@@ -596,7 +596,7 @@ The public surface is `(reg-http-interceptor id interceptor-map)` — positional
   :auth-header
   {:doc    "Stamp Bearer <token> on every outgoing request."
    :before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+             (let [token (-> (rf/frame-db (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})
@@ -671,7 +671,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 (rf/reg-http-interceptor
   :app/bearer-auth
   {:before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+             (let [token (-> (rf/frame-db (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})

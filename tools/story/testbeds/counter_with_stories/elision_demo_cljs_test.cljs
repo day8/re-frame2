@@ -104,7 +104,7 @@
     (rf/dispatch-sync [:auth/sign-in
                        {:email "test@example.com"
                         :password "real-password-1234"}])
-    (let [feedback (-> (rf/get-frame-db :rf/default)
+    (let [feedback (-> (rf/frame-db :rf/default)
                        :auth/last-sign-in)]
       (is (= "test@example.com" (:email feedback))
           "the email rode through")
@@ -122,7 +122,7 @@
             marker map carrying byte-count + path + hint. Spec 010
             §`:large?` schema-driven size-elision nomination."
     (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
-    (let [db     (rf/get-frame-db :rf/default)
+    (let [db     (rf/frame-db :rf/default)
           blob   (:user/avatar-pdf db)
           elided (rf/elide-wire-value db {:frame :rf/default})]
       (is (string? blob) "the handler wrote the synthetic blob into app-db")

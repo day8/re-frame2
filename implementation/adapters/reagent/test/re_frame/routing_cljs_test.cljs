@@ -72,7 +72,7 @@
       (is (= {:id "intro"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           ":rf.route/params sub resolves under the Reagent adapter")
-      (is (true? (:article-loaded? (rf/get-frame-db f)))
+      (is (true? (:article-loaded? (rf/frame-db f)))
           ":on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
@@ -80,7 +80,7 @@
       (is (= {:id "welcome"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/get-frame-db f) [:rf/runtime :routing :current :nav-token]))
+      (is (some? (get-in (rf/frame-db f) [:rf/runtime :routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------

@@ -70,10 +70,10 @@
 
 (defn- counter-view
   "Form-1 view that reads `:n` straight off `app-db` via
-  `get-frame-db` — keeps the test self-contained without reaching
+  `frame-db` — keeps the test self-contained without reaching
   for `subscribe` / reactive caches."
   []
-  (let [n (:n (rf/get-frame-db (rf/current-frame)))]
+  (let [n (:n (rf/frame-db (rf/current-frame-id)))]
     [:div {:data-testid "counter-root"}
      [:span {:data-testid "counter-display"} (str n)]]))
 
@@ -86,10 +86,10 @@
             *current-frame* for the body, and destroyed on exit"
     (let [seen-frame (atom nil)]
       (th/with-app-fixture {:install counter-install!} :test-app
-        (reset! seen-frame (rf/current-frame))
+        (reset! seen-frame (rf/current-frame-id))
         (is (= :test-app @seen-frame)
             "with-frame binding kicks in for the body")
-        (is (= 0 (:n (rf/get-frame-db :test-app)))
+        (is (= 0 (:n (rf/frame-db :test-app)))
             ":install ran inside the frame and dispatched :counter-init"))
       (is (= :test-app @seen-frame))
       (is (nil? (get @frame/frames :test-app))
@@ -99,7 +99,7 @@
   (testing "Shape 1 with no :install — fixture creates / binds / destroys
             the frame even when the opts map is empty"
     (th/with-app-fixture {} :test-no-install
-      (is (= :test-no-install (rf/current-frame))))
+      (is (= :test-no-install (rf/current-frame-id))))
     (is (nil? (get @frame/frames :test-no-install)))))
 
 (deftest with-app-fixture-destroys-frame-on-exception
@@ -124,7 +124,7 @@
             under :rf.frame/* and uses it for the body"
     (let [seen-frame (atom nil)]
       (th/with-app-fixture {:install counter-install!}
-        (reset! seen-frame (rf/current-frame))
+        (reset! seen-frame (rf/current-frame-id))
         (is (keyword? @seen-frame))
         (is (= "rf.frame" (namespace @seen-frame))
             "anonymous id sits in the framework's :rf.frame/* namespace"))

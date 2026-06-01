@@ -51,7 +51,7 @@
   (trace-collector/refresh-trace-rings!))
 
 (defn- xray-db []
-  (rf/get-frame-db :rf/xray))
+  (rf/frame-db :rf/xray))
 
 ;; -------------------------------------------------------------------------
 ;; (1) Pure helpers — distinct-frames + internal-frames

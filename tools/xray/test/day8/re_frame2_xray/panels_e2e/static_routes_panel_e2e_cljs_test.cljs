@@ -94,7 +94,7 @@
         ;; counter fixture does not write [:rf/runtime :routing :current],
         ;; so we expect nil here — and the same nil afterwards.
         (let [counter-before    (e2e/sub-host [:counter/value])
-              host-route-before (some-> (rf/get-frame-db :rf/default)
+              host-route-before (some-> (rf/frame-db :rf/default)
                                         (get-in [:rf/runtime :routing :current]))]
           (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles"]
                             {:frame :rf/xray})
@@ -112,7 +112,7 @@
             (is (true? (:winner? winner))
                 "winner candidate not flagged :winner? true"))
           ;; Hermetic — the host's current-route slot is unchanged.
-          (let [host-route-after (some-> (rf/get-frame-db :rf/default)
+          (let [host-route-after (some-> (rf/frame-db :rf/default)
                                           (get-in [:rf/runtime :routing :current]))]
             (is (= host-route-before host-route-after)
                 "Simulate-URL was NOT hermetic — host current-route slot changed"))

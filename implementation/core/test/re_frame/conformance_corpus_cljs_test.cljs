@@ -1020,11 +1020,11 @@
       (let [expect       (or (:fixture/expect fixture) {})
             expected-db  (:final-app-db expect)
             expected-dbs (:final-app-dbs expect)
-            final-db     (rf/get-frame-db :rf/default)
+            final-db     (rf/frame-db :rf/default)
             final-dbs    (when expected-dbs
                            (into {}
                                  (for [[fid _] expected-dbs]
-                                   [fid (rf/get-frame-db fid)])))
+                                   [fid (rf/frame-db fid)])))
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]

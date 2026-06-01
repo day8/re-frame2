@@ -86,11 +86,11 @@
                           "inside a handler body). Fixes (priority order): "
                           "(a) use `:dispatch-later` or a registered `reg-fx` "
                           "— both capture the frame in their closure; "
-                          "(b) capture `(rf/dispatcher)` inside the "
-                          "render and call it from the callback; "
+                          "(b) capture `(rf/frame-handle)` inside the "
+                          "render and call its `:dispatch` op from the callback; "
                           "(c) attach the listener from a Form-3 "
                           "`:component-did-mount` / `use-effect` hook so "
-                          "the dispatcher is captured during render but "
+                          "the handle is captured during render but "
                           "the listener runs after commit.")]
         (trace/emit! :warning
                      :rf.warning/dispatch-from-async-callback-fell-through-to-default

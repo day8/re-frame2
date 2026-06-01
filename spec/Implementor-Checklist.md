@@ -453,7 +453,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
   - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch frame-id epoch-id)`, `(rf/configure :epoch-history {:depth N})`.
   - **Registrar query** — `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/machines)`, `(rf/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
-  - **App-db query** — `(rf/get-frame-db frame-id)`, `(rf/snapshot-of path opts)`.
+  - **App-db query** — `(rf/frame-db frame-id)`, `(rf/snapshot-of path opts)`.
   - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.
   - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.
   - **Dispatch + hot-swap + fx-stub** — `dispatch` opts (`:fx-overrides`), re-`reg-*` for hot-swap.

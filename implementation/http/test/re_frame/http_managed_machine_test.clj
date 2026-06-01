@@ -121,7 +121,7 @@
    true))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- (1) :spawn + success → parent transitions via :succeeded ------------
 
@@ -336,8 +336,8 @@
         (rf/dispatch-sync [:legacy/load {}])
         ;; rf2-fun38: deterministic gate via canonical poll-until.
         (test-support/poll-until
-          #(some? (:result (rf/get-frame-db :rf/default)))
+          #(some? (:result (rf/frame-db :rf/default)))
           {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
-        (is (= {:ok true} (:result (rf/get-frame-db :rf/default)))
+        (is (= {:ok true} (:result (rf/frame-db :rf/default)))
             "the fx-form `:rf.http/managed` continues to dispatch back the standard reply envelope")
         (finally (stop-server! srv))))))

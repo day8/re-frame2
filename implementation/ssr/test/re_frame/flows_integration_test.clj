@@ -131,7 +131,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ===========================================================================
 ;; 1. machine-macrostep × flow — a multi-microstep macrostep SETTLES, then
@@ -209,7 +209,7 @@
       (is (= [2] @flow-evals)
           "the single flow eval observed the FINAL machine-driven tick count
            (2), proving it ran on the settled db, not an intermediate one")
-      (is (= "ticks=2" (get-in (rf/get-frame-db :rf/default)
+      (is (= "ticks=2" (get-in (rf/frame-db :rf/default)
                                [:derived :gauge-label]))
           "the flow output (derived from the settled machine snapshot)
            landed in app-db")
@@ -258,19 +258,19 @@
                   :path   [:derived :doubled]})
     ;; Seed a conforming baseline (n=1 → doubled=2, conforms).
     (rf/dispatch-sync [:seed])
-    (is (= 2 (get-in (rf/get-frame-db :rf/default) [:derived :doubled]))
+    (is (= 2 (get-in (rf/frame-db :rf/default) [:derived :doubled]))
         "baseline: flow wrote a conforming value")
-    (let [baseline-db (rf/get-frame-db :rf/default)]
+    (let [baseline-db (rf/frame-db :rf/default)]
       ;; Now drive :n negative → flow writes -6 → app-db schema rejects it.
       (reset! *captured* [])
       (rf/dispatch-sync [:set-n -3])
 
       ;; The WHOLE db is wound back — neither the handler's :n write NOR the
       ;; flow's bad output stand.
-      (is (= baseline-db (rf/get-frame-db :rf/default))
+      (is (= baseline-db (rf/frame-db :rf/default))
           "the whole db was wound back to the pre-handler value — the flow
            write rode the same deferred install and was rolled back with it")
-      (is (= 1 (get (rf/get-frame-db :rf/default) :n))
+      (is (= 1 (get (rf/frame-db :rf/default) :n))
           ":n stayed at the pre-handler value (1) — the handler's own write
            was rolled back too (atomic install boundary)")
 
@@ -319,7 +319,7 @@
     ;; flow throws on every eval, so registering it after the seed keeps the
     ;; baseline (and isolates the throw to the :bump drain we observe).
     (rf/dispatch-sync [:seed])
-    (is (= {:n 0} (rf/get-frame-db :rf/default))
+    (is (= {:n 0} (rf/frame-db :rf/default))
         "baseline seeded before the throwing flow is registered")
     (rf/reg-flow {:id     :boom
                   :inputs [[:n]]
@@ -329,7 +329,7 @@
     (rf/dispatch-sync [:bump])
 
     ;; The handler's :db did NOT land — the flow throw aborted the event.
-    (is (= {:n 0} (rf/get-frame-db :rf/default))
+    (is (= {:n 0} (rf/frame-db :rf/default))
         ":n did NOT increment — a flow throw is a pre-install throw; the
          pending :db (handler write + flow write) was discarded wholesale")
 
@@ -375,7 +375,7 @@
 
     ;; Drain synchronously; the flow augments the pending :db before install.
     (rf/dispatch-sync [:ssr/seed])
-    (is (= "Ada Lovelace" (get-in (rf/get-frame-db :rf/default)
+    (is (= "Ada Lovelace" (get-in (rf/frame-db :rf/default)
                                   [:derived :full-name]))
         "the flow wrote the derived full name into app-db on the sync drain")
 
@@ -428,7 +428,7 @@
       (is (= [1 2] @flow-inputs)
           "the flow evaluated once per event — n=1 for the parent, n=2 for
            the child — each over that event's OWN settled db")
-      (is (= 20 (get-in (rf/get-frame-db :rf/default) [:derived :scaled]))
+      (is (= 20 (get-in (rf/frame-db :rf/default) [:derived :scaled]))
           "the final app-db reflects the CHILD's independent flow eval
            (10 * 2), not the parent's (10 * 1)")
       ;; Trace-level confirmation: two :rf.flow/computed events (one per
@@ -488,7 +488,7 @@
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
+      (is (= :route/home (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current :id]))
           "precondition: landed on :route/home")
       (is (= [:route/home] @flow-inputs)
           "precondition: flow ran once on the home slice (post-transition)")
@@ -501,16 +501,16 @@
       (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
 
       ;; The installed slice carries the new route.
-      (is (= :route/article (get-in (rf/get-frame-db :rf/default)
+      (is (= :route/article (get-in (rf/frame-db :rf/default)
                                     [:rf/runtime :routing :current :id]))
           "the slice landed on :route/article")
-      (is (= {:id "42"} (get-in (rf/get-frame-db :rf/default)
+      (is (= {:id "42"} (get-in (rf/frame-db :rf/default)
                                 [:rf/runtime :routing :current :params]))
           ":params landed alongside the route id (same install)")
 
       ;; The flow output is in app-db AND reflects the POST-transition slice.
       (is (= "you are at :route/article"
-             (get-in (rf/get-frame-db :rf/default) [:derived :route-label]))
+             (get-in (rf/frame-db :rf/default) [:derived :route-label]))
           "the flow output derived from the POST-transition route id rode
            the same install as the slice rewrite")
       (is (= [:route/article] @flow-inputs)
@@ -550,11 +550,11 @@
 
       ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
+      (is (= :route/home (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current :id]))
           "precondition: clean landing on :route/home")
       (is (zero? @on-match-fired)
           "precondition: :route/home has no :on-match — counter still 0")
-      (let [baseline-db (rf/get-frame-db :rf/default)]
+      (let [baseline-db (rf/frame-db :rf/default)]
 
         ;; Register a flow that throws on every eval, then transition to a
         ;; route whose :on-match would dispatch :route/load-article.
@@ -569,11 +569,11 @@
 
         ;; The route slice did NOT land — pre-install throw discards the
         ;; entire pending :db (handler's slice rewrite + flow output alike).
-        (is (= baseline-db (rf/get-frame-db :rf/default))
+        (is (= baseline-db (rf/frame-db :rf/default))
             "app-db is byte-for-byte the pre-transition value — the slice
              rewrite was rolled in with the flow's pending write and
              discarded wholesale by the flow throw")
-        (is (= :route/home (get-in (rf/get-frame-db :rf/default)
+        (is (= :route/home (get-in (rf/frame-db :rf/default)
                                    [:rf/runtime :routing :current :id]))
             "the route slice stayed on :route/home — the transition's
              slice rewrite did NOT install")

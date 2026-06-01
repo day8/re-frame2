@@ -388,7 +388,7 @@
         ;; drives the parent's transition out of :working — the standard
         ;; exit cascade destroys the spawned :worker/slow#1 and the
         ;; rf2-wvkn hook aborts its in-flight HTTP.
-        (let [snap  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :sup/timed])
+        (let [snap  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :sup/timed])
               epoch (get-in snap [:data :rf/after-epoch [:working]])]
           (rf/dispatch-sync [:sup/timed [:rf.machine.timer/after-elapsed 5000 epoch [:working]]]))
         (await-condition! #(seq @replies))

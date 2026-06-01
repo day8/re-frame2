@@ -618,7 +618,7 @@
     (let [r (story/resolve-decorators :story.mirror/v)]
       (frames/allocate! :story.mirror/v r)
       (loaders/start-loaders! :story.mirror/v)
-      (let [db (rf/get-frame-db :story.mirror/v)]
+      (let [db (rf/frame-db :story.mirror/v)]
         (is (= :loading (:rf.story/lifecycle db))))
       (frames/destroy! :story.mirror/v))))
 

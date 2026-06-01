@@ -23,7 +23,7 @@
                                                 :auth.session/persist :rf/no-op}})]
     ;; After init: the :auth + :articles slices and the
     ;; :realworld/tags + :settings/form machine snapshots are present.
-    (let [db (rf/get-frame-db f)]
+    (let [db (rf/frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))
       (assert (contains? (get-in db [:rf/runtime :machines :snapshots]) :realworld/tags))

@@ -163,7 +163,7 @@
   "Resolution chain for function-component substrates (UIx, Helix):
 
     1. `re-frame.frame/*current-frame*` (dynamic var) — set by
-       `with-frame` / `bound-fn`.
+       `with-frame` / `frame-bound-fn`.
     2. The closest enclosing frame-provider via React context. Reads
        `_currentValue` off the shared context object directly (the
        substrate-portable path; UIx's `use-context` and Helix's

@@ -224,7 +224,7 @@
         ;;     does not perturb that: each frame's own drain serialises
         ;;     its own work.
         (doseq [{:keys [idx frame-id]} per-thread]
-          (let [slice    (get-in (rf/get-frame-db frame-id) [:rf/runtime :routing :current])
+          (let [slice    (get-in (rf/frame-db frame-id) [:rf/runtime :routing :current])
                 expected (str "/p" idx "/" (dec stress-iters))]
             (is (= (keyword "ksbur.stress" (str "route-" idx))
                    (:id slice))
@@ -329,7 +329,7 @@
 
         ;; --- Invariant 3: per-frame slice converged ---------------
         (doseq [{:keys [idx frame-id]} per-thread]
-          (let [slice (get-in (rf/get-frame-db frame-id) [:rf/runtime :routing :current])]
+          (let [slice (get-in (rf/frame-db frame-id) [:rf/runtime :routing :current])]
             (is (= (keyword "ksbur.pop" (str "route-" idx))
                    (:id slice))
                 (str "Frame " frame-id ": slice :id should match"))
@@ -495,7 +495,7 @@
 
         ;; --- Invariant 4: per-frame slice converged on stable route -
         (doseq [{:keys [idx frame-id]} per-thread]
-          (let [slice (get-in (rf/get-frame-db frame-id) [:rf/runtime :routing :current])]
+          (let [slice (get-in (rf/frame-db frame-id) [:rf/runtime :routing :current])]
             (is (= (keyword "ksbur.race" (str "stable-" idx))
                    (:id slice))
                 (str "Frame " frame-id ": slice :id should match "

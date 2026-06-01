@@ -57,7 +57,7 @@
              (fn [_ _] (swap! popout-calls inc) nil)))
 
 (defn- xray-db []
-  (rf/get-frame-db :rf/xray))
+  (rf/frame-db :rf/xray))
 
 ;; ---- open / close / toggle --------------------------------------------
 

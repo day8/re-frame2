@@ -165,7 +165,7 @@
     ;; Land on /home first so :rf/route has a current id.
     (rf/dispatch-sync [:rf.route/transitioned "/"])
     (is (= :route/home
-           (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
+           (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current :id]))
         "initial nav lands at :route/home")
 
     ;; Fire the event a click on `[rf/route-link {:to :route/article :params {:id \"intro\"}}]`
@@ -175,8 +175,8 @@
                         :to     :route/article
                         :params {:id "intro"}}])
     (is (= :route/article
-           (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
+           (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current :id]))
         ":rf/url-requested with a route-link payload completes the navigation")
     (is (= {:id "intro"}
-           (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :params]))
+           (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current :params]))
         ":params from the link land in the :rf/route slice")))

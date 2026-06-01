@@ -15,7 +15,7 @@
        the envelope (never re-resolves the dynamic var, which is
        already popped by drain time).
     2. Pin the same contract for `{:frame :id}` opts envelope.
-    3. Pin the same contract for `(rf/dispatcher)` capture-at-call-time.
+    3. Pin the same contract for `(:dispatch (rf/frame-handle))` capture-at-call-time.
     4. Pin the `frame-bound-fn` helper: a one-arg fn that wraps a
        callback so any synchronous dispatch inside is captured-and-
        rebound to the call-site's frame.
@@ -147,10 +147,10 @@
                    (done)))
           (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done)))))))
 
-;; ---- 3. (rf/dispatcher) capture-at-call-time ----------------------------
+;; ---- 3. (:dispatch (rf/frame-handle)) capture-at-call-time ----------------------------
 
 (deftest dispatcher-captured-under-with-frame-from-set-timeout-routes
-  (testing "rf2-tvu99 — `(rf/dispatcher)` captured inside a
+  (testing "rf2-tvu99 — `(:dispatch (rf/frame-handle))` captured inside a
             `with-frame :rf/xray` block produces a dispatch-fn that
             carries :rf/xray onto every envelope regardless of when it
             is called. The capture closes over the frame VALUE — no
@@ -159,7 +159,7 @@
       ;; Capture the dispatcher inside :rf/xray (synchronous — like
       ;; building it inside a reg-view body whose render is under the
       ;; :rf/xray frame-provider).
-      (let [d (rf/with-frame :rf/xray (rf/dispatcher))]
+      (let [d (rf/with-frame :rf/xray (:dispatch (rf/frame-handle)))]
         (-> (inside-set-timeout
               (fn [] (d [:rf-tvu99/set-mode :all])))
             (.then (fn [_]
@@ -172,21 +172,20 @@
                      (done)))
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
 
-;; ---- 4. frame-bound-fn — the new framework helper -----------------------
+;; ---- 4. frame-bound-fn* — the HoF framework helper ----------------------
 
-(deftest frame-bound-fn-wraps-callback-routes-to-target-frame
-  (testing "rf2-tvu99 — `(rf/frame-bound-fn f)` returns a fn that
-            re-binds `*current-frame*` (captured at wrap time) for the
+(deftest frame-bound-fn*-wraps-callback-routes-to-target-frame
+  (testing "rf2-tvu99 / rf2-kkut0 — `(rf/frame-bound-fn* f)` returns a fn
+            that re-binds `*current-frame*` (captured at wrap time) for the
             duration of every invocation. This is the structural
-            framework helper the bead's fix introduces — survives any
-            React boundary, any async escape, any concurrent renderer
-            transition. A bare `(rf/frame-bound-fn f)` captures the
-            current frame at call time; a 2-arity variant takes an
-            explicit frame-id."
+            framework helper — survives any React boundary, any async
+            escape, any concurrent renderer transition. A bare
+            `(rf/frame-bound-fn* f)` captures the current frame at wrap
+            time; a 2-arity variant takes an explicit frame-id."
     (async done
       ;; Wrap under :rf/xray — the captured frame rides the closure.
       (let [wrapped (rf/with-frame :rf/xray
-                      (rf/frame-bound-fn
+                      (rf/frame-bound-fn*
                         (fn [mode] (rf/dispatch [:rf-tvu99/set-mode mode]))))]
         (-> (inside-set-timeout
               (fn [] (wrapped :all)))
@@ -194,20 +193,20 @@
                      (await-mode :rf/xray :all)))
             (.then (fn [_]
                      (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via the frame-bound-fn wrap")
+                         ":rf/xray :mode flips via the frame-bound-fn* wrap")
                      (is (nil? (mode-of :rf/default))
                          ":rf/default is NOT polluted")
                      (done)))
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
 
-(deftest frame-bound-fn-explicit-frame-id-routes-to-named-frame
-  (testing "rf2-tvu99 — `(rf/frame-bound-fn :rf/xray f)` takes an
-            explicit frame-id; no surrounding with-frame is needed at
+(deftest frame-bound-fn*-explicit-frame-id-routes-to-named-frame
+  (testing "rf2-tvu99 / rf2-kkut0 — `(rf/frame-bound-fn* :rf/xray f)` takes
+            an explicit frame-id; no surrounding with-frame is needed at
             wrap time. Mirrors the explicit-frame opt of dispatch but
             for callbacks."
     (async done
       ;; No surrounding with-frame — the explicit arg supplies the frame.
-      (let [wrapped (rf/frame-bound-fn :rf/xray
+      (let [wrapped (rf/frame-bound-fn* :rf/xray
                       (fn [mode] (rf/dispatch [:rf-tvu99/set-mode mode])))]
         (-> (inside-set-timeout
               (fn [] (wrapped :all)))
@@ -215,25 +214,25 @@
                      (await-mode :rf/xray :all)))
             (.then (fn [_]
                      (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via frame-bound-fn with explicit frame-id")
+                         ":rf/xray :mode flips via frame-bound-fn* with explicit frame-id")
                      (is (nil? (mode-of :rf/default))
                          ":rf/default is NOT polluted")
                      (done)))
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
 
-;; ---- 5. bound-fn macro — captures at lex-binding time -------------------
+;; ---- 5. frame-bound-fn macro — captures at lex-binding time -------------
 
-(deftest bound-fn-from-set-timeout-routes-to-captured-frame
-  (testing "rf2-tvu99 — `(rf/bound-fn [args] body)` macro captures the
-            current frame at the lex-binding moment (during render,
-            when *current-frame* is bound by the surrounding reg-view /
-            with-frame / frame-provider). The returned fn re-binds on
-            every call, so a setTimeout-deferred invocation still
-            routes to the captured frame. Sibling of `frame-bound-fn`
-            — both are canonical React-handler patterns."
+(deftest frame-bound-fn-macro-from-set-timeout-routes-to-captured-frame
+  (testing "rf2-tvu99 / rf2-kkut0 — `(rf/frame-bound-fn [args] body)` macro
+            captures the current frame at the lex-binding moment (during
+            render, when *current-frame* is bound by the surrounding
+            reg-view / with-frame / frame-provider). The returned fn
+            re-binds on every call, so a setTimeout-deferred invocation
+            still routes to the captured frame. The fn-syntax sugar over
+            `frame-bound-fn*` — both are canonical React-handler patterns."
     (async done
       (let [wrapped (rf/with-frame :rf/xray
-                      (rf/bound-fn [mode]
+                      (rf/frame-bound-fn [mode]
                         (rf/dispatch [:rf-tvu99/set-mode mode])))]
         (-> (inside-set-timeout
               (fn [] (wrapped :all)))
@@ -241,7 +240,7 @@
                      (await-mode :rf/xray :all)))
             (.then (fn [_]
                      (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via bound-fn-captured callback")
+                         ":rf/xray :mode flips via frame-bound-fn-captured callback")
                      (is (nil? (mode-of :rf/default))
                          ":rf/default is NOT polluted")
                      (done)))
@@ -249,11 +248,11 @@
 
 ;; ---- regression: dispatch-sync from inside the wrap routes too ---------
 
-(deftest frame-bound-fn-sync-dispatch-routes-too
+(deftest frame-bound-fn*-sync-dispatch-routes-too
   (testing "rf2-tvu99 — `dispatch-sync` inside the wrapped callback
             also routes to the captured frame. The binding tier is
             the same; nothing about the sync drain bypasses it."
-    (let [wrapped (rf/frame-bound-fn :rf/xray
+    (let [wrapped (rf/frame-bound-fn* :rf/xray
                     (fn [mode] (rf/dispatch-sync [:rf-tvu99/set-mode mode])))]
       (wrapped :all)
       (is (= :all (mode-of :rf/xray))

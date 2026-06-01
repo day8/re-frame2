@@ -228,7 +228,7 @@
          :data-testid "panel-gallery-chrome-card"}
    [shell/shell-view {:mode :inline
                       :modal-positioning :absolute
-                      :frame-id (rf/current-frame)}]])
+                      :frame-id (rf/current-frame-id)}]])
 
 ;; ---- registration --------------------------------------------------------
 

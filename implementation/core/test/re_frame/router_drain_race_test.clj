@@ -153,7 +153,7 @@
         (rf/dispatch-sync [:bump] {:frame :stress.race/main}))
       ;; Total = N submitters * per-thread + 2 sync drains.
       (let [expected (+ total 2)
-            actual   (:n (rf/get-frame-db :stress.race/main))]
+            actual   (:n (rf/frame-db :stress.race/main))]
         (is (= expected actual)
             (str "Expected " expected " events processed (no drops/dups); "
                  "got " actual))))))

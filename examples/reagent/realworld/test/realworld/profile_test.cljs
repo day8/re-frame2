@@ -28,5 +28,5 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
     (rf/dispatch-sync [:profile/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (assert (= "eve" (:username (rf/compute-sub [:profile/data] (rf/get-frame-db f)))))
-    (assert (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/get-frame-db f)))))))
+    (assert (= "eve" (:username (rf/compute-sub [:profile/data] (rf/frame-db f)))))
+    (assert (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/frame-db f)))))))

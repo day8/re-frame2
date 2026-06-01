@@ -333,9 +333,9 @@
 
   `frame` (rf2-nesy9) is the surrounding instance frame captured by
   `popup-chrome` at render time so the close dispatch lands on it, not
-  a `{:frame :rf/xray}` literal. Defaults to `(rf/current-frame)` for
+  a `{:frame :rf/xray}` literal. Defaults to `(rf/current-frame-id)` for
   the test seam / direct callers."
-  ([mount-id opts] (close-fn mount-id opts (rf/current-frame)))
+  ([mount-id opts] (close-fn mount-id opts (rf/current-frame-id)))
   ([mount-id {:keys [on-close]} frame]
    (fn []
      (if on-close
@@ -350,9 +350,9 @@
   user opens A, then B over A, Esc closes B and leaves A standing.
 
   `frame` (rf2-nesy9) is the surrounding instance frame captured by
-  `popup-chrome` at render time. Defaults to `(rf/current-frame)` for
+  `popup-chrome` at render time. Defaults to `(rf/current-frame-id)` for
   the test seam."
-  ([^js e] (handle-keydown e (rf/current-frame)))
+  ([^js e] (handle-keydown e (rf/current-frame-id)))
   ([^js e frame]
    (when (= "Escape" (.-key e))
      (.preventDefault e)
@@ -403,7 +403,7 @@
         ;; `:rf/xray` literal. popup-chrome renders inside the panels'
         ;; reg-views (and the stack reg-view), so current-frame resolves
         ;; through the React-context tier here.
-        frame         (rf/current-frame)
+        frame         (rf/current-frame-id)
         close-handler (close-fn mount-id {:on-close on-close} frame)
         keydown       (fn [^js e] (handle-keydown e frame))
         ;; Stack-aware z-index so multiple popups paint in order.

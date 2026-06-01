@@ -358,7 +358,7 @@
         ;; off-render rAF clock + the hover/leave callbacks dispatch
         ;; into it (not a `:rf/xray` literal). `frame` arms the rAF loop
         ;; via kick-tick!; `dispatch` is the reg-view-injected dispatcher.
-        frame  (rf/current-frame)
+        frame  (rf/current-frame-id)
         ;; Kick the rAF loop iff ticking is needed (live mode + at
         ;; least one armed timer). Cheap to call per render — the
         ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8

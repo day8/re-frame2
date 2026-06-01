@@ -7,12 +7,12 @@
 
    Note: this file is starter-template render-path code, kept
    intentionally minimal so the dataflow reads at a glance. The inline
-   `#(dispatch ...)` handler and the per-render `(rf/dispatcher)` call
+   `#(dispatch ...)` handler and the per-render `(:dispatch (rf/frame-handle))` call
    are fine for a single counter button. When you scale up to list/grid
    views (rendering N rows × M cells), revisit:
      - wrap event handlers in `uix.core/use-callback` so children
        memoised with `defui` don't re-render on parent identity churn;
-     - hoist `(rf/dispatcher)` to a single `let` per component, not one
+     - hoist `(:dispatch (rf/frame-handle))` to a single `let` per component, not one
        per JSX node;
      - shape subscriptions so each row subscribes to *its* slice, not
        the whole collection — collection-level subscriptions cause every
@@ -23,7 +23,7 @@
 
 (defui counter-buttons []
   (let [value    (uix-adapter/use-subscribe [:counter/value])
-        dispatch (rf/dispatcher)]
+        dispatch (:dispatch (rf/frame-handle))]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
        ($ :span {:style #js {:margin "0 1em"}} value))))

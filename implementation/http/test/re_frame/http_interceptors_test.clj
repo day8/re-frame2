@@ -82,7 +82,7 @@
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
    (test-support/poll-until
-     #(let [db (rf/get-frame-db :rf/default)] (when (pred db) db))
+     #(let [db (rf/frame-db :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-interceptors reply"})))
 
 ;; ---- 1. single interceptor transforms the outgoing request ----------------
@@ -776,7 +776,7 @@
   "Wait until `:reply` lands in app-db, then return the recorded value."
   []
   (await-reply! #(some? (:reply %)) 5000)
-  (:reply (rf/get-frame-db :rf/default)))
+  (:reply (rf/frame-db :rf/default)))
 
 ;; ---- 1. :after runs in REVERSE registration order ------------------------
 

@@ -153,7 +153,7 @@
             "a flow-aborted dispatch is NOT reported as a clean :ok")
         (is (= :flow-error outcome)
             "a flow-output throw surfaces as the distinct :flow-error outcome"))
-      (is (not (contains? (rf/get-frame-db :rf/default) :n))
+      (is (not (contains? (rf/frame-db :rf/default) :n))
           "the handler's :db write did NOT land — a flow throw aborts the
            event with no install (app-db unchanged)"))))
 

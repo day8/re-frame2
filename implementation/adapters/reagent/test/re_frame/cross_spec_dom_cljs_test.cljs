@@ -163,7 +163,7 @@
     (fn [_ _] {:rf/runtime {:machines {:snapshots {:flow/boot {:state :armed
                                                                :data  {}}}}}}))
   (rf/reg-frame :booted {:on-create [:init-shape]})
-  (let [db (rf/get-frame-db :booted)]
+  (let [db (rf/frame-db :booted)]
     (is (= :armed (get-in db [:rf/runtime :machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — app-db carries the seed")))
 
@@ -235,7 +235,7 @@
                    :rf/runtime {:machines {:snapshots {:auth/session {:state :authenticated
                                                                       :data  {:token "abc"}}}}}}]
     (rf/dispatch-sync [:hydrate-payload server-db])
-    (let [client-db (rf/get-frame-db :rf/default)]
+    (let [client-db (rf/frame-db :rf/default)]
       (is (= :authenticated
              (get-in client-db [:rf/runtime :machines :snapshots :auth/session :state]))
           "machine state survives hydration as a plain app-db slice")
@@ -418,14 +418,14 @@
    has no context concept (the dynamic var is the always-available tier)."
   (rf/reg-frame :alt {:doc "alt frame"})
   ;; Outside any with-frame: falls back to :rf/default.
-  (is (= :rf/default (rf/current-frame))
+  (is (= :rf/default (rf/current-frame-id))
       "no dynamic binding → resolves to :rf/default")
   ;; with-frame binds the dynamic var; resolution lands on the bound id.
   (rf/with-frame :alt
-    (is (= :alt (rf/current-frame))
+    (is (= :alt (rf/current-frame-id))
         "dynamic-var tier wins over :rf/default"))
   ;; After with-frame returns, dynamic var is unbound again.
-  (is (= :rf/default (rf/current-frame))
+  (is (= :rf/default (rf/current-frame-id))
       "with-frame's binding is scoped — dynamic var reverts on exit"))
 
 ;; ---------------------------------------------------------------------------
@@ -634,7 +634,7 @@
             resolved-value (atom nil)]
         (rf/reg-view* :rf.cross-spec-d4sf/probe
                       (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-frame (rf/current-frame-id))
                         (reset! resolved-value @(rf/subscribe [:rf2-d4sf/v]))
                         [:div "probe"]))
         (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe)
@@ -667,7 +667,7 @@
             resolved-value (atom nil)]
         (rf/reg-view* :rf.cross-spec-d4sf/probe-no-provider
                       (fn probe-no-provider-impl []
-                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-frame (rf/current-frame-id))
                         (reset! resolved-value @(rf/subscribe [:rf2-d4sf/w]))
                         [:div "probe"]))
         (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe-no-provider)
@@ -698,7 +698,7 @@
   ;; path). Pin the precedence on the JVM-shared resolution path here —
   ;; the React-rendered case is exercised by the previous deftest.
   (rf/with-frame :rf.d4sf/dynamic-tier
-    (is (= :rf.d4sf/dynamic-tier (rf/current-frame))
+    (is (= :rf.d4sf/dynamic-tier (rf/current-frame-id))
         "with-frame's dynamic-var binding wins over :rf/default")))
 
 (deftest adapter-context-current-frame-tolerates-prop-stringified-keyword
@@ -760,9 +760,9 @@
             (fn []
               (rdc/render root [rf/frame-provider {:frame target-frame}
                                 [render-fn]])))
-          (is (= :here (:stamped (rf/get-frame-db target-frame)))
+          (is (= :here (:stamped (rf/frame-db target-frame)))
               "dispatch routed to the provider's frame — its app-db carries the stamp")
-          (is (not= :here (:stamped (rf/get-frame-db :rf/default)))
+          (is (not= :here (:stamped (rf/frame-db :rf/default)))
               ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
@@ -801,9 +801,9 @@
             "the trace carries the original exception message"))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire — the machine layer catches the action throw and emits the machine-scoped category")
-      (is (= :before (:val (rf/get-frame-db :rf/default)))
+      (is (= :before (:val (rf/frame-db :rf/default)))
           "a non-machine app-db slice is not touched when the cascade halts")
-      (let [snap (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m])]
+      (let [snap (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "the machine snapshot was not committed at :angry — pre-action :idle is preserved")))))
 
@@ -837,7 +837,7 @@
         (is (= [:b] @seen)
             ":fx walk continued past the throwing fx — :record still ran")
         (is (= :done
-               (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
+               (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "the machine snapshot committed even though a downstream :fx threw")))))
 
 ;; ---------------------------------------------------------------------------
@@ -862,13 +862,13 @@
                              (fn [data _] {:data (assoc data :who :v2)}))]
     (rf/reg-machine :test/m machine-v1)
     (rf/dispatch-sync [:test/m [:go]])
-    (is (= :v1 (get-in (rf/get-frame-db :rf/default)
+    (is (= :v1 (get-in (rf/frame-db :rf/default)
                        [:rf/runtime :machines :snapshots :test/m :data :who]))
         "v1 action ran on the first dispatch")
     ;; Hot-reload — re-register with v2 spec.
     (rf/reg-machine :test/m machine-v2)
     (rf/dispatch-sync [:test/m [:go]])
-    (is (= :v2 (get-in (rf/get-frame-db :rf/default)
+    (is (= :v2 (get-in (rf/frame-db :rf/default)
                        [:rf/runtime :machines :snapshots :test/m :data :who]))
         "the next dispatched event resolves to the new action body")))
 
@@ -912,7 +912,7 @@
     (rf/reg-machine :test/m machine)
     ;; Drive the machine to :working.
     (rf/dispatch-sync [:test/m [:go]])
-    (let [post-go-db (rf/get-frame-db :rf/default)]
+    (let [post-go-db (rf/frame-db :rf/default)]
       (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state]))
           "machine reached :working")
       ;; Tool-Pair-style revert: replace-container! to a snapshot where
@@ -920,13 +920,13 @@
       (let [container (frame/app-db-container :rf/default)
             reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
         (adapter/replace-container! container reverted))
-      (is (= :idle (get-in (rf/get-frame-db :rf/default)
+      (is (= :idle (get-in (rf/frame-db :rf/default)
                            [:rf/runtime :machines :snapshots :test/m :state]))
           "after replace-container! the snapshot reads back as :idle")
       ;; Re-dispatch — the existing handler resolves and reads the
       ;; restored snapshot, transitioning :idle → :working again.
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :working (get-in (rf/get-frame-db :rf/default)
+      (is (= :working (get-in (rf/frame-db :rf/default)
                               [:rf/runtime :machines :snapshots :test/m :state]))
           "re-dispatch after revert advances from the restored state"))))
 
@@ -1019,7 +1019,7 @@
             "the trace identifies the machine"))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire under :ssr-server")
-      (let [snap (get-in (rf/get-frame-db :req) [:rf/runtime :machines :snapshots :test/m])]
+      (let [snap (get-in (rf/frame-db :req) [:rf/runtime :machines :snapshots :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "no committed machine snapshot at :angry — the cascade halted")))))
 

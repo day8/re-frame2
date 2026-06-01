@@ -31,9 +31,9 @@
                       {:frame f})
     (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
     ;; Optimistic flip + canned 4xx → rollback to original state.
-    (assert (false? (-> (rf/compute-sub [:articles/data] (rf/get-frame-db f))
+    (assert (false? (-> (rf/compute-sub [:articles/data] (rf/frame-db f))
                         first
                         :favorited)))
-    (assert (= 0 (-> (rf/compute-sub [:articles/data] (rf/get-frame-db f))
+    (assert (= 0 (-> (rf/compute-sub [:articles/data] (rf/frame-db f))
                      first
                      :favoritesCount)))))

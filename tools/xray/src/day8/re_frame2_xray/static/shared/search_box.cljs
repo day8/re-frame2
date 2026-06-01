@@ -38,7 +38,7 @@
 
     - Flows / Interceptors / Schemas — these `search-box` call-sites
       render INSIDE a `reg-view` body, so they render-capture
-      `(rf/current-frame)` and hand down a closure
+      `(rf/current-frame-id)` and hand down a closure
       `(fn [ev] (rf/dispatch ev {:frame frame}))`.
     - Routes / Machines — the browse list is invoked as a plain-fn
       Reagent component (its own render cycle can't recover the frame),

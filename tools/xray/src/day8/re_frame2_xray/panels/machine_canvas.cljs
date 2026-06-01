@@ -255,7 +255,7 @@
   ;; so the deferred view-mode clicks dispatch into it, not a `:rf/xray`
   ;; literal. The toggle renders inside the Chart / machine-inspector
   ;; reg-views, so current-frame resolves through the React-context tier.
-  (let [frame     (rf/current-frame)
+  (let [frame     (rf/current-frame-id)
         tab-style (fn [active?]
                     {:background    (if active?
                                       (:bg-active tokens)

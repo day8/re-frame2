@@ -133,7 +133,7 @@
       ;; Lock the [:rf/runtime :ssr :hydration] metadata shape (the
       ;; testbed's view doesn't read these slots, but downstream tooling
       ;; — Xray / the late-bind compatibility-check fxs — does).
-      (let [db (rf/get-frame-db client-frame)]
+      (let [db (rf/frame-db client-frame)]
         (is (= 1 (get-in db [:rf/runtime :ssr :hydration :version]))
             ":rf/version rides on the hydration metadata block")
         (is (not (contains? (get-in db [:rf/runtime :ssr :hydration]) :server-hash))

@@ -42,12 +42,12 @@
 (deftest with-frame-bare-keyword
   (testing "(with-frame :keyword body) binds *current-frame* across body"
     (rf/reg-frame :wf/alpha {:doc "alpha"})
-    (is (= :rf/default (rf/current-frame))
+    (is (= :rf/default (rf/current-frame-id))
         "outside the macro: resolves to :rf/default")
-    (let [observed (rf/with-frame :wf/alpha (rf/current-frame))]
+    (let [observed (rf/with-frame :wf/alpha (rf/current-frame-id))]
       (is (= :wf/alpha observed)
           "inside the macro body: resolves to the bound id"))
-    (is (= :rf/default (rf/current-frame))
+    (is (= :rf/default (rf/current-frame-id))
         "after the macro returns: dynamic binding unwinds")))
 
 (deftest with-frame-multi-form-body
@@ -58,7 +58,7 @@
           result (rf/with-frame :wf/beta
                    (swap! side conj :first)
                    (swap! side conj :second)
-                   (rf/current-frame))]
+                   (rf/current-frame-id))]
       (is (= [:first :second] @side)
           "all body forms were evaluated in order")
       (is (= :wf/beta result)
@@ -72,8 +72,8 @@
     (rf/reg-sub :wf/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:wf/seed 7]  {:frame :wf/left})
     (rf/dispatch-sync [:wf/seed 99] {:frame :wf/right})
-    (let [sl (rf/with-frame :wf/left  (rf/subscriber))
-          sr (rf/with-frame :wf/right (rf/subscriber))]
+    (let [sl (rf/with-frame :wf/left  (:subscribe (rf/frame-handle)))
+          sr (rf/with-frame :wf/right (:subscribe (rf/frame-handle)))]
       (is (= 7  @(sl [:wf/n])) ":wf/left subscriber sees :wf/left's :n")
       (is (= 99 @(sr [:wf/n])) ":wf/right subscriber sees :wf/right's :n"))))
 
@@ -83,8 +83,8 @@
           observed-current (atom nil)]
       (rf/with-new-frame [f (rf/make-frame {:doc "ephemeral"})]
         (reset! captured-id f)
-        (reset! observed-current (rf/current-frame))
-        (is (= f (rf/current-frame))
+        (reset! observed-current (rf/current-frame-id))
+        (is (= f (rf/current-frame-id))
             "inside the body: *current-frame* is the freshly-made id")
         (is (some? (rf/frame-meta f))
             "the frame is alive during the body"))
@@ -94,7 +94,7 @@
           "the body saw the just-created id as current-frame")
       (is (nil? (rf/frame-meta @captured-id))
           "the frame was destroyed on body exit")
-      (is (= :rf/default (rf/current-frame))
+      (is (= :rf/default (rf/current-frame-id))
           "*current-frame* reverted after the body"))))
 
 (deftest with-new-frame-destroys-on-exception
@@ -118,7 +118,7 @@
     (rf/reg-event-db :wf/initialise (fn [_ _] {:counter 42}))
     (let [captured-db (atom nil)]
       (rf/with-new-frame [f (rf/make-frame {:on-create [:wf/initialise]})]
-        (reset! captured-db (rf/get-frame-db f)))
+        (reset! captured-db (rf/frame-db f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))
 

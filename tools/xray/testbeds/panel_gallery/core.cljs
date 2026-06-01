@@ -35,7 +35,7 @@
   frame directly with canonical Xray events (e.g. `:rf.xray/sync-epoch-
   history`). The chrome / settings / filters galleries mount the FULL
   shell — `shell/shell-view` now takes a `:frame-id` opt, and the
-  `chrome-shell` wrapper threads `(rf/current-frame)` (the variant
+  `chrome-shell` wrapper threads `(rf/current-frame-id)` (the variant
   frame) into it, so the shell's own app-db also lives in the variant
   frame. N chrome cells therefore stay fully isolated in one grid; the
   variant's `:setup` events seed THAT frame, with no `:rf/xray` literal

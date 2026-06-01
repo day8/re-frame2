@@ -73,7 +73,7 @@
       (rf/dispatch-sync [:fx-test/run-mixed])
       (is (= [:a :b :c] @log)
           "registered fx fire in source order")
-      (is (= true (:seeded? (rf/get-frame-db :rf/default)))
+      (is (= true (:seeded? (rf/frame-db :rf/default)))
           ":db committed before :fx walked (Spec 002 rule 1)")))
 
   (testing "interleaving :dispatch with registered fx preserves source order"
@@ -457,7 +457,7 @@
       (is (= [{:k :legit}] @fired)
           "the legal :fx entry still fires after policing rejects sibling top-level keys")
       ;; The legitimate :db still committed.
-      (is (= true (:seeded? (rf/get-frame-db :rf/default)))
+      (is (= true (:seeded? (rf/frame-db :rf/default)))
           ":db still committed alongside policed top-level keys")
       ;; One trace per offending key.
       (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))

@@ -642,7 +642,7 @@
       (rf/dispatch-sync [:inc])
       (rf/dispatch-sync [:inc])
 
-      (is (= 2 (:n (rf/get-frame-db :rf/default)))
+      (is (= 2 (:n (rf/frame-db :rf/default)))
           "dispatch flow ran to completion despite a throwing listener")
       (is (pos? @throw-count)
           "the throwing listener WAS invoked (and threw)")
@@ -692,7 +692,7 @@
       (rf/dispatch-sync [:rf2-qsjda/internal-bookkeeping])
 
       ;; Handler ran (db committed) but no traces were emitted.
-      (is (true? (:bookkeeping/ran? (rf/get-frame-db :rf/default)))
+      (is (true? (:bookkeeping/ran? (rf/frame-db :rf/default)))
           "the handler body still ran — :rf.trace/no-emit? opts out
            of TRACE EMISSION, not handler execution")
 

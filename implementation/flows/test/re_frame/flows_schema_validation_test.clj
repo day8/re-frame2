@@ -92,7 +92,7 @@
                   :path   [:rect :area]
                   :schema (fn [v] (and (integer? v) (pos? v)))})
     (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+    (is (= 12 (get-in (rf/frame-db :rf/default) [:rect :area]))
         "the flow computed and wrote its output")
     (is (empty? (violations))
         "a conforming output emits no :rf.error/schema-validation-failure")))
@@ -112,7 +112,7 @@
                   :path   [:rect :area]
                   :schema (fn [v] (and (integer? v) (not (neg? v))))})
     (rf/dispatch-sync [:seed])
-    (is (= -12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+    (is (= -12 (get-in (rf/frame-db :rf/default) [:rect :area]))
         "the output is STILL written — flow validation is observational, not a rollback")
     (let [vs (violations)]
       (is (= 1 (count vs))
@@ -169,7 +169,7 @@
                   :path   [:rect :area]
                   :schema (fn [_] false)}) ;; would reject everything IF consulted
     (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+    (is (= 12 (get-in (rf/frame-db :rf/default) [:rect :area]))
         "value written")
     (is (empty? (violations))
         "no registered validator => soft-pass, no violation")))
@@ -189,7 +189,7 @@
                   :schema (fn [_] false)}) ;; would reject IF the gate let it run
     (with-redefs [interop/debug-enabled? false]
       (rf/dispatch-sync [:seed]))
-    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+    (is (= 12 (get-in (rf/frame-db :rf/default) [:rect :area]))
         "value written even with validation elided")
     (is (empty? (violations))
         "no violation under debug-enabled? false — the surface DCEs in prod")))
@@ -217,8 +217,8 @@
                   :schema (fn [v] (and (integer? v) (not (neg? v))))})
     (rf/dispatch-sync [:seed])
     ;; subtotal = 10 + -5 = 5 (conforms); total = 10 (conforms). No violation.
-    (is (= 5  (get-in (rf/get-frame-db :rf/default) [:cart :subtotal])))
-    (is (= 10 (get-in (rf/get-frame-db :rf/default) [:cart :total])))
+    (is (= 5  (get-in (rf/frame-db :rf/default) [:cart :subtotal])))
+    (is (= 10 (get-in (rf/frame-db :rf/default) [:cart :total])))
     (is (empty? (violations))
         "both outputs conform — no violation")
     ;; Now drive the subtotal negative; subtotal violates, total (= 2*subtotal)

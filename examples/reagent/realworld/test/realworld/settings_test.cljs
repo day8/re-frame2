@@ -25,7 +25,7 @@
    deref so the test runs in any CLJS host)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
-                  (rf/get-frame-db frame)))
+                  (rf/frame-db frame)))
 
 (defn settings-test []
   ;; Happy-path lifecycle. The assertions below are the SAME questions
@@ -49,7 +49,7 @@
                                                 :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
     ;; machine sits at :neutral with empty :data.
-    (let [snap (snapshot (rf/get-frame-db f))]
+    (let [snap (snapshot (rf/frame-db f))]
       (assert (= :neutral (:state snap)))
       (assert (= ""       (get-in snap [:data :draft :bio])))
       (assert (false?     (machine-has-tag? f :settings/in-flight))))
@@ -62,7 +62,7 @@
                                             :image nil}]
                       {:frame f})
     (rf/dispatch-sync [:settings/load] {:frame f})
-    (let [snap (snapshot (rf/get-frame-db f))]
+    (let [snap (snapshot (rf/frame-db f))]
       (assert (= :neutral (:state snap)))
       (assert (= "alice"  (get-in snap [:data :draft :username]))))
 
@@ -70,7 +70,7 @@
     ;; region stays at :neutral (a fresh edit doesn't trigger a
     ;; transition out of :correct / :incorrect unless we were there).
     (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
-    (let [snap (snapshot (rf/get-frame-db f))]
+    (let [snap (snapshot (rf/frame-db f))]
       (assert (= :neutral  (:state snap)))
       (assert (= "New bio" (get-in snap [:data :draft :bio])))
       (assert (contains?   (get-in snap [:data :touched]) :bio)))
@@ -81,7 +81,7 @@
     ;; `:submitted draft` are now the machine's `:state :correct` +
     ;; `:data :draft` (re-seeded from the server-returned user).
     (rf/dispatch-sync [:settings/submit] {:frame f})
-    (let [db   (rf/get-frame-db f)
+    (let [db   (rf/frame-db f)
           snap (snapshot db)]
       (assert (= :correct (:state snap)))
       (assert (= "New bio" (get-in snap [:data :draft :bio])))
@@ -119,7 +119,7 @@
     (rf/dispatch-sync [:settings/load] {:frame f})
     (rf/dispatch-sync [:settings/edit-field :bio "Doomed bio"] {:frame f})
     (rf/dispatch-sync [:settings/submit] {:frame f})
-    (let [db   (rf/get-frame-db f)
+    (let [db   (rf/frame-db f)
           snap (snapshot db)]
       (assert (= :incorrect (:state snap)))
       (assert (some? (get-in snap [:data :submit-error])))
@@ -156,7 +156,7 @@
     (rf/dispatch-sync [:settings/form
                        [:submit-invalid {:errors {:email ["Email must contain @."]}}]]
                       {:frame f})
-    (let [snap (snapshot (rf/get-frame-db f))]
+    (let [snap (snapshot (rf/frame-db f))]
       (assert (= :incorrect (:state snap)))
       (assert (= {:email ["Email must contain @."]} (get-in snap [:data :errors])))
       (assert (contains? (get-in snap [:data :touched]) :email))
@@ -165,7 +165,7 @@
     ;; The first :edit on the offending field clears that field's
     ;; error entry and returns the region to :neutral.
     (rf/dispatch-sync [:settings/edit-field :email "alice@example.com"] {:frame f})
-    (let [snap (snapshot (rf/get-frame-db f))]
+    (let [snap (snapshot (rf/frame-db f))]
       (assert (= :neutral (:state snap)))
       (assert (false? (machine-has-tag? f :form/invalid)))
       (assert (not (contains? (get-in snap [:data :errors]) :email))))))

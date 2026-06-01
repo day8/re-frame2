@@ -241,7 +241,7 @@
   Per rf2-5br2y: the frame-aware stages (`resolve-root-view`,
   `render-to-string`, `resolve-head`) run inside a SINGLE outer
   `with-frame` so the `current-frame` push/pop happens once per request,
-  not three times. `get-frame-db` reads the named frame explicitly and
+  not three times. `frame-db` reads the named frame explicitly and
   doesn't need the binding; it sits outside the block to keep that
   explicitness visible."
   [frame-id resp
@@ -287,12 +287,12 @@
             (assoc head-bag
                    :hash-str  hash-str
                    :body-html body-html)))
-        ;; get-frame-db reads the named frame explicitly; no with-frame
+        ;; frame-db reads the named frame explicitly; no with-frame
         ;; needed. Kept outside the block so the explicit frame-id read
         ;; is visible — pulling the snapshot AFTER the render walk is
         ;; load-bearing (a continuation drain inside the walker may
         ;; mutate app-db; the payload must reflect the post-walk value).
-        app-db      (rf/get-frame-db frame-id)
+        app-db      (rf/frame-db frame-id)
         payload     (payload/build-payload frame-id app-db hash-str
                                            {:version        version
                                             :schema-digest  schema-digest

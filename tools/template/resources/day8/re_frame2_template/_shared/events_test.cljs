@@ -35,7 +35,7 @@
 (deftest counter-initialise-seeds-app-db
   (testing ":counter/initialise puts {:counter/value 0} into app-db"
     (rf/dispatch-sync [:counter/initialise])
-    (is (= 0 (:counter/value (rf/get-frame-db :rf/default))))))
+    (is (= 0 (:counter/value (rf/frame-db :rf/default))))))
 
 (deftest counter-increment-bumps-value
   (testing ":counter/increment increases :counter/value by one each fire"
@@ -43,7 +43,7 @@
     (rf/dispatch-sync [:counter/increment])
     (rf/dispatch-sync [:counter/increment])
     (rf/dispatch-sync [:counter/increment])
-    (is (= 3 (:counter/value (rf/get-frame-db :rf/default))))))
+    (is (= 3 (:counter/value (rf/frame-db :rf/default))))))
 
 (deftest counter-value-sub-reads-current-count
   (testing ":counter/value sub returns the slice value after event flow"

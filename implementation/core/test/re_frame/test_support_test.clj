@@ -76,7 +76,7 @@
                    [:counter/dec]])]
       (is (= 2 (:n final))
           "three incs and one dec leave :n at 2")
-      (is (= final (rf/get-frame-db :rf/default))
+      (is (= final (rf/frame-db :rf/default))
           "return value matches the live app-db value"))))
 
 (deftest dispatch-sequence-after-each-captures-intermediate-states
@@ -104,8 +104,8 @@
                   [[:counter/inc] [:counter/add 5]]
                   {:frame :test-support/seq-frame})]
       (is (= 6 (:n final)))
-      (is (= 6 (:n (rf/get-frame-db :test-support/seq-frame))))
-      (is (= {:n 0} (rf/get-frame-db :rf/default))
+      (is (= 6 (:n (rf/frame-db :test-support/seq-frame))))
+      (is (= {:n 0} (rf/frame-db :rf/default))
           ":rf/default is unaffected"))))
 
 ;; ---- assert-path-equals + assert-db-equals (rf2-8j9m6) --------------------

@@ -29,7 +29,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- frame-db [] (rf/get-frame-db :rf/default))
+(defn- frame-db [] (rf/frame-db :rf/default))
 (defn- snapshot [machine-id] (get-in (frame-db) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- registration-time rejection of :timeout-ms ---------------------------

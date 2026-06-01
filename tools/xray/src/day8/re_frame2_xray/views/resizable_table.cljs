@@ -320,7 +320,7 @@
 
   `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured at
   render time by the surrounding `resizable-table` `reg-view` body via
-  `(rf/dispatcher)`. The pointer-move/up handlers run OUTSIDE the React
+  `(:dispatch (rf/frame-handle))`. The pointer-move/up handlers run OUTSIDE the React
   tree (via raw `window.addEventListener`), so the dynamic frame
   context has unwound by the time they fire — but the captured closure
   already bound `(current-frame)` synchronously during render, so every

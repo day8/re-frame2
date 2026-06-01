@@ -223,7 +223,7 @@
   (let [busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?
                                              :auth.login/flow :auth/busy])
         err      (uix-adapter/use-subscribe [:auth.login/error])
-        dispatch (rf/dispatcher)
+        dispatch (:dispatch (rf/frame-handle))
         [email    set-email!]    (uix/use-state "")
         [password set-password!] (uix/use-state "")]
     ($ :form.login-form

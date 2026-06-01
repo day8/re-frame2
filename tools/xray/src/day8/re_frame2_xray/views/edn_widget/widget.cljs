@@ -88,7 +88,7 @@
 ;; `registry.cljs`), so the dispatch resolves on every surface.
 ;;
 ;; rf2-nesy9 — the affordance captures the SURROUNDING frame at render
-;; time via `(rf/current-frame)` and dispatches into it on click. The
+;; time via `(rf/current-frame-id)` and dispatches into it on click. The
 ;; click-handler fires after React pops the frame context, so the
 ;; render-time capture is what keeps the dispatch on the right instance
 ;; frame (N parallel shells stay isolated). The widget root threads
@@ -110,7 +110,7 @@
   ;; so the deferred copy click dispatches back to it (not a `:rf/xray`
   ;; literal). The widget renders inside the panels' `reg-view`s, so
   ;; `current-frame` resolves through the React-context tier here.
-  (let [frame (rf/current-frame)]
+  (let [frame (rf/current-frame-id)]
    [:button {:data-testid testid
             :aria-label  "Copy value to clipboard"
             :title       "Copy value"

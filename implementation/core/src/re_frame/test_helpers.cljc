@@ -436,7 +436,7 @@
       (let [tree (counter-view {:n 0})
             btn  (find-by-testid tree \"counter-inc\")]
         (invoke-handler btn :on-click)
-        (is (= 1 (get-frame-db [:n]))))"
+        (is (= 1 (:n (frame-db :rf/default)))))"
   [node event-key & args]
   (when-not (vector? node)
     (throw (ex-info ":rf.error/invoke-handler-bad-node"
