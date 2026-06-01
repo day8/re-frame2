@@ -22,16 +22,18 @@ file contents). The behavioural fixtures are document-runnable; see
 
 ## Why this directory exists
 
-The corpus convention is that **only `re-frame2-pair/` ships a
-`tests/` directory** — see `skills/README.md` §"Test-fixture
-discipline." `re-frame2-pair/` is the exception because it drives a
-live runtime (nREPL attach, app-db mutation, epoch reads).
+The corpus convention is that **only `re-frame2-pair/` and `shared/`
+ship a `tests/` directory** — see `skills/README.md` §"Test-fixture
+discipline." `re-frame2-pair/` qualifies because it drives a live
+runtime (nREPL attach, app-db mutation, epoch reads), so its surface is
+testable in the conventional sense.
 
-`skills/shared/retro-protocol.md` warrants the second exception for a
-different reason: it is a **security boundary**. A prior audit found
-four issues there; three landed prose-only fixes. The audit's Finding
-4 explicitly called for a regression suite so a future drift of the
-prose doesn't silently re-open the boundary.
+`skills/shared/` (this directory) is the second exception, and it earns
+it for a different reason: `retro-protocol.md` is a **security
+boundary**, not just a doc leaf. A prior audit found four issues there;
+three landed prose-only fixes. The audit's Finding 4 explicitly called
+for a regression suite so a future drift of the prose doesn't silently
+re-open the boundary.
 
 The structural test is the cheap class of drift detector (would catch
 "someone deleted §Untrusted-evidence boundary"); the document
