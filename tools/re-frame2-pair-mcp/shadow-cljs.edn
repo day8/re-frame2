@@ -49,4 +49,17 @@
                         ;; `:source-paths` declared in deps.edn `:paths`
                         ;; (the `day8/re-frame2-test-quiet` :local/root
                         ;; widens the classpath).
-                        :main re-frame.test-quiet.shadow-node/main}}}
+                        :main re-frame.test-quiet.shadow-node/main}
+          ;; Descriptor-manifest generator + drift-check (rf2-sofwv). A
+          ;; build-tool node-script (NOT shipped in the npm package's
+          ;; `files`) that reads the live tool registry and emits /
+          ;; --check's the committed `tool-descriptors.edn` via the shared
+          ;; `re-frame.mcp-base.descriptor-manifest` serialiser. Pair-mcp's
+          ;; registry is CLJS-only (it pulls per-tool handler vars) so the
+          ;; generator can't run on the bare JVM the way story-mcp's does;
+          ;; it compiles here and runs under Node. `:dev` optimisations —
+          ;; this is a CLI tool, not a shipped bundle, so no Closure pass
+          ;; is needed.
+          :descriptor-gen {:target :node-script
+                           :output-to "out/descriptor-gen.js"
+                           :main re-frame2-pair-mcp.descriptor-manifest-gen/-main}}}

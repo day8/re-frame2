@@ -37,7 +37,7 @@ that ride on those framework surfaces.
 
 ## Index
 
-Ten namespaces under `re-frame.mcp-base.*`. Each ships its own
+Eleven namespaces under `re-frame.mcp-base.*`. Each ships its own
 per-namespace contract doc; the table below indexes them:
 
 | ns | Surface | Per-namespace spec |
@@ -52,6 +52,7 @@ per-namespace contract doc; the table below indexes them:
 | `cap` | Wire-boundary two-stage token-budget cap pipeline + `max-tokens` resolver + `ResultIO` protocol (rf2-eyelu / rf2-ih7g4). | [`cap.md`](cap.md) |
 | `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, `cursor-stale-result` envelope (rf2-ee38b.19). | [`cursor.md`](cursor.md) |
 | `envelope` | Indicator-field `with-indicators` splice (`:dropped-sensitive` / `:elided-large`, omit-when-zero MUST) + wire-bounded `:rf.mcp/*` marker detection (rf2-ee38b.19). | [`envelope.md`](envelope.md) |
+| `descriptor-manifest` | Shared MCP tool-descriptor manifest generator + drift-check — deterministic LF-pinned EDN serialiser (`render-edn`) + regenerate-vs-committed `check`, consumed by each server's registry-driven `tool-descriptors.edn` generator (rf2-sofwv). | [`descriptor-manifest.md`](descriptor-manifest.md) |
 
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM

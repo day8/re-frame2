@@ -1579,6 +1579,17 @@ jobs:
       - name: Run JVM tests (tools/story-mcp artefact)
         run: clojure -M:test
 
+      # MCP tool-descriptor manifest drift-check (rf2-sofwv). Regenerates
+      # the committed `tool-descriptors.edn` in memory from the live tool
+      # registry and FAILS if it differs. Adding / removing / renaming a
+      # story-mcp tool — or changing a tool's input-key / output? /
+      # annotations surface — turns this red until the manifest is
+      # regenerated (`clojure -M:gen`). Pure JVM, reuses the warmed
+      # classpath; same generate-then-drift-check shape as the
+      # api-manifest keystone (rf2-3nbl5.2).
+      - name: Assert tool-descriptors.edn matches the registry
+        run: clojure -M:gen --check
+
   jvm-tools-mcp-base:
     name: JVM tools/mcp-base (clojure -M:test)
     needs: detect_changed_surfaces
@@ -1790,6 +1801,19 @@ jobs:
       # (`snapshot_test`), and the subscribe surface (`subscribe_test`).
       - name: Run shadow-cljs :server-test (tools/re-frame2-pair-mcp artefact)
         run: npm test
+
+      # MCP tool-descriptor manifest drift-check (rf2-sofwv). Compiles the
+      # `:descriptor-gen` build and regenerates the committed
+      # `tool-descriptors.edn` in memory from the live tool registry,
+      # FAILING if it differs. Adding / removing / renaming a re-frame2-pair-mcp
+      # tool — or changing a tool's input-key / output? / annotations
+      # surface — turns this red until the manifest is regenerated
+      # (`npm run gen:descriptors`). Pair-mcp's registry is CLJS-only so
+      # the check runs under Node (reuses this job's warmed shadow-cljs);
+      # same generate-then-drift-check shape as the api-manifest keystone
+      # (rf2-3nbl5.2) + story-mcp's JVM sibling check.
+      - name: Assert tool-descriptors.edn matches the registry
+        run: npm run check:descriptors
 
   node-test-tools-story-mcp:
     name: Node tools/story-mcp (stdio roundtrip, rf2-h8z5l)

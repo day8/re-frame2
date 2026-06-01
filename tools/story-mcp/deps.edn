@@ -74,6 +74,15 @@
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
+  ;; Descriptor-manifest generator + drift-check (rf2-sofwv). Reads the
+  ;; live tool registry and emits / --check's the committed
+  ;; tool-descriptors.edn via the shared
+  ;; `re-frame.mcp-base.descriptor-manifest` serialiser. Needs schemas on
+  ;; the classpath for the same reason :test does — the registry's tool
+  ;; namespaces transitively require `re-frame.schemas`.
+  :gen {:extra-deps {day8/re-frame2-schemas {:local/root "../../implementation/schemas"}}
+        :main-opts  ["-m" "re-frame.story-mcp.descriptor-manifest-gen"]}
+
   ;; Clojars deploy. Mirrors tools/story/deps.edn — the release workflow
   ;; rewrites :local/root → :mvn/version before invoking clein.
   :clein {:extra-deps {io.github.noahtheduke/clein
