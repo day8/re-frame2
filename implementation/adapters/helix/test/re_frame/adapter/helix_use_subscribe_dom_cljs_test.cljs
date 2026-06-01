@@ -145,7 +145,13 @@
    :probe-stable-deps-element (fn [] ($ ProbeStableDepsParent))
    :stable-deps-set-tick  stable-deps-set-tick
    :stable-deps-frame     :rf.helix-stable-deps/probe-frame
-   :stable-deps-query     :rf.helix-stable-deps/p})
+   :stable-deps-query     :rf.helix-stable-deps/p
+   ;; rf2-40a84 — flush-render! synchronous-commit proof. Reuses the Probe
+   ;; (reads :refcount-target for its frame, queries :rf.helix-use-subscribe-test/n)
+   ;; under a fresh isolated frame so it can't collide with the use-subscribe
+   ;; cases above.
+   :fr-frame              :rf.helix-flush-render/probe-frame
+   :fr-query              :rf.helix-use-subscribe-test/n})
 
 (deftest use-subscribe-tracks-app-db-changes
   (suite/assert-use-subscribe-tracks-app-db-changes cfg))
@@ -161,6 +167,11 @@
 
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
+
+;; rf2-40a84 — flush-render! synchronously commits a pending render (the
+;; proof the pair-MCP headless dispatch→render loop depends on).
+(deftest flush-render-synchronously-commits
+  (suite/assert-flush-render-synchronously-commits cfg))
 
 ;; rf2-gizlj — lock the rf2-cmfln 2-arity contract at the spine cleanup
 ;; call site (regression: the 3-arity grace-opts shape sneaking back in

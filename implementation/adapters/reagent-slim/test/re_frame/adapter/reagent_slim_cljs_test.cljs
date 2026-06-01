@@ -51,8 +51,9 @@
 ;; Adapter map shape (per IMPL-SPEC §2.1 + Spec 006 §CLJS reference)
 ;; ---------------------------------------------------------------------------
 
-(deftest adapter-has-9-canonical-keys
-  (testing "the adapter map carries the 9 substrate-shape keys + :kind discriminator"
+(deftest adapter-has-canonical-keys
+  (testing "the adapter map carries the substrate-shape keys + :kind discriminator
+            (incl. the optional rf2-40a84 :flush-render! slot)"
     (let [k (set (keys reagent-slim/adapter))]
       (is (= #{:kind
               :make-state-container
@@ -63,6 +64,8 @@
               :render
               :render-to-string
               :register-context-provider
+              ;; rf2-40a84 — optional synchronous render-flush contract fn.
+              :flush-render!
               :dispose-adapter!}
              k)
           "every slot named in re-frame.substrate.adapter is present plus :kind")

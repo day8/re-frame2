@@ -36,8 +36,10 @@
         "ns-load does not install the adapter")
     (is (map? reagent-adapter/adapter)
         "the adapter ns exports its spec as the public `adapter` var")
-    (is (= 9 (count (filter fn? (vals reagent-adapter/adapter))))
-        "the exported adapter map carries the full nine-fn contract")
+    (is (= 10 (count (filter fn? (vals reagent-adapter/adapter))))
+        "the exported adapter map carries the full contract — the six required +
+         subscribe-container + register-context-provider + dispose-adapter! +
+         the optional rf2-40a84 flush-render! fn")
     (is (= :rf.adapter/reagent (:kind reagent-adapter/adapter))
         "the adapter map carries its discriminator keyword under :kind")))
 

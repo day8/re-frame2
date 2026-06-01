@@ -79,7 +79,7 @@ Every adapter implements the surface below. The contract is **closed for v1** �
 
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
 
-The v1 adapter surface is **six required functions, two optional functions, and one lifecycle function** — nine entries in total. The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
+The adapter surface is **six required functions, three optional functions, and one lifecycle function** — ten entries in total. The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
 
 ### Normative contract
 
@@ -94,12 +94,13 @@ The v1 adapter surface is **six required functions, two optional functions, and 
 | `render` | Render a render-tree onto the substrate's surface; return an unmount fn. |
 | `render-to-string` | Pure render to an HTML string (JVM-runnable). |
 
-**Optional (2):** adapters may omit; the core falls back when an optional fn is absent.
+**Optional (3):** adapters may omit; the core falls back (or no-ops) when an optional fn is absent.
 
 | Fn | Purpose | Fallback when absent |
 |---|---|---|
 | `subscribe-container` | Register a change-listener for invalidation. | Core runs invalidation inline within `replace-container!`. |
 | `register-context-provider` | Return a context-provider component that scopes a frame to a subtree. | Core falls back to explicit-frame-as-argument; the user's view code threads the frame. |
+| `flush-render!` | Synchronously commit the substrate's pending renders to the surface — NOT scheduled on a `requestAnimationFrame`-style tick. | Core no-ops (an adapter that renders without a live commit — plain-atom / SSR — has nothing to flush). |
 
 **Lifecycle (1):** every adapter must implement.
 
@@ -193,6 +194,27 @@ Pure function. Renders the render-tree to an HTML string. JVM-runnable in the CL
 ```
 
 The implementation is the per-host pure walk of the render-tree (per Spec 011 §The render-tree → HTML emitter).
+
+### `(flush-render! [f]) → nil`
+
+Optional. **Synchronously** commits the substrate's pending renders to the surface. The 1-arity form runs `f` inside the substrate's synchronous-commit path so any state change `f` schedules — and any render already pending — is committed before the call returns; the 0-arity form flushes already-pending work with an empty callback.
+
+```clojure
+(flush-render!)                                         ;; → nil; flush already-pending work
+(flush-render! f)                                       ;; → nil; run f, then flush synchronously
+;; f signature: (fn [] ...) — its return is ignored
+```
+
+**Why this is a contract fn, not a test helper.** The reference substrates schedule re-renders through a `requestAnimationFrame`-style tick that fires *after* an evaluated `dispatch` returns and is throttled to ~never in a backgrounded / unfocused tab. A tool that drives `dispatch` and then wants to observe the *rendered* result therefore cannot rely on the scheduled commit ever arriving. `flush-render!` runs through the host's **synchronous-commit** API (it is NOT rAF-scheduled), so it fires even headless and even when the tab is backgrounded — letting headless tooling drive a `dispatch → flush-render! → observe-settled-DOM` loop deterministically. This is the framework capability the Tool-Pair headless view-lifecycle driving depends on (see [Tool-Pair §Driving the render](Tool-Pair.md), consumed by the pair MCP's *dispatch-and-settle* op).
+
+This is **distinct** from a test-only flush. The CLJS reference also ships `flush-views!` on the React-hook adapters — a wrapper around React's `act()` intended for test code; `flush-render!` is the production-grade contract surface every adapter implements, callable from app or tooling code with no `act()` test-environment opt-in.
+
+`flush-render!` must be **no-op-safe**: calling it when nothing is pending does no harm and returns `nil`. An adapter that renders without a live host commit (the plain-atom / SSR adapters render to a string, never to a live surface) ships no `flush-render!` at all; the core's delegation then no-ops.
+
+CLJS-Reagent: `(f)` then `reagent.core/flush` — Reagent's render-queue drain forces every dirty component to re-render synchronously, bypassing its `requestAnimationFrame` `next-tick` scheduler, and (on React 19) commits via `react-dom/flushSync`.
+CLJS-reagent-slim: `(f)` then `reagent2.impl.batching/flush!` — the rewrite's synchronous rea-queue + dirty-set drain (`forceUpdate` per dirty component), bypassing its microtask scheduler. Distinct from the `goog.DEBUG`-gated, `act()`-composing `reagent2.dom.client/flush-views!` test primitive.
+CLJS-UIx / CLJS-Helix: `react-dom/flushSync` (the React-hook spine) — runs `f` inside `flushSync` so any `useSyncExternalStore` update commits before returning.
+CLJS-headless (plain-atom) / SSR: not implemented — there is no live commit to flush; `render-to-string` is the only render path.
 
 ### `(register-context-provider frame-keyword) → component`
 
@@ -1220,7 +1242,7 @@ The keyword is informational. Behaviour-affecting decisions should be based on `
 
 ### Disposed-vs-never-installed
 
-Runtime delegation calls (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`, `subscribe-container`, `register-context-provider`) raise a structured ex-info when no adapter is installed. The throw shape distinguishes two states:
+Runtime delegation calls (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`, `subscribe-container`, `register-context-provider`, `flush-render!`) raise a structured ex-info when no adapter is installed. The throw shape distinguishes two states:
 
 - **`:rf.error/no-adapter-installed`** — fresh process, no `(rf/init! …)` has fired yet. Recovery: install an adapter.
 - **`:rf.error/adapter-disposed`** — an adapter was previously installed and torn down by `(rf/destroy-adapter!)` without a subsequent install. Recovery: install a fresh adapter. Common in test fixtures and hot-reload flows.

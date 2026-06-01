@@ -34,6 +34,7 @@
   Per Spec 006 §CLJS reference — adapters using this spine remain
   shape-compliant with the 9-fn substrate contract."
   (:require ["react"             :as React]
+            ["react-dom"         :as react-dom]
             ["react-dom/client"  :as react-dom-client]
             [re-frame.disposable :as rf-disposable]
             [re-frame.frame      :as frame]
@@ -746,6 +747,48 @@
      (act f))
    nil))
 
+;; ---- synchronous render flush (rf2-40a84) ---------------------------------
+;;
+;; `flush-render!` is the PRODUCTION-grade synchronous render-commit fn for
+;; the substrate-adapter contract (distinct from `flush-views!`, which is a
+;; test-only `act()` wrapper). It exists because the React-shaped substrates
+;; schedule their re-renders through React's normal lane scheduler, whose
+;; commit lands on a `requestAnimationFrame`-style tick that (a) fires AFTER
+;; an eval'd `dispatch` returns and (b) is throttled to ~never in a
+;; backgrounded / unfocused tab. So tooling that drives the view lifecycle
+;; headless — the re-frame2-pair MCP `dispatch` → observe-the-DOM loop
+;; (rf2-40a84 / consumed by rf2-vk79g's dispatch-and-settle) — cannot rely on
+;; the scheduled commit ever arriving.
+;;
+;; `react-dom/flushSync` runs its callback and SYNCHRONOUSLY flushes every
+;; React update scheduled inside it (and any already-pending work) to the
+;; DOM before returning — it is NOT rAF-scheduled, so it is immune to the
+;; backgrounded-tab throttle and fires even headless. After
+;; `(flush-render! f)` returns, any state change `f` triggered (or any render
+;; already pending) is committed; a caller can then read the settled DOM /
+;; epoch. The 0-arity form flushes already-pending work with an empty
+;; callback.
+;;
+;; This is the React-hook (UIx / Helix) spine impl; the Reagent / reagent-
+;; slim family realises the same contract through `reagent.core/flush` (its
+;; render-queue drain forces the component re-renders synchronously and, on
+;; React 19, commits them via `flushSync`), wired in the ratom adapter.
+
+(defn flush-render!
+  "Synchronously flush pending React renders to the DOM via
+  `react-dom/flushSync` (Spec 006 §`flush-render!`). The 1-arity form runs
+  `f` inside `flushSync` so any state change `f` schedules commits before
+  the call returns; the 0-arity form flushes already-pending work. Unlike
+  `flush-views!` (a test-only `act()` wrapper) this is production-grade and
+  NOT rAF-scheduled, so headless tooling can drive a `dispatch → flush-render!
+  → observe-settled-DOM` loop even in a backgrounded tab (rf2-40a84). Returns
+  nil. No-op-safe when there is nothing pending — `flushSync` with an empty
+  callback is a cheap no-op."
+  ([] (flush-render! (fn [] nil)))
+  ([f]
+   (react-dom/flushSync f)
+   nil))
+
 ;; ---- source-coord wrapper (Spec 006 §Source-coord; rf2-z7f7 / rf2-z9n1) --
 ;;
 ;; Every React-shaped substrate adapter MUST inject
@@ -1129,6 +1172,7 @@
        :use-current-frame          …
        :use-subscribe              …
        :flush-views!               …
+       :flush-render!              …
        :wrap-view                  …
        :clear-warned-non-dom-roots! …}
 
@@ -1317,6 +1361,10 @@
      :use-current-frame           use-current-frame
      :use-subscribe               use-subscribe
      :flush-views!                flush-views!
+     ;; rf2-40a84 — production-grade synchronous render-commit (NOT the
+     ;; test-only act() wrapper above). Wired into the adapter map's
+     ;; :flush-render! contract slot by make-react-adapter.
+     :flush-render!               flush-render!
      :wrap-view                   wrap-view-fn
      :clear-warned-non-dom-roots! clear-warned
      ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
@@ -1418,6 +1466,10 @@
                  ;; frame-keyword arg is ignored (frame lives in the
                  ;; Provider's `:value` at render time).
                  :register-context-provider (fn [_frame-keyword] frame-provider)
+                 ;; rf2-40a84 — optional synchronous render-flush contract fn
+                 ;; (react-dom/flushSync). Lets headless tooling commit pending
+                 ;; renders without waiting on React's rAF-scheduled lane.
+                 :flush-render!             (:flush-render! spine-fns)
                  :dispose-adapter!          (:dispose-adapter!          spine-fns)}]
     (substrate-adapter/route-hook! adapter :adapter/current-frame
       adapter-context/function-component-current-frame
@@ -1481,6 +1533,14 @@
                                  walk + `.render`, NOT a bare `.render`)
           :rdc/hydrate-root    — (fn [mount-point tree]) → React root
           :rdc/unmount         — (fn [root]) → unmount the root
+          :rdc/flush-render!   — (fn [f]) → run `f` then SYNCHRONOUSLY commit
+                                 the substrate's pending renders to the DOM
+                                 (rf2-40a84; stock Reagent passes
+                                 `reagent.core/flush`, slim passes its
+                                 `reagent2.*` synchronous flush). NOT rAF-
+                                 scheduled — immune to the backgrounded-tab
+                                 throttle, so headless tooling can drive a
+                                 `dispatch → flush-render! → observe-DOM` loop.
 
   The spine MUST NOT `:require` stock `reagent.*`; the ops above are the
   only path to the substrate's reactive primitive, so each adapter's own
@@ -1500,6 +1560,7 @@
        :render                     …
        :render-to-string           …
        :dispose-adapter!           …
+       :flush-render!              …
        :set-hiccup-emitter!        …
        :active-roots-cell          …
        :emitter-cell               …}
@@ -1521,7 +1582,8 @@
          create-root   :rdc/create-root
          render-root   :rdc/render
          hydrate-root  :rdc/hydrate-root
-         unmount-root  :rdc/unmount} ratom-ops
+         unmount-root  :rdc/unmount
+         flush-render-op :rdc/flush-render!} ratom-ops
         active-roots-cell (make-active-roots-cell)
         emitter-cell      (make-hiccup-emitter-cell)
         make-state-container
@@ -1579,7 +1641,25 @@
                  (catch :default _ nil)))
           (reset! active-roots-cell #{})
           (reset! emitter-cell nil)
-          nil)]
+          nil)
+        ;; rf2-40a84 — production synchronous render-flush. Delegates to the
+        ;; injected `:rdc/flush-render!` op (stock `reagent.core/flush` /
+        ;; slim's `reagent2.*` synchronous flush) so the spine never names a
+        ;; reactive-atom ns (bundle isolation). The op runs `f` then drains
+        ;; the substrate's component-render queue synchronously and (on React
+        ;; 19) commits via `flushSync` — NOT rAF-scheduled, so it fires even
+        ;; in a backgrounded tab. No-op-safe when nothing is pending.
+        flush-render!
+        (fn flush-render!
+          ([] (flush-render! (fn [] nil)))
+          ([f]
+           (if flush-render-op
+             (flush-render-op f)
+             ;; Defensive: an adapter that injected no flush op still honours
+             ;; the contract by at least running `f`. Reagent and reagent-slim
+             ;; both inject one, so this branch is dead in the reference.
+             (f))
+           nil))]
     {:make-state-container       make-state-container
      :read-container             read-container
      :replace-container!         replace-container!
@@ -1588,6 +1668,9 @@
      :render                     render
      :render-to-string           (make-render-to-string emitter-cell)
      :dispose-adapter!           dispose-adapter!
+     ;; rf2-40a84 — production synchronous render-commit, wired into the
+     ;; adapter map's :flush-render! contract slot by make-ratom-adapter.
+     :flush-render!              flush-render!
      :set-hiccup-emitter!        (fn set-it! [f]
                                    (set-hiccup-emitter! emitter-cell f))
      :active-roots-cell          active-roots-cell
@@ -1668,6 +1751,11 @@
                  :render                    (:render               spine-fns)
                  :render-to-string          (:render-to-string     spine-fns)
                  :register-context-provider register-context-provider
+                 ;; rf2-40a84 — optional synchronous render-flush contract fn
+                 ;; (reagent.core/flush — drains the render queue + React-19
+                 ;; flushSync commit). Lets headless tooling commit pending
+                 ;; renders without waiting on Reagent's rAF-scheduled drain.
+                 :flush-render!             (:flush-render! spine-fns)
                  :dispose-adapter!          (:dispose-adapter!     spine-fns)}]
     ;; Chained SSR emitter install (rf2-4z7bp / parity rf2-cl1qv): every
     ;; loaded React-shaped adapter contributes its install step so a single

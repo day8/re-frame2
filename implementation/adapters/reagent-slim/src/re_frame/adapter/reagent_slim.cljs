@@ -12,6 +12,7 @@
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
+            [reagent2.impl.batching    :as batching]
             [re-frame.substrate.spine   :as spine]
             [re-frame.views            :as views]))
 
@@ -50,7 +51,17 @@
                          :rdc/create-root     (fn [mount-point] (rdc/create-root mount-point))
                          :rdc/render          (fn [root tree] (rdc/render root tree))
                          :rdc/hydrate-root    (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
-                         :rdc/unmount         (fn [root] (rdc/unmount root))}}))
+                         :rdc/unmount         (fn [root] (rdc/unmount root))
+                         ;; rf2-40a84 — synchronous render-flush op. Run `f`
+                         ;; (which may mutate a ratom / dispatch), then
+                         ;; `reagent2.impl.batching/flush!` SYNCHRONOUSLY drains
+                         ;; the rea-queue + forceUpdates every dirty component —
+                         ;; the rewrite's microtask scheduler is bypassed, so
+                         ;; the commit is NOT microtask/rAF-deferred and fires
+                         ;; even in a backgrounded / headless tab. (Distinct
+                         ;; from `reagent2.dom.client/flush-views!`, the
+                         ;; goog.DEBUG-gated act()-composing TEST primitive.)
+                         :rdc/flush-render!   (fn [f] (f) (batching/flush!))}}))
 
 (def set-hiccup-emitter!
   "Install the hiccup → HTML fn used by render-to-string. Last call wins.
