@@ -5,7 +5,7 @@
   Mirrors the conformance fixture
   ../spec/conformance/fixtures/spawn-on-entry-destroy-on-exit.edn —
   entering a state with `:spawn` emits a `:rf.machine/spawn` fx (observable
-  as `:rf.machine/spawned` trace); exiting emits `:rf.machine/destroy`
+  as `:rf.machine.spawn/spawned` trace); exiting emits `:rf.machine/destroy`
   (observable as `:rf.machine/destroyed` trace).
 
   Concerns covered:
@@ -76,7 +76,7 @@
       ;; Initial state :idle with the credentials fixture data is
       ;; synthesised on first dispatch; no seed required.
       ;; Entering :authenticating: :rf.machine/spawn fx fires
-      ;; (→ :rf.machine/spawned trace), :on-spawn callback records the
+      ;; (→ :rf.machine.spawn/spawned trace), :on-spawn callback records the
       ;; deterministic actor id into :data.:pending.
       (trace-tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
@@ -91,10 +91,10 @@
                        [:rf/runtime :machines :spawned :auth3/flow [:authenticating]]))
             "runtime-tracked spawn slot binds the deterministic actor id"))
       (is (some (fn [ev]
-                  (and (= :rf.machine/spawned (:operation ev))
+                  (and (= :rf.machine.spawn/spawned (:operation ev))
                        (= :http/post (:machine-id (:tags ev)))))
                 @traces)
-          "expected :rf.machine/spawned trace from the :rf.machine/spawn fx")
+          "expected :rf.machine.spawn/spawned trace from the :rf.machine/spawn fx")
       ;; Exiting :authenticating via :auth/failed: :rf.machine/destroy fx
       ;; fires targeting the recorded actor id.
       (reset! traces [])
@@ -106,6 +106,44 @@
                        (= :http/post#1 (:actor-id (:tags ev)))))
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
+
+;; ---- two-axis spawn observation (rf2-qpuk4) -----------------------------
+;; A spawn emits TWO traces: the fx-substrate observation
+;; `:rf.machine.spawn/spawned` (the spawn fx ran) AND the registrar-substrate
+;; observation `:rf.machine.lifecycle/spawned` (the actor's snapshot landed in
+;; the registrar). The latter is the symmetric `spawned` half of the
+;; created/spawned/destroyed lifecycle triple and carries `:spawned-id` +
+;; `:state` (initial state) so observers + the Xray managed-fx INVOKE adapter
+;; can render the actor without re-reading app-db. Per 009 §Two-axis machine
+;; observation.
+
+(deftest machine-spawn-two-axis-cljs
+  (testing "a spawn emits BOTH :rf.machine.spawn/spawned (fx) and :rf.machine.lifecycle/spawned (registrar)"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :data    {}
+                  :states  {:idle    {:on {:go :working}}
+                            :working {:spawn {:machine-id :qpuk4/worker}}}}
+          traces (atom [])]
+      (rf/reg-machine :qpuk4/worker child)
+      (rf/reg-machine :qpuk4/sup    parent)
+      (trace-tooling/register-listener! ::two-axis (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:qpuk4/sup [:go]])
+      (trace-tooling/unregister-listener! ::two-axis)
+      ;; fx-substrate axis
+      (is (some (fn [ev]
+                  (and (= :rf.machine.spawn/spawned (:operation ev))
+                       (= :qpuk4/worker (:machine-id (:tags ev)))))
+                @traces)
+          "fx-substrate axis: expected :rf.machine.spawn/spawned")
+      ;; registrar-substrate axis — the round-trip the Xray consumer keys on
+      (is (some (fn [ev]
+                  (and (= :rf.machine.lifecycle/spawned (:operation ev))
+                       (= :qpuk4/worker   (:machine-id (:tags ev)))
+                       (= :qpuk4/worker#1 (:spawned-id (:tags ev)))
+                       (= :running        (:state (:tags ev)))))
+                @traces)
+          "registrar-substrate axis: expected :rf.machine.lifecycle/spawned carrying :spawned-id + initial :state"))))
 
 ;; ---- :spawn :data fn-form materialised at spawn (rf2-h131) --------------
 ;; Per Spec 005 §Spec-spec keys (line 1503/1511): `:data` admits a function

@@ -110,7 +110,7 @@
   event shaped:
 
       [<spawned-actor-id> <start-event>]            ; user-supplied :start
-      [<spawned-actor-id> [:rf.machine/spawned]]    ; synthetic default
+      [<spawned-actor-id> [:rf.machine.spawn/spawned]]    ; synthetic default
 
   The spawned-actor-id is the first element. The renderer projects
   this into the label:

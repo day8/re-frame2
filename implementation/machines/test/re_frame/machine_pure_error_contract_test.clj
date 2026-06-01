@@ -13,7 +13,7 @@
       refactor of the `ns` / `str/starts-with?` predicate would
       silently re-arm the unhandled-event advisory against benign
       framework lifecycle traffic (the stories-library `:rf.story.*`
-      pings, the synthetic `:rf.machine/spawned` kick-off) and no test
+      pings, the synthetic `:rf.machine.spawn/spawned` kick-off) and no test
       would catch it.
 
     - `:rf.error/machine-bad-state-form` — `state-path` throws on a
@@ -70,7 +70,7 @@
    single-root reserved set)"
     (is (false? (transition/unhandled-event-warnable? [:rf/anything]))
         "the bare :rf root is carved out")
-    (is (false? (transition/unhandled-event-warnable? [:rf.machine/spawned]))
+    (is (false? (transition/unhandled-event-warnable? [:rf.machine.spawn/spawned]))
         "the synthetic spawn kick-off (005:1780) is carved out")
     (is (false? (transition/unhandled-event-warnable? [:rf.story.lifecycle/events-complete]))
         "the stories-library lifecycle ping is carved out")

@@ -1,18 +1,32 @@
 (ns day8.re-frame2-xray.panels
-  "Public per-panel mount API — rf2-crhr8.
+  "Per-panel mount surface — rf2-crhr8. **Internal-but-stable**, NOT a
+  v1.0 host-facing embed contract (rf2-jw2ny).
 
   Every Xray panel is independently mountable: a host can mount one
   panel in isolation without the surrounding 4-layer shell, without
   sibling panels, and without any shell-owned chrome state. This
-  contract is the load-bearing surface that lets Xray be embedded
-  inside Story, inside the Scittle playground (rf2-i8mv option-c
-  progressive disclosure), inside custom debugging configurations,
-  and inside the docs / guide / examples surface.
+  surface is the load-bearing seam the 4-layer shell composes through
+  and that the test suite mounts panels through; it also lets Xray be
+  embedded inside Story, inside the Scittle playground (rf2-i8mv
+  option-c progressive disclosure), inside custom debugging
+  configurations, and inside the docs / guide / examples surface.
 
-  ## The contract
+  **Status: internal-but-stable, not a host-facing v1.0 embed
+  contract.** The mount fns are stable (the shell + tests depend on
+  them; hosts MAY use them) but carry NO v1.0 host-facing-contract
+  guarantee — there is no per-panel props vocabulary beyond the single
+  `:frame` opt (defaulting to `:rf/xray`). The v1.0 host-facing embed
+  contract is the **full-shell** embed per
+  `tools/xray/spec/008-Embedding-Contract.md` §Full-shell embed
+  contract. This matches the status stated in
+  `008-Embedding-Contract.md`, `tools/xray/spec/API.md`, and
+  `007-UX-IA.md` §Mountable panel contract — one honest status across
+  every reference (rf2-jw2ny reconcile).
+
+  ## The surface
 
   Per `tools/xray/spec/008-Embedding-Contract.md` every panel exposes
-  a public mount fn:
+  a mount fn:
 
       (mount-epoch-panel!      mount-point opts) → unmount-fn
       (mount-app-db-diff!      mount-point opts) → unmount-fn
@@ -188,7 +202,7 @@
 
 ;; ---- per-panel mount fns ------------------------------------------------
 ;;
-;; All public mount fns share the same shape — install handlers → wrap
+;; All mount fns share the same shape — install handlers → wrap
 ;; panel view in frame-provider → delegate to substrate adapter. The
 ;; only per-panel axis is which `Panel` (or equivalent) view to render.
 ;; This keeps the surface uniform — adding a panel = adding a line
@@ -310,7 +324,7 @@
   dropped the inline-embed host.
 
   Exposing this as a reg-view (rather than a plain fn) follows the
-  Conventions.md panel-facade contract — every public mount target
+  Conventions.md panel-facade contract — every mount target
   is a `reg-view` so the React-context tier resolves to the wrapping
   frame-provider per Spec 006 §706."
   []

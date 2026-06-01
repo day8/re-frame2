@@ -194,8 +194,8 @@
    6. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent (per rf2-ijm7),
       the runtime dispatches a synthetic `[<spawned-id>
-      [:rf.machine/spawned]]` so generic child machines may declare a
-      leaf-level `:on :rf.machine/spawned :target ...` transition."
+      [:rf.machine.spawn/spawned]]` so generic child machines may declare a
+      leaf-level `:on :rf.machine.spawn/spawned :target ...` transition."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
@@ -241,19 +241,19 @@
                          spec'' {:bootstrap-pending? true}))
         ;; Per rf2-f3kp7: decide schema rejection BEFORE the trace, the
         ;; handler registration, and the install. The prior code emitted
-        ;; the `:rf.machine/spawned` trace and called `reg-machine*`
+        ;; the `:rf.machine.spawn/spawned` trace and called `reg-machine*`
         ;; unconditionally, so a `:schema`-rejected spawn leaked a
         ;; registered event handler + a phantom `(rf/machines)` entry
         ;; (the install was correctly skipped, but the registration ran
         ;; out of step). Gating all three on `(not rejected?)` makes a
         ;; rejected spawn FULLY atomic — it registers nothing, installs
         ;; nothing, records no spawn-order entry, dispatches no `:start`,
-        ;; and announces no `:rf.machine/spawned` (only the
+        ;; and announces no `:rf.machine.spawn/spawned` (only the
         ;; `:rf.error/schema-validation-failure :phase :spawn` that
         ;; `validate-spawn-data!` already emitted).
         rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
     (when-not rejected?
-      (trace/emit! :rf.machine :rf.machine/spawned
+      (trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     :machine-id (:machine-id args)
                     :spawned-id spawned-id
@@ -280,10 +280,31 @@
         ;; Per rf2-vsigt — record the spawned actor in the frame's
         ;; spawn-order channel so frame-destroy can walk in reverse-
         ;; creation order per Spec 005 §Cross-Spec Interactions §1.
-        (spawn-order/record! frame-id spawned-id))
+        (spawn-order/record! frame-id spawned-id)
+        ;; Per rf2-qpuk4 — the REGISTRAR-substrate "instance appeared"
+        ;; observation, the symmetric partner of
+        ;; `:rf.machine.lifecycle/created` (handler registered) and
+        ;; `:rf.machine.lifecycle/destroyed` (handler/snapshot reaped).
+        ;; The fx-substrate emit above (`:rf.machine.spawn/spawned`) says
+        ;; "the spawn fx ran"; THIS emit says "a spawned actor's snapshot
+        ;; landed in the registrar". Spec 009 §Two-axis machine
+        ;; observation: tools that just want "did an actor appear?"
+        ;; subscribe to the `:rf.machine.lifecycle/*` channel; causal-graph
+        ;; builders subscribe to both and disambiguate by the naming axis.
+        ;; The `:state` tag carries the actor's initial state so the Xray
+        ;; managed-fx INVOKE adapter can render it without re-reading
+        ;; app-db (`managed_fx_helpers/machine-invoke-adapter`).
+        (trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
+                     {:frame      frame-id
+                      :machine-id (:machine-id args)
+                      :spawned-id spawned-id
+                      :spawn-id   invoke-id
+                      :system-id  system-id
+                      :parent-id  parent-id
+                      :state      (:state initial-snap)}))
       ;; (6) Fire the :start event into the new actor. Per rf2-ijm7,
       ;; spawns that don't supply :start receive a synthetic
-      ;; [:rf.machine/spawned] so generic child machines can declare their
+      ;; [:rf.machine.spawn/spawned] so generic child machines can declare their
       ;; first transition out of an :initial state at spec-write time.
       (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
         ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source :machine-spawn`
@@ -304,7 +325,7 @@
                      :source             :machine-spawn}]
           (if (some? start)
             (dispatch! [spawned-id start] opts)
-            (dispatch! [spawned-id [:rf.machine/spawned]] opts)))))
+            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------

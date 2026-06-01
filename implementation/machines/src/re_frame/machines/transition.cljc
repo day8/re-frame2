@@ -617,7 +617,7 @@
   events ride the same reserved root (`:rf.story.lifecycle/*`,
   `:rf.assert/*`). An event in the reserved `:rf*` namespace that resolves
   to a no-op is benign framework traffic, exactly as Spec 005:1780 carves
-  out the synthetic `[:rf.machine/spawned]` kick-off. (`:rf.machine/bootstrap`
+  out the synthetic `[:rf.machine.spawn/spawned]` kick-off. (`:rf.machine/bootstrap`
   is `:entry`-only and `:rf.machine.timer/after-elapsed` is special-cased
   in `pick-transition`, so neither reaches this path — but they are
   reserved-namespace too, so the rule subsumes them.) Domain machines that

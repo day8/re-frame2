@@ -434,7 +434,7 @@ Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) (refined by 
 |---|---|---|
 | `:after-timer` | machine substrate's `:after` timer-fire path | timer's delay elapses + the substrate dispatches the synthetic `:rf.machine.timer/after-elapsed` trigger |
 | `:always` | machine substrate's `:always` microstep loop | per-microstep marker on `:rf.machine.microstep/transition`; `:always` does not produce its own envelope (it runs intra-macrostep) but the value is reserved on the closed set so tools have a consistent vocabulary |
-| `:machine-spawn` | spawn-fx (`:rf.machine/spawn`) | a machine spawns + the substrate dispatches the spawned actor's `:start` (or synthetic `[:rf.machine/spawned]`) initial-entry trigger |
+| `:machine-spawn` | spawn-fx (`:rf.machine/spawn`) | a machine spawns + the substrate dispatches the spawned actor's `:start` (or synthetic `[:rf.machine.spawn/spawned]`) initial-entry trigger |
 | `:machine-action` | `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine (`:rf.machine/internal? true` on the parent envelope) | a machine-handler-issued `(rf/dispatch …)` — the actor-message path. Carries the same `:source-detail {:ms <ms>}` when emitted via `:dispatch-later`. Per rf2-c3990 |
 | `:fx-dispatch` | `:dispatch` fx handler (non-machine parent) | the `:dispatch` reserved fx executes and enqueues a child dispatch from an ordinary event handler |
 | `:fx-dispatch-later` | `:dispatch-later` fx handler (non-machine parent) | the `:dispatch-later` reserved fx fires after its delay from an ordinary event handler |

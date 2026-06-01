@@ -136,9 +136,9 @@
         (finally (trace-tooling/unregister-listener! ::spawn-src))))))
 
 (deftest machine-spawn-synthetic-spawned-stamps-source-machine-spawn
-  (testing "machine spawn fx stamps :source :machine-spawn on the synthetic [:rf.machine/spawned] event"
+  (testing "machine spawn fx stamps :source :machine-spawn on the synthetic [:rf.machine.spawn/spawned] event"
     ;; When the spawn args omit :start, the runtime dispatches
-    ;; [<child-id> [:rf.machine/spawned]] (rf2-ijm7) — same stamp path.
+    ;; [<child-id> [:rf.machine.spawn/spawned]] (rf2-ijm7) — same stamp path.
     (let [parent-machine
           {:initial :idle
            :data    {}
@@ -165,10 +165,10 @@
                              (filter (fn [ev]
                                        (let [v (get-in ev [:tags :rf.event/v])]
                                          (and (vector? v)
-                                              (= [:rf.machine/spawned] (second v)))))
+                                              (= [:rf.machine.spawn/spawned] (second v)))))
                                      @seen))]
           (is (some? synthetic-ev)
-              "the substrate dispatched the synthetic [:rf.machine/spawned] event")
+              "the substrate dispatched the synthetic [:rf.machine.spawn/spawned] event")
           (is (= :machine-spawn (:source synthetic-ev))
               ":source :machine-spawn stamped on the synthetic spawn dispatch (rf2-ejtpd)"))
         (finally (trace-tooling/unregister-listener! ::spawn-src2))))))

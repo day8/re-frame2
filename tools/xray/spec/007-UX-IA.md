@@ -1563,9 +1563,17 @@ ribbons, the Scittle playground (per rf2-i8mv option-c progressive
 disclosure), the docs / guide surface, or custom debugging setups
 without bringing along the rest of the shell chrome.
 
-The public mount surface lives in
-`day8.re-frame2-xray.panels` — one mount fn per public panel, plus
-a master `mount-shell!` for the full 4-layer chrome.
+The mount surface lives in
+`day8.re-frame2-xray.panels` — one mount fn per panel, plus
+a master `mount-shell!` for the full 4-layer chrome. This per-panel
+surface is **internal-but-stable**, NOT a v1.0 host-facing embed
+contract: the 4-layer shell + the test suite depend on it and hosts
+MAY use it, but it carries no host-facing-contract guarantee (the
+only opt is `:frame`) — the v1.0 host-facing embed contract is the
+**full-shell** embed per
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
+§Full-shell embed contract. (rf2-jw2ny — one honest status across
+`panels.cljs`, `008`, and `API.md`.)
 
 ### Mountable surface inventory
 

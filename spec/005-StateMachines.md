@@ -106,7 +106,7 @@ The machine runtime emits a small **closed set** of synthetic event vectors that
 
 | Synthetic event vector | Source | Reaches | Purpose |
 |---|---|---|---|
-| `[:rf.machine/spawned]` | The `:rf.machine/spawn` fx handler (per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn)) when the spawn args carry no `:start`. | The spawned actor — dispatched as `[<spawned-id> [:rf.machine/spawned]]` after the initial-entry cascade settles. | Generic-child kick-off shape. Machines that need to do work on spawn declare `:on :rf.machine/spawned` (pre-rename) or `:entry :fire-request` on the initial state (canonical ; the synthetic event still flows and resolves as a no-op for non-handlers). |
+| `[:rf.machine.spawn/spawned]` | The `:rf.machine/spawn` fx handler (per [§Synthetic `[:rf.machine.spawn/spawned]` on spawn](#synthetic-rfmachinespawnspawned-on-spawn)) when the spawn args carry no `:start`. | The spawned actor — dispatched as `[<spawned-id> [:rf.machine.spawn/spawned]]` after the initial-entry cascade settles. | Generic-child kick-off shape. Machines that need to do work on spawn declare `:on :rf.machine.spawn/spawned` (legacy kick-off form) or `:entry :fire-request` on the initial state (canonical ; the synthetic event still flows and resolves as a no-op for non-handlers). |
 | `[:rf.machine/bootstrap]` | The bootstrap entry cascade (per [§Synthetic bootstrap event vector — `[:rf.machine/bootstrap]`](#synthetic-bootstrap-event-vector--rfmachinebootstrap)). | The bootstrap `:entry` action(s) — threaded as the context-map's `:event` value. Never reaches an `:on` map. | Placeholder event vector for the initial-entry cascade. `:entry` actions that need to distinguish bootstrap from user-driven entry destructure `:event` from the context map and check the first element against `:rf.machine/bootstrap`. |
 | `[:rf.machine.timer/after-elapsed <delay-key> <epoch>]` | `re-frame.machines.timer` (per [§Epoch-based stale detection](#epoch-based-stale-detection)). Scheduled via `:dispatch-later` at state entry for every `:after` entry; fires when the wall-clock window elapses. | The parent machine — dispatched as `[<machine-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]`. Handled by the machine handler's `:after`-dispatch path. | Wire format between `schedule-after-timer!` and `pick-after-transition`. `<delay-key>` is the literal `:after` map key (a `pos-int?`, a subscription vector, or the resolved fn-output) that identifies which `:after` entry's timer fired; `<epoch>` is the value of `:rf/after-epoch` (or, for parallel-region machines, the region's slot in `:rf/after-epoch-by-region`) captured at scheduling time. The handler compares the carried `<epoch>` to the snapshot's current value; on mismatch the timer is stale and silently dropped (per [§Epoch-based stale detection](#epoch-based-stale-detection)). |
 
@@ -1042,11 +1042,11 @@ When a machine **first comes into existence** — a singleton on its first dispa
 
 The bootstrap cascade composes with **all** the slots the entry cascade carries — `:spawn`, `:spawn-all`, `:after` on any node along the initial chain emit their corresponding fx (`:rf.machine/spawn`, `:rf.machine/spawn-all-init`, `:after-schedule`) at bootstrap time. So a `:requesting` initial state that declares `:entry :fire-request` AND `:spawn {:machine-id :rf.http/managed ...}` has the entry action run AND the child machine spawned, before the actor's first user-routed event arrives.
 
-For singleton machines the bootstrap fx flow out as part of the **first event's** handler return value (the bootstrap cascade and the first event's transition cascade share the same `:fx` accumulator). For spawned actors the bootstrap fires when the runtime dispatches the actor's first event — the synthetic `[:rf.machine/spawned]` per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn), or the user-supplied `:start` per [§Spawn-spec keys](#spawn-spec-keys).
+For singleton machines the bootstrap fx flow out as part of the **first event's** handler return value (the bootstrap cascade and the first event's transition cascade share the same `:fx` accumulator). For spawned actors the bootstrap fires when the runtime dispatches the actor's first event — the synthetic `[:rf.machine.spawn/spawned]` per [§Synthetic `[:rf.machine.spawn/spawned]` on spawn](#synthetic-rfmachinespawnspawned-on-spawn), or the user-supplied `:start` per [§Spawn-spec keys](#spawn-spec-keys).
 
 **Error semantics.** A throw inside any initial-`:entry` action halts the bootstrap identically to a throw inside any other entry cascade: the snapshot does NOT commit, no `:fx` flow, and a single `:rf.error/machine-action-exception` trace fires (per [§Errors](#errors)). The pre-bootstrap state — no snapshot at `[:rf/runtime :machines :snapshots <id>]` — is preserved.
 
-The canonical shape for "do work on machine spawn" is `:entry :fire-request` on the initial state. Generic child machines MAY also declare `:on :rf.machine/spawned :action :fire-request` (the synthetic event the runtime dispatches when the spawn args carry no `:start`); this resolves as a no-op transition through the standard `:on` lookup. New code prefers `:entry`.
+The canonical shape for "do work on machine spawn" is `:entry :fire-request` on the initial state. Generic child machines MAY also declare `:on :rf.machine.spawn/spawned :action :fire-request` (the synthetic event the runtime dispatches when the spawn args carry no `:start`); this resolves as a no-op transition through the standard `:on` lookup. New code prefers `:entry`.
 
 ##### Synthetic bootstrap event vector — `[:rf.machine/bootstrap]`
 
@@ -1851,12 +1851,12 @@ Both are event handlers. Both addressable by `dispatch`. Both visible to `(regis
 
 ### Spawn lifecycle — ordering
 
-The spawn surface is composite: `:on-spawn`, `:rf.machine/spawn`, the synthetic `[:rf.machine/spawned]`, `:start`, and the spawned actor's initial-`:entry` cascade all participate. The individual pieces are spec'd in their own subsections; this section enumerates the **strict ordering** between them — what fires when, against what context, between the moment a parent state with `:spawn` is entered and the moment the spawned child processes its first user event.
+The spawn surface is composite: `:on-spawn`, `:rf.machine/spawn`, the synthetic `[:rf.machine.spawn/spawned]`, `:start`, and the spawned actor's initial-`:entry` cascade all participate. The individual pieces are spec'd in their own subsections; this section enumerates the **strict ordering** between them — what fires when, against what context, between the moment a parent state with `:spawn` is entered and the moment the spawned child processes its first user event.
 
 Two distinct "spawn" surfaces, easy to conflate:
 
 - **`:on-spawn` — advisory observation hook.** Declared inside the parent's `:spawn` / `:spawn-all` spec (or on a hand-emitted `:rf.machine/spawn`). Runs **inside the transition reducer at allocate-time**, invoked with `{:data <parent's :data> :id <freshly-allocated spawned-id>}` — the unified context-map (per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies)). NOT a child-side event. **Its return value is DROPPED** — the runtime does not patch it back into the snapshot. It exists for side-channel observation (logging, mirroring the id into instrumentation); the runtime tracks the id in the spawn-registry at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` regardless of whether `:on-spawn` is declared. To address the child user-side, use one of the three working mechanisms in [§Recording the spawned id user-side](#recording-the-spawned-id-user-side).
-- **`[:rf.machine/spawned]` — synthetic event dispatched into the new child.** Emitted by the `:rf.machine/spawn` fx handler **only when the spawn args omit `:start`**, so generic child machines have a kick-off event to handle. Reaches the child as its first event, ahead of the initial-`:entry` cascade only in resolution order — see step 6 below. Per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn).
+- **`[:rf.machine.spawn/spawned]` — synthetic event dispatched into the new child.** Emitted by the `:rf.machine/spawn` fx handler **only when the spawn args omit `:start`**, so generic child machines have a kick-off event to handle. Reaches the child as its first event, ahead of the initial-`:entry` cascade only in resolution order — see step 6 below. Per [§Synthetic `[:rf.machine.spawn/spawned]` on spawn](#synthetic-rfmachinespawnspawned-on-spawn).
 
 #### Ordering — singleton parent invoking a child
 
@@ -1867,9 +1867,9 @@ For a parent state with `:spawn {:machine-id :child …}` (or for a hand-emitted
 3. **`:rf.machine/spawn` fx is emitted** into the parent transition's `:fx` vector with the allocated spawned-id, the resolved child `:data`, and (for declarative `:spawn`) the stamped `:rf/parent-id` / `:rf/spawn-id` keys.
 4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf/runtime :machines :snapshots <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist as an event handler.
 5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data)), and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/runtime :machines :snapshots <spawned-id>]`; the child's event handler is registered at the spawned-id. The runtime spawn-registry slot at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` is written for the declarative-`:spawn` case.
-6. **Child's first event is dispatched** — `[<spawned-id> <:start arg>]` when the spawn args carried `:start`, otherwise the synthetic `[<spawned-id> [:rf.machine/spawned]]`. The two paths are mutually exclusive; the child receives exactly one of the two as its first event, never both.
+6. **Child's first event is dispatched** — `[<spawned-id> <:start arg>]` when the spawn args carried `:start`, otherwise the synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]`. The two paths are mutually exclusive; the child receives exactly one of the two as its first event, never both.
 7. **Child's initial-entry cascade fires** (per [§Initial-state `:entry` fires on machine bootstrap](#initial-state-entry-fires-on-machine-bootstrap)). For a flat child the single initial state's `:entry` runs; for a compound child every `:entry` along the initial chain runs shallowest-first. This cascade runs **before** the first event's `:on` lookup, so `:entry`-emitted `:fx` is concatenated ahead of the first event's transition fx. `:rf/bootstrap-pending?` is cleared by the same drain.
-8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine/spawned]` path with no matching handler this resolves as a benign no-op (`:rf.error/machine-unhandled-event` is NOT emitted for `:rf.machine/spawned` — it's the canonical kick-off shape).
+8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine.spawn/spawned]` path with no matching handler this resolves as a benign no-op (`:rf.error/machine-unhandled-event` is NOT emitted for `:rf.machine.spawn/spawned` — it's the canonical kick-off shape).
 
 The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all)) with steps 2–5 fanning out once per child and a single join-bookkeeping write at `[:rf/runtime :machines :spawned <parent-id> <invoke-all-id>]`.
 
@@ -1902,9 +1902,9 @@ Trace of a `[:submit]` event landing on the parent in `:idle`:
 3. Parent's `:fx` accumulates `[:rf.machine/spawn {:machine-id :auth-flow :rf/parent-id :login :rf/spawn-id [:authenticating] …}]`.
 4. Parent commits — `[:rf/runtime :machines :snapshots :login]` updated; the spawn fx drains.
 5. Spawn fx synthesises `:auth-flow#0`'s initial snapshot at `[:rf/runtime :machines :snapshots :auth-flow#0]` with `:state :running`, `:data {:rf/self-id :auth-flow#0 :rf/parent-id :login :rf/spawn-id [:authenticating] :credentials …}`, `:rf/bootstrap-pending? true`; the spawn-registry slot at `[:rf/runtime :machines :spawned :login [:authenticating]]` is written to `:auth-flow#0`.
-6. Spawn-args lacked `:start`, so the synthetic `[:auth-flow#0 [:rf.machine/spawned]]` is dispatched.
+6. Spawn-args lacked `:start`, so the synthetic `[:auth-flow#0 [:rf.machine.spawn/spawned]]` is dispatched.
 7. The child's drain runs the initial-entry cascade: `:running`'s `:entry :fire-request` action emits the HTTP fx. `:rf/bootstrap-pending?` clears.
-8. `[:rf.machine/spawned]` resolves through `:running`'s `:on` map — no match, no-op (no warning).
+8. `[:rf.machine.spawn/spawned]` resolves through `:running`'s `:on` map — no match, no-op (no warning).
 
 The contract on the trace stream — every step above corresponds to a distinct externally-observable event:
 
@@ -1914,17 +1914,17 @@ The contract on the trace stream — every step above corresponds to a distinct 
 | 2 | (no separate trace — `:on-spawn` runs inside the transition reducer) |
 | 3 | (the fx is in the parent's `:fx` vector, visible as `:rf/fx` once the drain emits it) |
 | 4 | `:rf.machine.lifecycle/commit` (parent) |
-| 5 | `:rf.machine.lifecycle/spawned` (child) — per [009](009-Instrumentation.md) |
+| 5 | `:rf.machine.spawn/spawned` (fx-substrate observation — the spawn fx ran) then `:rf.machine.lifecycle/spawned` (child; registrar-substrate observation — the actor's snapshot landed in the registrar) — the two-axis pair per [009 §Two-axis machine observation](009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate) |
 | 6 | `:rf/event` (the synthetic kick-off) |
 | 7 | `:rf.machine.lifecycle/bootstrap` (child) + per-action traces |
-| 8 | `:rf.machine.event/unhandled-no-op` (the `:rf.machine/spawned` resolution, suppressed warning) |
+| 8 | `:rf.machine.event/unhandled-no-op` (the `:rf.machine.spawn/spawned` resolution, suppressed warning) |
 
 #### Why this matters
 
 The ordering is what lets two patterns compose without surprises:
 
 - **Initial-entry `:entry` actions can read the runtime-stamped `:data` keys.** Per step 5, the spawn-fx writes `:rf/self-id` / `:rf/parent-id` / `:rf/spawn-id` into the child's `:data` BEFORE step 7 fires the `:entry` cascade — so an `:entry` action can `(get data :rf/parent-id)` to address its parent without the parent having to thread the id through any other mechanism.
-- **`:start` is for handing the child a one-shot event payload.** When the child needs a specific first event (e.g. `[:begin "/some/url"]`), the parent supplies `:start`; when the child knows its job from initial `:data` alone, the parent omits `:start` and the synthetic `[:rf.machine/spawned]` is just a benign kick-off — the real work happens inside the initial-`:entry` cascade. New code prefers `:entry` over `:on :rf.machine/spawned` (per the note in the synthetic-event subsection).
+- **`:start` is for handing the child a one-shot event payload.** When the child needs a specific first event (e.g. `[:begin "/some/url"]`), the parent supplies `:start`; when the child knows its job from initial `:data` alone, the parent omits `:start` and the synthetic `[:rf.machine.spawn/spawned]` is just a benign kick-off — the real work happens inside the initial-`:entry` cascade. New code prefers `:entry` over `:on :rf.machine.spawn/spawned` (per the note in the synthetic-event subsection).
 
 ### Spawning from inside an action (the common case)
 
@@ -1987,27 +1987,27 @@ Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies),
 
 Imperative `:rf.machine/spawn` from a user's `:fx` (the rare boot-time form per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)) doesn't carry `:rf/parent-id` / `:rf/spawn-id`, so only `:rf/self-id` is stamped. That's the right shape — there's no parent in that case.
 
-### Synthetic `[:rf.machine/spawned]` on spawn
+### Synthetic `[:rf.machine.spawn/spawned]` on spawn
 
-Per — when `[:rf.machine/spawn ...]` does NOT carry an explicit `:start` event, the runtime dispatches a synthetic `[<spawned-id> [:rf.machine/spawned]]` to the new actor as its first event.
+Per — when `[:rf.machine/spawn ...]` does NOT carry an explicit `:start` event, the runtime dispatches a synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]` to the new actor as its first event.
 
-> **Note.** Per [§Initial-state `:entry` fires on machine bootstrap](#initial-state-entry-fires-on-machine-bootstrap), `:entry` fires on bootstrap, so `:entry :fire-request` is the canonical shape. The synthetic `[:rf.machine/spawned]` event still flows for machines that declare `:on :rf.machine/spawned ...`, but new code should prefer the `:entry` form.
+> **Note.** Per [§Initial-state `:entry` fires on machine bootstrap](#initial-state-entry-fires-on-machine-bootstrap), `:entry` fires on bootstrap, so `:entry :fire-request` is the canonical shape. The synthetic `[:rf.machine.spawn/spawned]` event still flows for machines that declare `:on :rf.machine.spawn/spawned ...`, but new code should prefer the `:entry` form.
 
 ```clojure
 ;; Canonical shape:
 :requesting {:entry :fire-request}
 
 ;; Alternative (still supported, but not the canonical shape):
-:requesting {:on {:rf.machine/spawned {:action :fire-request}}}
+:requesting {:on {:rf.machine.spawn/spawned {:action :fire-request}}}
 ```
 
-Machines that don't handle `:rf.machine/spawned` see the event as a benign no-op — it walks the leaf→root resolution chain, finds no match, and the snapshot is unchanged (per [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough)).
+Machines that don't handle `:rf.machine.spawn/spawned` see the event as a benign no-op — it walks the leaf→root resolution chain, finds no match, and the snapshot is unchanged (per [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough)).
 
-When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine/spawned` OR the user's `:start`, never both. In both cases the initial-state `:entry` cascade runs BEFORE the first event's `:on` lookup, so `:entry` actions on the initial state fire regardless of which kick-off mode the spawn used.
+When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine.spawn/spawned` OR the user's `:start`, never both. In both cases the initial-state `:entry` cascade runs BEFORE the first event's `:on` lookup, so `:entry` actions on the initial state fire regardless of which kick-off mode the spawn used.
 
 ### `:source` classification — `:machine-spawn`
 
-The spawn fx (`:rf.machine/spawn`) dispatches the spawned actor's first event — either the user-supplied `:start` event or the synthetic `[:rf.machine/spawned]` — into the new actor. That dispatch stamps **`:source :machine-spawn`** on the dispatch envelope so the Epoch panel's DISPATCH step renders "from machine spawn" rather than `:unknown` (the residual default per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d)) or `:fx-dispatch` (which would be the default if the spawn fx routed through `:dispatch`). The naming — `:machine-spawn` — mirrors the spec's term so the operator-facing label greps back to this section. Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd). (Per [rf2-1ve9h](https://github.com/day8/re-frame2/issues/rf2-1ve9h) the prior parallel `:rf/dispatch-origin :internal` tag was collapsed into `:source` — `:machine-spawn` is now the single functional-origin discriminator.)
+The spawn fx (`:rf.machine/spawn`) dispatches the spawned actor's first event — either the user-supplied `:start` event or the synthetic `[:rf.machine.spawn/spawned]` — into the new actor. That dispatch stamps **`:source :machine-spawn`** on the dispatch envelope so the Epoch panel's DISPATCH step renders "from machine spawn" rather than `:unknown` (the residual default per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d)) or `:fx-dispatch` (which would be the default if the spawn fx routed through `:dispatch`). The naming — `:machine-spawn` — mirrors the spec's term so the operator-facing label greps back to this section. Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd). (Per [rf2-1ve9h](https://github.com/day8/re-frame2/issues/rf2-1ve9h) the prior parallel `:rf/dispatch-origin :internal` tag was collapsed into `:source` — `:machine-spawn` is now the single functional-origin discriminator.)
 
 ### Top-level boot-time spawn (rare)
 
@@ -3367,7 +3367,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
-- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list and [§Trace events — guard evaluations and action runs](#trace-events--guard-evaluations-and-action-runs) for the guard/action payload contract).
+- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list and [§Trace events — guard evaluations and action runs](#trace-events--guard-evaluations-and-action-runs) for the guard/action payload contract).
 - The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, and `:rf.error/machine-spawn-all-with-spawn` error categories. (The `:rf.error/machine-spawn-timeout-*` categories are retired alongside `:timeout-ms` itself; per [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).)
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.

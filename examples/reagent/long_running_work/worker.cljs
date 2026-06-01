@@ -74,7 +74,7 @@
 ;; The state graph:
 ;;
 ;;     :idle           — initial; on spawn the runtime dispatches
-;;                       [:rf.machine/spawned], which transitions
+;;                       [:rf.machine.spawn/spawned], which transitions
 ;;                       us to :processing.
 ;;     :processing     — entry processes one item, bumps :processed,
 ;;                       dispatches :progress to the parent. The :always
@@ -148,11 +148,11 @@
 
    :states
    {:idle
-    ;; The runtime synthesises [:rf.machine/spawned] when no explicit
+    ;; The runtime synthesises [:rf.machine.spawn/spawned] when no explicit
     ;; :start is supplied; declaring it as an :on entry lets the child
     ;; auto-kick into :processing on spawn.
     {:tags #{:work/idle}
-     :on   {:rf.machine/spawned :processing}}
+     :on   {:rf.machine.spawn/spawned :processing}}
 
     :processing
     ;; Process one item, then immediately re-evaluate the work via

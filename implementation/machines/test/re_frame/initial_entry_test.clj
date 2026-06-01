@@ -7,7 +7,7 @@
 
   Surfaced from rf2-yf97 (the websocket example) and the
   `:rf.http/managed` machine-shape wrapper: both work around an apparent
-  gap by declaring `:on :rf.machine/spawned :action ...` on the initial
+  gap by declaring `:on :rf.machine.spawn/spawned :action ...` on the initial
   state instead of relying on the natural `:entry` slot. If `:entry`
   doesn't fire on initial state, every Pattern doc and worked example
   that assumes the canonical `:entry` shape is misleading.

@@ -932,7 +932,7 @@ Per Spec 005 and Spec 009:
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
 | `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). |
-| `:rf.machine/spawned` / `-destroyed` | Render spawn/destroy lifecycle in the parent's chart. |
+| `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The inspector keys on the `:rf.machine.lifecycle/*` axis for "actor appeared/disappeared" and on the `:rf.machine.spawn/*` / `:rf.machine/*` axis when correlating the causing fx (per [009 §Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
 | Source-coord stamping | Every clickable element jumps to source. |

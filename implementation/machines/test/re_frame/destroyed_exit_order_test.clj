@@ -122,7 +122,7 @@
                                        :ia/cancel :idle}}
                      :done {}
                      :idle {}}})
-        (rf/dispatch-sync [:eo/ia-parent [:rf.machine/spawned]])
+        (rf/dispatch-sync [:eo/ia-parent [:rf.machine.spawn/spawned]])
         (rf/dispatch-sync [:eo/ia-parent [:ia/cancel]])     ;; tear children down
         ;; Two children: each fires :exit then :destroyed. The
         ;; per-child loop runs them sequentially, so the log is a
@@ -148,7 +148,7 @@
           {:initial :working
            :data    {}
            :states  {:working {:spawn {:machine-id :eo/final-child}}}})
-        (rf/dispatch-sync [:eo/final-parent [:rf.machine/spawned]])
+        (rf/dispatch-sync [:eo/final-parent [:rf.machine.spawn/spawned]])
         (let [spawned-id (get-in (rf/frame-db :rf/default)
                                  [:rf/runtime :machines :spawned :eo/final-parent [:working]])]
           (rf/dispatch-sync [spawned-id [:finish]]))

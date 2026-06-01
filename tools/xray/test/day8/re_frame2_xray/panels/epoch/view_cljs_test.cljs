@@ -182,7 +182,7 @@
   (testing "rf2-5qp4g — `:source :machine-spawn` renders the kind label
             and the spawned actor-id"
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
-                :event [:checkout/worker [:rf.machine/spawned]]
+                :event [:checkout/worker [:rf.machine.spawn/spawned]]
                 :source :machine-spawn
                 :coord nil
                 :source-enrichment {:spawned-actor-id :checkout/worker}}

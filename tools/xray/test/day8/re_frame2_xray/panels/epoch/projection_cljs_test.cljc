@@ -166,7 +166,7 @@
             the spawned actor-id (event vector's head) so the renderer
             can label the dispatch as `from machine spawn ·
             :child-actor-id`"
-    (let [event [:checkout/worker [:rf.machine/spawned]]
+    (let [event [:checkout/worker [:rf.machine.spawn/spawned]]
           ev    {:op-type   :rf.event
                  :operation :rf.event/dispatched
                  :tags      {:rf.event/v event

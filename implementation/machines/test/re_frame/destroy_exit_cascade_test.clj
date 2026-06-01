@@ -122,7 +122,7 @@
                                  :ia/cancel  :idle}}
                 :done {}
                 :idle {}}})]
-      (rf/dispatch-sync [:ne/ia-parent [:rf.machine/spawned]])
+      (rf/dispatch-sync [:ne/ia-parent [:rf.machine.spawn/spawned]])
       (is (empty? @exits) "no :exit yet — children still running")
       (rf/dispatch-sync [:ne/ia-parent [:ia/cancel]])     ;; parent → :idle cancels invoke-all
       (is (= [:working-exit :working-exit] @exits)
@@ -154,7 +154,7 @@
                {:working {:spawn {:machine-id :ne/final-child
                                    :on-done (fn [{data :data result :result}]
                                                  (assoc data :received result))}}}})]
-      (rf/dispatch-sync [:ne/final-parent [:rf.machine/spawned]])
+      (rf/dispatch-sync [:ne/final-parent [:rf.machine.spawn/spawned]])
       (is (zero? @exit-fired) "no :exit yet — child still running")
       ;; Drive the child to :final?.
       (let [spawned-id (get-in (rf/frame-db :rf/default)

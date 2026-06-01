@@ -247,6 +247,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.machine.microstep/transition` · `:rf.machine/transition` | EVENT HANDLER | MACHINE | transition (×microsteps) | from → to | — |
 | `:rf.machine/action-ran` | EVENT HANDLER | MACHINE | action-ran | action-id | dur? |
 | `:rf.machine.lifecycle/created` | EVENT HANDLER | MACHINE | created | machine-id | — |
+| `:rf.machine.lifecycle/spawned` | EFFECT HANDLERS | MACHINE | spawned (registrar-substrate — actor snapshot installed; partner of the fx-substrate `:rf.machine.spawn/spawned` below) | machine-id · spawned-id | — (↗ child) |
 | `:rf.machine/system-id-bound` · `system-id-released` | EVENT HANDLER | MACHINE | system-id-bound/released | system-id | — |
 | `:rf.machine/snapshot-updated` | EVENT HANDLER | MACHINE | snapshot-updated | (or fold into DB) | — |
 | `:rf.fx/handled` (per fx-id) | EFFECT HANDLERS | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
@@ -263,7 +264,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.machine.timer/fired` | EFFECT HANDLERS | MACHINE | timer-fired | delay · state | — |
 | `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | EFFECT HANDLERS | MACHINE | timer-stale / timer-cancelled | state | — |
 | `:rf.machine.timer/skipped-on-server` | EFFECT HANDLERS | MACHINE | timer-skipped-on-server | state | — |
-| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | EFFECT HANDLERS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
+| `:rf.machine.spawn/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | EFFECT HANDLERS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
 | `:rf.machine/after` · `done` · `finished` | EFFECT HANDLERS | MACHINE | after / done / finished | delay / output | — |
 | `:rf.sub/create` | SUBSCRIPTIONS | SUB | created | sub-id | — |
 | `:rf.sub/run`+`computed` (value-changed? ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
