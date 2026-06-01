@@ -205,11 +205,24 @@
                                         " require an adapter ns and pass its `adapter` Var,"
                                         " e.g. (rf/init! reagent/adapter).")})))))
 
-(defn make-state-container [initial-value]
+(defn make-state-container
+  "Build a fresh, writable substrate state container holding
+  `initial-value` (the per-frame `app-db` cell). Delegates to the
+  installed adapter's `:make-state-container`. Required contract fn —
+  raises `:rf.error/no-adapter-installed` before `(rf/init! ...)` and
+  `:rf.error/adapter-disposed` after teardown (per `require-adapter!`).
+  Per Spec 006."
+  [initial-value]
   (let [a (require-adapter! 'rf/make-state-container)]
     ((:make-state-container a) initial-value)))
 
-(defn read-container [container]
+(defn read-container
+  "Read the current value out of a substrate `container` (deref). Works
+  on both base writable containers and derived values. Delegates to the
+  installed adapter's `:read-container`. Required contract fn — raises
+  `:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed` when no
+  adapter is seated (per `require-adapter!`). Per Spec 006."
+  [container]
   (let [a (require-adapter! 'rf/read-container)]
     ((:read-container a) container)))
 
@@ -329,15 +342,36 @@
                            :reason      reason})))
         ((:replace-container! a) container new-value)))))
 
-(defn make-derived-value [source-containers compute-fn]
+(defn make-derived-value
+  "Build a read-only derived value: a container that recomputes
+  `(compute-fn)` from `source-containers` and is observable via
+  `read-container` but NOT writable via `replace-container!` (the
+  substrate backing for layer-2+ subs). Delegates to the installed
+  adapter's `:make-derived-value`. Required contract fn — raises
+  `:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed` when no
+  adapter is seated (per `require-adapter!`). Per Spec 006
+  §`make-derived-value`."
+  [source-containers compute-fn]
   (let [a (require-adapter! 'rf/make-derived-value)]
     ((:make-derived-value a) source-containers compute-fn)))
 
-(defn render [render-tree mount-point opts]
+(defn render
+  "Mount/render `render-tree` (a hiccup tree) into `mount-point` via the
+  installed adapter's `:render`. The client-side mount entry point.
+  Required contract fn — raises `:rf.error/no-adapter-installed` /
+  `:rf.error/adapter-disposed` when no adapter is seated (per
+  `require-adapter!`). Per Spec 006."
+  [render-tree mount-point opts]
   (let [a (require-adapter! 'rf/render)]
     ((:render a) render-tree mount-point opts)))
 
-(defn render-to-string [render-tree opts]
+(defn render-to-string
+  "Render `render-tree` to an HTML string (server-side / SSR) via the
+  installed adapter's `:render-to-string`. The non-mounting counterpart
+  of `render`. Required contract fn — raises
+  `:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed` when no
+  adapter is seated (per `require-adapter!`). Per Spec 006."
+  [render-tree opts]
   (let [a (require-adapter! 'rf/render-to-string)]
     ((:render-to-string a) render-tree opts)))
 

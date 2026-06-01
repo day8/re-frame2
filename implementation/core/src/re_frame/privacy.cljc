@@ -4,10 +4,15 @@
   Schema metadata is the canonical path-level privacy declaration:
   `{:sensitive? true}` on an app-schema slot feeds the elision registry
   and the router installs an internal redaction interceptor for matching
-  path-scoped handlers. Path-marked sensitive classification (planned)
-  supersedes the previous handler-meta `:sensitive?` annotation —
-  sensitivity is now a property of the data value at a path, not of the
-  handler that touched it."
+  path-scoped handlers. Path-marked sensitive classification (`add-marks`
+  / `set-marks`, Spec 015 — see `re-frame.marks`) is the live successor
+  to the former handler-meta `:sensitive?` annotation: sensitivity is a
+  property of the data VALUE at a path, not of the handler that touched
+  it. The two declaration sources union at lookup time.
+
+  The helpers here are the schema-path-overlap arm of that scheme — they
+  redact event-payload paths whose path-scoped handler slice overlaps a
+  schema-declared sensitive app-db slot."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]))
 
