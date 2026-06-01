@@ -120,8 +120,7 @@
    :scalar-mix    nil})
 
 (rf/reg-event-db :edn-inspector/reset
-  {:doc "Button 0 — re-seed app-db. Start clean (the inspector renders the
-         resting seed in the App-db panel)."}
+  {:doc "Button 0 — re-seed app-db."}
   (fn handler-reset [_db _ev]
     initial-db))
 
@@ -142,8 +141,7 @@
 
 ;; -- 1. large collection → elision -------------------------------------------
 (rf/reg-event-db :edn-inspector/large-collection
-  {:doc "Button 1 — write a 50-key map to `:metrics/grid`. The App-db panel's
-         inspector elides past its threshold; the expanded body scrolls."}
+  {:doc "Button 1 — write a 50-key map to `:metrics/grid`."}
   (fn handler-large-collection [db _ev]
     (-> db
         bump
@@ -167,8 +165,7 @@
 
 ;; -- 3. diff: ADDED (green +) ------------------------------------------------
 (rf/reg-event-db :edn-inspector/diff-added
-  {:doc "Button 3 — assoc-in a wholly-new `:flash` subtree. The App-db diff
-         paints the `+` glyph + green wash on the new subtree (diff-mode-3)."}
+  {:doc "Button 3 — assoc-in a wholly-new `:flash` subtree."}
   (fn handler-diff-added [db _ev]
     (-> db
         bump
@@ -255,34 +252,34 @@
   the dispatch vector; `:section` rows are separators (label only)."
   [[:section "Resting / elision / nesting"]
    [1 "Large collection → elision"
-    "App-db panel: a 50-key map at :metrics/grid — the inspector elides past threshold; the body scrolls"
+    "Add a 50-key map at :metrics/grid"
     [:edn-inspector/large-collection]]
    [2 "Deeply nested → path + collapse"
-    "App-db panel: a six-level nested map at :tenant — path render; deep nodes render `▸ {…N keys}` summaries"
+    "Adds six-level nested map at :tenant — deep nodes shown as summary"
     [:edn-inspector/deeply-nested]]
 
    [:section "Diff ops — added / removed / changed"]
    [3 "Diff: ADDED (green +)"
-    "App-db diff: a wholly-new :flash subtree (assoc-in) — the `+` glyph + green wash"
+    "added new :flash subtree - see the `+` glyph + green wash"
     [:edn-inspector/diff-added]]
    [4 "Diff: REMOVED → empty"
-    "App-db diff: dissoc the ONLY key under :session → after-tree is `{}` — a struck-through `−`, NOT a `:added ::missing` leak (rf2-8pfkk)"
+    "remove only key under :session → is `{}`"
     [:edn-inspector/diff-removed-to-empty]]
    [5 "Diff: CHANGED in place"
-    "App-db diff: bump [:metrics :counter] — the value-side `~` glyph + `← was N` (diff-mode-3 R1)"
+    "Increment [:metrics :counter] — see value-side `~` glyph + `← was N`"
     [:edn-inspector/diff-changed]]
 
    [:section "Sentinels — redaction / size-elision"]
    [6 "Sensitive → :rf/redacted"
-    "App-db panel: a :rf/redacted sentinel three levels deep at [:session-secure :user :password] renders a `redacted` chip, never the raw value"
+    "Add a :rf/redacted sentinel at [:session-secure :user :password] renders a `redacted` chip, never the raw value"
     [:edn-inspector/redacted]]
    [7 "Large-elided sentinel"
-    "App-db panel: a :rf.size/large-elided sentinel (Spec 015) at [:report-cache :report-42] routes through the size-chip renderer, not the regular map path"
+    "Add a :rf.size/large-elided sentinel at [:report-cache :report-42]"
     [:edn-inspector/large-elided]]
 
    [:section "Tagged literals / mixed types"]
    [8 "Mixed types / tagged literals"
-    "App-db panel: every scalar kind — nil / boolean / int / float / string / keyword / symbol — plus #uuid + #inst tagged literals at :scalar-mix"
+    "Add a vector of scalar kinds — nil, boolean, int, float, string, keyword, symbol, #uuid, #inst tagged literals"
     [:edn-inspector/mixed-types]]])
 
 (defn- testid-for [event]
@@ -322,19 +319,13 @@
    [:header {:style {:margin-bottom "0.5em"}}
     [:h2 {:style {:margin 0}} "edn-inspector"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One frame, one tall column of test buttons. Each button "
-     [:strong "dispatches a real app-db change"]
-     " and bumps a shared "
-     [:strong "baseline"]
-     " counter — watch the Xray "
-     [:strong "Epoch"]
-     " and "
-     [:strong "App-db"]
-     " panels on the right: both render their CLJS values through the "
-     [:strong "edn-inspector"]
-     ", so each press exercises one inspector capability (elision, deep "
-     "nesting, the three diff ops, redaction + size sentinels, tagged "
-     "literals) where the inspector actually earns its keep."]]
+     [:code "edn-inspector"] " is a component used within "
+     [:code "xray"] " panels like " [:code "Epoch"] " and " [:code "app-db"]
+     ". This is a test app for that component."]
+    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
+     "It is a tall column of buttons. Click them one after the other to "
+     "see a series of " [:code "app-db"] " changes rendered within xray "
+     "on the right."]]
    ;; Button 0 — Reset.
    [:button {:data-testid "edn-inspector-reset"
              :on-click #(dispatch [:edn-inspector/reset])
