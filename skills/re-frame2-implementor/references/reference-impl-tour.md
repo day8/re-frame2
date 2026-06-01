@@ -135,7 +135,7 @@ EP 012 implementation. Hand-rolled URL matcher with a six-rule precedence cascad
 
 ### `schemas/`
 
-EP 010 implementation. Malli is the wire layer; `reg-app-schema` and `:spec` metadata are the public API. Replace Malli with the host's mechanism per D5 — Zod for the dynamically-typed in-scope hosts (TS / Squint), or the host's own type system for the statically-typed ones.
+EP 010 implementation. Malli is the wire layer; `reg-app-schema` and `:schema` metadata are the public API (the metadata key is `:schema` — v1's `:spec` was renamed with no back-compat alias). Replace Malli with the host's mechanism per D5 — Zod for the dynamically-typed in-scope hosts (TS / Squint), or the host's own type system for the statically-typed ones.
 
 ### `ssr/`
 
