@@ -1,3 +1,26 @@
+// Shared cljs.test summary-parsing + diagnostic-buffering for the
+// browser-test runners (#1196).
+//
+// cljs.test's `Ran N tests containing M assertions.` / `K failures, L
+// errors.` lines arrive interleaved with arbitrary browser-console
+// noise (app logs, `[browser:log]`-prefixed forwards, …). The RegExps
+// below pluck just those two summary lines out of the stream so a
+// runner can print a one-line compact result and decide pass/fail from
+// the failure/error counts — without echoing the whole noisy log on a
+// green run.
+//
+//   summaryPartsFromText(text)  → { ran, failErr } (each the matched
+//                                  line or null).
+//   parseFailureCounts(failErr) → { failures, errors } or null. A gate
+//                                  is green only when both are 0 AND a
+//                                  `Ran ...` line was seen.
+//   formatCompactSummary(parts) → the one-line `<label>: <ran> <failErr>`.
+//   createDiagnosticBuffer()    → an ordered stdout/stderr line buffer
+//                                  flushed verbatim (with stream routing)
+//                                  only when the runner needs the trail.
+// isVerboseTests(env) is the RF2_VERBOSE_TESTS=1 escape hatch shared
+// with lib/gate-report.cjs.
+
 const RAN_RE = /Ran\s+(\d+)\s+tests?\s+containing\s+(\d+)\s+assertions?\./;
 const FAIL_RE = /(\d+)\s+failures?,\s*(\d+)\s+errors?\.?/;
 
