@@ -172,7 +172,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; All app-db access is via the public Tool-Pair surfaces:
-;;   (rf/get-frame-db frame-id)        — current value
+;;   (rf/frame-db frame-id)        — current value
 ;;   (rf/snapshot-of path opts)        — path-scoped read with :frame opt
 
 (defn snapshot
@@ -180,7 +180,7 @@
    the session's operating frame; arity-1 takes an explicit frame-id."
   ([] (snapshot (current-frame)))
   ([frame-id]
-   (rf/get-frame-db frame-id)))
+   (rf/frame-db frame-id)))
 
 (defn app-db-at
   "Read a path in app-db for the operating frame.
@@ -303,7 +303,7 @@
   ([v frame-id]
    (tap> {:re-frame2-pair/op :app-db/reset
           :frame              frame-id
-          :previous           (maybe-elide-for-tap (rf/get-frame-db frame-id) frame-id)
+          :previous           (maybe-elide-for-tap (rf/frame-db frame-id) frame-id)
           :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
@@ -542,7 +542,7 @@
 ;; precheck hot path itself.
 ;;
 ;; What *is* expensive is the route through `(re-frame2-pair.runtime/
-;; snapshot frame)` → `(rf/get-frame-db frame-id)` → dereferences and
+;; snapshot frame)` → `(rf/frame-db frame-id)` → dereferences and
 ;; map lookups, which the precheck eval form has to thread on every
 ;; call. With the per-frame cached integer here, the precheck form
 ;; resolves to a single atom deref + map lookup, completely independent
@@ -554,7 +554,7 @@
 ;; that arrives at `on-epoch-streaming`. We update the cache there from
 ;; `(:db-after record)`. On the first read for a frame, if the slot is
 ;; absent (no epoch has fired yet for this frame), we compute it lazily
-;; from `(rf/get-frame-db frame-id)` and stash it.
+;; from `(rf/frame-db frame-id)` and stash it.
 ;;
 ;; Pre-alpha: no back-compat surface to keep — `app-db-hash` is the
 ;; only accessor; callers needing a path-scoped hash hash the slice
@@ -576,7 +576,7 @@
    Cached by the epoch listener at every settled mutation. On the first
    read for a frame whose hash hasn't been observed yet (no epoch
    fired since session start), the value is computed lazily from
-   `(rf/get-frame-db frame-id)` and stashed.
+   `(rf/frame-db frame-id)` and stashed.
 
    Returns an integer hash, or `nil` if the frame doesn't exist.
 
@@ -587,7 +587,7 @@
   ([frame-id]
    (when frame-id
      (or (get @frame-db-hashes frame-id)
-         (let [db (rf/get-frame-db frame-id)
+         (let [db (rf/frame-db frame-id)
                h  (hash db)]
            (swap! frame-db-hashes assoc frame-id h)
            h)))))
@@ -722,8 +722,8 @@
        {:only-in-a <map> :only-in-b <map> :common <map>}
    where A is `frame-id-a` and B is `frame-id-b`."
   [frame-id-a frame-id-b]
-  (let [[a b c] (data/diff (rf/get-frame-db frame-id-a)
-                           (rf/get-frame-db frame-id-b))]
+  (let [[a b c] (data/diff (rf/frame-db frame-id-a)
+                           (rf/frame-db frame-id-b))]
     {:only-in-a a :only-in-b b :common c}))
 
 ;; ---------------------------------------------------------------------------
@@ -1995,7 +1995,7 @@
    `(current-frame)`, 2-arity is explicit."
   ([epoch-id] (restore-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
-   (let [pre-db (rf/get-frame-db frame-id)
+   (let [pre-db (rf/frame-db frame-id)
          ok?    (rf/restore-epoch frame-id epoch-id)]
      (if ok?
        (let [extras (restore-cascade-summary pre-db frame-id epoch-id)]
@@ -2022,7 +2022,7 @@
        {:ok? false :reason :no-prior-epoch :history-size n :frame frame-id}
        (let [prior     (nth history (- n 2))
              epoch-id  (:epoch-id prior)
-             pre-db    (rf/get-frame-db frame-id)
+             pre-db    (rf/frame-db frame-id)
              ok?       (rf/restore-epoch frame-id epoch-id)]
          (if ok?
            (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
@@ -2036,7 +2036,7 @@
    rf2-6yqdl."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
-   (let [pre-db (rf/get-frame-db frame-id)
+   (let [pre-db (rf/frame-db frame-id)
          ok?    (rf/restore-epoch frame-id epoch-id)]
      (if ok?
        (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
@@ -2328,7 +2328,7 @@
   (try
     (cond
       (contains? signal :app-db)
-      (get-in (rf/get-frame-db frame-id) (vec (:app-db signal)))
+      (get-in (rf/frame-db frame-id) (vec (:app-db signal)))
 
       (contains? signal :sub)
       (when frame-id @(rf/subscribe frame-id (vec (:sub signal))))
@@ -2772,7 +2772,7 @@
    readers."
   [frame-id slice]
   (case slice
-    :app-db     (rf/get-frame-db frame-id)
+    :app-db     (rf/frame-db frame-id)
     :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
     ;; Per Spec 005 + rf2-eguy4 each frame holds its own machine
@@ -2780,7 +2780,7 @@
     ;; app-db, so the per-frame slice returns
     ;; {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (rf/machines))
-                      state (or (get-in (rf/get-frame-db frame-id)
+                      state (or (get-in (rf/frame-db frame-id)
                                         [:rf/runtime :machines :snapshots])
                                 {})]
                   {:ids ids :state state})
