@@ -708,6 +708,36 @@
            (elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
     tags))
 
+(defn- project-view-rendered-tags
+  "Walk the `:rf.view/render-args` slot carried by the `:rf.view/rendered`
+  trace event (rf2-rpgq8). The slot holds the vector of POSITIONAL render
+  args/props passed to a view's render — arbitrary user data, captured by
+  the substrate-agnostic `re-frame.views/build-frame-aware-view` wrapper.
+
+  A view is not a handler with per-registration marks, so — like
+  `:rf.event/db` — the declared paths are the FRAME's app-db elision
+  registry (schema `:sensitive?` / `:large?` plus `add-marks` /
+  `set-marks`). We route EACH positional arg through the SAME schema-first
+  wire walker `re-frame.elision/elide-wire-value` `project-db-tags` uses
+  for `:rf.event/db`, so a sensitive leaf inside a prop map (e.g. a prop
+  whose key mirrors a `{:sensitive? true}` app-db path) elides to
+  `:rf/redacted` and an over-threshold / `{:large? true}` leaf elides to
+  `:rf.size/large-elided` BEFORE the event reaches any trace listener,
+  epoch-capture sink, or the AI/MCP wire — the identical emit-time
+  treatment every other user-data trace payload gets (Spec 009 §Privacy /
+  Spec 015 §Data classification §Views).
+
+  Gated on `frame-has-declarations?` so a frame with no marks keeps the
+  args reference-identity untouched (the walker rebuilds collections, so
+  we must not invoke it when there is nothing to elide)."
+  [tags frame-id]
+  (if (and (contains? tags :rf.view/render-args)
+           (frame-has-declarations? frame-id))
+    (assoc tags :rf.view/render-args
+           (mapv #(elision/elide-wire-value % {:frame frame-id})
+                 (:rf.view/render-args tags)))
+    tags))
+
 (defn- project-machine-tags
   "Walk machine-snapshot tag shapes (`:rf.machine/transition`,
   `:rf.machine/snapshot-updated`): `:before` and `:after` are full
@@ -774,6 +804,15 @@
                       ;; frame's elision registry (rf2-6773q).
                       (and (map? tags) (contains? tags :rf.event/db))
                       (project-db-tags frame-id)
+
+                      ;; rf2-rpgq8 — the `:rf.view/rendered` op stamps the
+                      ;; view's positional render args/props under
+                      ;; `:rf.view/render-args`; elide each arg against the
+                      ;; frame's app-db elision registry (same walker as
+                      ;; `:rf.event/db`) so sensitive / large user data never
+                      ;; reaches a listener or the wire raw.
+                      (and (map? tags) (contains? tags :rf.view/render-args))
+                      (project-view-rendered-tags frame-id)
 
                       (and (map? tags) (= :rf.cofx/run operation))
                       (project-cofx-run-tags)

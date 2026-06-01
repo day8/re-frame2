@@ -1308,6 +1308,75 @@
             (is (some #{n-sub} (:rf.view/cause-subs t))))))
       (trace-tooling/unregister-listener! ::view-rendered-recorder))))
 
+(defn assert-rf-view-rendered-carries-render-args
+  ":rf.view/rendered carries the view's positional render args/props under
+  :rf.view/render-args (rf2-rpgq8). Substrate-agnostic — the args are
+  captured by the views.cljs frame-aware-view wrapper that every adapter
+  composes, so a direct `((rf/view id) arg…)` invocation surfaces them
+  identically across Reagent / UIx / Helix. A no-arg render omits the slot
+  (additive — existing :rf.view/rendered consumers are unaffected)."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — :rf.view/rendered carries :rf.view/render-args")
+    (let [id     (mint-kw substrate-kw "view-rendered-args-sample")
+          traces (record-view-rendered!)]
+      (rf/reg-view* id (fn [_a _b] (React/createElement "span" #js {} "ok")))
+      ((rf/view id) {:label "hi"} 42)
+      (let [ev (first @traces)
+            t  (:tags ev)]
+        (is (some? ev) "an :rf.view/rendered event fired")
+        (is (= [{:label "hi"} 42] (:rf.view/render-args t))
+            ":rf.view/render-args is the vector of positional render args"))
+      (trace-tooling/unregister-listener! ::view-rendered-recorder))
+    (testing "no-arg render omits the slot"
+      (let [id     (mint-kw substrate-kw "view-rendered-no-args-sample")
+            traces (record-view-rendered!)]
+        (rf/reg-view* id (fn [] (React/createElement "span" #js {} "ok")))
+        ((rf/view id))
+        (let [ev (first @traces)
+              t  (:tags ev)]
+          (is (some? ev) "an :rf.view/rendered event fired")
+          (is (not (contains? t :rf.view/render-args))
+              "the slot is absent on a no-arg render (additive contract)"))
+        (trace-tooling/unregister-listener! ::view-rendered-recorder)))))
+
+(defn assert-rf-view-rendered-render-args-elided
+  "PRIVACY (rf2-rpgq8 / Spec 009 §Privacy): render args are arbitrary user
+  data, so :rf.view/render-args routes through the SAME emit-time elision
+  chokepoint as every other user-data trace payload — the marks projection
+  runs `elide-wire-value` against the frame's app-db elision registry. A
+  schema-declared `{:sensitive? true}` path inside a render arg must reach
+  the trace surface as the `:rf/redacted` sentinel, never raw. Marks
+  artefact must be loaded for this to apply; substrate-agnostic."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — :rf.view/render-args sensitive paths elide at emit")
+    (let [id     (mint-kw substrate-kw "view-rendered-args-sensitive")
+          traces (record-view-rendered!)]
+      ;; Declare [:auth :password] sensitive on this frame's app-db elision
+      ;; registry via the schema path — the SAME registry :rf.event/db
+      ;; consults. `reg-app-schema` records the schema; the populate call
+      ;; hydrates the sensitive-declarations registry the walker reads.
+      (rf/reg-app-schema [:auth]
+                         [:map
+                          [:username :string]
+                          [:password {:sensitive? true} :string]])
+      (rf/populate-sensitive-from-schemas!)
+      (rf/reg-view* id (fn [_props] (React/createElement "span" #js {} "ok")))
+      ;; Pass a render arg whose [:auth :password] leaf mirrors the
+      ;; sensitive app-db path. The marks chokepoint elides it before
+      ;; delivery to any listener / the wire.
+      ((rf/view id) {:auth {:username "ada" :password "hunter2"}})
+      (let [ev   (first @traces)
+            t    (:tags ev)
+            args (:rf.view/render-args t)]
+        (is (some? ev) "an :rf.view/rendered event fired")
+        (is (vector? args) ":rf.view/render-args present")
+        (let [arg0 (first args)]
+          (is (= :rf/redacted (get-in arg0 [:auth :password]))
+              "the [:auth :password] leaf inside the render arg is redacted at emit")
+          (is (= "ada" (get-in arg0 [:auth :username]))
+              "a non-sensitive sibling leaf is preserved")))
+      (trace-tooling/unregister-listener! ::view-rendered-recorder))))
+
 ;; ===========================================================================
 ;; make-derived-value per-arity contract (rf2-eoy63) —
 ;; port of `*_make_derived_value_arity_spec`

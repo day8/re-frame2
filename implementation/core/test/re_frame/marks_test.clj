@@ -325,6 +325,49 @@
           "the schema-declared sensitive slot is redacted in the db snapshot"))
     (trace-tooling/unregister-listener! :db-schema-sensitive)))
 
+;; ---- :rf.view/render-args (view render args/props) redaction (rf2-rpgq8) -
+;;
+;; The `:rf.view/rendered` op stamps the view's positional render args/props
+;; under `:rf.view/render-args` (a vector). A view is not a handler with
+;; per-registration marks, so — like `:rf.event/db` — the declared paths are
+;; the FRAME's app-db elision registry. The chokepoint (`project-view-
+;; rendered-tags`, wired into `project-trace-event`) routes EACH positional
+;; arg through `elide-wire-value` against that registry.
+
+(deftest view-render-args-schema-sensitive-path-redacts
+  (rf/reg-app-schema [:auth]
+                     [:map [:password {:sensitive? true} [:maybe :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [projected (marks/project-trace-event
+                    {:operation :rf.view/rendered
+                     :op-type   :rf.view
+                     :tags      {:rf.view/id          :sample/view
+                                 :rf.view/render-args [{:auth {:password "hunter2"
+                                                               :username "ada"}}
+                                                       {:public "ok"}]
+                                 :frame               :rf/default}})
+        args (get-in projected [:tags :rf.view/render-args])]
+    (is (= :rf/redacted (get-in (first args) [:auth :password]))
+        "the schema-declared sensitive leaf inside a render arg is redacted")
+    (is (= "ada" (get-in (first args) [:auth :username]))
+        "a non-sensitive sibling leaf is preserved")
+    (is (= {:public "ok"} (second args))
+        "a second positional arg with no sensitive path passes through")))
+
+(deftest view-render-args-untouched-without-declarations
+  ;; No marks / declarations on the frame → the render-args vector passes
+  ;; through by reference (the chokepoint must not walk when there is
+  ;; nothing to elide — mirrors the :rf.event/db copy-free posture).
+  (let [args [{:any "data"} 42]
+        projected (marks/project-trace-event
+                    {:operation :rf.view/rendered
+                     :op-type   :rf.view
+                     :tags      {:rf.view/id          :plain/view
+                                 :rf.view/render-args args
+                                 :frame               :rf/default}})]
+    (is (identical? args (get-in projected [:tags :rf.view/render-args]))
+        "no declarations → render-args is the same reference (no walk)")))
+
 ;; ---- redact-with-paths primitive ---------------------------------------
 
 (deftest redact-with-paths-walks-nested

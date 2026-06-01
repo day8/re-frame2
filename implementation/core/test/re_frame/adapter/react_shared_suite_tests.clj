@@ -188,6 +188,10 @@
     :fn   'assert-rf-view-rendered-fires-on-render}
    {:test 'view-rendered-attribution-in-cascade
     :fn   'assert-rf-view-rendered-attribution-in-cascade}
+   {:test 'view-rendered-carries-render-args
+    :fn   'assert-rf-view-rendered-carries-render-args}
+   {:test 'view-rendered-render-args-elided
+    :fn   'assert-rf-view-rendered-render-args-elided}
 
    {:section "make-derived-value per-arity (rf2-eoy63 / *_make_derived_value_arity)"}
    {:test 'derived-value-arities

@@ -248,6 +248,22 @@
                       First-seen order; absent when the view derefs no
                       subs (a pure structural render). Distinct from
                       cascade-wide `:cause-subs` (which over-reports).
+    :render-args    — (when the view took render args) the vector of
+                      positional render args/props passed to THIS render
+                      (rf2-rpgq8 — the prerequisite for the Xray VIEWS
+                      render-args diff column). Captured by the
+                      substrate-agnostic `build-frame-aware-view` wrapper
+                      (so it rides Reagent / UIx / Helix renders alike) and
+                      threaded in here. Absent on a no-arg render. PRIVACY:
+                      render args are arbitrary user data, so the value is
+                      routed through the SAME emit-time elision chokepoint
+                      every other user-data trace payload uses — the marks
+                      projection's `:rf.view/rendered` arm runs
+                      `re-frame.elision/elide-wire-value` against the
+                      frame's app-db elision registry (sensitive paths →
+                      `:rf/redacted`, large leaves → `:rf.size/large-elided`)
+                      before the event reaches any listener / the wire.
+                      Spec 009 §Privacy / Spec 015 §Data classification.
     :triggered-by   — (when derivable) the SINGLE sub-id that caused THIS
                       view to re-render (rf2-8wrzz.1): the first sub in the
                       view's own read-set (`deref-subs`) whose value
@@ -274,7 +290,7 @@
   100 `:rf.view/rendered` per cascade with a one-shot
   `:rf.view/rendered-cap-reached` marker (carries `:frame` +
   `:dropped-after`)."
-  [view-id render-key frame-id mount? deref-subs elapsed-ms]
+  [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
   (when interop/debug-enabled?
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
       ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
@@ -315,6 +331,16 @@
                    (assoc :rf.view/elapsed-ms elapsed-ms)
                    (seq deref-subs)
                    (assoc :rf.view/deref-subs deref-subs)
+                   ;; rf2-rpgq8: the view's positional render args/props. Stamped
+                   ;; raw here (dev-only emit); the marks-projection chokepoint
+                   ;; (`re-frame.marks/project-trace-event`, gated by the same
+                   ;; `interop/debug-enabled?` upstream in `trace/emit!`) routes
+                   ;; this slot through `elide-wire-value` against the frame's
+                   ;; app-db elision registry BEFORE delivery — the identical
+                   ;; emit-time treatment `:rf.event/db` gets — so sensitive /
+                   ;; large user data never reaches a listener or the wire raw.
+                   (seq render-args)
+                   (assoc :rf.view/render-args (vec render-args))
                    (some? triggered-by)
                    (assoc :rf.view/triggered-by triggered-by)
                    (:cause-event-id cause)
@@ -531,8 +557,17 @@
                         ;; rf2-9hoos: emit AFTER the render so the deref sink is
                         ;; populated; carry the mount flag + the view's read-set.
                         ;; rf2-8wrzz.1: also carry the render's `:elapsed-ms`.
+                        ;; rf2-rpgq8: also carry the view's positional render
+                        ;; args/props — substrate-agnostic capture (this wrapper
+                        ;; is the OUTERMOST fn every adapter composes, so `args`
+                        ;; are the same values reaching the user render-fn on
+                        ;; Reagent / UIx / Helix alike). Gated on
+                        ;; `interop/debug-enabled?` so production passes nil and
+                        ;; DCEs the capture with the rest of the emit; the marks
+                        ;; chokepoint elides the slot before delivery.
                         (emit-view-rendered-trace! id render-key frame-id mount?
-                                                   (when sink @sink) elapsed-ms)
+                                                   (when sink @sink) elapsed-ms
+                                                   (when interop/debug-enabled? args))
                         (if (and interop/debug-enabled? (not wrap-applied?))
                           (source-coord/inject-source-coord-attr id coord-attr
                                                                  out)
