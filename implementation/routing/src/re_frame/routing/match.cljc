@@ -143,6 +143,21 @@
     (+ close 2)))
 
 (defn validate-route-pattern!
+  "Validate `pattern` against Spec 012's path-pattern grammar at the
+  authoring boundary (`reg-route` calls this at registration time).
+  Returns `true` on a well-formed pattern; throws
+  `:rf.error/invalid-route-pattern` (canonical thrown-error shape, per
+  Spec 009 — `:where 'rf/reg-route`, `:route-id`, `:pattern`, and the
+  offending `:index`) on the first violation. Enforcing the grammar here
+  means a malformed `:path` fails LOUDLY when the route is registered,
+  naming the bad character position, rather than producing surprising
+  matcher / URL-emitter behaviour later at nav time. Grammar rules
+  enforced: leading `/`; no empty segments; named params (`:name`) and
+  splats (`*name`) occupy a whole segment with bare-identifier names; at
+  most one splat, which must be final; literal segments percent-encode
+  the reserved chars (`: * { } ?`); and `{...}?` optional groups close
+  with `}?`, are non-empty, non-nested, start with `/` or a named param,
+  and contain no splats."
   [route-id pattern]
   (cond
     (not (string? pattern))
@@ -221,9 +236,20 @@
                   (recur end splat-seen?)))))))
       true)))
 
-(defn canonical-route-pattern [pattern]
-  ;; Author-supplied `:path`; gate on `string?` before delegating to the
-  ;; shared `url/strip-trailing-slashes` (a non-string :path is caught by
+(defn canonical-route-pattern
+  "Canonicalise an author-supplied `:path` pattern for registration:
+  strips trailing slashes so `/cart` and `/cart/` register the same
+  route (Spec 012 trailing-slash equivalence), with `/` itself
+  preserved. `reg-route` runs this before parsing so the stored pattern
+  is already canonical; the incoming-URL side normalises identically via
+  `registry/normalize-match-path` (both are thin wrappers over the
+  shared `url/strip-trailing-slashes`, so the two surfaces cannot
+  drift). A non-string `pattern` is returned unchanged — the type error
+  is caught downstream by `validate-route-pattern!`, which names the
+  route."
+  [pattern]
+  ;; Gate on `string?` before delegating to the shared
+  ;; `url/strip-trailing-slashes` (a non-string :path is caught by
   ;; `validate-route-pattern!`).
   (if (string? pattern)
     (url/strip-trailing-slashes pattern)
