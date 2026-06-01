@@ -39,7 +39,8 @@ covers the catalogue surface.
 | **`dispatch`** | Fire a re-frame2 event. Bare verb, used by re-frame2-pair-mcp. Always tagged with `:origin :<server-name>` on the trace bus. | `dispatch` | Story-mcp does NOT ship `dispatch` — its mutations go through `register-variant` / `unregister-variant` instead. The bare verb is reserved for the framework's primary mutation primitive. |
 | **`eval-cljs`** | The escape hatch — evaluate an arbitrary CLJS form in the connected runtime. Bare verb, used by re-frame2-pair-mcp. Any side-effect the form triggers inherits the server's `:origin` tag. | `eval-cljs` | Story-mcp does NOT ship `eval-cljs` because its server runs JVM-side and there's no browser runtime to eval into. |
 | **`restore-<thing>`** | Time-travel state restore. Mirrors a user-confirmed in-panel affordance. | `restore-epoch` | Mutating; tagged `:origin :<server-name>`. Shipped by re-frame2-pair-mcp behind `--allow-writes` (rf2-ee38b.18). |
-| **`reset-<thing>`** | Replace state, bypassing the normal cascade. Mirrors a "try anyway" affordance. | `reset-frame-db` | Mutating; tagged `:origin :<server-name>`. Shipped by re-frame2-pair-mcp behind `--allow-writes` (rf2-ee38b.18). |
+| **`reset-<thing>`** | Replace state, bypassing the normal cascade. Mirrors a "try anyway" affordance. | `reset-frame-db`, `reset-operating-frame` | Mutating; tagged `:origin :<server-name>`. `reset-frame-db` (re-frame2-pair-mcp) is gated behind `--allow-writes` (rf2-ee38b.18). `reset-operating-frame` (rf2-zomfq) clears the SESSION operating-frame pin — not an app-db write, so ungated. |
+| **`set-<thing>`** | Pin / declare ONE named **session setting** — not a generic mutation surface. Narrowly catalogued for the operating-frame contract only. | `set-operating-frame` | Added by rf2-zomfq (re-frame2-pair). The Tool-Pair §Tool-surface obligations contract mandates a set/reset/get trio for the operating frame and states the stable names are "typically `set-operating-frame` / `reset-operating-frame` / `get-operating-frame`"; the spec-mandated name wins for cross-server mental-model transfer. This is the deliberate carve-out from the `set-` rejection in §"What's NOT a locked verb" below — admissible ONLY because it pins a single named session setting (the operating frame), not arbitrary state. A future generic `set-<arbitrary>` is still rejected. Lock entry: re-frame2-pair-mcp `DESIGN-RATIONALE.md` §Subsequent evolution (rf2-zomfq). |
 | **`register-<thing>` / `unregister-<thing>`** | Registry add / remove, symmetric pair. Both gated behind the server's write-allow flag where applicable. | `register-variant`, `unregister-variant` | Story-mcp only today. If a future tool surfaces "register a handler at the framework level via MCP" it adopts this verb. |
 | **`run-<thing>`** | Execute a definition and report **pass / fail** results. Implies a play sequence, an assertion vocabulary, or some explicit success criterion. | `run-variant`, `run-a11y` | Distinguished from `preview-` (no pass/fail) and `dispatch` (one event, not a sequence). Story-mcp only today. |
 | **`preview-<thing>`** | Execute and report **rendered / resolved state**, but no pass/fail. The "show me what this would look like" call. | `preview-variant` | The symmetric pair of `run-` for the same registry. Story-mcp only today. |
@@ -57,9 +58,15 @@ out in PR review and pick from the table above instead.
 
 - **`fetch-`, `query-`, `find-`, `lookup-`** — verb-soup synonyms for
   `get-`. Pick `get-`.
-- **`update-`, `set-`** — implies a generic mutation surface. Pick a
+- **`update-`** — implies a generic mutation surface. Pick a
   named verb (`dispatch`, `register-`, `restore-`, `reset-`) so the
   agent sees the registry / surface, not the verb tense.
+- **`set-`** — generally rejected for the same generic-mutation-surface
+  reason: pick a named verb. The **sole catalogued exception** is
+  `set-operating-frame` (rf2-zomfq), admitted because it pins ONE named
+  session setting the Tool-Pair contract mandates under that exact name
+  (§The verb table `set-<thing>` row). A generic `set-<arbitrary-slot>`
+  remains rejected.
 - **`enumerate-`, `all-<things>`, `<things>-list`** — verb-soup
   synonyms for `list-`. Pick `list-`.
 - **`call-`, `invoke-`, `run-fn`** — `eval-cljs` is the catalogued
@@ -110,6 +117,9 @@ counts" below.)
 | `record` | bare (mega-op) | Conformant — bare-verb signal recorder spanning app-db / sub / DOM / focus. Lock entry in `DESIGN-RATIONALE.md`. Distinct from the `record-as-` prefix (capture-as-artefact). Added by rf2-zo4b9. |
 | `read-recording` | `read-` | Conformant — diagnostic re-read of a recording's change-log (paired with `record`). Added by rf2-zo4b9. |
 | `watch-until` | `watch-` | Conformant — blocks until a predicate over a signal holds. New `watch-` prefix; Lock entry in `DESIGN-RATIONALE.md`. Added by rf2-zo4b9. |
+| `set-operating-frame` | `set-` (carve-out) | Conformant — pins the session operating frame (the tier-2 escape from `:ambiguous-frame`). The one catalogued `set-` exception; the Tool-Pair contract mandates this stable name. Lock entry in `DESIGN-RATIONALE.md`. Added by rf2-zomfq. |
+| `reset-operating-frame` | `reset-` | Conformant — clears the session operating-frame pin. Ungated (session-state, not app-db). Added by rf2-zomfq. |
+| `get-operating-frame` | `get-` | Conformant — single-record read of the `{:frames :selected :operating}` operating-frame triple (Tool-Pair §Tool-surface obligations). Added by rf2-zomfq. |
 
 ### Story-mcp
 

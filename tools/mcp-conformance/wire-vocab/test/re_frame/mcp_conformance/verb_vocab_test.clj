@@ -61,6 +61,13 @@
     "discover"
     "restore"
     "reset"
+    "set"         ; rf2-zomfq — the SOLE catalogued `set-` carve-out:
+                  ; `set-operating-frame` (re-frame2-pair) pins ONE named
+                  ; session setting the Tool-Pair contract mandates under
+                  ; that exact name. NAMING.md §"What's NOT a locked verb"
+                  ; still rejects generic `set-<arbitrary-slot>`; this
+                  ; prefix entry is admissible because the only `set-` tool
+                  ; that exists is the spec-mandated operating-frame pin.
     "register"
     "unregister"
     "run"

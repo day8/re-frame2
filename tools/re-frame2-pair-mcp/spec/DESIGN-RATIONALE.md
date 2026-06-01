@@ -327,6 +327,37 @@ Post-Lock additions accumulated as follows:
   the `watch-` blocking-predicate prefix (Lock #8). All three are
   read-only observation (no app mutation) and `:cacheable? false` (the
   recording state is volatile, not a function of an app-db hash).
+- **rf2-zomfq** added the **operating-frame triplet** —
+  `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`
+  — the three [Tool-Pair §Tool-surface obligations][tp-tsobl] ops that
+  surface the runtime's session frame pin (tier 2 of the operating-frame
+  resolution table). The MUST shipped unimplemented: the runtime exposed
+  `select-frame!` / `current-frame` / `frames-list` but no MCP tool wired
+  them onto the wire, so tier 2 was unreachable and a multi-frame agent
+  hitting tier-4 `:ambiguous-frame` had no way to declare its operating
+  frame — it had to thread `:frame` through every call forever. The three
+  tools are thin wrappers over the published runtime fns: `set` validates
+  against `frames-list` then `select-frame!`s; `reset` `select-frame!`s
+  `nil` then re-reads; `get` reads `frames-list` (the normative
+  `{:frames :selected :operating}` triple). **Verb note:** the
+  Tool-Pair contract leaves the wire names unpinned ("typically
+  `set-operating-frame` / `reset-operating-frame` / `get-operating-frame`"
+  — §Tool-surface obligations) and these are the spec's stated stable
+  names, so they ship verbatim for cross-tool recognition. `get-` and
+  `reset-` are already catalogued NAMING.md verbs; `set-` was previously
+  on NAMING.md's rejected list (generic-mutation-surface concern) — that
+  rejection is now carved out for the operating-frame case specifically:
+  `set-operating-frame` is NOT a generic mutation surface, it pins ONE
+  named session setting (the operating frame), and the spec-mandated
+  name wins for cross-server mental-model transfer (re-frame-pair-improver
+  / Xray / Story carry the same trio). See Lock #8 + NAMING.md §The verb
+  table for the catalogue addition. `set` / `reset` are `:cacheable? false`
+  (session-state writes); `get` is `:cacheable? true` (a read of the
+  frame registry + pin, caught by the post-eval result-hash cache — the
+  precheck path is `snapshot`/`get-path`-only, so a pin write between two
+  `get`s is never served stale).
+
+[tp-tsobl]: ../../../spec/Tool-Pair.md#tool-surface-obligations
 
 ---
 

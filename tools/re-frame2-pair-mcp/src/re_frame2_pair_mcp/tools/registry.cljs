@@ -81,6 +81,7 @@
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
             [re-frame2-pair-mcp.tools.list-streams :as list-streams]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
+            [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
 
@@ -233,6 +234,29 @@
     :handler    (ignoring-extra #(handler-meta/list-handlers-tool %1 %2))
     :cacheable? true
     :descriptor data/list-handlers}
+   {:name       "set-operating-frame"
+    :handler    (ignoring-extra #(operating-frame/set-operating-frame-tool %1 %2))
+    ;; Mutates the per-session frame pin — NOT cacheable (the result is
+    ;; the outcome of a session-state write, not a function of frame
+    ;; state). Same posture as the action tools.
+    :cacheable? false
+    :descriptor data/set-operating-frame}
+   {:name       "reset-operating-frame"
+    :handler    (ignoring-extra #(operating-frame/reset-operating-frame-tool %1 %2))
+    ;; Clears the session pin — a session-state write. Not cacheable.
+    :cacheable? false
+    :descriptor data/reset-operating-frame}
+   {:name       "get-operating-frame"
+    :handler    (ignoring-extra #(operating-frame/get-operating-frame-tool %1 %2))
+    ;; Pure read of the resolved frame triple — a function of the frame
+    ;; registry + session pin. Cacheable like the other read tools; the
+    ;; precheck-hash short-circuit keys on app-db, but the triple is
+    ;; cheap to recompute and the cache opt-in is per-call, so a stale
+    ;; read after a set/reset is avoided by the :cache default-false
+    ;; posture (rf2-c4fmh). Treating it as cacheable keeps it in the
+    ;; read family for the cache opt-in knob.
+    :cacheable? true
+    :descriptor data/get-operating-frame}
    {:name       "get-re-frame2-pair-instructions"
     :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
     :cacheable? true
