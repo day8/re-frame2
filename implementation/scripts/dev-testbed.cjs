@@ -45,6 +45,22 @@
  * var is just unset, so the helper falls back to the `?project-root=`
  * query string (or a graceful open-in-editor no-op).
  *
+ * SPAWN FORM (rf2-1ggkn). We resolve shadow-cljs's own JS entry-point
+ * (`shadow-cljs/cli/runner.js`) and spawn it under THIS `node` binary
+ * (`process.execPath`) with `shell:false` — never `npx`/`npx.cmd` under a
+ * shell. Two reasons:
+ *   1. Passing an args array with `shell:true` triggers Node's DEP0190
+ *      DeprecationWarning (args are concatenated, not escaped) — so the
+ *      old `shell: isWin` form printed a warning on every Windows launch.
+ *   2. Simply dropping `shell:true` is NOT a fix on Windows: spawning a
+ *      `.cmd` (npx.cmd) without a shell throws `EINVAL` since the
+ *      CVE-2024-27980 mitigation. Resolving the runner's `.js` and
+ *      spawning `node` on it sidesteps the `.cmd` entirely, so the same
+ *      warning-clean, shell-free form works on Windows AND POSIX.
+ * The colon-prefixed build-ids and any extra `shadow-cljs watch` flags are
+ * just elements of the args array — they pass through unescaped and
+ * unconcatenated, exactly as before.
+ *
  * URL DISCOVERABILITY (rf2-jooy3). For every watched build that has a
  * `:dev-http` port, the launcher prints `http://localhost:<port>/` on
  * start (Story builds also print the `/#/stories` shell URL) so "how do
@@ -215,16 +231,29 @@ if (require.main === module) {
 
   const builds = resolveArgs(rawArgs);
 
-  const isWin = process.platform === 'win32';
-  const cmd = isWin ? 'npx.cmd' : 'npx';
-  const args = ['shadow-cljs', 'watch', ...builds];
+  // Resolve shadow-cljs's own JS entry-point and run it under THIS node
+  // binary (shell-free, .cmd-free) — see SPAWN FORM in the header comment
+  // (rf2-1ggkn). Resolution is rooted at IMPL_ROOT so it finds the
+  // implementation's local install regardless of this launcher's own cwd.
+  let shadowRunner;
+  try {
+    shadowRunner = require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
+  } catch {
+    console.error(
+      'dev: could not resolve shadow-cljs. Run `npm install` in ' +
+        `${IMPL_ROOT} first.`,
+    );
+    process.exit(1);
+  }
+  const cmd = process.execPath;
+  const args = [shadowRunner, 'watch', ...builds];
 
   // Normalise to forward slashes so the value reads identically across
   // platforms when it becomes a string prefix in `re-frame.testbed.config`.
   const repoRoot = REPO_ROOT.split('\\').join('/');
 
   console.log(`> RF2_TESTBED_PROJECT_ROOT=${repoRoot}`);
-  console.log(`> ${cmd} ${args.join(' ')}`);
+  console.log(`> shadow-cljs watch ${builds.join(' ')}`);
 
   // Print the served URL(s) for every watched build that has a dev-http
   // port — answers "how do I see them" up front (rf2-jooy3).
@@ -242,7 +271,6 @@ if (require.main === module) {
   const child = spawn(cmd, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',
-    shell: isWin,
     env: { ...process.env, RF2_TESTBED_PROJECT_ROOT: repoRoot },
   });
 
