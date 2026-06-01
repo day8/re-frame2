@@ -355,13 +355,27 @@
                      "`await-render` forces synchronous dispatch (the cascade must commit before the render can "
                      "settle) and merges `:settled? true` into the result. A settle that doesn't complete within "
                      "`timeout-ms` (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`. "
+                     "Dispatch-and-settle (rf2-vk79g): set `settle true` for the MOST COMPLETE single-call shape — "
+                     "dispatch → SYNCHRONOUSLY flush renders → return the assembled epoch INCLUDING its "
+                     "`:rf.view/render` + `:rf.view/unmounted` entries. ONE call = dispatch → render → complete "
+                     "epoch. Unlike `await-render` (which flushes via the rAF-scheduled `after-render` hook, "
+                     "returns the consequence, and can stall on a backgrounded tab), `settle` flushes via the "
+                     "substrate adapter's SYNCHRONOUS `flush-render!` (React flushSync / reagent.core/flush, "
+                     "resolved from the INSTALLED adapter — no substrate hardcoding), so it commits even headless "
+                     "/ backgrounded. The result carries the full `:epoch`, a `:render-events` slot (the view "
+                     "render/unmount entries — the headline view-lifecycle signal), `:settled? true`, and a "
+                     "`:cascade-summary` whose `:renders` count reflects the flushed renders. KILLS the dispatch + "
+                     "setTimeout + flush! + re-read dance. SCOPE: async fx (http / timers) stay observed via "
+                     "watch-epochs — `settle` only settles the synchronous cascade + render flush. `settle` wins "
+                     "over await-render / trace / queued. "
                      "Examples: "
                      "1. Default (consequence): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :sync :epoch-id 7 :resolved [:cart/checkout] :db-changed? true :changed-paths [[:cart]] :effects-fired [:dispatch] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
                      "2. No-op made visible: {:event \"[:noop/event]\"} -> {:ok? true :mode :sync :epoch-id 8 :db-changed? false :changed-paths [] :effects-fired [] :no-op? true}. "
                      "3. Unknown id (validated, NOT dispatched): {:event \"[:rf/xrayy]\"} -> {:ok? false :reason :unknown-id :kind :event :id :rf/xrayy :resolved [:rf/xrayy] :nearest [:rf/xray :rf/default] :hint \"unknown :event :rf/xrayy; did you mean :rf/xray, :rf/default?\"}. "
                      "4. Trace mode (full epoch): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
                      "5. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :db-changed? true :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
-                     "6. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
+                     "6. Dispatch-and-settle (full settled epoch): {:event \"[:list/toggle]\" :settle true} -> {:ok? true :mode :settle :settled? true :epoch-id 11 :epoch {...} :render-events [{:operation :rf.view/render :tags {...}} {:operation :rf.view/unmounted :tags {...}}] :cascade-summary {:renders 2 ...}} — one call returns the dispatch's complete epoch WITH the view renders/unmounts. "
+                     "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -381,10 +395,25 @@
                                                                "must commit before the render can settle); merges :settled? true "
                                                                "into the result. Default false. A settle exceeding :timeout-ms "
                                                                "returns :rf.error/dispatch-await-render-timeout.")}
+                              :settle {:type "boolean"
+                                       :description (str "Dispatch-and-settle (rf2-vk79g): when true, dispatch then "
+                                                         "SYNCHRONOUSLY flush pending renders via the substrate "
+                                                         "adapter's flush-render! (React flushSync / reagent.core/flush, "
+                                                         "resolved from the INSTALLED adapter — no substrate hardcoding; "
+                                                         "NOT rAF-scheduled, so it commits even headless / backgrounded), "
+                                                         "then RE-READ and return the SETTLED epoch. The result carries "
+                                                         "the full :epoch, a :render-events slot (the :rf.view/render + "
+                                                         ":rf.view/unmounted entries), :settled? true, and a "
+                                                         ":cascade-summary whose :renders count reflects the flush. ONE "
+                                                         "call = dispatch → render → complete epoch. Wins over "
+                                                         "await-render / trace / queued. SCOPE: settles the synchronous "
+                                                         "cascade + render flush only; async fx stay observed via "
+                                                         "watch-epochs. Default false.")}
                               :timeout-ms {:type "integer"
                                            :description (str "Maximum ms to wait for the render-settle promise when "
                                                              ":await-render is true. Default 5000. Ignored when "
-                                                             ":await-render is false. Raise it for substrates with a slow "
+                                                             ":await-render is false (and unused by :settle, which is "
+                                                             "synchronous). Raise it for substrates with a slow "
                                                              "render path; lower it to fail fast when no root is mounted.")}
                               :frame {:type "string" :description "Operating frame (e.g. :stories)"}
                               :fx-overrides {:type "object"

@@ -72,6 +72,19 @@
             ;; dev-only, so requiring the tooling ns directly here is
             ;; bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
+            ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
+            ;; Spec 006 §`flush-render!`, rf2-40a84) lives in
+            ;; re-frame.substrate.adapter, not re-frame.core. It resolves
+            ;; the INSTALLED adapter via `require-adapter!` and routes the
+            ;; flush through that adapter's substrate-native impl (React
+            ;; `flushSync` for the React-shaped substrates; `reagent.core/
+            ;; flush` for the ratom family) — ZERO substrate hardcoding here.
+            ;; `dispatch-and-settle!` (rf2-vk79g) calls it to flush pending
+            ;; renders/unmounts synchronously so their `:rf.view/render` /
+            ;; `:rf.view/unmounted` traces land in (and re-fan back to the
+            ;; causing) epoch before we re-read it. Dev-tier preload, so the
+            ;; direct require is bundle-isolation-safe.
+            [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [clojure.data :as data]
             [clojure.set :as set]
@@ -2934,6 +2947,127 @@
        (assoc result :epoch (epoch-by-id (:epoch-id result)
                                          (:frame result)))
        result))))
+
+;; ---------------------------------------------------------------------------
+;; Dispatch-and-settle (rf2-vk79g)
+;; ---------------------------------------------------------------------------
+;;
+;; Closes the observe→drive loop SYNCHRONOUSLY in ONE call: dispatch →
+;; flush renders → return the SETTLED epoch (the one carrying
+;; `:rf.view/render` + `:rf.view/unmounted` entries). This KILLS the
+;; `dispatch + setTimeout + flush! + re-read` dance, the rAF / tab-focus
+;; dependence, and the "guess `reagent.core/flush!` → null" trap.
+;;
+;; Why a distinct fn from `dispatch-and-collect` / the `:await-render`
+;; path:
+;;
+;;   - `dispatch-and-collect` returns the epoch the cascade recorded —
+;;     but renders fire at React COMMIT time, AFTER the cascade settles
+;;     (Spec 009 §post-settle render attribution). So the epoch it reads
+;;     has the cascade's effects but NOT yet the view renders/unmounts;
+;;     those land a tick later and re-fan into the record. Reading once,
+;;     immediately, misses them.
+;;
+;;   - The `:await-render` path (rf2-gfu33) flushes via
+;;     `interop/after-render` — the rAF-scheduled, post-commit /
+;;     pre-paint hook. It is ASYNC (returns a Promise the server awaits
+;;     through the mailbox), and on a backgrounded / unfocused tab the
+;;     underlying React lane commit is rAF-throttled, so it can stall.
+;;
+;;   - `dispatch-and-settle!` flushes via the substrate adapter's
+;;     `flush-render!` (rf2-40a84): React `flushSync` for the React-shaped
+;;     substrates, `reagent.core/flush` for the ratom family. NOT
+;;     rAF-scheduled, so it commits even headless / backgrounded and is
+;;     fully SYNCHRONOUS — no Promise, no mailbox. ZERO substrate
+;;     hardcoding: `adapter/flush-render!` resolves the INSTALLED adapter
+;;     and routes to its native impl (re-frame2 knows its own registered
+;;     adapter).
+;;
+;; The render/unmount emits fire SYNCHRONOUSLY inside `flush-render!`'s
+;; `flushSync` extent (CLJS is single-threaded), so by the time it
+;; returns the framework has back-filled them into the causing epoch and
+;; re-fanned the record to listeners (Spec 009 §post-settle render /
+;; sub-run / unmount back-fill; `:epoch/record-render!` /
+;; `:epoch/record-unmount!`). We then re-read the epoch by id — it now
+;; carries the renders in `:renders` and the unmounts in `:trace-events`.
+;;
+;; SCOPE (per the bead): "settle" = the SYNCHRONOUS cascade + render
+;; flush. Async fx (http / `:dispatch-later` / timers) stay observed via
+;; `watch-epochs` — `flush-render!` does NOT and cannot settle those.
+
+(defn- render-trace-events
+  "The `:rf.view/render` / `:rf.view/rendered` + `:rf.view/unmounted`
+  events folded into an epoch's `:trace-events` — the raw view-lifecycle
+  signal `dispatch-and-settle!` exists to surface. Returns a vector
+  (possibly empty); nil-safe on a record without `:trace-events`."
+  [epoch]
+  (->> (:trace-events epoch)
+       (filterv (fn [ev]
+                  (contains? #{:rf.view/render :rf.view/rendered
+                               :rf.view/rendered-cap-reached :rf.view/unmounted}
+                             (:operation ev))))))
+
+(defn dispatch-and-settle!
+  "Dispatch (origin :pair) and SYNCHRONOUSLY settle the view layer, then
+   return the assembled epoch INCLUDING the view-lifecycle signal
+   (rf2-vk79g). ONE call = dispatch → render → complete epoch.
+
+   Steps:
+     1. `dispatch-sync` — run the cascade; the epoch records its db-diff,
+        effects, sub-runs (`dispatch-and-collect` shape).
+     2. `(adapter/flush-render!)` — SYNCHRONOUSLY commit the installed
+        substrate's pending renders + unmounts (React `flushSync` /
+        `reagent.core/flush`, resolved from the live adapter — no
+        substrate name appears here). Their `:rf.view/render` /
+        `:rf.view/unmounted` emits fire inside this synchronous extent and
+        the framework back-fills them into the causing epoch, re-fanning
+        the record to listeners.
+     3. RE-READ the epoch by id — it now carries `:renders` (the
+        view-render structured rows) and any `:rf.view/unmounted` in
+        `:trace-events`.
+
+   Returns the `dispatch-and-collect` shape PLUS:
+     :settled?      true  — the render layer flushed synchronously.
+     :epoch                — the SETTLED record (post-flush, post-backfill).
+     :render-events        — the `:rf.view/render` + `:rf.view/unmounted`
+                             trace events folded into the epoch (the
+                             headline view-lifecycle signal). Empty vector
+                             when nothing mounted/unmounted (e.g. a no-op
+                             dispatch or a state change no view reads).
+     :cascade-summary      — the compact projection (its `:renders` count
+                             now reflects the flushed renders).
+
+   On a frame-untargetable / no-epoch dispatch the `pair-dispatch-sync!`
+   `:ok? false` envelope rides through verbatim (the rf2-ldfnx invariant)
+   — NO flush is attempted (nothing settled).
+
+   The `flush-render!` call is a no-op-safe contract fn: under the
+   plain-atom / SSR adapters (no live React commit) it returns nil and
+   `:settled?` still holds — there were no pending renders to flush. It
+   raises `:rf.error/no-adapter-installed` only if called before
+   `(rf/init! ...)`; we let that propagate (the dispatch itself would
+   already have failed for an un-booted frame)."
+  ([event-v] (dispatch-and-settle! event-v {}))
+  ([event-v opts]
+   (let [result (pair-dispatch-sync! event-v opts)]
+     (if-not (:ok? result)
+       result
+       (let [;; Flush the INSTALLED adapter's pending renders synchronously.
+             ;; Zero-arity form flushes already-pending work — the cascade
+             ;; in step 1 invalidated the views; this commits them now.
+             _        (adapter/flush-render!)
+             ;; Re-read AFTER the flush: the post-settle render/unmount
+             ;; back-fill (re-fanned to listeners) has updated the record.
+             epoch    (epoch-by-id (:epoch-id result) (:frame result))]
+         (-> result
+             (assoc :settled?      true
+                    :epoch         epoch
+                    :render-events (render-trace-events epoch))
+             ;; Refresh :cascade-summary from the SETTLED epoch so its
+             ;; `:renders` count reflects the flushed renders (the
+             ;; pre-flush summary attached by pair-dispatch-sync! counted
+             ;; zero — renders hadn't committed yet).
+             (cond-> epoch (assoc :cascade-summary (cascade-summary epoch)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Coarse-grained snapshot — one round-trip per investigate-X workflow.
