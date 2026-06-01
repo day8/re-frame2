@@ -98,6 +98,37 @@ const GROUPS = {
   all: [...XRAY_BUILDS, ...STORIES_BUILDS],
 };
 
+// ===========================================================================
+// OWNED-RANGE PORT MAP (rf2-ot0lv). Single source of truth for who-owns-
+// which-localhost-band across the dev/test tooling, so the next port
+// addition can't silently collide. Each owner keeps to its band; adding a
+// surface picks the next free slot WITHIN the owner's band.
+//
+//   Band        Owner                     Notes
+//   ----------  ------------------------  ----------------------------------
+//   8030-8034   Xray testbeds             :dev-http (shadow-cljs.edn):
+//                                           8030 two-frame-isolation
+//                                           8031 standard-epochs
+//                                           8032 routes-epochs
+//                                           8033 machine-epochs
+//                                           8034 edn-inspector
+//   8040-8043   Story showcases           :dev-http (shadow-cljs.edn):
+//                                           8040 nine-states-with-stories
+//                                           8041 login-with-stories
+//                                           8042 counter-with-stories
+//                                           8043 login-form
+//   805x        examples orchestrator     DEFAULT_PORT in
+//                                           examples/scripts/examples-port.cjs
+//                                           (8050; pre-flight + forward scan).
+//   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
+//
+// The :dev-http bands (8030-8034 / 8040-8043 / 8765) are mirrored in the
+// DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
+// examples band is NOT a :dev-http port — it is the test-orchestrator's
+// http-server default, resolved at runtime — so it lives only here + in
+// examples-port.cjs, not in DEV_HTTP.
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // build-id -> dev-http info. Kept in sync with shadow-cljs.edn :dev-http
 // (READ-only — shadow-cljs.edn is hot-zone). `story: true` marks builds

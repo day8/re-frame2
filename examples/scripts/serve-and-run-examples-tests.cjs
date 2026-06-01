@@ -14,10 +14,12 @@
  * 1. Compiles each surface's shadow-cljs build (one per smoke).
  * 2. Stages each surface's hand-written index.html into its
  *    out/examples/<name>/ directory next to main.js.
- * 3. Resolves a free port (default 8040 — now OVERLAPPING the top-level
- *    :dev-http band; the resolver pre-flights + scans forward so this is
- *    harmless — see examples-port.cjs for the policy + rf2-xz4zn note) and
- *    spawns http-server over out/examples on 127.0.0.1:<port>.
+ * 3. Resolves a free port (default 8050 — in the examples orchestrator's
+ *    owned 805x band, clear of the top-level :dev-http bands; the resolver
+ *    still pre-flights + scans forward — see examples-port.cjs for the
+ *    policy and the OWNED-RANGE PORT MAP in
+ *    implementation/scripts/dev-testbed.cjs) and spawns http-server over
+ *    out/examples on 127.0.0.1:<port>.
  * 4. Waits for it to be reachable, then runs the Playwright runner
  *    (run-examples-tests.cjs).
  * 5. Always tears the server down.
@@ -86,13 +88,12 @@ function parseFilterPatterns(raw) {
 }
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // Port resolution lives in examples-port.cjs (resolveExamplesPort, called
-// at the top of main()). Default is 8040, which now OVERLAPS the top-level
-// :dev-http band (8040-8043 are the Story showcases; see examples-port.cjs
-// for the full set + rf2-xz4zn note). A running `shadow-cljs watch` can
-// therefore pre-claim it, but harmlessly: `EXAMPLES_PORT` overrides the
-// default; when unset the resolver scans forward from 8040 to the next
-// free port, and when set-but-busy it throws an actionable message (no raw
-// EACCES stack). No CLI surface is added.
+// at the top of main()). Default is 8050 — in the examples orchestrator's
+// owned 805x band, clear of the top-level :dev-http bands (see the
+// OWNED-RANGE PORT MAP in implementation/scripts/dev-testbed.cjs).
+// `EXAMPLES_PORT` overrides the default; when unset the resolver scans
+// forward from 8050 to the next free port, and when set-but-busy it throws
+// an actionable message (no raw EACCES stack). No CLI surface is added.
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -264,7 +265,7 @@ function stageHtml() {
 
 async function main() {
   // Pre-flight the port before any compile work: the resolver binds-and-
-  // releases on 127.0.0.1, picks the next free port from 8040 when
+  // releases on 127.0.0.1, picks the next free port from 8050 when
   // EXAMPLES_PORT is unset, and throws an actionable message (caught by
   // the bottom .catch, which prints err.message + exits 1) when an
   // explicit EXAMPLES_PORT is busy. Resolving first means a port clash
