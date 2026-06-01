@@ -201,36 +201,36 @@ selectors. The variant body stays pure data.
 
 Playwright `userEvent.click(...)` works against Story canvases, but
 it is rarely the right tool for Story-driven probes. The variant
-body's `:play-script` slot is already a sequence of EDN steps that
+body's `:script` slot is already a sequence of EDN steps that
 drive the variant's frame; let Story dispatch them and use Playwright
 only to assert the final rendered state. (The legacy `:play`
-event-vector slot was removed — `:play-script` is the only play slot;
+event-vector slot was removed — `:script` is the public play slot;
 wrap each event in `[:dispatch-sync <event-vec>]`. See
-[`001-Authoring.md`](001-Authoring.md) §`:play-script`.)
+[`001-Authoring.md`](001-Authoring.md) §`:script`.)
 
 ```clojure
 ;; Variant body declares the driving steps:
 (story/reg-variant :story.counter/driven
-  {:events [[:counter/initialise]]
-   :play-script [[:dispatch-sync [:counter/increment]]
-                 [:dispatch-sync [:counter/increment]]
-                 [:dispatch-sync [:counter/increment]]]})
+  {:setup  [[:counter/initialise]]
+   :script [[:dispatch-sync [:counter/increment]]
+            [:dispatch-sync [:counter/increment]]
+            [:dispatch-sync [:counter/increment]]]})
 ```
 
 ```js
 // Playwright asserts the final state:
-test('counter driven by play-script lands at 3', async ({ page }) => {
+test('counter driven by :script lands at 3', async ({ page }) => {
   await gotoVariant(page, ':story.counter/driven');
   await expect(page.locator('[data-test="counter-value"]')).toHaveText('3');
 });
 ```
 
-Why prefer `:play-script` to Playwright clicks?
+Why prefer `:script` to Playwright clicks?
 
 - **Steps round-trip with the share URL.** A URL copied from the
-  browser's address bar reproduces the exact `:play-script` sequence
+  browser's address bar reproduces the exact `:script` sequence
   on the reader's machine; clicks in a Playwright file don't.
-- **EDN, not DOM.** The `:play-script` body is pure data — testable
+- **EDN, not DOM.** The `:script` body is pure data — testable
   from CLJS / JVM via `run-variant` without a browser at all.
 - **Record-don't-throw.** Story's `:rf.assert/*` events record into
   `:assertions` and the sequence continues. Playwright's
@@ -238,7 +238,7 @@ Why prefer `:play-script` to Playwright clicks?
 
 Use Playwright when you genuinely need a browser-only surface —
 real-pointer events, viewport sizing, file-upload dialogs,
-permissions prompts, multi-tab flows. Use `:play-script` for everything
+permissions prompts, multi-tab flows. Use `:script` for everything
 else.
 
 ## Common pitfalls
@@ -292,7 +292,7 @@ production helpers shipped in `tools/story/test/`:
   work in my app?" smoke runs.
 - **`examples/scripts/serve-and-run-story-play-scripts.cjs`** —
   serves the shell and auto-drives every variant carrying a
-  `:play-script` body. The right shape for headless CI-as-test
+  `:script` body. The right shape for headless CI-as-test
   runs over a corpus of variants.
 - **Multi-frame CLJS e2e** — for tests where you can avoid a real
   browser entirely, see the `re-frame.story.test-helpers.e2e-multi-frame`

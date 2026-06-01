@@ -44,6 +44,45 @@ Each handler returns a map of the form:
 The play-runner collects these into `:assertions`. The list survives
 the `run-variant` return.
 
+## The `:rf.assert/*` events are the ONE assertion vocabulary (rf2-5o6yd)
+
+**`:rf.assert/*` is the canonical, primary assertion vocabulary.** Every
+assertion Story evaluates — wherever it is written — resolves to one
+`:rf.assert/*` atom and produces ONE assertion-record shape. There is no
+second assertion language. An assertion atom appears in exactly two
+positions (spec/017 §Assertions — one atom, two positions):
+
+1. **Terminal / inheritable** — a variant's `:assertions` slot (own-only)
+   or a registered check's `:assertions` pack (inheritable via
+   `:compose`). Each entry is a bare `[:rf.assert/… …]` atom.
+2. **In-script checkpoint** — an `[:assert [:rf.assert/… …]]` step inside
+   a `:script` body, evaluated at that exact point in the sequence.
+
+### `:assert-db` / `:assert-dom` are script-step sugar
+
+The `:assert-db` / `:assert-dom` steps in the `:script` step grammar
+(spec/017 §Script step grammar) are **ergonomic sugar** over the
+canonical atoms — NOT a parallel vocabulary. The plan compiler folds
+every such step onto the canonical `[:assert <atom>]` checkpoint
+(`re-frame.story.assertions/fold-script`, pure data → data) BEFORE the
+run loop executes, so the runtime only ever sees the one assertion atom:
+
+| Script-step sugar                    | Folds to canonical atom                       |
+|--------------------------------------|-----------------------------------------------|
+| `[:assert-db path expected]`         | `[:rf.assert/path-equals path expected]`      |
+| `[:assert-db path :pred fn-or-sym]`  | `[:rf.assert/path-matches path [:fn …]]`      |
+| `[:assert-dom sel :visible]`         | `[:rf.assert/dom-visible sel]`                |
+| `[:assert-dom sel :hidden]`          | `[:rf.assert/dom-hidden sel]`                 |
+| `[:assert-dom sel :text txt]`        | `[:rf.assert/dom-text sel txt]`               |
+
+**Author guidance.** Reach for `:assert-db` / `:assert-dom` for the
+common app-db-equality and DOM-presence checks (terser inline in a
+`:script`). Drop to the explicit `[:assert [:rf.assert/…]]` checkpoint
+(or the bare atom in `:assertions`) when you need an assertion the sugar
+doesn't cover — `:sub-equals`, `:state-is`, `:no-warnings`,
+`:effect-emitted`, `:dispatched?`. Both positions, and both spellings,
+produce the same `:assertions` record.
+
 ## Record-don't-throw semantics
 
 `:rf.assert/*` events **record** failures into the variant's

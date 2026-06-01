@@ -205,9 +205,13 @@
       (is (= :story.x/recorded (second parsed)))
       (let [body (nth parsed 2)]
         (is (= :story.x/source (:extends body)))
-        (is (map? (:play-script body)))
-        (is (false? (:auto-run? (:play-script body))))
-        (is (= [[:dispatch [:counter/inc]]] (:script (:play-script body))))))))
+        ;; rf2-7mj4z — the rendered form uses the PUBLIC :script authoring
+        ;; slot (a `{:script … :auto-run?}` body), not :play-script.
+        (is (map? (:script body)))
+        (is (nil? (:play-script body))
+            "the rendered form no longer emits the transitional :play-script slot")
+        (is (false? (:auto-run? (:script body))))
+        (is (= [[:dispatch [:counter/inc]]] (:script (:script body))))))))
 
 (deftest render-variant-form-default-alias-and-id
   (testing "defaults fill in when not supplied"

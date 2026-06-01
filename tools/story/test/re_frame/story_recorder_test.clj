@@ -18,8 +18,8 @@
     atom alongside the predicate filter.
   - `gen-play-snippet` — the codegen output is `read-string`-able
     EDN; the assertion is shape-level (round-trips back to the same
-    `:play-script` body) so future cosmetic changes to formatting don't
-    churn the test."
+    public `:script` body — rf2-7mj4z) so future cosmetic changes to
+    formatting don't churn the test."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -175,11 +175,15 @@
 ;; ---- gen-play-snippet ----------------------------------------------------
 
 (deftest gen-play-snippet-empty
-  (testing "gen-play-snippet with no events renders an empty :play-script :script vector"
+  (testing "gen-play-snippet with no events renders an empty public :script
+            body vector (rf2-7mj4z — recorder emits the public :script
+            spelling, NOT the transitional :play-script)"
     (let [snip (recorder/gen-play-snippet [] {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":story.x/y"))
-      (is (str/includes? snip ":play-script"))
+      (is (str/includes? snip ":script"))
+      (is (not (str/includes? snip ":play-script"))
+          "the recorder no longer emits the transitional :play-script slot")
       (is (str/includes? snip "[]")))))
 
 (deftest gen-play-snippet-renders-reg-variant
@@ -214,10 +218,12 @@
     (is (str/includes? snip "rf/reg-variant"))))
 
 (defn- extract-play-script-vector
-  "Pull the `:script` vector substring out of the rendered snippet by
-  walking balanced brackets after the `:play-script` body's `:script`
-  token. Per rf2-0wrud the canonical phase-4 slot is `:play-script`
-  with a `{:auto-run? ... :script [...]}` body."
+  "Pull the inner `:script` vector substring out of the rendered snippet
+  by walking balanced brackets after the public `:script` body's inner
+  `:script` token. Per rf2-7mj4z the recorder emits the PUBLIC `:script`
+  slot with a `{:auto-run? ... :script [...]}` body; the first `:script`
+  token is the body key, and the first `[` after it opens the inner step
+  vector."
   [snippet]
   (let [start  (str/index-of snippet ":script")
         after  (subs snippet start)
@@ -244,11 +250,11 @@
   (mapv second script-vec))
 
 (deftest gen-play-snippet-roundtrips-events
-  (testing "the rendered :play-script :script vector reads back as
+  (testing "the rendered public :script body vector reads back as
             [:dispatch-sync <event>] steps that unwrap to the original
-            events (per rf2-0wrud — :play-script is the canonical and
-            ONLY phase-4 slot; gen-play-snippet wraps each captured
-            event as a :dispatch-sync step)"
+            events (rf2-7mj4z — the recorder emits the public :script
+            slot; rf2-0wrud — gen-play-snippet wraps each captured event
+            as a :dispatch-sync step)"
     (let [events     [[:counter/inc]
                       [:auth/login {:email "alice@example.com" :remember? true}]
                       [:cart/add-item :widget-x 3]]
@@ -487,7 +493,7 @@
       (is (some? script-str)
           "extractor found the rendered :script vector")
       (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "the :play-script :script vector unwraps to the original events"))))
+          "the public :script body vector unwraps to the original events"))))
 
 ;; ---- end-to-end: trace-bus integration -----------------------------------
 
@@ -509,7 +515,7 @@
       (fn [db _] (update db :n (fnil inc 0))))
     (rf/reg-event-db :counter/dec
       (fn [db _] (update db :n (fnil dec 0))))
-    (story/reg-variant :story.recorder/v {:events []})
+    (story/reg-variant :story.recorder/v {})
     ;; Allocate the variant frame + install the listener.
     (async/deref-blocking (story/run-variant :story.recorder/v) 5000)
     (recorder/install-trace-listener!)
@@ -541,8 +547,8 @@
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
-    (story/reg-variant :story.recorder/target {:events []})
-    (story/reg-variant :story.recorder/other  {:events []})
+    (story/reg-variant :story.recorder/target {})
+    (story/reg-variant :story.recorder/other  {})
     (async/deref-blocking (story/run-variant :story.recorder/target) 5000)
     (async/deref-blocking (story/run-variant :story.recorder/other)  5000)
     (recorder/install-trace-listener!)
@@ -562,11 +568,11 @@
     (recorder/remove-trace-listener!)))
 
 (deftest trace-listener-skips-assertion-events
-  (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :play-script body"
+  (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :script body"
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
-    (story/reg-variant :story.recorder/v {:events []})
+    (story/reg-variant :story.recorder/v {})
     (async/deref-blocking (story/run-variant :story.recorder/v) 5000)
     (recorder/install-trace-listener!)
     (recorder/start-recording! :story.recorder/v)
@@ -595,7 +601,7 @@
     (rf/reg-event-db :auth/login
       [(rf/redact-interceptor [[:password] [:totp]])]
       (fn [db _] db))
-    (story/reg-variant :story.recorder/sens-end-to-end {:events []})
+    (story/reg-variant :story.recorder/sens-end-to-end {})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)
     (recorder/install-trace-listener!)
     (recorder/start-recording! :story.recorder/sens-end-to-end)
@@ -619,13 +625,13 @@
     (recorder/remove-trace-listener!)))
 
 (deftest end-to-end-recording-to-snippet
-  (testing "the full record→stop→gen-play-snippet cycle produces a valid :play-script body"
+  (testing "the full record→stop→gen-play-snippet cycle produces a valid public :script body"
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
     (rf/reg-event-db :counter/by
       (fn [db [_ n]] (update db :n (fnil + 0) n)))
-    (story/reg-variant :story.recorder/source {:events []})
+    (story/reg-variant :story.recorder/source {})
     (async/deref-blocking (story/run-variant :story.recorder/source) 5000)
     (recorder/install-trace-listener!)
     (recorder/start-recording! :story.recorder/source)
@@ -646,6 +652,6 @@
       (is (str/includes? snippet ":story.recorder/source")
           "the recorder-target id rides into the :extends slot")
       (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "the rendered :play-script :script vector unwraps back to the captured events"))
+          "the rendered public :script body vector unwraps back to the captured events"))
     (story/destroy-variant! :story.recorder/source)
     (recorder/remove-trace-listener!)))

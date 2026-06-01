@@ -122,6 +122,18 @@
   (swap! active-play dissoc frame-id)
   nil)
 
+(defn clear-all-runs!
+  "Wipe ALL per-variant run-state across every frame — the three
+  per-process atoms (`run-state` / `runs-by-play` / `active-play`).
+  Used by the Story test-fixture helper (rf2-lh99f) so a fresh test
+  doesn't observe a previous test's play outcomes; `clear-state!` is
+  the per-frame counterpart called from teardown."
+  []
+  (reset! run-state    {})
+  (reset! runs-by-play {})
+  (reset! active-play  {})
+  nil)
+
 (defn- update-state!
   [frame-id play-key f & args]
   (swap! run-state update frame-id #(apply f % args))

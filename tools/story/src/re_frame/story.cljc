@@ -896,6 +896,25 @@
   (config/set-global-decorators! [])
   (canonical/reset-installed-flag!))
 
+;; ---- canonical test-fixture helper — DIRECT-REQUIRE, not on this facade -
+;;
+;; The canonical Story test-fixture helper lives in
+;; `re-frame.story.test-support` (rf2-lh99f) — `with-clean-registry` /
+;; `use-fixtures`. It is DELIBERATELY NOT re-exported on this facade:
+;; `re-frame.story.test-support` requires `re-frame.test-support`, which
+;; requires `cljs.test` / `clojure.test`; re-exporting it here would pull
+;; the test framework into the production Story facade's require graph
+;; (breaking the elision / bundle-isolation contract). Test code requires
+;; it directly — mirroring `re-frame.test-support` itself, which
+;; `re-frame.core` does NOT re-export for the same reason:
+;;
+;;     (:require [re-frame.story.test-support :as story-test])
+;;     (use-fixtures :each (story-test/use-fixtures {:adapter …}))
+;;
+;; See that namespace's docstring for the full contract + the rationale
+;; on why it avoids the `:pre-mount` footgun (registrar snapshot/restore
+;; keeps the framework `:rf/machine` sub alive).
+
 (defn clear-kind!
   "Remove every id under `kind`. Used by test fixtures and hot-reload."
   [kind]
@@ -1526,6 +1545,8 @@
   `:status` + `:assertions` is treated as an already-resolved run-result
   and reported directly — the sync path, below.)
 
+  ## JVM blocks; CLJS hands back the promise (the contract)
+
   On the JVM (the canonical headless test gate) `is` runs the target,
   BLOCKS until it resolves, fires one `clojure.test` report per assertion
   (plus a run-level report for a tape-floor `:fail` / run-level
@@ -1534,6 +1555,16 @@
   — `is` returns the run promise; chain `then` (or use `cljs.test`'s async
   `(async done …)` form) and call `(story/report-result! result)` when it
   resolves. `report-result!` is the pure-report seam both runtimes share.
+
+  ## `:timeout-ms` — the JVM block bound (rf2-zaklu)
+
+  `opts` MAY carry `:timeout-ms` — the JVM blocking-deref bound, in
+  milliseconds (default `30000`). A run that does not resolve inside the
+  window throws a `java.util.concurrent.TimeoutException` rather than
+  hanging the test JVM. The opt is JVM-only by construction: it bounds the
+  blocking deref, and CLJS never blocks (it returns the promise, so the
+  caller's own `(cljs.test/async done …)` deadline governs). The opt is
+  inert on CLJS — `story/is` reads it on the `:clj` branch only.
 
   A `target` that is ALREADY a unified run-result map (a `:status`-bearing
   map) is reported directly — the sync path for tests that ran the variant
@@ -1547,14 +1578,21 @@
          target)
 
      :else
-     (let [p (run target opts)]
+     ;; rf2-zaklu — `:timeout-ms` bounds the JVM blocking deref (default
+     ;; 30000), read on the `:clj` branch only (CLJS never blocks). Strip
+     ;; it from the opts threaded into `run` so the runner / plan-compiler
+     ;; does not see a key it does not own.
+     (let [run-opts (not-empty (dissoc opts :timeout-ms))
+           p        (run target run-opts)]
        #?(:clj
-          (let [result (async/deref-blocking p 30000)]
+          (let [result (async/deref-blocking p (get opts :timeout-ms 30000))]
             (emit-reports! target (result/result->reports result))
             result)
           :cljs
           ;; CLJS run is async; report when it resolves and hand the
           ;; promise back so a `(cljs.test/async done …)` test can await it.
+          ;; `:timeout-ms` is inert here — the caller's own async deadline
+          ;; governs (the JVM is the only path that blocks).
           (async/then p (fn [result]
                           (emit-reports! target (result/result->reports result))
                           result)))))))
@@ -1591,9 +1629,9 @@
   on a variant's `:decorators` slot:
 
       (story/reg-variant :story.auth/login-pending
-        {:decorators  [[story/force-fx-stub-id :http {:status :pending}]]
-         :play-script {:script [[:dispatch [:auth/login]]
-                                [:dispatch [:rf.assert/effect-emitted :http]]]}})"
+        {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
+         :script     {:script [[:dispatch [:auth/login]]
+                               [:dispatch [:rf.assert/effect-emitted :http]]]}})"
   fx-stubs/force-fx-stub-id)
 
 ;; ---- public SOTA-feature surface ----------------------------------------
@@ -1775,11 +1813,14 @@
   (recorder/clear!))
 
 (defn gen-play-snippet
-  "Render an EDN snippet `(reg-variant <id> {... :play-script {...}})` for
+  "Render an EDN snippet `(reg-variant <id> {... :script {...}})` for
   `events`. Pure data → string; round-trips through `read-string` and
-  re-frame's registrar machinery. Per rf2-0wrud `:play-script` is the
-  canonical AND ONLY phase-4 slot — each captured event vector is wrapped
-  as a `[:dispatch-sync <event-vec>]` step under `:play-script :script`.
+  re-frame's registrar machinery. Per rf2-7mj4z the emitted snippet uses
+  the PUBLIC `:script` authoring slot (spec/017 §Public vocabulary), not
+  the transitional `:play-script` spelling — each captured event vector
+  is wrapped as a `[:dispatch-sync <event-vec>]` step under the public
+  `:script` body's inner `:script` vector (rf2-0wrud — the one phase-4
+  step grammar).
 
   `opts` accepts:
     :variant-id  required — keyword id for the new variant.

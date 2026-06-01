@@ -5,9 +5,11 @@
 
   The recorder (`re-frame.story.recorder`) captures dispatched events
   during a canvas session and surfaces them in a save-as-variant
-  dialog as a `(reg-variant ... :play-script {...})` EDN snippet — the
-  simple `gen-play-snippet` codegen, which wraps each captured event
-  vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud).
+  dialog as a `(reg-variant ... :script {...})` EDN snippet — the simple
+  `gen-play-snippet` codegen, which wraps each captured event vector as
+  a `[:dispatch-sync <event-vec>]` step (rf2-0wrud). Per rf2-7mj4z the
+  emitted snippet uses the PUBLIC `:script` authoring slot (spec/017
+  §Public vocabulary), NOT the transitional `:play-script` spelling.
 
   The rich `:play-script` DSL landed in rf2-8i2a9 — tagged steps
   (`[:dispatch ...]`, `[:wait ms]`, `[:assert-db ...]`,
@@ -432,9 +434,15 @@
     (str "{" body-str "}")))
 
 (defn render-variant-form
-  "Render a full `(reg-variant <id> {:play-script {...}})` form the
-  user pastes into source. `variant-id` defaults to
+  "Render a full `(reg-variant <id> {:script {...}})` form the user
+  pastes into source. `variant-id` defaults to
   `:story.recorded/play-export`; `alias` defaults to `\"story\"`.
+
+  rf2-7mj4z — the emitted body uses the PUBLIC `:script` authoring slot
+  (spec/017 §Public vocabulary), NOT the transitional `:play-script`
+  spelling, so pasted recorder output reads the way the docs teach. The
+  public `:script` slot accepts the same `{:script … :auto-run?}` body
+  shape `render-play-script` produces.
 
   Pure data → string. The form survives `read-string` round-trip and
   registers cleanly via `re-frame.story/reg-variant`."
@@ -442,8 +450,8 @@
          :or   {variant-id :story.recorded/play-export
                 alias      "story"}}]
   (let [body (cond-> []
-               extends (conj [":extends     " (pr-str extends)])
-               true    (conj [":play-script " (render-play-script spec)]))
+               extends (conj [":extends " (pr-str extends)])
+               true    (conj [":script  " (render-play-script spec)]))
         body-str (->> body
                       (map (fn [[k v]] (str k v)))
                       (str/join "\n  "))]

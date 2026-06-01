@@ -13,9 +13,9 @@
 
   Optional `:write-back` re-registers the source variant with the
   captured recording translated to a live play slot. The emitted EDN
-  uses the transitional `:play-script` spelling the registrar lowers;
-  `:script` is the public phase-4 name (spec/017 §Public vocabulary).
-  This is gated by the same `allow-writes?` flag as `register-variant`
+  uses the PUBLIC `:script` authoring spelling (spec/017 §Public
+  vocabulary; rf2-7mj4z — the rename is finished on every emission
+  surface). This is gated by the same `allow-writes?` flag as `register-variant`
   (`tools.write/assert-writes-allowed`). This is
   the self-healing-loop hook the spec mentions: agent drives canvas →
   tool returns snippet AND patches the variant in place.
@@ -67,20 +67,24 @@
 
 (defn- write-back!
   "Re-register the target variant with the captured recording as a live
-  `:play-script` body. Preserves the source variant's existing body keys
-  (so `:component`, `:args`, `:decorators` survive) and overwrites
-  `:play-script` with the translated, replayable script.
+  play body under the public `:script` authoring slot. Preserves the
+  source variant's existing body keys (so `:component`, `:args`,
+  `:decorators` survive) and overwrites the play surface with the
+  translated, replayable script.
 
-  Per rf2-50jzf the legacy `:play` slot was REMOVED for `:play-script`
-  in rf2-0wrud — `:play-script` is the only phase-4 replay slot the
-  schema accepts today (tools/story schemas.cljc), the transitional
-  spelling the registrar lowers to the public `:script` key (spec/017
-  §Public vocabulary). Writing a `:play` key would pass the open variant
-  `:map` validation but no runner executes it, so a written-back
-  recording would silently never replay. We
-  translate the captured `events` via `story/recording->play-script`
-  (the live runtime counterpart to `gen-play-snippet`'s text output)
-  and write that under `:play-script`.
+  Per rf2-7mj4z the write-back assocs the PUBLIC `:script` authoring slot
+  (spec/017 §Public vocabulary), not the transitional `:play-script`
+  spelling — the `:setup`/`:script` rename is finished on every emission
+  surface. (Both spellings store identically: `reg-variant*` lowers the
+  public `:script` to the shipping `:play-script` slot via
+  `schemas/lower-public-vocabulary`, so `variant->edn` of the stored body
+  reads `:play-script` either way — the rename is an author-facing
+  intent, the stored shipping slot is unchanged. The legacy `:play` slot
+  was REMOVED in rf2-0wrud; a `:play` key would pass the open variant
+  `:map` validation but no runner executes it.) We translate the captured
+  `events` via `story/recording->play-script` (the live runtime
+  counterpart to `gen-play-snippet`'s text output) — which returns a
+  `{:script … :auto-run?}` play body — and write that under `:script`.
 
   Stamps `:origin :story-mcp` per `spec/Cross-Cutting-Designs.md §5` —
   the write-back produces a new variant body and the origin tag
@@ -91,11 +95,11 @@
   payload, the failure flag, and the registrar's `ex-data`."
   [base body events target-vid]
   (try
-    (let [play-script (story/recording->play-script events)
-          id          (story/reg-variant*
-                        target-vid
-                        (assoc body :play-script play-script :origin config/origin))
-          payload     (assoc base :written-back? true :new-variant-id id)]
+    (let [play-body (story/recording->play-script events)
+          id        (story/reg-variant*
+                      target-vid
+                      (assoc body :script play-body :origin config/origin))
+          payload   (assoc base :written-back? true :new-variant-id id)]
       (result/edn-result payload))
     (catch #?(:clj Throwable :cljs :default) e
       (result/error-result (str "Write-back failed: " (ex-message e))
@@ -267,9 +271,9 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back` re-registers the variant with the captured recording translated to a live `:play-script` slot (the canonical replay surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
-                         "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :play-script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
+                         "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
                          "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500
@@ -289,7 +293,7 @@
                                                                       "Hard ceiling " max-duration-ms "ms — the MCP server's request loop is single-threaded so "
                                                                       "this call blocks unrelated tools for the full window; abusive durations are rejected (rf2-4yuhi).")}
                                    :new-variant-id (assoc s/kw-or-string
-                                                     :description "When `:write-back` is true, register the captured recording (translated to a live `:play-script` body) under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                                                     :description "When `:write-back` is true, register the captured recording (translated to a live `:script` body) under this id. Defaults to the source `:variant-id` (overwrites in place).")
                                    :doc            {:type "string"
                                                     :description "Optional docstring embedded in the rendered snippet."}
                                    :extends        (assoc s/kw-or-string
@@ -297,7 +301,7 @@
                                    :alias          {:type "string"
                                                     :description "Short ns alias for the rendered form (default \"story\")."}
                                    :write-back     {:type "boolean"
-                                                    :description (str "When true, also re-register the variant with the captured recording as a live `:play-script` body. Requires `allow-writes?`. "
+                                                    :description (str "When true, also re-register the variant with the captured recording as a live `:script` body. Requires `allow-writes?`. "
                                                                       "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}}))
                   :required ["variant-id"]
                   :additionalProperties false}

@@ -287,18 +287,19 @@ entry hides. The Xray artefact owns the actual view; Story owns the
 *integration*. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 §xray-embed.
 
-### Test Codegen — record-as-`:play-script` (rf2-5fc15 + rf2-0wrud)
+### Test Codegen — record-as-`:script` (rf2-5fc15 + rf2-0wrud + rf2-7mj4z)
 
 Storybook 9's killer feature is the record-and-save workflow: the
 user interacts with the canvas, the tool watches the event bus, and
 on 'stop' the user gets a code snippet they paste into the variant.
-Story's `:play-script` body is **already** a sequence of EDN tagged
+Story's `:script` body is **already** a sequence of EDN tagged
 steps (per [`004-Assertions.md`](004-Assertions.md) §Play sequence
 execution), so the captured trace IS the codegen output — no
 Testing-Library/page-object translation layer needed.
 
-Per rf2-0wrud (2026-05-20), `:play-script` is the canonical AND ONLY
-phase-4 slot; each captured event vector is wrapped as
+The codegen emits the PUBLIC `:script` authoring slot (rf2-7mj4z — the
+recorder no longer emits the transitional `:play-script` spelling), and
+per rf2-0wrud (2026-05-20) each captured event vector is wrapped as
 `[:dispatch-sync <event-vec>]` by `gen-play-snippet`.
 
 The recorder is a chrome-wide toolbar affordance. A REC chip sits at
@@ -316,10 +317,10 @@ generated `(reg-variant ...)` form:
 ```clojure
 (story/reg-variant :story.counter/recorded-739221
   {:extends :story.counter/happy-path
-   :play-script {:auto-run? true
-                 :script [[:dispatch-sync [:counter/inc]]
-                          [:dispatch-sync [:counter/inc]]
-                          [:dispatch-sync [:counter/by 7]]]}})
+   :script  {:auto-run? true
+             :script [[:dispatch-sync [:counter/inc]]
+                      [:dispatch-sync [:counter/inc]]
+                      [:dispatch-sync [:counter/by 7]]]}})
 ```
 
 #### Capture boundary
@@ -363,7 +364,7 @@ with assertions interleaved exactly where the user wanted them:
 ```clojure
 (story/reg-variant :story.counter/recorded
   {:extends :story.counter/happy-path
-   :play-script
+   :script
    {:auto-run? true
     :script [[:dispatch-sync [:counter/inc]]
              [:dispatch-sync [:counter/inc]]
@@ -388,7 +389,7 @@ construction without going through the modal.
 (recording?)                          ; boolean
 (recorder-state)                      ; current state — read-only view
 (clear-recording!)                    ; drop captured trace, return to idle
-(gen-play-snippet events opts)        ; render `(reg-variant ... :play-script {:script [...]})`
+(gen-play-snippet events opts)        ; render `(reg-variant ... :script {:script [...]})`
 
 ;; Mid-recording assertion insertion (rf2-39u9e)
 recorder/assertion-vocabulary        ; data — the 7 canonical entries
@@ -452,8 +453,8 @@ The six sub-systems and their public boundaries:
 | Mid-recording assertion picker | `re-frame.story.recorder` | `assertion-vocabulary` (the seven canonical `:rf.assert/*` ids + payload field specs); `make-assertion` (pure: build the event vector); `append-assertion` (pure: state → state); `insert-assertion!` (impure: write through the atom). | `chrome-shell` (the picker modal); `mcp-tool` (write-time assertion authoring without the modal). |
 | DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-event!` (write through the atom with `:dom/click` / `:dom/type` / `:dom/submit` shapes); `dom-event?` / `dom-event-kinds` (pure predicates). | `chrome-shell` (paired with the trace-listener install at mount). |
 | Review-dialog | `re-frame.story.recorder` + `re-frame.story.review-dialog` | `open-dialog` / `close-dialog` / `initial-dialog-state`. State-only — the rendering lives in `re-frame.story.ui.recorder-export-dialog`. | `chrome-shell` (the modal that opens on stop). |
-| `:play-script` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. Emits `(reg-variant ... :play-script {:script [[:dispatch-sync <ev>] ...]})` per rf2-0wrud. | `user-app` (the copy-and-paste form); `mcp-tool` (the structured-output payload for `record-as-variant`). |
-| Rich `:play-script` DOM-aware export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail. Sub-namespace export; not on the facade. `gen-play-snippet` is the facade-level entry; this richer translator is the power-user surface. | `chrome-shell`; `mcp-tool`. |
+| `:script` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. Emits `(reg-variant ... :script {:script [[:dispatch-sync <ev>] ...]})` — the PUBLIC `:script` slot per rf2-7mj4z; each event wrapped as `[:dispatch-sync <ev>]` per rf2-0wrud. | `user-app` (the copy-and-paste form); `mcp-tool` (the structured-output payload for `record-as-variant`). |
+| Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). Sub-namespace export; not on the facade. `gen-play-snippet` is the facade-level entry; this richer translator is the power-user surface. | `chrome-shell`; `mcp-tool`. |
 
 Three architectural observations follow from the map:
 
@@ -471,7 +472,7 @@ Three architectural observations follow from the map:
    the DOM-capture entries `:require` `re-frame.story.recorder`
    directly — the sub-ns IS the contract for the power-user surface.
 3. **The rich DOM-aware translator is the power-user surface.**
-   `gen-play-snippet` emits the simple-projection `:play-script` body
+   `gen-play-snippet` emits the simple-projection public `:script` body
    (each captured event wrapped as `[:dispatch-sync <ev>]`). The
    recorder's `play-export` sub-namespace emits the richer DSL that
    maps DOM-capture entries into `:click` / `:type` / `:wait` steps;

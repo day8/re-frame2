@@ -409,10 +409,14 @@ Per [`017-Testing-Story.md`](017-Testing-Story.md) §Public vocabulary,
 slots until the runtime is routed through the variant-plan compiler
 (rf2-5x1wt.17 / .22). A variant declares ONE play surface from
 `:script` / `:play-script` / `:plays` (mutually exclusive at the
-schema layer). The worked examples throughout this doc therefore use
-the target `:setup` / `:script` spellings exclusively; the recorder
-(§Source-coord stamping) still EMITS the shipping `:play-script`
-spelling, which the registrar accepts unchanged.
+schema layer). The worked examples throughout this doc use the target
+`:setup` / `:script` spellings exclusively, and the recorder's codegen
+(`gen-play-snippet` / `render-variant-form`) now EMITS the public
+`:script` spelling too (rf2-7mj4z — the rename is finished on the
+author-facing emission surface). The transitional `:events` /
+`:play-script` spellings are still ACCEPTED by the schema (the registrar
+lowers them to the shipping slots), but nothing in Story authoring docs
+or recorder output teaches or emits them.
 
 Pre-alpha posture: the legacy `:play` event-vector slot has been
 removed — no transitional dual-acceptance (rf2-0wrud, 2026-05-20).
@@ -423,13 +427,21 @@ Authors compose post-render behaviour as a sequence of TAGGED steps:
 | `[:dispatch event-vec]`               | `rf/dispatch` (async) into the variant's frame           |
 | `[:dispatch-sync event-vec]`          | `rf/dispatch-sync` (synchronous) into the variant's frame |
 | `[:wait ms]`                          | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM)       |
-| `[:assert-db path value]`             | Assert `(= (get-in @app-db path) value)`                  |
-| `[:assert-db path :pred fn-or-sym]`   | Assert custom predicate (fn preferred under advanced CLJS) |
-| `[:assert-dom selector :visible]`     | Assert selector resolves to a visible DOM node            |
-| `[:assert-dom selector :hidden]`      | Assert selector resolves to nothing (or hidden node)      |
-| `[:assert-dom selector :text txt]`    | Assert selector's text-content matches `txt`              |
+| `[:assert assertion-atom]`            | Evaluate a canonical `[:rf.assert/…]` atom here — the primary assertion form |
+| `[:assert-db path value]`             | **Sugar** → folds to `[:assert [:rf.assert/path-equals path value]]` |
+| `[:assert-db path :pred fn-or-sym]`   | **Sugar** → folds to `[:assert [:rf.assert/path-matches path [:fn …]]]` (fn preferred under advanced CLJS) |
+| `[:assert-dom selector :visible]`     | **Sugar** → folds to `[:assert [:rf.assert/dom-visible selector]]`  |
+| `[:assert-dom selector :hidden]`      | **Sugar** → folds to `[:assert [:rf.assert/dom-hidden selector]]`   |
+| `[:assert-dom selector :text txt]`    | **Sugar** → folds to `[:assert [:rf.assert/dom-text selector txt]]` |
 | `[:click selector]`                   | Synthetic click event at selector                         |
 | `[:type selector text]`               | Synthetic `input` event at selector with `text`           |
+
+**`:rf.assert/*` is the ONE assertion vocabulary** (rf2-5o6yd). The
+`:assert-db` / `:assert-dom` steps are ergonomic SUGAR the plan compiler
+folds onto the canonical `:rf.assert/*` atom before the run loop runs —
+not a second assertion language. See
+[`004-Assertions.md`](004-Assertions.md) §The `:rf.assert/*` events are
+the ONE assertion vocabulary for the fold table + author guidance.
 
 The canonical seven `:rf.assert/*` assertion events (per
 [`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`

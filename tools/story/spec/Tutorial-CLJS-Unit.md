@@ -20,7 +20,7 @@ variants and now wants automated regression coverage. It covers:
   returned result map.
 - Sharing fixtures across tests (registrar reset, canonical-vocab
   reinstall, per-test variant register).
-- Choosing between in-variant `:play-script` assertions vs.
+- Choosing between in-variant `:script` assertions vs.
   out-of-variant `is` assertions.
 
 What this recipe is **not**: a guide to writing Story's own internal
@@ -64,40 +64,34 @@ build config points at).
    against the returned result map's `:app-db` / `:assertions`
    slots. No browser; no Playwright; sub-millisecond per case."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
+            [re-frame.story.test-support :as story-test]
             [myapp.events]   ; loads :counter/* event handlers
             [myapp.stories.counter])) ; loads :story.counter/* variants
 
 ;; ---- fixture: full reset between tests ------------------------------------
+;;
+;; Use the canonical helper `re-frame.story.test-support/use-fixtures` —
+;; do NOT hand-roll the reset. It resets the framework runtime (via
+;; registrar snapshot/restore — the framework `:rf/machine` sub survives,
+;; so variants are never trapped at `:pre-mount`), re-installs Story's
+;; canonical vocabulary, ensures the default frame, wipes the per-variant
+;; play run-state, then runs your `:install` thunks against the fresh
+;; registry. `:adapter` is REQUIRED (the JVM and browser want different
+;; substrate adapters, so the helper can't pick one for you).
+;;
+;; Declared with the FN form — the map form silently skips every deftest
+;; on the JVM half of a `.cljc` test (see `re-frame.story.meta-fixtures-test`).
 
-(defn- reset-all! []
-  ;; Clear Story's side-table, the re-frame registrar, every frame's
-  ;; app-db, and re-install the canonical vocabulary. Matches the
-  ;; proven pattern used by Story's own internal tests; subtle
-  ;; differences (e.g. clearing the registrar without reinstalling
-  ;; the framework `:rf/machine` sub) can leave handlers off the
-  ;; registry and trap variants at :pre-mount.
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
-  ;; Re-load your variant + event registrations. The require-side
-  ;; loads above run once per JVM; this fixture re-runs the
-  ;; registration fns each test so the registrar carries them.
-  (myapp.events/install!)
-  (myapp.stories.counter/install!))
-
-(use-fixtures :each {:before reset-all!})
+(use-fixtures :each
+  (story-test/use-fixtures
+    {:adapter plain-atom/adapter
+     ;; Re-run your app's registration thunks each test so the freshly-
+     ;; reset registrar carries your event handlers + variant defs.
+     :install [myapp.events/install!
+               myapp.stories.counter/install!]}))
 
 ;; ---- happy path: variant lands on the expected app-db --------------------
 
@@ -133,7 +127,7 @@ result map. The slots that matter for tests:
 |---|---|---|
 | `:lifecycle` | `:pre-mount` / `:mounting` / `:loading` / `:ready` | Did the variant reach `:ready`, or park earlier? |
 | `:app-db` | the post-lifecycle `app-db` of the variant's frame | Read with `get-in` / sub-equivalents to assert structural state |
-| `:assertions` | vector of `{:assertion :rf.assert/path-equals :passed? true ...}` maps | Did the in-variant `:play-script` assertions pass? |
+| `:assertions` | vector of `{:assertion :rf.assert/path-equals :passed? true ...}` maps | Did the in-variant `:script` assertions pass? |
 | `:rendered-hiccup` | hiccup tree (when `:render? true` passed to `run-variant`) | DOM-shape assertions without a real DOM |
 | `:elapsed-ms` | number | Performance budget assertions |
 | `:snapshot` | `{:variant-id ... :mode ... :substrate ... :content-hash ...}` | Visual-regression keying — see [`002-Runtime.md`](002-Runtime.md) §Snapshot identity |
@@ -149,10 +143,10 @@ they answer different questions:
 
 | Mode | Where it runs | What it asserts | When to prefer |
 |---|---|---|---|
-| **In-variant** (`:play-script`) | Inside the variant's `:play-script` body via `:rf.assert/*` events | "Did this variant's own behaviour line up?" — record-don't-throw; the sequence continues | When the assertion is intrinsic to the variant's contract (e.g. "after three increments, `:count` is 3"). Ships with the variant; runs in every gate that drives `:play-script`. |
+| **In-variant** (`:script`) | Inside the variant's `:script` body via `:rf.assert/*` events | "Did this variant's own behaviour line up?" — record-don't-throw; the sequence continues | When the assertion is intrinsic to the variant's contract (e.g. "after three increments, `:count` is 3"). Ships with the variant; runs in every gate that drives `:script`. |
 | **Out-of-variant** (`cljs.test/is`) | In the deftest body, after `run-variant` resolves | "Does this variant satisfy MY app's regression bar?" — throw-on-fail | When the assertion is consumer-side (e.g. "this variant exists", "the result map's shape matches my expectation"). Lives in the test repo, not the variant body. |
 
-The in-variant `:play-script` shape rides the share URL — pasting
+The in-variant `:script` shape rides the share URL — pasting
 a `:story.counter/driven` URL into a colleague's browser runs the
 same assertion sequence against their frame. Out-of-variant `is`
 assertions live in your test repo; they ride your CI.
@@ -160,8 +154,8 @@ assertions live in your test repo; they ride your CI.
 ```clojure
 ;; In-variant — the variant body owns the assertion:
 (story/reg-variant :story.counter/driven
-  {:events [[:counter/initialise 0]]
-   :play-script
+  {:setup [[:counter/initialise 0]]
+   :script
    [[:dispatch-sync [:counter/increment]]
     [:dispatch-sync [:counter/increment]]
     [:dispatch-sync [:counter/increment]]
@@ -193,7 +187,7 @@ exercising the failure paths assert against the canonical keys per
 | Loader incomplete | `:rf.error/loader-incomplete` | `:phase :phase-1-loaders`, `:predicate` | `:loaders-complete-when` never returns truthy |
 | Loader rejected | `:rf.error/exception` | `:phase :phase-1-loaders`, `:event`, `:cause` | A loader event throws |
 | Schema mismatch | `:rf.error/schema-fail` | `:path`, `:expected`, `:actual` | Args don't conform to the registered schema |
-| Failed assertion | the original `:rf.assert/*` keyword | `:passed? false`, `:path`, `:expected`, `:actual` | An `:rf.assert/*` event in `:play-script` failed |
+| Failed assertion | the original `:rf.assert/*` keyword | `:passed? false`, `:path`, `:expected`, `:actual` | An `:rf.assert/*` event in `:script` failed |
 
 ```clojure
 ;; Assert on a known failure path:
@@ -220,7 +214,7 @@ exercising the failure paths assert against the canonical keys per
 ### Sync vs. async
 
 `run-variant` returns synchronously when no loaders are present and
-all fx in `:events` are synchronous; otherwise returns a promise-
+all fx in `:setup` are synchronous; otherwise returns a promise-
 like the test must `then` against. The recipe above uses `async`
 unconditionally — it's correct in both cases and the cost (one
 extra `done` call) is negligible.
@@ -239,30 +233,41 @@ For purely synchronous variants you can also write:
 patterns in `tools/story/test/` and won't break when a variant
 later acquires loaders.
 
-### Per-test reset is mandatory
+### Per-test reset is mandatory — use the canonical helper
 
-`reset-all!` clears Story's registrar, the framework's registrar,
-every frame's `app-db`, and reinstalls the canonical vocabulary.
-**Tests that share state run flaky.** Story's own test corpus
-(`tools/story/test/re_frame/story/panels_e2e/`) uses this pattern
-verbatim; copy it into your repo and call the right `install!`
-functions from your `myapp.events` / `myapp.stories.*` namespaces.
+`re-frame.story.test-support/use-fixtures` resets Story's side-table,
+the framework runtime (registrar / frames / adapter / trace listeners),
+the per-variant play run-state, and reinstalls the canonical vocabulary
+between tests. **Tests that share state run flaky.** Pass your app's
+registration thunks in `:install` so the freshly-reset registrar carries
+your event handlers + variant defs each test.
 
-The subtle gotcha: clearing the registrar without re-registering
-the framework's `:rf/machine` subscription leaves the lifecycle
-machine's handler off the registry and traps every subsequent
-variant at `:pre-mount`. The fixture above does it correctly;
-diverging from this pattern is a debugging tax.
+Do NOT hand-roll the reset. The subtle gotcha the helper closes: a
+hand-rolled reset that clears the registrar with `registrar/clear-all!`
+(rather than snapshot/restore) wipes the framework's `:rf/machine`
+subscription, leaving the lifecycle machine's handler off the registry
+and trapping every subsequent variant at `:pre-mount` — a silent failure
+(the run never errors, it just never reaches `:ready` and the assertions
+come back empty). The helper resets the framework runtime via registrar
+**snapshot/restore**, so the `:rf/machine` sub (and every other
+ns-load-time framework registration) survives. That is the footgun the
+helper exists to close (rf2-lh99f).
 
-## Driving from `:events` vs. `:play-script`
+For a programmatic reset outside a `use-fixtures` declaration (e.g. a
+REPL probe or a single bracketed run), `story-test/with-clean-registry`
+takes the same `{:adapter … :install …}` opts and runs a thunk inside
+the reset, returning the thunk's value.
+
+## Driving from `:setup` vs. `:script`
 
 Story's preferred path is to put driving events in the variant
-body, not in the test. Two reasons:
+body, not in the test. `:setup` carries the preconditions (the
+events that establish the starting state); `:script` carries the
+ordered behaviour-under-test (dispatches + assertions). Two reasons:
 
 - **Reproducibility.** A variant URL pasted from the browser's
-  address bar reproduces the same `:events` + `:play-script`
-  sequence on a colleague's machine. Events that live only in your
-  test repo do not.
+  address bar reproduces the same `:setup` + `:script` sequence on a
+  colleague's machine. Events that live only in your test repo do not.
 - **EDN, not code.** The variant body is pure data; it serialises
   to a Xray share-pack, to the MCP write surface, to a snapshot
   fixture. Test-side driving events serialise only as test code.
@@ -270,11 +275,11 @@ body, not in the test. Two reasons:
 ```clojure
 ;; Preferred — the variant body declares the driving sequence:
 (story/reg-variant :story.checkout/server-error
-  {:loaders     [[:checkout/load-order :order-1234]]
-   :events      [[:checkout/select-payment :card]]
-   :play-script [[:dispatch-sync [:checkout/submit]]
-                 [:dispatch-sync [:rf.assert/path-equals
-                                  [:checkout :error] :server-error]]]})
+  {:loaders [[:checkout/load-order :order-1234]]
+   :setup   [[:checkout/select-payment :card]]
+   :script  [[:dispatch-sync [:checkout/submit]]
+             [:dispatch-sync [:rf.assert/path-equals
+                              [:checkout :error] :server-error]]]})
 
 ;; The deftest asserts on the result — minimal test-side logic:
 (deftest checkout-server-error-records-the-error
@@ -295,9 +300,10 @@ a property-based generator, etc.
 
 ## Common pitfalls
 
-- **Forgetting to call your app's `install!` functions in the
-  fixture.** `(registrar/clear-all!)` wipes everything; your event
-  handlers + variant registrations must re-run each test.
+- **Forgetting to pass your app's `install!` thunks to the helper.**
+  The reset wipes user registrations; your event handlers + variant
+  registrations must re-run each test — pass them in the helper's
+  `:install` vector.
 - **Asserting before the variant resolves.** Loader-bearing
   variants are async; the `then` callback is the only valid
   assertion site. The synchronous-form shortcut works only for
@@ -305,16 +311,16 @@ a property-based generator, etc.
 - **Not calling `destroy-variant!` after each test.** The variant's
   frame leaks across tests if you don't; subsequent runs of the
   same variant id hit a hot frame instead of a fresh one and can
-  surface stale state. `reset-all!`'s `(reset! frame/frames {})`
-  catches most of this, but explicit destroy in the `then` body is
-  the canonical pattern.
+  surface stale state. The helper's per-test frame reset catches most
+  of this, but explicit destroy in the `then` body is the canonical
+  pattern.
 - **Hitting `:advanced`-compiled bundles.** Production-compiled
   Story bundles elide all `reg-*` calls to `nil` (per
   [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production
   elision). Run tests against `:node-test` (no advanced
   compilation), not against your application's production bundle.
 - **Confusing in-variant and out-of-variant assertion modes.** The
-  `:rf.assert/*` events in `:play-script` record into
+  `:rf.assert/*` events in `:script` record into
   `(:assertions result)` and do NOT throw — `(is ...)` in your
   deftest is the throw-on-fail path. Assert on `:passed?` if you
   want to surface in-variant failures through the test runner.
