@@ -595,16 +595,6 @@
    :display        "flex"
    :flex-direction "column"})
 
-(def ^:private machine-cascade-summary-style
-  {:display     "inline-flex"
-   :align-items "center"
-   :gap         "8px"
-   :font-family mono-stack
-   :font-size   "11px"})
-
-(def ^:private machine-cascade-total-style
-  {:color text-tertiary-colour})
-
 (def ^:private machine-cascade-empty-style
   {:padding     "5px 0 5px 21px"
    :font-family mono-stack
@@ -2682,27 +2672,16 @@
   defensive only (fixtures that synthesise a machine handler without
   any cascade events).
 
-  Header carries:
-  - `N step(s)` count (compact summary at a glance).
-  - Cascade total ms (sum of per-row `:duration-ms`); elides when no
-    row carries a duration.
-
   Each row is rendered via `cascade-row-view` — see its docstring
-  for the per-row layout grammar."
+  for the per-row layout grammar. (rf2-nhovk dropped the redundant
+  `cascade — N step(s)` summary header; the rows below already show
+  the steps plainly. That line also carried the cascade total-ms —
+  re-surface the total elsewhere later if wanted.)"
   [machine-meta cascade-rows]
-  (let [n     (count cascade-rows)
-        total (proj/machine-cascade-total-ms cascade-rows)]
+  (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
            :data-cascade-row-count (str n)
            :style machine-cascade-root-style}
-     (sub-header "cascade"
-                 [:span {:style machine-cascade-summary-style}
-                  (str n " step"
-                       (when (not= 1 n) "s"))
-                  (when (number? total)
-                    [:span {:data-testid "rf-xray-epoch-machine-cascade-total"
-                            :style machine-cascade-total-style}
-                     (str "· " (fmt/format-duration-ms total))])])
      (if (zero? n)
        [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-empty"
               :style machine-cascade-empty-style}

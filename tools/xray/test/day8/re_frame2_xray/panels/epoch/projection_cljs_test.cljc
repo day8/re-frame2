@@ -670,9 +670,15 @@
   (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
     (is (= "guard :ready?"
            (fmt/cascade-row-label {:kind :guard :guard-id :ready?})))
-    (is (= "entry action :open-socket"
+    ;; rf2-nhovk — the ACTION verb is JUST the action-id; the kind-pill +
+    ;; phase chip already convey kind + phase, so the redundant
+    ;; "{phase} action " prefix is dropped (empty for an anonymous action).
+    (is (= ":open-socket"
            (fmt/cascade-row-label {:kind :action :action-id :open-socket
                                     :phase :entry})))
+    (is (= ""
+           (fmt/cascade-row-label {:kind :action :phase :exit}))
+        "anonymous action → empty verb; pill + chip + source body carry it")
     (is (= "timer [:idle] · on-exit"
            (fmt/cascade-row-label {:kind :timer :state [:idle]
                                     :reason :on-exit})))
