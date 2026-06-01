@@ -137,7 +137,7 @@
 
   Per Spec 014 §Machine-shape wrapper:
    - `:initial :requesting` — entry happens on spawn-time
-     `[:rf.machine/spawned]` (the synthetic event the runtime dispatches
+     `[:rf.machine.spawn/spawned]` (the synthetic event the runtime dispatches
      to spawns without an explicit `:start`; per Spec 005 §Spawning).
    - The wrapper's `:data` carries the args map for the underlying
      `:rf.http/managed` fx PLUS the framework-reserved

@@ -90,7 +90,7 @@
 ;; `:staging-key`, `:url`) planted by the parent's per-child
 ;; `:spawn` / `:spawn-all`-child `:data` slot (fn-form per
 ;; Spec 005 §Spec-spec keys). The child machine spawns in `:idle`
-;; and the runtime-synthesised `:rf.machine/spawned` event
+;; and the runtime-synthesised `:rf.machine.spawn/spawned` event
 ;; transitions it to `:loading`, which fires the entry-cascade's
 ;; `:begin-fetch` action.
 
@@ -140,11 +140,11 @@
 
    :states
    {;; :idle is the FSM's :initial. The spawn-fx synthesises a
-    ;; [:rf.machine/spawned] event into the new actor if no :start is
+    ;; [:rf.machine.spawn/spawned] event into the new actor if no :start is
     ;; supplied — :idle's transition picks it up and moves to :loading,
     ;; which fires the entry-cascade's :begin-fetch action.
     :idle
-    {:on {:rf.machine/spawned :loading}}
+    {:on {:rf.machine.spawn/spawned :loading}}
 
     :loading
     {:entry :begin-fetch

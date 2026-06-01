@@ -59,7 +59,7 @@
     :worker/proc#1 {:state :running :data {}}} :system-ids {:worker :worker/proc#1}}}}
 
   :trace-emissions
-  [{:operation :rf.machine/spawned
+  [{:operation :rf.machine.spawn/spawned
     :tags      {:machine-id :worker/proc
                 :spawned-id :worker/proc#1
                 :system-id  :worker}}

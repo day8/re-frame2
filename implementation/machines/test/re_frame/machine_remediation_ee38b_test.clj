@@ -8,7 +8,7 @@
       targets, `:*` wildcard, deepest-wins override, guard gating.
     - P2 `:rf.error/machine-unhandled-event` is emitted when no level
       matches (Spec 005:1028 / Spec 009:1348 canonical id), with the
-      `:rf.machine/spawned` carve-out (005:1780).
+      `:rf.machine.spawn/spawned` carve-out (005:1780).
     - P2 `:always` microstep traces — per-microstep
       `:rf.machine.microstep/transition` + the outer
       `:rf.machine/transition` carrying `:microsteps <count>`

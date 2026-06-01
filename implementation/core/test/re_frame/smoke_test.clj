@@ -573,10 +573,10 @@
         (rf/dispatch-sync [:flow [:start]] {:frame :left})
         (rf/dispatch-sync [:flow [:start]] {:frame :right})
         (rf/unregister-listener! ::sids)
-        (let [spawn-traces (filter #(= :rf.machine/spawned (:operation %)) @traces)
+        (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
               ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
           (is (= 2 (count spawn-traces))
-              "two :rf.machine/spawned traces — one per frame")
+              "two :rf.machine.spawn/spawned traces — one per frame")
           (is (every? #(= :worker %) ids)
               "both spawned the :worker machine")
           ;; Per rf2-gr8q the spawn-counter is no longer a per-process
@@ -610,8 +610,8 @@
                         [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
       (rf/unregister-listener! ::spawn)
-      (is (some #(= :rf.machine/spawned (:operation %)) @traces)
-          "expected :rf.machine/spawned trace")
+      (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
+          "expected :rf.machine.spawn/spawned trace")
       (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
           "expected :rf.machine/destroyed trace")
       (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)

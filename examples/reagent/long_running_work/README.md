@@ -75,7 +75,7 @@ declarative spawn-and-join.
 
 ```
 :work/processor                              (child worker; one per shard)
-  :idle           ──[:rf.machine/spawned]──> :processing
+  :idle           ──[:rf.machine.spawn/spawned]──> :processing
   :processing     :entry :process-one  (dispatches :progress to parent)
                   :always  → :checking-done
   :checking-done  :always  → :done | :yielding   (guarded)

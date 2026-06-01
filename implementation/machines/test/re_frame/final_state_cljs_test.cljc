@@ -133,7 +133,7 @@
          {:working
           {:spawn {:machine-id :rf2-gn80/child2
                     :on-done (fn [{d :data r :result}] (assoc d :reported r))}}}})
-      (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine/spawned]])
+      (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (rf/frame-db :rf/default)
                                [:rf/runtime :machines :spawned :rf2-gn80/parent2 [:working]])]
         (rf/dispatch-sync [spawned-id [:finish 42]])
@@ -161,7 +161,7 @@
          :states
          {:working
           {:spawn {:machine-id :rf2-gn80/child3}}}})
-      (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine/spawned]])
+      (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (rf/frame-db :rf/default)
                                [:rf/runtime :machines :spawned :rf2-gn80/parent3 [:working]])]
         (rf/dispatch-sync [spawned-id [:done]])
@@ -218,7 +218,7 @@
                                   (reset! on-done-saw-sid
                                           (machines/machine-by-system-id :auth-actor))
                                   (assoc d :result r))}}}})
-      (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine/spawned]])
+      (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (rf/frame-db :rf/default)
                                [:rf/runtime :machines :spawned :rf2-gn80/sid-parent [:working]])]
         (is (= spawned-id (machines/machine-by-system-id :auth-actor))
@@ -267,7 +267,7 @@
                     :on-done (fn [{d :data r :result}]
                                   (reset! seen-result r)
                                   d)}}}})
-      (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine/spawned]])
+      (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (rf/frame-db :rf/default)
                                [:rf/runtime :machines :spawned :rf2-gn80/observer [:working]])]
         (rf/dispatch-sync [spawned-id [:fin]])
@@ -288,7 +288,7 @@
        :states
        {:working
         {:spawn {:machine-id :rf2-gn80/just-final}}}})
-    (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine/spawned]])
+    (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine.spawn/spawned]])
     (let [spawned-id (get-in (rf/frame-db :rf/default)
                              [:rf/runtime :machines :spawned :rf2-gn80/silent-parent [:working]])]
       (rf/dispatch-sync [spawned-id [:fin]])

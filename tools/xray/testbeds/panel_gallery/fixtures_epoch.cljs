@@ -968,17 +968,17 @@
   "Cascade triggered by a spawn fx — substrate dispatches the spawned
   actor's first event with `:source :machine-spawn` (rf2-ejtpd ·
   rf2-5qp4g). The synthetic-default path emits the spawned-id +
-  `[:rf.machine/spawned]` payload (rf2-ijm7).
+  `[:rf.machine.spawn/spawned]` payload (rf2-ijm7).
 
   Exercises the DISPATCH step's `from machine spawn ·
   :checkout/worker` rich chrome."
   []
   (single-epoch-history
     {:epoch-id 13
-     :event    [:checkout/worker [:rf.machine/spawned]]
+     :event    [:checkout/worker [:rf.machine.spawn/spawned]]
      :trace-events
      [(dispatched-ev-rich
-        [:checkout/worker [:rf.machine/spawned]]
+        [:checkout/worker [:rf.machine.spawn/spawned]]
         :machine-spawn
         {:rf.trace/call-site {:file "src/app/checkout.cljs" :line 88}})
       (db-changed-ev [[[:checkout :workers :worker-1] nil
