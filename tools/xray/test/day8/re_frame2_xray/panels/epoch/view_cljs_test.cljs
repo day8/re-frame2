@@ -1778,7 +1778,19 @@
               "row mounts the leaf-changed wrapper (not the container path)")
           (is (some? (th/find-by-attr tree :data-rf-diff-annotation "subs-was"))
               "row carries the `← was <prev>` annotation chip")
+          ;; rf2-o77z4 — the changed leaf now mirrors app-db's :modified
+          ;; leaf chrome: yellow stripe + wash (via the reserved
+          ;; `:diff-modified-*` token family) + leading `~` glyph.
+          (let [style (-> leaf second :style)]
+            (is (= (:diff-modified-wash tokens/tokens) (:background style))
+                "changed leaf wash reads through the diff-modified-wash token")
+            (is (string/includes? (str (:border-left style))
+                                  (:diff-modified-stripe tokens/tokens))
+                "changed leaf stripe reads through the diff-modified-stripe token"))
           (let [txt (th/text-content leaf)]
+            (is (string/includes? txt "~")
+                "leading `~` glyph paints (parity with the inspector's
+                 R1 `:modified` leaf shape)")
             (is (string/includes? txt "← was")
                 "annotation prose includes `← was`")
             (is (string/includes? txt "1")
@@ -1816,6 +1828,48 @@
             (is (string/includes? txt "1779972561856"))
             (is (string/includes? txt "nil")
                 "prev nil renders as `nil` syntax token in the annotation")))))))
+
+(deftest subscriptions-full-diff-leaf-scalar-unchanged-renders-current-value-test
+  (testing "rf2-o77z4 (Mike pair 2026-06-01) — REVERSES the prior
+            2026-05-27 'empty cell = unchanged indicator' design. An
+            UNCHANGED leaf-scalar row (`:changed? false`) now renders the
+            CURRENT value with NO diff chrome — no `← was` annotation, no
+            stripe / wash, no glyph. Density is handled by the
+            all/changed/unchanged filter, so showing the value here is
+            fine. The wrapper carries `:data-rf-xray-subs-leaf
+            \"unchanged\"` and is NOT the changed / added wrapper."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      ;; render in `:all` mode so the unchanged row is in the tree.
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all])
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                          :inputs nil :changed? false :first-run? false
+                          :before 7 :after 7}]
+                  :changed 0 :unchanged 1}
+            tree (view/render-subscriptions-step step)
+            leaf (th/find-by-testid tree "rf-xray-epoch-subs-leaf-unchanged-0")]
+        (is (some? leaf)
+            "unchanged leaf mounts the leaf-unchanged wrapper")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
+            "the changed wrapper is NOT mounted for an unchanged row")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
+            "the added wrapper is NOT mounted for an unchanged row")
+        (is (nil? (th/find-by-attr tree :data-rf-diff-annotation "subs-was"))
+            "unchanged row carries NO `← was <prev>` annotation")
+        (let [style (-> leaf second :style)]
+          (is (nil? (:background style))
+              "unchanged leaf paints no wash (no diff chrome)")
+          (is (nil? (:border-left style))
+              "unchanged leaf paints no stripe (no diff chrome)"))
+        (let [txt (th/text-content leaf)]
+          (is (string/includes? txt "7")
+              "the current value renders")
+          (is (not (string/includes? txt "~"))
+              "no `~` modified glyph on an unchanged row")
+          (is (not (string/includes? txt "← was"))
+              "no `← was` annotation on an unchanged row"))))))
 
 (deftest subscriptions-full-diff-leaf-scalar-first-run-renders-added-chrome-test
   (testing "rf2-fyd8u — under the single FULL+DIFF rendering, a
