@@ -2,7 +2,23 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or capturing the current frame in an async callback via `dispatcher`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or carrying the current frame into an async callback via `frame-handle` / `frame-bound-fn`.
+
+## The teaching model: choose by intent
+
+Most apps never touch any of this — a single-frame app just calls `rf/dispatch` / `rf/subscribe` and the framework resolves `:rf/default`. Reach for a frame affordance only when one of these intents applies:
+
+| Intent | Affordance |
+|---|---|
+| Single frame (the default) | `dispatch` / `dispatch-sync` / `subscribe` — no frame talk at all |
+| Pin a lexical scope to an existing frame | `with-frame` |
+| Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
+| Scope a React subtree to a frame | `frame-provider` |
+| Hold a frame's ops as a value (async / closures) | `frame-handle` (common); `frame-bound-fn` / `frame-bound-fn*` (advanced) |
+| One-off explicit routing | `{:frame …}` opt on `dispatch` / `subscribe` |
+| Read a frame's app-db / its id | `frame-db` / `current-frame-id` |
+
+A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback uses `frame-bound-fn`.
 
 ## What a frame is
 
@@ -24,8 +40,8 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 (rf/reset-frame!   :frame-id)        ;; destroy + re-register with same config
 
 ;; Inspect.
-(rf/current-frame)                  ;; returns the active frame id
-(rf/get-frame-db :frame-id)         ;; current app-db VALUE (plain map, no deref)
+(rf/current-frame-id)               ;; returns the active frame id
+(rf/frame-db :frame-id)             ;; current app-db VALUE (plain map, no deref)
 ```
 
 Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`.
@@ -38,23 +54,35 @@ Three tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`):
 2. **React context** (CLJS only) — read via the `:adapter/current-frame` late-bind hook, populated by the installed adapter under a `frame-provider`.
 3. **`:rf/default`** — fallback when neither of the above applies.
 
-`dispatch` and `subscribe` default `:frame` to `(rf/current-frame)`. To target an explicit frame:
+`dispatch` and `subscribe` default `:frame` to `(rf/current-frame-id)`. To target an explicit frame, use the `{:frame …}` opt — the first-class explicit-routing surface (tools, tests, SSR, fx handlers), not a workaround:
 
 ```clojure
 (rf/dispatch  [:foo]      {:frame :stories})
-(rf/subscribe [:my-sub])                          ;; uses current-frame
+(rf/subscribe [:my-sub])                          ;; uses current-frame-id
 ```
 
-## Capturing the frame in async callbacks
+## Carrying the frame into async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the dynamic var binding is gone by the time it runs. Capture the frame at call time with `dispatcher` / `subscriber`:
+When you `setTimeout` or hand a callback to a promise, the ambient frame binding (dynamic var → React context) is gone by the time it runs. The keystone affordance is **`frame-handle`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops always target the captured frame and survive async boundaries:
 
 ```clojure
-(let [d (rf/dispatcher)]
-  (.then promise #(d [:result-arrived %])))
+(let [{:keys [dispatch]} (rf/frame-handle)]        ;; captures the ambient frame now
+  (.then promise #(dispatch [:result-arrived %])))
 ```
 
-The verb-form names imply capture-at-call-time semantics; earlier `bound-dispatcher` / `bound-subscriber` aliases were cut as redundant.
+`(rf/frame-handle)` captures `(current-frame-id)`; `(rf/frame-handle :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/frame-db (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
+
+For an arbitrary callback body (not just dispatch / subscribe), wrap it so `*current-frame*` is re-established inside:
+
+```clojure
+;; macro: fn-syntax sugar
+(.then promise (rf/frame-bound-fn [result] (rf/dispatch [:result-arrived result])))
+
+;; *-twin: wrap an existing fn value (HoF / programmatic)
+(.then promise (rf/frame-bound-fn* on-result))
+```
+
+`frame-bound-fn*` takes `(f)` (capture `current-frame-id` at wrap time) or `(frame-id f)` (explicit). Prefer `frame-handle` for the common dispatch / subscribe case; reach for `frame-bound-fn` / `frame-bound-fn*` when the callback body itself needs the ambient binding (e.g. it calls `current-frame-id` or nested registrations).
 
 ## Canonical mini-example
 
@@ -67,7 +95,7 @@ Per-test isolated frame, from `examples/reagent/login/core.cljs`:
                                        {:email "user@example.com"
                                         :password "correct-horse"}]]
                     {:frame f})
-  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/get-frame-db f)))))
+  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-db f)))))
 ```
 
 Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination.
@@ -98,7 +126,7 @@ User-supplied keys win on conflict with preset expansion.
 
 ## `frame-provider` in views
 
-Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame` to a chosen id:
+Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a chosen id:
 
 ```clojure
 [rf/frame-provider {:frame :stories} [my-story-shell]]

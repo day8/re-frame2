@@ -48,7 +48,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 
 - **Live runtime.** The browser JS runtime behind `shadow-cljs watch`.
 - **Reactive graph.** re-frame2's subscription signal graph, with value-equal recompute suppression.
-- **Per-frame state.** Each frame's `app-db` is reachable via `(rf/get-frame-db frame-id)` and `(rf/snapshot-of path opts)`.
+- **Per-frame state.** Each frame's `app-db` is reachable via `(rf/frame-db frame-id)` and `(rf/snapshot-of path opts)`.
 - **Writes.** `dispatch` (with `:origin :pair` opt), `reg-*` re-registration, `restore-epoch`, container reset (rare).
 - **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#how-ai-tools-attach).
 - **Connection mechanism.** nREPL -> shadow-cljs -> browser runtime.

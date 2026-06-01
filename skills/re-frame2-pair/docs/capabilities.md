@@ -31,7 +31,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Capability | Status | Notes |
 |---|---|---|
-| Read all of `app-db` for any frame | *done* | `app-db/snapshot` via `rf/get-frame-db` |
+| Read all of `app-db` for any frame | *done* | `app-db/snapshot` via `rf/frame-db` |
 | Read a specific path | *done* | `app-db/get` via `rf/snapshot-of` |
 | Diff `app-db` before/after one event | *done* | Each `:rf/epoch-record` carries `:db-before` and `:db-after`; `epoch-diff` returns the projected `{:only-before :only-after :common}` |
 | List registered handlers | *done* | `registrar/list <kind>` over `rf/registrations` |

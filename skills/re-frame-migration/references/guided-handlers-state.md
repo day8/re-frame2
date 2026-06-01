@@ -83,7 +83,7 @@ Present every call site with its file:line and the four options; collect the aut
 **Decision shape** (per component-under-frame pair):
 
 1. **Convert to `reg-view`**. Replace `(defn my-view [args] ...)` with `(rf/reg-view ^{:doc "..."} my-view [args] ...)`. The view picks up the surrounding frame correctly. Recommended.
-2. **Use `(rf/dispatcher)` / `(rf/subscriber)` render-time helpers**. Inside the plain fn body, capture the frame-bound dispatcher / subscriber and replace bare `dispatch` / `subscribe` calls.
+2. **Hold a `(rf/frame-handle)`**. Inside the plain fn body, capture the frame's operation bundle once and route through it: `(let [{:keys [dispatch subscribe]} (rf/frame-handle)] ...)`, then call `(dispatch [...])` / `(subscribe [...])` instead of the bare `rf/dispatch` / `rf/subscribe`. The handle captures the surrounding frame at render time and (unlike the ambient binding) survives into any async callback the body sets up.
 3. **Leave as-is**. The author accepts that the component pins to `:rf/default` regardless of where it renders. Sometimes intentional (a "global" UI primitive); document why.
 
 ---

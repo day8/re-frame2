@@ -41,7 +41,7 @@
 
 (def frame-dbs
   "frame-id -> atom holding the frame's app-db. Stand-in for the real
-   container behind `rf/get-frame-db` and the targets of `rf/subscribe`."
+   container behind `rf/frame-db` and the targets of `rf/subscribe`."
   (atom {}))
 
 (defn register-frame!

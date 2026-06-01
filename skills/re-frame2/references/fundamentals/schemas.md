@@ -24,7 +24,7 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 
 Verified: `reg-app-schema` macro at `implementation/core/src/re_frame/core.cljc:527`; the query fns at `:571-597`; the validator seam at `:599-622`.
 
-Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame)`; pass `{:frame :other}` in `opts` to target another.
+Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
 ## What `:schema` does on a handler
 

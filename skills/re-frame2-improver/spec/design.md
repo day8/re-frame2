@@ -14,7 +14,7 @@ Success criterion: the user asks "review my re-frame2 code for anti-patterns" wi
 
 The same four pillars as the `re-frame2` skill, adapted to the critique domain:
 
-1. **Implementation is ground truth.** Every cross-link routes to a real `skills/re-frame2/patterns/` leaf or `spec/` document, and every API the leaves cite (`:rf.http/managed`, `validate-at-boundary-interceptor`, `reg-app-schema`, `machine-has-tag?`, `compute-sub`, `dispatch-sync` + `get-frame-db`) exists in both `spec/` and `implementation/`. A critique skill that cites a non-existent idiom undermines its own authority — fabricated evidence is the cardinal failure mode.
+1. **Implementation is ground truth.** Every cross-link routes to a real `skills/re-frame2/patterns/` leaf or `spec/` document, and every API the leaves cite (`:rf.http/managed`, `validate-at-boundary-interceptor`, `reg-app-schema`, `machine-has-tag?`, `compute-sub`, `dispatch-sync` + `frame-db`) exists in both `spec/` and `implementation/`. A critique skill that cites a non-existent idiom undermines its own authority — fabricated evidence is the cardinal failure mode.
 2. **Diagnosis before contribution.** The deliverable is the finding. Edits are gated; higher-leverage redesigns stay as suggestions.
 3. **Right layer of fix.** A finding routes to the canonical idiom that owns the surface (subs / events / fx / schemas / state machines / managed HTTP), not to a generic "read the spec".
 4. **Don't teach what the agent already knows.** No verification module, no "run the tests" hard rule — the agent applies the rules; the author runs the build. This matches the `re-frame2` family's Q14 lock.

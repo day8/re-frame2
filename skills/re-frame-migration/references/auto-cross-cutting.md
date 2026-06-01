@@ -196,15 +196,13 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 (rf/reg-view ^{:rf/id :ns/my-view} my-view [args] body)
 ```
 
-Inside the body, drop `(rf/dispatcher)` / `(rf/subscriber)` captures — `dispatch` and `subscribe` are auto-injected:
+Inside the body, the `reg-view` macro injects frame-aware `dispatch` / `subscribe` locals — call them bare (no `rf/` qualifier, no frame-capture). If a v2-pre-rename body holds the legacy `(rf/dispatcher)` / `(rf/subscriber)` captures, drop them (M-67); the injected locals do the same job:
 
 ```clojure
 ;; SEARCH (inside reg-view body)
-(let [d (rf/dispatcher)
-      s (rf/subscriber)]
-  [:button {:on-click #(d [:inc])} @(s [:count])])
+[:button {:on-click #(rf/dispatch [:inc])} @(rf/subscribe [:count])]
 
-;; REWRITE
+;; REWRITE — use the injected frame-aware locals
 [:button {:on-click #(dispatch [:inc])} @(subscribe [:count])]
 ```
 
