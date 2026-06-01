@@ -28,22 +28,36 @@
   to whatever's published; absent any publisher they soft-pass per the
   Spec 010 §Recommended soft-pass rule.
 
-  Users opt in by requiring this namespace at app boot — same pattern
-  on both CLJS and the JVM (rf2-qyfie removed the JVM `requiring-resolve`
-  fallback so the contract is symmetrical):
+  Post-rf2-v96fh (schema implies validation) apps do NOT require this
+  namespace explicitly: the `re-frame.schemas` facade `:require`s it for
+  its ns-load side effect, so loading the schemas artefact publishes the
+  Malli hooks automatically and the default validator is LIVE the moment
+  a schema is registered — same on both CLJS and the JVM (rf2-qyfie
+  removed the JVM `requiring-resolve` fallback so the contract is
+  symmetrical):
 
       (ns my-app.core
         (:require [re-frame.core :as rf]
-                  [re-frame.schemas]         ;; load the schemas artefact
-                  [re-frame.schemas.malli])) ;; publish Malli into the hook table
+                  [re-frame.schemas])) ;; transitively loads this adapter
 
-  Apps that want to drop the Malli surface entirely (per rf2-qnxf
-  bundle audit) do NOT require this namespace and either:
+  (A standalone `(:require [re-frame.schemas.malli])` still works and is
+  harmless — the hook publication is idempotent — but is no longer
+  required. Pre-v96fh it WAS the opt-in: the adapter had to be required
+  separately or schemas soft-passed silently.)
 
-    - Leave the default in place (soft-pass; no failure traces fire).
-    - Call `(rf/set-schema-validator! my-validator-fn)` at boot to
-      install a custom validator.
-    - Call `(rf/set-schema-validator! nil)` for a hard no-op."
+  Because the facade pulls Malli in, the only Malli-FREE posture is to
+  not require `re-frame.schemas` at all (per rf2-qnxf bundle audit — the
+  no-feature counter reference app). An app that DOES use schemas but
+  wants to drop Malli's validation *behaviour* (it still pays the bundle
+  cost under static CLJS compilation, since requiring the facade loads
+  this ns's body) either:
+
+    - Calls `(rf/set-schema-validator! my-validator-fn)` at boot to
+      install a custom validator, or
+    - Calls `(rf/set-schema-validator! nil)` for a hard no-op.
+
+  See the `re-frame.schemas` ns docstring (rf2-v96fh) for the full
+  bundle-isolation tradeoff."
   (:require [malli.core]
             [malli.error]
             [re-frame.late-bind :as late-bind]))

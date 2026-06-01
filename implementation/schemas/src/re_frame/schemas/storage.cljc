@@ -63,20 +63,35 @@
 ;;
 ;; Per Spec 010 §Recommended soft-pass, the schemas artefact ships with a
 ;; Malli-delegating default validator that returns true ("pass") when the
-;; `:schemas/malli-validate` late-bind hook is unbound — i.e. when the
-;; `re-frame.schemas.malli` adapter ns hasn't been required at app boot.
-;; This is intentional (apps that swap in a non-Malli validator must work),
-;; but it has a footgun: a `reg-app-schema` call WITH the default validator
-;; AND no Malli adapter loaded validates nothing. Boundary-validated
-;; handlers silently accept untrusted input.
+;; `:schemas/malli-validate` late-bind hook is unbound — i.e. when nothing
+;; has published Malli's `validate` into the late-bind table. This is
+;; intentional (apps that swap in a non-Malli validator must work), but a
+;; `reg-app-schema` call WITH the default validator AND that hook unbound
+;; validates nothing — boundary-validated handlers silently accept
+;; untrusted input. This warning is the dev-time nudge for that state.
+;;
+;; Post-rf2-v96fh (schema implies validation) the *common* path can no
+;; longer reach it: the `re-frame.schemas` facade now `:require`s
+;; `re-frame.schemas.malli` itself, so loading the schemas artefact binds
+;; `:schemas/malli-validate` at ns-load and the default validator is LIVE
+;; the moment a schema is registered. The warning therefore fires only in
+;; the two residual cases — symmetric with `validator.cljc`'s soft-pass
+;; fallback doc:
+;;   (1) a non-Malli port / app that installed its own validator via
+;;       `set-schema-validator!` but left the Malli hook unbound (it
+;;       opted out of Malli, so condition 2 below is false — NO warning;
+;;       see the closing note), or
+;;   (2) a test harness that deliberately unbinds `:schemas/malli-validate`
+;;       to exercise the absent-validator path.
 ;;
 ;; The warning fires once per process from `reg-app-schema` /
-;; `reg-app-schemas` when:
+;; `reg-app-schemas` when BOTH hold:
 ;;   1. `:schemas/malli-validate` late-bind hook is unbound, AND
 ;;   2. `validator-fn` is still the framework default.
 ;;
 ;; Apps that registered a non-default validator (a Zod port, clojure.spec
-;; bridge, etc.) opted out of Malli explicitly — no warning.
+;; bridge, etc.) opted out of Malli explicitly — condition 2 is false, so
+;; no warning.
 
 (defonce ^:private validator-unavailable-warned
   ;; Process-lifecycle one-shot. Reset by `clear-validator-unavailable-warned!`
@@ -371,12 +386,15 @@
          meta         (source-coords/merge-coords
                         {:schema schema :path path :frame frame-id})]
      (swap! schemas-by-frame assoc-in [frame-id path] meta)
-     ;; Per rf2-fq7d2: dev-time nudge when the Malli adapter is unloaded
-     ;; AND the framework-default validator is still installed — the
-     ;; default soft-passes per Spec 010 §Recommended soft-pass, so a
-     ;; reg-app-schema with no validator wired up validates nothing.
-     ;; Production elides via the outer `interop/debug-enabled?` gate
-     ;; (Spec 009 §Production builds).
+     ;; Per rf2-fq7d2: dev-time nudge when `:schemas/malli-validate` is
+     ;; unbound AND the framework-default validator is still installed —
+     ;; the default soft-passes per Spec 010 §Recommended soft-pass, so a
+     ;; reg-app-schema with no validator wired up validates nothing. Note
+     ;; that post-rf2-v96fh the facade auto-requires the Malli adapter, so
+     ;; this only fires for a substitute-validator port or a test that
+     ;; unbinds the hook (see the warning block above). Production elides
+     ;; via the outer `interop/debug-enabled?` gate (Spec 009 §Production
+     ;; builds).
      (when interop/debug-enabled?
        (maybe-warn-validator-unavailable!)
        ;; Per rf2-jsokn: dev-time nudge when the registered schema is
