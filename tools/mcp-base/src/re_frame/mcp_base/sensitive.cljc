@@ -24,8 +24,9 @@
   predicate-style `?` is rejected there. The predicate FUNCTION name
   `include-sensitive?` retains its `?` (the idiom belongs on the
   predicate, not on a data key whose wire form disallows it).
-  story-mcp ships the renamed wire-key (rf2-y710n); re-frame2-pair-mcp still
-  carries `:include-sensitive?` pending rf2-ihq4d.
+  Both servers now ship the unqualified wire-key: story-mcp (rf2-y710n)
+  and re-frame2-pair-mcp (rf2-ihq4d) — the cross-server arg name is
+  uniform.
 
   ## Why this ns is zero-dep
 

@@ -8,7 +8,9 @@
   pairs into vectors so multi-valued headers (Set-Cookie, Vary,
   Link, ...) round-trip correctly."
   (:require [clojure.string :as str]
-            [re-frame.ssr.ring.cookie :as cookie]))
+            [re-frame.interop :as interop]
+            [re-frame.ssr.ring.cookie :as cookie]
+            [re-frame.trace :as trace]))
 
 (set! *warn-on-reflection* true)
 
@@ -24,8 +26,37 @@
   the `string?` arm does (existing scalar → `[existing v]`); without it
   the `cond` would return `nil`, silently wiping the ENTIRE accumulated
   header map mid-fold (Content-Type, Set-Cookie, everything folded so
-  far) — a silent-failure header-loss bug."
+  far) — a silent-failure header-loss bug.
+
+  ## Dev-gated non-string warning (rf2-b0jlr)
+
+  The fold tolerates a non-string value (the `:else` arm above) so a
+  scalar that slipped past the fx-boundary name/value gates can't take
+  down the whole header map. But a non-string value here is host-
+  dependent and almost certainly a CALLER bug — Ring's `:headers`
+  contract is string OR vector-of-strings, and a number / keyword /
+  boolean reaching the wire is undefined behaviour at the servlet
+  layer. Rather than silently coercing (`(str v)`) or silently passing
+  it through, we surface it: a dev-gated `:warning` trace naming the
+  offending header key and the value's type. Production builds elide
+  the whole check (the `interop/debug-enabled?` gate + `trace/emit!`'s
+  own Closure-DCE gate), keeping the hot fold branchless on the wire.
+  Aligns with the no-silent-swallow posture (cf. the redirect-no-target
+  warning in `pipeline`)."
   [m [k v]]
+  (when (and interop/debug-enabled? (not (string? v)))
+    (trace/emit! :warning :rf.ssr/ssr-non-string-header-value
+                 {:where      :ssr-ring/merge-pair-into-header-map
+                  :header     k
+                  :value-type (some-> v class .getName)
+                  :reason     (str "header " (pr-str k) " carries a non-string "
+                                   "value of type "
+                                   (or (some-> v class .getName) "nil")
+                                   " — Ring header values must be strings (or a "
+                                   "vector of strings); the fold passes it through "
+                                   "verbatim, but this is host-dependent and almost "
+                                   "certainly a caller bug")
+                  :recovery   :warned-and-passed-through}))
   (let [existing (get m k)]
     (cond
       (nil? existing)        (assoc m k v)

@@ -13,7 +13,7 @@ This doc is one of eight per-namespace contracts indexed from [`README.md`](READ
 - The `strip-sensitive` walker (returns `[kept dropped-count]`).
 - The `scrub-snapshot` walker that strips `:traces` / `:epochs` slices from each per-frame snapshot map.
 - The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`) — operator-surface observability for the rf2-ih7g4 fail-closed posture; bumped every time a non-boolean truthy `:sensitive?` stamp arrives and is dropped + logged.
-- The fixed cross-server arg-vocabulary name (`:include-sensitive?`) every MCP tool surfacing trace-like data MUST accept.
+- The fixed cross-server arg-vocabulary name (`:include-sensitive`) every MCP tool surfacing trace-like data MUST accept.
 
 `sensitive` does NOT own:
 
@@ -63,13 +63,12 @@ Two arities:
 
 ## Cross-server arg-vocabulary convention
 
-The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices) — but the **wire-key spelling is in-flight** today:
+The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices) — and the **wire-key spelling is now uniform** across every server:
 
-- **story-mcp** ships the unqualified `:include-sensitive` (no trailing `?`, per rf2-y710n — the Anthropic tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`).
-- **re-frame2-pair-mcp** still ships `:include-sensitive?` (with `?`) pending rf2-ihq4d.
+- **story-mcp** (rf2-y710n) and **re-frame2-pair-mcp** (rf2-ihq4d) both ship the unqualified `:include-sensitive` (no trailing `?` — the Anthropic tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`).
 - The walker option key inside the framework (`vocab/include-sensitive-opt`) is the namespaced `:rf.size/include-sensitive?` — internal, not a wire-key, so the predicate `?` is retained.
 
-When rf2-ihq4d lands and pair-mcp drops the `?`, this section becomes a single fixed claim again. Until then, treat the cross-server wire-key as a **policy + behaviour** pin, not a literal-spelling pin; the literal each server accepts is documented in its own tool catalogue.
+The cross-server wire-key is a fixed literal-spelling pin: every server accepts `:include-sensitive` (the per-server tool catalogue documents the same literal).
 
 The default-OFF posture aligns with the framework's privacy-by-default stance (per [`../../../spec/Security.md` §Privacy / secret handling](../../../spec/Security.md#privacy--secret-handling) and [`../../../spec/Conventions.md` §Privacy config-knob naming](../../../spec/Conventions.md)).
 
@@ -83,13 +82,13 @@ Consumers that want to bind to the framework primitive (story-mcp does, for code
 
 The `:dropped-sensitive` envelope slot rides alongside `:elided-large` per the indicator-field parity rule (per [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)). Both slots are MUST-level — the conformance gate at `tools/mcp-conformance/wire-vocab/` asserts parity.
 
-The privacy default — `:include-sensitive?` defaults `false` — is enforced via the per-tool argument schema in each consumer; the conformance harness drives every tool with a payload that includes a `:sensitive? true` event and asserts the response envelope's `:dropped-sensitive` counter is non-zero, with the sensitive event absent from the response body.
+The privacy default — `:include-sensitive` defaults `false` — is enforced via the per-tool argument schema in each consumer; the conformance harness drives every tool with a payload that includes a `:sensitive? true` event and asserts the response envelope's `:dropped-sensitive` counter is non-zero, with the sensitive event absent from the response body.
 
 ## See also
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`../../../spec/009-Instrumentation.md` §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md) — the framework's `:sensitive?` substrate this filter consumes.
 - [`../../../spec/Security.md` §Privacy / secret handling](../../../spec/Security.md#privacy--secret-handling) — the pattern-level privacy MUSTs the filter enforces.
-- [`../../../spec/Conventions.md` §Privacy config-knob naming](../../../spec/Conventions.md) — the `:include-sensitive?` (wire) vs `:show-sensitive?` (UI) verb split.
+- [`../../../spec/Conventions.md` §Privacy config-knob naming](../../../spec/Conventions.md) — the `include-sensitive?` (off-box wire-egress verb) vs `show-sensitive?` (on-box UI verb) split. Note the verb keeps the `?`; the MCP tool-input *wire-key* drops it (`:include-sensitive`) per the Anthropic schema regex.
 - [`vocab.md`](vocab.md) — the marker keyword + envelope-slot catalogue this filter populates.
 - [`elision.md`](elision.md) — the size-elision counterpart; both indicator slots ride the response envelope together.

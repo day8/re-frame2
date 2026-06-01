@@ -17,7 +17,7 @@ This doc is one of eight per-namespace contracts indexed from [`README.md`](READ
 
 - Platform-specific argument extraction (each consumer extracts the raw value from its platform's args object before calling these parsers).
 - The argument schemas themselves (each tool's argument schema is owned by the tool's `spec/` folder).
-- The arg-name vocabulary (`:include-sensitive?`, `:dedup`, etc.) — that's a cross-server convention pinned by each consumer's tool catalogue and the conformance gate.
+- The arg-name vocabulary (`:include-sensitive`, `:dedup`, etc.) — that's a cross-server convention pinned by each consumer's tool catalogue and the conformance gate.
 
 ## Cross-server convention
 
@@ -86,5 +86,5 @@ Per-parser fixture tests live in `tools/mcp-base/test/`. Cross-consumer conventi
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md) — the framework counterpart to this ns's keyword-safety rule.
-- [`../../../spec/Security.md` §Privacy / secret handling](../../../spec/Security.md#privacy--secret-handling) — the broader privacy posture this ns's `:include-sensitive?` convention is part of.
+- [`../../../spec/Security.md` §Privacy / secret handling](../../../spec/Security.md#privacy--secret-handling) — the broader privacy posture this ns's `:include-sensitive` convention is part of.
 - [`vocab.md`](vocab.md) — the marker-key catalogue agents pattern-match on once the parsers have normalised the args.
