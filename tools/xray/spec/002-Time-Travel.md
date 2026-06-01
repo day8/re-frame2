@@ -24,7 +24,7 @@ The **scrubber** (the ribbon `[◀ ▶ ⏭]` cluster + the L2 event list,
 per [`018-Event-Spine.md`](018-Event-Spine.md) §6) lets the programmer
 walk history **without disturbing the live app**. Scrubbing is
 **passive** — every Xray panel rebases to show "what the world looked
-like at epoch N" — but `(rf/get-frame-db ...)` still returns the live
+like at epoch N" — but `(rf/frame-db ...)` still returns the live
 value. The user's mouse clicks against the app still hit live state.
 
 Rewinding the runtime is **explicit and confirmed** — a `Rewind here`
@@ -135,7 +135,7 @@ Dragging the scrubber rebases every panel's view of history. The
 Epoch panel rebases to the dragged-to epoch. The app-db panel
 shows the historical snapshot.
 
-But `(rf/get-frame-db ...)` continues to return the live value. The
+But `(rf/frame-db ...)` continues to return the live value. The
 live app behind Xray does **not** rebase visually. The user's mouse
 clicks against the app still hit the live state.
 

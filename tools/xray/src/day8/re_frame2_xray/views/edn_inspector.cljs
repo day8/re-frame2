@@ -2795,10 +2795,11 @@
   ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-kcaiz pin)
 
   Both gestures dispatch through the lexically-captured `dispatch-fn` —
-  the frame-aware dispatcher the surrounding `reg-view` body bound via
-  `(:dispatch (rf/frame-handle))` at render time. The closure captured the instance
-  frame synchronously during render, so the dispatch lands on the
-  SURROUNDING instance frame even though the gesture fires later (after
+  the frame-bound `dispatch` the surrounding `reg-view` body injects
+  (the macro expands it over a `frame-handle` capturing the render
+  frame). The handle bound the instance frame synchronously during
+  render, so the dispatch lands on the SURROUNDING instance frame even
+  though the gesture fires later (after
   React's synthetic-event timing has popped the dynamic frame context).
   This is the same shape as `on-toggle` — the zoom slot is per-frame, so
   the write must land on the instance frame, NOT a `:rf/xray` literal
@@ -2964,12 +2965,12 @@
   ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-7sdja pin)
 
   The popup OPEN event dispatches through the lexically-captured
-  `dispatch-fn` — the frame-aware dispatcher the surrounding `reg-view`
-  body bound via `(:dispatch (rf/frame-handle))` at render time. The closure captured
-  `(current-frame)` synchronously during render, so the popup-open
-  write lands on the SURROUNDING instance frame even though the click
-  fires after React's synthetic-event timing has popped the dynamic
-  frame context.
+  `dispatch-fn` — the frame-bound `dispatch` the surrounding `reg-view`
+  body injects (the macro expands it over a `frame-handle` capturing the
+  render frame). The handle bound the instance frame synchronously
+  during render, so the popup-open write lands on the SURROUNDING
+  instance frame even though the click fires after React's
+  synthetic-event timing has popped the dynamic frame context.
 
   The popup stack-view (`edn-inspector-popup-stack` in `shell.cljs`) is
   mounted inside the shell's `[rf/frame-provider {:frame frame-id}]`, so

@@ -301,11 +301,11 @@
   B), the tab carries `role='tab'` + `aria-selected` so assistive
   tech reads it as a tab, not a generic button."
   [dispatch {:keys [id label mnem active?]}]
-  ;; rf2-nesy9 — `dispatch` is the frame-aware dispatcher injected by
+  ;; rf2-nesy9 — `dispatch` is the frame-bound `dispatch` injected by
   ;; the `tab-bar` reg-view body and threaded in here (a plain fn
   ;; invoked as a Reagent component renders in its OWN cycle, so
-  ;; `current-frame` would fall through to :rf/default — threading the
-  ;; captured dispatcher is the reliable path).
+  ;; `current-frame-id` would fall through to :rf/default — threading the
+  ;; injected `dispatch` is the reliable path).
   (let [glyph    (if active? "◉" "○")
         color    (if active? (:text-primary tokens) (:text-secondary tokens))
         ;; rf2-plajx — mirror the Dynamic tab-button pattern: stable

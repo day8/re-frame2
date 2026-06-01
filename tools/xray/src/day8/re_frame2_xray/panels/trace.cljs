@@ -535,7 +535,7 @@
   ;; rf2-nesy9 — capture the surrounding instance frame at render time
   ;; so the deferred row handlers dispatch into it, not a `:rf/xray`
   ;; literal. op-row-attrs is invoked during the Trace Panel reg-view's
-  ;; render, so `current-frame` resolves through the React-context tier.
+  ;; render, so `current-frame-id` resolves through the React-context tier.
   (let [frame       (rf/current-frame-id)
         row-test-id (str "rf-xray-trace-row-" id)
         severity?   (#{:error :warning} area)

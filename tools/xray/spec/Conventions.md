@@ -115,7 +115,7 @@ The facade's `reg-view` body is either:
   (Spec 004 §Plain Reagent fns / Spec 006 §706). The plain-call form
   keeps the leaf body executing within the facade reg-view wrapper's
   render — the wrapper IS the in-flight Reagent component, so
-  `current-frame` reads `:rf/xray` from React context and the leaf's
+  `current-frame-id` reads `:rf/xray` from React context and the leaf's
   subs/dispatches see the Xray frame. (rf2-043uz pinned this — an
   earlier slash-popover surface never opened because the input-row
   leaf's input-text subscribe was routed to `:rf/default` while the
