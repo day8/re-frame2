@@ -11,8 +11,10 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the twenty-two
-re-frame2-pair ops as MCP tools (twenty read/inspect/action ops plus the
+via shadow-cljs to a single `.js` file) that exposes the twenty-five
+re-frame2-pair ops as MCP tools (twenty-three read/inspect/action ops —
+including the operating-frame trio `set-operating-frame` /
+`reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
 two write tools `restore-epoch` / `reset-frame-db`, which are gated behind
 `--allow-writes`). The authoritative ordered catalogue is `registry/tools`
 ([`src/re_frame2_pair_mcp/tools/registry.cljs`](src/re_frame2_pair_mcp/tools/registry.cljs));
@@ -52,6 +54,9 @@ cljs-eval compile.
 | `list-streams` | _(new — no bash equivalent)_ | List active **streaming-tap** subscriptions with per-sub queue depth, drop counts, and `:overflow-reason`. Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps `subscription-info` directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. (rf2-qicji: the streaming diagnostic `list-subscriptions` formerly carried.) |
 | `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.source/uri` jump-to-editor link (rf2-pctf8). Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. |
 | `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same eleven supported kinds as `handler-meta`. |
+| `set-operating-frame` | _(new — no bash equivalent)_ | Pin the session's **operating frame** so frame-targeted ops resolve to it without a per-call `frame` (rf2-zomfq). The escape from `:ambiguous-frame` in multi-frame apps (tier 2 of the resolution table). Validates the frame-id is registered — unknown → `:reason :no-such-frame`. |
+| `reset-operating-frame` | _(new — no bash equivalent)_ | Clear the session's operating-frame pin (rf2-zomfq). Subsequent ops resolve at tier 3 / 4 again. Returns the post-reset triple. |
+| `get-operating-frame` | _(new — no bash equivalent)_ | Report the operating-frame triple `{:frames :selected :operating}` (rf2-zomfq) — all registered frames, the session pin, and the resolved frame (`:operating nil` = ambiguous). Pure read. |
 | `get-re-frame2-pair-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for re-frame2-pair-mcp (rf2-fnpqg): tool catalogue, EDN posture, tagged-mutation conventions, streaming subscribe semantics, wire-boundary pipeline. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
 
 ## Quick start
@@ -525,7 +530,7 @@ tools/re-frame2-pair-mcp/
 │   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the twenty-two MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
+    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the twenty-five MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
     ├── tools.cljs                            ; tools/call dispatcher (resolves handlers from registry)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/

@@ -6,19 +6,24 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The twenty-two MCP tools. All twenty-two are catalogued below; the
+The twenty-five MCP tools. All twenty-five are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
-rf2-4y595 for NAMING.md `list-<things>` conformance), the write pair
-`restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the Tool-Pair
-time-travel + state-injection primitives, gated behind `--allow-writes`),
-`dispatch-dry-run` (rf2-17hvp — simulate a cascade without
+rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
+trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
+(rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
+surface the session frame pin, the escape from tier-4 `:ambiguous-frame`),
+the write pair `restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the
+Tool-Pair time-travel + state-injection primitives, gated behind
+`--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
 committing), the view-plane read `read-dom` (rf2-nfjil), and the signal
 recorder `record` + `read-recording` + `watch-until` (rf2-zo4b9 — the
 first-class recorder for races + watch sessions) live in the live
 registry at
 [`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
 and have full per-tool sections here.
+
+[tsobl]: ../../../spec/Tool-Pair.md#tool-surface-obligations
 
 ## Universal: wire-boundary token cap
 
@@ -2331,6 +2336,131 @@ surface). No back-compat shim; the old name hard-errors with
 `:unknown-tool`.
 
 **Source**: rf2-pctf8.
+
+## set-operating-frame / reset-operating-frame / get-operating-frame
+
+The three operating-frame ops the [Tool-Pair contract][tsobl] mandates
+(§Tool-surface obligations) for any pair-shaped tool surface. They are
+the MCP-side surfacing of the runtime's **session frame pin** — tier 2
+of the [operating-frame resolution table][resolve] — and are the escape
+from the tier-4 `:ambiguous-frame` refusal a multi-frame app otherwise
+traps an agent in.
+
+[resolve]: ../../../spec/Tool-Pair.md#operating-frame-resolution
+
+### Why these ship (rf2-zomfq)
+
+re-frame2 is multi-frame (Spec 002). Every frame-targeted op (`dispatch`,
+`snapshot`, `get-path`, `subscribe`, `list-subscriptions`, …) resolves an
+*operating frame*: explicit per-call `frame` (tier 1) → **session pin
+(tier 2)** → sole-registered frame (tier 3) → nil (tier 4, ambiguous).
+When two-plus frames are registered and the call omits `frame` and no
+session pin is set, resolution lands at tier 4 and the op REFUSES with
+`{:ok? false :reason :ambiguous-frame}` rather than guess (a write that
+lands in the wrong frame is unrecoverable without `restore-epoch`).
+
+Before rf2-zomfq the runtime exposed `select-frame!` / `current-frame` /
+`frames-list`, but **no MCP tool wired them onto the wire** — so tier 2
+was unreachable from the tool surface and a multi-frame agent had to
+thread `frame` through every single call forever, defeating the
+implicit-until-reset UX the contract designed. These three ops close that
+gap.
+
+### set-operating-frame
+
+Pin the session's operating frame.
+
+**Args**: `frame` (string, **required** — bare `"stories"` or EDN-shaped
+`":stories"`), `build` (string, optional).
+
+Per Tool-Pair §Tool-surface obligations, set **validates** that `frame`
+names a currently-registered frame; an unknown frame returns
+`{:ok? false :reason :no-such-frame :frame <id> :frames [...]}` (the
+registered list rides along so the agent can retarget). Validation and
+the pin write are one eval form — the membership check reads
+`(re-frame2-pair.runtime/frames-list)` and, on a hit, calls
+`(select-frame! <id>)` and returns the fresh triple; no check-then-act
+race across round-trips.
+
+**Returns** the resolved triple on success:
+
+```clojure
+{:ok?       true
+ :frames    [<frame-id> ...]   ;; all registered
+ :selected  <frame-id>         ;; the just-pinned frame (tier-2 pin)
+ :operating <frame-id>}        ;; full resolution — now the pinned frame
+```
+
+**Error envelopes**:
+
+- `{:ok? false :reason :missing-frame :hint "..."}` — no `frame` arg.
+- `{:ok? false :reason :no-such-frame :frame <id> :frames [...] :hint "..."}` — `frame` not registered.
+- `{:ok? false :reason :set-operating-frame-failed :message "..."}` — runtime threw.
+
+### reset-operating-frame
+
+Clear the session pin.
+
+**Args**: `build` (string, optional). No `frame`.
+
+Routes through `(select-frame! nil)` then re-reads the triple so the
+returned shape reflects the cleared pin. After reset, subsequent ops
+resolve at tier 3 / 4 again. Idempotent — resetting when nothing is
+pinned is a no-op that returns the same triple.
+
+**Returns**:
+
+```clojure
+{:ok?       true
+ :frames    [<frame-id> ...]
+ :selected  nil                ;; pin cleared
+ :operating <frame-id|nil>}    ;; tier-3 sole-frame, or nil (ambiguous)
+```
+
+### get-operating-frame
+
+Inspect the operating frame — the **read** op. Routes through
+`(re-frame2-pair.runtime/frames-list)`, the same accessor `discover-app`
+consults, so the two never disagree.
+
+**Args**: `build` (string, optional).
+
+**Returns** the normative triple (per [Tool-Pair §Tool-surface
+obligations][tsobl] — `:frames` / `:selected` / `:operating`):
+
+```clojure
+{:ok?       true
+ :frames    [<frame-id> ...]   ;; (rf/frame-ids) — all registered
+ :selected  <frame-id|nil>     ;; tier-2 session pin (nil = unset)
+ :operating <frame-id|nil>}    ;; full resolution (nil = AMBIGUOUS)
+```
+
+`:operating nil` means ambiguous: two-plus frames and no pin, so a
+frame-targeted op without a per-call `frame` WILL refuse. The triple
+lets a caller render both "you have pinned X" (`:selected`) and "writes
+will go to X" (`:operating`) when the two diverge.
+
+### How they escape `:ambiguous-frame`
+
+A frame-consuming op with no per-call `frame` reads the session pin via
+the runtime's `current-frame` resolver. `set-operating-frame` writes that
+pin; from then on `current-frame` returns the pinned id at tier 2 and the
+op proceeds against it instead of refusing. `reset-operating-frame`
+clears the pin, returning the session to the tier-3/4 default posture.
+The pin lives in the runtime preload's `selected-frame` atom — the SAME
+atom every frame-consuming op consults — so set / get / reset can never
+disagree about where it lives.
+
+### Annotations
+
+`set-operating-frame` / `reset-operating-frame` carry
+`:idempotentHint true` + `:openWorldHint true` (they write *session*
+state over nREPL — NOT `:readOnlyHint`, NOT `:destructiveHint`: a wrong
+pin is corrected by another set / reset, never an irreversible app
+effect). `get-operating-frame` is a pure read on the standard
+idempotent-read-only annotation set.
+
+**Source**: rf2-zomfq.
 
 ## get-re-frame2-pair-instructions
 

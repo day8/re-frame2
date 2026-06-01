@@ -308,6 +308,9 @@
     | list-streams           | yes   | n/a         | n/a               |
     | handler-meta           | yes   | yes         | (short-circuit)   |
     | list-handlers          | yes   | yes         | (short-circuit)   |
+    | set-operating-frame    | yes   | yes         | no-such-frame     |
+    | reset-operating-frame  | yes   | n/a         | n/a               |
+    | get-operating-frame    | yes   | n/a         | ambiguous (nil)   |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
     | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
 
@@ -940,6 +943,117 @@
     [[:default nil]]
     :fixture/expect
     {:isError? false}}
+
+   ;; ---------- operating-frame trio (rf2-zomfq) --------------------------
+   ;; The three Tool-Pair §Tool-surface-obligations ops. The runtime
+   ;; surfaces them via `frames-list` (the {:frames :selected :operating}
+   ;; triple) and `select-frame!`; the tools compose validate-then-pin /
+   ;; clear-then-reread / read forms over those. The corpus pins the
+   ;; outer wire shape + the escape contract: a SET in a multi-frame
+   ;; session makes the next frame-consuming op resolve to the pinned
+   ;; frame instead of refusing with :ambiguous-frame.
+   {:fixture/id    :set-operating-frame/happy
+    :fixture/doc   "set-operating-frame pins a registered frame and returns the resolved triple with :selected = the pinned frame (the tier-2 escape from :ambiguous-frame)."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {:frame ":stories"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; The validate-then-pin form reads frames-list, finds :stories
+     ;; registered, pins it, and re-reads the triple — now :selected
+     ;; :stories, :operating :stories.
+     ["select-frame!"             {:ok? true
+                                   :frames [:rf/default :stories]
+                                   :selected :stories
+                                   :operating :stories}]
+     [:default                    nil]]
+    ;; The emitted form MUST validate against the registered list AND
+    ;; pin via select-frame! — the escape mechanism. The keyword rides
+    ;; as a well-formed :stories, never the malformed ::stories.
+    :fixture/eval-form-must-contain
+    ["frames-list" "select-frame!" ":stories"]
+    :fixture/eval-form-must-not-contain
+    ["::stories"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :selected :stories :operating :stories}
+     :edn-contains-keys #{:frames :selected :operating}}}
+
+   {:fixture/id    :set-operating-frame/no-such-frame
+    :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame and lists the registered frames (Tool-Pair §Tool-surface obligations validation)."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {:frame ":nope"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; :nope is not in frames-list → the form's else branch returns the
+     ;; :no-such-frame envelope WITHOUT calling select-frame!.
+     [:default                    {:ok? false :reason :no-such-frame
+                                   :frame :nope
+                                   :frames [:rf/default :stories]}]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? false :reason :no-such-frame :frame :nope}}}
+
+   {:fixture/id    :set-operating-frame/missing-frame
+    :fixture/doc   "set-operating-frame without :frame surfaces :missing-frame before any nREPL round-trip."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-frame}}
+
+   {:fixture/id    :reset-operating-frame/clears-pin
+    :fixture/doc   "reset-operating-frame clears the session pin (select-frame! nil) and returns the post-reset triple with :selected nil."
+    :fixture/tool  "reset-operating-frame"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; The clear-then-reread form: select-frame! nil, then frames-list
+     ;; reports :selected nil. In a multi-frame app :operating is now nil
+     ;; (back to tier-4 ambiguous).
+     ["select-frame!"             {:ok? true
+                                   :frames [:rf/default :stories]
+                                   :selected nil
+                                   :operating nil}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["select-frame! nil" "frames-list"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :selected nil :operating nil}
+     :edn-contains-keys #{:frames :selected :operating}}}
+
+   {:fixture/id    :get-operating-frame/reports-triple
+    :fixture/doc   "get-operating-frame returns the normative {:frames :selected :operating} triple; :selected reflects a prior set."
+    :fixture/tool  "get-operating-frame"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["frames-list"               {:ok? true
+                                   :frames [:rf/default :stories]
+                                   :selected :stories
+                                   :operating :stories}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :selected :stories :operating :stories}
+     :edn-contains-keys #{:frames :selected :operating}}}
+
+   {:fixture/id    :get-operating-frame/ambiguous
+    :fixture/doc   "get-operating-frame reports :operating nil (AMBIGUOUS) when two-plus frames are registered and nothing is pinned — the tier-4 state the trio escapes."
+    :fixture/tool  "get-operating-frame"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["frames-list"               {:ok? true
+                                   :frames [:rf/default :stories]
+                                   :selected nil
+                                   :operating nil}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :selected nil :operating nil}}}
 
    ;; ---------- get-re-frame2-pair-instructions ------------------------------------
    ;; Inline-text tool (rf2-fnpqg). No nREPL round-trip; the result is a

@@ -183,6 +183,20 @@
   {:readOnlyHint  true
    :openWorldHint true})
 
+(def ^:private session-pin-annotations
+  "Annotations for the session-mutating operating-frame ops
+  (`set-operating-frame`, `reset-operating-frame`, rf2-zomfq). They
+  mutate the per-session frame pin in the runtime preload — NOT app-db,
+  NOT the DOM — so `:readOnlyHint false` (they write *session* state)
+  but NOT `:destructiveHint` (no irreversible app effect; a wrong pin is
+  corrected by another set / reset). `:idempotentHint true`: pinning the
+  same frame twice — or resetting twice — yields the same state.
+  `:openWorldHint true` because they reach the browser runtime over
+  nREPL. `get-operating-frame` is a pure read and rides the plain
+  idempotent-read-only set."
+  {:idempotentHint true
+   :openWorldHint  true})
+
 (def ^:private streaming-final-summary
   "Streaming-tool final-summary envelope (subscribe). The progress
   notifications it emits along the way carry their own shape
@@ -1182,6 +1196,79 @@
                                      :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
                               :build {:type "string"}}
                  :required ["kind"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; set-operating-frame / reset-operating-frame / get-operating-frame
+;; (rf2-zomfq — the three Tool-Pair §Tool-surface-obligations ops)
+;; ---------------------------------------------------------------------------
+
+(def set-operating-frame
+  {:name "set-operating-frame"
+   :description (str "Pin the session's OPERATING FRAME — the frame that frame-targeted ops "
+                     "(dispatch, snapshot, get-path, subscribe, list-subscriptions, …) resolve to "
+                     "when you DON'T pass a per-call :frame. re-frame2 is multi-frame (Spec 002): "
+                     "with two-plus frames registered and no pin, those ops REFUSE with "
+                     ":reason :ambiguous-frame rather than guess a target. Pin once with this op and "
+                     "they resolve to the pinned frame from then on — the escape from :ambiguous-frame "
+                     "(tier 2 of the resolution table). Validates that :frame names a currently-registered "
+                     "frame; an unknown frame returns {:ok? false :reason :no-such-frame :frames [...]}. "
+                     "On success returns the resolved triple {:ok? true :frames [...] :selected <pinned> "
+                     ":operating <resolved>} so you can confirm the pin took. The pin persists for the "
+                     "session (implicit-until-reset); clear it with reset-operating-frame, or a runtime "
+                     "reload clears it automatically. "
+                     "Examples: "
+                     "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories}. "
+                     "2. Unknown frame: {:frame \":nope\"} -> {:ok? false :reason :no-such-frame :frame :nope :frames [:rf/default :stories]}. "
+                     "3. Missing arg: {} -> {:ok? false :reason :missing-frame}.")
+   :typicalTokens 150
+   :annotations session-pin-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:frame {:type "string"
+                                      :description (str "Frame-id to pin as the session operating frame. Accepts bare names "
+                                                        "(\"stories\") or EDN-shaped strings (\":stories\"). MUST name a "
+                                                        "currently-registered frame — call get-operating-frame to list them.")}
+                              :build {:type "string"}}
+                 :required ["frame"]
+                 :additionalProperties false}})
+
+(def reset-operating-frame
+  {:name "reset-operating-frame"
+   :description (str "Clear the session's operating-frame pin set by set-operating-frame. After reset, "
+                     "frame-targeted ops resolve at tier 3 (sole-registered frame) or tier 4 "
+                     "(:ambiguous-frame when two-plus frames are registered and no per-call :frame is "
+                     "passed) again. Returns the post-reset triple {:ok? true :frames [...] :selected nil "
+                     ":operating <resolved-or-nil>}. Idempotent — resetting when nothing is pinned is a "
+                     "no-op that returns the same triple. "
+                     "Examples: "
+                     "1. Clear a pin in a multi-frame app: {} -> {:ok? true :frames [:rf/default :stories] :selected nil :operating nil}. "
+                     "2. Clear in a single-frame app: {} -> {:ok? true :frames [:rf/default] :selected nil :operating :rf/default} (tier-3 sole-frame resolution still applies).")
+   :typicalTokens 150
+   :annotations session-pin-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:build {:type "string"}}
+                 :additionalProperties false}})
+
+(def get-operating-frame
+  {:name "get-operating-frame"
+   :description (str "Report the session's operating-frame state — the normative triple per the Tool-Pair "
+                     "contract (§Tool-surface obligations): :frames (all registered frame-ids, so you can "
+                     "pick a target), :selected (the tier-2 session pin set by set-operating-frame, nil when "
+                     "unset), and :operating (the result of full resolution — nil means AMBIGUOUS: two-plus "
+                     "frames and no pin, so frame-targeted ops without a per-call :frame will refuse). "
+                     "Pure read; reads the SAME frame registry discover-app consults. Call this to find out "
+                     "which frame writes will land in, and whether you need to set-operating-frame first. "
+                     "Examples: "
+                     "1. Single frame, nothing pinned: {} -> {:ok? true :frames [:rf/default] :selected nil :operating :rf/default} (tier-3 sole-frame). "
+                     "2. Multi-frame, nothing pinned (AMBIGUOUS): {} -> {:ok? true :frames [:rf/default :stories] :selected nil :operating nil}. "
+                     "3. Multi-frame with a pin: {} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories}.")
+   :typicalTokens 150
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:build {:type "string"}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
