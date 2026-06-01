@@ -199,6 +199,49 @@
                 ":where :event locates the failure at pre-handler validation")
             (is (= :user/register (-> v :tags :failing-id)))))))))
 
+;; ---- rf2-lo28u — `:cat` + bare-predicate event-args schema --------------
+;;
+;; Regression for the standard_epochs button-18 symptom (rf2-lo28u): an
+;; event declared with `:schema [:cat [:= :id] pos-int?]` dispatched
+;; with a string where a `pos-int?` is required MUST fire
+;; `:rf.error/schema-validation-failure :where :event` and SKIP the
+;; handler. This pins the exact schema SHAPE the testbed uses — a
+;; `:cat` whose tail slot is a bare CLJS predicate function (`pos-int?`,
+;; a registered Malli predicate keyed by its function value) — so a
+;; regression that makes the bare-predicate `:cat` form silently
+;; soft-pass (or throw + be swallowed by the router's catch) is caught
+;; in CLJS, not just at the JVM. The earlier
+;; `live-dispatch-validates-event-payload-under-reagent` test uses a
+;; `[:map ...]` tail; this one uses the bare-predicate tail the
+;; testbed's button 18 carries verbatim.
+
+(deftest cat-with-bare-predicate-event-args-fires-where-event
+  (testing "a `:cat` schema with a bare `pos-int?` tail rejects a bad
+            arg, skips the handler, and emits :where :event"
+    (let [calls (atom 0)]
+      (rf/reg-event-db :rf2-lo28u/bad-event-args
+        {:schema [:cat [:= :rf2-lo28u/bad-event-args] pos-int?]}
+        (fn [db _ev] (swap! calls inc) db))
+      (let [traces (atom [])]
+        (trace-tooling/register-listener! ::lo28u (fn [ev] (swap! traces conj ev)))
+        ;; Well-typed arg (a pos-int) — handler runs.
+        (rf/dispatch-sync [:rf2-lo28u/bad-event-args 7])
+        ;; Bad arg (a string where a pos-int is required) — handler must
+        ;; NOT run; a :where :event violation must fire.
+        (rf/dispatch-sync [:rf2-lo28u/bad-event-args "not-a-number"])
+        (trace-tooling/unregister-listener! ::lo28u)
+        (is (= 1 @calls)
+            "handler ran exactly once — the bad arg was rejected pre-handler")
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations))
+              "exactly one schema-validation-failure trace fired for the bad arg")
+          (let [v (first violations)]
+            (is (= :event (-> v :tags :where))
+                ":where :event locates the failure at pre-handler validation")
+            (is (= :rf2-lo28u/bad-event-args (-> v :tags :failing-id)))))))))
+
 ;; ---- rf2-0z1z — app-schemas-digest under CLJS ----------------------------
 
 (deftest app-schemas-digest-cljs-smoke
