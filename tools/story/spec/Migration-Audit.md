@@ -113,7 +113,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 2 | `work-state` = ':idle' pre-click | A | Sub off `:rf/machine` reads initial state. → `implementation/machines/test/.../deep_machine_cascade_cljs_test.cljs` (new file, or extend `machines_hierarchical_cljs_test.cljs`). |
 | 3 | After `:work/go` click: work-state ≠ ':idle' (poll) | A | 5-level descent transition fires. → same target. |
 | 4 | `:rf.machine/transition` AND `:rf.machine/snapshot-updated` on trace bus | A | Trace-emit observation. Covered by existing machine-trace tests; extend if not already. → `implementation/machines/test/.../machines_trace_emit_cljs_test.cljs` (likely already exists per `flows_trace_emit_elision_prod_test.cljs` pattern). |
-| 5 | `:rf.machine/spawned` from `:leaf-a` `:spawn` | A | Spawn trace. → `implementation/machines/test/.../machines_spawn_cljs_test.cljs` (already exists; extend). |
+| 5 | `:rf.machine.spawn/spawned` from `:leaf-a` `:spawn` | A | Spawn trace. → `implementation/machines/test/.../machines_spawn_cljs_test.cljs` (already exists; extend). |
 | 6 | `tick-count` = 1 after entry action | A | Entry action body executed → app-db write → sub fires. → same target as #2-3. |
 
 **Migrated subtotal: 5 of 5 logical observations = 100%. Residual: 1 (mount sanity). DROP this spec entirely** — none of the 5 substantive assertions need a real browser. The mount sanity is covered by the 3 adapter smokes.

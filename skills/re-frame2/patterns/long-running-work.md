@@ -51,7 +51,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
     :dispatch-done
     (fn [data _] {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
    :states
-   {:idle           {:on    {:rf.machine/spawned :processing}}
+   {:idle           {:on    {:rf.machine.spawn/spawned :processing}}
     :processing     {:entry :process-one :always [{:target :checking-done}]}
     :checking-done  {:always [{:guard :done?      :target :done}
                               {:guard :more-work? :target :yielding}]}
@@ -88,7 +88,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
     :error     {:on {:reset {:target :idle :action :reset-progress}}}}})
 ```
 
-Child auto-kick: `:on {:rf.machine/spawned :processing}` — runtime synthesises `[:rf.machine/spawned]` on spawn. Parent's `:progress` omits `:target` (internal self-transition); the `:spawn-all` exit cascade does NOT fire, so children stay alive between progress reports.
+Child auto-kick: `:on {:rf.machine.spawn/spawned :processing}` — runtime synthesises `[:rf.machine.spawn/spawned]` on spawn. Parent's `:progress` omits `:target` (internal self-transition); the `:spawn-all` exit cascade does NOT fire, so children stay alive between progress reports.
 
 ## Cancellation contract
 

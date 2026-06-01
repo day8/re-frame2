@@ -22,7 +22,7 @@
   | `re-frame.test-helpers` | core | View-assertion helpers — hiccup-walk (`find-by-testid` / `find-by-attr` family, `text-content`, `extract-handler`, `invoke-handler`), the `testid` authoring helper, and the `expand-tree` walker (per [§Testing — View-assertion helpers](#testing--view-assertion-helpers)). **View-tree axis** — hiccup data, testids, attached handlers. Runtime-state assertions live in the sibling `re-frame.test-support`. |
   | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`, `project-error` (per [§SSR](#ssr-spec-011)). |
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
-  | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `validate-at-boundary-interceptor` (per [§Schemas](#schemas)). |
+  | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!/`set-schema-fns!`, `validate-at-boundary-interceptor` (per [§Schemas](#schemas)). |
   | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
   | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `make-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
   | `re-frame.epoch` | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `(rf/configure :epoch-history ...)`. Re-exported through `re-frame.core` via late-bind hooks — `(:require [re-frame.epoch])` at boot before consuming the surfaces through `re-frame.core` (per [Tool-Pair §Time-travel — Artefact home](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
@@ -233,6 +233,12 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | `:rf.nav/scroll` | scroll-spec map | `:client` |
 | `:rf.route/with-nav-token` | `{:do <fx-entry> :nav-token <token>}` | universal |
 
+Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md)):
+
+| Cofx | Injects | Spec |
+|---|---|---|
+| `:nav-token` | The active navigation epoch token (read from `[:rf/runtime :routing :current :nav-token]`) under the coeffect key `:nav-token` — declare via `(inject-cofx :nav-token)` in an `:on-match`-reached handler to capture the epoch live at scheduling time for stale-result suppression. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
+
 ---
 
 ## SSR (Spec 011)
@@ -415,7 +421,8 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
 | `app-schema-meta-at` | Fn | `(app-schema-meta-at path)` / `(app-schema-meta-at path opts-or-frame-id)` — return the full registration-metadata map (`:path`, `:schema`, `:frame`, plus source-coords `:ns` / `:line` / `:file` and the rest of `:rf/registration-metadata`) for a registered `app-db` schema, or `nil`. Pair-tool and 10x consumers reach for this when they need the registration anchor (e.g. click-back-to-code); the lighter `app-schema-at` is the right call when only the schema value is needed. Per [010 §Schemas as a tooling/agent surface](010-Schemas.md) and [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta). | v1 | 010 |
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
-| `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` / `(set-schema-validator! {:validate validate-fn :explain explain-fn})` — install the validator (and optionally the explainer) every dev-time schema-validation site routes through. `nil` disables validation entirely. Default ships Malli's `validate`/`explain` pair; this seam lets apps swap in their own validator to drop the Malli dep. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
+| `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` — install the validator (`(fn [schema value] truthy?)`, same shape as `malli.core/validate`) every dev-time schema-validation site routes through. Swaps **only** the validator — the explainer/printer are left untouched (use `set-schema-fns!` to install all three atomically). `nil` disables validation entirely. Default ships Malli's `validate`; this seam lets apps swap in their own validator to drop the Malli dep. Last-write-wins; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
+| `set-schema-fns!` | Fn | `(set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})` — atomically install any subset of the validator / explainer / printer bundle from one map. Each key is optional; an absent key leaves the existing registration in place. The honest one-call substitute-Malli boot pattern (a Zod / clojure.spec port installs all three together so they never drift mid-boot). `:print nil` coerces to the default EDN canonicaliser (parity with `set-schema-printer!`); `:validate nil` / `:explain nil` disable that fn. Last-write-wins per key; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-printer!` | Fn | `(set-schema-printer! print-fn)` — install the **schema-print companion** the digest pipeline (per [010 §Schema digest](010-Schemas.md#schema-digest)) hashes. `print-fn` is `(fn [schema-value] canonical-string)` and MUST be pure + deterministic across runtimes. `nil` falls back to the default EDN canonicaliser so the digest is never undefined. Parallel to `set-schema-validator!` / `set-schema-explainer!`: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `validate-at-boundary-interceptor` | Var (interceptor value) | `validate-at-boundary-interceptor` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`). | v1 | 010 |
@@ -772,12 +779,14 @@ See [007-Stories.md](007-Stories.md).
 | `reg-tag` | M | `(reg-tag id metadata)` | post-v1 lib | 007 |
 | `reg-decorator` | M | `(reg-decorator id metadata)` | post-v1 lib | 007 |
 | `reg-story-panel` | M | `(reg-story-panel id metadata)` | post-v1 lib | 007 |
-| `run-variant` | Fn | `(run-variant variant-id)` → result map | post-v1 lib | 007 |
-| `watch-variant` | Fn | `(watch-variant variant-id)` → live-updating result map | post-v1 lib | 007 |
-| `reset-variant` | Fn | `(reset-variant variant-id)` | post-v1 lib | 007 |
+| `run` | Fn | `(run target)` / `(run target opts)` → promise/future of the unified **run-result**. `target` is a keyword (registered variant) OR a map (inline plan). The single execution verb. | post-v1 lib | 007 |
+| `is` | Fn | `(is target)` / `(is target opts)` → runs `target` and reports each assertion to `clojure.test` / `cljs.test`. JVM blocks (bounded by `:timeout-ms`, default `30000`) and returns the run-result; CLJS returns the run promise. | post-v1 lib | 007 |
+| `explain` | Fn | `(explain target)` / `(explain target opts)` → the plan's `:explain` map (args-validation, sub-overrides, decorators, …) without running. | post-v1 lib | 007 |
 | `variants-with-tags` | Fn | `(variants-with-tags tag-set)` → seq of variant ids | post-v1 lib | 007 |
 | `snapshot-identity` | Fn | `(snapshot-identity variant-id)` → `{:variant-id ... :content-hash "..."}` | post-v1 lib | 007 |
 | `story-view` | Fn | `(story-view variant-id)` → hiccup | post-v1 lib | 007 |
+
+The **public execution surface is exactly the three verbs** `run` / `is` / `explain` (each accepts a registered-variant keyword OR an inline-plan map). `run-variant` / `is-variant` / `run-plan` / `is-plan` / `watch-variant` / `reset-variant` are implementation / migration vocabulary, NOT the P1 public surface — they are not rowed here. The unified **run-result** is the single execution-record boundary; read its verdict via `result-status` / `result-passed?` (`:pass` / `:fail` / `:cannot-run` / `:error` — there is no `:passing?` boolean). Canonical execution model: [story spec 017 §Public execution API](../tools/story/spec/017-Testing-Story.md) (the `re-frame2-story` library spec, the normative home for the verbs + run-result shape).
 
 ---
 
