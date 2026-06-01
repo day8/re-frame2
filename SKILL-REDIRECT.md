@@ -38,6 +38,11 @@ Find your skill, scan the audience section for lines tagged with it.
 | `re-frame2-pair-retro` | Pair-session retrospective (no URL deps) | — |
 | `re-frame2-implementor` | Building a new impl in another host language | `[impl]` |
 
+> Two of the eight skills are intentionally absent from this table:
+> `re-frame2-xray` cites its own spec tree (`tools/xray/spec/*`), and
+> `re-frame2-improver` routes deep-dives to `skills/re-frame2/patterns/`
+> + `spec/`. Neither consumes the URLs below, so neither gets a row here.
+
 ## Section 1 — Building with the reference implementation
 
 Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Examples.
