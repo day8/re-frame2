@@ -41,6 +41,7 @@
             [re-frame.privacy :as privacy]
             [re-frame.spec :as spec]
             [re-frame.late-bind :as late-bind]
+            [re-frame.features :as features]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]
@@ -1633,3 +1634,41 @@
                      :received p
                      :recovery :no-recovery
                      :reason   "rf/init-platform takes the platform keyword directly — :server or :client per Spec 011 §Effect handling on the server."}))))
+
+;; ---- feature inspection (rf2-3nbl5.5, API-governance G5) ------------------
+;;
+;; Front-porch for the optional-feature inventory: which `day8/re-frame2-
+;; <feature>` artefacts are on the classpath, and the exact copy-pasteable
+;; coordinate to add when one is missing. These three fns SHIP to
+;; production (runtime queries, not instrumentation — NOT elided). The
+;; feature→coordinate mapping is STATIC DATA in the always-loaded
+;; `re-frame.features` facade ns, never a live require into the optional
+;; impls (which would pull every optional namespace into every production
+;; bundle and break bundle-isolation). Per spec/API.md §Feature inspection
+;; and Conventions §Facade re-export, artefact require.
+
+(def ^{:doc "Return a map of every optional feature keyword to its
+  inspection entry — static coordinate data (`:maven` / `:require` /
+  `:spec`) merged with the live `:loaded?` status. Ships to production
+  (NOT elided). Per spec/API.md §Feature inspection."
+       :arglists '([])}
+  features features/features)
+
+(def ^{:doc "Return `true` when the optional feature's implementation
+  artefact is on the classpath, `false` otherwise (incl. an unknown
+  feature keyword). Detection is a pure keyword lookup in the always-
+  loaded late-bind hooks atom — no require into the optional namespace.
+  Known features: `:schemas` `:machines` `:routing` `:flows` `:http`
+  `:ssr` `:epoch`. Ships to production (NOT elided). Per spec/API.md
+  §Feature inspection."
+       :arglists '([feature])}
+  feature-loaded? features/feature-loaded?)
+
+(def ^{:doc "Assert the optional feature is loaded — returns `true`, or
+  throws `:rf.error/feature-not-loaded` carrying the EXACT copy-pasteable
+  Maven coordinate + require form when the impl artefact is absent (an
+  unknown feature keyword throws `:rf.error/unknown-feature`). Use as a
+  self-explaining early guard before a feature-dependent code path.
+  Ships to production (NOT elided). Per spec/API.md §Feature inspection."
+       :arglists '([feature])}
+  require-feature! features/require-feature!)
