@@ -384,6 +384,74 @@ The rule is cross-cutting; each surface applies it in its own spec and registrar
 
 New surfaces apply the rule by mechanism: if a recognised input cannot be honoured, signal it — and reach for the extension-key carve-out only when the dropped key is a user-namespaced key in an explicitly open map. A surface that seems to *need* silent-ignore of a recognised input is evidence of a missing warning, not an exception to the rule — file a bead against the owning spec rather than swallowing.
 
+## Facade policy — a facade exports the front porch, the workshop lives behind a door
+
+Sibling governance rule to [§No silent swallow](#no-silent-swallow--recognised-input-must-signal): that rule keeps a surface *honest*; this one keeps a facade *legible*.
+
+re-frame2 has three facade namespaces — `re-frame.core` (the framework), `re-frame.story` (the stories library), and `day8.re-frame2-xray.core` (the Xray devtool). Each one is the single namespace a consumer requires to use its product. Left ungoverned, each draws the line between "what a newcomer needs first" and "what a power user reaches for occasionally" by accretion — and they draw it differently. The failure mode is a front porch with the workshop, the fuse box, and three oscilloscopes bolted to it where a newcomer expected a doorbell: the one var they need is buried among forty they will never call, and the namespace stops telling them where to start.
+
+> **Rule.** A facade exports **front-porch** surfaces only — the vars a typical consumer reaches for in ordinary use. Advanced and tooling surfaces live in **explicit subnamespaces** (`re-frame.<area>` / `re-frame.story.<area>` / `day8.re-frame2-xray.<area>`), not on the facade. **A subnamespace require is itself the signal** — typing `(:require [re-frame.tooling])` is the consumer announcing "I am in advanced territory now", which a bare `re-frame.core` require never has to whisper.
+
+The tier vocabulary that classifies a surface — `front-porch` | `advanced` | `tooling` | `adapter` | `testing` | `internal-public` | `deprecated` — is owned by [API.md](API.md); this section governs *placement against* those tiers, not the taxonomy itself.
+
+**The diff-time obligation.** A diff that adds a public var to a facade namespace MUST, in the same change:
+
+1. **Classify it** — name the var's tier (per the API.md taxonomy above).
+2. **Justify the facade placement** — state why a `front-porch` classification earns a facade export, or why an `advanced` / `tooling` surface is nonetheless on the facade rather than behind a subnamespace door. "It was convenient" is not a justification; "every consumer calls it on their first hour" is.
+
+A var that classifies as anything but `front-porch` and lands on the facade anyway is a reviewable defect, not a style nit — it is the accretion this rule exists to stop, caught at the one moment (the diff) when the cost of moving it is a one-line require change rather than a consumer-visible break.
+
+> **Out of scope here — the aggressive namespace split is a separate, later decision.** This section is the **policy** (front-porch on the facade; advanced/tooling behind a subnamespace require; classify-and-justify at diff time). It is **not** the split. The concrete carve-up — whether the framework grows a `re-frame.tooling` / `re-frame.runtime` pair, whether Story splits into `re-frame.story.testing` / `re-frame.story.evidence` / `re-frame.story.fingerprint` — is a downstream design decision to be ruled on its own, against this policy. Nothing here mandates any particular subnamespace; this rule fixes the *discipline* a future split must satisfy, and gives a reviewer the standard to apply to facade additions in the meantime.
+
+## Lifecycle-verb law — a closed verb vocabulary for naming lifecycle and facade APIs
+
+Sibling governance rule to [§Facade policy](#facade-policy--a-facade-exports-the-front-porch-the-workshop-lives-behind-a-door): that rule decides *where* a surface lives; this one decides *what it is called*. A new lifecycle or facade API should be nameable by following the law, not by taste — so two authors adding symmetric teardown surfaces a year apart reach the same verb.
+
+The law is a **closed verb vocabulary**. Each verb owns one shape of operation; the discriminator is mechanism, not feel. The [§Tear-down verb axis](#tear-down-verb-axis--clear--vs-destroy-) and the [§Naming — bang suffix](#naming-when-does-a-surface-carry-) sections are the in-depth treatment of two slices of this law (`clear-`/`destroy-` and the `!` axis respectively); this section is the **complete closed roster** they sit inside.
+
+| Verb | Owns | Mechanism (the discriminator) |
+|---|---|---|
+| `clear-*` | Drop registrations or caches. | Removes id(s) from a registry the process owns, or drops a process-local cache / buffer outright. Symmetric inverse of `reg-*`. Detail at [§Tear-down verb axis](#tear-down-verb-axis--clear--vs-destroy-). |
+| `unregister-*` | Remove **one** thing by id. | Single-id removal from a global listener-style table where `clear-*` would read as "drop the whole registry". Used where the registration is a hook, not a registrar entry (`unregister-listener!`, `unregister-epoch-listener!`). |
+| `destroy-*` | Tear down an **instance** plus the resources it owns. | The target has **identity and a creation moment**; teardown invalidates downstream consumers and releases per-instance machinery (`destroy-frame!`, `destroy-adapter!`). Lifecycle symmetry with the creating call. Detail at [§Tear-down verb axis](#tear-down-verb-axis--clear--vs-destroy-). |
+| `reset-*` | Keep identity, return to baseline. | The instance survives; its state is wound back to initial. Distinct from `destroy-*` (identity is **retained**, not removed). `reset-frame!` is `destroy-frame!` + re-`reg-frame` under the same id — same address, fresh state. |
+| `unsubscribe` | Release one ref-count. | Decrements a live ref-count on a cache entry (the inverse of `subscribe`, **not** of `reg-sub`). A carved-out singleton — `un-` is a one-element set, not a generalisable prefix. Detail at [§Carve-out: `unsubscribe`](#carve-out-unsubscribe). |
+| `watch-*` | Start observing; **return a 0-arity stop fn**. | Begins an observation that runs until stopped; the **return value is the stop handle** — `(let [stop (watch-x …)] … (stop))`. There is deliberately **no `unwatch-*`** verb: the stop fn closes over exactly what it must tear down, so a separate id-keyed unregister surface is redundant. |
+| `attach!` / `detach!` | Add / remove a **listener** to an existing thing. | A listener bound to a host or framework surface, paired symmetrically. The `!` marks the process-level mutation per [§Naming](#naming-when-does-a-surface-carry-). |
+| `mount!` / `unmount!` | Put a UI shell **into / out of the DOM**. | A DOM or render-shell lifecycle — the component or panel enters / leaves the document. Paired; `!` per [§Naming](#naming-when-does-a-surface-carry-). |
+| `open!` / `close!` | Toggle **visibility**, not lifecycle. | Shows / hides an already-mounted surface. **Not** a teardown verb: `close!` leaves the instance alive and re-`open!`-able; a closed panel still exists. Reach for `destroy-*` / `unmount!` when the thing actually goes away. |
+
+**The boundaries that earn their keep.** Three pairs of verbs sit close enough to be confused; the law fixes which is which:
+
+- `destroy-*` vs `reset-*` — both rewind state, but `destroy-*` **removes the identity** (the id no longer resolves) while `reset-*` **keeps it** (same id, baseline state). A frame you `reset-frame!` is still addressable; a frame you `destroy-frame!` is gone.
+- `close!` vs `unmount!`/`destroy-*` — `close!` is **visibility** (the thing is hidden but intact and reopenable); `unmount!`/`destroy-*` is **lifecycle** (the thing leaves the DOM / is torn down). A modal you `close!` keeps its state for the next `open!`; one you `unmount!` does not.
+- `watch-*`'s stop-fn vs an `unwatch-*` that does not exist — observation teardown rides the **returned stop fn**, never a separate id-keyed verb. If you find yourself wanting `unwatch-x`, you wanted to capture and call the stop fn `watch-x` already handed you.
+
+### `configure!` (mutation) vs `describe-config` / `current-config` (reads) — resolving the bang inconsistency
+
+The law extends to the **configuration surface**, and in doing so resolves an inconsistency the three facades carry today. The config-**mutation** verb is `configure!` — it ends in `!` because it mutates a process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 2/3), exactly like `attach!` and `mount!`. The config-**read** verbs are `describe-config` (the declared shape / schema of the config surface) and `current-config` (the live values now in effect) — no bang, because reads mutate nothing.
+
+| Surface | Verb | `!`? | Owns |
+|---|---|---|---|
+| Mutate config | `configure!` | yes | Set process-level / tool-level config knobs. |
+| Read the config **shape** | `describe-config` | no | The declared key set + value shapes the surface accepts. |
+| Read the **live** config | `current-config` | no | The values currently in effect. |
+
+**The inconsistency this resolves.** Today `re-frame.core` exposes config mutation as `(rf/configure key opts)` — **no bang** — while `re-frame.story` and `day8.re-frame2-xray.core` already spell the same operation `configure!` (e.g. `(story/configure! {…})`, `(xray-config/configure! {…})`). Same operation, two spellings, depending on which facade you happen to be standing on. The law closes the gap in favour of `configure!` across all three: config mutation is a process-level mutation, so it takes the `!` the rest of the bang axis already mandates for that mechanism. **`re-frame.core/configure` is renamed to `re-frame.core/configure!`**; the read pair `describe-config` / `current-config` is the standardised, no-bang counterpart on every facade. (This subsumes the standalone "core F2" `configure`-vs-`configure!` item — there is no longer a per-facade choice to make.) The existing [§Configuration surfaces](#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucketing is unchanged in substance; only the verb spelling for bucket 1 moves from `configure` to `configure!`.
+
+### How to name a new lifecycle or facade surface
+
+Ask, in order:
+
+1. Does it **drop registrations / a cache**? → `clear-*`. **Remove one hook by id**? → `unregister-*`.
+2. Does it **tear down an instance + its owned resources** (identity goes away)? → `destroy-*`. **Wind an instance back to baseline** (identity stays)? → `reset-*`.
+3. Does it **release one ref-count** on a cache entry? → `unsubscribe` (the carve-out — do not coin a new `un-*`).
+4. Does it **start an observation**? → `watch-*`, **returning a 0-arity stop fn** (never an `unwatch-*`).
+5. Is it a **listener** add/remove? → `attach!` / `detach!`. A **DOM/shell** in/out? → `mount!` / `unmount!`. A **visibility** toggle? → `open!` / `close!`.
+6. Is it **config mutation**? → `configure!`. A **config read**? → `describe-config` (shape) / `current-config` (live values).
+
+The roster is **closed**: a surface that fits none of these is evidence the law is missing a verb — file a bead against this section rather than coining `dispose-` / `teardown-` / `shutdown-` / a fresh `un-*`. Adding a verb is a Spec change to this table, not a per-author call.
+
 ## Implementation note — persistent data structures
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other in-scope JS-cross-compile-language ports pick a host-idiomatic library (Immer or Immutable.js for TypeScript / Squint; im.kt or `kotlinx.collections.immutable` for Kotlin/JS; native PDS from the source language for Fable (F#) / Scala.js / PureScript / Melange / ReScript / Reason). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
@@ -502,17 +570,17 @@ When adding a new tear-down surface, ask:
 
 If neither fits, the surface is evidence the axis is missing a bucket — file a bead against this section rather than reaching for `dispose-` / `reset-` / `un-` / `remove-`. (`un-` is reserved for `unsubscribe`'s carve-out and does not generalise.)
 
-## Configuration surfaces: `configure` vs `set-!` vs per-frame metadata
+## Configuration surfaces: `configure!` vs `set-!` vs per-frame metadata
 
-re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel.
+re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel. The mutation verb is `configure!` and the read pair is `describe-config` / `current-config` per [§Lifecycle-verb law — `configure!` vs reads](#configure-mutation-vs-describe-config--current-config-reads--resolving-the-bang-inconsistency).
 
-### 1. `(rf/configure key opts)` — process-level runtime knobs
+### 1. `(rf/configure! key opts)` — process-level runtime knobs
 
 For knobs that apply globally to the framework runtime, are addressed by a **keyword** (no impl-reference required), and whose values are plain data (numbers, booleans, small maps). The full key vocabulary is enumerated at [API.md §Configure keys](API.md#configure-keys) and is fixed-and-additive.
 
-- `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
-- `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
-- `(rf/configure :elision {:rf.size/threshold-bytes 16384})` — wire-elision size threshold
+- `(rf/configure! :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
+- `(rf/configure! :trace-buffer {:depth 200})` — ring-buffer depth for trace events
+- `(rf/configure! :elision {:rf.size/threshold-bytes 16384})` — wire-elision size threshold
 
 The opts-map sub-keys mix two shapes deliberately: cross-surface policy slots use a namespaced keyword under the area's reserved `:rf.<area>/*` sub-namespace (e.g. `:rf.size/threshold-bytes` — the same key the wire-elision walker reads); one-off per-knob settings stay bare (e.g. `:depth`, `:grace-period-ms`). The rule is closed and the discriminator is **whether the sub-key names a cross-spec policy slot or a one-off knob** — full statement at [API.md §Configure keys — Opts-key naming rule](API.md#opts-key-naming-rule).
 
@@ -541,7 +609,7 @@ For configuration whose lifetime is a single frame's existence — expressed at 
 When adding a new configuration surface, ask in order:
 
 1. Does it hand the framework a fn or component the framework must hold by reference? → bucket 2 (`set-!` / `install-!`).
-2. Is it a global runtime knob with a plain-data value? → bucket 1 (`configure`).
+2. Is it a global runtime knob with a plain-data value? → bucket 1 (`configure!`).
 3. Does it apply only to a specific frame's lifetime (or a single dispatch)? → bucket 3 (per-frame metadata via `reg-frame` or dispatch opts).
 
 If the option seems to want two buckets, the option is doing two things and should be split. If it fits none, file a bead against this section rather than coining a fourth surface.
