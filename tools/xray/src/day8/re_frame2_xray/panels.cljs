@@ -57,6 +57,20 @@
 
       (mount-shell! mount-point opts) → unmount-fn
 
+  ## Single-source panel enumeration (rf2-rapnr)
+
+  The SET of mountable panels — the `mount-<panel>!` family above —
+  is enumerated ONCE in `day8.re-frame2-xray.panel-enum/panel-enum`
+  (the single source of truth). The `mount-*!` fns in this namespace,
+  the Xray API spec's panel inventory (`007-UX-IA.md` +
+  `008-Embedding-Contract.md`), and the api-manifest `:cljs-only` rows
+  are all VALIDATED AGAINST that enum by the single-source guard
+  (`panel_enum_guard_cljs_test.cljs`) — a drift between any projection
+  and the enum goes RED in CI. Adding / removing / renaming a panel
+  starts with a one-line edit to `panel-enum`; the guard then forces
+  the facade fn below + the spec inventory to follow. See the
+  `panel-enum` ns docstring for the contract.
+
   ## What every mount fn does
 
   1. Calls `(registry/register-xray-handlers!)` — idempotent, registers
