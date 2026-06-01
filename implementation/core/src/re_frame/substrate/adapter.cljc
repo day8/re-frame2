@@ -10,8 +10,8 @@
     make-state-container, read-container, replace-container!,
     make-derived-value, render, render-to-string
 
-  Optional (2):
-    subscribe-container, register-context-provider
+  Optional (3):
+    subscribe-container, register-context-provider, flush-render!
 
   Lifecycle (1):
     dispose-adapter!
@@ -374,6 +374,36 @@
   [render-tree opts]
   (let [a (require-adapter! 'rf/render-to-string)]
     ((:render-to-string a) render-tree opts)))
+
+(defn flush-render!
+  "Optional. SYNCHRONOUSLY commit the substrate's pending renders to the
+  DOM (per Spec 006 §`flush-render!`). Runs the 1-arity `f` inside the
+  substrate's synchronous-commit path (React `flushSync` for the React-hook
+  substrates; `reagent.core/flush` for the ratom family) so any state change
+  `f` schedules — and any render already pending — is committed before this
+  returns; the 0-arity form flushes already-pending work.
+
+  Why it exists. The reference substrates schedule re-renders through a
+  `requestAnimationFrame`-style tick that fires AFTER an eval'd `dispatch`
+  returns and is throttled to ~never in a backgrounded / unfocused tab.
+  `flush-render!` is NOT rAF-scheduled, so headless tooling (the
+  re-frame2-pair MCP — Spec Tool-Pair) can drive a
+  `dispatch → flush-render! → observe-settled-DOM` loop even when the tab is
+  backgrounded. Distinct from a test-only `act()` flush: this is the
+  production-grade contract surface every adapter implements.
+
+  Optional contract fn — returns nil and is a no-op when the installed
+  adapter ships no `:flush-render!` (the plain-atom / SSR adapters render
+  without a live React commit, so there is nothing to flush). Calling it
+  before `(rf/init! ...)` raises `:rf.error/no-adapter-installed`
+  (rf2-zdfi1) — the optional-fn nil return is reserved for `adapter
+  installed, fn absent`, not for `no adapter installed at all`."
+  ([] (flush-render! (fn [] nil)))
+  ([f]
+   (let [a (require-adapter! 'rf/flush-render!)
+         g (:flush-render! a)]
+     (when g (g f))
+     nil)))
 
 (defn subscribe-container
   "Optional — adapters may omit. Returns nil if the installed adapter

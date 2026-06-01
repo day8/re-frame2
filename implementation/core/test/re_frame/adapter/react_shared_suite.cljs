@@ -2275,6 +2275,75 @@
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
+;; ---- flush-render! synchronous-commit proof (rf2-40a84) -------------------
+
+(defn assert-flush-render-synchronously-commits
+  "rf2-40a84: `(adapter/flush-render! f)` SYNCHRONOUSLY commits the render
+  scheduled by `f` to the DOM — the committed text reflects the dispatched
+  state change by the time `flush-render!` RETURNS, with NO `act()` wrapper
+  and NO wait for a `requestAnimationFrame` tick.
+
+  This is the load-bearing proof the bead asks for: it is the synchronous-
+  flush guarantee that lets headless tooling (the pair MCP) drive a
+  `dispatch → flush-render! → observe-settled-DOM` loop in a backgrounded
+  tab where the rAF-scheduled commit would never fire.
+
+  HOW THE PROOF IS RIGOROUS. After the initial mount (done under `act` so
+  the test env is happy), we TURN OFF `IS_REACT_ACT_ENVIRONMENT` and run the
+  dispatch + flush-render! entirely OUTSIDE `act`. flushSync (UIx/Helix) /
+  reagent.core/flush (ratom family) commit synchronously regardless of the
+  act env, so the assertion `(= \"n=2\" textContent)` reads TRUE on the line
+  immediately after `flush-render!` returns — a deferred (rAF/microtask)
+  commit would still read \"n=1\" there. We pass the state-changing dispatch
+  AS the flush thunk so the 1-arity `dispatch → commit` contract is what's
+  proven.
+
+  cfg keys (reuses the use-subscribe probe wiring):
+    :adapter           the installed adapter spec map (for flush-render!)
+    :probe-element     thunk → the 2-arg-form Probe element
+    :refcount-target   atom the Probe reads its target frame-id from
+    :fr-frame          frame-id keyword the Probe's query resolves under
+    :fr-query          query-v keyword the Probe subscribes to"
+  [{:keys [name adapter probe-element refcount-target fr-frame fr-query]}]
+  (testing (str name " — flush-render! synchronously commits a pending render (rf2-40a84)")
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! refcount-target fr-frame)
+            (rf/reg-frame fr-frame {:doc "flush-render! synchronous-commit probe frame"})
+            (rf/reg-event-db ::fr-seed (fn [_ _] {:n 1}))
+            (rf/reg-event-db ::fr-inc  (fn [db _] (update db :n inc)))
+            (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
+            (rf/reg-sub fr-query (fn [db _] (:n db)))
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)
+                  flush!     (:flush-render! adapter)]
+              (try
+                (is (fn? flush!)
+                    "the adapter map exposes :flush-render! (rf2-40a84 contract slot)")
+                ;; Initial mount under act so the test env commits the
+                ;; seeded value cleanly.
+                (act-fn (fn [] (.render root (probe-element))))
+                (is (= "n=1" (.-textContent mount-node))
+                    "committed DOM shows the seeded value n=1")
+                ;; THE PROOF. Leave the act environment so the next commit
+                ;; cannot be attributed to act()'s flush. Dispatch the state
+                ;; change AS the flush-render! thunk and assert the DOM has
+                ;; the new value the instant flush-render! returns — i.e. the
+                ;; commit was SYNCHRONOUS, not rAF/microtask-deferred.
+                (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+                (flush! (fn [] (rf/dispatch-sync [::fr-inc] {:frame fr-frame})))
+                (is (= "n=2" (.-textContent mount-node))
+                    "DOM reflects the dispatched change SYNCHRONOUSLY after
+                     flush-render! returns — no act(), no rAF wait (rf2-40a84)")
+                (finally
+                  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+                  (try (.unmount root) (catch :default _ nil)))))))))))
+
 (defn assert-use-subscribe-frame-provider-resolution
   "rf2-518sp: use-subscribe 1-arg form resolves through the surrounding
   frame-provider.

@@ -48,6 +48,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Read sub values** | `(rf/compute-sub query-v db-value)` runs a sub against an `app-db` value | [008](008-Testing.md) |
 | **Read registry** | `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
+| **Drive the render** | `flush-render!` on the installed substrate adapter — synchronously commits pending renders so a headless `dispatch → observe-DOM` loop is deterministic | [006 §`flush-render!`](006-ReactiveSubstrate.md#flush-render-f--nil), [§Driving the render](#driving-the-render-headless-view-lifecycle) |
 | **Trace stream** | `(rf/register-listener! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
@@ -55,9 +56,17 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Inspect registered schemas** | `(rf/app-schemas frame-id)`, `(rf/app-schema-at path opts)`, `(rf/app-schemas-digest opts)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | **Errors** | Structured `:rf.error/*` trace events with category + tags | [009 §Error contract](009-Instrumentation.md#error-contract) |
 
-This much is **already specified**. A pair tool built against re-frame2 (and conforming with [day8/re-frame-pair](https://github.com/day8/re-frame-pair)) needs nothing more than these surfaces to do everything in the capability list above except time-travel.
+This much is **already specified** (except the render-driving fn `flush-render!`, locked in [§Driving the render](#driving-the-render-headless-view-lifecycle) below and in [006 §`flush-render!`](006-ReactiveSubstrate.md#flush-render-f--nil)). A pair tool built against re-frame2 (and conforming with [day8/re-frame-pair](https://github.com/day8/re-frame-pair)) needs nothing more than these surfaces to do everything in the capability list above except time-travel.
 
-The capability that requires *new* commitments is **time-travel**, addressed below.
+The capabilities requiring *new* commitments are **driving the render** (immediately below) and **time-travel** (after it).
+
+### Driving the render (headless view-lifecycle)
+
+A pair tool can drive the re-frame *layer* (`dispatch`) but, without a commitment here, cannot reliably drive the *substrate render*. The reference substrates schedule re-renders through a `requestAnimationFrame`-style tick that (a) fires *after* an evaluated `dispatch` returns and (b) is throttled to ~never in a **backgrounded / unfocused tab** — exactly the state a headless or remotely-driven browser is usually in. So a tool that dispatches an event and then reads the DOM races the scheduler: the commit may not have happened, and in a backgrounded tab may never happen. Driving the view lifecycle (mount / unmount / re-render) from the MCP was correspondingly unreliable.
+
+The commitment is the optional substrate-adapter contract fn **`flush-render!`** (per [006 §`flush-render!`](006-ReactiveSubstrate.md#flush-render-f--nil)). It runs through the host's **synchronous-commit** path (React `flushSync`; `reagent.core/flush` for the ratom family) rather than the rAF-scheduled tick, so the commit fires even headless and even when the tab is backgrounded. The 1-arity form runs a thunk and then flushes; the 0-arity form flushes already-pending work. It is no-op-safe (nothing pending → returns `nil`).
+
+This is the framework primitive the pair MCP's **dispatch-and-settle** op builds on: dispatch the event, `flush-render!` to synchronously commit the resulting renders, then observe the settled DOM (the `data-rf2-source-coord` / `data-rf-view` annotations per [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory)) and the settled epoch (per [§Time-travel](#time-travel)). `flush-render!` belongs to the **framework**, not the pair-runtime: it is substrate-specific, but every re-frame2 app installs an adapter, so the capability is universal. A tool reaches it through the installed adapter's `flush-render!` (the `eval-cljs` authority class per [§MCP tool authority classes](#mcp-tool-authority-classes--named-mutation-vs-eval-cljs), or a named dispatch-and-settle op that wraps it). Adapters with no live commit (plain-atom / SSR) ship no `flush-render!`; the call no-ops.
 
 <a name="time-travel"></a>
 ## Time-travel: epoch snapshots and undo
