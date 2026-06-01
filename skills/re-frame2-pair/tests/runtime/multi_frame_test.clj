@@ -87,14 +87,29 @@
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
 
+;; rf2-3bu3d.4 — reserved-frame-aware resolution. KEEP IN SYNC with
+;; `reserved-tool-frame?` / `app-frame-ids` / `current-frame` in
+;; preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a TOOL frame
+;; (Xray's `:rf/xray`, SSR slots) EXCLUDED from the ambiguity count, with
+;; the sole `:rf/default` carve-out (the universal default APP frame per
+;; Conventions.md §The single-root reserved set).
+
+(defn reserved-tool-frame? [frame-id]
+  (and (keyword? frame-id)
+       (= "rf" (namespace frame-id))
+       (not= :rf/default frame-id)))
+
+(defn app-frame-ids []
+  (vec (remove reserved-tool-frame? (frame-ids))))
+
 (defn current-frame
   ([] (current-frame nil))
   ([override]
    (or override
        @selected-frame
-       (let [fids (frame-ids)]
-         (when (= 1 (count fids))
-           (first fids))))))
+       (let [app-fids (app-frame-ids)]
+         (when (= 1 (count app-fids))
+           (first app-fids))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mirror of `subs-sample` — threads the resolved frame through
@@ -197,6 +212,64 @@
 (deftest current-frame-explicit-override-with-no-frames-registered
   (testing "explicit override returns even if frame isn't registered (resolver is naive)"
     (is (= :ghost (current-frame :ghost)))))
+
+;; ---------------------------------------------------------------------------
+;; Reserved-frame-aware resolution (rf2-3bu3d.4)
+;;
+;; A `:rf/*` TOOL frame (`:rf/xray`, an SSR slot) is excluded from the
+;; ambiguity count; the sole remaining APP frame auto-selects. `:rf/default`
+;; is an APP frame (the universal default), NOT a tool frame.
+;; ---------------------------------------------------------------------------
+
+(deftest reserved-tool-frame-predicate
+  (testing ":rf/* tool frames are reserved; :rf/default and user frames are not"
+    (is (true?  (reserved-tool-frame? :rf/xray)))
+    (is (true?  (reserved-tool-frame? :rf/ssr)))
+    (is (false? (reserved-tool-frame? :rf/default))
+        ":rf/default is the universal default APP frame, not a tool frame")
+    (is (false? (reserved-tool-frame? :stories)))
+    (is (false? (reserved-tool-frame? :rf-default))
+        "un-namespaced lookalike is a user frame")))
+
+(deftest current-frame-single-app-plus-xray-auto-resolves
+  (testing "single app frame (:rf/default) + :rf/xray tool frame -> auto-selects :rf/default (NO :ambiguous-frame)"
+    (register-frame! :rf/default {:count 0})
+    (register-frame! :rf/xray {})
+    (is (= [:rf/default] (app-frame-ids))
+        ":rf/xray excluded from the app-frame view")
+    (is (= :rf/default (current-frame))
+        "the sole app frame auto-resolves — no frames/select tax")))
+
+(deftest current-frame-single-user-app-plus-xray-auto-resolves
+  (testing "single non-default app frame + :rf/xray -> auto-selects the app frame"
+    (register-frame! :my-app {:count 0})
+    (register-frame! :rf/xray {})
+    (is (= :my-app (current-frame)))))
+
+(deftest current-frame-two-app-frames-plus-xray-stays-ambiguous
+  (testing "two app frames + :rf/xray -> still ambiguous (excluding the tool frame leaves two app frames)"
+    (register-frame! :rf/default {})
+    (register-frame! :stories {})
+    (register-frame! :rf/xray {})
+    (is (= 2 (count (app-frame-ids))))
+    (is (nil? (current-frame))
+        "two genuine app frames remain after excluding the tool frame — ambiguous")))
+
+(deftest current-frame-only-reserved-tool-frames
+  (testing "only :rf/* tool frames registered (no app frame) -> nil (no app frame to resolve)"
+    (register-frame! :rf/xray {})
+    (is (empty? (app-frame-ids)))
+    (is (nil? (current-frame)))))
+
+(deftest pair-dispatch-sync-single-app-plus-xray-succeeds
+  (testing "single-app + :rf/xray: pair-dispatch-sync! resolves the app frame WITHOUT select-frame!"
+    (register-frame! :rf/default {:count 0})
+    (register-frame! :rf/xray {})
+    (let [result (pair-dispatch-sync! [:counter/inc])]
+      (is (:ok? result)
+          "no :ambiguous-frame refusal — the tool frame is excluded")
+      (is (= :rf/default (:frame result))
+          "the resolved operating frame is echoed and is the app frame"))))
 
 ;; ---------------------------------------------------------------------------
 ;; pair-dispatch-sync! refuses on :ambiguous-frame

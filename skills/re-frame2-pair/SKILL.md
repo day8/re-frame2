@@ -169,7 +169,9 @@ If you want a refresher on the MCP surface before the first real op, optionally 
 
 ## Multi-frame model — set the operating frame
 
-re-frame2 supports multiple, named frames (Spec 002). Most apps run with one frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op resolves an operating frame through a four-tier cascade: explicit per-call `frame` arg (tier 1) → session pin (tier 2) → the sole registered frame (tier 3) → nil/ambiguous (tier 4). On the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
+re-frame2 supports multiple, named frames (Spec 002). Most apps run with one app frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op resolves an operating frame through a four-tier cascade: explicit per-call `frame` arg (tier 1) → session pin (tier 2) → the sole registered **app frame** (tier 3) → nil/ambiguous (tier 4). On the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
+
+**Reserved tool frames don't count toward ambiguity (rf2-3bu3d.4).** An Xray-instrumented app carries a `:rf/xray` **tool frame** alongside its one app frame — and stories / SSR builds add their own `:rf/*` frames. These framework-reserved `:rf/*` frames are devtool surfaces, not the app you are pairing against, so tier 3 / 4 exclude them: a single-app session that *also* runs Xray resolves to its one app frame **automatically — no `frames/select` needed**. Only two-plus genuine *app* frames are ambiguous. (`:rf/default` is the universal default app frame — it shares the `:rf/*` root but is always counted as an app frame.) A `get-operating-frame` read surfaces both `:frames` (all registered) and `:app-frames` (tool frames removed).
 
 **Set the session pin with the dedicated operating-frame tools (rf2-zomfq).** Three MCP tools surface tier 2 directly — no eval round-trip:
 
@@ -179,7 +181,7 @@ re-frame2 supports multiple, named frames (Spec 002). Most apps run with one fra
 
 These three are NOT subject to the `:ambiguous-frame` refusal themselves — they are how you *resolve* the ambiguity. (The eval-based `frames-list` / `select-frame!` / `frames-meta` runtime helpers in [references/ops.md §Frames](references/ops.md#frames) are the lower-level surface the tools wrap; reach for them only for `frames/meta`, which has no dedicated tool.)
 
-When the operating frame is ambiguous (more than one is registered and the session hasn't pinned one), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write that lands in the wrong frame is unrecoverable without `restore-epoch`. (Read ops via the eval helpers warn-and-default to `:rf/default`; the dedicated `snapshot` / `get-path` tools refuse like the writes do.) This mirrors the Spec 002 §Frame presets / lifecycle convention.
+When the operating frame is ambiguous (two-plus **app** frames registered and the session hasn't pinned one), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write that lands in the wrong frame is unrecoverable without `restore-epoch`. (Read ops via the eval helpers warn-and-default to `:rf/default`; the dedicated `snapshot` / `get-path` tools refuse like the writes do.) This mirrors the Spec 002 §Frame presets / lifecycle convention.
 
 ---
 

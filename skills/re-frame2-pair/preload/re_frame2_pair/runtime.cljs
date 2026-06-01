@@ -216,9 +216,34 @@
 ;;
 ;; re-frame2 is multi-frame (Spec 002). Every read/write op resolves an
 ;; *operating frame* — the session-cached default, overridable per call.
-;; Mutating ops refuse with :ambiguous-frame when more than one frame is
-;; registered and the session hasn't selected one. Reads proceed against
-;; :rf/default and emit a warning.
+;; Mutating ops refuse with :ambiguous-frame when more than one APP frame
+;; is registered and the session hasn't selected one.
+;;
+;; Reserved-frame-aware resolution (rf2-3bu3d.4)
+;; ---------------------------------------------
+;;
+;; A pairing session almost always runs against an app that ALSO carries
+;; a `:rf/*` TOOL frame — Xray's `:rf/xray` inspector frame, a stories
+;; build, an SSR slot. Those frames live under the framework-reserved
+;; `:rf/*` root (spec/Conventions.md §Reserved namespaces). They are NOT
+;; the app the operator is pairing against; they are devtool surfaces the
+;; tooling itself mounted. Counting them toward ambiguity meant every
+;; Xray-instrumented app (the common case) was "ambiguous" on the first
+;; mutating op — forcing a `frames/select` + retry up front for no real
+;; choice (there is exactly one APP frame; the other is a tool frame).
+;;
+;; So the resolver is RESERVED-FRAME-AWARE: a `:rf/*`-namespaced frame is
+;; a tool frame and is EXCLUDED from the ambiguity count, with ONE
+;; deliberate exception — `:rf/default`, which Conventions.md §The
+;; single-root reserved set names as "the universal default frame id". It
+;; is the canonical APP frame, not a tool frame, despite sharing the
+;; `:rf/*` root. We key off the reserved-namespace RULE (namespace = "rf",
+;; minus the `:rf/default` carve-out), never a literal `:rf/xray`, so the
+;; behaviour holds for any tool frame any project mounts under `:rf/*`.
+;;
+;; When exactly one APP frame remains after excluding tool frames, tier 3
+;; AUTO-SELECTS it: single-app + Xray is unambiguous with no `frames/
+;; select` tax. Two-plus app frames stay genuinely ambiguous (tier 4).
 
 (defonce ^:private selected-frame (atom nil))
 
@@ -229,30 +254,68 @@
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
 
+(defn reserved-tool-frame?
+  "True when `frame-id` names a framework-reserved `:rf/*` TOOL frame —
+   a devtool surface (Xray's `:rf/xray`, an SSR slot, …) the tooling
+   mounted, NOT an app frame the operator is pairing against.
+
+   The rule is the reserved-namespace convention (spec/Conventions.md
+   §Reserved namespaces — framework-owned ids live under the single `:rf/*`
+   root), NOT a hardcoded id, so it holds for every `:rf/*` tool frame any
+   project mounts. The SOLE carve-out is `:rf/default`: Conventions.md §The
+   single-root reserved set names it \"the universal default frame id\" —
+   it shares the `:rf/*` root but IS the canonical app frame, so it is
+   never treated as a tool frame.
+
+   Non-keyword / un-namespaced ids (a user's `:stories`, `:sandbox`) are
+   app frames and return false."
+  [frame-id]
+  (and (keyword? frame-id)
+       (= "rf" (namespace frame-id))
+       (not= :rf/default frame-id)))
+
+(defn app-frame-ids
+  "The registered frame ids with `:rf/*` reserved TOOL frames removed —
+   the frames the operator is actually pairing against (rf2-3bu3d.4).
+   `:rf/default` is retained (it is an app frame; see
+   `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
+  []
+  (vec (remove reserved-tool-frame? (rf/frame-ids))))
+
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
-   the sole registered frame -> nil (ambiguous).
+   the sole registered APP frame -> nil (ambiguous).
 
-   Returns nil whenever more than one frame is registered AND the
-   session hasn't selected one (and the caller didn't pass an override).
-   Mutating ops then refuse via the `:ambiguous-frame` path in
-   `pair-dispatch-sync!`. Reads that nil-default to `:rf/default` would
-   silently land in the wrong frame, so the resolver is deliberately
-   conservative — callers either pin via `select-frame!`, pass an
-   explicit override, or get a clear refusal."
+   Tier 3 is reserved-frame-aware (rf2-3bu3d.4): `:rf/*` TOOL frames
+   (Xray's `:rf/xray`, SSR slots, …) are EXCLUDED before counting, so a
+   single-app session that ALSO carries an Xray frame resolves to the one
+   app frame instead of refusing. `:rf/default` is an app frame and is
+   retained (see `reserved-tool-frame?`). When two-plus APP frames remain
+   the resolver yields nil and mutating ops refuse via the
+   `:ambiguous-frame` path — reads that nil-default to `:rf/default` would
+   silently land in the wrong frame, so the resolver stays conservative:
+   callers either pin via `select-frame!`, pass an explicit override, or
+   get a clear refusal."
   ([] (current-frame nil))
   ([override]
    (or override
        @selected-frame
-       (let [fids (rf/frame-ids)]
-         (when (= 1 (count fids))
-           (first fids))))))
+       (let [app-fids (app-frame-ids)]
+         (when (= 1 (count app-fids))
+           (first app-fids))))))
 
 (defn frames-list
-  "All registered, non-destroyed frame ids plus the operating frame."
+  "All registered, non-destroyed frame ids plus the operating frame.
+
+   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4):
+   the registered frames with `:rf/*` tool frames removed. When it holds
+   exactly one id while `:frames` holds more, the session is
+   single-app-plus-tool-frame and `:operating` auto-resolved to that lone
+   app frame (no `select-frame!` was needed)."
   []
   {:ok?              true
    :frames           (vec (rf/frame-ids))
+   :app-frames       (app-frame-ids)
    :selected         @selected-frame
    :operating        (current-frame)})
 
@@ -3523,7 +3586,8 @@
   (install-last-click-capture!)
   (ensure-trace-listener!)
   (ensure-epoch-listener!)
-  (let [fids (rf/frame-ids)]
+  (let [fids     (rf/frame-ids)
+        app-fids (app-frame-ids)]
     {:ok?                       true
      :session-id                session-id
      ;; rf2-ertqw — the browser half of the freshness token rides on
@@ -3539,9 +3603,21 @@
      :coord-annotation-enabled? (coord-annotation-enabled?)
      :last-click-capture?       true
      :frames                    (vec fids)
+     ;; rf2-3bu3d.4 — the reserved-frame-aware view: registered frames
+     ;; with `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR slots, …)
+     ;; removed. `:rf/default` is retained (it is an app frame). When
+     ;; this holds exactly one id while `:frames` holds more, the session
+     ;; is single-app-plus-tool-frame and resolution auto-selects the
+     ;; lone app frame — see `:ambiguous-frame?` below.
+     :app-frames                app-fids
      :selected-frame            @selected-frame
      :operating-frame           (current-frame)
-     :ambiguous-frame?          (and (> (count fids) 1)
+     ;; rf2-3bu3d.4 — ambiguity counts APP frames, not raw frames. A
+     ;; single-app session that ALSO carries an Xray (or other `:rf/*`
+     ;; tool) frame has exactly one app frame, so it is NOT ambiguous and
+     ;; pays no `frames/select` tax. Genuinely multi-app sessions (two-plus
+     ;; non-tool frames) stay ambiguous until the session pins one.
+     :ambiguous-frame?          (and (> (count app-fids) 1)
                                      (nil? @selected-frame))
      :epoch-history-depth       (try
                                   (let [requiring (resolve 're-frame.epoch/current-config)]

@@ -35,13 +35,15 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 
 ## Frames
 
-Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin, else the sole registered frame, else `:ambiguous-frame` for mutating ops.
+Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin, else the sole registered **app frame**, else `:ambiguous-frame` for mutating ops.
+
+**Reserved tool frames are excluded from the ambiguity count (rf2-3bu3d.4).** `:rf/*` reserved tool frames — Xray's `:rf/xray`, an SSR slot, … (per [Conventions.md §Reserved namespaces](../../../spec/Conventions.md)) — are devtool surfaces the tooling mounted, not the app you are pairing against, so they are removed before counting. A single-app session that *also* carries an `:rf/xray` frame (the common Xray-instrumented case) has exactly one app frame and resolves to it automatically — **no `frames/select` is needed**. Only a session with two-plus genuine *app* frames is ambiguous. The carve-out is `:rf/default`: it shares the `:rf/*` root but IS the universal default app frame, so it is always counted as an app frame.
 
 **Prefer the dedicated operating-frame tools (rf2-zomfq)** to set and read the session pin — `set-operating-frame {frame: ":foo"}` / `reset-operating-frame {}` / `get-operating-frame {}`. They are the wire-level surfacing of the pin and the escape from the tier-4 `:ambiguous-frame` refusal (see SKILL.md §Multi-frame model). The eval-based helpers below wrap the same preload functions (`select-frame!` / `current-frame` / `frame-meta`); reach for them only for `frames/meta`, which has no dedicated tool, or when you want the raw runtime return shape.
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `frames/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/frames-list)"}` | `{:ok? true :frames [...] :selected <pinned-or-nil> :operating <resolved-or-nil>}` — registered, non-destroyed frame ids plus the resolved operating frame (`rf/frame-ids`). |
+| `frames/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/frames-list)"}` | `{:ok? true :frames [...] :app-frames [...] :selected <pinned-or-nil> :operating <resolved-or-nil>}` — `:frames` is every registered, non-destroyed frame (`rf/frame-ids`); `:app-frames` is the reserved-frame-aware view (`:frames` minus `:rf/*` tool frames like `:rf/xray`). When `:app-frames` holds one id while `:frames` holds more, `:operating` auto-resolved to that sole app frame (rf2-3bu3d.4). |
 | `frames/select` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/select-frame! :stories)"}` | Pin the session's default operating frame; subsequent ops use it unless they pass an explicit `frame` arg. `{:ok? true :frame :stories}`. |
 | `frames/meta` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/frames-meta :stories)"}` | Flat metadata map for one frame (`rf/frame-meta`): `:id`, `:created-at`, the preset-expansion keys (`:preset`, `:fx-overrides`, `:drain-depth`, …) and lifecycle fields (`:destroyed?`, `:listeners`) at the top level. `{:ok? false :reason :no-such-frame :frame-id id}` when unregistered. See `:rf/frame-meta` in Spec-Schemas. |
 
