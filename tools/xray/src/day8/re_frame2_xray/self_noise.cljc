@@ -28,13 +28,16 @@
 
   2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
      cascades whose `:event` vector's head is a keyword in the
-     `rf.xray` namespace (`:rf.xray/focus-cascade`,
-     `:rf.xray/select-tab`, `:rf.xray/open-settings`, etc.). These
-     can be dispatched WITHOUT a `{:frame :rf/xray}` option (e.g. the
-     palette's quick-actions, whose `:palette/select-panel` verb lowers
-     into a plain `[:dispatch [:rf.xray/select-tab …]]` with no `:frame`);
-     the framework chain-resolves them onto `:rf/default` and the
-     trace envelope carries `:frame :rf/default` — so the frame gate +
+     `rf.xray` namespace OR any `rf.xray.*` sub-namespace
+     (`:rf.xray/focus-cascade`, `:rf.xray/select-tab`,
+     `:rf.xray.static/select-tab`, `:rf.xray.epoch/toggle-row`, etc.).
+     These can be dispatched WITHOUT a `{:frame :rf/xray}` option (e.g.
+     the palette's quick-actions, whose `:palette/select-panel` /
+     `:palette/select-static-tab` verbs lower into a plain
+     `[:dispatch [:rf.xray/select-tab …]]` / `[:dispatch
+     [:rf.xray.static/select-tab …]]` with no `:frame`); the framework
+     chain-resolves them onto `:rf/default` and the trace envelope
+     carries `:frame :rf/default` — so the frame gate +
      `xray-internal-event?` both miss them. The data-layer filter at
      the `:rf.xray/cascades` sub closes that hole structurally without
      forcing every call site to thread `:frame`.
@@ -53,7 +56,8 @@
   small, focused ns makes them discoverable + cheap to require from
   anywhere (the trace collector, the `:rf.xray/cascades` sub, the
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
-  runnable so the JVM test corpus can drive every axis.")
+  runnable so the JVM test corpus can drive every axis."
+  (:require [clojure.string :as str]))
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -73,22 +77,39 @@
   (= :rf/xray (or (:frame event) (get-in event [:tags :frame]))))
 
 (defn xray-internal-event-id?
-  "True when `event-id` is a keyword in the `rf.xray` namespace
-  (spec/Conventions.md §Reserved namespaces — Xray's canonical
-  devtool prefix).
+  "True when `event-id` is a keyword in the `rf.xray` namespace OR any
+  of its sub-namespaces (`rf.xray.static`, `rf.xray.epoch`,
+  `rf.xray.filters`, `rf.xray.edn-inspector`, `rf.xray.column-widths`,
+  … — spec/Conventions.md §Reserved namespaces, Xray's canonical
+  devtool prefix). Xray registers + dispatches many internal events
+  under sub-namespaces (e.g. the palette's frameless
+  `:rf.xray.static/select-tab`), and those must be filtered out of the
+  host cascade list exactly like the bare-`rf.xray` ones.
+
+  The match is a NAMESPACE SEGMENT prefix, not a naive substring: the
+  ns must be exactly `rf.xray` or start with `rf.xray.` (the dot
+  boundary guards against a host ns that merely shares the leading
+  characters — `:rf.xray-test/x`, `:rf.xray-foo/y`, `:rf.xrayon/z` all
+  stay false).
 
   Pure-data + JVM-runnable; nil-safe.
 
   Examples:
-    (xray-internal-event-id? :rf.xray/focus-cascade)  ;; true
-    (xray-internal-event-id? :rf.xray/select-tab)     ;; true
-    (xray-internal-event-id? :cart/add-item)           ;; false
-    (xray-internal-event-id? :rf/init)                 ;; false
-    (xray-internal-event-id? nil)                      ;; false
-    (xray-internal-event-id? \"rf.xray/x\")           ;; false (non-kw)"
+    (xray-internal-event-id? :rf.xray/focus-cascade)      ;; true
+    (xray-internal-event-id? :rf.xray/select-tab)         ;; true
+    (xray-internal-event-id? :rf.xray.static/select-tab)  ;; true
+    (xray-internal-event-id? :rf.xray.epoch/toggle-row)   ;; true
+    (xray-internal-event-id? :cart/add-item)              ;; false
+    (xray-internal-event-id? :rf/init)                    ;; false
+    (xray-internal-event-id? :rf.xray-test/x)             ;; false (no dot boundary)
+    (xray-internal-event-id? nil)                         ;; false
+    (xray-internal-event-id? \"rf.xray/x\")              ;; false (non-kw)"
   [event-id]
-  (and (keyword? event-id)
-       (= "rf.xray" (namespace event-id))))
+  (boolean
+    (when (keyword? event-id)
+      (when-let [ns (namespace event-id)]
+        (or (= "rf.xray" ns)
+            (str/starts-with? ns "rf.xray."))))))
 
 (defn xray-internal-cascade?
   "True when `cascade`'s `:event` vector's head is a Xray-internal
