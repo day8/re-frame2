@@ -356,6 +356,24 @@ Post-Lock additions accumulated as follows:
   frame registry + pin, caught by the post-eval result-hash cache — the
   precheck path is `snapshot`/`get-path`-only, so a pin write between two
   `get`s is never served stale).
+- **rf2-3bu3d.7 / rf2-3bu3d.8** added the **read-orientation pair** —
+  `read-sub` and `orient`. `read-sub {sub-id}` is the validated single-
+  subscription read: resolve the named subscription against the reactive
+  cache and return its current value through the same redaction / elision
+  egress as the other direct reads (rides the `read-` prefix — diagnostic
+  re-read, no recompute beyond the cache resolve). `orient` is the first-
+  contact **app-shape summary** for an UNFAMILIAR app: one round-trip
+  returning `:liveness` (debug-enabled? / frame counts / ambiguity),
+  `:frames` (all / app-only / operating, reserved `:rf/*` tool frames split
+  out), `:app-db-top-keys` (per-APP-frame top-level keys — the cheap "what
+  state shape" read), `:registry` (per-kind COUNTS plus the full sorted ids
+  for the three most navigable kinds — events / subs / fx), and `:machines`.
+  It composes the existing introspection surfaces (discover-app + snapshot
+  top-keys + list-handlers + list-subscriptions + machines) into a single
+  summarized read that respects the wire cap — counts + high-value id
+  vectors + per-frame top-keys, NOT the full app-db; drill via the
+  finer-grained ops. `orient` is a bare-verb mega-op (multi-registry
+  derived projection — see Lock #9); `read-sub` needs no new verb.
 
 [tp-tsobl]: ../../../spec/Tool-Pair.md#tool-surface-obligations
 
@@ -670,6 +688,68 @@ allowlist). What verbs do they take?
 
 ---
 
+## Lock #9 — Orientation verb shape (`orient` bare mega-op)
+
+**Locked 2026-06-02 (rf2-3bu3d.8).** **`orient` is a bare-verb
+mega-op.** `read-sub` (the read-orientation pair's sibling) rides the
+existing `read-` prefix (no new verb).
+
+### Question
+
+The first-contact app-shape summary needs a tool name. It is a derived
+projection over MULTIPLE registry kinds (liveness + frames + per-frame
+app-db top-keys + per-kind registry counts/ids + machines) returned in
+one round-trip — none of `get-<thing>` (single-entity read),
+`list-<things>` (one-kind enumeration), or `discover-<surface>`
+(session-bootstrap health probe alone) describes it. What verb does it
+take?
+
+### Options considered
+
+- **`orient` bare mega-op** (the pick). Joins `snapshot` /
+  `trace-window` / `watch-epochs` / `record` as a coarse-grained
+  multi-registry read; the agent learns one bare verb for "summarize
+  this whole app for me".
+- **`discover-app-shape` / extend `discover-app`.** `discover-app` is
+  the bootstrap HEALTH probe (`:ok?` / `:debug-enabled?` / `:build-id`)
+  the agent runs first; conflating it with the registry/app-db shape
+  read would bloat the bootstrap envelope and blur the "is the runtime
+  alive?" vs "what does this app contain?" distinction. `orient`
+  references `discover-app` for the freshness token instead.
+- **`get-app-shape` / `summarize-app`.** `get-` implies a single
+  addressed slice (it isn't — it spans kinds); `summarize-` is a
+  verb-soup synonym not in the catalogue. Both lose against the
+  established mega-op clause.
+
+### Pick
+
+`orient` (bare mega-op); `read-sub` (`read-` prefix).
+
+### Why
+
+- **`orient` as a mega-op bare verb.** Like `snapshot`, it spans
+  multiple registry/observable kinds in one op — the mega-op clause is
+  its natural home, and a bare imperative verb reads as the agent's
+  first move on an unfamiliar app ("orient yourself"). It is read-only
+  and summarized-by-design (counts + high-value id vectors + per-frame
+  top-keys, never the full app-db), so it respects the wire cap.
+- **`read-sub` needs no new verb.** The diagnostic-re-read `read-`
+  prefix already covers "resolve this subscription's current value" —
+  same shape as `read-dom` / `read-recording`.
+
+### Date locked
+
+2026-06-02 (rf2-3bu3d.8).
+
+### Trail-of-thought citations
+
+- `tools/mcp-conformance/NAMING.md` §The verb table (the mega-op row's
+  `orient` addition; the `read-sub` alignment row).
+- `tools/mcp-conformance/wire-vocab/test/.../verb_vocab_test.clj`
+  (`bare-verbs` gains `orient`).
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -682,8 +762,9 @@ allowlist). What verbs do they take?
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
 | 8 | Recorder verb shapes | **`record` bare mega-op; `read-recording` (`read-`); `watch-until` (new `watch-` prefix)** | 2026-05-31 |
+| 9 | Orientation verb shape | **`orient` bare mega-op; `read-sub` (`read-`)** | 2026-06-02 |
 
-These eight locks together define re-frame2-pair-mcp's shipped surface.
+These nine locks together define re-frame2-pair-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
 cardinality has since grown additively from seven to fourteen
