@@ -2,19 +2,31 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>re-frame2 testbed: edn-inspector (widget driver)</title>
+  <title>re-frame2 testbed: edn-inspector (Xray Epoch + App-db panels)</title>
   <style>
-    body { margin: 0; font-family: system-ui, sans-serif; }
-    /* The deck mounts the edn-inspector widget DIRECTLY below the button
-       column (no inline Xray shell host). A single `#app` root is all the
-       page needs. The widget paints with the Xray theme palette installed
-       on `:root` by `global-styles/install!` at boot. */
+    body { margin: 0; font-family: sans-serif; }
+    .rf2-testbed-shell { display: flex; min-height: 100vh; }
+    /* `--rf-xray-inline-width` is Xray's documented host-resize knob
+       (rf2-um813; see day8.re-frame2-xray.config/default-layout-host-css-var
+       and spec/011-Launch-Modes.md §Resizing the inline host). Override
+       the property anywhere up the cascade to resize the panel without
+       JS or a fork of this rule. The user-draggable resize handle is
+       auto-injected by Xray (rf2-70u8q; spec/007-UX-IA.md §Resize
+       affordance) — no `resize: horizontal` / `overflow: auto` needed.
+       The deck's `run` mounts the inline shell via
+       `day8.re-frame2-xray.core/init!` + `open!` (the manual alternative
+       to the :preloads wiring) so the Epoch + App-db panels read the
+       single default frame here — the inspector's primary use case. */
     :root { --rf-xray-accent: #7C5CFF; }
-    #app { min-height: 100vh; padding: 0; }
+    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; box-sizing: border-box; border-left: 1px solid #2a2a2a; }
+    #app { flex: 1; min-width: 0; padding: 0; }
   </style>
 </head>
 <body>
-  <main id="app"></main>
+  <div class="rf2-testbed-shell">
+    <main id="app"></main>
+    <aside data-rf-xray-host></aside>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>

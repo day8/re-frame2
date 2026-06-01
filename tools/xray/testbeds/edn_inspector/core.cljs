@@ -1,89 +1,100 @@
 (ns edn-inspector.core
-  "EDN-INSPECTOR testbed (rf2-74u2s) — a standard-epochs-style driving
-  surface for the Xray edn-inspector WIDGET, extracted from the
-  edn-inspector test(s) that were mixed into `standard_epochs`.
+  "EDN-INSPECTOR testbed (rf2-74u2s → rf2-1niob) — a standard-epochs-style
+  driving surface that exercises the Xray edn-inspector THROUGH its primary
+  use case: the Epoch and App-db PANELS.
 
-  ## Shape
+  ## Shape (rework — rf2-1niob)
 
-  ONE tall column of NUMBERED buttons down the left, top to bottom.
-  Beside each button a one-line caption says WHAT the case exercises.
-  Pressing a button seeds that case into the single frame's app-db;
-  the edn-inspector widget mounted BELOW the column renders it live.
-  Each button is ONE rung of a progressive feature ladder — rung 1 is
-  the trivial resting render; each later rung layers one more
-  edn-inspector capability.
+  ONE tall column of NUMBERED buttons, top to bottom — exactly the
+  `standard_epochs` shape. Each button DISPATCHES one event that changes
+  REAL app-db at a meaningful path, and the Xray SIDECAR mounted INLINE on
+  the right (`[data-rf-xray-host]`, like `standard_epochs`) shows the change
+  via the EPOCH panel (db-before / db-after) and the APP-DB panel (the diff).
 
-  This is the WIDGET counterpart of `standard_epochs` (which drives the
-  Xray PANELS). Where standard-epochs presses buttons to make Xray's
-  Epoch / App-db / Views / Trace / Issues panels light up, this deck
-  presses buttons to drive the single CLJS-value renderer
-  (`day8.re-frame2-xray.views.edn-inspector`) DIRECTLY — the renderer
-  behind every one of those panels.
+  Both of those panels render their CLJS values THROUGH the edn-inspector
+  (`day8.re-frame2-xray.views.edn-inspector`) — the single value renderer
+  behind every Xray panel. So the inspector is demonstrated where it actually
+  earns its keep: a button writes a stressing shape into app-db, and the
+  inspector renders that shape (and its diff) inside the panels.
 
-  ## North star (acceptance)
+  This SUPERSEDES the earlier widget-first deck (PR #2702), which mounted a
+  standalone `inspector-stage` widget below the buttons and seeded a single
+  `:edn-inspector/fixture` slot. Per Mike (2026-06-01) the inspector is seen
+  ONLY through the Epoch + App-db panels — there is no standalone widget
+  'elsewhere'.
 
-  Click the buttons top to bottom: every edn-inspector capability — a
-  resting render, elision past threshold, deep nesting + collapse /
-  expand, the three diff ops (added / removed incl. remove-to-empty /
-  changed), redaction + large-elided sentinels, zoom, the popup
-  affordance, tagged literals, and the card / header chrome — is
-  exercised in turn, each in isolation.
+  ## Per-press delta (standard_epochs pattern)
 
-  ## Direct-widget mount (no Xray shell)
+  Every action event bumps a shared `:baseline` counter (the `bump` helper),
+  so the App-db / Epoch panels always show a delta on every press, and the
+  per-button capability shape is the ADDITIONAL change layered on top.
 
-  Unlike standard-epochs (which auto-mounts the full Xray shell inline
-  via the `day8.re-frame2-xray.preload`), this deck mounts the
-  edn-inspector widget DIRECTLY — the bead's `press-button → the
-  edn-inspector below renders that case` shape. So we mirror the
-  `panel_gallery` boot for a bare widget mount: register Xray's
-  handlers (the widget reads its own expansion / zoom slots through
-  them) and install the Xray theme CSS variables on `:root` so the
-  widget paints with the themed palette — but we do NOT mount the
-  shell. The widget resolves dispatch / subscribe against the single
-  default frame (it is `reg-view`-registered, so it inherits whatever
-  frame is in scope; here that is the plainly-mounted default frame).
+  ## Button ladder — each a real app-db change exercising one inspector
+  capability AS THE PANELS RENDER IT
 
-  ## Fixture reuse
+    1  Large collection → ELISION. A 50-key map at `:metrics`; the App-db
+       panel's inspector elides past its threshold + the body scrolls.
+    2  Deeply nested → PATH RENDER / COLLAPSE. A six-level nested map at
+       `:tenant`; the inspector renders the path + `▸ {…N keys}` summaries
+       past the depth ceiling.
+    3  Diff: ADDED. A wholly-new `:flash` subtree (assoc-in) — the App-db
+       diff paints `+` / green wash.
+    4  Diff: REMOVED → empty (rf2-8pfkk). Dissoc the ONLY key under
+       `:session` so the after-tree is `{}` — a struck-through `−`
+       removal, NOT a `:added ::missing` leak.
+    5  Diff: CHANGED in place (diff-mode-3). Bump a nested scalar
+       `[:metrics :counter]` — the value-side `~` glyph + `← was N`.
+    6  Sensitive → :rf/redacted. Write the `:rf/redacted` sentinel three
+       levels deep at `[:session-secure :user :password]` — the inspector
+       renders a `redacted` chip, never the raw value.
+    7  Large-elided sentinel. Write `{:rf.size/large-elided {…}}` (Spec 015)
+       at `[:report-cache :report-42]` — routed through the size-chip
+       renderer, not the regular map path.
+    8  Mixed types / tagged literals. Write a vector of every scalar kind
+       plus `#uuid` + `#inst` tagged literals at `:scalar-mix` — every
+       syntax-palette token + the default formatters' compact headers.
 
-  Per rf2-74u2s the value shapes are REUSED from the `panel_gallery`
-  edn-inspector + diff-mode-3 fixtures (the pure builder fns under
-  `panel-gallery.fixtures-edn-inspector` /
-  `panel-gallery.fixtures-diff-mode-3`) rather than re-authored. The
-  ladder drives them LIVE: a button seeds the chosen fixture's
-  `{:value :before :opts}` into app-db; the widget renders it with diff
-  mode engaged when a `:before` is present.
+  Each press: the Epoch panel shows the cascade (db-before/after); the
+  App-db panel shows the inspector rendering the shape / diff.
+
+  ## Inline Xray sidecar (no preload edit)
+
+  Unlike the `_epochs` trio (standard_epochs / routes_epochs / machine_epochs)
+  which wire `day8.re-frame2-xray.preload` in shadow-cljs, this deck mounts the
+  inline shell from `run` via the public `day8.re-frame2-xray.core/init!` +
+  `open!` — the documented manual alternative to the `:preloads` wiring (see
+  `core.cljs` §init!). That keeps the inline-host behaviour identical
+  (`[data-rf-xray-host]`, the same shell, the same Epoch + App-db panels)
+  WITHOUT touching the hot-zone `implementation/shadow-cljs.edn` (the
+  `:examples/edn-inspector` build-id already exists from #2702).
 
   ## Test surface, not tutorial
 
-  Per `feedback_testbeds_are_test_surfaces`: NO deliberate bugs, NO
-  teaching layers, NO anti-pattern demos. Each rung exercises a REAL
-  edn-inspector capability cleanly. Captions are guidance, not lessons.
+  Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs, no teaching
+  layers, no anti-pattern demos. Each button writes a clean inspector-
+  stressing shape; captions are guidance, not lessons.
 
   ## Test-free + self-contained
 
   Per rf2-8cevm this testbed carries no spec.cjs; the edn-inspector's
   regression coverage lives in the `panel_gallery` Story gallery
-  (`story.xray.edn-inspector` + `story.xray.diff-mode-3`) gated by the
-  Xray feature-matrix gate. This deck is the manual LIVE-driver for the
-  same widget — the human-eye companion to the automated gate."
+  (gated by the Xray feature-matrix gate) + the substrate contract tests.
+  This deck is the manual LIVE driver of the inspector inside the real
+  Epoch + App-db panels. The events / subs / views are OWNED here."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; The widget under test — the single CLJS-value renderer.
-            [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
-            ;; Xray's `:rf.xray/*` handlers — the widget reads its own
-            ;; expansion / zoom slots through them.
-            [day8.re-frame2-xray.registry :as xray-registry]
-            ;; Xray's `:root` CSS-variable installer — required for a bare
-            ;; widget mount (the shell normally installs these from its
-            ;; own `shell-view` body; we bypass the shell, so we call it).
-            [day8.re-frame2-xray.theme.global-styles :as global-styles]
+            ;; Xray's public mount facade — `init!` wires the four
+            ;; foundation side-effects (registry, trace-cb, epoch-cb,
+            ;; keybinding) and `open!` mounts the inline shell into
+            ;; `[data-rf-xray-host]`. The documented manual alternative to
+            ;; the `:preloads` wiring, so no shadow-cljs.edn edit is needed.
+            [day8.re-frame2-xray.core :as xray]
+            ;; Xray's `configure!` to seed `:project-root` so the Event
+            ;; lens 'open' chip resolves a classpath-relative `:file` to
+            ;; an absolute on-disk URI.
             [day8.re-frame2-xray.config :as xray-config]
-            ;; REUSED fixtures (rf2-74u2s) — pure builder fns; no
-            ;; re-authoring of the value shapes.
-            [panel-gallery.fixtures-edn-inspector :as fx]
-            [panel-gallery.fixtures-diff-mode-3 :as fx3]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
             [re-frame.testbed.config :as testbed-config])
@@ -93,128 +104,199 @@
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
-;; The deck holds exactly one slot: `:fixture`, the active fixture map
-;; `{:value :before :opts}`. A button seeds it; the widget reads it. No
-;; baseline counter (this deck drives the WIDGET, not the panels — there
-;; is no Epoch / App-db delta to make visible).
-
-(def fixture-slot :edn-inspector/fixture)
+;; One flat, named seed. `:baseline` is the shared counter every button
+;; bumps (so App-db / Epoch always show a delta on every press). The other
+;; slots are the real, meaningful paths the per-button events write the
+;; inspector-stressing shapes into — the App-db panel renders them (and their
+;; diffs) THROUGH the edn-inspector.
 
 (def initial-db
-  {fixture-slot nil})
+  {:baseline      0
+   :metrics       {:counter 5}
+   :tenant        {}
+   :session       {:only-key {:label "removed" :n 42}}
+   :session-secure {:user {:id 7}}
+   :report-cache  {}
+   :scalar-mix    nil})
 
 (rf/reg-event-db :edn-inspector/reset
-  {:doc "Button 0 — clear the active fixture; the widget shows its empty
-         resting state."}
+  {:doc "Button 0 — re-seed app-db. Start clean (the inspector renders the
+         resting seed in the App-db panel)."}
   (fn handler-reset [_db _ev]
     initial-db))
 
-(rf/reg-event-db :edn-inspector/seed!
-  {:doc "Seed the active fixture map `{:value :before :opts}`. Every
-         ladder button dispatches this with one fixture builder's
-         result; the widget below renders it (diff mode engages when a
-         `:before` is present)."}
-  (fn handler-seed! [db [_ fixture]]
-    (assoc db fixture-slot fixture)))
-
-(rf/reg-sub fixture-slot
-  (fn [db _] (get db fixture-slot)))
-
 ;; ============================================================================
-;; THE LADDER — 13 rungs (rf2-74u2s)
+;; A small shared helper: every action event bumps the baseline counter.
 ;; ============================================================================
 ;;
-;; Each row: [n label caption fixture-fn]. `fixture-fn` is a 0-arg fn
-;; returning `{:value :before :opts}` (the REUSED panel_gallery
-;; fixtures, occasionally composed with extra opts for a rung). `:section`
-;; rows are separators (label only).
-;;
-;; The progression mirrors the bead's enumerated ladder exactly:
-;;
-;;   1  resting render (tiny scalar / small map)
-;;   2  elision past threshold (the extracted standard-epochs button-9 case)
-;;   3  deep nesting → path rendering + collapse / expand
-;;   4  collapse / expand toggle (a wide map; click triangles)
-;;   5  diff: ADDED (green +)
-;;   6  diff: REMOVED incl. remove-only-key → empty (the rf2-8pfkk case)
-;;   7  diff: CHANGED in place (diff-mode-3 grammar)
-;;   8  sensitive paths → :rf/redacted markers
-;;   9  large-elided sentinels → :rf.size/large-elided
-;;   10 zoom (re-root into a subtree) + back
-;;   11 popup affordance (the ↗ open-in-new-pane)
-;;   12 tagged literals / mixed types (nil / boolean / keyword / inst / uuid)
-;;   13 card / header section chrome
+;; Kept as a plain db->db fn (not an interceptor) so the baseline bump is
+;; visible inline in each handler body — the App-db / Epoch delta on every
+;; press comes from here, and the per-button capability shape is the
+;; ADDITIONAL change layered on top (the standard_epochs pattern).
 
-;; Rung 6's remove-to-empty case (rf2-8pfkk): dissoc the only key so the
-;; after-tree is `{}`. A struck-through removal — NOT a `:added ::missing`
-;; leak (the bug rf2-8pfkk fixed).
-(defn- remove-to-empty []
-  {:before {:only-key {:label "removed" :n 42}}
-   :value  {}
-   :opts   {:full-with-diff? true}})
+(defn- bump [db] (update db :baseline inc))
+
+;; ============================================================================
+;; EVENTS — the button ladder (each a real app-db write the panels render)
+;; ============================================================================
+
+;; -- 1. large collection → elision -------------------------------------------
+(rf/reg-event-db :edn-inspector/large-collection
+  {:doc "Button 1 — write a 50-key map to `:metrics/grid`. The App-db panel's
+         inspector elides past its threshold; the expanded body scrolls."}
+  (fn handler-large-collection [db _ev]
+    (-> db
+        bump
+        (assoc-in [:metrics :grid]
+                  (into {} (for [i (range 50)]
+                             [(keyword (str "metric-" i)) (str "value-" i)]))))))
+
+;; -- 2. deeply nested → path render / collapse -------------------------------
+(rf/reg-event-db :edn-inspector/deeply-nested
+  {:doc "Button 2 — write a six-level nested map to `:tenant`. The inspector
+         renders the path; deep nodes render `▸ {…N keys}` summaries past the
+         depth ceiling, ancestors open under the width-aware heuristic."}
+  (fn handler-deeply-nested [db _ev]
+    (-> db
+        bump
+        (assoc :tenant
+               {:acme {:department {:engineering {:team {:platform
+                                                         {:project :xray
+                                                          :status  :active
+                                                          :leads   ["Ada" "Grace"]}}}}}}))))
+
+;; -- 3. diff: ADDED (green +) ------------------------------------------------
+(rf/reg-event-db :edn-inspector/diff-added
+  {:doc "Button 3 — assoc-in a wholly-new `:flash` subtree. The App-db diff
+         paints the `+` glyph + green wash on the new subtree (diff-mode-3)."}
+  (fn handler-diff-added [db _ev]
+    (-> db
+        bump
+        (assoc-in [:metrics :flash] {:level :ok :text "Order placed"}))))
+
+;; -- 4. diff: REMOVED → empty (rf2-8pfkk) ------------------------------------
+(rf/reg-event-db :edn-inspector/diff-removed-to-empty
+  {:doc "Button 4 — dissoc the ONLY key under `:session` so the after-tree is
+         `{}`. The App-db diff shows a struck-through `−` removal, NOT a
+         `:added ::missing` leak (the bug rf2-8pfkk fixed). Re-seeds the key
+         first if it was already removed so there is always something to
+         remove."}
+  (fn handler-diff-removed-to-empty [db _ev]
+    (let [db (bump db)]
+      (if (seq (:session db))
+        (assoc db :session {})
+        (assoc db :session {:only-key {:label "removed" :n 42}})))))
+
+;; -- 5. diff: CHANGED in place (diff-mode-3) ---------------------------------
+(rf/reg-event-db :edn-inspector/diff-changed
+  {:doc "Button 5 — bump the nested scalar `[:metrics :counter]` in place. The
+         App-db diff shows the value-side `~` glyph + `← was N` annotation
+         (diff-mode-3 R1)."}
+  (fn handler-diff-changed [db _ev]
+    (-> db
+        bump
+        (update-in [:metrics :counter] (fnil inc 0)))))
+
+;; -- 6. sensitive → :rf/redacted ---------------------------------------------
+(rf/reg-event-db :edn-inspector/redacted
+  {:doc "Button 6 — write the `:rf/redacted` sentinel three levels deep at
+         `[:session-secure :user :password]`. The inspector renders a
+         `redacted` chip, never the raw value."}
+  (fn handler-redacted [db _ev]
+    (-> db
+        bump
+        (assoc-in [:session-secure :user :password] :rf/redacted))))
+
+;; -- 7. large-elided sentinel (Spec 015) -------------------------------------
+(rf/reg-event-db :edn-inspector/large-elided
+  {:doc "Button 7 — write a `:rf.size/large-elided` sentinel (Spec 015) at
+         `[:report-cache :report-42]`. The inspector routes it through the
+         size-chip renderer, not the regular map path."}
+  (fn handler-large-elided [db _ev]
+    (-> db
+        bump
+        (assoc-in [:report-cache :report-42]
+                  {:rf.size/large-elided {:source        :app-db
+                                          :path          [:report-cache :report-42]
+                                          :original-size 12480293
+                                          :bytes         12480293
+                                          :handle        :report/payload-42
+                                          :reason        :over-budget}}))))
+
+;; -- 8. mixed types / tagged literals ----------------------------------------
+(rf/reg-event-db :edn-inspector/mixed-types
+  {:doc "Button 8 — write a vector of every scalar kind PLUS `#uuid` + `#inst`
+         tagged literals at `:scalar-mix`. The inspector paints every
+         syntax-palette token + the default formatters' compact headers."}
+  (fn handler-mixed-types [db _ev]
+    (-> db
+        bump
+        (assoc :scalar-mix
+               [nil true false
+                42 -7 3.14159
+                "hello" "with \"escaped\" quotes"
+                :simple :ns/qualified
+                'plain-sym 'my.ns/qualified-sym
+                (random-uuid)
+                (js/Date.)]))))
+
+;; ============================================================================
+;; SUBSCRIPTIONS — the on-page mirror of the baseline counter
+;; ============================================================================
+
+(rf/reg-sub :edn-inspector/baseline (fn [db _] (:baseline db)))
+
+;; ============================================================================
+;; THE BUTTON LADDER
+;; ============================================================================
 
 (def ^:private ladder
+  "The ordered button ladder. Each row: [n label caption event]. `event` is
+  the dispatch vector; `:section` rows are separators (label only)."
   [[:section "Resting / elision / nesting"]
-   [1  "Tiny scalar + small map"
-    "Resting render — a 3-key map renders inline; the syntax palette is visible"
-    fx/map-small]
-   [2  "Large collection → elision"
-    "Elision past threshold — a 50-key map; the expanded body scrolls (the extracted standard-epochs button-9 case)"
-    fx/map-large]
-   [3  "Deeply nested → path + collapse"
-    "Six-level nested map — path rendering; deep nodes render `▸ {…N keys}` summaries"
-    fx/map-nested]
-   [4  "Collapse / expand toggle"
-    "A twelve-key map past `:max-inline-width` — click the triangles to collapse / expand"
-    fx/map-medium]
+   [1 "Large collection → elision"
+    "App-db panel: a 50-key map at :metrics/grid — the inspector elides past threshold; the body scrolls"
+    [:edn-inspector/large-collection]]
+   [2 "Deeply nested → path + collapse"
+    "App-db panel: a six-level nested map at :tenant — path render; deep nodes render `▸ {…N keys}` summaries"
+    [:edn-inspector/deeply-nested]]
 
    [:section "Diff ops — added / removed / changed"]
-   [5  "Diff: ADDED (green +)"
-    "Wholly-new `:flash` subtree — the `+` glyph + green wash (diff-mode-3 R5)"
-    fx3/r5-wholly-new-subtree]
-   [6  "Diff: REMOVED → empty"
-    "Remove the ONLY key → after-tree is `{}` — a struck-through `−` removal, NOT a `:added ::missing` leak (rf2-8pfkk)"
-    remove-to-empty]
-   [7  "Diff: CHANGED in place"
-    "Scalar bump `{:counter 5} → {:counter 6}` — the value-side `~` glyph + `← was 5` (diff-mode-3 R1)"
-    fx3/r1-modified-scalar]
+   [3 "Diff: ADDED (green +)"
+    "App-db diff: a wholly-new :flash subtree (assoc-in) — the `+` glyph + green wash"
+    [:edn-inspector/diff-added]]
+   [4 "Diff: REMOVED → empty"
+    "App-db diff: dissoc the ONLY key under :session → after-tree is `{}` — a struck-through `−`, NOT a `:added ::missing` leak (rf2-8pfkk)"
+    [:edn-inspector/diff-removed-to-empty]]
+   [5 "Diff: CHANGED in place"
+    "App-db diff: bump [:metrics :counter] — the value-side `~` glyph + `← was N` (diff-mode-3 R1)"
+    [:edn-inspector/diff-changed]]
 
    [:section "Sentinels — redaction / size-elision"]
-   [8  "Sensitive → :rf/redacted"
-    "A `:rf/redacted` sentinel three levels deep renders as a `redacted` chip, never the raw value"
-    fx/diff-redacted-context]
-   [9  "Large-elided sentinel"
-    "A `:rf.size/large-elided` sentinel (Spec 015) routes through the size-chip renderer, not the regular map path"
-    fx/map-large-elided]
+   [6 "Sensitive → :rf/redacted"
+    "App-db panel: a :rf/redacted sentinel three levels deep at [:session-secure :user :password] renders a `redacted` chip, never the raw value"
+    [:edn-inspector/redacted]]
+   [7 "Large-elided sentinel"
+    "App-db panel: a :rf.size/large-elided sentinel (Spec 015) at [:report-cache :report-42] routes through the size-chip renderer, not the regular map path"
+    [:edn-inspector/large-elided]]
 
-   [:section "Affordances — zoom / popup"]
-   [10 "Zoomable (re-root into a subtree)"
-    "`:zoomable? true` — double-click a container (or Enter while focused) to re-root the inspector onto it; breadcrumb back"
-    fx/opts-zoomable]
-   [11 "Popup affordance (↗)"
-    "`:popup-affordance? true` — the `↗` open-in-new-pane button sits at the widget's top-right corner"
-    fx/opts-popup-affordance]
+   [:section "Tagged literals / mixed types"]
+   [8 "Mixed types / tagged literals"
+    "App-db panel: every scalar kind — nil / boolean / int / float / string / keyword / symbol — plus #uuid + #inst tagged literals at :scalar-mix"
+    [:edn-inspector/mixed-types]]])
 
-   [:section "Tagged literals / chrome"]
-   [12 "Tagged literals / mixed types"
-    "Every scalar kind — nil / boolean / int / float / string / keyword / symbol — plus uuid + inst tagged literals"
-    fx/scalar-mix]
-   [13 "Card + header chrome"
-    "`:card?` + `:header` — the inspector-card surface chrome with a labelled ribbon (rf2-63ie5 / rf2-okq7p)"
-    fx/opts-header]])
-
-;; ============================================================================
-;; VIEWS — the button ladder + the live widget below
-;; ============================================================================
+(defn- testid-for [event]
+  (-> (first event) name (str "-button")))
 
 (reg-view ladder-button
-  "One numbered ladder row: a numbered button on the left, its caption on
-  the right. Pressing it seeds the row's fixture into the widget."
-  [n label caption fixture-fn]
+  "One numbered ladder row: a numbered button on the left, its caption on the
+  right. Pressing it dispatches the row's event — a REAL app-db change the
+  Epoch + App-db panels render through the inspector."
+  [n label caption event]
   [:div {:style {:display "grid" :grid-template-columns "auto 1fr"
                  :gap "0.75em" :align-items "center" :margin "0.35em 0"}}
-   [:button {:data-testid (str "edn-inspector-button-" n)
-             :on-click    #(dispatch [:edn-inspector/seed! (fixture-fn)])
+   [:button {:data-testid (testid-for event)
+             :on-click    #(dispatch event)
              :style {:min-width "18em" :text-align "left"
                      :padding "0.4em 0.6em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
@@ -233,28 +315,6 @@
                  :padding-top "0.5em"}}
    label])
 
-(reg-view inspector-stage
-  "The live widget below the ladder. Reads the active fixture slot,
-  destructures `{:value :before :opts}`, and renders the edn-inspector
-  with diff mode engaged when `:before` is present. Empty until a button
-  is pressed."
-  []
-  (let [fixture @(subscribe [:edn-inspector/fixture])
-        {:keys [value before opts]} fixture
-        merged-opts (cond-> (or opts {})
-                      (some? before) (assoc :before before))]
-    [:div {:data-testid "edn-inspector-stage"
-           :style {:margin-top "1em" :border-top "2px solid #7C5CFF"
-                   :padding-top "1em"}}
-     [:div {:style {:font-size "11px" :font-weight "bold" :color "#7C5CFF"
-                    :text-transform "uppercase" :letter-spacing "0.04em"
-                    :margin-bottom "0.5em"}}
-      "edn-inspector — live"]
-     (if (some? fixture)
-       [edn-inspector/edn-inspector value merged-opts]
-       [:div {:style {:color "#888" :font-size "13px" :font-style "italic"}}
-        "Press a numbered button above — the chosen case renders here."])]))
-
 (reg-view root []
   [:div {:data-testid "edn-inspector-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
@@ -262,29 +322,32 @@
    [:header {:style {:margin-bottom "0.5em"}}
     [:h2 {:style {:margin 0}} "edn-inspector"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One frame, one tall column of test buttons. Each button seeds one "
-     "case into the "
+     "One frame, one tall column of test buttons. Each button "
+     [:strong "dispatches a real app-db change"]
+     " and bumps a shared "
+     [:strong "baseline"]
+     " counter — watch the Xray "
+     [:strong "Epoch"]
+     " and "
+     [:strong "App-db"]
+     " panels on the right: both render their CLJS values through the "
      [:strong "edn-inspector"]
-     " widget below — the single CLJS-value renderer behind every Xray "
-     "panel. Click top to bottom and every renderer capability is "
-     "exercised: resting render, elision, nesting + collapse / expand, "
-     "the three diff ops, redaction + size sentinels, zoom, the popup "
-     "affordance, tagged literals, and card / header chrome."]]
+     ", so each press exercises one inspector capability (elision, deep "
+     "nesting, the three diff ops, redaction + size sentinels, tagged "
+     "literals) where the inspector actually earns its keep."]]
    ;; Button 0 — Reset.
    [:button {:data-testid "edn-inspector-reset"
              :on-click #(dispatch [:edn-inspector/reset])
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — clear the active fixture"]
+    "0. Reset — re-seed app-db"]
    ;; The ladder.
    (for [row ladder]
      (if (= :section (first row))
        ^{:key (second row)} [section-heading (second row)]
-       (let [[n label caption fixture-fn] row]
-         ^{:key n} [ladder-button n label caption fixture-fn])))
-   ;; The live widget.
-   [inspector-stage]])
+       (let [[n label caption event] row]
+         ^{:key n} [ladder-button n label caption event])))])
 
 ;; ============================================================================
 ;; MOUNT
@@ -299,18 +362,18 @@
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
 (defn ^:export run []
-  ;; Configure Xray BEFORE `rf/init!` so any source-coord chip the widget
+  ;; Configure Xray BEFORE `rf/init!` so any source-coord chip a panel
   ;; surfaces resolves its classpath-relative `:file` to an on-disk URI.
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; Register Xray's `:rf.xray/*` handlers once — the widget reads its
-  ;; own expansion / zoom slots through them. We do NOT mount the Xray
-  ;; shell (this deck drives the widget directly).
-  (xray-registry/register-xray-handlers!)
-  ;; Install the Xray theme CSS variables on `:root` so the bare widget
-  ;; paints with the themed palette (the shell normally does this; we
-  ;; bypass the shell). Idempotent (defonce-guarded + DOM-probed).
-  (global-styles/install!)
-  ;; Single, plain frame — no URL machinery, no shell.
+  ;; Seed app-db on the single, plain default frame — no URL machinery.
   (rf/dispatch-sync [:edn-inspector/reset])
-  (rdc/render react-root [root]))
+  (rdc/render react-root [root])
+  ;; Mount the inline Xray sidecar (Epoch + App-db panels) into
+  ;; `[data-rf-xray-host]`, standard_epochs-style. `init!` is the public
+  ;; manual alternative to the `:preloads` wiring (so no shadow-cljs.edn
+  ;; edit); `open!` finds the host, registers the `:rf/xray` frame, and
+  ;; renders the shell via the installed Reagent adapter. Called AFTER
+  ;; `rf/init!` so the substrate adapter is present.
+  (xray/init!)
+  (xray/open!))

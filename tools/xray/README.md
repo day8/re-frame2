@@ -295,19 +295,23 @@ exercises its topology highlight · focused-transition lens · guards /
 actions · snapshot drill-in · transition history · parallel-region
 surfaces; owns its own `:door/main` + `:traffic/light` machines and does
 NOT touch the `deep_machine` gate substrate; served on port 8033), the
-WIDGET sibling (`edn_inspector`, rf2-74u2s: the same numbered-button
-shape — one frame · one rung per press — but each rung seeds a value
-shape into the edn-inspector WIDGET
-(`day8.re-frame2-xray.views.edn-inspector`) mounted below the column,
-driving the single CLJS-value RENDERER behind every panel directly
-across a progressive 13-rung ladder — resting render · elision · nesting
-+ collapse/expand · the three diff ops (added / removed-to-empty /
-changed) · redaction + large-elided sentinels · zoom · the popup
-affordance · tagged literals · card/header chrome; reuses the
-`panel_gallery` edn-inspector + diff-mode-3 fixtures as its value shapes;
-extracted from the edn-inspector test that was mixed into
-`standard_epochs` as its old button 9; served on port 8034), the
-deterministic
+edn-inspector sibling (`edn_inspector`, rf2-74u2s → rf2-1niob: the same
+numbered-button shape — one frame · baseline-bump per press — where each
+button DISPATCHES a real app-db change at a meaningful path, and the Xray
+sidecar mounted INLINE on the right shows it via the EPOCH (db-before /
+after) + APP-DB (the diff) panels, both of which render their CLJS values
+through the edn-inspector
+(`day8.re-frame2-xray.views.edn-inspector`) — so the inspector is
+demonstrated through its PRIMARY use case, the panels, not a standalone
+widget. An 8-rung ladder, each rung writing one inspector-stressing shape:
+large collection → elision · deeply nested → path render/collapse · the
+three App-db diff ops (added / removed-to-empty per rf2-8pfkk / changed
+diff-mode-3) · :rf/redacted sentinel · :rf.size/large-elided sentinel
+(Spec 015) · mixed types + #uuid/#inst tagged literals. The inline shell
+mounts from the deck's `run` via the public
+`day8.re-frame2-xray.core/init!` + `open!` (the manual alternative to the
+`:preloads` wiring) so no shadow-cljs.edn edit is needed; served on port
+8034), the deterministic
 feature-matrix sweep across panels + shell + launch modes + redaction
 + 20-event load, the Panel-view gallery, and the performance probe.
 
