@@ -1238,11 +1238,48 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-fx-1-0"))
           "first emitted fx-id is rendered as a chip"))))
 
+(deftest machine-handler-cascade-action-data-diff-test
+  (testing "rf2-5hjb5 — an `:action` row that returned a `:data` write
+            renders the DATA Δ slot (the action's returned data, diffed
+            against its input data via the edn-inspector). The slot is
+            present whenever `:data-write` is present, carrying both the
+            mutating-action and no-op-action cases."
+    (let [;; A mutating entry action: input {:opened-count 0} →
+          ;; outcome {:opened-count 1}.
+          mutating {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-machine :event-id :door/main
+                    :db-diff [] :fx []
+                    :machine {:cascade [{:kind :action :step 1
+                                         :action-id :count-open
+                                         :phase :entry
+                                         :data-before {:opened-count 0}
+                                         :data-write  {:opened-count 1}}]
+                              :transition nil :guards [] :lifecycle [] :timers []}}
+          tree-m (view/render-handler-step mutating)]
+      (is (some? (th/find-by-testid tree-m "rf-xray-epoch-machine-cascade-data-write-1"))
+          "DATA Δ slot renders for a data-mutating action")
+      (is (some? (th/find-by-testid tree-m "rf-xray-epoch-machine-cascade-outcome-1"))
+          "the action outcome-details block is present"))
+    ;; A no-op exit action whose :data is unchanged still surfaces the
+    ;; slot (the inspector renders the value with no delta).
+    (let [noop {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :door/main
+                :db-diff [] :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :clear-hold
+                                     :phase :exit
+                                     :data-before {:held-open? false}
+                                     :data-write  {:held-open? false}}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree-n (view/render-handler-step noop)]
+      (is (some? (th/find-by-testid tree-n "rf-xray-epoch-machine-cascade-data-write-1"))
+          "DATA Δ slot renders even for a no-op action (no delta shown)"))))
+
 (deftest machine-handler-cascade-transition-row-renders-states-test
-  (testing "rf2-u69j7 — `:transition` rows render the `from → to`
-            state-vector chrome alongside `event` + `microsteps` so
-            the operator reads the state change at the row's vertical
-            position."
+  (testing "rf2-ge6uj ISSUE 3 — the `:transition` row collapses to ONE
+            prominent row: the verb-link carries `<from> → <to>` as the
+            focal point; the prior repetitive `transition` detail block
+            (`state <from> → <to>` line + echoed `event [...]`) is GONE."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
                 :db-diff [] :fx []
@@ -1257,10 +1294,16 @@
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-1"))
-          "transition detail block renders")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
-          "from → to state chrome renders"))))
+      ;; The prominent verb-link IS the state change (the focal point).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-verb-link-1"))
+          "the prominent transition verb-link renders the state change")
+      ;; The repetitive detail block is REMOVED (rf2-ge6uj ISSUE 3).
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-1"))
+          "the redundant transition detail block is gone")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
+          "the redundant `state from → to` line is gone")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-trigger-1"))
+          "the redundant echoed `event [...]` line is gone"))))
 
 ;; ---- rf2-wwc3j — inline-fn / transition source-body rendering ------------
 

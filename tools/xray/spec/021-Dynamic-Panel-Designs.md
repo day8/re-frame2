@@ -1370,14 +1370,44 @@ category sub-sections (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS
 / DATA REDUCTION / SNAPSHOT DIFF / FX). That was a roll-up — the
 operator had to scroll up/down across categories to reconstruct what
 actually fired in what order. The redesign replaces the category-
-grouped layout with a single **time-ordered cascade view**: one row
-per substrate emit, ordered by the trace buffer's insertion order.
+grouped layout with a single **cascade view**: one row per substrate
+emit, rendered in canonical phase order.
 
-**Order is the substrate's.** The substrate already emits in cascade
-order (guards → exit actions → transition → entry actions → always →
-after-action → timer-cancels — Spec 005 §Trace events + rf2-82a0u).
-The panel never re-sorts; it walks `:trace-events` and surfaces every
-member of `machine-cascade-trace-ops` as a row in the same order:
+**Canonical phase order (rf2-tjqd8).** The rows are NOT rendered in raw
+substrate emit order. The substrate's live emit order is `exit → entry
+→ transition-LAST` — the `:rf.machine/transition` summary emit TRAILS
+the exit + entry actions so its `:after` snapshot reflects the
+accumulated data. Rendered verbatim, the TRANSITION lands AFTER the
+entry action, which mis-reads the statechart (the operator expects
+"leave the old state → change state → enter the new state"). The panel
+therefore RE-SORTS rows into the canonical `(kind, phase)` order:
+
+```
+guard → exit → TRANSITION → entry → always → after-action → timer
+```
+
+via a STABLE sort keyed by `[cascade-row-rank :trace-index]` — rows in
+the same rank keep their substrate emit order (multiple actions in one
+phase keep their run order). The `:transition` KIND sits between the
+exit-phase actions and the entry-phase actions; `:guard` leads (guards
+gate the transition); `:timer` trails (post-commit housekeeping).
+`:transition`-phase actions rank WITH the transition (they fire as part
+of the state change); `:initial-entry` ranks with `:entry`,
+`:destroy-exit` with `:exit`. The `:step` ordinal is assigned 1..N over
+the FINAL sorted order. See `projection/cascade-row-rank` +
+`machine-cascade-rows`.
+
+This is a PANEL-SIDE presentation re-sort ONLY. The substrate trace
+order is untouched — reordering the `:rf.machine/transition` emit would
+change trace order for every consumer (the alternative was considered
+and rejected: the panel re-sort is localized and safe). The
+`enrich-cascade-rows` pass (which stamps `:source-state` /
+`:target-state` / `:event-id` from the surrounding transition) runs on
+the trace-ordered rows BEFORE the re-sort, since that resolution is
+emit-order-sensitive.
+
+The projection walks `:trace-events` and surfaces every member of
+`machine-cascade-trace-ops` as a row, then applies the canonical sort:
 
   | Trace op                          | Row `:kind`     |
   |-----------------------------------|------------------|
@@ -1413,9 +1443,22 @@ cascade row carries source visibility (rf2-wwc3j extends rf2-u69j7's
 named-only coverage to inline-fn / transition / timer rows). The body
 renders the source form pulled from the registered machine spec via
 `edn/code-block` (clojure-syntax highlight; same widget the HANDLER
-source block uses). Source-key dispatch (`projection/cascade-row-
-source-key`) returns the spec-path tuple under which the macro
-stamped the per-element source-coord (rf2-8bp3):
+source block uses).
+
+The machine spec is read off `(rf/handler-meta :event event-id)`'s
+`:rf/machine` slot (rf2-ge6uj ISSUE 2) — the stamped spec carrying
+`:rf.machine/handler-source` (named guard/action fn-form pr-str
+strings, rf2-ypu5i) and `:rf.machine/source-coords` (per-element
+`{:file :line}` index, rf2-8bp3). The prior code read `(rf/handler-meta
+:machine event-id)`, a NON-EXISTENT registrar kind that always resolved
+nil — so `machine-spec-from-meta` saw no spec and every exit / entry
+action + guard row rendered the `<source not yet captured>`
+placeholder. Reading under `:event` (where the machine handler is
+registered) surfaces the stamped spec so the interleaved source code
+resolves for named handlers; inline-fn / transition / timer rows
+resolve via the source-coord index. Source-key dispatch
+(`projection/cascade-row-source-key`) returns the spec-path tuple under
+which the macro stamped the per-element source-coord (rf2-8bp3):
 
 | Row kind | id flavour              | spec-path key                                         |
 |----------|-------------------------|-------------------------------------------------------|
@@ -1454,18 +1497,39 @@ placeholder so the slot is consistently present.
 **Per-row outcome detail.** Action rows surface inline:
 
 - **`↳ data Δ`** — when the action returned a `:data` map, the delta
-  the action contributed (via `ei/mini`).
+  the action contributed rendered through the **edn-inspector in DIFF
+  mode** (rf2-5hjb5). The action's RETURNED `:data` (`:data-write`, the
+  AFTER) renders with inline diff annotations against the action's
+  INPUT `:data` (`:data-before`, lifted off the `:input {:data …}`
+  snapshot), reusing the same `{:before <prior>}` posture the App-db
+  panel ships (cf. `handler-db-diff-block`). A data-mutating action
+  shows its delta inline (entry `:count-open`: `{:opened-count 0}` →
+  `{:opened-count 1}` paints the changed leaf with the `~ … ← was 0`
+  gutter chrome); a no-op action whose `:data` is unchanged (exit
+  `:clear-hold`) renders the value with NO delta (the inspector's
+  `:same` rows carry no gutter glyph). When no pre-image was captured
+  the inspector mounts in browse mode. Supersedes the prior `ei/mini`
+  one-liner.
 - **`↳ fx`** — per-action fx-id chips for each effect the action
   emitted (same data the FX step's `:attributed-to` chip surfaces,
   now visible IN the action's row).
 - **`✗ threw`** — when the action threw, an error chip + exception
   message.
 
-Transition rows surface the `state {:from} → {:to}` chrome with the
-event vector that drove the cascade plus the transition-map source
-body (rf2-wwc3j). Timer rows surface only the header + click-to-
-source chip (no inline body — cancellations are housekeeping; the
-chip routes to the `:after`-bearing state node).
+**Transition row — one prominent collapsed row (rf2-ge6uj).** The
+transition zone is a SINGLE prominent row: the header carries `[#step]
+[TRANSITION badge] <before-state → after-state>`, where the verb IS the
+state change (rendered larger / bolder / magenta — the focal point of
+the collapsed zone) and doubles as the click-to-source affordance onto
+the transition map. The redundant leading "transition" word (the KIND
+pill already says TRANSITION), the machine-name echo (already the
+cascade context), and the prior repetitive lower-line `state {:from} →
+{:to}` + `event [...]` detail block are all REMOVED. The transition MAP
+literal still renders as the row's source body (the `{:target :guard
+:action}` rf2-wwc3j delight shape) — that is the source, not a
+repetition. Timer rows surface only the header + click-to-source chip
+(no inline body — cancellations are housekeeping; the chip routes to
+the `:after`-bearing state node).
 
 **Empty-state correctness** (acceptance #4 — rf2-u69j7). A vanilla
 `reg-event-db` cascade (or any non-`:reg-machine` flavour) renders
@@ -1809,9 +1873,17 @@ the verb so the affordance is read inline with the cascade rhythm
 `tools/xray/src/day8/re_frame2_xray/panels/epoch/view.cljs`:
 
 - **Source-coord read.** Pulls `(rf/handler-meta :event event-id)` for
-  vanilla flavours and `(rf/handler-meta :machine event-id)` for
-  `:reg-machine`. Coord shape: `{:file <string> :line <int>}` (the
-  registrar-meta surface; NOT a trace read).
+  ALL flavours — including `:reg-machine` (rf2-ge6uj ISSUE 1). A machine
+  is registered as a `reg-event-fx` carrying `:rf/machine? true`, so its
+  registration meta (with the top-level `reg-machine` call-site `:file` /
+  `:line`) lives under the `:event` kind. There is NO `:machine`
+  registrar kind (`registrar/kinds` = `:event :sub :fx … :machine-guard
+  :machine-action`); the prior `(rf/handler-meta :machine event-id)`
+  resolved nil, so the machine EVENT HANDLER painted the glyph-less plain
+  span. Reading under `:event` surfaces the call-site coord so the
+  machine EVENT HANDLER carries the same `↗` glyph a plain event does.
+  Coord shape: `{:file <string> :line <int>}` (the registrar-meta
+  surface; NOT a trace read).
 - **Clickable when** `(:file coord)` is non-empty — renders a
   `<button>` carrying the flavour label + lucide `external-link`
   glyph. Underlined-dotted in the accent tone so the hyperlink reads

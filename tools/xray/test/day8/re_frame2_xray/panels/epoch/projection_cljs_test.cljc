@@ -516,39 +516,50 @@
 
 ;; ---- rf2-u69j7 — machine cascade (time-ordered) -----------------------
 
-(deftest machine-cascade-rows-preserves-substrate-trace-order-test
-  (testing "rf2-u69j7 — `machine-cascade-rows` returns rows in the
-            SAME ORDER the substrate emitted them in the trace
-            buffer. Order is the cascade's narrative; no re-sort,
-            no per-category re-grouping."
-    (let [;; The substrate emits in cascade order: guards → exit
-          ;; actions → transition → entry actions → always →
-          ;; after-action. We mirror that shape here.
+(deftest machine-cascade-rows-canonical-phase-order-test
+  (testing "rf2-tjqd8 — `machine-cascade-rows` returns rows in CANONICAL
+            phase order (guard → exit → TRANSITION → entry → always →
+            after-action → timer), with a STABLE sort that preserves
+            intra-phase emit order. The substrate emits the
+            :rf.machine/transition LAST, so the panel re-sorts it ahead
+            of the entry/always actions."
+    (let [;; Emit order: guard, exit, transition-phase action, entry,
+          ;; always, transition-LAST, after-action, timer. Two entry
+          ;; actions exercise intra-phase stability.
           evs [(machine-guard-ev :ready? :pass)
                (machine-action-ev :clear-buffer :exit :ok)
                (machine-action-ev :open-socket :transition :ok)
+               (machine-action-ev :arm-heartbeat :entry :ok)
+               (machine-action-ev :seed-cache :entry :ok)
+               (machine-action-ev :pulse :always :ok)
                (machine-transition-ev :ws/conn [:idle] [:connecting]
                                        [:ws/start] 1)
-               (machine-action-ev :arm-heartbeat :entry :ok)
-               (machine-action-ev :pulse :always :ok)
                (machine-timer-cancel-ev :ws/conn [:idle] 500 :on-exit)]
           cascade (proj/machine-cascade-rows evs)]
-      (is (= 7 (count cascade))
+      (is (= 8 (count cascade))
           "one cascade row per substrate emit")
-      (is (= [:guard :action :action :transition :action :action :timer]
+      ;; Canonical: guard(0) exit(1) transition-phase-action(2) +
+      ;; transition-kind(2) [stable: action emitted first] entry(3) ×2
+      ;; always(4) timer(6).
+      (is (= [:guard :action :action :transition :action :action :action :timer]
              (mapv :kind cascade))
-          "rows mirror substrate insertion order — NOT re-sorted by category")
-      (is (= [1 2 3 4 5 6 7] (mapv :step cascade))
-          ":step is contiguous 1..N over the cascade")
-      (is (= [0 1 2 3 4 5 6] (mapv :trace-index cascade))
-          ":trace-index is the input-order index")
-      (is (= [nil :exit :transition nil :entry :always nil]
+          "rf2-tjqd8 — rows in canonical (kind,phase) rank order")
+      (is (= [nil :exit :transition nil :entry :entry :always nil]
              (mapv :phase cascade))
-          "phase is only stamped on :action rows (substrate contract)"))))
+          "the TRANSITION (nil phase) lands between transition-phase and entry actions")
+      (is (= [:ready? :clear-buffer :open-socket nil :arm-heartbeat :seed-cache :pulse nil]
+             (mapv #(or (:guard-id %) (:action-id %)) cascade))
+          "intra-phase emit order preserved (arm-heartbeat before seed-cache)")
+      (is (= [1 2 3 4 5 6 7 8] (mapv :step cascade))
+          ":step renumbered 1..N over the FINAL canonical order"))))
 
 (deftest machine-cascade-row-fields-test
-  (testing "rf2-u69j7 — each cascade row exposes the substrate-canonical
-            slots the view layer consumes"
+  (testing "rf2-u69j7 / rf2-tjqd8 — each cascade row exposes the
+            substrate-canonical slots the view layer consumes; rows are
+            CANONICALLY ORDERED (guard → transition → entry-action →
+            timer), not in raw emit order. The substrate emits the
+            :rf.machine/transition LAST; the panel re-sorts the ENTRY
+            action AFTER the transition."
     (let [g (machine-guard-ev :form-valid? :fail)
           a (ev :rf.machine :rf.machine/action-ran
                 {:action-id :open-socket
@@ -561,24 +572,20 @@
                                     {:state [:active]   :data {:n 1}}
                                     [:ws/start] 0)
           tm (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-supersede)
+          ;; Emit order: guard, ENTRY action, transition, timer. The
+          ;; canonical sort moves the entry action AFTER the transition.
           rows (proj/machine-cascade-rows [g a t tm])]
+      (is (= [:guard :transition :action :timer] (mapv :kind rows))
+          "rf2-tjqd8 — canonical order: guard → TRANSITION → entry action → timer")
+      (is (= [1 2 3 4] (mapv :step rows))
+          ":step renumbered 1..N over the canonical order")
       ;; Guard row
       (let [r (nth rows 0)]
         (is (= :guard (:kind r)))
         (is (= :form-valid? (:guard-id r)))
         (is (= :fail (:outcome r))))
-      ;; Action row
+      ;; Transition row — now BEFORE the entry action (rf2-tjqd8)
       (let [r (nth rows 1)]
-        (is (= :action (:kind r)))
-        (is (= :open-socket (:action-id r)))
-        (is (= :entry (:phase r)))
-        (is (false? (:threw? r)))
-        (is (= 1 (count (:fx r)))
-            "per-action fx attribution is hoisted onto the row")
-        (is (= {:n 1} (:data-write r))
-            "per-action data delta is hoisted onto the row"))
-      ;; Transition row
-      (let [r (nth rows 2)]
         (is (= :transition (:kind r)))
         (is (= :ws/conn (:machine-id r)))
         (is (= [:idle]   (:from-state r))
@@ -588,6 +595,18 @@
         (is (= {:n 0} (:data-before r)))
         (is (= {:n 1} (:data-after r)))
         (is (= [:ws/start] (:event r))))
+      ;; Entry action row — now AFTER the transition (rf2-tjqd8)
+      (let [r (nth rows 2)]
+        (is (= :action (:kind r)))
+        (is (= :open-socket (:action-id r)))
+        (is (= :entry (:phase r)))
+        (is (false? (:threw? r)))
+        (is (= 1 (count (:fx r)))
+            "per-action fx attribution is hoisted onto the row")
+        (is (= {:n 1} (:data-write r))
+            "per-action data delta (outcome :data) is hoisted onto the row")
+        (is (= {} (:data-before r))
+            "rf2-5hjb5 — input :data hoisted as the diff pre-image"))
       ;; Timer row
       (let [r (nth rows 3)]
         (is (= :timer (:kind r)))
@@ -633,8 +652,10 @@
         "no row carries a duration → nil")))
 
 (deftest project-machine-populates-cascade-slot-test
-  (testing "rf2-u69j7 — `(handler-row …)` now populates `:machine
-            :cascade` with the time-ordered cascade view consumes"
+  (testing "rf2-u69j7 / rf2-tjqd8 — `(handler-row …)` populates `:machine
+            :cascade` with the CANONICALLY-ORDERED cascade the view
+            consumes. The entry action emits before the transition but
+            renders AFTER it (canonical guard → TRANSITION → entry)."
     (let [evs [(dispatched-ev [:ws/start] :ui nil)
                (machine-guard-ev :ready? :pass)
                (machine-action-ev :open-socket :entry :ok)
@@ -644,8 +665,8 @@
       (is (vector? c) ":cascade is a vector")
       (is (= 3 (count c))
           "one row per substrate emit (guard + action + transition)")
-      (is (= [:guard :action :transition] (mapv :kind c))
-          "cascade kinds reflect substrate insertion order"))))
+      (is (= [:guard :transition :action] (mapv :kind c))
+          "rf2-tjqd8 — canonical order: guard → TRANSITION → entry action"))))
 
 (deftest cascade-row-label-test
   (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
@@ -656,7 +677,15 @@
                                     :phase :entry})))
     (is (= "timer [:idle] · on-exit"
            (proj/cascade-row-label {:kind :timer :state [:idle]
-                                    :reason :on-exit})))))
+                                    :reason :on-exit})))
+    ;; rf2-ge6uj ISSUE 3 — the transition label is JUST the state change
+    ;; `<from> → <to>`; the redundant "transition" word + machine-name
+    ;; echo are dropped (the KIND pill + cascade context carry those).
+    (is (= "[:idle] → [:connecting]"
+           (proj/cascade-row-label {:kind :transition
+                                    :machine-id :ws/conn
+                                    :from-state [:idle]
+                                    :to-state   [:connecting]})))))
 
 (deftest cascade-row-source-key-test
   (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path
