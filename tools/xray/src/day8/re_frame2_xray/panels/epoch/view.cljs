@@ -823,15 +823,20 @@
 ;;                       low-alpha wash) — parity with the inspector's
 ;;                       mode-3 R1 `:added` shape (per `edn-inspector`
 ;;                       `:added` op).
-;;   :first-run? false → value + inline `← was <prev>` annotation (prev
-;;                       routes through `ei/mini` for syntax-token
-;;                       chrome; prose stays muted text-tertiary).
+;;   :first-run? false → `:modified` chrome (yellow stripe + `~` glyph +
+;;                       low-alpha wash) + inline `← was <prev>`
+;;                       annotation — parity with the inspector's R1
+;;                       `:modified` leaf shape (`gutter-row :modified`).
+;;                       The prev value routes through `ei/mini` for
+;;                       syntax-token chrome; prose stays muted
+;;                       text-tertiary (rf2-o77z4).
 
 (def ^:private subs-leaf-row-style
-  "Outer wrapper for the leaf-scalar FULL+DIFF branch. `inline-flex`
-  (parity with `gutter-row`'s inline-flex shape per rf2-1bra5) so the
-  value composes inline with the optional `← was X` annotation without
-  forcing a block-level row break inside the table cell."
+  "Outer wrapper for an UNCHANGED-row leaf-scalar value (the all/changed
+  filter shows the current value with NO diff chrome — rf2-o77z4). Bare
+  `inline-flex` (parity with `gutter-row`'s inline-flex shape per
+  rf2-1bra5) so the value composes inline without forcing a block-level
+  row break inside the table cell."
   {:display       "inline-flex"
    :align-items   "baseline"
    :flex-wrap     "wrap"
@@ -874,6 +879,35 @@
   "Leading `+` glyph for the `:first-run?` `:added` chrome. Bold green
   (`:diff-gutter`), parity with the inspector's `gutter-row` glyph cell
   shape."
+  {:flex        "0 0 12px"
+   :color       (:diff-gutter tokens)
+   :font-size   "11px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private subs-leaf-modified-row-style
+  "Outer style for the `:first-run?` `false` `:modified` chrome — yellow
+  left-edge stripe + low-alpha wash + leading `~` glyph (rf2-o77z4).
+  Mirrors `subs-leaf-added-row-style` but swaps the diff token family to
+  `:diff-modified-stripe` / `:diff-modified-wash` so a changed leaf-
+  scalar reads visually identical to the inspector's R1 `:modified` leaf
+  shape (`gutter-row :modified`). The `← was <prev>` annotation composes
+  inline as a child via `subs-leaf-was-style`."
+  {:display       "inline-flex"
+   :align-items   "baseline"
+   :flex-wrap     "wrap"
+   :gap           "4px"
+   :padding-left  "6px"
+   :border-left   (str "2px solid " (:diff-modified-stripe tokens))
+   :background    (:diff-modified-wash tokens)
+   :max-width     "100%"})
+
+(def ^:private subs-leaf-modified-glyph-style
+  "Leading `~` glyph for the `:modified` chrome. Bold `:diff-gutter`
+  (the inspector paints `:added` / `:removed` / `:modified` gutter
+  glyphs in the same reserved tone — see `op-gutter-colour`), parity
+  with `subs-leaf-added-glyph-style`."
   {:flex        "0 0 12px"
    :color       (:diff-gutter tokens)
    :font-size   "11px"
@@ -3418,7 +3452,10 @@
                           inspector's R1 `:added` shape). NO `← was`
                           annotation (no prior value existed — the row
                           tells a 'this sub is now alive' story).
-    `:first-run?` false → value + inline `← was <prev>` annotation.
+    `:first-run?` false → `:modified` chrome (yellow stripe / leading
+                          `~` glyph / low-alpha wash, parity with the
+                          inspector's R1 `:modified` leaf shape) + value
+                          + inline `← was <prev>` annotation (rf2-o77z4).
                           The prose stays muted (text-tertiary); the
                           prev value routes through `ei/mini` for the
                           syntax-token chrome (keyword magenta, number
@@ -3428,58 +3465,70 @@
   mount: the inspector paints child-level annotations via the R1-R8
   grammar — no per-row chrome change.
 
-  Unchanged rows (`:changed? false`) render an empty cell — the
-  value column is reserved for diff signal; absence of a row entry
-  in this column is itself the unchanged indicator. Per Mike
-  pair-debug 2026-05-27 (rf2-fqcdd follow-up) the leading ✓/✗
-  ticks were dropped — redundant once the cell is value-only."
+  Unchanged rows (`:changed? false`) now render the CURRENT value with
+  NO diff chrome (rf2-o77z4, Mike pair 2026-06-01 — REVERSES the prior
+  2026-05-27 rf2-fqcdd 'empty cell = unchanged indicator' design). Row
+  density is controlled by the all/changed/unchanged filter, so showing
+  the value on unchanged rows is fine. Leaf-scalar → `ei/mini`;
+  container → a plain `ei/edn-inspector` mount (no `:before`, no
+  `:added?` — no diff signal)."
   [{:keys [sub-id changed? first-run? before after]} idx]
-  (when changed?
-    ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at this
-    ;; row level (the inspector has no leaf-scalar annotation surface).
-    ;; Containers fall through to the inspector mount. Testid naming
-    ;; note: the leaf-* testids deliberately use a prefix DISTINCT from
-    ;; `rf-xray-epoch-sub-row-` (the parent row's testid) so prefix
-    ;; counters like the sibling rf2-tzmmf filter tests don't pick the
-    ;; leaf wrapper up as an additional "row".
-    (if (subs-leaf-scalar? after)
-      (if first-run?
-        ;; first-cache-entry → :added chrome, no "was" annotation.
-        [:div {:data-rf-xray-subs-leaf  "added"
-               :data-rf-diff-op         "added"
-               :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
-               :style                   subs-leaf-added-row-style}
-         [:span {:style subs-leaf-added-glyph-style} "+"]
-         [:span [ei/mini after 40]]]
-        ;; value change → value + inline ← was <prev>.
-        [:div {:data-rf-xray-subs-leaf  "changed"
-               :data-rf-diff-op         "modified"
-               :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
-               :style                   subs-leaf-row-style}
-         [:span [ei/mini after 40]]
-         [:span {:data-rf-diff-annotation "subs-was"
-                 :style                   subs-leaf-was-style}
-          "← was "
-          [:span {:data-rf-xray-subs-leaf-was "1"}
-           [ei/mini before 40]]]])
-      ;; rf2-kp7bw — a CONTAINER-valued sub return. On a first run
-      ;; (`first-run?`, no prior cache entry) the inspector renders the
-      ;; whole subtree as `:added` via the `:added?` opt (edn-inspector
-      ;; §10.0.13) — parity with the scalar branch's row-level `:added`
-      ;; chrome above. Pre-fix the container branch consulted ONLY
-      ;; `:before`, which is nil on a first run, so the inspector
-      ;; mounted plain (no diff mode, no added signal) while every
-      ;; scalar sibling painted `:added`. Canonical case: the
-      ;; `[:rf/route]` map sub on a /counter view-mount epoch. An
-      ;; explicit prior value (`some? before`) is a genuine diff and
-      ;; takes precedence over the first-run signal.
-      [:div {:style subs-value-cell-fill-style}
-       [ei/edn-inspector after
-        (cond-> {:panel-id :rf.xray.epoch/subs-value
-                 :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-                 :default-expanded-depth 3}
-          (some? before)                 (assoc :before before)
-          (and first-run? (nil? before)) (assoc :added? true))]])))
+  ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at this
+  ;; row level (the inspector has no leaf-scalar annotation surface).
+  ;; Containers fall through to the inspector mount. Testid naming
+  ;; note: the leaf-* testids deliberately use a prefix DISTINCT from
+  ;; `rf-xray-epoch-sub-row-` (the parent row's testid) so prefix
+  ;; counters like the sibling rf2-tzmmf filter tests don't pick the
+  ;; leaf wrapper up as an additional "row".
+  (if (subs-leaf-scalar? after)
+    (cond
+      ;; unchanged → current value, no diff chrome (rf2-o77z4).
+      (not changed?)
+      [:div {:data-rf-xray-subs-leaf "unchanged"
+             :data-testid            (str "rf-xray-epoch-subs-leaf-unchanged-" idx)
+             :style                  subs-leaf-row-style}
+       [:span [ei/mini after 40]]]
+      ;; first-cache-entry → :added chrome, no "was" annotation.
+      first-run?
+      [:div {:data-rf-xray-subs-leaf  "added"
+             :data-rf-diff-op         "added"
+             :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
+             :style                   subs-leaf-added-row-style}
+       [:span {:style subs-leaf-added-glyph-style} "+"]
+       [:span [ei/mini after 40]]]
+      ;; value change → :modified chrome + value + inline ← was <prev>.
+      :else
+      [:div {:data-rf-xray-subs-leaf  "changed"
+             :data-rf-diff-op         "modified"
+             :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
+             :style                   subs-leaf-modified-row-style}
+       [:span {:style subs-leaf-modified-glyph-style} "~"]
+       [:span [ei/mini after 40]]
+       [:span {:data-rf-diff-annotation "subs-was"
+               :style                   subs-leaf-was-style}
+        "← was "
+        [:span {:data-rf-xray-subs-leaf-was "1"}
+         [ei/mini before 40]]]])
+    ;; rf2-kp7bw — a CONTAINER-valued sub return. On a first run
+    ;; (`first-run?`, no prior cache entry) the inspector renders the
+    ;; whole subtree as `:added` via the `:added?` opt (edn-inspector
+    ;; §10.0.13) — parity with the scalar branch's row-level `:added`
+    ;; chrome above. Pre-fix the container branch consulted ONLY
+    ;; `:before`, which is nil on a first run, so the inspector
+    ;; mounted plain (no diff mode, no added signal) while every
+    ;; scalar sibling painted `:added`. Canonical case: the
+    ;; `[:rf/route]` map sub on a /counter view-mount epoch. An
+    ;; explicit prior value (`some? before`) is a genuine diff and
+    ;; takes precedence over the first-run signal. An UNCHANGED
+    ;; container (`changed? false`) mounts plain — current value, no
+    ;; diff opts (rf2-o77z4).
+    [:div {:style subs-value-cell-fill-style}
+     [ei/edn-inspector after
+      (cond-> {:panel-id :rf.xray.epoch/subs-value
+               :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+               :default-expanded-depth 3}
+        (and changed? (some? before))           (assoc :before before)
+        (and changed? first-run? (nil? before)) (assoc :added? true))]]))
 
 (defn- sub-coord
   "Pull the registered sub's source coord off

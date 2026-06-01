@@ -1667,7 +1667,7 @@ rendering — the full data tree with inline diff annotations against
 | Epoch HANDLER step `:db`               | FULL+DIFF via edn-inspector with `:before` threaded |
 | App-DB panel                           | Section list, each section FULL+DIFF |
 | Machine Inspector snapshot drill-in    | Single edn-inspector mount, FULL+DIFF |
-| Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF; a first-run container routes through `:added?` (§10.0.13) for whole-tree `:added` chrome (rf2-kp7bw) |
+| Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF; a first-run container routes through `:added?` (§10.0.13) for whole-tree `:added` chrome (rf2-kp7bw). Leaf-scalar rows fork three ways on `(changed?, first-run?)` — see §9.1.5.3 |
 
 **R-rule applicability across surfaces**: all R1-R8 rules from
 §9.1.5.1 apply uniformly to every surface. Rules that have no work
@@ -1729,6 +1729,42 @@ Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project`
 and consumes the same `:flat-rows` channel. Same `(before, after)`
 → same `:flat-rows` → same chrome → identical R-rule application
 across every surface.
+
+#### §9.1.5.3 SUBSCRIPTIONS leaf-scalar value cell — three-way fork (rf2-fyd8u + rf2-o77z4)
+
+A leaf-scalar sub return (number / string / keyword / nil — no
+container children for the edn-inspector's R1-R8 grammar to paint on)
+has its change signal surfaced at the SUBSCRIPTIONS **row** level,
+since the inspector's leaf surface carries no per-leaf annotation
+hook. `subs-value-cell` (`panels/epoch/view.cljs`) forks three ways on
+`(changed?, first-run?)`, each mirroring the corresponding app-db
+edn-inspector leaf chrome so a sub leaf reads identically to an app-db
+leaf:
+
+| Row state | Chrome | Glyph | Annotation | Mirrors |
+|---|---|---|---|---|
+| **Unchanged** (`changed? false`) | **Current value, NO diff chrome** (no wash, no stripe) | — | — | app-db `:same` leaf |
+| **First-run** (`changed? true`, `first-run? true`) | `:added` — green stripe (`:diff-added-stripe`) + wash (`:diff-added-wash`) | `+` | none (no prior value) | app-db R1 `:added` leaf |
+| **Changed** (`changed? true`, `first-run? false`) | `:modified` — yellow stripe (`:diff-modified-stripe`) + wash (`:diff-modified-wash`) | `~` | `← was <prev>` (prev via `ei/mini`) | app-db R1 `:modified` leaf |
+
+> rf2-o77z4 (Mike pair 2026-06-01) made two corrections. (1) The
+> UNCHANGED row now renders the CURRENT value with no diff chrome —
+> REVERSING the prior 2026-05-27 "empty cell = unchanged indicator"
+> design (rf2-fqcdd follow-up). Row density is governed by the
+> `[all][changed][unchanged]` filter (rf2-tzmmf), so showing values on
+> unchanged rows is no longer a density cost. (2) The CHANGED leaf,
+> previously rendered as a bare inline-flex (no wash / no stripe / no
+> glyph), now mirrors app-db's `:modified` leaf chrome — yellow
+> stripe + wash via the reserved `:diff-modified-*` token family + a
+> leading `~` glyph — bringing it to parity with the already-mirrored
+> `:added` (first-run) branch. The glyph paints in `:diff-gutter`,
+> the same reserved gutter tone the inspector uses for added /
+> removed / modified leaves (`op-gutter-colour`).
+
+The CONTAINER (map / vector / set) value-cell branch is unchanged by
+rf2-o77z4: a changed container threads `:before` (full R1-R8 grammar);
+a first-run container threads `:added?` (§10.0.13); an unchanged
+container mounts plain (current value, no diff opts).
 
 ### §9.1.6 Numbered cascade chrome
 
