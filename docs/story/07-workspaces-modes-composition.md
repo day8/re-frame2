@@ -1,116 +1,171 @@
-# 7. Workspaces, modes, and composition
+# 7. Workspaces, modes, composition
 
-> **What you'll build.** Pivot a whole grid against a theme toggle (modes); switch between the *Dev / Docs / Test* mode-tabs; keep variant bodies DRY with fragments, checks, and `:extends` — without Storybook's decorator opacity. Then promote a failure into a permanent regression variant. This chapter delivers the *doc* face and closes the Diagnose movement.
+You have more variants than you want to copy-paste. This chapter explains the
+organizational tools: workspaces for layout, mode tabs for Canvas/Docs/Tests,
+toolbar modes for environment pivots, and composition for shared setup. The
+design goal is reuse without the classic "a decorator did something somewhere"
+mystery.
 
-## Two different things both called "mode"
+## Three things people call modes
 
-Before anything else, a disambiguation, because newcomers conflate two completely separate axes and then wonder why the UI seems to have two "mode" things:
+There are two real Story concepts and one browser habit that often get mashed
+together in conversation.
 
-- **Mode-tabs** — the per-variant main pane switcher: **Dev / Docs / Test**. (Evidence is a shared spine, [chapter 6](06-xray-earned-at-failure.md), *not* a fourth tab.)
-- **Toolbar modes** (`reg-mode`) — chrome-wide saved arg tuples (theme, viewport, locale) that pivot the *whole grid*.
+**Mode tabs** are the tabs above the canvas:
 
-They're orthogonal. Mode-tabs change *what you're looking at* for one variant; toolbar modes change *the environment* every variant renders in. Keep them in separate mental drawers and the rest of this chapter is easy.
+- Canvas;
+- Docs;
+- Tests.
 
-## Mode-tabs — Dev / Docs / Test
+They change how the selected artifact is presented.
 
-The three tabs across the canvas:
-
-- **Dev** — the workshop canvas you've been using. Poke the variant, edit controls, look at it.
-- **Docs** — executable documentation. `:docs`-tagged variants plus an auto-generated docs table built from each variant's `:doc` string and the view's schema. This is the *doc* face: the same variants you render *are* the documentation, so the docs can't drift from the component — they're the same artifact.
-- **Test** — the run-result presentation: pass/fail/cannot-run per assertion, plus the step-debugger (step, pause, rewind, step-back, breakpoint).
-
-![The mode-tab strip across the canvas, with Docs mode showing an auto-generated docs table beside a rendered variant.](../images/story/s08-docs-mode.png)
-
-That Docs mode is fed by the *same* schema-derived machinery as the controls panel ([chapter 2](02-every-state-side-by-side.md#controls-that-derived-themselves)) is the schema dividend paying out a third time: one Malli schema → validation → controls → docs.
-
-## Toolbar modes — pivot the grid
-
-A `reg-mode` is a saved bundle of args that the toolbar can toggle across the entire grid:
+**Toolbar modes** are registered arg tuples:
 
 ```clojure
-(story/reg-mode :Mode.app/dark
-  {:doc  "Dark theme — sets background and label colours."
-   :args {:theme :dark :background "#1e1e1e" :foreground "#e0e0e0"}})
-
-(story/reg-mode :Mode.app/light
-  {:doc  "Light theme — the default."
-   :args {:theme :light :background "#ffffff" :foreground "#1a1a1a"}})
+(story/reg-mode :Mode.login/dark
+  {:doc  "Dark theme."
+   :axis :theme
+   :args {:theme :dark}})
 ```
 
-Toggle dark mode in the toolbar and *every* variant in the grid re-renders against it. Modes deep-merge into effective args at their slot in the precedence ladder (`global < mode < story < variant`), so a variant can still override the theme locally if it needs to. Group modes by `:axis` — give two themes `:axis :theme` and the toolbar makes them single-select-within-axis (turning on sepia turns off dark). This is the parity with Storybook's `parameters`/globals, expressed as plain saved arg tuples.
+They change the environment the artifact renders in.
 
-## Composition — context flows down, verdict is local
+**Browser modes** such as viewport and background are chrome selections. They
+are useful for review, but they are not the same thing as `reg-mode`.
 
-Here's the DRY problem. A dozen checkout variants all need "cart with one SKU, address filled, ready to submit" before they do their one distinctive thing. You do *not* want to copy that prefix into every variant. Storybook's answer is decorators — and decorators are exactly where Storybook gets opaque, because a decorator can quietly inject global behaviour you can't see at the call site. Story's seam is explicit instead. Three tools:
+Keeping those drawers separate prevents a surprising amount of nonsense.
 
-**`:extends`** — specialize another variant. The inheritance rule is precise and worth memorising, because it's the one people get wrong: **context flows down; verdict is local.**
+## Docs mode
 
-```clojure
-(story/reg-variant :story.login/error-after-submit
-  {:extends    :story.login/filled         ; inherit the filled-form context
-   :script     [[:dispatch [:auth/login-pressed]]]   ; child-only
-   :assertions [[:rf.assert/path-equals [:auth :state] :error]]})  ; child-only
-```
+Docs mode renders the selected variant as executable documentation.
 
-Through `:extends`:
+![Docs mode for the login error variant, showing status, args, decorators, parameters, evidence, and tags.](../images/story/story-tutorial-05-docs-mode.png)
 
-| Field | Behaviour |
+The page is built from the same registered variant:
+
+- `:doc` becomes prose;
+- tags become chips;
+- args and view schemas become tables;
+- decorators and parameters are listed;
+- status and fidelity are visible;
+- evidence excerpts appear after a run.
+
+This is the important drift-killer: a documented state is not a Markdown
+example that someone has to keep in sync. It is the same state the canvas and
+test runner use.
+
+## Workspaces
+
+Workspaces are layout artifacts. The common layouts are:
+
+| Layout | Use it when |
 |---|---|
-| `:setup` | **appends** root → child (a common silent-regression site — test it) |
-| world context (`:args`, frame, network, decorators) | **inherits** (deep-merge / child-wins per slot) |
-| `:checks` | **inherit** (checks are the inheritable expectation form) |
-| ordinary `:assertions` | **child-only** — never inherited |
-| `:script` | **child-only** — never inherited |
-| `:tags` | union |
+| `:grid` | You want explicit variants in a specific order. |
+| `:variants-grid` | You want every variant under a story parent. |
+| `:tabs` | You want one variant visible at a time. |
+| `:prose` | You want prose interleaved with rendered variants. |
+| `:custom` | You have a registered view that owns the layout. |
 
-The principle in one line: a child inherits where the parent *was* (the world it set up) but is solely responsible for what it *does* and what it *judges*. A child must never silently run a parent's script.
+Most projects start with `:grid` and `:variants-grid`. The more editorial
+layouts become useful when a component or workflow deserves real documentation.
 
-**`reg-fragment`** — a reusable piece of setup/script/world. Fragments are *flat*: a fragment must not compose another fragment, so cycles are impossible by construction.
+## Toolbar modes
 
-```clojure
-(story/reg-fragment :fragment.checkout/ready-to-submit
-  {:setup  [[:dispatch [:cart/add {:sku "A"}]]]
-   :script [[:dispatch [:checkout/open]]
-            [:dispatch [:checkout/type-address {:postcode "2000"}]]]})
-```
-
-**`reg-check`** — a reusable assertion pack ([chapter 4](04-the-variant-is-a-test.md#checks--reusable-assertion-packs)).
-
-**`:compose`** — pull fragments and checks in explicitly, in declared order:
+Toolbar modes are saved args:
 
 ```clojure
-(story/reg-variant :story.checkout/submits
-  {:compose    [:fragment.checkout/ready-to-submit :check/no-runtime-errors]
-   :script     [[:dispatch [:checkout/submit]]]
-   :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
+(story/reg-mode :Mode.app/light
+  {:axis :theme
+   :args {:theme :light}})
+
+(story/reg-mode :Mode.app/dark
+  {:axis :theme
+   :args {:theme :dark}})
 ```
 
-The whole point: composition reuses common context **without decorator-style opacity.** Everything that flows into the variant is named at the call site — `:extends` this, `:compose` those — and [`story/explain`](04-the-variant-is-a-test.md#the-four-bucket-plan-a-peek-under-the-hood) will show you exactly what resolved, including which source won any conflict. There is no hidden global behaviour; the seam is explicit fragments and checks, and the explanation is mandatory.
+Modes with the same `:axis` are mutually exclusive. Turning on dark turns off
+light. The active mode args sit in the args precedence chain below story and
+variant args:
 
-![The Explain panel over a composed variant — source chain, field-level merge decisions, resolved args, and the winning source for any strict conflict.](../images/story/s12-explain-panel.png)
+```text
+global < mode < story < variant < live control override
+```
 
+That gives you the Storybook globals gesture without hiding it in code. A mode
+is just named data.
 
-One inversion to name so it doesn't surprise you: **`:hiccup` decorators read outermost-wraps-innermost** (the first decorator is the outer wrapper), but **`:fx-override` reads innermost-overrides-outermost** (last-wins on an `:fx-id` collision). Two different stacking directions for two different jobs; the spec is explicit about both.
+## Extends
 
-## Promotion — turn a failure into a curated variant
-
-This is the capstone, and it links straight back to [chapter 6](06-xray-earned-at-failure.md). You diagnosed a failure. The failure is real, it's reproducible, and you want it to *stay* caught. In a lot of stacks, this is where generated failures go to live as separate, lonely repro files that drift out of the suite. Story's answer is **promotion**: a failure becomes a curated variant that lives in the grid alongside the hand-authored ones.
-
-Two functions, with a deliberate purity split:
+`:extends` specializes another variant:
 
 ```clojure
-(story/materialize-variant-plan artifact opts)
-;; -> a readable, normalized variant plan. PURE — registers NOTHING.
-;;    Read what a promotion *would* produce before committing to it.
-
-(story/promote-run-artifact! artifact {:variant/id :story.checkout/regression-042})
-;; -> registers a NAMED variant. The ONLY function that registers.
+(story/reg-variant :story.login/error-after-filled-form
+  {:extends :story.login/filled
+   :script [[:dispatch-sync [:login/flow [:login/submit]]]]
+   :assertions [[:rf.assert/state-is :login/flow :error]]})
 ```
 
-`promote-run-artifact!` **requires** an explicit `:variant/id` — a missing id is an error (`:rf.error/story-promote-no-id`), never a silent default. There is no auto-register path: a generated failure becomes a curated variant *only* through this named call, on purpose. The promoted variant is indistinguishable from a hand-authored one except for a `:run-artifact` provenance slot that records where it came from and lets it re-derive the run.
+The inheritance rule is:
 
-So the full Diagnose-movement arc closes here: a variant fails ([ch 6](06-xray-earned-at-failure.md)) → you walk the evidence spine to the cause → you promote the run into a regression variant that lives in the grid forever. The failure you found yesterday is a green dot in your grid today.
+**context flows down, verdict is local.**
 
-## Where we go next
+That means:
 
-A variant has a stable *identity* that survives renames — and that identity is the key to both visual-regression keying and safe sharing. [Chapter 8](08-snapshot-identity-and-sharing.md): the content hash, and honest redaction.
+| Field | Rule |
+|---|---|
+| `:setup` | parent then child, appended in order. |
+| args, decorators, network, frame/world inputs | inherited with field-specific merge rules. |
+| `:checks` | inherited. |
+| `:script` | child-only. |
+| ordinary `:assertions` | child-only. |
+| tags | union. |
+
+A child inherits the world the parent established. It does not silently run the
+parent's behaviour or inherit the parent's verdict. That rule prevents a parent
+variant from becoming a spooky action at a distance.
+
+## Fragments and checks
+
+Use a fragment for reusable setup/script/world context:
+
+```clojure
+(story/reg-fragment :fragment.login/filled-form
+  {:setup [[:login/flow
+            [:login/type {:email "ada@example.com"
+                          :password "correct-horse"}]]]})
+```
+
+Use a check for reusable expectations:
+
+```clojure
+(story/reg-check :check/no-runtime-warnings
+  {:assertions [[:rf.assert/no-warnings]]})
+```
+
+Compose them explicitly:
+
+```clojure
+(story/reg-variant :story.login/submits
+  {:compose [:fragment.login/filled-form
+             :check/no-runtime-warnings]
+   :script [[:dispatch-sync [:login/flow [:login/submit]]]]
+   :assertions [[:rf.assert/state-is :login/flow :authenticated]]})
+```
+
+Fragments are intentionally flat. A fragment does not compose another fragment.
+That keeps composition easy to explain and keeps cycle detection from becoming
+the tutorial's least charming character.
+
+When two composed fragments conflict on a strict field such as an effect
+override, the variant owns the decision by stating the wanted value. The closest
+authoring site wins; equal-distance disagreement is an error. If that sentence
+feels wonderfully boring, good. Merge rules should not be exciting.
+
+## Explain is the receipt
+
+When composition is involved, use `story/explain` or the Explain panel. It shows
+the source chain, merge decisions, setup order, script order, checks, assertion
+locations, runner requirements, and source coordinates.
+
+If a composition system cannot explain itself, it is not a composition system.
+It is a rumour.

@@ -7,11 +7,28 @@ Build-time and content-generation helpers for the docs site.
 Drives Playwright through the Xray testbed and captures the annotated
 screenshots embedded in the [Xray](../xray/index.md) tutorial.
 
-The [Story](../story/index.md) tutorial's `s00`–`s13` captures are *not*
-produced here — they are hand-committed (see
-[`examples/scripts/capture-story-screenshots.cjs`](../../examples/scripts/capture-story-screenshots.cjs),
-whose shot list is currently empty), so this generator never writes under
-`docs/images/story/`.
+## `generate-story-tutorial-screenshots.cjs`
+
+Drives Playwright through the live Story testbeds and captures the
+screenshots embedded in the [Story](../story/index.md) tutorial.
+
+The generator expects the Story example bundles to be compiled first:
+
+```bash
+cd implementation
+npm install
+npx shadow-cljs compile :examples/login-form \
+                          :examples/counter-with-stories \
+                          :examples/nine-states-with-stories
+cd ..
+node docs/scripts/generate-story-tutorial-screenshots.cjs
+```
+
+It writes:
+
+```
+docs/images/story/story-tutorial-*.png
+```
 
 ### When to re-run
 

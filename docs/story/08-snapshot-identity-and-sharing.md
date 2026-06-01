@@ -1,77 +1,108 @@
 # 8. Snapshot identity and sharing
 
-> **What you'll build.** An understanding of the content-hashed `snapshot-identity` that survives renames; how it keys visual-regression; and how to share a reproduction with honest *reproducibility* labelling — every shared artifact says whether the recipient can fully reproduce it. This chapter delivers the *share* face.
+You want to send a useful state to someone else, and you want visual-regression
+keys that do not explode every time you rename a variant. This chapter covers
+Story's content identity and the Share dialog. The theme is the same as the rest
+of Story: share the artifact, but say honestly what the recipient can reproduce.
 
-## The rename that doesn't break your diffs
+## Content identity
 
-Anyone who has run visual-regression testing against Storybook knows this specific pain. You have a pixel-diff baseline keyed by story name. You rename a story — `Button/Primary` becomes `Button/Default` because someone tidied the taxonomy — and your diff service decides that *every* baseline under that name is gone and everything is "new." A pure rename, zero pixels changed, and your CI lights up like a Christmas tree. Conversely, the genuine danger: a story keeps its name but its rendered output actually changed, and a name-keyed system that isn't paying attention can miss it.
+A variant has a name, but names are not stable enough for every job. You can
+rename `:story.login/error` to `:story.auth/login-error` without changing the
+state it renders. You can also keep the name and change the state completely.
 
-Story sidesteps the whole problem by keying on a **content hash**, not a name. A rename is free — the hash didn't change, so the baseline carries over. A real change to the variant's content *does* change the hash, so it's caught. The identity tracks *what the variant is*, not *what it's called*.
+Story therefore computes identity over canonical content, not just the keyword.
 
-## Snapshot identity — content hash, not name
+The important hashes are:
 
-Every variant — and every `variant × mode` cell — has a content-hashed `snapshot-identity`. Behind it sits a single primitive, `canonicalize`, which is the one operation responsible for an impressively long list of jobs: determinism checking, semantic diff, snapshot identity, `:plan-hash`, and `:run-hash`. One canonical projection, reused everywhere, so all of those agree by construction.
+| Hash | Answers |
+|---|---|
+| plan hash | Is this the same normalized plan? |
+| run hash | Did this run behave the same way? |
+| snapshot identity | What should a visual-regression capture key use? |
 
-Two hashes matter, and they answer two different questions:
+This is what lets a visual tool distinguish a rename from a real state change.
+Story does not need to be the pixel-diff service. It needs to hand the pixel
+service a stable, meaningful key.
 
-- **`:plan-hash`** — the identity of the *plan*. Computed over `[:story/id :world :script :expect :required-runner :tags]`. Answers "is this the same variant?" Two variants with the same plan hash are the same variant, whatever they're named.
-- **`:run-hash`** — the identity of the *run's behaviour*. Computed over the behavioural run-slice (`:status`, final `:app-db`, the epoch tape, assertions, checks, effects, schema violations, warnings, sub-overrides, fidelity). Answers "did this variant *behave* the same way this time?"
+## Sharing
 
-One precision detail with real consequences: the hash computes over the variant's **real values**. That's what keeps visual-regression keying stable — the key is a content-address of the true content, so the same content always lands on the same key. And because the key *is* a hash, not the data, only the digest travels into a downstream baseline service — never the underlying state.
+The Share dialog exposes the common handoff paths.
 
-## Visual-regression keying
+![The Story Share dialog with URL, EDN, screenshot, and static build options.](../images/story/story-tutorial-06-share-dialog.png)
 
-Story does not ship a pixel-diff engine, and it's important to be clear about that boundary. What Story ships is the **hook**: a stable `[variant-id content-hash]` key and stable iframes for capture. Downstream services — Chromatic, Percy, Argos, BackstopJS — key their baselines against that hash and skip unchanged variants in O(1) (same hash → same pixels → don't re-shoot). The pixel capture and the diff happen *in those services*; Story is the keying substrate, not the visual-regression service itself.
+The commands are:
 
-So the division of labour is: Story guarantees a stable, content-addressed key and an isolated render; your pixel-diff service of choice does the shooting and comparing. The expensive renames-break-everything problem is gone because the key was never the name.
+| Command | What it gives |
+|---|---|
+| Share URL | The current Story URL, including selected variant/workspace and mode state. |
+| Copy EDN | A `reg-variant`-shaped snippet for the selected state. |
+| Screenshot | A PNG of the canvas. |
+| Static build | The command for producing a standalone Story site. |
 
-## The determinism gate and semantic diff (briefly)
+The browser address bar is already meaningful. Selecting
+`:story.login/error` produces a URL like:
 
-Two rigour features built on the same `canonicalize` primitive, kept light here:
-
-- **Determinism gate** — run a variant twice; if it canonicalizes to a different `run-hash`, it's flagged non-deterministic. The headline: *the same artifact, run twice, must produce the same hash.* (A bare `[:wait ms]` is the classic determinism breaker, which is exactly why the gate refuses it — see [chapter 5](05-recorder-and-cannot-run.md#the-determinism-gate).)
-- **Semantic diff** — when two runs *do* differ, the diff names *which* run-slice slot perturbed the verdict (the final db? an effect? a schema violation?), rather than handing you two giant blobs to compare by eye.
-
-Both exist so that "this variant changed behaviour" is a precise, named statement, not a vibe.
-
-## Sharing a reproduction — honest reproducibility
-
-<!-- SCREENSHOT S11: the "Share & export" dialog open on a selected variant — the four egress commands (Share URL · Copy EDN · Screenshot · Static build), each carrying a reproducibility badge ("fully reproducible" / "partially reproducible" / "view-only"). For a partial/view-only cell the badge lists the reason (e.g. "the `:on-click` override pins a function value that cannot be serialised"). -->
-
-Now the *share* face proper. You've got a variant in an interesting state and you want to hand it to a colleague. Open **Share & export** from the toolbar and Story gives you four ways to hand the cell off, each labelled with how reproducible it is:
-
-- **Share URL** — the live address-bar URL. The browser's own URL *is* the share URL (`Cmd-L`, `Cmd-C`); the dialog is a one-click copy of it, not a second artifact. Paste it to land on the exact same cell.
-- **Copy EDN** — a `(story/reg-variant …)` snippet of the cell's effective state, ready to paste into your stories namespace.
-- **Screenshot** — a PNG of the variant canvas copied to the clipboard.
-- **Static build** — the `npm run story:build` command that emits a self-contained static site carrying the registered variants as data.
-
-The same share URL is available programmatically — pure data → data, encoding the active modes, cell-overrides, and substrate so the cell reproduces:
-
-```clojure
-(story/variant-share-url variant-id base-url opts)
-;; -> a shareable URL encoding the variant + its active modes, overrides, and substrate
+```text
+http://localhost:8041/?variant=story.login%2Ferror#/stories
 ```
 
-The honest part is **reproducibility labelling**, not redaction. A shared artifact may be only *partially* reproducible — and when something the reproduction needs cannot survive the round-trip, the artifact *says so*. No silent half-broken repros. Every command carries a badge with one of three statuses:
+That is a small thing, but small things matter. If a tool has a stateful UI and
+the URL is useless, it is making you do filing work in your head.
 
-- **fully reproducible** — every input that drives the cell survives the URL / EDN round-trip; paste it and you land exactly here.
-- **partially reproducible** — most state carries, but something is dropped or does not serialise (a cell-override value that is not readable EDN, a network stub that replies via a function, share-URL overrides that no longer apply after the variant's args were refactored). The recipient reproduces a degraded-but-usable approximation.
-- **view-only** — the cell fundamentally cannot be replayed from the artifact (a function pinned as an arg value the view calls; a screenshot is *always* view-only — a static image is a view, not a replay). The recipient gets a view-only snapshot.
+## Reproducibility labels
 
-When the status is downgraded the badge lists *which* slot caused it — "the `:on-click` override pins a function value that cannot be serialised", "2 overrides from this URL no longer apply to the variant" — so the recipient reads exactly what makes the artifact less than fully replayable. This is *"can the recipient reproduce this?"*, never *"is this sensitive?"*.
+Each share path states how reproducible it is:
 
-!!! note "Why there is no redaction here"
+| Label | Meaning |
+|---|---|
+| Fully reproducible | The recipient can land on the same state. |
+| Partially reproducible | Some state carries, but something is omitted or approximate. |
+| View-only | The artifact shows the state but cannot replay it. |
 
-    Sharing the URL, EDN, a screenshot, or a static build of **your own running
-    app** is not a privacy concern: you, the local developer, already have
-    programmatic access to your own state and secrets, so redacting the artifacts
-    you emit of your own app would be futile. So these human-egress commands ship
-    freely — enabled, not gated. The genuine egress-privacy boundaries live
-    elsewhere, where state leaves *your* box for someone — or something — else: the
-    AI / MCP surface an agent reads across ([chapter 9](09-multi-substrate-and-agent-loop.md))
-    and the logs. The recorder's own boundary is covered in
-    [chapter 5](05-recorder-and-cannot-run.md#redaction-at-the-recorder-boundary).
+A screenshot is view-only. That is not a moral failure; it is a static image.
+The useful part is that the UI says so.
 
-## Where we go next
+Copy EDN can be fully reproducible when the current state can be expressed as a
+variant body. If live controls, transient frame state, or non-serializable
+values cannot be represented, the save/share path should warn rather than
+inventing a variant that only sort of means what you saw.
 
-The same plan that renders, tests, diagnoses, and shares can also flip *substrates* — render under Reagent, UIx, or Helix from one body — and be driven by an *agent* over MCP. That's the last two faces, and the chapter that walks back through all six. [Chapter 9](09-multi-substrate-and-agent-loop.md).
+## Save current versus promote
+
+This is worth repeating because it prevents two workflows from collapsing into
+one button.
+
+**Save current state as variant** is for authored examples. You have a useful
+state in the canvas and want to name it.
+
+**Promote run to regression variant** is for evidence. A run failed or found an
+interesting case and you want to keep it as a curated regression.
+
+Both end with a variant. They start from different places and carry different
+provenance. Keeping them separate makes the source history easier to trust.
+
+## Static builds
+
+The static build command packages the registered Story catalogue into a
+self-contained site. Use it for design review, documentation previews, or
+artifact hosting where the reviewer should not need your dev server.
+
+Static export is still Story, not a screenshot album. Variants remain registered
+data, with docs, controls, and status presentation where the build includes the
+needed runtime.
+
+## Privacy boundaries
+
+There are two different questions people often blend:
+
+- Can this artifact reproduce the state?
+- Should this value leave the machine?
+
+The Share dialog answers the first question. The MCP and logging boundaries
+answer the second. Story core operates on real values inside your dev process;
+wire-facing tools such as Story-MCP apply redaction/elision when values cross
+the agent boundary.
+
+This keeps local developer tooling useful without pretending a screenshot or
+URL is a security boundary.

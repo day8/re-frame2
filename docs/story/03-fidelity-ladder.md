@@ -1,99 +1,115 @@
 # 3. The fidelity ladder
 
-> **What you'll build.** The same view state reached three different ways — real setup events, a schema-checked db-seed, and a pinned subscription override — and you'll learn to read (and trust) the fidelity badge on each.
+You want fast UI-state exploration, but you also want to know when the state is
+real. This chapter explains Story's fidelity labels: real setup events,
+schema-checked app-db seed, and subscription overrides. The point is not to
+ban cheap states; the point is to stop cheap states from wearing a fake badge
+that says "proved".
 
-## The trustworthy-looking lie
+## The screenshot that lies
 
-Picture a screenshot in your design-review channel. It shows the error state of a form: red border, "Invalid password," the works. It looks like proof that the error state works. Now suppose I tell you that screenshot was produced by hand-feeding the string `"Invalid password"` directly into a prop, with no validation logic anywhere in the path. The form's actual error handling could be completely broken and this screenshot would look identical.
+A screenshot of an error state can be useful and still prove almost nothing.
+If you painted it by feeding `"Invalid credentials"` straight into the view,
+the screenshot proves the red text renders. It does not prove the login flow can
+reach the error state, that the machine transitioned correctly, or that the
+subscription computes the right value.
 
-That screenshot is not proof. It's worse than not-proof — it's a *liability*, because it looks like proof and isn't. This is the precise weakness Storybook can fall into: visual examples that look trustworthy but are disconnected from real application state and effects. You paint a convincing picture by reaching around the machinery, and now you have a green-looking artifact that tells you nothing about whether the machinery works.
+Story's answer is **honest fidelity**. Low-fidelity states are useful. They are
+just labelled as low fidelity.
 
-Story's position, stated in the vision doc as **Honest Fidelity**, is not "low-fidelity views are forbidden." Low-fidelity views are useful and legitimate — sometimes you genuinely just want to see how the error layout *looks* and you don't care whether you reached it honestly. The rule is narrower and sharper: **a lower-fidelity view is never presented as stronger proof than it is.** You're allowed to fake the state. You are not allowed to forget that you faked it, and the tool won't let you.
+![Controls showing args, view-state fidelity, setup provenance, decorators, and save actions.](../images/story/story-tutorial-03-controls-and-fidelity.png)
 
 ## The three rungs
 
-Every variant has a **fidelity**: a set drawn from `#{:real-setup :db-seed :sub-overrides}`. You don't type it — Story *computes* it from the world inputs you actually used. There are three rungs, highest to lowest:
+Story computes fidelity from the inputs you use. You do not hand-author the
+badge.
 
-1. **`:real-setup`** (highest fidelity) — real events drive real state through the real router, cofx, and schema path. The state is real because the machinery actually ran.
-2. **`:db-seed`** (middle) — a schema-checked `{path → value}` direct seed. It bypasses event and cofx validation, but it *must* validate against the registered app-db schema; a violation fails the run.
-3. **`:sub-overrides`** (lowest) — pin a subscription's value by its exact query vector. This is render-path only: it never writes `app-db` and never calls `compute-sub`.
+| Rung | Meaning |
+|---|---|
+| `:real-setup` | Real events drove real state through the event pipeline. Highest fidelity. |
+| `:db-seed` | App-db was seeded directly, then schema-checked. Useful, but it bypasses event/cofx validation. |
+| `:sub-overrides` | Subscription values were pinned for render. Fast design-state exploration, not proof of subscription logic. |
 
-Let's walk them with real examples.
+Args are not a fidelity rung. Args are explicit view inputs. Network stubs and
+effect overrides are world inputs. Runner requirements such as headless, DOM,
+or browser are also a different axis. The UI separates these chips because
+collapsing them would make a neat little lie.
 
-## Rung 1 — real setup
+## Rung 1: real setup
 
-This is the rung nine_states lives on entirely, and it's why nine_states is such a good showcase. Every one of its nine states is reached by dispatching real events into the `:ui/nine-states` machine:
-
-```clojure
-;; Empty / One / Some / Too Many — same path, different cardinality.
-(story/reg-variant :story.nine-states/some
-  {:doc    "State 5 — Some. A small, manageable list."
-   :setup  [[:nine-states.app/initialise]
-            [:nine-states.story/load {:n 4}]]
-   :tags   #{:dev :docs}})
-```
-
-`:nine-states.story/load` issues a *real* `:rf.http/managed` fetch (resolved deterministically by the Story frame's canned-success stub), the reply folds back through `:fetch-succeeded`, and the machine's `:always`-cascade picks the cardinality bucket from the item count. Four items lands `:some`; zero lands `:empty`; twenty-five lands `:too-many`. The state is *real* — the machine genuinely transitioned, the fetch genuinely ran. Fidelity: `#{:real-setup}`. Nothing to disclose, because nothing was faked.
-
-## Rung 2 — db-seed
-
-Sometimes a precondition is real but tedious to reach by events — a dozen dispatches to get the form into one specific shape. The middle rung lets you seed `app-db` directly while keeping the schema honesty:
+The login error variant uses real setup:
 
 ```clojure
-(story/reg-variant :story.todos/one-pinned
-  {:db-seed {:todos [{:id "t1" :title "Buy milk" :done? false}]}
-   :tags    #{:dev :docs}})
+:setup [[:login/flow
+         [:login/submit {:email "ada@example.com"
+                         :password "wrong"}]]
+        [:login/flow
+         [:login/failure
+          {:failure {:status 401
+                     :message "Invalid credentials."}}]]]
 ```
 
-The runtime merges the seed into the frame's `app-db` *before* any setup runs, then schema-validates the seeded slices against the registered app-db schemas. This is the deal: direct seeding skips event/cofx validation, so in exchange it *must* clear the schema. A seed that violates a registered schema fails the run with `:rf.error/story-db-seed-invalid`, whose data names the offending path, value, and schema. You can't quietly seed garbage; the schema floor catches it. Fidelity: `#{:db-seed}` (or both, if a real-setup step runs on top).
+The event handler runs. The state machine transitions. Subscriptions compute
+from the resulting `app-db`. The view renders what the app actually reached.
 
-## Rung 3 — sub-overrides (the design-variant rung)
+That is the state you want when the variant is making a behavioural claim.
 
-The lowest rung is the pure design variant: paint a state with *zero* events by pinning subscription values directly.
+## Rung 2: schema-checked app-db seed
+
+Sometimes you need a state that would take twenty setup events to reach and the
+twenty events are noise for the point of the example. A db seed lets you place
+state directly:
 
 ```clojure
-{:args          {:message "Invalid password"}
- :sub-overrides {[:login/state]    :error
-                 [:login/error]    [:arg :message]
-                 [:login/attempts] 1}}
+(story/reg-variant :story.profile/with-avatar
+  {:db-seed {:profile {:name "Ada"
+                       :avatar-url "/avatars/ada.png"}}
+   :tags #{:dev :docs}})
 ```
 
-When the view derefs `@(rf/subscribe [:login/state])`, it gets `:error` — no events, no app-db write, no `compute-sub`. The `[:arg :message]` placeholder pulls from `:args`, so the controls panel can drive the override value live. Fidelity: `#{:sub-overrides}`.
+The tradeoff is explicit. You skip the event/cofx path, so Story schema-checks
+the seeded data. If the seeded slice violates the registered app-db schema, the
+variant does not quietly render garbage.
 
-Now the part to dwell on, because it's the load-bearing boundary of the whole chapter.
+Use this when the state is legitimate but tedious to reach.
 
-!!! warning "The honesty rule"
+## Rung 3: subscription overrides
 
-    A `:sub-overrides` value does **NOT** satisfy `:rf.assert/sub-equals`.
+The fastest design-state path is to pin the value a subscription returns:
 
-    `:rf.assert/sub-equals` evaluates the subscription through `compute-sub`
-    against the frame's real `app-db`. An override never touches `app-db` and
-    never calls `compute-sub` — so an overridden value is invisible to the
-    assertion. Subscription *correctness* is proven by real setup, a schema-checked
-    db-seed, or `compute-sub` — **never by an override.**
+```clojure
+(story/reg-variant :story.login/error-painted
+  {:sub-overrides {[:login/state] :error
+                   [:login/error] "Invalid credentials."
+                   [:login/attempts] 1}})
+```
 
-This is the mechanism that keeps the tool from lying to you. You can pin `[:login/state] :error` to *look at* the error layout, but you cannot then claim `:rf.assert/sub-equals [:login/state] :error` as proof that your subscription computes `:error` — because it didn't compute anything; you pinned it. The boundary is structural, not a lint rule: the override carriage and the assertion's evaluation path simply don't intersect.
+This is excellent for UI exploration. You can show loading, empty, error, or
+permission-denied states before the full event path exists.
 
-There's a smaller honesty check too. If you pin a value the real derivation could *never* produce — one that violates the subscription's own output schema — Story validates the pinned value against that schema and reports the violation rather than silently painting it. You can't fake a state that's structurally impossible.
+It is not proof of the subscription.
 
-## Reading the badge
+```clojure
+[:rf.assert/sub-equals [:login/state] :error]
+```
 
-![The fidelity badge on a selected variant — the real-setup / db-seed / sub-overrides chips, distinct from the adjacent world-inputs and runner-requirements chip groups.](../images/story/s04-fidelity-badge.png)
+does not pass because you pinned `[:login/state]`. `sub-equals` computes the
+subscription against the real frame db. Overrides feed the render path. Those
+paths intentionally do not intersect.
 
-Every selected variant (and every `variant × mode` cell) carries a compact **fidelity badge**: real-setup, db-seed, or sub-overrides. A few precision points the spec is firm about:
+That boundary is the difference between a tool that helps you design and a tool
+that quietly trains you to trust pictures.
 
-- **Fidelity is not a status.** Pass / fail / cannot-run are statuses; fidelity is a different axis entirely, with its own label and colour.
-- **World inputs are not fidelity.** Args, network stubs, fx-overrides — those are *world inputs*, shown as an adjacent chip group with a different label.
-- **Runner requirements are not fidelity.** Headless / DOM / browser is a third, separate group.
+## Upgrading fidelity
 
-These three chip groups sit next to each other and mean different things; the spec is careful not to collapse them. And the badge has a deliberate tone: it stays *calm* during exploration (poking at a low-fidelity state shouldn't feel like a scolding) and becomes *explicit* the moment you save it, share it, run it as a test, or otherwise claim proof from it. Cheap exploration isn't punished; dishonest proof is prevented. That's the whole posture in one sentence.
+A good workflow is to start cheap and upgrade when the state becomes important.
 
-## What you should see now
+1. Use args or sub-overrides to design the shape.
+2. Move important state to a db seed if the app-db shape is the thing you care about.
+3. Replace the seed with real setup events when the behaviour matters.
+4. Add assertions once the state is worth keeping.
 
-- A `:real-setup` variant shows the highest-fidelity badge; its `:rf.assert/sub-equals` assertions can pass.
-- A `:db-seed` variant shows the middle badge; an invalid seed fails the run with a named schema error instead of painting silently.
-- A `:sub-overrides` variant paints with no events and shows the lowest badge; a `:rf.assert/sub-equals` against the pinned value does *not* pass on the strength of the override.
-
-## Where we go next
-
-You've been writing `:script` with `:rf.assert/*` since [chapter 1](01-first-variant.md), without my making a fuss about it. And you just learned that the tool tracks, precisely, how trustworthy each state's *proof* is. Put those two facts together and a question almost asks itself: if the variant carries setup, behaviour, and assertions, and the tool is this careful about what counts as proof… isn't the variant already a test? [Chapter 4](04-the-variant-is-a-test.md): the reveal.
+You do not need every visual state to be highest fidelity. You do need every
+state to say what kind of thing it is. Story's badge is not there to scold you;
+it is there to prevent the future bug report that starts with "but the story
+was green."
