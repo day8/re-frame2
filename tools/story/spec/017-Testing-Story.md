@@ -2164,9 +2164,11 @@ installs canonical vocabulary), and MUST fold the existing
 - enumerate the `:plan-hash` input fields;
 - compute `:run-hash` over the canonical epoch slice.
 
-It MUST reconcile the shipping `:rf/snapshot-canonical-v1` tuple and the
-current `:variant-id` key spelling with any normalized-plan `:variant/id`
-spelling. It MUST be built **before** anything consumes it (else the
+It MUST reconcile the shipping snapshot tuple — whose `:rf/snapshot-canonical`
+data slot reads its value straight from `fingerprint/canonical-version`
+(the single version source, currently `:rf/snapshot-canonical-v2`), NOT a
+hardcoded literal — and the current `:variant-id` key spelling with any
+normalized-plan `:variant/id` spelling. It MUST be built **before** anything consumes it (else the
 metamorphic acceptance gate is vacuous and near-duplicate canonicalizers
 drift), and MUST ship with an adversarial corpus: semantic differences
 must change the hash, volatile fields must not, and existing snapshot
