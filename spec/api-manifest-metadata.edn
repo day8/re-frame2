@@ -100,6 +100,78 @@
    "story-view"}            ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
 
  ;; --------------------------------------------------------------------------
+ ;; SECONDARY projection-check allowlists (rf2-gkp0t). The keystone guards
+ ;; spec/API.md; these guard the four secondary projections of the same
+ ;; manifest (Story API spec, Xray API spec, skills, doc-guide). Each set
+ ;; names the public-var references that projection LEGITIMATELY makes that
+ ;; the manifest does not (and need not) carry — so any OTHER unresolved
+ ;; reference still turns the check red. Bare var names, keyed by surface.
+ ;; --------------------------------------------------------------------------
+
+ ;; tools/story/spec/API.md var-rows that resolve to a Story surface the
+ ;; manifest does not carry: CLJS-only facade vars the JVM generator cannot
+ ;; `ns-publics`, and sub-namespace surfaces outside the manifest's
+ ;; whole-namespace introspection set (re-frame.story.theme.* / ui.* /
+ ;; xray-preset/* — public-but-chrome-internal per the doc's facade
+ ;; re-export discipline). See re-frame.api-manifest.story-spec-check.
+ :story-spec-known-unmanifested
+ #{"mount-shell!"            ; CLJS-only shell lifecycle (re-frame.story.shell), JVM-unloadable
+   "unmount-shell!"          ; CLJS-only shell lifecycle
+   "active-shell"            ; CLJS-only shell lifecycle
+   "registered-substrates"   ; CLJS-only facade var (reader-conditional :cljs branch)
+   "use-fixtures"            ; re-frame.story.test-support — direct-require, not on the facade (pulls cljs.test)
+   "with-clean-registry"     ; re-frame.story.test-support — direct-require, not on the facade
+   "xray-embed-panel"        ; re-frame.story.ui.xray-embed sub-ns (chrome-host surface)
+   "mount-fn-for"            ; re-frame.story.ui.xray-embed sub-ns
+   "popout-full-shell!"}     ; re-frame.story.ui.xray-embed sub-ns
+
+ ;; tools/xray/spec/API.md public-var references the manifest does not yet
+ ;; carry. REPORTED, not fixed (rf2-gkp0t: the Xray spec file is owned by a
+ ;; concurrent worker — this check surfaces the drift; the manifest's Xray
+ ;; coverage is presently the single `mounted?` read). The whole live Xray
+ ;; panel + mount surface is enumerated here so the check is GREEN today but
+ ;; goes RED the moment a NEW Xray panel/mount symbol appears in the spec or
+ ;; an enumerated one is renamed — the same allowlist discipline as above.
+ ;; A manifest-expansion follow-on should migrate these into :cljs-only Xray
+ ;; rows and delete them here.
+ :xray-spec-known-unmanifested
+ #{;; Dynamic-mode canonical six Panel reg-views (day8.re-frame2-xray.panels.*)
+   "Panel"                   ; the bare `Panel` export shared across every panel namespace
+   ;; mount-*! panel-host aggregator family (007-UX-IA §Mountable panel contract)
+   "mount-app-db-diff!" "mount-epoch-panel!" "mount-machine-inspector!"
+   "mount-routing!" "mount-trace!" "mount-views!" "mount-event-spine!"
+   "mount-segment-inspector!" "mount-managed-fx!"
+   "mount-cancellation-cascade-popover!" "mount-cancellation-cascade-side-panel!"
+   "mount-shell!" "mount-issues-ribbon!" "mount-inline-panel!"
+   ;; day8.re-frame2-xray.config — published layout-host constants (§Published
+   ;; layout-host constants); named CLJS vars so tooling refers to the exact spelling.
+   "default-layout-host-selector" "default-layout-host-css-var"
+   "default-layout-host-width" "default-accent-css-var" "default-accent"
+   "default-layout-host-snippet"
+   ;; day8.re-frame2-xray.open-in-editor — the editor-URI mirror chip.
+   "open-chip"
+   ;; day8.re-frame2-xray.runtime — the Xray ↔ MCP read seam discovery sentinel
+   ;; + safe-egress entry points (§Runtime accessor surface).
+   "session-id" "egress-value" "egress-record"}
+
+ ;; skills/ (excl. re-frame-migration) call-position `(rf/<var>` references
+ ;; the manifest does not carry. The checked skills teach against the LIVE
+ ;; surface, so this is empty today — a non-empty entry would name a
+ ;; legitimate non-manifest reference (e.g. a CLJS-only var). The
+ ;; re-frame-migration skill is excluded wholesale (it names removed old
+ ;; APIs by design — see re-frame.api-manifest.skills-check).
+ :skills-known-unmanifested
+ #{}
+
+ ;; docs/guide/ call-position `(rf/<var>` references the manifest does not
+ ;; carry: removed re-frame v1 names the from-v1 migration chapter names as
+ ;; old→new guidance, plus `<x>` template placeholders in a syntax table.
+ :doc-guide-known-unmanifested
+ #{"on-changes"   ; docs/guide/25-from-re-frame-v1.md — removed v1 reaction API, named as migration guidance
+   "set-x!"       ; docs/guide/24-config-and-safety.md — `(rf/set-x!)` is an `<x>` placeholder in the config-shape table
+   "install-x!"}  ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
+
+ ;; --------------------------------------------------------------------------
  ;; JVM-introspected classification — keyed ["namespace" "var"].
  ;; --------------------------------------------------------------------------
  :classification
