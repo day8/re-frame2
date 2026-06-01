@@ -504,10 +504,11 @@
   (rf2-via0g, mirroring the non-streaming rf2-asmj1 S8 fix).
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
-  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9):
-  callers MUST declare `:payload-keys` (allowlist, recommended) or
-  `:payload-policy :rf.ssr.payload/whole-app-db` (explicit opt-in to
-  shipping the whole `app-db`). Absence of both throws
+  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9,
+  rf2-pffil single-opt consolidation): callers MUST declare `:payload`
+  as either a vector allowlist of top-level keys (recommended) or the
+  keyword `:rf.ssr.payload/whole-app-db` (explicit opt-in to shipping
+  the whole `app-db`). Absence throws
   `:rf.error/ssr-missing-payload-policy`. The Ring host adapter
   validates at handler-construction time so misconfigured deployments
   fail at boot rather than at first request."

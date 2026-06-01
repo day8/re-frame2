@@ -145,18 +145,18 @@
                       :failed? failed?}))
                  continuations)
            render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
-           ;; Hydration-payload policy is explicit + fail-closed. This
-           ;; example's app-db is structurally safe to
-           ;; expose end-to-end (every key the dashboard handlers
-           ;; populate is intended for the client), so we opt in with
-           ;; `:payload-policy :rf.ssr.payload/whole-app-db`. A real
-           ;; production deployment would normally pass `:payload-keys`
-           ;; with an explicit allowlist of top-level app-db keys.
+           ;; Hydration-payload policy is explicit + fail-closed, carried
+           ;; by the single `:payload` opt. This example's app-db is
+           ;; structurally safe to expose end-to-end (every key the
+           ;; dashboard handlers populate is intended for the client), so
+           ;; we opt in with `:payload :rf.ssr.payload/whole-app-db`. A
+           ;; real production deployment would normally pass `:payload`
+           ;; with an explicit vector allowlist of top-level app-db keys.
            final-payload (rf/with-frame fid
                            (ssr/streaming-build-final-payload
                              fid render-hash
-                             {:version        1
-                              :payload-policy :rf.ssr.payload/whole-app-db}))
+                             {:version 1
+                              :payload :rf.ssr.payload/whole-app-db}))
            _ (rf/destroy-frame! fid)]
        {:shell shell-html
         :resolved-chunks resolved-chunks

@@ -245,8 +245,8 @@
   doesn't need the binding; it sits outside the block to keep that
   explicitness visible."
   [frame-id resp
-   {:keys [root-view emit-hash? version schema-digest payload-keys
-           payload-policy html-shell content-type]
+   {:keys [root-view emit-hash? version schema-digest payload
+           html-shell content-type]
     :as   opts}]
   (let [;; Single `with-frame` block covers the three frame-aware
         ;; stages: root-view resolution (a 0-arity fn may close over
@@ -293,12 +293,11 @@
         ;; load-bearing (a continuation drain inside the walker may
         ;; mutate app-db; the payload must reflect the post-walk value).
         app-db      (rf/frame-db frame-id)
-        payload     (payload/build-payload frame-id app-db hash-str
-                                           {:version        version
-                                            :schema-digest  schema-digest
-                                            :payload-keys   payload-keys
-                                            :payload-policy payload-policy})
-        payload-edn (pr-str payload)
+        rf-payload  (payload/build-payload frame-id app-db hash-str
+                                           {:version       version
+                                            :schema-digest schema-digest
+                                            :payload       payload})
+        payload-edn (pr-str rf-payload)
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs

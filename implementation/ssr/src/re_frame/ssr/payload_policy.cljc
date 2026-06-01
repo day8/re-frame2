@@ -9,7 +9,7 @@
   feature flags, server-only working scratch) to every visitor of every
   page.
 
-  A fail-OPEN default (ship whole `app-db` when `:payload-keys` is
+  A fail-OPEN default (ship whole `app-db` when `:payload` is
   nil/empty) would make the privacy decision implicit; the
   `:rf/response`-accumulator-on-app-db trap is one branch of the same
   family (rf2-jbcmt landed the side-channel storage substrate, rf2-gtgf9
@@ -27,14 +27,16 @@
 
   ---- The contract ----
 
-  The policy is one of two shapes:
+  A SINGLE handler opt — `:payload` — carries the policy. It is one of
+  two shapes (rf2-pffil consolidated the prior two-opt `:payload-keys` +
+  `:payload-policy` surface into one — pre-alpha, no back-compat shim):
 
-    `:payload-keys [<kw> <kw> ...]`
-      An **allowlist** of top-level `app-db` keys to ship. Other keys
-      are dropped — including any keys added later as the app evolves.
-      The recommended primary mechanism.
+    `:payload [<kw> <kw> ...]`
+      An **allowlist** of top-level `app-db` keys to ship (a non-empty
+      sequential coll). Other keys are dropped — including any keys added
+      later as the app evolves. The recommended primary mechanism.
 
-    `:payload-policy :rf.ssr.payload/whole-app-db`
+    `:payload :rf.ssr.payload/whole-app-db`
       An explicit opt-in to ship the whole `app-db`. Use only when the
       app's `app-db` is structurally safe to expose end-to-end — e.g.
       a small SPA where every key the server populates is intended
@@ -42,18 +44,21 @@
       (per Conventions §`:rf/*` reserved namespace) so consumers
       reading the opt see the security weight of the choice.
 
-  Absence of both is a structural error
+  Absence of `:payload` is a structural error
   (`:rf.error/ssr-missing-payload-policy`) — fail-closed.
 
-  Both shapes may be combined: when `:payload-keys` is present,
-  `:payload-policy` is ignored (explicit allowlist wins, and presenting
-  both is not a contradiction — the allowlist IS a more-restrictive
-  policy choice). Empty `:payload-keys` (`[]`) is treated as **no
-  allowlist supplied**, since shipping zero keys is almost certainly
-  a programmer error rather than an intent. Callers that genuinely
-  want to ship an empty `:rf/app-db` use `:payload-policy
-  :rf.ssr.payload/whole-app-db` against an empty `app-db` (i.e. don't
-  populate it server-side).
+  The single-opt shape removes the prior surface's ambiguity. The two-opt
+  design had to define a precedence rule (`:payload-keys` wins over
+  `:payload-policy` when both are passed) AND a silent-ignore branch (a
+  `:payload-policy` passed alongside an allowlist was discarded without a
+  word). One opt can hold exactly one value, so there is nothing to
+  arbitrate: the allowlist-vs-whole-app-db choice is the value's SHAPE
+  (vector vs keyword), not a contest between two opts. Empty `:payload`
+  (`[]`) is treated as **no allowlist supplied**, since shipping zero
+  keys is almost certainly a programmer error rather than an intent.
+  Callers that genuinely want to ship an empty `:rf/app-db` use
+  `:payload :rf.ssr.payload/whole-app-db` against an empty `app-db`
+  (i.e. don't populate it server-side).
 
   ---- Where this is consumed ----
 
@@ -92,58 +97,68 @@
 
 ;; ---- policy-spec keyword constants ----------------------------------------
 ;;
-;; Both keywords are reserved under the `:rf.ssr.payload/*` namespace
-;; (per Conventions §`:rf/*` reserved namespaces — `:rf.ssr/*` is the
-;; SSR sub-namespace; `:rf.ssr.payload/*` is the policy slot under it).
+;; The whole-app-db keyword is reserved under the `:rf.ssr.payload/*`
+;; namespace (per Conventions §`:rf/*` reserved namespaces — `:rf.ssr/*`
+;; is the SSR sub-namespace; `:rf.ssr.payload/*` is the policy slot under
+;; it).
 
 (def whole-app-db-policy
   "Opt-in policy keyword for shipping the entire `app-db` in the
-  hydration payload. Set as `:payload-policy` on the handler opts."
+  hydration payload. Set as the `:payload` opt's value on the handler
+  opts (`:payload :rf.ssr.payload/whole-app-db`)."
   :rf.ssr.payload/whole-app-db)
 
 ;; ---- policy resolution ---------------------------------------------------
 
 (defn- valid-allowlist?
-  "An allowlist is a non-empty sequential coll of top-level keys."
+  "An allowlist is a non-empty sequential coll of top-level keys — the
+  vector shape of the `:payload` opt."
   [x]
   (and (sequential? x) (seq x)))
 
 (defn- valid-policy-keyword?
   "Currently the only explicit-policy keyword recognised is the
-  whole-app-db opt-in. New policies (e.g. schema-driven projections)
-  would extend this set."
+  whole-app-db opt-in — the keyword shape of the `:payload` opt. New
+  policies (e.g. schema-driven projections) would extend this set."
   [x]
   (= x whole-app-db-policy))
 
 (defn validate-policy-opts!
-  "Throw a structured `:rf.error/ssr-missing-payload-policy` when the
-  caller declared neither `:payload-keys` nor a recognised
-  `:payload-policy`. Called at handler-construction time by the Ring
-  host adapter so misconfigured deployments fail at boot, not at first
-  request.
+  "Throw a structured error when the caller's `:payload` opt is absent or
+  malformed. Called at handler-construction time by the Ring host adapter
+  so misconfigured deployments fail at boot, not at first request.
+
+    - `:payload [<kws>]` (non-empty sequential) → OK (allowlist)
+    - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
+    - `:payload <other keyword>`  → `:rf.error/ssr-unknown-payload-policy`
+      (a typo'd policy keyword, e.g. `:rf.ssr.payload/whole-db`, surfaced
+      distinctly so it doesn't silently land in the missing bucket)
+    - `:payload` absent / empty `[]` / nil / any other non-allowlist
+      non-keyword → `:rf.error/ssr-missing-payload-policy` (fail-closed)
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
-  [{:keys [payload-keys payload-policy] :as opts}]
+  [{:keys [payload] :as opts}]
   (cond
-    (valid-allowlist? payload-keys)
+    (valid-allowlist? payload)
     opts
 
-    (valid-policy-keyword? payload-policy)
+    (valid-policy-keyword? payload)
     opts
 
-    ;; Caller passed `:payload-policy` but not the recognised keyword —
-    ;; surface as a distinct error so a typo (e.g.
+    ;; Caller passed a keyword that isn't the recognised whole-app-db
+    ;; opt-in — surface as a distinct error so a typo (e.g.
     ;; `:rf.ssr.payload/whole-db`) doesn't silently land in the
     ;; missing-policy bucket.
-    (some? payload-policy)
+    (keyword? payload)
     (throw (ex-info ":rf.error/ssr-unknown-payload-policy"
                     {:rf.error/id    :rf.error/ssr-unknown-payload-policy
                      :where          'rf.ssr/payload-policy
-                     :reason         (str "ssr-handler :payload-policy must be "
+                     :reason         (str "ssr-handler :payload keyword must be "
                                           (pr-str whole-app-db-policy)
-                                          " (or omit it and pass :payload-keys instead)")
-                     :got            payload-policy
+                                          " (or pass a vector allowlist of "
+                                          "top-level app-db keys instead)")
+                     :got            payload
                      :recognised     #{whole-app-db-policy}
                      :recovery       :declare-payload-policy}))
 
@@ -152,36 +167,35 @@
                     {:rf.error/id :rf.error/ssr-missing-payload-policy
                      :where    'rf.ssr/payload-policy
                      :reason   (str "ssr-handler requires an explicit hydration-"
-                                    "payload policy: pass :payload-keys "
+                                    "payload policy: pass :payload "
                                     "[<top-level-app-db-keys>] (allowlist, "
-                                    "preferred) OR :payload-policy "
+                                    "preferred) OR :payload "
                                     (pr-str whole-app-db-policy)
                                     " to opt-in to shipping the whole app-db.")
+                     :got      payload
                      :recovery :declare-payload-policy}))))
 
 (defn apply-policy
-  "Project `app-db` to the wire slice per the caller's declared policy.
-  Returns the slice (a map) — the value that lands on the
+  "Project `app-db` to the wire slice per the caller's declared `:payload`
+  policy. Returns the slice (a map) — the value that lands on the
   `:rf/hydration-payload`'s `:rf/app-db` key.
 
   Per the contract:
 
-    - `:payload-keys [<kws>]` (allowlist, recommended) wins when
-      present and non-empty.
-    - `:payload-policy :rf.ssr.payload/whole-app-db` ships `app-db`
-      verbatim.
-    - Absence of both throws `:rf.error/ssr-missing-payload-policy`
-      — the fail-closed default.
+    - `:payload [<kws>]` (allowlist, non-empty sequential) → `select-keys`.
+    - `:payload :rf.ssr.payload/whole-app-db` → ships `app-db` verbatim.
+    - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`
+      or `:rf.error/ssr-unknown-payload-policy`) — the fail-closed default.
 
   This is the runtime arm of the contract; the construction-time arm
   is `validate-policy-opts!` (called by the Ring host adapter so
   misconfigured deployments fail at boot)."
-  [app-db {:keys [payload-keys payload-policy] :as opts}]
+  [app-db {:keys [payload] :as opts}]
   (cond
-    (valid-allowlist? payload-keys)
-    (select-keys app-db payload-keys)
+    (valid-allowlist? payload)
+    (select-keys app-db payload)
 
-    (valid-policy-keyword? payload-policy)
+    (valid-policy-keyword? payload)
     app-db
 
     :else

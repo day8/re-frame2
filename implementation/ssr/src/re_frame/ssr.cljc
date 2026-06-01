@@ -41,6 +41,14 @@
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            ;; rf2-lq2ou — client-side hydration boot helper. The
+            ;; symmetric counterpart of the server-side
+            ;; `re-frame.ssr.ring/ssr-handler`: reads `__rf_payload` →
+            ;; dispatches `:rf/hydrate` → verifies. Loaded eagerly so the
+            ;; `ssr/hydrate!` / `ssr/read-server-payload` re-exports
+            ;; resolve at the façade. Per Spec 011 §Client-side hydration
+            ;; boot helper.
+            [re-frame.ssr.boot :as boot]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
@@ -84,6 +92,13 @@
 (def ^:private fnv-1a-32             hash/fnv-1a-32)
 (def adapter                         substrate/adapter)
 (def verify-hydration!               hydrate/verify-hydration!)
+;; rf2-lq2ou — client-side hydration boot helper (symmetric with the
+;; server-side `re-frame.ssr.ring/ssr-handler`). `hydrate!` fuses the
+;; read → dispatch `:rf/hydrate` → `verify-hydration!` ordering Spec 011
+;; §Client flow mandates; `read-server-payload` (CLJS-only) is the DOM
+;; `__rf_payload` reader it builds on.
+(def hydrate!                        boot/hydrate!)
+#?(:cljs (def read-server-payload    boot/read-server-payload))
 (def default-response                response/default-response)
 ;; framework-private — Spec 011 §Response storage substrate (rf2-jbcmt).
 ;; The accumulator lives in a side-channel atom keyed by frame-id, NOT

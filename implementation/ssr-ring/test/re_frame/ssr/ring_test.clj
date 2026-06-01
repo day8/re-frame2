@@ -206,7 +206,7 @@
                     {:on-create    [:rf/server-init]
                      :root-view    [:pages/articles]
                      :fx-overrides {:http/get :http/get.canned}
-                     :payload-policy :rf.ssr.payload/whole-app-db})
+                     :payload :rf.ssr.payload/whole-app-db})
           request {:uri            "/articles"
                    :request-method :get
                    :headers        {"user-agent" "test"}}
@@ -245,7 +245,7 @@
                     {:on-create    [:rf/server-init]
                      :root-view    [:pages/articles]
                      :fx-overrides {:http/get :http/get.canned}
-                     :payload-policy :rf.ssr.payload/whole-app-db})
+                     :payload :rf.ssr.payload/whole-app-db})
           frames-before (set (rf/frame-ids))
           response (handler {:uri "/" :request-method :get})
           frames-after (set (rf/frame-ids))]
@@ -277,7 +277,7 @@
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/redirect]
                      :root-view [:pages/should-not-render]
-                     :payload-policy :rf.ssr.payload/whole-app-db})
+                     :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/secret" :request-method :get})]
       (is (= 302 (:status response)))
       (let [headers (:headers response)
@@ -307,7 +307,7 @@
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/redirect-no-target]
                         :root-view [:pages/noop-rt]
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/secret" :request-method :get})
             headers  (:headers response)]
         (rf/unregister-listener! ::redirect-no-target-watch)
@@ -343,7 +343,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/with-cookies]
                       :root-view [:pages/cookied]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           headers  (:headers response)
           set-cookie (or (get headers "Set-Cookie") (get headers "set-cookie"))]
@@ -380,7 +380,7 @@
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
                      :root-view [:pages/broken]
-                     :payload-policy :rf.ssr.payload/whole-app-db})
+                     :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 500 (:status response))
           "rf2-zwgsv: default projector's `:internal-error` shape →
@@ -434,7 +434,7 @@
                     {:on-create [:init/ok]
                      :root-view [:pages/broken-2]
                      :ssr       {:public-error-id :myapp/teapot}
-                     :payload-policy :rf.ssr.payload/whole-app-db})
+                     :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 418 (:status response))
           "the custom projector's :status overrides the default 500
@@ -475,7 +475,7 @@
                      {:on-create  [:init/ok]
                       :root-view  [:pages/broken-ev]
                       :error-view :myapp/error-page
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})
           body     (:body response)]
       (is (= 500 (:status response)) "projector status rides the response")
@@ -503,7 +503,7 @@
                                     [:section.fn-error
                                      [:h2 "fn error view"]
                                      [:span (:message public)]])
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})
           body     (:body response)]
       (is (= 500 (:status response)))
@@ -527,7 +527,7 @@
                         :root-view  [:pages/broken-evt]
                         :error-view (fn [_public]
                                       (throw (ex-info "error-view itself broke" {})))
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/broken" :request-method :get})
             body     (:body response)]
         (rf/unregister-listener! ::error-view-throw-watch)
@@ -572,7 +572,7 @@
                         :root-view (fn []
                                      (swap! call-count inc)
                                      [:pages/once])
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/once" :request-method :get})]
         (is (= 200 (:status response)))
         (is (= 1 @call-count)
@@ -601,7 +601,7 @@
                        {:on-create [:init/ok-noni]
                         :root-view (fn []
                                      [:pages/noni (swap! counter inc)])
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/noni" :request-method :get})
             body     (:body response)
             wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""
@@ -654,7 +654,7 @@
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/capture-request-cofx]
                         :root-view [:pages/blank]
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             request  {:uri            "/articles/42"
                       :request-method :get
                       :headers        {"user-agent" "ring-adapter-test"
@@ -677,7 +677,7 @@
       (let [handler (ssr-ring/ssr-handler
                       {:on-create [:init/capture-frame-id]
                        :root-view [:pages/blank2]
-                       :payload-policy :rf.ssr.payload/whole-app-db})]
+                       :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/x" :request-method :get})
         (is (some? @captured-fid)
             "the on-create handler captured the per-request frame-id")
@@ -699,7 +699,7 @@
       (let [handler (ssr-ring/ssr-handler
                       {:on-create [:init/observe-request]
                        :root-view [:pages/blank3]
-                       :payload-policy :rf.ssr.payload/whole-app-db})]
+                       :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/a" :request-method :get})
         (handler {:uri "/b" :request-method :get})
         (is (= ["/a" "/b"] @observed)
@@ -733,7 +733,7 @@
                        :root-view [:pages/blank-for-ssr-opt]
                        :ssr       {:dev-error-detail? true
                                    :public-error-id   :myapp/projector}
-                       :payload-policy :rf.ssr.payload/whole-app-db})]
+                       :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/" :request-method :get})
         (is (= {:dev-error-detail? true
                 :public-error-id   :myapp/projector}
@@ -742,11 +742,11 @@
              — the destructure matches the documented key")))))
 
 ;; ===========================================================================
-;; ssr-handler — payload-keys slice
+;; ssr-handler — :payload allowlist slice
 ;; ===========================================================================
 
 (deftest handler-payload-keys-slices-app-db
-  (testing ":payload-keys ships a subset of app-db in the hydration payload"
+  (testing ":payload allowlist ships a subset of app-db in the hydration payload"
     (rf/reg-event-fx :init/many-keys
       {:platforms #{:server}}
       (fn [_ _]
@@ -759,7 +759,7 @@
     (let [handler (ssr-ring/ssr-handler
                     {:on-create    [:init/many-keys]
                      :root-view    [:pages/echo]
-                     :payload-keys [:public/articles]})
+                     :payload [:public/articles]})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -773,7 +773,7 @@
           "payload carries the public/articles key (either as
            qualified-keyword or as namespace-map shorthand)")
       (is (not (str/includes? body "secret-token"))
-          ":payload-keys omits server-only slices from the wire payload")
+          ":payload allowlist omits server-only slices from the wire payload")
       (is (not (str/includes? body "admin-flag"))))))
 
 ;; ===========================================================================
@@ -781,10 +781,10 @@
 ;;
 ;; The wire-level proof that the policy contract is fail-closed:
 ;;
-;;   1. A handler constructed with NEITHER `:payload-keys` NOR
-;;      `:payload-policy` throws at construction time
-;;      (`:rf.error/ssr-missing-payload-policy`). Misconfigured
-;;      deployments fail at boot rather than at first request.
+;;   1. A handler constructed with NO `:payload` opt throws at
+;;      construction time (`:rf.error/ssr-missing-payload-policy`).
+;;      Misconfigured deployments fail at boot rather than at first
+;;      request.
 ;;
 ;;   2. **The fail-closed proof** — when a handler is constructed
 ;;      with an allowlist that does NOT include a server-only key,
@@ -794,21 +794,21 @@
 ;;      (rf2-gtgf9: no default-whole-app-db fallback exists, so
 ;;      server-only keys cannot ride the wire silently).
 ;;
-;;   3. The opt-in branch — `:payload-policy
-;;      :rf.ssr.payload/whole-app-db` ships the whole app-db verbatim
-;;      (apps that genuinely want it can opt in explicitly).
+;;   3. The opt-in branch — `:payload :rf.ssr.payload/whole-app-db`
+;;      ships the whole app-db verbatim (apps that genuinely want it
+;;      can opt in explicitly).
 ;;
-;;   4. A typo'd `:payload-policy` keyword surfaces as
+;;   4. A typo'd `:payload` keyword surfaces as
 ;;      `:rf.error/ssr-unknown-payload-policy` — distinct from the
 ;;      missing-policy bucket so the developer can tell the two
 ;;      failure modes apart.
 ;; ===========================================================================
 
 (deftest handler-construction-fails-closed-when-no-policy-supplied
-  (testing "rf2-gtgf9: ssr-handler with neither :payload-keys nor
-            :payload-policy throws :rf.error/ssr-missing-payload-policy
-            at construction time — the canonical fail-closed pattern.
-            Misconfigured deployments fail at boot, not at first request."
+  (testing "rf2-gtgf9: ssr-handler with no :payload opt throws
+            :rf.error/ssr-missing-payload-policy at construction time —
+            the canonical fail-closed pattern. Misconfigured deployments
+            fail at boot, not at first request."
     (rf/reg-event-fx :init/no-policy {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/no-policy (fn [] [:div "no policy"]))
 
@@ -855,7 +855,7 @@
           #":rf\.error/ssr-ring-missing-on-create"
           (ssr-ring/ssr-handler
             {:root-view [:pages/no-oncreate]
-             :payload-policy :rf.ssr.payload/whole-app-db})))))
+             :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest stream-handler-construction-fails-closed-when-missing-on-create
   (testing "rf2-ee38b.11: stream-handler with no :on-create throws
@@ -867,7 +867,7 @@
           #":rf\.error/ssr-ring-missing-on-create"
           (ssr-ring/stream-handler
             {:root-view [:pages/no-oncreate-stream]
-             :payload-policy :rf.ssr.payload/whole-app-db})))))
+             :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest stream-handler-construction-fails-closed-when-missing-root-view
   (testing "rf2-ee38b.11: stream-handler with no :root-view throws
@@ -880,11 +880,11 @@
           #":rf\.error/ssr-ring-missing-root-view"
           (ssr-ring/stream-handler
             {:on-create [:init/no-rootview-stream]
-             :payload-policy :rf.ssr.payload/whole-app-db})))))
+             :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
   (testing "rf2-gtgf9 FAIL-CLOSED PROOF: a server-only app-db key NOT in
-            the :payload-keys allowlist MUST NOT appear in the
+            the :payload allowlist MUST NOT appear in the
             hydration-payload script tag's EDN body. Without the
             allowlist gate an unaudited new app-db key would silently
             ride the wire on every request — the allowlist is load-
@@ -910,7 +910,7 @@
                       ;; un-permitted and MUST be dropped.
                       {:on-create    [:init/with-secret]
                        :root-view    [:pages/policy-probe]
-                       :payload-keys [:public/articles]})
+                       :payload [:public/articles]})
           response  (handler {:uri "/" :request-method :get})
           body      (:body response)
           payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
@@ -945,9 +945,9 @@
           "rf2-gtgf9: belt-and-braces over multiple un-permitted slots"))))
 
 (deftest payload-policy-whole-app-db-opt-in-ships-everything
-  (testing "rf2-gtgf9: explicit :payload-policy
-            :rf.ssr.payload/whole-app-db is the documented opt-in for
-            apps whose entire app-db is intended for the wire"
+  (testing "rf2-gtgf9: explicit :payload :rf.ssr.payload/whole-app-db is
+            the documented opt-in for apps whose entire app-db is intended
+            for the wire"
     (rf/reg-event-fx :init/wholeapp
       {:platforms #{:server}}
       (fn [_ _]
@@ -961,7 +961,7 @@
     (let [handler   (ssr-ring/ssr-handler
                       {:on-create      [:init/wholeapp]
                        :root-view      [:pages/wholeapp]
-                       :payload-policy :rf.ssr.payload/whole-app-db})
+                       :payload :rf.ssr.payload/whole-app-db})
           response  (handler {:uri "/" :request-method :get})
           body      (:body response)
           payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
@@ -976,8 +976,8 @@
           ":public/theme reached the wire under the whole-app-db opt-in"))))
 
 (deftest handler-construction-rejects-unknown-policy-keyword
-  (testing "rf2-gtgf9: a typo'd :payload-policy surfaces as a distinct
-            error so the developer can tell the failure modes apart"
+  (testing "rf2-gtgf9 / rf2-pffil: a typo'd :payload keyword surfaces as a
+            distinct error so the developer can tell the failure modes apart"
     (rf/reg-event-fx :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/typo-policy (fn [] [:div]))
 
@@ -985,10 +985,10 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-unknown-payload-policy"
           (ssr-ring/ssr-handler
-            {:on-create      [:init/typo-policy]
-             :root-view      [:pages/typo-policy]
-             :payload-policy :rf.ssr.payload/whole-db})) ; typo
-        "typo'd policy keyword does NOT silently fall into the
+            {:on-create [:init/typo-policy]
+             :root-view [:pages/typo-policy]
+             :payload   :rf.ssr.payload/whole-db})) ; typo
+        "typo'd :payload keyword does NOT silently fall into the
          missing-policy bucket — the developer sees a distinct
          :rf.error/ssr-unknown-payload-policy")))
 
@@ -1020,7 +1020,7 @@
 
     (let [base-opts {:on-create    [:init/trusted-opt-test]
                      :root-view    [:pages/trusted-opt-test]
-                     :payload-keys [:public/x]}]
+                     :payload [:public/x]}]
 
       (testing "each of the four trusted-string opts is rejected when
                 supplied a non-string non-nil value (per the bead's
@@ -1100,7 +1100,7 @@
 
     (let [base-opts {:on-create    [:init/trusted-opt-stream]
                      :root-view    [:pages/trusted-opt-stream]
-                     :payload-keys [:public/x]}]
+                     :payload [:public/x]}]
       (testing "stream-handler rejects non-string non-nil values on
                 each of the four trusted-string opts"
         (doseq [[opt-k bad-val] [[:head            {:title "x"}]
@@ -1145,7 +1145,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-route]
                       :root-view [:pages/blank-for-title]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)
           opens    (count (re-seq #"<title" body))
@@ -1167,7 +1167,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/noop]
                       :root-view [:pages/blank-no-head]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)
           opens    (count (re-seq #"<title" body))]
@@ -1197,7 +1197,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-no-title]
                       :root-view [:pages/blank-no-title]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -1237,7 +1237,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
                       :root-view [:pages/blank-attrs]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -1256,7 +1256,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
                       :root-view [:pages/blank-attrs]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -1274,7 +1274,7 @@
                      {:on-create [:init/seed-attrs-route]
                       :root-view [:pages/blank-attrs]
                       :lang      "ja"
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -1300,7 +1300,7 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
                       :root-view [:pages/blank-attrs]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -1334,7 +1334,7 @@
                             :root-view    [:pages/articles]
                             :fx-overrides {:http/get :http/get.canned}
                             :match?       (fn [req] (= "/ssr" (:uri req)))
-                            :payload-policy :rf.ssr.payload/whole-app-db})
+                            :payload :rf.ssr.payload/whole-app-db})
           app            (mw wrapped)]
 
       (let [fall-through-response (app {:uri "/api" :request-method :get})]
@@ -1353,7 +1353,7 @@
 ;; Privacy regression — per Spec 011 §Response storage substrate the HTTP
 ;; response accumulator MUST NOT ride `app-db`. Earlier drafts stored the
 ;; accumulator at `[:rf/response]` in the request frame's app-db; without
-;; explicit `:payload-keys` filtering, the hydration payload at
+;; explicit `:payload` allowlist filtering, the hydration payload at
 ;; `build-payload` shipped the whole app-db (with the accumulator's
 ;; server-only Set-Cookie / X-* headers / redirect locations) onto the
 ;; client wire. The rf2-jbcmt fix moved storage to a framework-private
@@ -1406,7 +1406,7 @@
     (let [handler   (ssr-ring/ssr-handler
                       {:on-create [:auth/login]
                        :root-view [:pages/dashboard]
-                       :payload-policy :rf.ssr.payload/whole-app-db})
+                       :payload :rf.ssr.payload/whole-app-db})
           response  (handler {:uri            "/dashboard"
                               :request-method :get
                               :headers        {"user-agent" "rf2-jbcmt-leak-probe"}})
@@ -1534,7 +1534,7 @@
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/hostile]
                         :root-view [:pages/hostile-page]
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
             body     (:body response)]
         (is (= 200 (:status response)))
@@ -1850,7 +1850,7 @@
                         {:on-create      [:rf/server-init]
                          :root-view      [:pages/articles]
                          :fx-overrides   {:http/get :http/get.canned}
-                         :payload-policy :rf.ssr.payload/whole-app-db})
+                         :payload :rf.ssr.payload/whole-app-db})
           response    (handler {:uri "/articles" :request-method :get})
           body        (:body response)
           payload-m   (re-find
@@ -2004,7 +2004,7 @@
                         ;; try/catch — exactly the on-error path.
                         {:on-create '(:rf/server-init)
                          :root-view [:div]
-                         :payload-keys [:x]
+                         :payload [:x]
                          :on-error-fallback {:body custom-body
                                              :content-type "text/html; charset=utf-8"}})
           response    (handler {:uri "/x" :request-method :get})]
@@ -2031,7 +2031,7 @@
           handler       (ssr-ring/ssr-handler
                           {:on-create '(:rf/server-init)
                            :root-view [:div]
-                           :payload-keys [:x]
+                           :payload [:x]
                            :on-error (fn [_req _t]
                                        {:status 503
                                         :headers {"Content-Type" "text/plain"}
@@ -2079,7 +2079,7 @@
           handler (ssr-ring/ssr-handler
                     {:on-create '(:rf/server-init) ;; non-vector → setup throws
                      :root-view [:div]
-                     :payload-keys [:x]
+                     :payload [:x]
                      :on-error throwing-on-error})
           ;; Before the fix this call THREW (the throwing on-error
           ;; escaped `setup-request-frame!` uncaught). After the fix it
@@ -2120,7 +2120,7 @@
           handler (ssr-ring/ssr-handler
                     {:on-create [:rf.test/init-bad-cookie]
                      :root-view [:div "hello"]
-                     :payload-policy :rf.ssr.payload/whole-app-db
+                     :payload :rf.ssr.payload/whole-app-db
                      :on-error throwing-on-error})
           ;; Before the fix the throwing :on-error escaped the handler
           ;; body's catch uncaught; after the fix `safe-on-error`

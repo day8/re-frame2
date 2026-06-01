@@ -293,7 +293,7 @@
           app ((ssr-ring/ssr-middleware
                  {:on-create      [:init/mw-blank]
                   :root-view      [:pages/mw-blank]
-                  :payload-policy :rf.ssr.payload/whole-app-db})
+                  :payload :rf.ssr.payload/whole-app-db})
                wrapped)
           response (app {:uri "/" :request-method :get})]
       (is (= 200 (:status response)) "GET matched the default predicate → SSR rendered")
@@ -311,7 +311,7 @@
           app ((ssr-ring/ssr-middleware
                  {:on-create      [:init/mw-blank]
                   :root-view      [:pages/mw-blank]
-                  :payload-policy :rf.ssr.payload/whole-app-db})
+                  :payload :rf.ssr.payload/whole-app-db})
                wrapped)]
       (doseq [method [:post :put :delete :head]]
         (reset! wrapped-called false)

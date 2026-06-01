@@ -423,7 +423,7 @@
 
 (deftest build-final-payload-allowlist-drops-unpermitted-keys
   (testing "rf2-u91hb: the streaming build-final-payload MUST honour
-            :payload-keys allowlist projection — same contract as
+            :payload allowlist projection — same contract as
             non-streaming build-payload (the streaming + non-streaming
             payload builders share re-frame.ssr.payload-policy/apply-
             policy per rf2-gtgf9). Pin that an un-permitted key on
@@ -433,8 +433,8 @@
                                   :server-only/admin-flag true})
           payload (streaming/build-final-payload
                     fid "deadbeef"
-                    {:version       1
-                     :payload-keys  [:public/articles]})]
+                    {:version 1
+                     :payload [:public/articles]})]
       (is (= [{:id "a"}] (get-in payload [:rf/app-db :public/articles]))
           "the public slice IS on the wire (sanity)")
       (is (not (contains? (:rf/app-db payload) :server-only/auth-token))

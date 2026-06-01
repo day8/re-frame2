@@ -127,7 +127,7 @@
           handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.writer/init]
                       :root-view throwing-root
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           ;; Frame ids BEFORE the request — baseline.
           baseline-fids (disj (frame/frame-ids) :rf/default)
           response (handler {:uri "/" :request-method :get})

@@ -198,7 +198,7 @@
           payload (streaming/build-final-payload fid "deadbeef"
                                                  {:version       7
                                                   :schema-digest "abc123"
-                                                  :payload-policy :rf.ssr.payload/whole-app-db})]
+                                                  :payload :rf.ssr.payload/whole-app-db})]
       (is (= 7 (:rf/version payload)))
       (is (= fid (:rf/frame-id payload)))
       (is (= "deadbeef" (:rf/render-hash payload)))
@@ -217,7 +217,7 @@
         (try
           (let [payload (streaming/build-final-payload
                           fid "hash"
-                          {:payload-policy :rf.ssr.payload/whole-app-db})]
+                          {:payload :rf.ssr.payload/whole-app-db})]
             (is (= "9.9.9" (:rf/version payload))
                 "runtime-version hook value lands in :rf/version")
             (is (not= 1 (:rf/version payload))
@@ -231,7 +231,7 @@
           (let [payload (streaming/build-final-payload
                           fid "hash"
                           {:version        42
-                           :payload-policy :rf.ssr.payload/whole-app-db})]
+                           :payload :rf.ssr.payload/whole-app-db})]
             (is (= 42 (:rf/version payload))
                 "caller-supplied :version is the highest-priority source"))
           (finally
@@ -241,7 +241,7 @@
         (swap! late-bind/hooks dissoc :rf2/runtime-version)
         (let [payload (streaming/build-final-payload
                         fid "hash"
-                        {:payload-policy :rf.ssr.payload/whole-app-db})]
+                        {:payload :rf.ssr.payload/whole-app-db})]
           (is (= 1 (:rf/version payload))
               "absent hook + absent opt → v1 pattern-protocol stamp"))))))
 
