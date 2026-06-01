@@ -286,6 +286,28 @@ the common path; the dialect cost would tax the common case.
 - `:rf.mcp/cursor-stale` ⇒ drop the cursor; restart pagination from
   the head (same as cross-MCP cursor-staleness on story-mcp).
 
+#### `:unknown-tool` recovery hint (rf2-tkmik)
+
+The bare `:unknown-tool` reason — emitted when a `tools/call` names a
+tool absent from the registry (a typo, or a removed alias such as the
+pre-rf2-4y595 `registry-list`) — carries the recovery affordances every
+other honest `:ok? false` envelope on this surface does:
+
+```clojure
+{:ok? false
+ :reason :unknown-tool
+ :tool "<the bad name>"
+ :hint "unknown tool `<name>`; did you mean `<nearest>`? call `tools/list` to see the available tools."
+ :available-tools ["discover-app" "eval-cljs" …]   ;; the live catalogue, registry order
+ :did-you-mean "<nearest>"}                         ;; present only when a near edit-distance match exists
+```
+
+`:available-tools` is the same name set `tools/list` enumerates;
+`:did-you-mean` (and the `did you mean …` clause inside `:hint`) appears
+only when the bad name is within a small edit distance of a real tool.
+A model that typo'd a name self-corrects from the envelope without a
+`tools/list` round-trip.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the

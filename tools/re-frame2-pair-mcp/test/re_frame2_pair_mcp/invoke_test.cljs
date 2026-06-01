@@ -415,10 +415,35 @@
         (.then (fn [result]
                  (is (true? (j/get result :isError)))
                  (let [v (extract-edn result)]
+                   ;; Historical shape preserved (additive — rf2-tkmik).
+                   (is (false? (:ok? v)))
                    (is (= :unknown-tool (:reason v)))
-                   (is (= "no-such-tool" (:tool v))))
+                   (is (= "no-such-tool" (:tool v)))
+                   ;; Recovery affordances: a :hint pointing at tools/list
+                   ;; and the live catalogue, matching the surface's
+                   ;; honest-error standard (rf2-tkmik).
+                   (is (string? (:hint v)))
+                   (is (re-find #"tools/list" (:hint v))
+                       "hint must point the agent at tools/list to recover")
+                   (is (vector? (:available-tools v)))
+                   (is (some #{"snapshot"} (:available-tools v))
+                       ":available-tools carries the real catalogue"))
                  (is (zero? (cache/size))
                      "unknown-tool errors do not touch the cache")
+                 (done))))))
+
+(deftest unknown-tool-hint-offers-nearest-match
+  ;; A near-miss typo of a real tool name surfaces a :did-you-mean
+  ;; pointer (rf2-tkmik) so a model can self-correct without a round-trip.
+  (async done
+    (-> (tools/invoke nil "snapsho" (args-js {}) nil)
+        (.then (fn [result]
+                 (let [v (extract-edn result)]
+                   (is (= :unknown-tool (:reason v)))
+                   (is (= "snapshot" (:did-you-mean v))
+                       "near typo `snapsho` suggests `snapshot`")
+                   (is (re-find #"did you mean" (:hint v))
+                       "hint inlines the nearest-match suggestion"))
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
