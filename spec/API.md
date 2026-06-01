@@ -32,16 +32,47 @@
 
 ---
 
-## Classification
+## Tier taxonomy
 
-Every public-surface row in this document is **Canonical** — a documented, supported, v1 (or post-v1 lib) API that downstream apps and tools may rely on, in the status the row's Status column gives. The audit (Phase-1, 2026-05-17) classified ~110 public defs of `re-frame.core` and confirmed 97% canonical; the rare-use helpers all justified canonical status (interceptor plumbing, adapter lifecycle, schema-printer swap seam, off-box-egress projections, v1-preserved teardown / clearing surfaces). No public surface is classified Deprecated; none is classified Advanced.
+Every public-surface row in this document is **supported** — a documented API that downstream apps and tools may rely on, in the status the row's Status column gives. *Supported* is not the same as *front-porch*: a system that ships `register-epoch-listener!`, `projected-history`, adapter hooks, and `reset-frame-db!` has a large public surface, but only a small slice of it is what a new app developer should ever reach for. The **Tier** column on every table below records that slice, using a **closed vocabulary** of seven values:
 
-The only **Internal** carve-outs are two JVM-only macro-helpers re-exposed in `re-frame.core` purely so pre-split tests can reach them:
+| Tier | Meaning | Who reaches for it |
+|---|---|---|
+| **front-porch** | The tight set a new app developer needs to build a working app — register / dispatch / subscribe, the frame basics, the everyday reads. Loaded by default by the Guide and the skills. | Every app author, day one. |
+| **advanced** | Power-user surfaces that solve real problems but are not first-reach — epoch-listener registration, trace projection, flows internals, the `*`-twin fn forms, the lower-level lifecycle (`install-adapter!`, `init-platform`). Opt-in. | Experienced authors, library authors, niche cases. |
+| **tooling** | Dev / inspection surfaces consumed by Story, Xray, the pair-MCP servers, and other [Spec 009](009-Instrumentation.md) / [Tool-Pair](Tool-Pair.md) tools — trace listeners, the registrar query API, off-box-egress projections, the epoch query surface. Not for application logic. | Tool and instrumentation authors. |
+| **adapter** | The substrate-adapter hooks — the per-substrate `adapter` Var, the hooks and `set-*!` seams a substrate adapter implements or installs. | Adapter authors (Reagent / UIx / Helix / custom). |
+| **testing** | Test-only helpers — fixture machinery, assertion helpers, view-tree walkers, the HTTP-stub surfaces. Elided or simply absent from production paths. | Test authors. |
+| **internal-public** | Stable, exported, and safe to call, but **not** an application surface — provided for a specific tool/host integration, not for app logic. The Xray `mount-<panel>!` family is the canonical instance (a host that builds its own Xray chrome may call them; an app never should). | Specific host/tool integrations only. |
+| **deprecated** | On the way out; a replacement exists. Retained only long enough for callers to migrate. (Pre-alpha currently carries none — removed surfaces live in [§Removed / not shipped](#removed--not-shipped), not here.) | Nobody new — migrate off. |
+
+**The Guide and the skills load FRONT-PORCH only by default.** A new app developer reading the Guide, or an AI agent operating through the skills, sees the front-porch tier and nothing else unless they opt in. Advanced, tooling, adapter, testing, and internal-public surfaces are **opt-in** — reached by explicitly pulling in the relevant chapter, the relevant artefact, or the relevant tool. The acceptance bar for this taxonomy: a new app developer can read the one-page front-porch list (the union of all `front-porch` rows below) and never trip over trace projection, epoch-listener registration, adapter hooks, or Xray internals.
+
+**Tier vs Status.** Tier and Status are orthogonal axes. *Status* records shipping lineage (`v1` / `v1 (preserved)` / `post-v1 lib` / …). *Tier* records who-reaches-for-it. A surface can be `v1` and `advanced` (`register-epoch-listener!`), or `post-v1 lib` and `front-porch` (the Story `run` verb is `post-v1 lib`/`tooling`; a hypothetical post-v1 ergonomic core helper would be `post-v1 lib`/`front-porch`). Read the two columns together.
+
+**The front-porch / back-room split is the first instance, generalised.** The multi-frame surface (§View ergonomics, per [002 §The multi-frame surface](002-Frames.md#the-multi-frame-surface--choose-by-intent)) was already organised as a *front-porch / back-room* split — `dispatch` / `subscribe` / `with-frame` on the porch, `frame-bound-fn*` and the `{:frame …}` override in the back room. The Tier column generalises that split across the whole API: front-porch is the porch; advanced / tooling / adapter / testing / internal-public are the back rooms.
+
+**Closed vocabulary, restrictive-by-default.** The seven values above are the complete set — no eighth tier is added without an explicit governance decision. When a surface is genuinely ambiguous between two tiers, pick the **more restrictive** one (advanced over front-porch; internal-public over advanced) and note the call in the row's Notes. The downstream manifest (rf2-3nbl5.2) consumes `Tier` as a first-class field, so the value must come from this closed set.
+
+**What the Tier column covers.** Tier is a property of a **public var** (a fn / macro / Var). The tables that enumerate *keyword-addressed registrations* — standard events (`:rf.route/navigate`, `:rf/hydrate`, …), standard subs (`:rf/route`, `:rf/response`, …), standard fx (`:rf.nav/push-url`, `:rf.http/managed`, …), standard cofx, reserved fx-ids, the `:fx`-entry catalogue, the spec-internal schemas, the configure keys, and the error/trace-event catalogues — are **not** vars and carry no Tier column. They are part of the contract of whichever artefact owns them; their availability follows that artefact's tier (e.g. the `:rf.route/*` events ship with the `advanced` routing artefact). The front-porch one-page list is the union of `front-porch`-tiered **var** rows.
+
+### Tiering of cross-tool surfaces (Story, Xray, pair-MCP)
+
+Story, Xray, and the MCP support namespaces ship their *own* public-var rows in their *own* specs ([007-Stories.md](007-Stories.md), [tools/xray/spec](../tools/xray/spec), [Tool-Pair.md](Tool-Pair.md)); this projection rows only the slices that surface through `re-frame.core` or the per-feature artefacts. The Tier taxonomy is nonetheless **repo-wide and authoritative over those surfaces** — the per-tool specs classify against this closed vocabulary rather than inventing local terms. The standing classifications (resolved here, so the per-tool specs reference rather than re-litigate):
+
+- **Story facade** — the public execution verbs `run` / `is` / `explain` and the registration macros (`reg-story` / `reg-variant` / `reg-workspace` / `reg-tag` / `reg-decorator` / `reg-story-panel`) are **tooling** (a Storybook-shaped dev surface, not application logic). The `run-variant` / `is-variant` / `run-plan` / `is-plan` / `watch-variant` / `reset-variant` implementation/migration vocabulary is **not public** — unrowed, not a tier. (Absorbs story F-8.)
+- **Xray `mount-<panel>!` family** (`mount-epoch-panel!`, `mount-app-db-diff!`, `mount-trace!`, `mount-machine-inspector!`, `mount-routing!`, `mount-segment-inspector!`, the master `mount-shell!`, …) — **internal-public**. They are exported and stable, but they are a host-embed surface, not an application or even general-tool surface: a host that builds its own Xray chrome may call a `mount-<panel>!`; an app never should. This resolves the prior "public vs internal-but-stable" question against the closed vocabulary — the answer is `internal-public`. (Resolves xray M2.)
+- **Xray panel-helper functions** (the per-panel render/projection helpers beneath the mount-fns) — **tooling** where they are a documented panel-author surface, otherwise unrowed-internal. (Absorbs xray H6.)
+- **pair-MCP support namespaces** — the trace/egress surfaces they consume (`elide-wire-value`, `sensitive?`, the registrar query API, the epoch query surface) are **tooling**, tiered at their `re-frame.core` / artefact home rows below.
+
+### Not-rowed internal carve-outs
+
+The only **internal** (unrowed, MUST-NOT-depend-on) carve-outs in `re-frame.core` are two JVM-only macro-helpers re-exposed purely so pre-split tests can reach them:
 
 - `re-frame.core/expand-reg-view` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/expand-reg-view`.
 - `re-frame.core/parse-reg-view-args` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/parse-reg-view-args`.
 
-Neither is rowed in this projection. Applications and tools MUST NOT depend on these re-exports; reach the canonical homes directly.
+Neither is rowed in this projection. Applications and tools MUST NOT depend on these re-exports; reach the canonical homes directly. These are *not* a tier — they are below the public surface entirely.
 
 ---
 
@@ -49,56 +80,56 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 
 > **Return value.** Every `reg-*` row below returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg). Per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
-| API | M/Fn | Signature | Status | Spec | Notes |
-|---|---|---|---|---|---|
-| `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Macro for source-coord capture. See [MIGRATION §M-5](../migration/from-re-frame-v1/README.md) for higher-order-use migration. |
-| `reg-event-fx` | M | `(reg-event-fx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Handler accepts `(fn [m] ...)` or `(fn [m event-vec] ...)`. |
-| `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | |
-| `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
-| `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | 002 | Unary or binary handler. |
-| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | Reading a sub's value from a handler is by cofx-wrapping — see [Guide ch.05 §Reading a subscription from a handler](../docs/guide/07-effects-and-coeffects.md#reading-a-subscription-from-a-handler). **Inline-interceptor alternative.** An interceptor map `{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}` is a legal participant in any event's interceptor vector and may inject coeffects without going through the registry. `reg-cofx` + `inject-cofx` is the canonical path (id-addressable: test-stub by id, REPL hot-rebind, Xray enumeration, parameterised reuse); the inline form is the escape hatch for define-once/use-locally/never-stubbed cases. Rubric and worked example: [Guide ch.05 §When ceremony outweighs benefit](../docs/guide/07-effects-and-coeffects.md#when-the-ceremony-isnt-worth-it--the-inline-escape-hatch). Design decision. |
-| `reg-frame` | M | `(reg-frame id metadata)` | v1 | 002 | Atomic create + register. |
-| `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | 002 | Anonymous frame; gensym'd id. |
-| `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
-| `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
-| `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | 005 | Walks the literal spec form at expansion time; stamps per-element source coords under `:rf.machine/source-coords`. Top-level call-site coords land on `handler-meta`. |
-| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | 005 | Plain-fn surface beneath `reg-machine`. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
-| `reg-app-schema` | M | `(reg-app-schema path schema)` / `(reg-app-schema path schema opts)` | v1 | 010 | **Path is the registration id.** App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table (per rf2-cq1ak — app-db schemas are NOT a registrar kind). Every other `reg-*` is keyword-id-keyed; here the first arg is the path vector (e.g. `[:user]`) and `(app-schema-at [:user])` / `(app-schema-meta-at [:user])` look up by the same vector. The asymmetry is principled (paths are first-class in `get-in` / `assoc-in` grain — schemas-at-paths matches the dataflow grain), not accidental. Per [Conventions §`reg-*` return-value rule](Conventions.md#reg--return-value-convention). |
-| `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})` / `(reg-app-schemas {…} opts)` — bulk plural form for feature-modular apps that register 5–20 paths against the same prefix (per Conventions §Feature-modularity prefix convention). Each entry routes through the singular `reg-app-schema` and is stamped with this call's source-coords. Returns the vector of paths registered | v1 | 010 | |
-| `add-marks` | Fn | `(add-marks frame-id {path mark, ...})` | v1 | 015 | Frame-scoped path-marks for data classification — `:sensitive` paths render as `:rf/redacted` in observation surfaces; `:large` paths surface as `:rf/large` summaries. Per [015 §App-db marks (per frame) — `add-marks` / `set-marks`](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks). **Additively merges** into the frame's existing mark-set — paths not mentioned keep their prior state. Schema-attached marks per `reg-app-schema` `:sensitive?` / `:large?` are preserved and union at lookup time. Pure declaration — does not mutate `app-db`. Returns `frame-id`. |
-| `set-marks` | Fn | `(set-marks frame-id {path mark, ...})` | v1 | 015 | Frame-scoped path-marks for data classification. Per [015 §App-db marks (per frame)](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks). **Wholesale replaces** the frame's prior mark-set — paths not mentioned are CLEARED. Schema-attached marks are preserved. Pure declaration. Returns `frame-id`. |
-| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow flow opts)` | v1 | 013 | `opts` is a map (currently `{:frame frame-id}`). The shipped surface is opts-map only — same shape as `dispatch` / `subscribe` / `clear-flow`. Returns the flow's `:id` (per Conventions §`reg-*` return-value convention). **The `:flow` registrar slot is last-registration-wins across frames** (the same id registered against multiple frames shares one registrar slot, keyed by `flow-id` only); for full per-frame discovery use `@re-frame.flows/flows` — the per-frame runtime registry is the source of truth for evaluation. Per [013-Flows.md §Frame-scoping](013-Flows.md#frame-scoping) and. |
-| `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. Captures source-coords; under the optional-artefact wrapper convention the surface routes through the `:ssr/reg-head` late-bind hook. |
-| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
+| API | M/Fn | Signature | Status | Tier | Spec | Notes |
+|---|---|---|---|---|---|---|
+| `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | front-porch | 002 | Macro for source-coord capture. See [MIGRATION §M-5](../migration/from-re-frame-v1/README.md) for higher-order-use migration. |
+| `reg-event-fx` | M | `(reg-event-fx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | front-porch | 002 | Handler accepts `(fn [m] ...)` or `(fn [m event-vec] ...)`. |
+| `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | advanced | 002 | Lower-level than `reg-event-db`/`-fx` — the full-context handler form; reach for it when you need to manipulate the interceptor context directly. |
+| `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | front-porch | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
+| `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | front-porch | 002 | Unary or binary handler. |
+| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | front-porch | 002 | Reading a sub's value from a handler is by cofx-wrapping — see [Guide ch.05 §Reading a subscription from a handler](../docs/guide/07-effects-and-coeffects.md#reading-a-subscription-from-a-handler). **Inline-interceptor alternative.** An interceptor map `{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}` is a legal participant in any event's interceptor vector and may inject coeffects without going through the registry. `reg-cofx` + `inject-cofx` is the canonical path (id-addressable: test-stub by id, REPL hot-rebind, Xray enumeration, parameterised reuse); the inline form is the escape hatch for define-once/use-locally/never-stubbed cases. Rubric and worked example: [Guide ch.05 §When ceremony outweighs benefit](../docs/guide/07-effects-and-coeffects.md#when-the-ceremony-isnt-worth-it--the-inline-escape-hatch). Design decision. |
+| `reg-frame` | M | `(reg-frame id metadata)` | v1 | front-porch | 002 | Atomic create + register. |
+| `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | advanced | 002 | Anonymous frame; gensym'd id. The named `reg-frame` is the front-porch path; `make-frame` is for tools / tests / dynamic frames. |
+| `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | front-porch | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
+| `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | advanced | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
+| `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | advanced | 005 | Optional `re-frame.machines` artefact. Walks the literal spec form at expansion time; stamps per-element source coords under `:rf.machine/source-coords`. Top-level call-site coords land on `handler-meta`. |
+| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | advanced | 005 | Plain-fn surface beneath `reg-machine`. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
+| `reg-app-schema` | M | `(reg-app-schema path schema)` / `(reg-app-schema path schema opts)` | v1 | advanced | 010 | Optional `re-frame.schemas` artefact. **Path is the registration id.** App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table (per rf2-cq1ak — app-db schemas are NOT a registrar kind). Every other `reg-*` is keyword-id-keyed; here the first arg is the path vector (e.g. `[:user]`) and `(app-schema-at [:user])` / `(app-schema-meta-at [:user])` look up by the same vector. The asymmetry is principled (paths are first-class in `get-in` / `assoc-in` grain — schemas-at-paths matches the dataflow grain), not accidental. Per [Conventions §`reg-*` return-value rule](Conventions.md#reg--return-value-convention). |
+| `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})` / `(reg-app-schemas {…} opts)` — bulk plural form for feature-modular apps that register 5–20 paths against the same prefix (per Conventions §Feature-modularity prefix convention). Each entry routes through the singular `reg-app-schema` and is stamped with this call's source-coords. Returns the vector of paths registered | v1 | advanced | 010 | |
+| `add-marks` | Fn | `(add-marks frame-id {path mark, ...})` | v1 | advanced | 015 | Frame-scoped path-marks for data classification — `:sensitive` paths render as `:rf/redacted` in observation surfaces; `:large` paths surface as `:rf/large` summaries. Per [015 §App-db marks (per frame) — `add-marks` / `set-marks`](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks). **Additively merges** into the frame's existing mark-set — paths not mentioned keep their prior state. Schema-attached marks per `reg-app-schema` `:sensitive?` / `:large?` are preserved and union at lookup time. Pure declaration — does not mutate `app-db`. Returns `frame-id`. |
+| `set-marks` | Fn | `(set-marks frame-id {path mark, ...})` | v1 | advanced | 015 | Frame-scoped path-marks for data classification. Per [015 §App-db marks (per frame)](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks). **Wholesale replaces** the frame's prior mark-set — paths not mentioned are CLEARED. Schema-attached marks are preserved. Pure declaration. Returns `frame-id`. |
+| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow flow opts)` | v1 | advanced | 013 | Optional flows artefact. `opts` is a map (currently `{:frame frame-id}`). The shipped surface is opts-map only — same shape as `dispatch` / `subscribe` / `clear-flow`. Returns the flow's `:id` (per Conventions §`reg-*` return-value convention). **The `:flow` registrar slot is last-registration-wins across frames** (the same id registered against multiple frames shares one registrar slot, keyed by `flow-id` only); for full per-frame discovery use `@re-frame.flows/flows` — the per-frame runtime registry is the source of truth for evaluation. Per [013-Flows.md §Frame-scoping](013-Flows.md#frame-scoping) and. |
+| `reg-route` | M | `(reg-route id metadata)` | v1 | advanced | 012 | Optional routing artefact. |
+| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | advanced | 011 | Optional SSR artefact. New registry kind `:head`; routes name a registered head via `:head` route metadata. Captures source-coords; under the optional-artefact wrapper convention the surface routes through the `:ssr/reg-head` late-bind hook. |
+| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | advanced | 011 | Optional SSR artefact. New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
 
 ### Clearing registrations
 
-| API | M/Fn | Signature | Status |
-|---|---|---|---|
-| `clear-event` | Fn | `(clear-event)` / `(clear-event id)` | v1 (preserved) |
-| `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) |
-| `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) |
-| `clear-flow` | Fn | `(clear-flow id)` / `(clear-flow id opts)` | v1 |
-| `destroy-frame!` | Fn | `(destroy-frame! frame-id)` — the normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this call; flows release per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). | v1 |
-| `reset-frame!` | Fn | `(reset-frame! frame-id)` | v1 |
-| `clear-sub-cache!` | Fn | `(clear-sub-cache! frame-id?)` | v1 (preserved) |
+| API | M/Fn | Signature | Status | Tier |
+|---|---|---|---|---|
+| `clear-event` | Fn | `(clear-event)` / `(clear-event id)` | v1 (preserved) | advanced |
+| `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) | advanced |
+| `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) | advanced |
+| `clear-flow` | Fn | `(clear-flow id)` / `(clear-flow id opts)` | v1 | advanced |
+| `destroy-frame!` | Fn | `(destroy-frame! frame-id)` — the normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this call; flows release per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). | v1 | front-porch |
+| `reset-frame!` | Fn | `(reset-frame! frame-id)` | v1 | advanced |
+| `clear-sub-cache!` | Fn | `(clear-sub-cache! frame-id?)` | v1 (preserved) | advanced |
 
 ---
 
 ## Dispatch and subscribe
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `dispatch` | M | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended); macro per — captures call-site for `:rf.trace/call-site` | 002 |
-| `dispatch*` | Fn | `(dispatch* event)` / `(dispatch* event opts)` | — fn form for HoF / programmatic dispatch (no call-site stamping) | 002 |
-| `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro per | 002 |
-| `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | — fn form for HoF / programmatic sync dispatch | 002 |
-| `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro per | 002 |
-| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | — fn form for HoF / programmatic subscribe | 002 |
-| `subscribe-once` | Fn | `(subscribe-once query-v)` / `(subscribe-once frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 006 |
-| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period). Carved out from the [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement), so `un-` is reserved as the singular form for the sub-cache ref-count decrement. | v1 | 006 |
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `dispatch` | M | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended); macro per — captures call-site for `:rf.trace/call-site` | front-porch | 002 |
+| `dispatch*` | Fn | `(dispatch* event)` / `(dispatch* event opts)` | — fn form for HoF / programmatic dispatch (no call-site stamping) | advanced | 002 |
+| `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro per | front-porch | 002 |
+| `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | — fn form for HoF / programmatic sync dispatch | advanced | 002 |
+| `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro per | front-porch | 002 |
+| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | — fn form for HoF / programmatic subscribe | advanced | 002 |
+| `subscribe-once` | Fn | `(subscribe-once query-v)` / `(subscribe-once frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | advanced | 006 |
+| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period). Carved out from the [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement), so `un-` is reserved as the singular form for the sub-cache ref-count decrement. | v1 | advanced | 006 |
+| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | advanced | 005 |
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
@@ -128,15 +159,15 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
-| `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | 002 |
-| `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | 002 |
-| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. A per-call `:frame` opt MUST NOT override the captured frame (the handle is locked). Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | 002, 004 |
-| `frame-bound-fn` | M | `(frame-bound-fn [args] body)` → frame-rebinding closure (`fn`-syntax sugar over `frame-bound-fn*`). Re-establishes `*current-frame*` (captured at lex-binding) for the body | v1 | 002 |
-| `frame-bound-fn*` | Fn | `(frame-bound-fn* f)` *or* `(frame-bound-fn* frame-id f)` → frame-rebinding closure. The `*`-twin of the `frame-bound-fn` macro — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Advanced; prefer `frame-handle` for the common dispatch / subscribe case | v1 | 002 |
-| `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | 001, 004 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | front-porch | 002 |
+| `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | front-porch | 002 |
+| `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | front-porch | 002 |
+| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. A per-call `:frame` opt MUST NOT override the captured frame (the handle is locked). Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | front-porch | 002, 004 |
+| `frame-bound-fn` | M | `(frame-bound-fn [args] body)` → frame-rebinding closure (`fn`-syntax sugar over `frame-bound-fn*`). Re-establishes `*current-frame*` (captured at lex-binding) for the body | v1 | advanced | 002 |
+| `frame-bound-fn*` | Fn | `(frame-bound-fn* f)` *or* `(frame-bound-fn* frame-id f)` → frame-rebinding closure. The `*`-twin of the `frame-bound-fn` macro — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Advanced; prefer `frame-handle` for the common dispatch / subscribe case | v1 | advanced | 002 |
+| `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | advanced | 001, 004 |
 
 `with-frame` (pin) and `with-new-frame` (eval-bind-run-destroy) are documented in [002 §with-frame and with-new-frame](002-Frames.md#with-frame-and-with-new-frame). The macros are non-overlapping: each rejects the other's argument shape at compile time, with `:recovery` pointing the caller at the right sibling. Per rf2-twoc5.
 
@@ -148,15 +179,15 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 
 UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
-| `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
-| `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
-| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | 002, 006 |
-| `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
-| `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
-| `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | 006, 011 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | adapter | 006 |
+| `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | adapter | 006 |
+| `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | adapter | 006 |
+| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | adapter | 002, 006 |
+| `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | adapter | 006 |
+| `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
+| `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | adapter | 006, 011 |
 
 Per Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
@@ -168,15 +199,15 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
-| `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
-| `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
-| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | 002, 006 |
-| `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
-| `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
-| `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | 006, 011 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | adapter | 006 |
+| `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | adapter | 006 |
+| `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | adapter | 006 |
+| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | adapter | 002, 006 |
+| `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | adapter | 006 |
+| `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
+| `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | adapter | 006, 011 |
 
 Per (transferring Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
@@ -188,11 +219,11 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 `reg-route` is rowed canonically in [§Registration](#registration).
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | 012 |
-| `route-url` | Fn | `(route-url route-id path-params)` / `(route-url route-id path-params query-params)` → URL string | v1 | 012 |
-| `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | 012 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | advanced | 012 |
+| `route-url` | Fn | `(route-url route-id path-params)` / `(route-url route-id path-params query-params)` → URL string | v1 | advanced | 012 |
+| `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | advanced | 012 |
 
 `reg-route` metadata reserved keys: `:doc`, `:path`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:can-leave`, `:scroll`. Canonical detail in [012-Routing.md](012-Routing.md); shape in [Spec-Schemas §`:rf/route-metadata`](Spec-Schemas.md#rfroute-metadata).
 
@@ -247,18 +278,18 @@ Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md
 
 `reg-head` and `reg-error-projector` are rowed canonically in [§Registration](#registration). The head-fn signature is `(fn [db route] head-model)`; the projector-fn signature is `(fn [trace-event] :rf/public-error)`.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
-| `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | 011 |
-| `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | 011 |
-| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | 011 |
-| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | 011 |
-| `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | 011 |
-| `head-snapshot` | Fn | `(head-snapshot frame-id)` → `{head-id → :rf/head-model}`. Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call (or whose snapshot has been cleared via per-request frame teardown). Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot`. Per [011 §Head/meta contract](011-SSR.md). | v1 | 011 |
-| `streaming-render-shell` | Fn | `(streaming-render-shell root-hiccup)` → `{:shell-html "…" :continuations [{:id <id> :subtree <hiccup>} …]}`. Walks the tree once; at each `:rf/suspense-boundary` emits a `<template …suspense-fallback>` placeholder + records a continuation. Per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — (a). | v1 | 011 |
-| `streaming-render-continuation` | Fn | `(streaming-render-continuation frame-id entry)` → `{:id … :html "…" :delta {…} :failed? bool}`. Drains one continuation against `frame-id`'s app-db; snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](011-SSR.md#failure-semantics--inline-fallback)). | v1 | 011 |
-| `streaming-build-final-payload` | Fn | `(streaming-build-final-payload frame-id render-hash opts)` → canonical `:rf/hydration-payload`. Called after all continuations drain to populate the `__rf_payload` final chunk. | v1 | 011 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | advanced | 011 |
+| `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | advanced | 011 |
+| `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | advanced | 011 |
+| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | advanced | 011 |
+| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | advanced | 011 |
+| `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | advanced | 011 |
+| `head-snapshot` | Fn | `(head-snapshot frame-id)` → `{head-id → :rf/head-model}`. Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call (or whose snapshot has been cleared via per-request frame teardown). Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot`. Per [011 §Head/meta contract](011-SSR.md). | v1 | advanced | 011 |
+| `streaming-render-shell` | Fn | `(streaming-render-shell root-hiccup)` → `{:shell-html "…" :continuations [{:id <id> :subtree <hiccup>} …]}`. Walks the tree once; at each `:rf/suspense-boundary` emits a `<template …suspense-fallback>` placeholder + records a continuation. Per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — (a). | v1 | advanced | 011 |
+| `streaming-render-continuation` | Fn | `(streaming-render-continuation frame-id entry)` → `{:id … :html "…" :delta {…} :failed? bool}`. Drains one continuation against `frame-id`'s app-db; snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](011-SSR.md#failure-semantics--inline-fallback)). | v1 | advanced | 011 |
+| `streaming-build-final-payload` | Fn | `(streaming-build-final-payload frame-id render-hash opts)` → canonical `:rf/hydration-payload`. Called after all continuations drain to populate the `__rf_payload` final chunk. | v1 | advanced | 011 |
 
 Standard SSR-related events:
 
@@ -302,25 +333,25 @@ SSR error-projection policy is **per-frame metadata** (see [Conventions §Config
 
 `:rf.http/managed` is the canonical, optional HTTP-request fx — `v1 (optional capability)`. CLJS reference ships it on Fetch (browser) and `java.net.http.HttpClient` (JVM). Args, behaviours, decode pipeline, retry semantics, abort surface, failure taxonomy, and reply addressing are normatively defined in [014-HTTPRequests.md](014-HTTPRequests.md); the surface below is the API-level summary.
 
-| API | Kind | Signature / shape | Status | Spec |
-|---|---|---|---|---|
-| `:rf.http/managed` | fx | `[:rf.http/managed args-map]` — args per [014 §The args map](014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args` | v1 (optional capability) | 014 |
-| `:rf.http/managed-abort` | fx | `[:rf.http/managed-abort request-id]` — abort the in-flight request with the given `:request-id` | v1 (optional capability) | 014 |
-| `:rf.http/managed-canned-success` | fx | `[:rf.http/managed-canned-success {:value v}]` — synthesises the canonical success reply (per [014 §Testing](014-HTTPRequests.md#testing)). Registered at load of `re-frame.http-test-support` (NOT `re-frame.http-managed`); the stubbing macros (rows below) ship in the same namespace per (audit-of-audits #15). | v1 (optional capability, dev/test) | 014 |
-| `:rf.http/managed-canned-failure` | fx | `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` — synthesises the canonical failure reply. Same registration gate (`re-frame.http-test-support`) and same co-location with the stubbing macros. | v1 (optional capability, dev/test) | 014 |
-| `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` — route-map `{[<method> <url>] {:reply ...}}` per [014 §Testing](014-HTTPRequests.md#testing). Lives in `re-frame.http-test-support` (the single home for HTTP test surfaces per — audit-of-audits #15 closed the prior split that placed the macros in `re-frame.http-managed`); see [Spec 008 §HTTP test surfaces](008-Testing.md#http-test-surfaces--single-namespace). | v1 (optional capability, dev/test) | 014 |
-| `with-managed-request-stubs*` | Fn | `(with-managed-request-stubs* route-map body-fn)` — plain-fn surface beneath `with-managed-request-stubs`; the `*` follows the Clojure `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). Ships in `re-frame.http-test-support`. Use for computed route-maps or non-literal bodies. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
-| `install-managed-request-stubs!` | Fn | `(install-managed-request-stubs! route-map)` — install the stub routes; persists until `uninstall-managed-request-stubs!` is called. Lower-level than `with-managed-request-stubs`; use when stubs span multiple `deftest`s. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
-| `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
-| `reg-http-interceptor` | Fn | `(reg-http-interceptor id interceptor-map)` — register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware)). `id` is a keyword; `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus optional `:frame` (default `:rf/default`) and any `:rf/registration-metadata` (`:doc` / `:tags` / `:schema` / `:sensitive?`). Per rf2-uheqq (shape iii) the surface mirrors the event-interceptor `{:id :before :after}` shape — symmetric request/response sides; `:before` chain in registration order, `:after` chain in reverse. | v1 (optional capability) | 014 |
-| `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware)). Single-arity targets `:rf/default`. | v1 (optional capability) | 014 |
-| `re-frame.http/get`     | Fn | `(rf.http/get url)` / `(rf.http/get url args)` — build a `[:rf.http/managed {:request {:method :get :url url} ...}]` fx vector (per [014 §Call-site helpers](014-HTTPRequests.md#call-site-helpers)). | v1 (optional capability) | 014 |
-| `re-frame.http/post`    | Fn | `(rf.http/post url)` / `(rf.http/post url args)` — POST helper; same shape as `get`. | v1 (optional capability) | 014 |
-| `re-frame.http/put`     | Fn | `(rf.http/put url)` / `(rf.http/put url args)` — PUT helper. | v1 (optional capability) | 014 |
-| `re-frame.http/delete`  | Fn | `(rf.http/delete url)` / `(rf.http/delete url args)` — DELETE helper. | v1 (optional capability) | 014 |
-| `re-frame.http/patch`   | Fn | `(rf.http/patch url)` / `(rf.http/patch url args)` — PATCH helper. | v1 (optional capability) | 014 |
-| `re-frame.http/head`    | Fn | `(rf.http/head url)` / `(rf.http/head url args)` — HEAD helper. | v1 (optional capability) | 014 |
-| `re-frame.http/options` | Fn | `(rf.http/options url)` / `(rf.http/options url args)` — OPTIONS helper. | v1 (optional capability) | 014 |
+| API | Kind | Signature / shape | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `:rf.http/managed` | fx | `[:rf.http/managed args-map]` — args per [014 §The args map](014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args` | v1 (optional capability) | — (fx-id; follows the `advanced` HTTP artefact) | 014 |
+| `:rf.http/managed-abort` | fx | `[:rf.http/managed-abort request-id]` — abort the in-flight request with the given `:request-id` | v1 (optional capability) | — (fx-id) | 014 |
+| `:rf.http/managed-canned-success` | fx | `[:rf.http/managed-canned-success {:value v}]` — synthesises the canonical success reply (per [014 §Testing](014-HTTPRequests.md#testing)). Registered at load of `re-frame.http-test-support` (NOT `re-frame.http-managed`); the stubbing macros (rows below) ship in the same namespace per (audit-of-audits #15). | v1 (optional capability, dev/test) | — (fx-id; test) | 014 |
+| `:rf.http/managed-canned-failure` | fx | `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` — synthesises the canonical failure reply. Same registration gate (`re-frame.http-test-support`) and same co-location with the stubbing macros. | v1 (optional capability, dev/test) | — (fx-id; test) | 014 |
+| `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` — route-map `{[<method> <url>] {:reply ...}}` per [014 §Testing](014-HTTPRequests.md#testing). Lives in `re-frame.http-test-support` (the single home for HTTP test surfaces per — audit-of-audits #15 closed the prior split that placed the macros in `re-frame.http-managed`); see [Spec 008 §HTTP test surfaces](008-Testing.md#http-test-surfaces--single-namespace). | v1 (optional capability, dev/test) | testing | 014 |
+| `with-managed-request-stubs*` | Fn | `(with-managed-request-stubs* route-map body-fn)` — plain-fn surface beneath `with-managed-request-stubs`; the `*` follows the Clojure `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). Ships in `re-frame.http-test-support`. Use for computed route-maps or non-literal bodies. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
+| `install-managed-request-stubs!` | Fn | `(install-managed-request-stubs! route-map)` — install the stub routes; persists until `uninstall-managed-request-stubs!` is called. Lower-level than `with-managed-request-stubs`; use when stubs span multiple `deftest`s. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
+| `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
+| `reg-http-interceptor` | Fn | `(reg-http-interceptor id interceptor-map)` — register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware)). `id` is a keyword; `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus optional `:frame` (default `:rf/default`) and any `:rf/registration-metadata` (`:doc` / `:tags` / `:schema` / `:sensitive?`). Per rf2-uheqq (shape iii) the surface mirrors the event-interceptor `{:id :before :after}` shape — symmetric request/response sides; `:before` chain in registration order, `:after` chain in reverse. | v1 (optional capability) | advanced | 014 |
+| `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware)). Single-arity targets `:rf/default`. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/get`     | Fn | `(rf.http/get url)` / `(rf.http/get url args)` — build a `[:rf.http/managed {:request {:method :get :url url} ...}]` fx vector (per [014 §Call-site helpers](014-HTTPRequests.md#call-site-helpers)). | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/post`    | Fn | `(rf.http/post url)` / `(rf.http/post url args)` — POST helper; same shape as `get`. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/put`     | Fn | `(rf.http/put url)` / `(rf.http/put url args)` — PUT helper. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/delete`  | Fn | `(rf.http/delete url)` / `(rf.http/delete url args)` — DELETE helper. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/patch`   | Fn | `(rf.http/patch url)` / `(rf.http/patch url args)` — PATCH helper. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/head`    | Fn | `(rf.http/head url)` / `(rf.http/head url args)` — HEAD helper. | v1 (optional capability) | advanced | 014 |
+| `re-frame.http/options` | Fn | `(rf.http/options url)` / `(rf.http/options url args)` — OPTIONS helper. | v1 (optional capability) | advanced | 014 |
 
 Public API surface in `re-frame.core` for ports that ship Spec 014. Ports that omit it MUST NOT register `:rf.http/*` for any other purpose (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
 
@@ -389,19 +420,19 @@ Standard `:fx` entries:
 
 For tooling, agents, story tools, 10x.
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Spec |
-|---|---|---|---|---|---|
-| `registrations` | Fn | `(registrations kind)` / `(registrations kind pred-fn)` → `{id metadata-map}`. **Use when you want metadata** — registry walks that read source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, etc. | v1 | ✓ | 002 |
-| `handler-ids` | Fn | `(handler-ids kind)` → id set (canonical alias for `(-> (registrations kind) keys set)`). **Use when you only need to enumerate** — completion lists, existence checks, set-shaped intersections; saves both the metadata-map allocations and the `keys` walk. | v1 | ✓ | 002 |
-| `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta` ([Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. | v1 | ✓ | 002 |
-| `machines` | Fn | `(machines)` → seq of machine-ids. Derived view over `(registrations :event)` filtered by `:rf/machine? true`. | v1 | ✓ | 005 |
-| `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
-| `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |
-| `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | 002 |
-| `app-db-value` | Fn | `(app-db-value frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
-| `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
-| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | ✓ | 002 |
-| `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
+| API | M/Fn | Signature | Status | Tier | JVM-runnable? | Spec |
+|---|---|---|---|---|---|---|
+| `registrations` | Fn | `(registrations kind)` / `(registrations kind pred-fn)` → `{id metadata-map}`. **Use when you want metadata** — registry walks that read source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, etc. | v1 | tooling | ✓ | 002 |
+| `handler-ids` | Fn | `(handler-ids kind)` → id set (canonical alias for `(-> (registrations kind) keys set)`). **Use when you only need to enumerate** — completion lists, existence checks, set-shaped intersections; saves both the metadata-map allocations and the `keys` walk. | v1 | tooling | ✓ | 002 |
+| `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta` ([Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. | v1 | tooling | ✓ | 002 |
+| `machines` | Fn | `(machines)` → seq of machine-ids. Derived view over `(registrations :event)` filtered by `:rf/machine? true`. | v1 | tooling | ✓ | 005 |
+| `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | tooling | ✓ | 005 |
+| `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | tooling | ✓ | 002 |
+| `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | tooling | ✓ | 002 |
+| `app-db-value` | Fn | `(app-db-value frame-id)` → app-db value (plain map) — the out-of-band value read (renamed from `get-frame-db`). The front-porch read is `subscribe`; `app-db-value` is the non-reactive snapshot read for tools, tests, REPL, and fx/handler bodies. | v1 | advanced | ✓ | 002 |
+| `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | tooling | ✓ | 002 |
+| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | tooling | ✓ | 002 |
+| `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | tooling | ✗ (CLJS-only) | 002 |
 
 Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-digest` — are rowed canonically in [§Schemas](#schemas).
 
@@ -415,17 +446,17 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 
 `reg-app-schema` is rowed canonically in [§Registration](#registration).
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | 010 |
-| `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
-| `app-schema-meta-at` | Fn | `(app-schema-meta-at path)` / `(app-schema-meta-at path opts-or-frame-id)` — return the full registration-metadata map (`:path`, `:schema`, `:frame`, plus source-coords `:ns` / `:line` / `:file` and the rest of `:rf/registration-metadata`) for a registered `app-db` schema, or `nil`. Pair-tool and 10x consumers reach for this when they need the registration anchor (e.g. click-back-to-code); the lighter `app-schema-at` is the right call when only the schema value is needed. Per [010 §Schemas as a tooling/agent surface](010-Schemas.md) and [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta). | v1 | 010 |
-| `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
-| `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` — install the validator (`(fn [schema value] truthy?)`, same shape as `malli.core/validate`) every dev-time schema-validation site routes through. Swaps **only** the validator — the explainer/printer are left untouched (use `set-schema-fns!` to install all three atomically). `nil` disables validation entirely. Default ships Malli's `validate`; this seam lets apps swap in their own validator to drop the Malli dep. Last-write-wins; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `set-schema-fns!` | Fn | `(set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})` — atomically install any subset of the validator / explainer / printer bundle from one map. Each key is optional; an absent key leaves the existing registration in place. The honest one-call substitute-Malli boot pattern (a Zod / clojure.spec port installs all three together so they never drift mid-boot). `:print nil` coerces to the default EDN canonicaliser (parity with `set-schema-printer!`); `:validate nil` / `:explain nil` disable that fn. Last-write-wins per key; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `set-schema-printer!` | Fn | `(set-schema-printer! print-fn)` — install the **schema-print companion** the digest pipeline (per [010 §Schema digest](010-Schemas.md#schema-digest)) hashes. `print-fn` is `(fn [schema-value] canonical-string)` and MUST be pure + deterministic across runtimes. `nil` falls back to the default EDN canonicaliser so the digest is never undefined. Parallel to `set-schema-validator!` / `set-schema-explainer!`: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `validate-at-boundary-interceptor` | Var (interceptor value) | `validate-at-boundary-interceptor` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`). | v1 | 010 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | tooling | 010 |
+| `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | tooling | 010 |
+| `app-schema-meta-at` | Fn | `(app-schema-meta-at path)` / `(app-schema-meta-at path opts-or-frame-id)` — return the full registration-metadata map (`:path`, `:schema`, `:frame`, plus source-coords `:ns` / `:line` / `:file` and the rest of `:rf/registration-metadata`) for a registered `app-db` schema, or `nil`. Pair-tool and 10x consumers reach for this when they need the registration anchor (e.g. click-back-to-code); the lighter `app-schema-at` is the right call when only the schema value is needed. Per [010 §Schemas as a tooling/agent surface](010-Schemas.md) and [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta). | v1 | tooling | 010 |
+| `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | tooling | 010 |
+| `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` — install the validator (`(fn [schema value] truthy?)`, same shape as `malli.core/validate`) every dev-time schema-validation site routes through. Swaps **only** the validator — the explainer/printer are left untouched (use `set-schema-fns!` to install all three atomically). `nil` disables validation entirely. Default ships Malli's `validate`; this seam lets apps swap in their own validator to drop the Malli dep. Last-write-wins; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | advanced | 010 |
+| `set-schema-fns!` | Fn | `(set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})` — atomically install any subset of the validator / explainer / printer bundle from one map. Each key is optional; an absent key leaves the existing registration in place. The honest one-call substitute-Malli boot pattern (a Zod / clojure.spec port installs all three together so they never drift mid-boot). `:print nil` coerces to the default EDN canonicaliser (parity with `set-schema-printer!`); `:validate nil` / `:explain nil` disable that fn. Last-write-wins per key; returns the installed validator. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | advanced | 010 |
+| `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | advanced | 010 |
+| `set-schema-printer!` | Fn | `(set-schema-printer! print-fn)` — install the **schema-print companion** the digest pipeline (per [010 §Schema digest](010-Schemas.md#schema-digest)) hashes. `print-fn` is `(fn [schema-value] canonical-string)` and MUST be pure + deterministic across runtimes. `nil` falls back to the default EDN canonicaliser so the digest is never undefined. Parallel to `set-schema-validator!` / `set-schema-explainer!`: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | advanced | 010 |
+| `validate-at-boundary-interceptor` | Var (interceptor value) | `validate-at-boundary-interceptor` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`). | v1 | advanced | 010 |
 
 See [010 §Schemas](010-Schemas.md) for `:schema` metadata, validation timing, and dev/prod elision. (v1's `:spec` metadata key was renamed to `:schema` — a breaking rename with no back-compat alias; the framework no longer accepts `:spec` on `reg-*` metadata. Per [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema).)
 
@@ -437,10 +468,10 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 
 > Sensitive data marking is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation that previously drove substrate-level record drop has been removed.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `register-event-listener!` | Fn | `(register-event-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
-| `unregister-event-listener!` | Fn | `(unregister-event-listener! id)` → nil | v1 | 009 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `register-event-listener!` | Fn | `(register-event-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | tooling | 009 |
+| `unregister-event-listener!` | Fn | `(unregister-event-listener! id)` → nil | v1 | tooling | 009 |
 
 ## Error-emit (always-on, production-survivable)
 
@@ -448,27 +479,27 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 
 > Sensitive data marking on the error-emit substrate is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation that previously drove substrate-level event redaction has been removed — the per-path elision wire-walker is now the sole redaction surface on this path.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `register-error-listener!` | Fn | `(register-error-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
-| `unregister-error-listener!` | Fn | `(unregister-error-listener! id)` → nil | v1 | 009 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `register-error-listener!` | Fn | `(register-error-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | tooling | 009 |
+| `unregister-error-listener!` | Fn | `(unregister-error-listener! id)` → nil | v1 | tooling | 009 |
 
 ## Tracing
 
 All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `register-listener!` | Fn | `(register-listener! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
-| `unregister-listener!` | Fn | `(unregister-listener! key)` → nil | v1 (dev-only) | 009 |
-| `emit-trace-event!` | Fn | `(emit-trace-event! op-type operation tags)` → nil | v1 (dev-only) | 009 |
-| `re-frame.interop/debug-enabled?` | Var | `^boolean`. **CLJS**: alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM**: a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. Set BEFORE `re-frame.interop` loads. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly — per [009 §JVM builds](009-Instrumentation.md#jvm-builds) and [Security §Production gates](Security.md#production-gates). | v1 | 009 |
-| `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | 009 |
-| `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | 009 |
-| `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | 009 |
-| `(rf/configure :trace-buffer {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | 009 |
-| `group-cascades` | Fn | `(group-cascades events)` → vector of cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. Pure data; JVM-runnable. Re-exported from `re-frame.trace.projection` (see [009 §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)). | v1 (dev-only) | 009 |
-| `domino-bucket` | Fn | `(domino-bucket trace-event)` → `#{:event :handler :fx :effect :sub :render :other}`. Classifies a raw trace event into the six-domino slot used by `group-cascades`. Pure data. | v1 (dev-only) | 009 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `register-listener!` | Fn | `(register-listener! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | tooling | 009 |
+| `unregister-listener!` | Fn | `(unregister-listener! key)` → nil | v1 (dev-only) | tooling | 009 |
+| `emit-trace-event!` | Fn | `(emit-trace-event! op-type operation tags)` → nil | v1 (dev-only) | tooling | 009 |
+| `re-frame.interop/debug-enabled?` | Var | `^boolean`. **CLJS**: alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM**: a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. Set BEFORE `re-frame.interop` loads. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly — per [009 §JVM builds](009-Instrumentation.md#jvm-builds) and [Security §Production gates](Security.md#production-gates). | v1 | tooling | 009 |
+| `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | tooling | 009 |
+| `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | tooling | 009 |
+| `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | tooling | 009 |
+| `(rf/configure :trace-buffer {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | — (configure key) | 009 |
+| `group-cascades` | Fn | `(group-cascades events)` → vector of cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. Pure data; JVM-runnable. Re-exported from `re-frame.trace.projection` (see [009 §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)). | v1 (dev-only) | tooling | 009 |
+| `domino-bucket` | Fn | `(domino-bucket trace-event)` → `#{:event :handler :fx :effect :sub :render :other}`. Classifies a raw trace event into the six-domino slot used by `group-cascades`. Pure data. | v1 (dev-only) | tooling | 009 |
 
 ### Trace-emission opt-out (per-handler metadata)
 
@@ -483,15 +514,17 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 
 Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used by pair-shaped tools for time-travel and post-mortem analysis. **Production builds elide entirely.**
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records. Returns `[]` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
-| `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
-| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame. | v1 (dev-only) | Tool-Pair |
-| `register-epoch-listener!` | Fn | `(register-epoch-listener! key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
-| `unregister-epoch-listener!` | Fn | `(unregister-epoch-listener! key)` | v1 (dev-only) | Tool-Pair, 009 |
-| `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
-| `app-db-value` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
+All rows below are the Tool-Pair time-travel surface — pair-shaped dev tools (Xray, the pair-MCP servers), so they tier **tooling** (the classification guidance also calls epoch-listener registration "advanced power-user"; either way the surface is back-room and opt-in — never front-porch). `reset-frame-db!` is the write/state-injection member of the same surface.
+
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records. Returns `[]` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | tooling | Tool-Pair |
+| `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | tooling | Tool-Pair |
+| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame. | v1 (dev-only) | tooling | Tool-Pair |
+| `register-epoch-listener!` | Fn | `(register-epoch-listener! key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | tooling | Tool-Pair, 009 |
+| `unregister-epoch-listener!` | Fn | `(unregister-epoch-listener! key)` | v1 (dev-only) | tooling | Tool-Pair, 009 |
+| `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | — (configure key) | Tool-Pair |
+| `app-db-value` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | advanced | 002 |
 
 Trace events emitted by epoch-history machinery:
 
@@ -518,11 +551,11 @@ Trace events emitted by epoch-history machinery:
 
 The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Consumed by every tool that emits wire data (the off-box error-monitor forwarders, the Xray-MCP / re-frame2-pair-mcp / story-mcp servers per [Tool-Pair.md](Tool-Pair.md), the on-box dev panels). The walker is the **single normative emission site** for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` marker; per-tool reimplementation is prohibited.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution. `opts` is a map: `{:rf.size/include-large? <bool> :rf.size/include-sensitive? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :path [...] :frame <frame-id>}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`. Walks `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`; substitutes `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. Composition rule (normative): when both predicates match the **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). | v1 | 009 |
-| `elision-declarations` | Fn | `(elision-declarations)` / `(elision-declarations frame-id)` → the current `[:rf/runtime :elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader for paths nominated for elision (schema-sourced). Default frame is `:rf/default`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
-| `populate-elision-from-schemas!` | Fn | `(populate-elision-from-schemas!)` / `(populate-elision-from-schemas! frame-id)` → vector of paths populated (possibly empty). Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. No-op when the schemas artefact (day8/re-frame2-schemas) is not on the classpath. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution. `opts` is a map: `{:rf.size/include-large? <bool> :rf.size/include-sensitive? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :path [...] :frame <frame-id>}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`. Walks `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`; substitutes `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. Composition rule (normative): when both predicates match the **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). | v1 | tooling | 009 |
+| `elision-declarations` | Fn | `(elision-declarations)` / `(elision-declarations frame-id)` → the current `[:rf/runtime :elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader for paths nominated for elision (schema-sourced). Default frame is `:rf/default`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | tooling | 009 |
+| `populate-elision-from-schemas!` | Fn | `(populate-elision-from-schemas!)` / `(populate-elision-from-schemas! frame-id)` → vector of paths populated (possibly empty). Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. No-op when the schemas artefact (day8/re-frame2-schemas) is not on the classpath. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | advanced | 009 |
 
 **Schema-only declaration path.** The `[:rf/runtime :elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). There is no runtime declaration API — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest. Per [docs/guide/23-privacy-and-large-things.md](../docs/guide/23-privacy-and-large-things.md) — the canonical statement of "schemas are the only path" — and `implementation/core/src/re_frame/elision.cljc` L4-6.
 
@@ -544,10 +577,10 @@ Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateM
 
 Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, re-frame2-pair server, Xray, Story, story-mcp, re-frame2-pair-mcp) MUST default-drop the stamped events at their egress boundary. `redact-interceptor` is the in-place payload scrub composed alongside the stamp.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean`. True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check. | v1 | 009 |
-| `redact-interceptor` | Fn | `(redact-interceptor paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | post-v1 (planned) | 009 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean`. True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check. | v1 | tooling | 009 |
+| `redact-interceptor` | Fn | `(redact-interceptor paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | post-v1 (planned) | advanced | 009 |
 
 ---
 
@@ -599,35 +632,35 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
-| API | M/Fn | Signature | Status | Spec | Notes |
-|---|---|---|---|---|---|
-| `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
-| `assert-path-equals` | Fn | `(assert-path-equals path expected-val)` / `(assert-path-equals path expected-val opts)` | v1 | 008 | Path-form sync assertion. Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. **Mirrors the `:rf.assert/path-equals` event** used inside a Story `:play` block — same name root so the fn-side and event-side are navigable without a translation table. The wider sibling event family (`:rf.assert/sub-equals`, `:rf.assert/state-is`, `:rf.assert/dispatched?`, `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`, `:rf.assert/path-matches`) lives in [007 §Play functions](007-Stories.md#play-functions); runner and reporting channel differ. Choose by test surface: `assert-path-equals` from a `deftest` body, `:rf.assert/path-equals` from a story variant's `:play` vector. |
-| `assert-db-equals` | Fn | `(assert-db-equals expected-db)` / `(assert-db-equals expected-db opts)` | v1 | 008 | Full-db sync assertion (no `:rf.assert/*` event analog — the event family is path-keyed). Mismatch fires `clojure.test/is`-style failure via `do-report`. Companion to `assert-path-equals`. Lives in `re-frame.test-support`. |
-| `poll-until` | Fn | `(poll-until pred)` / `(poll-until pred opts)` | v1 | 008 | Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`. Lives in `re-frame.test-support`. |
-| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding. Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
-| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
-| `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `make-reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
+| API | M/Fn | Signature | Status | Tier | Spec | Notes |
+|---|---|---|---|---|---|---|
+| `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | testing | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
+| `assert-path-equals` | Fn | `(assert-path-equals path expected-val)` / `(assert-path-equals path expected-val opts)` | v1 | testing | 008 | Path-form sync assertion. Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. **Mirrors the `:rf.assert/path-equals` event** used inside a Story `:play` block — same name root so the fn-side and event-side are navigable without a translation table. The wider sibling event family (`:rf.assert/sub-equals`, `:rf.assert/state-is`, `:rf.assert/dispatched?`, `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`, `:rf.assert/path-matches`) lives in [007 §Play functions](007-Stories.md#play-functions); runner and reporting channel differ. Choose by test surface: `assert-path-equals` from a `deftest` body, `:rf.assert/path-equals` from a story variant's `:play` vector. |
+| `assert-db-equals` | Fn | `(assert-db-equals expected-db)` / `(assert-db-equals expected-db opts)` | v1 | testing | 008 | Full-db sync assertion (no `:rf.assert/*` event analog — the event family is path-keyed). Mismatch fires `clojure.test/is`-style failure via `do-report`. Companion to `assert-path-equals`. Lives in `re-frame.test-support`. |
+| `poll-until` | Fn | `(poll-until pred)` / `(poll-until pred opts)` | v1 | testing | 008 | Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`. Lives in `re-frame.test-support`. |
+| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | testing | 002, 008 | Lexical-scope `:fx-overrides` binding. Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
+| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | testing | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
+| `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `make-reset-runtime-fixture` | Fn | per docstring | v1 | testing | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
 
 ### Testing — view-assertion helpers
 
 `re-frame.test-helpers` ships the hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Pairs with `render-to-string` (the HTML-string view-test path per Spec 011): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions. Per [008-Testing §View-assertion helpers](008-Testing.md#view-assertion-helpers-re-frametest-helpers).
 
-| API | M/Fn | Signature | Status | Spec | Notes |
-|---|---|---|---|---|---|
-| `expand-tree` | Fn | `(expand-tree tree) → tree` | v1 | 008 | Recursively expand fn-components and Form-3 class components inside a hiccup tree. After expansion every vector's first element is a keyword tag or a non-component value. Lives in `re-frame.test-helpers`. |
-| `attrs` | Fn | `(attrs node) → map?` | v1 | 008 | Return the attrs map of a hiccup node, or `nil`. Lives in `re-frame.test-helpers`. |
-| `children` | Fn | `(children node) → vector` | v1 | 008 | Return the child elements — everything after the tag (and optional attrs map). Lives in `re-frame.test-helpers`. |
-| `text-content` | Fn | `(text-content node) → string` | v1 | 008 | Recursively collect string leaves under `node` and join. Numbers coerce to strings; nils are skipped. Lives in `re-frame.test-helpers`. |
-| `extract-handler` | Fn | `(extract-handler node event-key) → fn?` | v1 | 008 | Return the value of `event-key` from `node`'s attrs map, or `nil`. Lives in `re-frame.test-helpers`. |
-| `find-by-attr` | Fn | `(find-by-attr tree attr val) → node?` | v1 | 008 | First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword (`:data-testid`, `:data-test`, `:id`, custom). Lives in `re-frame.test-helpers`. |
-| `find-all-by-attr` | Fn | `(find-all-by-attr tree attr val) → vector` | v1 | 008 | Every matching node, in depth-first order. Lives in `re-frame.test-helpers`. |
-| `find-by-attr-prefix` | Fn | `(find-by-attr-prefix tree attr prefix) → vector` | v1 | 008 | Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match. Lives in `re-frame.test-helpers`. |
-| `find-by-testid` | Fn | `(find-by-testid tree test-id) → node?` | v1 | 008 | Convenience over `find-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
-| `find-all-by-testid` | Fn | `(find-all-by-testid tree test-id) → vector` | v1 | 008 | Convenience over `find-all-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
-| `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix) → vector` | v1 | 008 | Convenience over `find-by-attr-prefix` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
-| `invoke-handler` | Fn | `(invoke-handler node event-key & args) → any` | v1 | 008 | Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. THROWS when `node` is not a hiccup vector, the node has no attrs map, or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug). Lives in `re-frame.test-helpers`. |
-| `testid` | Fn | `(testid id)` / `(testid id extra) → map` | v1 | 008 | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Authoring helper at the view call site. Lives in `re-frame.test-helpers`. |
+| API | M/Fn | Signature | Status | Tier | Spec | Notes |
+|---|---|---|---|---|---|---|
+| `expand-tree` | Fn | `(expand-tree tree) → tree` | v1 | testing | 008 | Recursively expand fn-components and Form-3 class components inside a hiccup tree. After expansion every vector's first element is a keyword tag or a non-component value. Lives in `re-frame.test-helpers`. |
+| `attrs` | Fn | `(attrs node) → map?` | v1 | testing | 008 | Return the attrs map of a hiccup node, or `nil`. Lives in `re-frame.test-helpers`. |
+| `children` | Fn | `(children node) → vector` | v1 | testing | 008 | Return the child elements — everything after the tag (and optional attrs map). Lives in `re-frame.test-helpers`. |
+| `text-content` | Fn | `(text-content node) → string` | v1 | testing | 008 | Recursively collect string leaves under `node` and join. Numbers coerce to strings; nils are skipped. Lives in `re-frame.test-helpers`. |
+| `extract-handler` | Fn | `(extract-handler node event-key) → fn?` | v1 | testing | 008 | Return the value of `event-key` from `node`'s attrs map, or `nil`. Lives in `re-frame.test-helpers`. |
+| `find-by-attr` | Fn | `(find-by-attr tree attr val) → node?` | v1 | testing | 008 | First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword (`:data-testid`, `:data-test`, `:id`, custom). Lives in `re-frame.test-helpers`. |
+| `find-all-by-attr` | Fn | `(find-all-by-attr tree attr val) → vector` | v1 | testing | 008 | Every matching node, in depth-first order. Lives in `re-frame.test-helpers`. |
+| `find-by-attr-prefix` | Fn | `(find-by-attr-prefix tree attr prefix) → vector` | v1 | testing | 008 | Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match. Lives in `re-frame.test-helpers`. |
+| `find-by-testid` | Fn | `(find-by-testid tree test-id) → node?` | v1 | testing | 008 | Convenience over `find-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `find-all-by-testid` | Fn | `(find-all-by-testid tree test-id) → vector` | v1 | testing | 008 | Convenience over `find-all-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix) → vector` | v1 | testing | 008 | Convenience over `find-by-attr-prefix` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `invoke-handler` | Fn | `(invoke-handler node event-key & args) → any` | v1 | testing | 008 | Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. THROWS when `node` is not a hiccup vector, the node has no attrs map, or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug). Lives in `re-frame.test-helpers`. |
+| `testid` | Fn | `(testid id)` / `(testid id extra) → map` | v1 | testing | 008 | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Authoring helper at the view call site. Lives in `re-frame.test-helpers`. |
 
 ---
 
@@ -635,14 +668,14 @@ The testing surface lives across three namespaces. `re-frame.core` carries the p
 
 The v2 std-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principled line: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` or `(->interceptor :after f)` with no other logic. Five interceptors removed: `debug`, `trim-v`, `on-changes`, `enrich`, `after` (per [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)).
 
-| API | M/Fn | Signature | Purpose |
-|---|---|---|---|
-| `inject-cofx` | M | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Macro per — captures call-site for `:rf.trace/call-site` on errors emitted from inside the cofx body. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
-| `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | Fn form for HoF / programmatic interceptor construction — no call-site stamping. |
-| `path` | Fn | `(path & path)` | Focus a handler on an `app-db` sub-slice. Specific work — `:before` focuses, `:after` splices the result back into parent db. |
-| `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
-| `->interceptor` | M | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. Macro per — captures the definition-site `:source-coord` from `(meta &form)` (rf2-siheh) so tools jump to the interceptor's source when it throws (Xray Epoch INTERCEPTOR row). |
-| `->interceptor*` | Fn | `(->interceptor* & {:keys [id before after source-coord]})` | Fn form for HoF / programmatic / REPL interceptor construction — no definition-site coord capture (pass `:source-coord` explicitly if you have one). |
+| API | M/Fn | Signature | Tier | Purpose |
+|---|---|---|---|---|
+| `inject-cofx` | M | `(inject-cofx id)` / `(inject-cofx id value)` | front-porch | Inject a registered cofx into the handler's coeffect map. Macro per — captures call-site for `:rf.trace/call-site` on errors emitted from inside the cofx body. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
+| `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | advanced | Fn form for HoF / programmatic interceptor construction — no call-site stamping. |
+| `path` | Fn | `(path & path)` | front-porch | Focus a handler on an `app-db` sub-slice. Specific work — `:before` focuses, `:after` splices the result back into parent db. |
+| `unwrap` | (val) | `unwrap` | front-porch | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
+| `->interceptor` | M | `(->interceptor & {:keys [id before after]})` | front-porch | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. Macro per — captures the definition-site `:source-coord` from `(meta &form)` (rf2-siheh) so tools jump to the interceptor's source when it throws (Xray Epoch INTERCEPTOR row). |
+| `->interceptor*` | Fn | `(->interceptor* & {:keys [id before after source-coord]})` | advanced | Fn form for HoF / programmatic / REPL interceptor construction — no definition-site coord capture (pass `:source-coord` explicitly if you have one). |
 
 Removed in v2 (see [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)):
 
@@ -673,27 +706,27 @@ Reserved fx-ids for runtime flow management via `:fx`:
 
 ## Interceptor / context plumbing
 
-| API | M/Fn | Signature | Status |
-|---|---|---|---|
-| `get-coeffect` | Fn | `(get-coeffect ctx)` / `(get-coeffect ctx key)` / `(get-coeffect ctx key not-found)` | v1 (preserved) |
-| `assoc-coeffect` | Fn | `(assoc-coeffect ctx key value)` | v1 (preserved) |
-| `get-effect` | Fn | `(get-effect ctx)` / `(get-effect ctx key)` / `(get-effect ctx key not-found)` | v1 (preserved) |
-| `assoc-effect` | Fn | `(assoc-effect ctx key value)` | v1 (preserved) |
+| API | M/Fn | Signature | Status | Tier |
+|---|---|---|---|---|
+| `get-coeffect` | Fn | `(get-coeffect ctx)` / `(get-coeffect ctx key)` / `(get-coeffect ctx key not-found)` | v1 (preserved) | advanced |
+| `assoc-coeffect` | Fn | `(assoc-coeffect ctx key value)` | v1 (preserved) | advanced |
+| `get-effect` | Fn | `(get-effect ctx)` / `(get-effect ctx key)` / `(get-effect ctx key not-found)` | v1 (preserved) | advanced |
+| `assoc-effect` | Fn | `(assoc-effect ctx key value)` | v1 (preserved) | advanced |
 
 ---
 
 ## Lifecycle / utility
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile/load time ( — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime). Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and. Ensures `:rf/default` frame is present | v1 | 006 |
-| `init-platform` | Fn | `(init-platform p)` — set the host-wide active-platform marker (`:server` or `:client`). The runtime tracks the active platform so `reg-fx`/`reg-cofx` `:platforms` metadata can gate execution (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)). CLJS hosts default to `:client`, JVM hosts to `:server`; call at boot to override (CLJS-on-Node SSR runtime: `(rf/init-platform :server)`; JVM-runnable test simulating browser: `(rf/init-platform :client)`). Per-frame `:config :platform` (set by the `:ssr-server` preset) still wins over this host-wide marker. `p` must be `:server` or `:client`; anything else raises `:rf.error/invalid-platform`. Idempotent / re-callable. Sibling boot call to `init!` — independent (adapter install vs platform marker). | v1 | 011 |
-| `install-adapter!` | Fn | `(install-adapter! adapter-map)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
-| `destroy-adapter!` | Fn | `(destroy-adapter!)` — tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `destroy-` cluster (lifecycle boundary; symmetric with `install-adapter!` and with `destroy-frame!`). The adapter-spec **map key** `:dispose-adapter!` (an internal contract slot adapters implement) is unchanged. | v2 | 006 |
-| `current-adapter` | Fn | `(current-adapter)` → discriminator keyword (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom`) or `nil` when no adapter is installed. Answers "what substrate am I on?" — predicate / branch code. For the spec map (fn handles, identity checks), use `current-adapter-spec`. | v1 | 006 |
-| `current-adapter-spec` | Fn | `(current-adapter-spec)` → the installed adapter spec map (the value passed to `(rf/init! ...)`) or `nil` when no adapter is installed. Answers "give me the adapter fns to call" — tools, routing, identity checks across the install/dispose lifecycle. For the discriminator keyword, use `current-adapter`. | v1 | 006 |
-| `adapter-disposed?` | Fn | `(adapter-disposed?)` → `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) and after a fresh install. Read-only — the breadcrumb is owned by the install / destroy pair. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down). Per [006 §Disposed-vs-never-installed](006-ReactiveSubstrate.md#disposed-vs-never-installed). | v1 | 006 |
-| `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys). One of three orthogonal configuration surfaces per [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) (`configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides). | v1 | — |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile/load time ( — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime). Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and. Ensures `:rf/default` frame is present | v1 | front-porch | 006 |
+| `init-platform` | Fn | `(init-platform p)` — set the host-wide active-platform marker (`:server` or `:client`). The runtime tracks the active platform so `reg-fx`/`reg-cofx` `:platforms` metadata can gate execution (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)). CLJS hosts default to `:client`, JVM hosts to `:server`; call at boot to override (CLJS-on-Node SSR runtime: `(rf/init-platform :server)`; JVM-runnable test simulating browser: `(rf/init-platform :client)`). Per-frame `:config :platform` (set by the `:ssr-server` preset) still wins over this host-wide marker. `p` must be `:server` or `:client`; anything else raises `:rf.error/invalid-platform`. Idempotent / re-callable. Sibling boot call to `init!` — independent (adapter install vs platform marker). | v1 | advanced | 011 |
+| `install-adapter!` | Fn | `(install-adapter! adapter-map)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | advanced | 006 |
+| `destroy-adapter!` | Fn | `(destroy-adapter!)` — tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `destroy-` cluster (lifecycle boundary; symmetric with `install-adapter!` and with `destroy-frame!`). The adapter-spec **map key** `:dispose-adapter!` (an internal contract slot adapters implement) is unchanged. | v2 | advanced | 006 |
+| `current-adapter` | Fn | `(current-adapter)` → discriminator keyword (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom`) or `nil` when no adapter is installed. Answers "what substrate am I on?" — predicate / branch code. For the spec map (fn handles, identity checks), use `current-adapter-spec`. | v1 | advanced | 006 |
+| `current-adapter-spec` | Fn | `(current-adapter-spec)` → the installed adapter spec map (the value passed to `(rf/init! ...)`) or `nil` when no adapter is installed. Answers "give me the adapter fns to call" — tools, routing, identity checks across the install/dispose lifecycle. For the discriminator keyword, use `current-adapter`. | v1 | advanced | 006 |
+| `adapter-disposed?` | Fn | `(adapter-disposed?)` → `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) and after a fresh install. Read-only — the breadcrumb is owned by the install / destroy pair. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down). Per [006 §Disposed-vs-never-installed](006-ReactiveSubstrate.md#disposed-vs-never-installed). | v1 | advanced | 006 |
+| `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys). One of three orthogonal configuration surfaces per [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) (`configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides). | v1 | front-porch | — |
 
 ---
 
@@ -705,11 +738,11 @@ The known optional features are `:schemas`, `:machines`, `:routing`, `:flows`, `
 
 **These three fns ship to production.** They are runtime queries, not dev-time instrumentation, so — unlike the trace / epoch surfaces — they are NOT gated on `interop/debug-enabled?` and do NOT elide under `:advanced` + `goog.DEBUG=false`. A production caller may legitimately probe `(rf/feature-loaded? :routing)` before taking a routing-dependent path. The feature→coordinate mapping is **static data in the always-loaded `re-frame.core` facade** (a plain table of `{:feature {:maven … :require … :spec …}}` strings), never a live `:require` reaching into the optional impl namespaces — a live reach-in would create a hard facade→optionals reference that pulls every optional artefact into every production bundle, breaking bundle-isolation. `feature-loaded?` detects presence by a pure keyword lookup in the always-loaded late-bind hooks atom against a representative key the impl publishes at ns-load — no reach into the optional namespace.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `features` | Fn | `(features)` → map of every optional feature keyword to its inspection entry: the static coordinate data (`:maven` / `:require` / `:spec`) merged with the live `:loaded?` boolean. E.g. `{:epoch {:maven "day8/re-frame2-epoch" :require "re-frame.epoch" :spec "Tool-Pair (Time-travel / epoch)" :loaded? true} …}`. Ships to production (NOT elided). | v1 | — |
-| `feature-loaded?` | Fn | `(feature-loaded? feature)` → `true` when the feature's impl artefact is on the classpath, `false` otherwise (including for an unknown feature keyword). Pure keyword lookup against the always-loaded late-bind hooks atom — no require into the optional namespace. Ships to production (NOT elided). | v1 | — |
-| `require-feature!` | Fn | `(require-feature! feature)` → `true` when the feature is loaded; otherwise throws `:rf.error/feature-not-loaded` carrying the EXACT copy-pasteable Maven coordinate (`:maven`) + require namespace (`:require-ns`) and a `:reason` string naming both (an unknown feature keyword throws `:rf.error/unknown-feature` with the `:known` set). Use as a self-explaining early guard at the top of feature-dependent code. Ships to production (NOT elided). | v1 | — |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `features` | Fn | `(features)` → map of every optional feature keyword to its inspection entry: the static coordinate data (`:maven` / `:require` / `:spec`) merged with the live `:loaded?` boolean. E.g. `{:epoch {:maven "day8/re-frame2-epoch" :require "re-frame.epoch" :spec "Tool-Pair (Time-travel / epoch)" :loaded? true} …}`. Ships to production (NOT elided). | v1 | advanced | — |
+| `feature-loaded?` | Fn | `(feature-loaded? feature)` → `true` when the feature's impl artefact is on the classpath, `false` otherwise (including for an unknown feature keyword). Pure keyword lookup against the always-loaded late-bind hooks atom — no require into the optional namespace. Ships to production (NOT elided). | v1 | advanced | — |
+| `require-feature!` | Fn | `(require-feature! feature)` → `true` when the feature is loaded; otherwise throws `:rf.error/feature-not-loaded` carrying the EXACT copy-pasteable Maven coordinate (`:maven`) + require namespace (`:require-ns`) and a `:reason` string naming both (an unknown feature keyword throws `:rf.error/unknown-feature` with the `:known` set). Use as a self-explaining early guard at the top of feature-dependent code. Ships to production (NOT elided). | v1 | advanced | — |
 
 > **Artefact-missing errors carry the require.** This front-porch is paired with a hard rule: *every* artefact-missing error in the framework — including the existing late-bind facade throws (`:rf.error/<feature>-artefact-missing`, raised via `re-frame.late-bind/require-fn!` from the `re-frame.core-<feature>` wrappers) — carries the exact copy-pasteable Maven coordinate and the namespace to require at app boot in its `:reason` slot. The named pattern is documented once at [Conventions §Facade re-export, artefact require](Conventions.md#facade-re-export-artefact-require).
 
@@ -750,26 +783,26 @@ The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing key
 
 Split between the v1 machine-as-event-handler foundation and the post-v1 `re-frame.machines` scaffolding library — see [005-StateMachines.md §Disposition](005-StateMachines.md#disposition). The machine *is* the event handler: a machine is registered as one `reg-event-fx` whose body comes from `make-machine-handler`.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `reg-machine` | M | `(reg-machine machine-id machine-spec)` — registers a machine as an event handler. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords`. | v1 | 005 |
-| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` — plain-fn surface beneath the macro. No source-coord walking. | v1 | 005 |
-| `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | 005 |
-| `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | 005 |
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
-| `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |
-| `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; carries `:rf.machine/source-coords` index when registered via the macro | v1 | 005 |
-| `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf/runtime :machines :system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | 005 |
-| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | 005 |
-| `machine-has-tag?` | Fn | `(machine-has-tag? machine-id tag)` → reaction whose value is `true` iff the machine's snapshot's `:tags` set contains `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Per [005 §State tags](005-StateMachines.md). | v1 | 005 |
-| `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | 005 |
-| `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | 005 |
-| `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | 005 |
-| `:final?` / `:output-key` (state-node keys) | — | `:final?` marks a leaf state as terminal — entering it auto-destroys the machine. `:output-key` (requires `:final?`) designates the child's `:data` slot reported back via the parent's `:on-done`. Capability axis `:fsm/final-states`. Per ; see [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). | v1 | 005 |
-| `:on-done` (`:spawn` spec key) | — | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map. Fires synchronously when the spawned child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). Returns the parent's new `:data` map. Per and. | v1 | 005 |
-| `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | 005 |
-| `machine->xstate-json` | Fn | `(machine->xstate-json definition)` → JSON | post-v1 lib | 005 |
-| `machine->mermaid` | Fn | `(machine->mermaid definition)` → string | post-v1 lib | 005 |
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `reg-machine` | M | `(reg-machine machine-id machine-spec)` — registers a machine as an event handler. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords`. | v1 | advanced | 005 |
+| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` — plain-fn surface beneath the macro. No source-coord walking. | v1 | advanced | 005 |
+| `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | advanced | 005 |
+| `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | advanced | 005 |
+| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | advanced | 005 |
+| `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | tooling | 005 |
+| `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; carries `:rf.machine/source-coords` index when registered via the macro | v1 | tooling | 005 |
+| `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf/runtime :machines :system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | advanced | 005 |
+| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | advanced | 005 |
+| `machine-has-tag?` | Fn | `(machine-has-tag? machine-id tag)` → reaction whose value is `true` iff the machine's snapshot's `:tags` set contains `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Per [005 §State tags](005-StateMachines.md). | v1 | advanced | 005 |
+| `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | — (fx-id) | 005 |
+| `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | — (fx-id) | 005 |
+| `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | — (fx-id) | 005 |
+| `:final?` / `:output-key` (state-node keys) | — | `:final?` marks a leaf state as terminal — entering it auto-destroys the machine. `:output-key` (requires `:final?`) designates the child's `:data` slot reported back via the parent's `:on-done`. Capability axis `:fsm/final-states`. Per ; see [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). | v1 | — (spec key) | 005 |
+| `:on-done` (`:spawn` spec key) | — | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map. Fires synchronously when the spawned child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). Returns the parent's new `:data` map. Per and. | v1 | — (spec key) | 005 |
+| `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | — (spec key) | 005 |
+| `machine->xstate-json` | Fn | `(machine->xstate-json definition)` → JSON | post-v1 lib | tooling | 005 |
+| `machine->mermaid` | Fn | `(machine->mermaid definition)` → string | post-v1 lib | tooling | 005 |
 
 Canonical descriptions (factory purity, spec keys, snapshot location, registration-time validation, etc.) in [005-StateMachines.md](005-StateMachines.md) and [Spec-Schemas](Spec-Schemas.md).
 
@@ -789,26 +822,30 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 
 See [007-Stories.md](007-Stories.md).
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `reg-story` | M | `(reg-story id metadata)` | post-v1 lib | 007 |
-| `reg-variant` | M | `(reg-variant id metadata)` | post-v1 lib | 007 |
-| `reg-workspace` | M | `(reg-workspace id metadata)` | post-v1 lib | 007 |
-| `reg-tag` | M | `(reg-tag id metadata)` | post-v1 lib | 007 |
-| `reg-decorator` | M | `(reg-decorator id metadata)` | post-v1 lib | 007 |
-| `reg-story-panel` | M | `(reg-story-panel id metadata)` | post-v1 lib | 007 |
-| `run` | Fn | `(run target)` / `(run target opts)` → promise/future of the unified **run-result**. `target` is a keyword (registered variant) OR a map (inline plan). The single execution verb. | post-v1 lib | 007 |
-| `is` | Fn | `(is target)` / `(is target opts)` → runs `target` and reports each assertion to `clojure.test` / `cljs.test`. JVM blocks (bounded by `:timeout-ms`, default `30000`) and returns the run-result; CLJS returns the run promise. | post-v1 lib | 007 |
-| `explain` | Fn | `(explain target)` / `(explain target opts)` → the plan's `:explain` map (args-validation, sub-overrides, decorators, …) without running. | post-v1 lib | 007 |
-| `variants-with-tags` | Fn | `(variants-with-tags tag-set)` → seq of variant ids | post-v1 lib | 007 |
-| `snapshot-identity` | Fn | `(snapshot-identity variant-id)` → `{:variant-id ... :content-hash "..."}` | post-v1 lib | 007 |
-| `story-view` | Fn | `(story-view variant-id)` → hiccup | post-v1 lib | 007 |
+All Story surfaces are **tooling** (a Storybook-shaped dev surface — registration, execution, introspection — not application logic). Absorbs story F-8; see [§Tiering of cross-tool surfaces](#tiering-of-cross-tool-surfaces-story-xray-pair-mcp).
+
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `reg-story` | M | `(reg-story id metadata)` | post-v1 lib | tooling | 007 |
+| `reg-variant` | M | `(reg-variant id metadata)` | post-v1 lib | tooling | 007 |
+| `reg-workspace` | M | `(reg-workspace id metadata)` | post-v1 lib | tooling | 007 |
+| `reg-tag` | M | `(reg-tag id metadata)` | post-v1 lib | tooling | 007 |
+| `reg-decorator` | M | `(reg-decorator id metadata)` | post-v1 lib | tooling | 007 |
+| `reg-story-panel` | M | `(reg-story-panel id metadata)` | post-v1 lib | tooling | 007 |
+| `run` | Fn | `(run target)` / `(run target opts)` → promise/future of the unified **run-result**. `target` is a keyword (registered variant) OR a map (inline plan). The single execution verb. | post-v1 lib | tooling | 007 |
+| `is` | Fn | `(is target)` / `(is target opts)` → runs `target` and reports each assertion to `clojure.test` / `cljs.test`. JVM blocks (bounded by `:timeout-ms`, default `30000`) and returns the run-result; CLJS returns the run promise. | post-v1 lib | tooling | 007 |
+| `explain` | Fn | `(explain target)` / `(explain target opts)` → the plan's `:explain` map (args-validation, sub-overrides, decorators, …) without running. | post-v1 lib | tooling | 007 |
+| `variants-with-tags` | Fn | `(variants-with-tags tag-set)` → seq of variant ids | post-v1 lib | tooling | 007 |
+| `snapshot-identity` | Fn | `(snapshot-identity variant-id)` → `{:variant-id ... :content-hash "..."}` | post-v1 lib | tooling | 007 |
+| `story-view` | Fn | `(story-view variant-id)` → hiccup | post-v1 lib | tooling | 007 |
 
 The **public execution surface is exactly the three verbs** `run` / `is` / `explain` (each accepts a registered-variant keyword OR an inline-plan map). `run-variant` / `is-variant` / `run-plan` / `is-plan` / `watch-variant` / `reset-variant` are implementation / migration vocabulary, NOT the P1 public surface — they are not rowed here. The unified **run-result** is the single execution-record boundary; read its verdict via `result-status` / `result-passed?` (`:pass` / `:fail` / `:cannot-run` / `:error` — there is no `:passing?` boolean). Canonical execution model: [story spec 017 §Public execution API](../tools/story/spec/017-Testing-Story.md) (the `re-frame2-story` library spec, the normative home for the verbs + run-result shape).
 
 ---
 
 ## Removed / not shipped
+
+These surfaces are **removed or renamed** — not part of the public projection and not a tier (the `deprecated` tier is reserved for surfaces still shipping while on the way out; pre-alpha carries none). This is a migration table: each row names what to use instead.
 
 | API | What to do | Reference |
 |---|---|---|
