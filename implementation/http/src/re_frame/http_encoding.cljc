@@ -42,6 +42,14 @@
 ;; ---- query string + URL helpers -------------------------------------------
 
 (defn url-encode
+  "Percent-encode `s` for safe splicing into a URL query string.
+
+  JVM `URLEncoder/encode` is an `application/x-www-form-urlencoded`
+  encoder — it renders a space as `+`. We rewrite `+` → `%20` so the
+  output is also correct in non-form contexts (and matches the CLJS
+  `js/encodeURIComponent` path, which percent-encodes spaces as `%20`).
+  Keeping the two hosts byte-identical means `params->query` produces
+  the same wire string everywhere."
   [s]
   #?(:clj  (-> (URLEncoder/encode (str s) "UTF-8")
                (.replace "+" "%20"))
