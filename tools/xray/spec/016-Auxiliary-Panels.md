@@ -35,7 +35,7 @@ L3-tab backing (when applicable) are:
 |---|---|---|---|---|
 | 1  | 1 | Epoch tab            | `epoch-panel/Panel`                 | Epoch |
 | 2  | 1 | App-db tab           | `app-db-diff/Panel`                 | App-db |
-| 3  | 1 | Views tab            | `views/Panel`                       | Views |
+| 3  | 1 | Views tab            | `reactive-panel/Panel`              | Views |
 | 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
 | 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
 | 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
