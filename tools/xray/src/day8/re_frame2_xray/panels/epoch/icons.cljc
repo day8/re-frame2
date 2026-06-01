@@ -61,30 +61,9 @@
 ;; SCHEMA-VIOLATIONS step's header (rf2-17vxj). With rf2-xgeag's
 ;; inline sub-block + tail-step shape the title row uses the Unicode
 ;; `⚠` glyph inline; no SVG required.
-
-;; ---- Arrow right (cascade-link) -----------------------------------------
-
-(def ^:private arrow-right-svg
-  "Lucide `arrow-right` icon as a hiccup-shaped svg. 13×13 square,
-  `viewBox 0 0 24 24`, `stroke: currentColor`. Used by the
-  CHILD-DISPATCHES section (rf2-yx1ae) for the per-child 'jump to'
-  affordance — the arrow signals 'follow this dispatch to the
-  child cascade'."
-  [:svg {:width            "13"
-         :height           "13"
-         :viewBox          "0 0 24 24"
-         :fill             "none"
-         :stroke           "currentColor"
-         :stroke-width     "2"
-         :stroke-linecap   "round"
-         :stroke-linejoin  "round"
-         :aria-hidden      "true"
-         :focusable        "false"}
-   [:line     {:x1 "5" :y1 "12" :x2 "19" :y2 "12"}]
-   [:polyline {:points "12 5 19 12 12 19"}]])
-
-(defn arrow-right
-  "Render the lucide `arrow-right` glyph (rf2-yx1ae). Inherits
-  colour from the enclosing element via `currentColor`."
-  []
-  arrow-right-svg)
+;;
+;; ---- Arrow right (retired with rf2-zkiu5) -------------------------------
+;;
+;; The `arrow-right` SVG drove the CHILD-DISPATCHES section's per-child
+;; 'jump to' affordance (rf2-yx1ae). rf2-zkiu5 retired that step (the FX
+;; step already surfaces dispatch-family fx), so the glyph is gone.

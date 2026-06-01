@@ -45,8 +45,7 @@
   `tools/xray/spec/Conventions.md` §Pure-data helpers as `.cljc` — the
   projection is data-in / data-out and runs under both targets.
   `feedback_jvm_interop_must_work.md` is binding."
-  (:require [day8.re-frame2-xray.diff.engine :as diff-engine]
-            [day8.re-frame2-xray.panels.common-helpers :as common]))
+  (:require [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ---- trace-event lookups -------------------------------------------------
 
@@ -395,40 +394,6 @@
       (when (map? fx)
         {:fx-vec        (:fx fx)
          :other-effects (not-empty (dissoc fx :db :fx))}))))
-
-(defn- db-diff-paths
-  "Compute the changed-paths vector for this cascade JIT from the
-  epoch-record's `:db-before` + `:db-after` snapshots via the canonical
-  Editscript-A* engine (`day8.re-frame2-xray.diff.engine/project`'s
-  `:flat-rows`, rf2-xuyac).
-
-  Pair-debug 2026-05-26 fix: the prior implementation read a
-  `:rf.event/db-changed-paths` tag off the `:rf.event/db-changed`
-  trace event. The framework's emit at `router.cljc:455` does NOT
-  stamp that tag (the framework's design records RAW snapshots —
-  `:db-before` / `:db-after` on the epoch record — and leaves diffs
-  to be computed JIT by consumers; the App-DB panel does the same).
-  Looking for the never-emitted tag meant `db-diff-paths` always
-  returned `[]` and the HANDLER `:db` sub-section always read
-  '— (no changes)' even when the handler mutated state extensively.
-
-  rf2-xuyac migration: the home-grown `app-db-diff-helpers/diff-paths`
-  walker this fn previously called is RETIRED for the HANDLER `:db`
-  surface (kept only for the trace panel `db-changed-diff-triples`,
-  out of scope). The Editscript engine is now the single canonical
-  diff engine for HANDLER `:db` + App-DB Diff + Machine Inspector
-  surfaces — the R-rule chrome the inspector paints is sourced off the
-  same diff engine (spec/021 §9.1.5.2 wholesale replacement). The
-  `[diff][full][full+diff]` mode toggle retired with rf2-vv3m6
-  (2026-05-29); FULL+DIFF is the single rendering.
-
-  Returns a vector of 4-tuples `[path before after change-kind]`.
-  When before == after (the handler returned no `:db` or an identical
-  value), returns `[]` correctly."
-  [db-before db-after]
-  (mapv (fn [{:keys [path op before after]}]
-          [path before after op])
-        (:flat-rows (diff-engine/project db-before db-after))))
 
 (defn- machine-lifecycle-rows
   "Project the `:rf.machine/action-ran` stream into per-phase rows
@@ -1054,24 +1019,26 @@
   dispatched event therefore a handler). Adapts to the trace stream's
   flavour discriminator:
 
-  - `:reg-event-db`  → :db-diff
-  - `:reg-event-fx`  → :db-diff + :fx
-  - `:reg-machine`   → :db-diff + :fx + :machine {transition guards
-                                                  lifecycle timers}
+  - `:reg-event-db`  → :db (post-handler snapshot)
+  - `:reg-event-fx`  → :db + :fx
+  - `:reg-machine`   → :db + :fx + :machine {transition guards
+                                             lifecycle timers}
 
-  `:db-diff` is computed JIT from `db-before` / `db-after` via the
-  Editscript-A* engine at `day8.re-frame2-xray.diff.engine`
-  (rf2-xuyac — see `db-diff-paths` ↑). The framework records raw
-  snapshots on the epoch-record; consumers derive diffs on demand
-  (pair-debug 2026-05-26 fix).
+  The HANDLER `:db` sub-section is rendered from `:db-post-handler`
+  (the effective post-handler / pre-flow snapshot) diffed against the
+  record's `:db-before` by the view's edn-inspector — no flat-row diff
+  is precomputed here (rf2-sp0n9: the prior `:db-diff` Editscript A*
+  slot had no live reader; the view discarded it and re-derived its own
+  render). The framework records raw snapshots on the epoch-record;
+  consumers derive diffs on demand.
 
-  Two arities — the 2-arg form (legacy callers / tests that
-  pre-date the JIT-diff fix) supplies nil/nil for db-before/after,
-  yielding an empty `:db-diff` consistent with the prior
-  trace-tag-based behaviour for the same input shape."
+  Two arities — the 2-arg form (legacy callers / tests) supplies
+  nil/nil for db-before/after. The 4-arg form's `db-after` is no
+  longer read (rf2-sp0n9 removed the flat-row diff that consumed it);
+  the arity is kept stable for existing callers / tests."
   ([events event-id]
    (handler-row events event-id nil nil))
-  ([events event-id db-before db-after]
+  ([events event-id db-before _db-after]
   (let [flavour     (handler-flavour events)
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
@@ -1104,12 +1071,7 @@
         ;;   - nil otherwise (no flow + no `:db`, or pre-rf2-ta0y7), where
         ;;     the slot stays nil and the view falls back to the record's
         ;;     `:db-after`.
-        ;;
-        ;; The `:db-diff` flat-rows are computed against this same
-        ;; effective baseline so non-view consumers + tests read the
-        ;; handler-only change (empty in the no-`:db`-with-flow case).
         db-post-handler (effective-post-handler-db events db-before)
-        db-handler  (if (some? db-post-handler) db-post-handler db-after)
         base        {:step           :handler
                      :badge          :HANDLER
                      :flavour        flavour
@@ -1128,7 +1090,6 @@
                      ;; no-write placeholder rather than the spurious full
                      ;; post-cascade app-db (PHANTOM-`:db` fix).
                      :db-write?      (handler-wrote-db? events)
-                     :db-diff        (db-diff-paths db-before db-handler)
                      ;; :fx — legacy flat-entries slot (kept for non-view
                      ;; consumers; tests + pre-rf2-p2zy0 callers).
                      :fx             (or (fx-entries events) [])
@@ -2594,128 +2555,20 @@
         steps))
     steps))
 
-;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 --------------------
+;; ---- parent / child epoch correlation ------------------------------------
 ;;
-;; The standalone APP-DB DIFF step (rf2-rrykz) was removed because it
-;; renders the same data as the HANDLER step's `:db` sub-section.
-;; The HANDLER `:db` carries the `[diff][all]` toggle which gives the
-;; operator both the path-changes view AND the full post-cascade
-;; app-db without a separate pipeline step. The `app-db-diff-step` +
-;; `categorise-diff-path` fns are deleted along with the step.
-
-;; ---- CHILD DISPATCHES step (rf2-yx1ae) -----------------------------------
+;; A cascade that returns dispatch-family fx (`:dispatch / :dispatch-n /
+;; :dispatch-later`) triggers child cascades — each child rides its own
+;; epoch-record carrying `:parent-dispatch-id` (the parent's
+;; `:dispatch-id`; Spec-Schemas §`:rf/epoch-record`, rf2-rly4a). The
+;; DISPATCH step's `:fx-dispatch` chrome resolves the PARENT epoch off
+;; that link via the O(1) index below.
 ;;
-;; When a handler returns `:dispatch / :dispatch-n / :dispatch-later`
-;; fx, the cascade triggers child cascades — each child rides its own
-;; epoch-record. The CHILD-DISPATCHES section surfaces those children
-;; off THIS cascade's returned fx so the operator sees them inline.
-;;
-;; Source: the `:rf.event/fx` payload on `:rf.fx/do-fx` (the handler's
-;; returned fx map / vec — Spec 009 §`:rf.fx/do-fx`). We harvest ONLY
-;; the dispatch-family fx (`:dispatch / :dispatch-n / :dispatch-later`);
-;; other fx are the FX step's concern.
-;;
-;; Each row carries the child event vector + optional delay; the view
-;; layer joins this against the epoch-history at render time to find
-;; the child cascade's `:epoch-id` for the "jump to" affordance
-;; (children that have aged out of the ring buffer render with the
-;; "not in buffer" marker — the row still surfaces the event vector).
-
-(defn- normalise-child-dispatch
-  "Coerce a dispatch / dispatch-later fx arg into row fragments. Four
-  substrate shapes per Spec 009 / re-frame.fx:
-
-    1. `:dispatch [:event/x 7]`              → one row
-    2. `:dispatch-n [[:a] [:b]]`             → one row per element
-    3. `:dispatch-later {:ms 250 :dispatch [:retry]}` → one row + delay
-    4. `:dispatch-later [{:ms 250 :dispatch …} {:ms 500 :dispatch …}]`
-                                             → one row per element
-
-  Returns a vec of `{:event vec :delay-ms num-or-nil}` maps."
-  [fx-id value]
-  (case fx-id
-    :dispatch
-    (when (vector? value)
-      [{:event value :delay-ms nil}])
-
-    :dispatch-n
-    (when (sequential? value)
-      (vec (for [e value
-                 :when (vector? e)]
-             {:event e :delay-ms nil})))
-
-    :dispatch-later
-    (cond
-      (map? value)
-      (when (vector? (:dispatch value))
-        [{:event    (:dispatch value)
-          :delay-ms (or (:ms value) (:delay-ms value))}])
-      (sequential? value)
-      (vec (for [e value
-                 :when (and (map? e) (vector? (:dispatch e)))]
-             {:event (:dispatch e) :delay-ms (or (:ms e) (:delay-ms e))})))
-
-    nil))
-
-(def child-dispatch-fx-ids
-  "Closed set of fx-ids that produce child cascades (rf2-yx1ae)."
-  #{:dispatch :dispatch-n :dispatch-later})
-
-(defn child-dispatch-rows
-  "Project this cascade's child dispatches into rows (rf2-yx1ae).
-
-  Walks the `:rf.fx/do-fx` `:rf.event/fx` payload; harvests only the
-  dispatch-family entries. Each row carries:
-
-    :event    — the child's event vector
-    :delay-ms — delay (for `:dispatch-later`) or nil
-    :via      — the fx-id that emitted the row (`:dispatch /
-                 :dispatch-n / :dispatch-later`)
-
-  Empty vec when no dispatch-family fx fired."
-  [events]
-  (let [entries (fx-entries events)]
-    (vec
-      (for [{:keys [fx-id value]} entries
-            :when (contains? child-dispatch-fx-ids fx-id)
-            row (or (normalise-child-dispatch fx-id value) [])
-            :when (vector? (:event row))]
-        (assoc row :via fx-id)))))
-
-(defn child-dispatches-step
-  "Build the CHILD-DISPATCHES step row, or nil when no dispatch-family
-  fx fired (the step is OMITTED — conditional)."
-  [events]
-  (let [rows (child-dispatch-rows events)]
-    (when (seq rows)
-      {:step  :child-dispatches
-       :badge :CHILD-DISPATCHES
-       :rows  rows})))
-
-(defn find-child-epoch
-  "Resolve a child epoch's `:epoch-id` against the epoch-history given
-  THIS cascade's `:dispatch-id` + the child's event vector (rf2-yx1ae).
-
-  The parent→child link is the substrate-canonical
-  `:rf.trace/parent-dispatch-id` slot on the child's
-  `:rf.event/dispatched` trace (carrying THIS cascade's
-  `:dispatch-id` — Spec 009 §Dispatch correlation). The epoch-record
-  pins this on `:parent-dispatch-id` (Spec-Schemas §`:rf/epoch-record`,
-  rf2-rly4a).
-
-  We prefer matches with both `:parent-dispatch-id` AND a matching
-  trigger-event; when the trigger-event doesn't match (a sibling
-  dispatch with the same parent), the row falls back to whichever
-  child rides the same parent dispatch-id. Returns the matched
-  epoch's `:epoch-id` or nil when no child epoch is in the buffer
-  yet (or has aged out)."
-  [epoch-history parent-dispatch-id child-event]
-  (when (and (some? parent-dispatch-id) (vector? child-event))
-    (let [candidates (filter #(= parent-dispatch-id (:parent-dispatch-id %))
-                             epoch-history)
-          exact      (some #(when (= child-event (:trigger-event %)) %)
-                           candidates)]
-      (:epoch-id (or exact (first candidates))))))
+;; rf2-zkiu5 (pair-debug 2026-05-26) retired the standalone
+;; CHILD-DISPATCHES step (and its `child-dispatch-rows` /
+;; `child-dispatches-step` / `find-child-epoch` projection) — the FX
+;; step already surfaces every dispatch-family fx entry per row, so the
+;; cascade-link affordance lives on the FX rows themselves.
 
 (defn dispatch-id->epoch-id-index
   "Build a `{dispatch-id → epoch-id}` map from an `epoch-history` vector.
@@ -2748,8 +2601,8 @@
   `dispatch-id->epoch-id` index given the child's
   `:parent-dispatch-id` (rf2-5qp4g).
 
-  The reverse of `find-child-epoch`: child's `:parent-dispatch-id` →
-  parent's `:dispatch-id` → parent's `:epoch-id`. Returns nil when no
+  Child's `:parent-dispatch-id` → parent's `:dispatch-id` → parent's
+  `:epoch-id`. Returns nil when no
   parent epoch is in the buffer (root cascade, or aged out).
 
   rf2-x25e0 — O(1) lookup. The prior O(N) `some`-walk over
@@ -2989,20 +2842,6 @@
   [epoch-record]
   (number-steps (project epoch-record)))
 
-;; ---- formatting helpers (view-shared) ------------------------------------
-
-(defn format-duration-ms
-  "Render a duration in ms as a short string (`0.1ms` / `12ms` /
-  `1.2s`). Returns nil for non-numbers so the view can render an
-  em-dash on a missing duration without guarding the call site."
-  [ms]
-  (when (number? ms)
-    (cond
-      (>= ms 1000) (str (/ (Math/round (double (* (/ ms 1000.0) 10))) 10.0) "s")
-      (>= ms 10)   (str (Math/round (double ms)) "ms")
-      :else        (let [rounded (/ (Math/round (double (* ms 10))) 10.0)]
-                     (str rounded "ms")))))
-
 ;; ---- timing aggregation (rf2-nqt3d) -------------------------------------
 ;;
 ;; Per-step `:duration-ms` is stamped at projection time (each step row
@@ -3034,71 +2873,7 @@
   (let [ms (:duration-ms step)]
     (and (number? ms) (> ms long-step-threshold-ms))))
 
-(defn event-display
-  "Render the dispatched event vector as a one-line monospace string
-  for the DISPATCH row's target slot."
-  [event-vec]
-  (when (vector? event-vec)
-    (str event-vec)))
-
-(defn path-display
-  "Render a db path vector as the `[:foo :bar 0]` repr used by every
-  diff-style row. Returns `\"\"` for nil/empty."
-  [path]
-  (if (sequential? path)
-    (str (vec path))
-    ""))
-
-(defn ns-keyword
-  "Render an id as a clojure-style keyword string (`:my-ns/foo` or
-  `:foo`). Falls through `str` for non-keywords."
-  [id]
-  (cond
-    (qualified-keyword? id) (str ":" (namespace id) "/" (name id))
-    (keyword? id)           (str ":" (name id))
-    :else                   (str id)))
-
-(defn truncate
-  "Truncate a string to `n` chars with an ellipsis. Pure fn used by
-  the view layer for long arg displays in the FX table."
-  ([s] (truncate s 60))
-  ([s n]
-   (let [s (str s)]
-     (if (<= (count s) n)
-       s
-       (str (subs s 0 n) "…")))))
-
-(defn coeffect-row-display
-  "Render a coeffect row's id → value pair as a one-liner for the
-  view's diff-style add row (`+ [:session] {:user-id 42 …}`)."
-  [{:keys [id value]}]
-  (let [head (str "+ [" (ns-keyword id) "] ")
-        tail (truncate (pr-str value) 80)]
-    (str head tail)))
-
-(defn phase-label
-  "Render a machine action-ran `:phase` keyword as a UI label string."
-  [phase]
-  (case phase
-    :exit            "exit"
-    :transition      "transition"
-    :entry           "entry"
-    :always          "always"
-    :after-action    "after-action"
-    :initial-entry   "initial-entry"
-    :destroy-exit    "destroy-exit"
-    (when (keyword? phase) (name phase))))
-
-(defn timer-reason-label
-  "Render a timer-cancelled `:reason` keyword as a UI label string."
-  [reason]
-  (case reason
-    :on-exit          "on-exit"
-    :on-destroy       "on-destroy"
-    :on-resolution    "on-resolution"
-    :on-supersede     "on-supersede"
-    :on-frame-destroy "on-frame-destroy"
-    (when (keyword? reason) (name reason))))
+;; ---- lifecycle grouping (view-shared data) ------------------------------
 
 (defn group-lifecycle-by-phase
   "Group machine lifecycle rows by `:phase`. Returns a map from phase
@@ -3109,145 +2884,6 @@
             (update acc (or (:phase row) :unknown) (fnil conj []) row))
           {}
           (or lifecycle-rows [])))
-
-(defn cascade-row-label
-  "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
-  view's per-row header. Pure-data; the view never reaches into a
-  row's slots to compute its label."
-  [{:keys [kind action-id guard-id phase from-state to-state state reason]}]
-  (case kind
-    :guard       (str "guard " (ns-keyword guard-id))
-    :action      (str (when phase (str (name phase) " "))
-                      "action " (ns-keyword action-id))
-    ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb is JUST the state
-    ;; change `<before> → <after>`, made the focal point. The redundant
-    ;; leading "transition" word (the KIND pill already says TRANSITION)
-    ;; and the machine-name echo (`:door/main` — already the cascade
-    ;; context) are DROPPED; the lower-line state/event repetition is
-    ;; dropped in the view (`cascade-row-transition-details`).
-    :transition  (str (if from-state (pr-str from-state) "?")
-                      " → "
-                      (if to-state (pr-str to-state) "?"))
-    :timer       (str "timer " (when state (pr-str state))
-                      (when reason (str " · " (name reason))))
-    (str (when kind (name kind)))))
-
-(defn cascade-row-source-key
-  "Spec-path tuple used to look up a cascade row's source-coord on the
-  registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
-  Pure-data; the view layer reuses this for the coord lookup so the
-  source-link affordance reads off ONE authoritative key.
-
-  Dispatch (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions):
-
-  - `:action` with a keyword `:action-id` → `[:actions <id>]`
-    (definition-site stamp; the named-handler path).
-  - `:action` with an inline `:action-id` (fn) — derive from the row's
-    `:phase` + state slot (`:source-state` / `:target-state`, stamped
-    by `enrich-cascade-rows`):
-    - `:entry` / `:initial-entry` → `[:states <state>... :entry]`
-      (target-state)
-    - `:exit` / `:destroy-exit`   → `[:states <state>... :exit]`
-      (source-state)
-    - `:transition`               → `[:states <state>... :on <event> :action]`
-      (source-state + event-id)
-    - `:always`                   → `[:states <state>... :always 0 :action]`
-      (best-effort: index 0; richer index resolution requires
-      substrate-side carrier of the always-index, deferred)
-    - `:after-action`             → `[:states <state>... :after :action]`
-      (best-effort: timer fn-form path; the macro doesn't yet stamp
-      per-delay `:after` coords; D2 follow-on bead handles richer index).
-  - `:guard` with a keyword `:guard-id` → `[:guards <id>]`
-    (definition-site stamp; the named-guard path).
-  - `:guard` with an inline `:guard-id` (fn) — derive from state +
-    event-id:
-    `[:states <state>... :on <event> :guard]` (best-effort: no vector
-    transition-option index — for the common single-map transition).
-  - `:transition` → `[:states <from-state>... :on <event>]`
-    (the transition map's spec-path; opens the operator on the
-    transition literal in the spec).
-  - `:timer` → `[:states <state>...]`
-    (D1 minimum-viable: the parent state's source-coord chip; richer
-    per-`:after` coord is the D2 follow-on bead's surface)."
-  [{:keys [kind action-id guard-id phase source-state target-state event-id]
-    timer-state :state}]
-  (let [source-prefix (state-spec-path-prefix source-state)
-        target-prefix (state-spec-path-prefix target-state)
-        timer-prefix  (state-spec-path-prefix timer-state)]
-    (case kind
-      :action
-      (cond
-        ;; Named-handler path (keyword id) — definition-site stamp.
-        (keyword? action-id) [:actions action-id]
-        ;; Inline-fn path — slot stamp under the relevant state.
-        (contains? #{:entry :initial-entry} phase)
-        (when target-prefix (conj target-prefix :entry))
-        (contains? #{:exit :destroy-exit} phase)
-        (when source-prefix (conj source-prefix :exit))
-        (= :transition phase)
-        (when (and source-prefix event-id)
-          (conj source-prefix :on event-id :action))
-        (= :always phase)
-        (when source-prefix (conj source-prefix :always 0 :action))
-        (= :after-action phase)
-        (when source-prefix (conj source-prefix :after :action))
-        :else nil)
-
-      :guard
-      (cond
-        (keyword? guard-id) [:guards guard-id]
-        :else
-        (when (and source-prefix event-id)
-          (conj source-prefix :on event-id :guard)))
-
-      :transition
-      (when (and source-prefix event-id)
-        (conj source-prefix :on event-id))
-
-      :timer
-      ;; The row's `:state` is the cancelled state vector (substrate
-      ;; payload). D1 minimum-viable shape: point at the parent state's
-      ;; spec-path so the operator orients on the `:after`-bearing node.
-      (or timer-prefix source-prefix target-prefix)
-
-      nil)))
-
-(defn cascade-outcome-label
-  "Render a cascade row's outcome for the view's outcome chip
-  (rf2-u69j7). Pure-data.
-
-    :guard       → `pass | fail | threw`
-    :action      → `ok | threw` (the action's outcome map is rich;
-                                 the chip carries only the headline)
-    :transition  → `→ N microstep(s)` (the headline reads off
-                                       `:microsteps`)
-    :timer       → `cancelled (<reason>)`"
-  [{:keys [kind outcome threw? microsteps reason]}]
-  (case kind
-    :guard      (if (keyword? outcome) (name outcome) nil)
-    :action     (cond
-                  threw?                "threw"
-                  (= :ok outcome)       "ok"
-                  (map? outcome)        "ok"
-                  (keyword? outcome)    (name outcome)
-                  :else                 nil)
-    :transition (when (number? microsteps)
-                  (str microsteps " microstep"
-                       (when (not= 1 microsteps) "s")))
-    :timer      (str "cancelled"
-                     (when reason (str " (" (name reason) ")")))
-    nil))
-
-;; ---- spec helpers --------------------------------------------------------
-
-(defn handler-flavour-label
-  "Human-readable label for a handler flavour keyword."
-  [flavour]
-  (case flavour
-    :reg-event-db  "reg-event-db"
-    :reg-event-fx  "reg-event-fx"
-    :reg-machine   "machine-event-handler"
-    (str flavour)))
 
 (defn empty-pipeline?
   "True iff `(project record)` would produce zero steps (no dispatch,
@@ -3267,8 +2903,6 @@
   - Original 7 (rf2-sc3r1): DISPATCH · COEFFECT · HANDLER · FLOW · FX ·
     SUBSCRIPTIONS · VIEWS.
   - rf2-17vxj: + SCHEMA-VIOLATIONS (warning chrome, conditional).
-  - rf2-yx1ae: + CHILD-DISPATCHES (cascade-link section, conditional).
-  - rf2-rrykz: + APP-DB-DIFF (state-mutation lens, conditional).
   - rf2-xgeag: SCHEMA-VIOLATIONS retired (violations attach to owning
     pipeline step inline); + SCHEMA-HOT-RELOAD for the hot-reload-only
     standalone tail step (drift has no owning cascade step).
@@ -3277,12 +2911,15 @@
   - rf2-yz57h: + INTERCEPTOR (conditional — present only when a user
     interceptor threw this cascade; the throwing interceptor's :before /
     :after row carries the shared 'Exception Thrown' card).
+  - rf2-zkiu5: CHILD-DISPATCHES + APP-DB-DIFF retired (pair-debug
+    2026-05-26) — both redundant with existing steps (FX surfaces
+    dispatch-family fx; HANDLER `:db` surfaces the post-handler diff).
 
   The view's badge resolver bails to `:text-tertiary` on an unknown
   badge, so adding to this set is purely additive."
   #{:DISPATCH :COEFFECT :INTERCEPTOR :HANDLER :FLOW :SIDE-EFFECTS
     :SUBSCRIPTIONS :VIEWS
-    :SCHEMA-HOT-RELOAD :CHILD-DISPATCHES :APP-DB-DIFF})
+    :SCHEMA-HOT-RELOAD})
 
 (defn valid-badge?
   "Predicate — `:badge` keyword is a member of `badge-set`."

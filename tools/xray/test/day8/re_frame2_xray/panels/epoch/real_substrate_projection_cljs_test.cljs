@@ -26,10 +26,9 @@
 
   - DISPATCH row — the substrate's `:rf.event/dispatched` emit.
   - HANDLER     — the substrate's `:rf.event/run-end` emit (carries
-                  the canonical `:rf.event/elapsed-ms` tag); the
-                  HANDLER row's `:db-diff` slot is driven by the
-                  substrate's `:rf.event/db-changed` emit (canonical
-                  `:rf.event/db-changed-paths` tag).
+                  the canonical `:rf.event/elapsed-ms` tag). The
+                  `:rf.event/db-changed` emit is pinned for drift
+                  detection (the projection's `db-write?` reads it).
 
   COEFFECTs / FX / FLOW / SUBSCRIPTIONS / VIEWS are NOT exercised
   here (each would require a non-trivial registration / mount /
@@ -83,11 +82,11 @@
 (deftest real-substrate-emits-project-to-dispatch+handler
   (testing "rf2-tyivx — REAL substrate emits drive the projection.
             One dispatch through a registered handler must produce
-            at least the DISPATCH + HANDLER steps; the HANDLER step's
-            `:db-diff` slot must carry the substrate's
-            `:rf.event/db-changed-paths`. If the substrate rotates an
-            emit name + the reader doesn't follow, the step / slot
-            disappears here."
+            at least the DISPATCH + HANDLER steps, and the substrate
+            must emit the `:rf.event/db-changed` operation the
+            projection's `db-write?` reads. If the substrate rotates an
+            emit name + the reader doesn't follow, the step disappears
+            here."
     (setup!)
     (register-counter-handler!)
     (rf/dispatch-sync [:rf.tyivx/counter-inc 1])
@@ -110,8 +109,8 @@
            duration read; a rename here would drop the handler row")
       (is db-changed?
           "substrate emitted `:rf.event/db-changed` — drives the
-           HANDLER step's `:db-diff` slot; a rename here would drop
-           the diff annotation")
+           HANDLER step's `db-write?` flag; a rename here would drop
+           the :db sub-section's write detection")
       ;; Now feed the captured cascade through the projection. The
       ;; record's :trace-events vector mirrors what the Xray epoch
       ;; recorder would store for this dispatch.
@@ -128,17 +127,16 @@
         (is (contains? steps :handler)
             "HANDLER step present — projection matched the
              substrate's `:rf.event/run-end` operation name")
-        ;; Find the HANDLER step and assert its `:db-diff` slot is
-        ;; populated. The projection reads `:rf.event/db-changed-paths`
-        ;; off the substrate's `:rf.event/db-changed` emit — both
-        ;; canonical names must align with substrate reality.
+        ;; Find the HANDLER step and assert its `db-write?` flag is
+        ;; set. The projection reads the substrate's `:rf.event/db-changed`
+        ;; emit — its canonical name must align with substrate reality.
         (let [handler-step (first (filter #(= :handler (:step %)) projected))]
           (is (some? handler-step) "HANDLER step row exists")
-          (is (some? (:db-diff handler-step))
-              "HANDLER `:db-diff` slot carries data from the
-               substrate's `:rf.event/db-changed-paths` tag. If this
-               fails after a substrate-side rename, the synth fixtures
-               will still be green — pin the canonical names here."))))))
+          (is (true? (:db-write? handler-step))
+              "HANDLER `db-write?` reads the substrate's
+               `:rf.event/db-changed` emit. If this fails after a
+               substrate-side rename, the synth fixtures will still be
+               green — pin the canonical name here."))))))
 
 ;; ---- rf2-4wywy — live t1/t2 db attribution ------------------------------
 ;;

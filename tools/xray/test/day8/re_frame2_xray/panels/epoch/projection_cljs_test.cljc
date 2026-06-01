@@ -33,6 +33,7 @@
         grouping, timer reasons, guard outcomes)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             ;; rf2-tyivx — canonical trace-event builders shared with
             ;; the panel-gallery synth fixtures + any other projection
@@ -409,21 +410,18 @@
 (deftest handler-row-reg-event-db-test
   (testing "no fx + no machine = reg-event-db flavour.
 
-  Post pair-debug 2026-05-26 (commit ee9def224): `handler-row` reads
-  the JIT-diff off explicit `db-before` / `db-after` snapshots; the
-  2-arg form here supplies nil/nil and yields an empty `:db-diff`
-  regardless of any trace-tag-stamped paths on the events. The
-  `:rrykz`-era assertion `(= 1 (count :db-diff))` against
-  `db-changed-paths` tags is removed — those tags are not what the
-  current `handler-row` reads."
+  rf2-sp0n9 — the prior `:db-diff` Editscript flat-row slot is gone
+  (the view re-derived its own diff and discarded the projection's);
+  the HANDLER `:db` is now rendered from `:db-post-handler` diffed
+  against `:db-before` by the view's edn-inspector."
     (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
                               :counter-inc)]
       (is (= :handler (:step r)))
       (is (= :HANDLER (:badge r)))
       (is (= :reg-event-db (:flavour r)))
       (is (= :counter-inc (:event-id r)))
-      (is (= [] (:db-diff r))
-          "2-arg form supplies nil db-before/after → empty :db-diff")
+      (is (not (contains? r :db-diff))
+          "rf2-sp0n9 — no precomputed :db-diff slot on the handler row")
       (is (= [] (:fx r))))))
 
 (deftest handler-row-reg-event-fx-test
@@ -671,18 +669,18 @@
 (deftest cascade-row-label-test
   (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
     (is (= "guard :ready?"
-           (proj/cascade-row-label {:kind :guard :guard-id :ready?})))
+           (fmt/cascade-row-label {:kind :guard :guard-id :ready?})))
     (is (= "entry action :open-socket"
-           (proj/cascade-row-label {:kind :action :action-id :open-socket
+           (fmt/cascade-row-label {:kind :action :action-id :open-socket
                                     :phase :entry})))
     (is (= "timer [:idle] · on-exit"
-           (proj/cascade-row-label {:kind :timer :state [:idle]
+           (fmt/cascade-row-label {:kind :timer :state [:idle]
                                     :reason :on-exit})))
     ;; rf2-ge6uj ISSUE 3 — the transition label is JUST the state change
     ;; `<from> → <to>`; the redundant "transition" word + machine-name
     ;; echo are dropped (the KIND pill + cascade context carry those).
     (is (= "[:idle] → [:connecting]"
-           (proj/cascade-row-label {:kind :transition
+           (fmt/cascade-row-label {:kind :transition
                                     :machine-id :ws/conn
                                     :from-state [:idle]
                                     :to-state   [:connecting]})))))
@@ -691,14 +689,14 @@
   (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path
             tuple for source-coord lookup (named cases)"
     (is (= [:actions :open-socket]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :action :action-id :open-socket})))
     (is (= [:guards :ready?]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :guard :guard-id :ready?})))
-    (is (nil? (proj/cascade-row-source-key {:kind :transition}))
+    (is (nil? (fmt/cascade-row-source-key {:kind :transition}))
         "transitions with no state/event context → nil")
-    (is (nil? (proj/cascade-row-source-key {:kind :timer}))
+    (is (nil? (fmt/cascade-row-source-key {:kind :timer}))
         "timers with no state context → nil")))
 
 ;; ---- rf2-wwc3j — inline-fn / transition / timer source-key extensions -----
@@ -708,17 +706,17 @@
             target-state's `[:states <s> :entry]` slot"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :connected :entry]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :entry
                 :target-state :connected}))
           "flat machine: entry action under target-state slot")
       (is (= [:states :connected :entry]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :entry
                 :target-state [:connected]}))
           "vector target-state coerces to the same path")
       (is (= [:states :outer :states :inner :entry]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :entry
                 :target-state [:outer :inner]}))
           "hierarchical target-state expands to nested :states path"))))
@@ -728,11 +726,11 @@
             source-state's `[:states <s> :exit]` slot"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :idle :exit]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :exit
                 :source-state :idle})))
       (is (= [:states :idle :exit]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :destroy-exit
                 :source-state :idle}))
           ":destroy-exit phase also maps to the :exit slot"))))
@@ -742,7 +740,7 @@
             `[:states <src> :on <event> :action]`"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :idle :on :submit :action]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :action :action-id inline-fn :phase :transition
                 :source-state :idle :event-id :submit}))))))
 
@@ -751,11 +749,11 @@
             `[:states <src> :on <event> :guard]`"
     (let [inline-fn (fn [_] true)]
       (is (= [:states :idle :on :submit :guard]
-             (proj/cascade-row-source-key
+             (fmt/cascade-row-source-key
                {:kind :guard :guard-id inline-fn
                 :source-state :idle :event-id :submit}))
           "inline guard on a state's :on transition")
-      (is (nil? (proj/cascade-row-source-key
+      (is (nil? (fmt/cascade-row-source-key
                   {:kind :guard :guard-id inline-fn
                    :source-state :idle}))
           "missing event-id → nil (the source-key cannot be built)"))))
@@ -765,14 +763,14 @@
             :on <event>]` so the click-through opens the transition map
             literal in the spec"
     (is (= [:states :idle :on :submit]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :transition :source-state :idle :event-id :submit})))
     (is (= [:states :outer :states :inner :on :go]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :transition :source-state [:outer :inner]
               :event-id :go}))
         "hierarchical from-state expands to nested :states path")
-    (is (nil? (proj/cascade-row-source-key
+    (is (nil? (fmt/cascade-row-source-key
                 {:kind :transition :source-state :idle}))
         "missing event-id → nil")))
 
@@ -780,12 +778,12 @@
   (testing "rf2-wwc3j — `:timer` row resolves to `[:states <state>]`
             (D1 minimum-viable: parent state's source-coord chip)"
     (is (= [:states :idle]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :timer :state :idle})))
     (is (= [:states :idle]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :timer :state [:idle]})))
-    (is (nil? (proj/cascade-row-source-key {:kind :timer}))
+    (is (nil? (fmt/cascade-row-source-key {:kind :timer}))
         "missing state → nil")))
 
 (deftest cascade-row-source-key-named-shadows-inline-test
@@ -793,12 +791,12 @@
             inline derivation (the existing definition-site path covers
             the named case end-to-end)"
     (is (= [:actions :open-socket]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :action :action-id :open-socket :phase :entry
               :target-state :connected}))
         ":action-id keyword → definition-site path, ignores :phase / :target-state")
     (is (= [:guards :ready?]
-           (proj/cascade-row-source-key
+           (fmt/cascade-row-source-key
              {:kind :guard :guard-id :ready? :source-state :idle
               :event-id :submit}))
         ":guard-id keyword → definition-site path, ignores :source-state / :event-id")))
@@ -895,18 +893,18 @@
 (deftest cascade-outcome-label-test
   (testing "rf2-u69j7 — `cascade-outcome-label` renders kind-specific
             outcome strings"
-    (is (= "pass"  (proj/cascade-outcome-label {:kind :guard :outcome :pass})))
-    (is (= "fail"  (proj/cascade-outcome-label {:kind :guard :outcome :fail})))
-    (is (= "threw" (proj/cascade-outcome-label {:kind :guard :outcome :threw})))
-    (is (= "ok"    (proj/cascade-outcome-label {:kind :action :outcome :ok})))
-    (is (= "threw" (proj/cascade-outcome-label
+    (is (= "pass"  (fmt/cascade-outcome-label {:kind :guard :outcome :pass})))
+    (is (= "fail"  (fmt/cascade-outcome-label {:kind :guard :outcome :fail})))
+    (is (= "threw" (fmt/cascade-outcome-label {:kind :guard :outcome :threw})))
+    (is (= "ok"    (fmt/cascade-outcome-label {:kind :action :outcome :ok})))
+    (is (= "threw" (fmt/cascade-outcome-label
                      {:kind :action :threw? true :outcome :rf.error/action-threw})))
     (is (= "1 microstep"
-           (proj/cascade-outcome-label {:kind :transition :microsteps 1})))
+           (fmt/cascade-outcome-label {:kind :transition :microsteps 1})))
     (is (= "3 microsteps"
-           (proj/cascade-outcome-label {:kind :transition :microsteps 3})))
+           (fmt/cascade-outcome-label {:kind :transition :microsteps 3})))
     (is (= "cancelled (on-exit)"
-           (proj/cascade-outcome-label {:kind :timer :reason :on-exit})))))
+           (fmt/cascade-outcome-label {:kind :timer :reason :on-exit})))))
 
 ;; ---- FLOW ---------------------------------------------------------------
 
@@ -1042,14 +1040,12 @@
       (is (= 2 (:derived (:db-post-handler h)))
           "the HANDLER step's :derived is the PRE-flow value (2), NOT the
            flow's recomputed value (4) — the handler did not touch it")
-      ;; The flat-row `:db-diff` (non-view consumers) is computed against
-      ;; t1, so it shows ONLY the handler's path changes, no :derived.
-      (let [diff-paths (set (map first (:db-diff h)))]
-        (is (contains? diff-paths [:base])
-            ":db-diff carries the handler's :base bump")
-        (is (not (contains? diff-paths [:derived]))
-            ":db-diff must NOT carry the flow's :derived recompute — that
-             belongs to the FLOW step, not the HANDLER step")))))
+      ;; rf2-sp0n9 — the view diffs `:db-post-handler` (t1) against
+      ;; `:db-before`, so the HANDLER step shows ONLY the handler's :base
+      ;; bump; the flow's :derived recompute belongs to the FLOW step.
+      (is (= 2 (:base (:db-post-handler h)))
+          "the HANDLER step's effective post-handler db carries the
+           handler's :base bump (1 → 2)"))))
 
 (deftest flow-step-carries-its-own-db-diff-snapshots-test
   (testing "rf2-4wywy ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
@@ -1088,8 +1084,7 @@
   (testing "rf2-4wywy — graceful fallback: when no t1 fired (handler
             returned no `:db`, or a pre-rf2-ta0y7 runtime) the HANDLER
             step carries no `:db-post-handler`; the view falls back to
-            the record's `:db-after`. The flat `:db-diff` then reads the
-            db-before → db-after change (prior behaviour preserved)."
+            the record's `:db-after` and diffs it against `:db-before`."
     (let [record {:event-id     :legacy/no-t1
                   :db-before    {:counter 1}
                   :db-after     {:counter 2}
@@ -1099,9 +1094,8 @@
           h      (first (filter #(= :handler (:step %)) steps))]
       (is (some? h))
       (is (nil? (:db-post-handler h))
-          "no t1 on the stream → :db-post-handler absent")
-      (is (contains? (set (map first (:db-diff h))) [:counter])
-          "without t1 the :db-diff falls back to db-before → db-after"))))
+          "no t1 on the stream → :db-post-handler absent (view falls
+           back to the record's :db-after)"))))
 
 (deftest flow-step-falls-back-to-scalar-when-no-snapshots-test
   (testing "rf2-4wywy — when no t1/t2 snapshots rode the stream (pre-
@@ -1166,9 +1160,9 @@
 (deftest handler-step-shows-no-db-change-when-handler-wrote-no-db-test
   (testing "rf2-48oc4 ACCEPTANCE (b) — when the handler returned NO `:db`
             but a flow fired, the HANDLER step shows NO `:db` change: the
-            effective post-handler db equals `db-before`, so the `:db-diff`
-            is EMPTY and `:db-post-handler` carries db-before (NOT the
-            flow-augmented post-flow state)."
+            effective post-handler db equals `db-before` (NOT the
+            flow-augmented post-flow state), so the view's diff against
+            `:db-before` is empty."
     (let [db-before {:base 1 :derived 2}
           ;; handler wrote no :db → t1 absent. The flow recomputes
           ;; :derived from :base into app-db → t2 fires with the augmented db.
@@ -1188,11 +1182,9 @@
       (is (= db-before (:db-post-handler h))
           "the HANDLER step's effective post-handler db = db-before (the
            handler wrote nothing); NOT the post-flow t2")
-      (is (= [] (:db-diff h))
-          "HANDLER `:db-diff` is EMPTY — the handler made no :db change;
-           the flow's :derived recompute must NOT surface here")
-      (is (not (contains? (set (map first (:db-diff h))) [:derived]))
-          "the flow's :derived change does NOT leak into the HANDLER step"))))
+      (is (= 2 (:derived (:db-post-handler h)))
+          "rf2-sp0n9 — the flow's :derived recompute (2 → 4) does NOT leak
+           into the HANDLER step's effective db; it stays at the pre-flow 2"))))
 
 (deftest flow-step-diffs-against-db-before-when-handler-wrote-no-db-test
   (testing "rf2-48oc4 ACCEPTANCE (a) — when the handler returned NO `:db`
@@ -1928,48 +1920,59 @@
                          (view-render-ev ::v [:s])])
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
-      (is (= 11 (count proj/badge-set))
-          "rf2-sc3r1 7 + rf2-yx1ae + rf2-rrykz + rf2-xgeag (SCHEMA-HOT-RELOAD,
-           renamed from SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 11 badges"))))
+      (is (= 9 (count proj/badge-set))
+          "rf2-sc3r1 7 + rf2-xgeag (SCHEMA-HOT-RELOAD, renamed from
+           SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 9 badges.
+           rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF (retired
+           steps the projection can no longer emit).")
+      ;; rf2-btt0s — guard against step-level drift: badge-set must NOT
+      ;; advertise a badge no step can produce. The conditional steps
+      ;; (FLOW / SIDE-EFFECTS / SCHEMA-HOT-RELOAD / INTERCEPTOR) are
+      ;; covered by their own dedicated projection tests; here we pin the
+      ;; two RETIRED badges are gone so the dead-badge class is CI-visible.
+      (is (not (contains? proj/badge-set :CHILD-DISPATCHES))
+          "retired CHILD-DISPATCHES badge removed from badge-set")
+      (is (not (contains? proj/badge-set :APP-DB-DIFF))
+          "retired APP-DB-DIFF badge removed from badge-set"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 
 (deftest format-duration-ms-test
   (testing "duration formatting"
-    (is (= "0.1ms" (proj/format-duration-ms 0.1)))
-    (is (= "9.5ms" (proj/format-duration-ms 9.5)))
-    (is (= "12ms"  (proj/format-duration-ms 12)))
-    (is (= "1.2s"  (proj/format-duration-ms 1234)))
-    (is (nil? (proj/format-duration-ms nil)))))
+    (is (= "0.1ms" (fmt/format-duration-ms 0.1)))
+    (is (= "9.5ms" (fmt/format-duration-ms 9.5)))
+    (is (= "12ms"  (fmt/format-duration-ms 12)))
+    (is (= "1.2s"  (fmt/format-duration-ms 1234)))
+    (is (nil? (fmt/format-duration-ms nil)))))
 
 (deftest ns-keyword-test
   (testing "id rendering"
-    (is (= ":foo"       (proj/ns-keyword :foo)))
-    (is (= ":my/foo"    (proj/ns-keyword :my/foo)))
-    (is (= "non-kw"     (proj/ns-keyword "non-kw")))))
+    (is (= ":foo"       (fmt/ns-keyword :foo)))
+    (is (= ":my/foo"    (fmt/ns-keyword :my/foo)))
+    (is (= "non-kw"     (fmt/ns-keyword "non-kw")))))
 
 (deftest truncate-test
   (testing "truncate keeps short strings + ellipsises long ones"
-    (is (= "abc"  (proj/truncate "abc" 5)))
-    (is (= "abcd…" (proj/truncate "abcdefg" 4)))))
+    (is (= "abc"  (fmt/truncate "abc" 5)))
+    (is (= "abcd…" (fmt/truncate "abcdefg" 4)))))
 
 (deftest phase-label-test
   (testing "phase labels render every closed-set member"
-    (is (= "exit"            (proj/phase-label :exit)))
-    (is (= "transition"      (proj/phase-label :transition)))
-    (is (= "entry"           (proj/phase-label :entry)))
-    (is (= "always"          (proj/phase-label :always)))
-    (is (= "after-action"    (proj/phase-label :after-action)))
-    (is (= "initial-entry"   (proj/phase-label :initial-entry)))
-    (is (= "destroy-exit"    (proj/phase-label :destroy-exit)))))
+    (is (= "exit"            (fmt/phase-label :exit)))
+    (is (= "transition"      (fmt/phase-label :transition)))
+    (is (= "entry"           (fmt/phase-label :entry)))
+    (is (= "always"          (fmt/phase-label :always)))
+    (is (= "after-action"    (fmt/phase-label :after-action)))
+    (is (= "initial-entry"   (fmt/phase-label :initial-entry)))
+    (is (= "destroy-exit"    (fmt/phase-label :destroy-exit)))))
 
 (deftest timer-reason-label-test
   (testing "timer-cancelled reasons render every closed-set member"
-    (is (= "on-exit"          (proj/timer-reason-label :on-exit)))
-    (is (= "on-destroy"       (proj/timer-reason-label :on-destroy)))
-    (is (= "on-resolution"    (proj/timer-reason-label :on-resolution)))
-    (is (= "on-supersede"     (proj/timer-reason-label :on-supersede)))
-    (is (= "on-frame-destroy" (proj/timer-reason-label :on-frame-destroy)))))
+    (is (= "on-exit"          (fmt/timer-reason-label :on-exit)))
+    (is (= "on-destroy"       (fmt/timer-reason-label :on-destroy)))
+    (is (= "on-resolution"    (fmt/timer-reason-label :on-resolution)))
+    (is (= "on-supersede"     (fmt/timer-reason-label :on-supersede)))
+    (is (= "on-frame-destroy" (fmt/timer-reason-label :on-frame-destroy)))))
 
 ;; ---- rf2-nqt3d — per-step elapsed time + cascade total ------------------
 
@@ -2156,95 +2159,23 @@
           out   (proj/mark-rolled-back-downstream steps rows)]
       (is (every? #(nil? (:rolled-back? %)) out)))))
 
-;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
+;; ---- rf2-zkiu5 — retired cascade steps (APP-DB DIFF + CHILD DISPATCHES) --
 ;;
-;; The standalone APP-DB DIFF step + `proj/app-db-diff-step` fn were
-;; removed in commit 862288aca / ee9def224. The HANDLER step's `:db`
-;; `[diff][all]` toggle surfaces the same data in-context. Tests for
-;; the retired surface are deleted; HANDLER `:db` coverage rides on
-;; `handler-row-reg-event-db-test` + `view_cljs_test.cljs` HANDLER
-;; tests (rf2-93436 — `:db diff` sub-section always-present).
-
-;; ---- rf2-yx1ae — child dispatches section -----------------------------
-;;
-;; The standalone CHILD-DISPATCHES step was removed from the top-level
-;; cascade in commit eccb6db1b (redundant with FX which already
-;; surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx
-;; entry). The pure-data fns (`child-dispatch-rows`,
-;; `child-dispatches-step`, `find-child-epoch`) survive as low-level
-;; helpers — their tests remain. The `project-includes-child-
-;; dispatches-step-test` (which asserted the step is part of the
-;; cascade) is retired.
-
-(deftest child-dispatch-rows-from-dispatch-test
-  (testing "rf2-yx1ae — `:dispatch [:e/x]` projects one row"
-    (let [rows (proj/child-dispatch-rows
-                 [(do-fx-ev {:dispatch [:e/x 7]})])]
-      (is (= 1 (count rows)))
-      (is (= [:e/x 7]   (-> rows first :event)))
-      (is (= :dispatch  (-> rows first :via)))
-      (is (nil? (-> rows first :delay-ms))))))
-
-(deftest child-dispatch-rows-from-dispatch-n-test
-  (testing "rf2-yx1ae — `:dispatch-n [[:a] [:b]]` projects one row each"
-    (let [rows (proj/child-dispatch-rows
-                 [(do-fx-ev {:dispatch-n [[:a] [:b 1]]})])]
-      (is (= 2 (count rows)))
-      (is (= [:a]   (-> rows (nth 0) :event)))
-      (is (= [:b 1] (-> rows (nth 1) :event)))
-      (is (every? #(= :dispatch-n (:via %)) rows)))))
-
-(deftest child-dispatch-rows-from-dispatch-later-test
-  (testing "rf2-yx1ae — `:dispatch-later {:ms 250 :dispatch [:retry]}`
-            projects one row with `:delay-ms`"
-    (let [rows (proj/child-dispatch-rows
-                 [(do-fx-ev {:dispatch-later {:ms 250 :dispatch [:retry]}})])]
-      (is (= 1 (count rows)))
-      (is (= [:retry] (-> rows first :event)))
-      (is (= 250 (-> rows first :delay-ms)))
-      (is (= :dispatch-later (-> rows first :via)))))
-
-  (testing "rf2-yx1ae — `:dispatch-later` accepts a vec form too"
-    (let [rows (proj/child-dispatch-rows
-                 [(do-fx-ev {:dispatch-later
-                             [{:ms 100 :dispatch [:a]}
-                              {:ms 500 :dispatch [:b]}]})])]
-      (is (= 2 (count rows)))
-      (is (= 100 (-> rows (nth 0) :delay-ms)))
-      (is (= 500 (-> rows (nth 1) :delay-ms))))))
-
-(deftest child-dispatches-step-conditional-test
-  (testing "rf2-yx1ae — no dispatch fx → step OMITTED"
-    (is (nil? (proj/child-dispatches-step
-                [(do-fx-ev {:http/post {:url "/x"}})]))))
-
-  (testing "rf2-yx1ae — dispatch fx present → step rendered"
-    (let [s (proj/child-dispatches-step
-              [(do-fx-ev {:dispatch [:e/x]})])]
-      (is (= :child-dispatches (:step s)))
-      (is (= :CHILD-DISPATCHES (:badge s)))
-      (is (= 1 (count (:rows s)))))))
-
-(deftest find-child-epoch-by-parent-dispatch-id-test
-  (testing "rf2-yx1ae — find-child-epoch matches on `:parent-dispatch-id`"
-    (let [history [{:epoch-id 11 :parent-dispatch-id 1 :trigger-event [:other]}
-                   {:epoch-id 12 :parent-dispatch-id 1 :trigger-event [:e/x 7]}
-                   {:epoch-id 13 :parent-dispatch-id 2 :trigger-event [:e/x 7]}]]
-      (is (= 12 (proj/find-child-epoch history 1 [:e/x 7]))
-          "exact trigger-event + parent-id match wins")
-      (is (= 11 (proj/find-child-epoch history 1 [:other]))
-          "exact match on a different sibling")
-      (is (nil? (proj/find-child-epoch history 99 [:e/x 7]))
-          "no parent-id match → nil")
-      (is (nil? (proj/find-child-epoch nil 1 [:e/x 7]))
-          "nil history → nil")
-      (is (nil? (proj/find-child-epoch history nil [:e/x 7]))
-          "nil parent-id → nil"))))
+;; The standalone APP-DB DIFF (rf2-rrykz) and CHILD-DISPATCHES
+;; (rf2-yx1ae) steps were retired pair-debug 2026-05-26 — both redundant
+;; with existing steps (HANDLER `:db` surfaces the post-handler diff; the
+;; FX step surfaces every dispatch-family fx entry). rf2-btt0s deleted
+;; the dead projection / view / badge code that lingered after the
+;; cascade-emit was dropped (`child-dispatch-rows`, `child-dispatches-step`,
+;; `find-child-epoch`, the `:CHILD-DISPATCHES` / `:APP-DB-DIFF` badge-set
+;; members) along with their tests. The surviving parent-epoch
+;; correlation (`find-parent-epoch` / `dispatch-id->epoch-id-index`) is
+;; a DIFFERENT, live concern — the DISPATCH step's `:fx-dispatch`
+;; parent-link resolver — and keeps its tests below.
 
 (deftest find-parent-epoch-by-dispatch-id-test
   (testing "rf2-5qp4g — find-parent-epoch resolves a parent epoch's
-            `:epoch-id` from its `:dispatch-id`. Reverse of
-            `find-child-epoch`: looks up the supplied
+            `:epoch-id` from its `:dispatch-id`: looks up the supplied
             parent-dispatch-id in a precomputed
             `{dispatch-id → epoch-id}` index (rf2-x25e0; built once
             per render via `dispatch-id->epoch-id-index`), returning
@@ -2289,11 +2220,6 @@
           "empty history → empty index")
       (is (= {} (proj/dispatch-id->epoch-id-index nil))
           "nil history → empty index"))))
-
-;; `project-includes-child-dispatches-step-test` retired in rf2-xu5iv
-;; (commit eccb6db1b dropped the CHILD-DISPATCHES step from the
-;; top-level cascade). See comment header above the child-dispatch
-;; helpers section.
 
 (deftest project-attaches-app-db-violation-to-fx-db-row-test
   (testing "rf2-8resu / rf2-kt6js / rf2-j630b — top-level `project`

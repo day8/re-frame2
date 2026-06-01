@@ -96,13 +96,12 @@
          ;; by spec, and is NOT the panel's outcome (see
          ;; `projection/epoch-outcome`).
          :outcome        (proj/epoch-outcome steps)
-         ;; rf2-yx1ae — the CHILD-DISPATCHES section's view resolves
-         ;; child epoch-ids via `find-child-epoch` against this cascade's
-         ;; `:dispatch-id` + the epoch-history. Pinning them on the
-         ;; composite sub keeps the view side a pure render — no
-         ;; secondary sub against `:rf.xray/epoch-history` in the
-         ;; per-row hot path.
-         :dispatch-id    (:dispatch-id record)
+         ;; rf2-x25e0 — the DISPATCH step's `:fx-dispatch` parent-epoch
+         ;; link resolves `:parent-dispatch-id → parent epoch-id` off a
+         ;; `{dispatch-id → epoch-id}` index the view builds once per
+         ;; render from this slice. Pinning `:epoch-history` on the
+         ;; composite sub keeps the view side a pure render — no secondary
+         ;; sub against `:rf.xray/epoch-history` in the per-row hot path.
          :epoch-history  epoch-history
          :steps          (vec (or steps []))})))
 
