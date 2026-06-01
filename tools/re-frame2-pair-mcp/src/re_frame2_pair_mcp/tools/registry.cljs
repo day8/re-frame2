@@ -73,6 +73,8 @@
             [re-frame2-pair-mcp.tools.tail-build :as tail-build]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
+            [re-frame2-pair-mcp.tools.read-sub :as read-sub]
+            [re-frame2-pair-mcp.tools.orient :as orient]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]
             [re-frame2-pair-mcp.tools.record :as record]
@@ -140,6 +142,15 @@
     :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true
     :descriptor data/discover-app}
+   {:name       "orient"
+    :handler    (ignoring-extra #(orient/orient-tool %1 %2))
+    ;; App-shape orientation summary (rf2-3bu3d.8) — registrar counts/ids +
+    ;; per-app-frame app-db top-keys + machines, composed from the existing
+    ;; introspection surfaces. A pure function of the frame registry + app-db
+    ;; state, idempotent across same-state calls — cacheable like the other
+    ;; read tools.
+    :cacheable? true
+    :descriptor data/orient}
    {:name       "eval-cljs"
     :handler    (ignoring-extra #(eval-cljs/eval-cljs-tool %1 %2))
     :cacheable? false
@@ -180,6 +191,16 @@
     :handler    (ignoring-extra #(get-path/get-path-tool %1 %2))
     :cacheable? true
     :descriptor data/get-path}
+   {:name       "read-sub"
+    :handler    (ignoring-extra #(read-sub/read-sub-tool %1 %2))
+    ;; Validated one-shot subscription read (rf2-3bu3d.7). A function of
+    ;; frame state (the sub's deref) — idempotent across same-state calls,
+    ;; cacheable like get-path / snapshot. The precheck-hash short-circuit
+    ;; keys on (hash app-db); a sub value derives from app-db, so a cache
+    ;; keyed on app-db is correct for the common case (the :cache default
+    ;; is opt-in per-call, rf2-c4fmh).
+    :cacheable? true
+    :descriptor data/read-sub}
    {:name       "read-dom"
     :handler    (ignoring-extra #(read-dom/read-dom-tool %1 %2))
     ;; Read of live rendered DOM — a function of view-plane state, not
