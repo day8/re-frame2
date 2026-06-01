@@ -82,6 +82,18 @@
         ;; MCP arg `elision` true = emit markers = `:include-large?` false,
         ;; hence the local `(not elision?)`.
         elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-3bu3d.6 — when the resolved scope is the DEFAULT `:app`
+        ;; (reserved `:rf/*` tool frames excluded), piggyback the list of
+        ;; tool frames that the scope dropped onto the same round-trip, so
+        ;; the response can tell the agent "you can opt into these via
+        ;; frames \"all\"". The runtime owns the reserved-frame predicate
+        ;; (`reserved-tool-frame?`, rf2-3bu3d.4) — we filter the LIVE
+        ;; registry through it app-side rather than guessing server-side.
+        ;; Off the `:app` path the slot is an empty vector (no extra cost
+        ;; for an explicit-scope read).
+        tool-frames-form (if (= :app frames)
+                           "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
+                           "[]")
         form     (if elision?
                    (ef/emit
                      (ef/rt-let
@@ -102,12 +114,14 @@
                        (ef/rt-raw
                          (str "{:value walked"
                               " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                              "                              (tree-seq coll? seq walked)))}"))))
+                              "                              (tree-seq coll? seq walked)))"
+                              " :tool-frames-excluded " tool-frames-form "}"))))
                    (ef/emit
                      (ef/rt-raw
                        (str "{:value "
                             (ef/emit (ef/rt-call 'snapshot-state opts))
-                            " :elided-count 0}"))))]
+                            " :elided-count 0"
+                            " :tool-frames-excluded " tool-frames-form "}"))))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
@@ -122,6 +136,11 @@
                  (let [new-shape?    (and (map? resp) (contains? resp :elided-count))
                        snap-value    (if new-shape? (:value resp) resp)
                        server-elided (when new-shape? (:elided-count resp))
+                       ;; rf2-3bu3d.6 — the eval form piggybacks the reserved
+                       ;; `:rf/*` tool frames the `:app` default dropped (an
+                       ;; empty vector off the `:app` path / on the bare-snap
+                       ;; fallback shape).
+                       excluded-tf   (when new-shape? (:tool-frames-excluded resp))
                        {:keys [value indicators]}
                        (wp/run-wire-pipeline snap-value
                                              {:kind          :snapshot-map
@@ -137,10 +156,27 @@
                        response-mode (cond
                                        path                  :path-sliced
                                        (= :full app-db-mode) :full
-                                       :else                 :summary)]
+                                       :else                 :summary)
+                       ;; rf2-3bu3d.6 — echo the resolved frame scope.
+                       ;; `:app` (the default) returns the APP frames only,
+                       ;; with reserved `:rf/*` tool frames excluded; the
+                       ;; returned snapshot's keys ARE those app frames, so
+                       ;; echo them verbatim under `:frames`. When tool
+                       ;; frames exist in the live registry but were
+                       ;; excluded by the default scope, surface a note so
+                       ;; the agent knows it can opt into them via
+                       ;; `frames "all"` (or by naming one explicitly) —
+                       ;; this is the friction-cut: the first read no longer
+                       ;; silently overflows on tool-frame state.
+                       snap-frames   (vec (keys value))
+                       echo-frames   (cond
+                                       (= :all frames) :all
+                                       (= :app frames) snap-frames
+                                       :else           (vec frames))
+                       excluded-tool? (and (= :app frames) (seq excluded-tf))]
                    (wire/ok-text (wire/with-indicators
                                    (cond-> {:ok?         true
-                                            :frames      (if (= :all frames) :all (vec frames))
+                                            :frames      echo-frames
                                             :include     include
                                             :mode        response-mode
                                             :slice-modes resolved-modes
@@ -148,6 +184,11 @@
                                             :dedup       dedup?
                                             :elision     elision?
                                             :snapshot    value}
+                                     excluded-tool?
+                                     (assoc :note (str "Default scope = app frames only; excluded reserved :rf/* "
+                                                       "tool frame(s): " (vec excluded-tf) ". Pass frames \"all\" "
+                                                       "to include tool-frame state, or name a frame explicitly "
+                                                       "(e.g. frames [\":rf/xray\"])."))
                                      path              (assoc :path path)
                                      (seq path-status) (assoc :path-not-found path-status))
                                    {:dropped dropped :elided elided})))))

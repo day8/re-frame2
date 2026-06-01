@@ -689,15 +689,26 @@
                      "Agent drills into the handle via `get-path` (or `snapshot {:path ...}` with a "
                      "non-elided sibling subpath). Pass `elision false` to bypass the walk and receive "
                      "the raw value. "
+                     "Default frame scope = APP FRAMES ONLY (rf2-3bu3d.6): reserved :rf/* TOOL frames "
+                     "(Xray's :rf/xray, an SSR slot, …) are EXCLUDED by default so a first investigate-read "
+                     "doesn't OVERFLOW on tool-frame inspection state (:rf/default is an app frame and is "
+                     "retained). When tool frames are excluded the response carries a :note naming them. "
+                     "Pass `frames \"all\"` to include tool-frame state, or name a tool frame explicitly "
+                     "(e.g. {:frames [\":rf/xray\"]}). "
                      "Examples: "
-                     "1. Discovery snapshot (summaries only): {:frames \"all\"} -> {:ok? true :mode :summary :snapshot {:rf/default {:app-db {:rf.mcp/summary {:type :map :keys [...] :count N :bytes ~B}} :sub-cache {...} :machines {...} :epochs {...} :traces {...}}}}. "
+                     "1. Discovery snapshot (default = app frames, summaries only): {} -> {:ok? true :mode :summary :frames [:rf/default] :snapshot {:rf/default {:app-db {:rf.mcp/summary {:type :map :keys [...] :count N :bytes ~B}} :sub-cache {...} :machines {...} :epochs {...} :traces {...}}} :note \"Default scope = app frames only; excluded reserved :rf/* tool frame(s): [:rf/xray]. ...\"}. "
                      "2. Drill into one slice: {:frames [\":rf/default\"] :include [\"app-db\"] :path \"[:cart :items]\"} -> {:ok? true :mode :path-sliced :path [:cart :items] :snapshot {:rf/default {:app-db [{:sku \"x\" :qty 2}]}}}. "
-                     "3. Full expansion (legacy shape): {:frames \"all\" :mode \"full\"} -> {:ok? true :mode :full :snapshot {:rf/default {:app-db {...} :epochs [...]}}}.")
+                     "3. Include tool frames too: {:frames \"all\"} -> {:ok? true :mode :summary :frames :all :snapshot {:rf/default {...} :rf/xray {...}}}.")
    :typicalTokens 3000
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
+                 :properties {:frames  {:description (str "Frames to snapshot. DEFAULT (omit the arg) = APP frames only — "
+                                                          "reserved :rf/* TOOL frames (e.g. :rf/xray) are excluded so the "
+                                                          "first read doesn't overflow on tool-frame state (:rf/default is "
+                                                          "an app frame, kept). Pass \"all\" to include tool frames, or an "
+                                                          "array of frame-id strings like [\":rf/default\", \":stories\"] "
+                                                          "(name a tool frame to include it, e.g. [\":rf/xray\"]).")
                                         :oneOf [{:type "string"}
                                                 {:type "array" :items {:type "string"}}]}
                               :include {:type "array"

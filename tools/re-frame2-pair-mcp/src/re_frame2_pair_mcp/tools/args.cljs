@@ -209,24 +209,39 @@
 
 (defn parse-frames-arg
   "Normalise the `frames` MCP arg into the form the runtime expects.
-   Accepts `:all`, the string \"all\", a JS array of strings, or a CLJS
-   vector. Returns `:all` or a vector of keyword frame-ids.
+   Returns one of three shapes the `snapshot-state` composer dispatches on:
 
-   Unrecognised input (anything other than the four accepted shapes
-   above) collapses to `:all`. This is least-surprise on the
-   discovery path — an agent that typos `frames \"al\"` or passes a
-   scalar `frames 42` gets the broadest valid scope back, not a
-   silent empty page. Stricter validation would be a behaviour
-   change against the published contract; the catch-all is intentional."
+     :app   — the APP frames only: every registered frame with the
+              reserved `:rf/*` TOOL frames removed (rf2-3bu3d.6). This is
+              the DEFAULT (absent / nil / unrecognised arg). It is what a
+              first investigate-read wants: the app the operator is
+              pairing against, NOT the Xray / Story / SSR tool-frame
+              inspection state that would otherwise dominate (and
+              frequently OVERFLOW) the snapshot. Tool frames are the
+              common case (any Xray-instrumented app), so excluding them
+              by default is the least-surprise scope.
+     :all   — EVERY registered frame, including reserved `:rf/*` tool
+              frames. The explicit opt-in: pass `frames \"all\"` (or the
+              keyword `:all`) to see tool-frame state too.
+     [..]   — an explicit vector of keyword frame-ids (a JS array of
+              strings or a CLJS vector). Whatever the agent names — a
+              specific tool frame like `[:rf/xray]` is honoured verbatim,
+              so naming a tool frame is also a valid opt-in.
+
+   Unrecognised input (anything other than the accepted shapes above —
+   a typo'd `frames \"al\"`, a scalar `frames 42`) collapses to `:app`,
+   the safe default scope: an agent gets the app frames back, not a
+   silent overflow on tool-frame state nor an empty page."
   [raw]
   (cond
-    (nil? raw) :all
+    (nil? raw) :app
     (or (= raw :all) (= raw "all")) :all
+    (or (= raw :app) (= raw "app")) :app
     (array? raw)
     (->> (js->clj raw) (mapv ->frame-keyword))
     (sequential? raw)
     (mapv ->frame-keyword raw)
-    :else :all))
+    :else :app))
 
 (defn parse-include-arg
   "Normalise the `include` MCP arg into the slice vector the runtime

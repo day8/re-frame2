@@ -3525,7 +3525,17 @@
    frame-id whose values are slice maps.
 
    Opts:
-     :frames    :all (default) or a vector of frame-ids.
+     :frames    Which frames to snapshot. One of:
+                  :app  — the APP frames only (default): every registered
+                          frame with reserved `:rf/*` TOOL frames removed
+                          (rf2-3bu3d.6). `:rf/default` is an app frame and
+                          is retained (see `reserved-tool-frame?`). This is
+                          the first-read default so a snapshot doesn't
+                          OVERFLOW on Xray / Story / SSR tool-frame state.
+                  :all  — EVERY registered frame, INCLUDING `:rf/*` tool
+                          frames. The explicit opt-in to tool-frame state.
+                  [...] — an explicit vector of frame-ids (honoured
+                          verbatim; naming a tool frame opts into it).
      :include   vector of slice keywords. Defaults to
                 [:app-db :sub-cache :machines :epochs :traces].
                 Pass a subset to skip slices.
@@ -3550,16 +3560,19 @@
    only; direct callers of this CLJS form see slices verbatim."
   ([] (snapshot-state {}))
   ([{:keys [frames include]
-     :or   {frames  :all
+     :or   {frames  :app
             include all-snapshot-slices}}]
    (install-last-click-capture!)
    (ensure-trace-listener!)
    (ensure-epoch-listener!)
-   (let [registered (vec (rf/frame-ids))
-         fids       (cond
-                      (= :all frames)  registered
+   (let [fids       (cond
+                      ;; rf2-3bu3d.6 — the DEFAULT scope is the APP frames
+                      ;; (reserved `:rf/*` tool frames excluded). `:all` is
+                      ;; the explicit opt-in to tool-frame state.
+                      (= :app frames)      (app-frame-ids)
+                      (= :all frames)      (vec (rf/frame-ids))
                       (sequential? frames) (vec frames)
-                      :else            registered)
+                      :else                (app-frame-ids))
          slices     (vec include)]
      (reduce (fn [m fid]
                (assoc m fid (snapshot-frame fid slices)))

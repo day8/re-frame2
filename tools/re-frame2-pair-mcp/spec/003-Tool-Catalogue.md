@@ -1315,7 +1315,13 @@ readers (`app-db-value`, `sub-cache`, `machines` + frame-local
 implementation.
 
 **Args**: `frames` (string `"all"` or array of frame-id strings like
-`":rf/default"`, default `"all"`), `include` (array of slice names —
+`":rf/default"`; **default = APP frames only** — reserved `:rf/*` TOOL
+frames (`:rf/xray`, an SSR slot, …) are excluded so a first
+investigate-read doesn't overflow on tool-frame inspection state, per
+rf2-3bu3d.6. `:rf/default` is an app frame and is retained. Pass `"all"`
+to include tool frames, or name a tool frame explicitly, e.g.
+`[":rf/xray"]`. When tool frames are excluded the response carries a
+`:note` naming them), `include` (array of slice names —
 subset of `["app-db" "sub-cache" "machines" "epochs" "traces"]`,
 default all five), `path` (EDN-encoded vector or JSON array of segment
 strings — path-slicing for the `:app-db` slice, rf2-tygdv), `mode`
@@ -1336,7 +1342,8 @@ catalogue, rf2-urjnc), `build` (string).
 
 ```clojure
 {:ok? true
- :frames :all|[<frame-id>...]
+ :frames [<app-frame-id>...]|:all|[<frame-id>...]  ; default scope echoes the resolved app frames
+ :note "Default scope = app frames only; excluded reserved :rf/* tool frame(s): [...]. ..."  ; only when tool frames were excluded
  :include [:app-db :sub-cache :machines :epochs :traces]
  :mode :summary | :full | :path-sliced
  :slice-modes {:app-db    :summary | :full | :path-sliced

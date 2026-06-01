@@ -96,7 +96,12 @@
    ;; rf2-suoj2 — helper takes walker-aligned `include-large?`; flip
    ;; from the MCP-arg `elision?` polarity here, mirroring the
    ;; production call site in `tools/snapshot.cljs`.
-   (let [elision-opts-form (elision/elision-opts-edn (not elision?) include-sensitive?)]
+   (let [elision-opts-form (elision/elision-opts-edn (not elision?) include-sensitive?)
+         ;; rf2-3bu3d.6 — on the `:app` default scope the form piggybacks
+         ;; the excluded reserved tool frames; off that path it is `[]`.
+         tool-frames-form (if (= :app (:frames opts))
+                            "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
+                            "[]")]
      (if elision?
        (str "(let [snap (re-frame2-pair.runtime/snapshot-state "
             (pr-str opts) ")"
@@ -114,9 +119,11 @@
             "               {} snap)]"
             "  {:value walked"
             "   :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-            "                                (tree-seq coll? seq walked)))})")
+            "                                (tree-seq coll? seq walked)))"
+            "   :tool-frames-excluded " tool-frames-form "})")
        (str "{:value (re-frame2-pair.runtime/snapshot-state "
-            (pr-str opts) ") :elided-count 0}")))))
+            (pr-str opts) ") :elided-count 0"
+            " :tool-frames-excluded " tool-frames-form "}")))))
 
 (deftest snapshot-form-elision-off-wraps-bare-snap-with-zero-count
   ;; Post-rf2-e35a5: even with elision off, the form returns the
@@ -197,6 +204,30 @@
     ;; (`re-frame.mcp-base.vocab/large-elided-key`).
     (is (re-find #":rf\.size/large-elided" form))
     (is (re-find #"tree-seq coll\? seq walked" form))))
+
+(deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
+  ;; rf2-3bu3d.6 — on the DEFAULT `:app` scope the eval form computes the
+  ;; reserved :rf/* tool frames it excluded (via the runtime predicate)
+  ;; and rides them back on the same round-trip under
+  ;; `:tool-frames-excluded`, so the wire response can name them in a
+  ;; :note. On the explicit `:all` / vector scopes the slot is `[]` —
+  ;; no extra cost when the agent already chose the scope.
+  (testing "elision-on, :app scope ⇒ form filters the registry through reserved-tool-frame?"
+    (let [form (build-snapshot-form {:frames :app :include [:app-db]} true)]
+      (is (re-find #":tool-frames-excluded \(filterv re-frame2-pair\.runtime/reserved-tool-frame\?"
+                   form))
+      (is (re-find #"re-frame\.core/frame-ids" form))))
+  (testing "elision-off, :app scope ⇒ same piggyback on the bare-snap shape"
+    (let [form (build-snapshot-form {:frames :app :include [:app-db]} false)]
+      (is (re-find #":tool-frames-excluded \(filterv re-frame2-pair\.runtime/reserved-tool-frame\?"
+                   form))))
+  (testing ":all scope ⇒ empty piggyback (agent opted into tool frames)"
+    (let [form (build-snapshot-form {:frames :all :include [:app-db]} true)]
+      (is (re-find #":tool-frames-excluded \[\]" form))
+      (is (not (re-find #"reserved-tool-frame\?" form)))))
+  (testing "explicit vector scope ⇒ empty piggyback"
+    (let [form (build-snapshot-form {:frames [:rf/xray] :include [:app-db]} true)]
+      (is (re-find #":tool-frames-excluded \[\]" form)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Eval-form composition for get-path-tool (rf2-urjnc).

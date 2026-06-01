@@ -20,9 +20,20 @@
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]))
 
-(deftest frames-default-is-all
-  (is (= :all (args/parse-frames-arg nil)))
-  (is (= :all (args/parse-frames-arg "all"))))
+(deftest frames-default-is-app-not-all
+  ;; rf2-3bu3d.6 — the DEFAULT scope (absent arg) is `:app` (app frames
+  ;; only, reserved :rf/* tool frames excluded), NOT `:all`. Explicit
+  ;; "all" is the opt-in to tool-frame state.
+  (is (= :app (args/parse-frames-arg nil))
+      "absent frames arg defaults to :app (app frames only)")
+  (is (= :all (args/parse-frames-arg "all"))
+      "explicit \"all\" opts into ALL frames incl. reserved tool frames")
+  (is (= :all (args/parse-frames-arg :all)))
+  (is (= :app (args/parse-frames-arg "app"))
+      "explicit \"app\" is the app-frames-only scope")
+  (testing "unrecognised scalar collapses to the safe :app default"
+    (is (= :app (args/parse-frames-arg 42)))
+    (is (= :app (args/parse-frames-arg "al")))))
 
 (deftest frames-array-coerces-to-keywords
   (let [arr #js [":rf/default" ":stories"]]

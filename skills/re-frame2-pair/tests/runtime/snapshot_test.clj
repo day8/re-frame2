@@ -45,7 +45,14 @@
  :rf/runtime {:machines {:snapshots {}}}}
  :sub-cache {[:stories/active] {:value :checkout :ref-count 1}}
  :epochs [{:epoch-id "s1" :event-id :stories/load}]
- :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}})
+ :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}
+ ;; rf2-3bu3d.6 — a reserved :rf/* TOOL frame (Xray's inspector frame).
+ ;; Its :app-db is the huge tool-frame inspection state that the default
+ ;; `:app` scope MUST exclude so the first read doesn't overflow on it.
+ :rf/xray {:app-db {:rf/runtime {:xray-mega-state :massive}}
+ :sub-cache {}
+ :epochs []
+ :traces []}})
 
 (defn stub-frame-ids [] (keys fixture-frames))
 (defn stub-get-frame-db [fid] (get-in fixture-frames [fid :app-db]))
@@ -71,6 +78,21 @@
 
 (def ^:private all-snapshot-slices
  [:app-db :sub-cache :machines :epochs :traces])
+
+;; rf2-3bu3d.6 — reserved-frame predicate + app-frame view. KEEP IN SYNC
+;; with `reserved-tool-frame?` / `app-frame-ids` in
+;; preload/re_frame2_pair/runtime.cljs (landed rf2-3bu3d.4). A `:rf/*`
+;; frame is a TOOL frame (Xray's :rf/xray, SSR slots) excluded from the
+;; default snapshot scope; the sole `:rf/default` carve-out is the
+;; universal default APP frame.
+
+(defn- reserved-tool-frame? [frame-id]
+ (and (keyword? frame-id)
+ (= "rf" (namespace frame-id))
+ (not= :rf/default frame-id)))
+
+(defn- app-frame-ids []
+ (vec (remove reserved-tool-frame? (stub-frame-ids))))
 
 (defn- snapshot-frame-slice [frame-id slice]
  (case slice
@@ -99,12 +121,15 @@
 (defn snapshot-state
  ([] (snapshot-state {}))
  ([{:keys [frames include]
- :or {frames :all include all-snapshot-slices}}]
- (let [registered (vec (stub-frame-ids))
- fids (cond
- (= :all frames) registered
+ :or {frames :app include all-snapshot-slices}}]
+ (let [fids (cond
+ ;; rf2-3bu3d.6 — DEFAULT scope `:app` = app frames only
+ ;; (reserved :rf/* tool frames excluded). `:all` is the
+ ;; explicit opt-in to tool-frame state.
+ (= :app frames) (app-frame-ids)
+ (= :all frames) (vec (stub-frame-ids))
  (sequential? frames) (vec frames)
- :else registered)
+ :else (app-frame-ids))
  slices (vec include)]
  (reduce (fn [m fid] (assoc m fid (snapshot-frame fid slices))) {} fids))))
 
@@ -112,15 +137,43 @@
 ;; Tests
 ;; ---------------------------------------------------------------------------
 
-(deftest defaults-include-all-frames-and-all-slices
+(deftest default-scope-is-app-frames-excludes-reserved-tool-frames
+ ;; rf2-3bu3d.6 — THE bead's central assertion. The no-arg / default
+ ;; snapshot returns the APP frames only; the reserved :rf/xray TOOL
+ ;; frame is EXCLUDED so the first read doesn't overflow on tool-frame
+ ;; inspection state. RED before the fix (default was :all → :rf/xray
+ ;; was present); GREEN after.
  (let [snap (snapshot-state)]
- (testing "every registered frame is present"
- (is (= #{:rf/default :stories} (set (keys snap)))))
- (testing "every slice is present per frame"
+ (testing "default scope = app frames; reserved :rf/* tool frame excluded"
+ (is (= #{:rf/default :stories} (set (keys snap)))
+ ":rf/xray (a reserved tool frame) must NOT appear in the default snapshot")
+ (is (not (contains? snap :rf/xray))
+ "the huge tool-frame inspection state is excluded by default"))
+ (testing "every slice is present per app frame"
  (doseq [fid [:rf/default :stories]]
  (is (= #{:app-db :sub-cache :machines :epochs :traces}
  (set (keys (get snap fid))))
  (str fid " missing slice keys"))))))
+
+(deftest explicit-all-includes-reserved-tool-frames
+ ;; rf2-3bu3d.6 — the opt-in. `:all` returns EVERY frame INCLUDING the
+ ;; reserved :rf/xray tool frame.
+ (let [snap (snapshot-state {:frames :all})]
+ (is (= #{:rf/default :stories :rf/xray} (set (keys snap)))
+ "explicit :all opts into tool-frame state")
+ (is (= :massive (get-in snap [:rf/xray :app-db :rf/runtime :xray-mega-state]))
+ "the tool frame's full state is included on the explicit opt-in")))
+
+(deftest explicit-app-keyword-matches-default
+ ;; `:app` is the same scope as the default.
+ (is (= (set (keys (snapshot-state)))
+ (set (keys (snapshot-state {:frames :app}))))))
+
+(deftest explicit-tool-frame-vector-includes-it
+ ;; Naming a tool frame explicitly is also a valid opt-in.
+ (let [snap (snapshot-state {:frames [:rf/xray]})]
+ (is (= #{:rf/xray} (set (keys snap)))
+ "naming :rf/xray explicitly includes it")))
 
 (deftest app-db-slice-delegates-to-frame-db
  (let [snap (snapshot-state {:include [:app-db]})]
