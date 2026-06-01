@@ -811,6 +811,48 @@
     (is (not (contains? (get (rf/frame-db :rf/default) :wizard) :result))
         ":rf.fx/clear-flow dissoc-in'd the output path")))
 
+(deftest fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround
+  ;; rf2-1smwp — pin the LEAST-OBVIOUS flow behaviour as an explicit
+  ;; contract: a flow registered mid-event via `:rf.fx/reg-flow` does NOT
+  ;; compute on THAT event's drain (the `:fx` walk runs after the flow
+  ;; transform — Spec 013 §Sequencing / §Drain integration), and the
+  ;; documented workaround (a follow-up no-op `:dispatch` from the SAME
+  ;; handler) materialises the initial value on the dispatched event's
+  ;; drain. Locks the lag so a future "synchronous re-walk" change can't
+  ;; silently alter it without flipping this test.
+  (rf/reg-event-db :init (fn [_ _] {:wizard {:foo 3 :bar 4}}))
+  ;; Bare register — NO follow-up dispatch. Demonstrates the lag.
+  (rf/reg-event-fx :enter-bare
+    (fn [_ _]
+      {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
+                              :inputs [[:wizard :foo] [:wizard :bar]]
+                              :output (fn [foo bar] (+ foo bar))
+                              :path   [:wizard :result]}]]}))
+  ;; Register + a follow-up no-op `:dispatch` on the same handler — the
+  ;; documented "I need the value now" workaround.
+  (rf/reg-event-fx :enter-with-settle
+    (fn [_ _]
+      {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
+                              :inputs [[:wizard :foo] [:wizard :bar]]
+                              :output (fn [foo bar] (+ foo bar))
+                              :path   [:wizard :result]}]
+            [:dispatch [:wizard/settle]]]}))
+  (rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+
+  (testing "the lag — a mid-event reg-flow does NOT compute on its own drain"
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:enter-bare])
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
+        "flow IS registered after :enter-bare")
+    (is (nil? (get-in (rf/frame-db :rf/default) [:wizard :result]))
+        "but :result is STILL unset — the flow did not run on the registering event's drain"))
+
+  (testing "the workaround — a follow-up :dispatch materialises the value on the next drain"
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:enter-with-settle])
+    (is (= 7 (get-in (rf/frame-db :rf/default) [:wizard :result]))
+        "the :dispatch [:wizard/settle] re-triggered the drain, so the flow computed 3 + 4 = 7")))
+
 ;; ---------------------------------------------------------------------------
 ;; 6. clear-all / clean-state interaction with :flow registrar slot
 ;; ---------------------------------------------------------------------------

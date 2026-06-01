@@ -300,6 +300,19 @@
    ;; accept `(arg opts)` with opts carrying `:frame`, and
    ;; `call-frame-scoped-hook!` passes `{:frame frame-id}` as the second
    ;; arg, so one hook pair serves both surfaces.
+   ;;
+   ;; ONE-EVENT LAG — THE LEAST-OBVIOUS FLOW BEHAVIOUR (Spec 013
+   ;; §Sequencing). The `:fx` walk is the LAST drain stage — it runs
+   ;; AFTER the flow-transform `:after` has already evaluated this event's
+   ;; flows (Spec 013 §Drain integration: step 4 runs after step 2). So a
+   ;; flow registered HERE was not in the registry when the flow transform
+   ;; walked, and does NOT compute its initial output on THIS event — it
+   ;; first fires on the NEXT drain on the same frame. This lag is
+   ;; structural (a synchronous re-walk would need a second `app-db`
+   ;; install, breaking the one-install-per-event invariant), NOT a bug.
+   ;; Callers needing the initial value immediately dispatch a follow-up
+   ;; no-op event from the SAME handler (see Spec 013 §Sequencing). Do not
+   ;; "fix" this by re-running the flow transform after `:fx`.
    :rf.fx/reg-flow
    (fn [frame-id _parent-envelope args]
      (call-frame-scoped-hook! :flows/reg-flow frame-id args))
