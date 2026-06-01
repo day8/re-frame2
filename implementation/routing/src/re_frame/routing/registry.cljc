@@ -16,7 +16,8 @@
   `registry/` alias, but the published API surface remains the
   facade's re-exports. Per the rf2-2yabr cohesion split: REGISTRY +
   MATCH/EMIT seam."
-  (:require [re-frame.registrar :as registrar]
+  (:require [clojure.string :as str]
+            [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing.match :as match]
             [re-frame.routing.url :as url]
@@ -119,6 +120,75 @@
 
 (declare compile-query-coercions)
 
+;; ---- authoring-boundary metadata validation ------------------------------
+;; Per Spec 012 §Reserved route-metadata keys. `reg-route` has the
+;; largest registration shape in the v2 surface (twelve reserved keys);
+;; a typo'd key (`:on-matched` for `:on-match`) or an opts-shaped map in
+;; the wrong slot would otherwise pass silently at registration and fail
+;; later at nav-time, or never. We fail LOUDLY at the authoring boundary
+;; (rf2-45b95): bare keys outside the reserved set are rejected; hosts
+;; and apps add their own keys under a namespace (`:myapp/*`), which are
+;; always allowed (per Spec 012 §Other pattern-level requirements — route
+;; metadata is an open map for NAMESPACED keys only).
+
+(def ^:private reserved-route-keys
+  "Route-metadata keys `reg-route` accepts as bare (unqualified) keys;
+  any other bare key is a likely typo and is rejected at registration.
+
+  The first twelve are the routing-owned reserved keys per Spec 012
+  §Reserved route-metadata keys. `:head` is a CROSS-FEATURE reserved
+  key owned by SSR (Spec 011 §Head/meta contract — \"routes name which
+  head to use via `:head` route metadata\"); Spec 012 itself lists it as
+  a valid route-metadata key alongside the routing-owned set (Spec 012
+  §Route-not-found). Cross-feature reserved keys are enumerated here so
+  the authoring guard does not false-flag a legitimate SSR route."
+  #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
+    :doc :path :params :query :query-defaults :query-retain
+    :tags :parent :on-match :on-error :scroll :can-leave
+    ;; cross-feature: SSR head selection (Spec 011 §Head/meta contract)
+    :head})
+
+(defn- validate-route-metadata!
+  "Authoring-boundary guardrail for `reg-route` (rf2-45b95). Throws
+  `:rf.error/invalid-route-metadata` (canonical thrown-error shape, per
+  Spec 009) when `metadata` carries a BARE key outside the reserved set —
+  the common typo case (`:on-matched` for `:on-match`). Namespaced keys
+  (`:myapp/analytics-id`) are host/app extension points and always pass
+  (Spec 012 §Reserved route-metadata keys). A non-map `metadata` is also
+  rejected here so the failure names the route at the authoring boundary
+  rather than NPE-ing downstream.
+
+  The thrown error names every offending key under `:keys` and carries
+  the reserved set under `:reserved` so the message is actionable —
+  authors see exactly which key is wrong and what the valid vocabulary
+  is. Fails in dev AND prod (it is a caller bug, not user input)."
+  [id metadata]
+  (when-not (map? metadata)
+    (throw (route-error
+             :rf.error/invalid-route-metadata
+             'rf/reg-route
+             (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
+             {:route-id id :value metadata})))
+  (let [bad (into []
+                  (comp (map key)
+                        (remove qualified-keyword?)
+                        (remove reserved-route-keys))
+                  metadata)]
+    (when (seq bad)
+      (throw (route-error
+               :rf.error/invalid-route-metadata
+               'rf/reg-route
+               (str "route " id " declares unknown metadata "
+                    (if (= 1 (count bad)) "key " "keys ")
+                    (str/join ", " (map pr-str bad))
+                    " — bare keys outside the reserved set are rejected as likely "
+                    "typos (e.g. :on-matched for :on-match). Reserved keys: "
+                    (str/join ", " (map pr-str (sort reserved-route-keys)))
+                    ". Host/app extension keys must be namespaced (e.g. :myapp/analytics-id).")
+               {:route-id id
+                :keys     bad
+                :reserved reserved-route-keys})))))
+
 ;; ---- registration --------------------------------------------------------
 
 (defn reg-route
@@ -132,6 +202,12 @@
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
   [id metadata]
+  ;; Authoring-boundary guardrail (rf2-45b95): reject bare metadata keys
+  ;; outside the reserved set BEFORE any computation, so a typo fails
+  ;; loudly at registration naming the bad key. Runs on the
+  ;; user-supplied map (pre-merge-coords) so it never sees the computed
+  ;; `:rf.route/*` / source-coord keys.
+  (validate-route-metadata! id metadata)
   (let [pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
@@ -628,6 +704,27 @@
   the route's `:params` schema, or query-params doesn't conform to the
   route's `:query` schema (caller bug — not user input). The exception
   carries `{:route-id :slot :error}` ex-data (rf2-ug2m1).
+
+  NIL-POLICY ASYMMETRY between PATH params and QUERY params (rf2-b3rzz —
+  deliberate, documented here so the split never costs a debugging
+  session):
+
+  - PATH params: a `nil` (or absent) value for a required `:name` /
+    `*name` segment is a HARD ERROR — throws
+    `:rf.error/missing-route-param`. The URL cannot be built without it.
+    A present-but-FALSY value (`false`, `0`, `\"\"`) is legitimate and
+    round-trips (the `if-some` discipline below discriminates falsy from
+    absent).
+  - QUERY params: a `nil`-valued key is SILENTLY ELIDED — `{:page nil}`
+    omits the key entirely rather than emitting a bare `?page=` or
+    throwing. This is the useful default for absent OPTIONAL query keys
+    (a search form that conditionally adds `?sort=` only when a sort is
+    chosen). A present-but-FALSY query value (`false`, `0`, `\"\"`) is a
+    legitimate value and round-trips, same as the path side.
+
+  So `nil` means \"hard error\" on the path side and \"omit this key\" on
+  the query side — same function, two nil-policies. Authors relying on a
+  query key being present must supply a non-nil value.
 
   Performance (rf2-r1in4): this fn sits on the render path through
   `route-link-render` / `route-link-render-ssr` — large link lists

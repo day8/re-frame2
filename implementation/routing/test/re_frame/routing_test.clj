@@ -3317,3 +3317,148 @@
                compiled "/users/42/posts/9"))
           "the same pattern DOES match when both captures are present —
            sanity-check the test isn't accepting only the negative cases"))))
+
+;; ---- rf2-45b95: reg-route authoring-boundary metadata validation ----------
+;;
+;; Spec 012 §Reserved route-metadata keys: reg-route has the largest
+;; registration shape in the v2 surface (twelve reserved keys). A typo'd
+;; key (:on-matched for :on-match) used to pass silently at registration
+;; and fail later at nav-time, or never. The authoring-boundary guardrail
+;; (rf2-45b95) rejects bare keys outside the reserved set LOUDLY at
+;; registration, naming the bad key; namespaced host/app keys pass.
+
+(deftest reg-route-rejects-unknown-bare-metadata-key
+  (testing "rf2-45b95: a typo'd bare metadata key (:on-matched for
+            :on-match) throws :rf.error/invalid-route-metadata at
+            registration, naming the bad key"
+    (let [ex (try
+               (rf/reg-route :route/typo {:path "/typo" :on-matched [[:load]]})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "reg-route THROWS on an unknown bare metadata key (no silent accept)")
+      (is (= :rf.error/invalid-route-metadata (:rf.error/id (ex-data ex)))
+          "the canonical thrown-error id discriminates the failure")
+      (is (= 'rf/reg-route (:where (ex-data ex)))
+          ":where names the public surface fn")
+      (is (= [:on-matched] (:keys (ex-data ex)))
+          ":keys names exactly the offending key so the message is actionable")
+      (is (clojure.string/includes? (:reason (ex-data ex)) ":on-matched")
+          "the human-readable :reason names the bad key"))))
+
+(deftest reg-route-accepts-valid-and-namespaced-metadata
+  (testing "rf2-45b95: a route using only reserved keys + namespaced
+            host/app keys registers fine (no false positives)"
+    (is (= :route/ok
+           (rf/reg-route :route/ok
+                         {:doc            "fine"
+                          :path           "/ok/:id"
+                          :params         [:map [:id :string]]
+                          :query          [:map [:q {:optional true} :string]]
+                          :query-defaults {:q "x"}
+                          :query-retain   #{:theme}
+                          :tags           #{:public}
+                          :on-match       [[:load]]
+                          :on-error       [:oops]
+                          :scroll         :top
+                          ;; namespaced host/app extension keys always pass
+                          :myapp/layout   :wide
+                          :myapp/analytics-id "abc"}))
+        "a route with every reserved key + namespaced extension keys registers")
+    (is (some? (rf/handler-meta :route :route/ok))
+        "the route is queryable via handler-meta after a clean registration")))
+
+(deftest reg-route-rejects-non-map-metadata
+  (testing "rf2-45b95: non-map metadata is rejected at the authoring
+            boundary naming the route (no downstream NPE)"
+    (let [ex (try (rf/reg-route :route/bad "/not-a-map")
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/invalid-route-metadata (:rf.error/id (ex-data ex)))
+          "non-map metadata surfaces the same canonical error id"))))
+
+;; ---- rf2-1os1c: :rf.route/navigate params/opts positional swap ------------
+;;
+;; Spec 012 §Navigation is an event: the two trailing maps (params 2nd,
+;; opts 3rd) are positionally ambiguous. The disambiguating guard
+;; (rf2-1os1c) rejects an opts-only key (:replace? / :scroll / :fragment /
+;; :bypass-leave-guard?) sitting in the PARAMS slot when it is not a
+;; declared path-param of the target route, and emits
+;; :rf.error/navigate-arity-misuse.
+
+(deftest navigate-rejects-opts-shaped-map-in-params-slot
+  (testing "rf2-1os1c: [:rf.route/navigate :route/x {:replace? true}]
+            (opts in the params slot) is rejected — slice unchanged, no
+            push, :rf.error/navigate-arity-misuse emitted"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (let [before (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])
+            traces (atom [])]
+        (rf/register-listener! ::arity (fn [ev] (swap! traces conj ev)))
+        ;; The classic swap: {:replace? true} meant for the opts (3rd)
+        ;; slot, supplied in the params (2nd) slot.
+        (rf/dispatch-sync [:rf.route/navigate :route/cart {:replace? true}])
+        (rf/unregister-listener! ::arity)
+        (is (= before (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current]))
+            "the misuse is rejected — the :rf/route slice is UNCHANGED")
+        (is (empty? @pushed)
+            "no URL is pushed for a rejected arity-misuse navigation")
+        (let [err (first (filter #(= :rf.error/navigate-arity-misuse (:operation %))
+                                 @traces))]
+          (is (some? err)
+              ":rf.error/navigate-arity-misuse emitted")
+          (is (= :event (-> err :tags :where))
+              "error tags :where :event (event-boundary path)")
+          (is (= [:replace?] (-> err :tags :keys))
+              ":keys names the misplaced opts key"))))))
+
+(deftest navigate-accepts-the-documented-arities
+  (testing "rf2-1os1c: the three documented arities all navigate cleanly
+            — [target], [target params], [target params opts]"
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (let [pushed   (atom [])
+          replaced (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/reg-fx :rf.nav/replace-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! replaced conj url)))
+      ;; [target] — no path-params, no opts.
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (is (= :route/home (:id (get-in (rf/frame-db :rf/default)
+                                      [:rf/runtime :routing :current])))
+          "[target] arity navigates")
+      ;; [target params] — params 2nd, opts absent.
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (is (= {:id "intro"} (:params (get-in (rf/frame-db :rf/default)
+                                            [:rf/runtime :routing :current])))
+          "[target params] arity navigates with path-params")
+      ;; [target params opts] — opts in the THIRD slot (:replace? true →
+      ;; :rf.nav/replace-url, proving the 3rd-slot opts are honoured).
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "two"} {:replace? true}])
+      (is (= "/articles/two" (last @replaced))
+          "[target params opts] arity navigates; :replace? opt honoured in the 3rd slot")
+      (is (= {:id "two"} (:params (get-in (rf/frame-db :rf/default)
+                                          [:rf/runtime :routing :current])))
+          "the 3-arity path-params landed in the slice, distinct from opts"))))
+
+(deftest navigate-does-not-false-flag-a-route-with-an-opts-named-path-param
+  (testing "rf2-1os1c: a route that legitimately captures a segment named
+            :fragment is NOT false-flagged — the key is a declared
+            path-param, not a misplaced opt"
+    (rf/reg-route :route/anchor {:path "/anchor/:fragment"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate :route/anchor {:fragment "intro"}])
+      (is (= :route/anchor (:id (get-in (rf/frame-db :rf/default)
+                                        [:rf/runtime :routing :current])))
+          "a declared :fragment path-param navigates normally (no false reject)")
+      (is (= "/anchor/intro" (last @pushed))
+          "the path-param :fragment populates the URL segment"))))
