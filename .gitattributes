@@ -20,3 +20,10 @@ docs/cljs/playground.css text eol=lf
 # committed docs/cljs/playground.css, so a CRLF source would yield a CRLF
 # output and trip the drift gate.
 docs/tools/playground/src/playground.css text eol=lf
+
+# The generated public-API manifest + its curated sidecar (rf2-3nbl5.2). The
+# generator writes LF-normalised bytes and the CI drift-check regenerates on
+# Linux; pin LF so a Windows (core.autocrlf=true) checkout never CRLF-rewrites
+# the committed file and trips a spurious manifest drift.
+spec/api-manifest.edn text eol=lf
+spec/api-manifest-metadata.edn text eol=lf
