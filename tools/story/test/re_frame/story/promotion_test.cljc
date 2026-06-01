@@ -19,8 +19,16 @@
   fresh side-table per test via the fixture, and an explicit `:lookup`
   for `:extends` resolution where needed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.epoch :as epoch]
+            [re-frame.frame :as frame]
+            [re-frame.http-managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
+            [re-frame.http-test-support]  ;; stub install seam + canned-stub handlers
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.artifact :as artifact]
+            [re-frame.story.determinism :as determinism]
+            [re-frame.story.plan :as plan]
             [re-frame.story.promotion :as promotion]
             [re-frame.story.registrar :as registrar]))
 
@@ -32,8 +40,18 @@
 ;; Matches the `artifact_test` fixture shape — the function form runs on
 ;; both the JVM `clojure -M:test` runner and the node CLJS build.
 
+;; The headless run-artifact replay test (rf2-87duu) dispatches into a live
+;; frame, so the fixture installs the plain-atom adapter + a default frame and
+;; clears the epoch surface between tests (mirroring `artifact_test`). The pure
+;; materialize/promote tests are unaffected by the extra setup.
+
 (defn reset-side-table! [t]
   (registrar/clear-all!)
+  (epoch/clear-history!)
+  (epoch/clear-epoch-listeners!)
+  (try (rf/init! plain-atom/adapter)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+  (frame/ensure-default-frame!)
   (t))
 
 (use-fixtures :each reset-side-table!)
@@ -219,3 +237,91 @@
              (story/promote-run-artifact!
                art {:variant/id :story.counter/from-facade})))
       (is (registrar/registered? :variant :story.counter/from-facade)))))
+
+;; ===========================================================================
+;; rf2-87duu — the provenance link of a :network-stubbed run RE-DERIVES it
+;; ===========================================================================
+;;
+;; The whole point of the `:run-artifact` provenance link is re-derivability:
+;; the docstring promises the trimmed core is "enough to … re-derive the run".
+;; For a run promoted from a `:network`-stubbed run, that link must carry
+;; `:network` — the `:fx-decisions` managed-stub REDIRECT
+;; (`{:rf.http/managed :rf.http/managed-test-stub}`) survives, but the actual
+;; per-route stubs are RE-INSTALLED from the artifact's `:network` map by
+;; `with-network-stubs!` / `replay-run-artifact` (rf2-tymyh, artifact.cljc
+;; §44-56). Drop `:network` from `provenance-link-keys` and the link replays a
+;; DIFFERENT run: every managed request fail-closes on "no stub matched"
+;; (`:rf.http/transport`) instead of the recorded `:ok` reply.
+;;
+;; RED (without `:network` in provenance-link-keys): the link-replayed run's
+;;   `:got` is the synthesised "no stub matched" transport FAILURE — a
+;;   different run than the one promoted.
+;; GREEN (with it): the link round-trips to the SAME run — same matched route,
+;;   same recorded `:ok` reply — as a direct replay of the source artifact.
+
+(defn- register-network-event!
+  "Register a test event that issues a managed-HTTP request to `route`
+  ([method url]) and records the reply into app-db under `:got` (the reply
+  rides back to this same origin event as `:rf/reply`, Spec 014 §Reply
+  addressing). Mirrors the artifact_test helper so the round-trip exercises
+  the same managed-HTTP fail-close path."
+  [event-id [method url]]
+  (rf/reg-event-fx event-id
+    (fn [{:keys [db]} [_ msg]]
+      (if-let [reply (:rf/reply msg)]
+        {:db (assoc db :got reply)}
+        {:fx [[:rf.http/managed {:request {:method method :url url}
+                                 :decode  :json}]]}))))
+
+(defn- network-artifact
+  "Compile a `:network` variant plan for `routes` and coerce it through the
+  determinism gate's `->artifact` (the real materialize-to-artifact seam),
+  so the artifact carries both the `:network` route map and the
+  `:fx-decisions` managed-stub redirect — exactly what a recorded HTTP run
+  produces."
+  [routes script]
+  (let [variant-id :story.promo-net/v
+        plan       (plan/variant-plan
+                     variant-id
+                     {:lookup {variant-id {:network routes
+                                           :script  script}}})]
+    (determinism/->artifact plan)))
+
+(deftest promotion-link-of-network-run-re-derives-it
+  (testing "a variant promoted from a :network-stubbed run carries a
+            provenance link that ROUND-TRIPS through replay-run-artifact to
+            the SAME run (rf2-87duu — :network is load-bearing for replay)"
+    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
+          ;; the trimmed provenance link a promotion stores on :run-artifact
+          link   (promotion/provenance-link art)]
+
+      ;; The link must itself carry the network route map — it is the slot
+      ;; replay re-installs the per-route stubs from. (RED without the fix.)
+      (is (= routes (:network link))
+          "the provenance link preserves :network so replay can re-install
+           the route stubs (rf2-87duu — same class as rf2-tymyh)")
+
+      ;; A direct replay of the SOURCE artifact: the route matches and the
+      ;; recorded :ok reply is synthesised. This is the run that was promoted.
+      (let [src (artifact/replay-run-artifact art)]
+        (is (= :pass (:status src)))
+        (is (= :success (:kind (:got (:app-db src))))
+            "the source run matched the route stub"))
+
+      ;; Re-deriving from the LINK alone must reproduce the SAME run — the
+      ;; provenance link is replayable on its own (it carries :artifact/kind,
+      ;; :event-program, :fx-decisions, and — post-fix — :network). Without
+      ;; :network the managed request fail-closes on "no stub matched"
+      ;; (:rf.http/transport), a DIFFERENT run.
+      (let [from-link (artifact/replay-run-artifact link)
+            got       (:got (:app-db from-link))]
+        (is (= :pass (:status from-link))
+            "the link re-derives a passing run — NOT a fail-closed one")
+        (is (= :success (:kind got))
+            "the re-installed route stub matched on the LINK replay — NOT the
+             'no stub matched' transport failure that fail-closes without
+             :network in provenance-link-keys")
+        (is (= {:items [{:sku "A"}]} (:value got))
+            "the link round-trips to the SAME recorded reply as the source run")))))

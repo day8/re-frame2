@@ -51,10 +51,13 @@
   so provenance reads the same everywhere. The link is a TRIMMED
   provenance view (`provenance-link`): the replayable + identifying core
   (`:artifact/kind`, `:seed`, `:event-program`, `:fx-decisions`,
-  `:shrink-path`, `:created-at`, `:source`) WITHOUT the bulky captured
-  evidence (`:epoch-tape`, `:trace`, `:result`). A curated variant can
-  explain where it came from and re-derive the run; it does not drag a
-  full epoch tape into the registrar side-table.
+  `:network`, `:shrink-path`, `:created-at`, `:source`) WITHOUT the bulky
+  captured evidence (`:epoch-tape`, `:trace`, `:result`). `:network`
+  rides the core (not the evidence) because replay RE-INSTALLS the
+  per-route stubs from it; without it a `:network`-stubbed run cannot be
+  re-derived (rf2-tymyh, rf2-87duu). A curated variant can explain where
+  it came from and re-derive the run; it does not drag a full epoch tape
+  into the registrar side-table.
 
   ## Purity / elision
 
@@ -80,8 +83,21 @@
   AND to re-derive the run. Deliberately EXCLUDES the bulky captured
   evidence (`:epoch-tape`, `:trace`, `:result`) — a registered variant
   body is a curation surface, not an evidence dump; the full evidence
-  lives on the original artifact the tool keeps."
-  #{:artifact/kind :seed :event-program :fx-decisions
+  lives on the original artifact the tool keeps.
+
+  `:network` is in the core because it is load-bearing for re-derivation,
+  not bulk: the `:fx-decisions` managed-stub REDIRECT
+  (`{:rf.http/managed :rf.http/managed-test-stub}`) survives on its own,
+  but `replay-run-artifact` / `with-network-stubs!` RE-INSTALL the actual
+  per-route stubs from the artifact's `:network` map (rf2-tymyh,
+  spec/017 §The network surface). Drop it and a variant promoted from a
+  `:network`-stubbed run carries a link that fail-closes on every managed
+  HTTP request (\"no stub matched\") — a DIFFERENT run than the one
+  promoted, breaking the docstring's re-derivability promise. Route
+  replies are part of run identity (already in `:world :network` /
+  artifact `:network`), so the slot is replayable + identifying, not
+  evidence."
+  #{:artifact/kind :seed :event-program :fx-decisions :network
     :shrink-path :created-at :source})
 
 (defn provenance-link
