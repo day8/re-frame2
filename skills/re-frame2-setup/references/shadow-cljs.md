@@ -59,10 +59,14 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Strict default-safe CSP: same-origin JS/CSS only, no inline
-       script/style. The template ships this; serve the same policy
-       via a response header in production. -->
+       script/style. `connect-src 'self' ws: wss:` admits shadow-cljs's
+       dev hot-reload websocket (it can route to a different port than
+       the page, which 'self' alone would block). The template ships
+       this dev policy; in production serve the same policy via a
+       response header and drop `ws: wss:` (no hot-reload websocket
+       there) — tighten `connect-src` to your real API origin(s). -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
   <title>your-app — re-frame2</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
@@ -95,7 +99,7 @@ Five contractual bits:
 
 ## `:devtools` block (hot-reload + Xray)
 
-The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for hot-reload + the Xray devtools panel — both wired this way in the generator template:
+The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for the Xray devtools panel — wired this way in the generator template:
 
 ```clojure
 :builds
@@ -104,11 +108,10 @@ The top-level `:dev-http` (above) already starts the dev server. Add a `:devtool
   :output-dir "resources/public/js"
   :asset-path "/js"
   :modules    {:main {:init-fn your-app.core/init}}
-  :devtools   {:after-load your-app.core/init
-               :preloads   [day8.re-frame2-xray.preload]}}}
+  :devtools   {:preloads [day8.re-frame2-xray.preload]}}}
 ```
 
-- `:after-load your-app.core/init` — re-run the entry fn after each hot reload so the freshly-loaded code re-installs the adapter and re-renders. **Note:** if `init` also runs `(rf/dispatch-sync [:your-app/initialise])` (the seed event — see `entry-namespace.md`), `:after-load` re-runs that seed on **every** hot reload, resetting `app-db` to its initial state each save. For a counter that means the count jumps back to 0 on every reload. If preserving in-progress state across reloads matters, point `:after-load` at a separate fn that re-renders **without** re-seeding (calls `rdc/render` but not `dispatch-sync`).
+- **No `:after-load` hook.** shadow-cljs's `:browser` target already re-runs the module `:init-fn` after each hot reload, so the freshly-loaded code re-installs the adapter and re-renders without an explicit `:after-load`. The template relies on this default and registers no `:after-load`. **Consequence to be aware of:** because `init` also runs `(rf/dispatch-sync [:your-app/initialise])` (the seed event — see `entry-namespace.md`), the re-invoked `init` re-runs that seed on **every** hot reload, resetting `app-db` to its initial state each save. For a counter that means the count jumps back to 0 on every reload — acceptable for greenfield. If preserving in-progress state across reloads matters later, add a `:devtools {:after-load ...}` pointing at a separate fn that re-renders **without** re-seeding (calls `rdc/render` but not `dispatch-sync`); shadow-cljs runs an explicit `:after-load` in place of the default `:init-fn` re-run.
 - `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 
