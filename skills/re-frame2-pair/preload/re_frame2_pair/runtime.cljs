@@ -127,6 +127,23 @@
 (def session-id
   (str (random-uuid)))
 
+;; Load-time wall-clock stamp for this preload instance — the moment
+;; THIS compiled `re-frame2-pair.runtime` namespace evaluated in the
+;; browser. Captured ONCE at namespace-load and never mutated (a `def`,
+;; not a per-call `(js/Date.now)`), so it answers "when did the running
+;; code actually load?" rather than "what time is it now?".
+;;
+;; This is the browser half of the stale-BUILD detector (rf2-ertqw):
+;; `discover-app` cross-checks it against the JVM-side build's last
+;; compile/flush timestamp. If the build recompiled AFTER this stamp,
+;; the browser tab is serving OLD code (a hot-reload didn't land, or a
+;; stale incremental build is being served) — the exact silent failure
+;; mode that drove the rf2-lo28u stale-build false-alarm detour. A full
+;; page refresh re-evaluates the namespace and re-mints both `session-id`
+;; and this stamp, so a fresh load reads as fresh.
+(def loaded-at
+  (js/Date.now))
+
 ;; Globally-visible mirror — the preload probe in
 ;; `re-frame2-pair-mcp.tools/ensure-runtime!` reads this rather than
 ;; resolving the CLJS var, so the probe is one bencode round-trip on
@@ -139,7 +156,7 @@
   (do (when (exists? js/globalThis)
         (aset js/globalThis "__re_frame2_pair_runtime"
               (js-obj "session-id" session-id
-                      "installed"  (js/Date.now))))
+                      "installed"  loaded-at)))
       true))
 
 (defn sentinel
@@ -148,7 +165,50 @@
   []
   {:ok?        true
    :session-id session-id
-   :installed  (js/Date.now)})
+   :installed  loaded-at})
+
+;; ---------------------------------------------------------------------------
+;; Freshness / liveness token (rf2-ertqw)
+;; ---------------------------------------------------------------------------
+;;
+;; A pair session is a THIN runtime-direct reader, not a stateful proxy.
+;; Every read hits the live ring; the freshness token makes the OTHER
+;; drift mode — "the connection / build I'm reading is stale" — obvious
+;; up front rather than something an agent infers ~30 minutes later from
+;; a wrong conclusion. The token carries the BROWSER half of the signal:
+;;
+;;   :runtime-instance-id  — the per-preload `session-id` UUID. Changes
+;;                           on every full page reload / CLJS heap reset.
+;;                           An agent that cached an id and sees a new one
+;;                           knows the tab refreshed (stale handles must
+;;                           re-discover).
+;;   :runtime-loaded-at    — `loaded-at`, the wall-clock moment THIS code
+;;                           evaluated. The JVM-side `discover-app` probe
+;;                           compares it against the build's last compile
+;;                           timestamp to detect a stale-BUILD runtime.
+;;   :read-at              — `(js/Date.now)` at the moment of THIS read.
+;;                           With `:runtime-loaded-at` it yields uptime;
+;;                           it also proves the runtime answered the eval
+;;                           (a blank/nil read means no runtime answered).
+;;
+;; The JVM half (monotonic compile-cycle, last flush timestamp, REPL
+;; runtime ping/pong heartbeat) is assembled server-side in
+;; `re-frame2-pair-mcp.tools.freshness` and merged with this map — only
+;; the JVM holds the shadow-cljs worker state.
+
+(defn freshness
+  "The browser-runtime half of the freshness/liveness token (rf2-ertqw).
+   Cheap — three scalar reads, no app-db walk, no listener install. The
+   MCP server merges this with the JVM-side build/heartbeat half.
+
+   Returns:
+     {:runtime-instance-id <uuid-string>
+      :runtime-loaded-at   <ms>
+      :read-at             <ms>}"
+  []
+  {:runtime-instance-id session-id
+   :runtime-loaded-at   loaded-at
+   :read-at             (js/Date.now)})
 
 ;; ---------------------------------------------------------------------------
 ;; Operating frame
@@ -647,15 +707,20 @@
 ;; ours under id :re-frame2-pair-epoch — multi-tool coexistence per
 ;; Spec 009 §Listener ordering.
 ;;
-;; The stash atom retains the last N records observed via the listener,
-;; even though `(rf/epoch-history frame-id)` already returns the ring.
-;; Two reasons: (a) we can stash *only* this skill's perspective, useful
-;; for last-pair-epoch; (b) it gives the watch loop a cheap "what's
-;; new since I last checked" without re-walking the framework's ring.
-
-(defonce ^:private observed-epochs
-  ;; frame-id -> vector of records (oldest first), capped to 500
-  (atom {}))
+;; rf2-ertqw — runtime-direct reads, no parallel epoch capture buffer.
+;; The pair session is a THIN, runtime-direct reader: every epoch read
+;; (`epoch-history`, `epochs-since`, `last-epoch`, `find-where`, and the
+;; MCP `trace-window` / `watch-epochs` tools that eval them) hits
+;; `(rf/epoch-history frame-id)` — the framework's AUTHORITATIVE ring,
+;; the SAME source `eval-cljs` reaches directly. There is deliberately
+;; NO session-side capture buffer that mirrors the ring: such a buffer
+;; only fills while a listener is attached, so it returned EMPTY while
+;; the ring HELD epochs — the silent-WRONG-read this bead exists to
+;; kill. (A legacy `observed-epochs` stash used to shadow the ring "to
+;; save a re-walk"; it was never read by any read path and was the
+;; vestige of the stateful-proxy posture, so it was removed.) The epoch
+;; listener below drives ONLY the per-frame app-db-hash cache (a derived
+;; scalar, not a record copy) and the streaming-subs fan-out.
 
 (defonce ^:private pair-epoch-ids
   ;; Set of epoch-ids that this skill itself dispatched (used by
@@ -723,11 +788,12 @@
            (swap! frame-db-hashes assoc frame-id h)
            h)))))
 
-;; The per-frame `observed-epochs` stash and the streaming dispatch both
-;; ride the same `register-epoch-listener!` slot — combined into
+;; The per-frame app-db-hash cache and the streaming dispatch both ride
+;; the same `register-epoch-listener!` slot — combined into
 ;; `on-epoch-streaming` below to keep listener ordering deterministic.
-;; The legacy single-purpose `on-epoch` was inlined into the
-;; streaming listener.
+;; The listener derives a scalar hash and fans events to subscribers; it
+;; does NOT retain a copy of the ring (rf2-ertqw — reads go straight to
+;; `(rf/epoch-history frame-id)`).
 
 (declare on-epoch-streaming)
 
@@ -1326,19 +1392,14 @@
     (dispatch-trace-to-subs! ev)))
 
 (defn- on-epoch-streaming
-  "Replacement assembled-epoch listener that drives the observed stash
-   (legacy), the per-frame app-db-hash cache, and the
-   streaming subs dispatch."
+  "Assembled-epoch listener. Drives ONLY derived state — the per-frame
+   app-db-hash cache (a scalar, for the precheck cache-hit decision) —
+   and the streaming-subs fan-out. It does NOT retain a copy of the
+   epoch ring: every epoch read hits `(rf/epoch-history frame-id)`
+   directly, so there is no session-side buffer to drift (rf2-ertqw)."
   [record]
-  (let [frame-id (:frame record)]
-    (swap! observed-epochs
-           (fn [m]
-             (let [v        (or (get m frame-id) [])
-                   v+       (conj v record)
-                   n        (count v+)]
-               (assoc m frame-id (if (> n 500) (subvec v+ (- n 500)) v+)))))
-    (when frame-id
-      (update-frame-db-hash! frame-id (:db-after record))))
+  (when-let [frame-id (:frame record)]
+    (update-frame-db-hash! frame-id (:db-after record)))
   (dispatch-epoch-to-subs! record))
 
 (defn subscribe!
@@ -3204,6 +3265,15 @@
   (let [fids (rf/frame-ids)]
     {:ok?                       true
      :session-id                session-id
+     ;; rf2-ertqw — the browser half of the freshness token rides on
+     ;; `health` so `discover-app` surfaces liveness in its very first
+     ;; call. `:runtime-instance-id` mirrors `:session-id` (kept under
+     ;; both names: `:session-id` is the historical sentinel slot, the
+     ;; freshness vocabulary names it `:runtime-instance-id`);
+     ;; `:runtime-loaded-at` is the stale-build cross-check input.
+     :runtime-instance-id       session-id
+     :runtime-loaded-at         loaded-at
+     :read-at                   (js/Date.now)
      :debug-enabled?            (debug-enabled?)
      :coord-annotation-enabled? (coord-annotation-enabled?)
      :last-click-capture?       true

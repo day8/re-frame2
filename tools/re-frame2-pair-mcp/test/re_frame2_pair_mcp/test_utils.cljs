@@ -40,6 +40,7 @@
             [cljs.reader :as edn]
             [de-dupe.core :as dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame.mcp-base.vocab :as base-vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -97,6 +98,28 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(defn with-stubbed-freshness!
+  "Stub `freshness/jvm-build-freshness` to resolve to `jvm-half` (a map
+  or nil) for the duration of `body-fn`, restoring in `.finally`
+  (rf2-ertqw). `discover-app` now assembles a freshness token, which
+  reads the JVM-side shadow worker state via `jvm-eval`; in a unit test
+  with no live nREPL that probe would attempt a real socket. Stub it so
+  discover-app tests stay hermetic and deterministic.
+
+  Pass `nil` to simulate an unreadable JVM half (the `:liveness
+  :unknown` degrade path); pass a map like
+  `{:compile-cycle 1 :build-flushed-at 100 :runtime-count 1
+    :heartbeat-age-ms 50}` to drive a specific verdict.
+
+  Composes with `with-stubbed-eval!` — nest them when a test needs both
+  the CLJS health read AND the JVM freshness half stubbed."
+  [jvm-half body-fn]
+  (let [orig freshness/jvm-build-freshness]
+    (set! freshness/jvm-build-freshness (fn [_conn _bid] (js/Promise.resolve jvm-half)))
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! freshness/jvm-build-freshness orig))))))
 
 (defn dedup-expand
   "Reverse `tools.dedup/dedup-value`. Given a value possibly wrapped in

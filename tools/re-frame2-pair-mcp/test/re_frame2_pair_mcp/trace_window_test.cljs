@@ -1,6 +1,19 @@
 (ns re-frame2-pair-mcp.trace-window-test
-  "Unit tests for the `trace-window` MCP tool — specifically the
-  empty-result advisory added in rf2-fb4hn.
+  "Unit tests for the `trace-window` MCP tool — the authoritative-ring
+  read contract (rf2-ertqw) and the empty-result advisory (rf2-fb4hn).
+
+  ## Authoritative-ring read (rf2-ertqw)
+
+  `trace-window` MUST read the framework's per-frame epoch-history RING
+  — `(rf/epoch-history frame-id)`, the SAME source `eval-cljs` hits
+  directly — NOT a parallel session-side capture buffer that only fills
+  while a listener is attached. The buffer-vs-ring split was the
+  silent-WRONG-read this bead kills: the buffer returned EMPTY while the
+  ring HELD epochs. `reads-the-authoritative-ring` pins that the emitted
+  eval form calls `epoch-history`, and `non-empty-ring-returns-epochs`
+  proves a populated ring's epochs ride back (not empty).
+
+  ## Empty-result advisory (rf2-fb4hn)
 
   Pre-rf2-fb4hn the tool returned `:count 0` with no explanation when
   the time window excluded every event in the per-frame ring. Operators
@@ -8,6 +21,7 @@
   fact events existed but fell outside `:ms`. The advisory distinguishes
   \"genuinely empty history\" from \"window excludes the history\"."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.trace-window :as tw]))
@@ -38,6 +52,89 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+;; ---------------------------------------------------------------------------
+;; Authoritative-ring read contract (rf2-ertqw).
+;; ---------------------------------------------------------------------------
+
+(defn- capturing-eval!
+  "Like `with-substr-eval!` but ALSO records every eval form string into
+  `forms-atom`, so a test can assert WHAT the tool sent — here, that it
+  reads the authoritative ring (`epoch-history`)."
+  [forms-atom canned body-fn]
+  (let [orig nrepl/cljs-eval-value
+        stub (fn
+               ([_conn _build-id form-str]
+                (swap! forms-atom conj form-str)
+                (js/Promise.resolve (if (re-find #"__re_frame2_pair_runtime" form-str)
+                                      true canned)))
+               ([_conn _build-id form-str _opts]
+                (swap! forms-atom conj form-str)
+                (js/Promise.resolve (if (re-find #"__re_frame2_pair_runtime" form-str)
+                                      true canned))))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(deftest reads-the-authoritative-ring
+  (testing "the emitted eval form reads (rf/epoch-history) — the runtime's
+            authoritative ring, the same source eval-cljs hits — not a
+            session-side capture buffer"
+    (async done
+      (let [forms (atom [])]
+        (-> (capturing-eval! forms
+              {:epochs [] :id-aged-out? false :requested-id nil
+               :head-id nil :next-id nil :history-count 0 :remaining 0}
+              (fn [] (tw/trace-window-tool nil (tu/args->js {:ms 1000}))))
+            (.then
+              (fn [_result]
+                (let [slice-form (some (fn [f]
+                                         (when (str/includes? f "epoch-history") f))
+                                       @forms)]
+                  (is (some? slice-form)
+                      "trace-window must emit a form that reads epoch-history")
+                  (is (str/includes? slice-form "re-frame2-pair.runtime/epoch-history")
+                      "the read targets the runtime's epoch-history pass-through
+                       to (rf/epoch-history) — the authoritative ring")
+                  (is (not (str/includes? slice-form "observed-epochs"))
+                      "must NOT read a session-side capture buffer (the
+                       drift-prone proxy this bead removed)"))
+                (done))))))))
+
+(deftest non-empty-ring-returns-epochs
+  (testing "a populated authoritative ring returns its epochs (not empty) —
+            the wide-window happy path proving reads aren't silently empty"
+    (async done
+      (let [ring-epochs [{:epoch-id :e1 :committed-at 100}
+                         {:epoch-id :e2 :committed-at 200}
+                         {:epoch-id :e3 :committed-at 300}]
+            script [["__re_frame2_pair_runtime" true]
+                    [:default {:epochs        ring-epochs
+                               :id-aged-out?  false
+                               :requested-id  nil
+                               :head-id       :e3
+                               :next-id       nil
+                               :history-count 3
+                               :remaining     0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000}))
+                    (.then (fn [result]
+                             (let [edn     (tu/extract-edn result)
+                                   ;; :epochs may be dedup-wrapped on the
+                                   ;; wire; expand before shape assertions.
+                                   epochs  (tu/dedup-expand (:epochs edn))]
+                               (is (true? (:ok? edn)))
+                               (is (= 3 (:count edn))
+                                   "all 3 ring epochs returned — not a silent empty")
+                               (is (seq epochs) "epochs ride back, not an empty vector")
+                               (is (= 3 (count epochs)))
+                               (is (= [:e1 :e2 :e3] (mapv :epoch-id epochs))
+                                   "the ring's epochs ride back in order")
+                               (is (not (contains? edn :advisory))
+                                   "no advisory when the ring's epochs land in-window")
+                               (done))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Empty window + empty history → NO advisory.

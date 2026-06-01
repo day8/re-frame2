@@ -232,11 +232,13 @@
 (def discover-app
   {:name "discover-app"
    :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing. "
+                     "Every :ok? true result carries a :freshness token (rf2-ertqw): {:runtime-instance-id <uuid> :runtime-loaded-at <ms> :compile-cycle <monotonic int> :build-flushed-at <ms> :runtime-count <n> :heartbeat-age-ms <ms> :liveness :fresh|:stale-build|:no-runtime|:unknown}. Check :liveness BEFORE trusting reads — :stale-build means the build recompiled after the running browser code loaded (RELOAD the page), :no-runtime means no tab is connected. "
                      "Examples: "
-                     "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :note \"...auto-selected it.\"}. "
+                     "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :freshness {:liveness :fresh ...} :note \"...auto-selected it.\"}. "
                      "2. Named build: {:build \"app\"} -> {:ok? true ... :build-id :app}, no auto-selection (explicit build honoured verbatim). "
                      "3. From a browser URL's port: {:port 8031} -> resolves the build serving that port via the shadow-cljs :dev-http map: {:ok? true ... :build-id :examples/step-deck}. {:port <unmapped>} -> {:ok? false :reason :port-unresolved}. "
-                     "4. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
+                     "4. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}. "
+                     "5. Stale build: {} -> {:ok? true ... :warning :stale-build :freshness {:liveness :stale-build :hint \"STALE BUILD...\"}}.")
    :typicalTokens 200
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker

@@ -1,7 +1,20 @@
 (ns re-frame2-pair-mcp.tools.discover-app
-  "Tool: discover-app — verify the stack and probe the preloaded runtime."
+  "Tool: discover-app — verify the stack and probe the preloaded runtime.
+
+  ## Freshness / liveness token (rf2-ertqw)
+
+  Every `:ok? true` discover-app payload carries a `:freshness` token —
+  the browser-side runtime-instance-id + load time merged with the
+  JVM-side monotonic compile-cycle + last-flush timestamp + WS heartbeat
+  age, plus a single `:liveness` verdict (`:fresh` / `:stale-build` /
+  `:no-runtime` / `:unknown`). It makes 'the runtime I'm reading is
+  stale / disconnected / serving a stale BUILD' obvious on the FIRST
+  call — the signal that would have killed the rf2-lo28u stale-build
+  false-alarm detour instantly. Assembled by
+  `re-frame2-pair-mcp.tools.freshness`."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.tools.probe :as probe]))
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.freshness :as freshness]))
 
 (defn- port-unresolved-result
   "Error envelope for a `:port` arg that didn't resolve to a build via
@@ -75,6 +88,29 @@
           (update :note (fn [existing]
                           (if existing (str sentence " " existing) sentence)))))))
 
+(defn- with-freshness
+  "Attach the assembled freshness/liveness token to an `:ok? true`
+  health payload (rf2-ertqw). Async — reads the JVM-side build worker
+  state and merges with the browser half already on `health`. The
+  payload-shaping fn `shape` takes the freshness-annotated health map
+  and returns the final MCP envelope. On a stale-BUILD verdict the
+  `:warning` is promoted to `:stale-build` (unless a louder warning is
+  already set) so the alarm rides at the top level too."
+  [conn build-id health shape]
+  (-> (freshness/token-from-health conn build-id health)
+      (.then
+        (fn [token]
+          (let [stale?     (freshness/stale-build? token)
+                annotated  (cond-> (assoc health :freshness token)
+                             ;; surface the stale-build alarm at the top
+                             ;; level when no other warning already owns
+                             ;; the slot (ambiguous-frame / coord warning
+                             ;; are still useful; the token carries the
+                             ;; staleness regardless).
+                             (and stale? (not (:warning health)))
+                             (assoc :warning :stale-build))]
+            (shape annotated))))))
+
 (defn discover-app [conn args]
   (-> (resolve-build-id conn args)
    (.then
@@ -87,17 +123,19 @@
           (fn [health]
             (cond
               (not (:ok? health))
-              (wire/ok-text health)
+              (js/Promise.resolve (wire/ok-text health))
 
               (not (:debug-enabled? health))
-              (wire/ok-text {:ok? false :reason :debug-disabled
-                             :hint (str "re-frame.interop/debug-enabled? is false. "
-                                        "This is a production build (or goog.DEBUG was "
-                                        "forced off). Trace and epoch surfaces are elided.")})
+              (js/Promise.resolve
+                (wire/ok-text {:ok? false :reason :debug-disabled
+                               :hint (str "re-frame.interop/debug-enabled? is false. "
+                                          "This is a production build (or goog.DEBUG was "
+                                          "forced off). Trace and epoch surfaces are elided.")}))
 
               (empty? (:frames health))
-              (wire/ok-text {:ok? false :reason :no-frames-registered
-                             :hint "Call (rf/init!) to register :rf/default, or wait for app boot."})
+              (js/Promise.resolve
+                (wire/ok-text {:ok? false :reason :no-frames-registered
+                               :hint "Call (rf/init!) to register :rf/default, or wait for app boot."}))
 
               (:ambiguous-frame? health)
               (do
@@ -106,29 +144,27 @@
                 ;; calls (with the frame disambiguator) don't need to
                 ;; re-specify `:build`.
                 (wire/mark-resolved-build-id! conn build-id)
-                (wire/ok-text
-                  (with-auto-selection
-                    (assoc health :ok? true
-                                  :warning :ambiguous-frame
-                                  :note (str "Multiple frames registered: "
-                                             (vec (:frames health))
-                                             ". Mutating ops require --frame :foo "
-                                             "or run `frames/select` first."))
-                    auto-selected? build-id)))
+                (with-freshness conn build-id
+                  (assoc health :ok? true
+                                :warning :ambiguous-frame
+                                :note (str "Multiple frames registered: "
+                                           (vec (:frames health))
+                                           ". Mutating ops require --frame :foo "
+                                           "or run `frames/select` first."))
+                  (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
 
               (not (:coord-annotation-enabled? health))
               (do
                 (wire/mark-resolved-build-id! conn build-id)
-                (wire/ok-text
-                  (with-auto-selection
-                    (assoc health :ok? true
-                                  :warning :no-source-coord-annotation
-                                  :note (str "Neither data-rf2-source-coord nor "
-                                             "data-rc-src is on any element. "
-                                             "DOM->source ops will degrade. Enable "
-                                             "(rf/configure! :source-coords {:annotate-dom? true}) "
-                                             "or use re-com with :src (at)."))
-                    auto-selected? build-id)))
+                (with-freshness conn build-id
+                  (assoc health :ok? true
+                                :warning :no-source-coord-annotation
+                                :note (str "Neither data-rf2-source-coord nor "
+                                           "data-rc-src is on any element. "
+                                           "DOM->source ops will degrade. Enable "
+                                           "(rf/configure! :source-coords {:annotate-dom? true}) "
+                                           "or use re-com with :src (at)."))
+                  (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
 
               :else
               (do
@@ -137,8 +173,7 @@
                 ;; default to it instead of the `SHADOW_CLJS_BUILD_ID` /
                 ;; `:app` env-var fallback. Invalidates on nREPL reconnect.
                 (wire/mark-resolved-build-id! conn build-id)
-                (wire/ok-text
-                  (with-auto-selection
-                    (assoc health :ok? true :build-id build-id)
-                    auto-selected? build-id))))))
+                (with-freshness conn build-id
+                  (assoc health :ok? true :build-id build-id)
+                  (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id))))))))
         (.catch (fn [err] (probe/err->result :discover-failed err)))))))))
