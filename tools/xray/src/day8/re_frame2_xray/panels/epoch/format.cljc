@@ -106,11 +106,14 @@
   "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
   view's per-row header. Pure-data; the view never reaches into a
   row's slots to compute its label."
-  [{:keys [kind action-id guard-id phase from-state to-state state reason]}]
+  [{:keys [kind action-id guard-id from-state to-state state reason]}]
   (case kind
     :guard       (str "guard " (ns-keyword guard-id))
-    :action      (str (when phase (str (name phase) " "))
-                      "action " (ns-keyword action-id))
+    ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
+    ;; phase, so the verb is JUST the action-id (empty for an anonymous
+    ;; action — the pill + chip + source body carry it). The redundant
+    ;; "{phase} action " prefix is dropped.
+    :action      (ns-keyword action-id)
     ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb is JUST the state
     ;; change `<before> → <after>`, made the focal point. The redundant
     ;; leading "transition" word (the KIND pill already says TRANSITION)
@@ -236,5 +239,5 @@
   (case flavour
     :reg-event-db  "reg-event-db"
     :reg-event-fx  "reg-event-fx"
-    :reg-machine   "machine-event-handler"
+    :reg-machine   "reg-machine"
     (str flavour)))
