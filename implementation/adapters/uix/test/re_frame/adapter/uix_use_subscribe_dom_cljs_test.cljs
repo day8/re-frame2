@@ -109,7 +109,11 @@
 (def ^:private cfg
   {:adapter               uix-adapter/adapter
    :name                  "UIx"
-   :frame-provider        uix-adapter/frame-provider
+   ;; rf2-z7hfp — mount the NATIVE frame-provider component via UIx's `$`
+   ;; (the documented shape), not a direct CLJS-fn invocation.
+   :frame-provider-mount-element
+   (fn [frame-kw child-el]
+     ($ uix-adapter/frame-provider {:frame frame-kw :children [child-el]}))
    ;; tracks-app-db
    :probe-element         (fn [] (uix/$ Probe))
    :probe-observed        probe-observed
@@ -166,22 +170,25 @@
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
 
-;; ---- regression: frame-provider under the documented `$` shape (rf2-8svnm) -
+;; ---- regression: frame-provider under the documented `$` shape (rf2-8svnm / rf2-z7hfp) -
 ;;
-;; The UIx twin of the Helix rf2-9ok1s defect. The shared-suite
-;; `assert-use-subscribe-frame-provider-resolution` invokes `frame-provider`
-;; DIRECTLY as a CLJS fn (with a real CLJS map) — that path NEVER exercises
-;; UIx's `$`. `frame-provider` is a plain re-exported CLJS fn, NOT a `defui`
-;; component (no `.-uix-component?` marker), so UIx's `$` routes it through
-;; `uix.compiler.alpha/react-component-element` → `interpret-attrs`, handing
-;; the component a *raw JS object* (string keys "frame"/"children") rather
-;; than the `argv`-wrapped shape `glue-args` unwraps for a real `defui`. The
-;; bare spine re-export read `nil` for both keys under that shape: `:frame`
-;; silently resolved to `:rf/default` and the subtree rendered nothing. This
-;; test mounts the provider via the EXACT documented `($ frame-provider {...})`
-;; shape and asserts the descendant `use-subscribe` reads the WRAPPED frame's
-;; value (proving the frame propagated). Fails before the uix.cljs prop-
-;; normalisation wrapper; passes after.
+;; The UIx twin of the Helix rf2-9ok1s defect, now pinning the moved-up
+;; seam (rf2-z7hfp). HISTORY: `frame-provider` used to be a plain
+;; re-exported spine CLJS fn (not a `defui`), so UIx's `$` routed it
+;; through `uix.compiler.alpha/react-component-element` → `interpret-attrs`,
+;; which stringified keyword prop values and DROPPED the namespace —
+;; `:frame` silently resolved to `:rf/default` and the subtree rendered
+;; nothing. A bespoke un-mangling wrapper (manual `.-uix-component?` marker
+;; + `glue-uix-props`) patched it per-adapter.
+;;
+;; rf2-z7hfp MOVED THE SEAM UP: `frame-provider` is now a NATIVE UIx
+;; `defui` component. `$` therefore routes its props through the LOSSLESS
+;; `uix-component-element` (`argv`) path by construction (a `defui` is
+;; stamped `.-uix-component?` automatically), so keyword frame-ids survive
+;; intact with no per-adapter patch. This test mounts the provider via the
+;; EXACT documented `($ frame-provider {...})` shape and asserts the
+;; descendant `use-subscribe` reads the WRAPPED frame's value — the
+;; structural guarantee that the prop-mangling class cannot reopen.
 
 (defn- browser? []
   (and (exists? js/document)

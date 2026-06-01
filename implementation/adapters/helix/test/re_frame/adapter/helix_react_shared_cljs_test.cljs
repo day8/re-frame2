@@ -57,6 +57,12 @@
   (test-support/make-reset-runtime-fixture
     {:adapter helix-adapter/adapter}))
 
+;; rf2-7kjz8 / rf2-z7hfp — the frame-provider branch assertions now target
+;; the substrate-agnostic spine core (`build-frame-provider-element`)
+;; directly, so no `:frame-provider` cfg key is needed here. The
+;; native-shell-under-`$` behaviour is pinned by the use-subscribe DOM
+;; twin + the dollar-shape regression test (folded from the prior
+;; per-adapter helix_frame_provider_children_cljs_test.cljs).
 (def ^:private cfg
   {:adapter          helix-adapter/adapter
    :substrate-kw     :helix
@@ -65,12 +71,7 @@
    :wrap-view        helix-adapter/wrap-view
    :clear-warn!      helix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     helix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string helix-adapter/adapter)
-   ;; rf2-7kjz8 — adapter's frame-provider re-export of the shared spine
-   ;; fn. Folded from the prior per-adapter
-   ;; helix_frame_provider_children_cljs_test.cljs / uix_frame_provider_
-   ;; branches_cljs_test.cljs files (two files merged into the suite).
-   :frame-provider   helix-adapter/frame-provider})
+   :render-to-string (:render-to-string helix-adapter/adapter)})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns
