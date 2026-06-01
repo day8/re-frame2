@@ -30,8 +30,9 @@
      cascades whose `:event` vector's head is a keyword in the
      `rf.xray` namespace (`:rf.xray/focus-cascade`,
      `:rf.xray/select-tab`, `:rf.xray/open-settings`, etc.). These
-     can be dispatched WITHOUT a `{:frame :rf/xray}` option (the
-     palette's quick-actions, the headless `core/select-panel!` helper);
+     can be dispatched WITHOUT a `{:frame :rf/xray}` option (e.g. the
+     palette's quick-actions, whose `:palette/select-panel` verb lowers
+     into a plain `[:dispatch [:rf.xray/select-tab …]]` with no `:frame`);
      the framework chain-resolves them onto `:rf/default` and the
      trace envelope carries `:frame :rf/default` — so the frame gate +
      `xray-internal-event?` both miss them. The data-layer filter at

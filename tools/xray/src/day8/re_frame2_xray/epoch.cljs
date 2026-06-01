@@ -13,8 +13,10 @@
   - `panels.reactive-panel-subs` reads `:rf.xray/epoch-history` to
     project the focused cascade's `:trace-events` into the Reactive
     panel's sub-cascade + view-re-render rendering (rf2-wyvf2).
-  - `core/active-frame` + `core/set-target-frame!` read / dispatch the
-    target-frame slot and `:rf.xray/set-target-frame` event.
+  - `core/target-frame` + `core/set-target-frame!` read / dispatch the
+    target-frame slot and `:rf.xray/set-target-frame` event. (Pre
+    rf2-kmhvg the reader was `core/active-frame`; the rename eliminated
+    the `active` / `target` split.)
   - `preload/install-epoch-listener!` dispatches `:rf.xray/epoch-
     recorded` whenever the framework records a new epoch (any frame).
   - `mount.cljs` seeds `:rf.xray/sync-epoch-history` at first open.
