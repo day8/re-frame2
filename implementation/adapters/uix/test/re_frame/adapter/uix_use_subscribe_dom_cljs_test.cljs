@@ -161,6 +161,12 @@
 (deftest use-subscribe-cleanup-decrements-sub-cache-refcount
   (suite/assert-use-subscribe-cleanup-decrements-refcount cfg))
 
+;; rf2-nymuy — StrictMode double-mount: the refcount/disposal dance under
+;; React's default-dev double-invoke (the riskiest seam, previously
+;; untested). Reuses the refcount-probe cfg surface.
+(deftest use-subscribe-strictmode-double-mount-refcount-balances
+  (suite/assert-use-subscribe-strictmode-double-mount-refcount-balances cfg))
+
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
 

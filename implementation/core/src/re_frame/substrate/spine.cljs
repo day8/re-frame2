@@ -465,13 +465,38 @@
 ;; is called, the sentinel's stashed `setState` bumps a tick to force a
 ;; commit so its `useLayoutEffect` fires and drains the queue.
 ;;
-;; No-sentinel fallback. If `after-render` is invoked before any render
-;; has mounted (or after every root has unmounted), there is no stashed
-;; setter to drive a commit — fall through to `queueMicrotask` so `f`
-;; still fires once the current microtask boundary completes. Honest
-;; under both the "user dispatched a scroll-restore from a one-shot
-;; bootstrap event" path AND the "tests poke `interop/after-render`
-;; without mounting anything" path.
+;; Native-mount parity (rf2-t0x90). The Fragment-wrap sentinel only
+;; enters the tree when an app mounts through the adapter's `:render`
+;; slot. But the documented boot idiom (and all three adapter testbeds)
+;; mounts via the substrate-native renderer directly (`uix-dom/render-
+;; root`, Helix's `(.render root …)`), which bypasses `make-render` —
+;; so a natively-mounted UIx/Helix app NEVER has a sentinel in its tree.
+;; Reagent's `r/after-render` is a global post-flush hook that works
+;; regardless of mount path; without parity, the SAME `(rf/after-render
+;; f)` call has correct post-commit timing on Reagent but degraded
+;; microtask timing on natively-mounted UIx/Helix — a silent substrate
+;; divergence in a public primitive.
+;;
+;; The fix: a per-adapter SINGLETON DRIVER ROOT, mounted lazily the
+;; first time `after-render` is called with no app-tree sentinel
+;; present. The hook mounts the sentinel component into a detached
+;; (never-attached-to-the-document) React root via `createRoot`; the
+;; sentinel's `useEffect` stashes its `set-tick` setter into
+;; `set-tick-ref` exactly as the Fragment-wrap sentinel does, so the
+;; same `set-tick` → commit → `useLayoutEffect`-drain machinery now
+;; drives post-commit timing on the native-mount path too. The driver
+;; root is created once per adapter and reused for the process lifetime
+;; (it renders no DOM — the sentinel returns nil — so a detached host
+;; node is sufficient and never touches the document). An app-tree
+;; sentinel, when present, still wins: it claims `set-tick-ref` and the
+;; driver root simply sits idle.
+;;
+;; Headless / no-DOM fallback. `createRoot` needs `document`; under a
+;; pure-node runner (no jsdom) there is no DOM to mount into. In that
+;; case — and in the historical pre-DOM-API path — fall through to
+;; `queueMicrotask` so `f` still fires once the current microtask
+;; boundary completes. Honest under the "tests poke `interop/after-
+;; render` without a DOM" path.
 
 (defn make-after-render-queue-cell
   "Return a fresh `(atom [])` queue of pending after-render callbacks.
@@ -485,6 +510,17 @@
   setter into on mount and clears on unmount. Each adapter owns its
   own so the after-render hook below can route to the right adapter's
   sentinel."
+  []
+  (atom nil))
+
+(defn make-after-render-driver-root-cell
+  "Return a fresh `(atom nil)` slot holding the per-adapter SINGLETON
+  DRIVER ROOT — the detached React root the after-render hook mounts
+  the sentinel into the first time `after-render` is called with no
+  app-tree sentinel present (rf2-t0x90 native-mount parity). Lazily
+  populated and reused for the adapter's lifetime; each adapter owns
+  its own so multiple React-shaped adapters in a test bundle don't
+  share a driver root. Drained on `dispose-adapter!`."
   []
   (atom nil))
 
@@ -535,20 +571,60 @@
           js/undefined))
       nil)))
 
+(defn- dom-available?
+  "True when a `document` capable of creating elements is reachable —
+  the precondition for mounting the singleton driver root. False under
+  a pure-node runner (no jsdom), where the after-render hook falls
+  through to the microtask drain."
+  []
+  (and (exists? js/document)
+       (some? (.-createElement js/document))))
+
+(defn- ensure-after-render-driver-root!
+  "Lazily mount the per-adapter SINGLETON DRIVER ROOT (rf2-t0x90). If
+  `driver-root-cell` is empty, create a detached host node + React root,
+  render `sentinel-cmp` into it inside `react-dom/flushSync` so the
+  sentinel's mount `useEffect` runs SYNCHRONOUSLY and stashes its
+  `set-tick` setter into `set-tick-ref` before this fn returns. The host
+  node is never attached to the document — the sentinel renders nil, so
+  no DOM is produced. Idempotent: a populated cell is left untouched.
+  Returns nil."
+  [driver-root-cell sentinel-cmp]
+  (when (nil? @driver-root-cell)
+    (let [host (.createElement js/document "div")
+          root (react-dom-client/createRoot host)]
+      (reset! driver-root-cell root)
+      ;; flushSync so the sentinel's mount effect (which stashes
+      ;; set-tick into set-tick-ref) runs synchronously — the caller
+      ;; bumps the tick immediately after, expecting the setter present.
+      (react-dom/flushSync
+        (fn [] (.render root (React/createElement sentinel-cmp nil))))))
+  nil)
+
 (defn make-after-render-hook
   "Build the `:adapter/after-render` impl fn. The returned fn:
 
     1. Enqueues `f` on `queue-cell`.
-    2. If the sentinel is mounted (`set-tick-ref` is non-nil), bumps
-       its tick — React schedules a commit, the sentinel's
-       `useLayoutEffect` fires, and the queue drains in
-       post-commit / pre-paint order.
-    3. Otherwise schedules a `queueMicrotask` drain so `f` still fires
-       once the current microtask boundary completes (covers the
-       pre-mount / post-unmount call paths)."
-  [queue-cell set-tick-ref]
+    2. If an app-tree sentinel is mounted (`set-tick-ref` is non-nil —
+       the app mounted through the adapter's `:render` slot), bumps its
+       tick — React schedules a commit, the sentinel's `useLayoutEffect`
+       fires, and the queue drains in post-commit / pre-paint order.
+    3. Otherwise (the documented native-mount path, rf2-t0x90, where the
+       app mounted via the substrate-native renderer and no Fragment-wrap
+       sentinel is in the tree) lazily mounts the per-adapter SINGLETON
+       DRIVER ROOT — a detached React root carrying the same sentinel —
+       and bumps its now-stashed tick, giving the native-mount path the
+       SAME post-commit timing as Reagent's global `r/after-render`.
+    4. If no DOM is reachable (pure-node runner, no jsdom), falls through
+       to a `queueMicrotask` drain so `f` still fires once the current
+       microtask boundary completes."
+  [queue-cell set-tick-ref sentinel-cmp driver-root-cell]
   (fn after-render-hook [f]
     (swap! queue-cell conj f)
+    (when (and (nil? @set-tick-ref) (dom-available?))
+      ;; Native-mount path: no app-tree sentinel claimed the slot — arm
+      ;; the singleton driver root, whose sentinel stashes set-tick.
+      (ensure-after-render-driver-root! driver-root-cell sentinel-cmp))
     (if-let [set-tick @set-tick-ref]
       (set-tick inc)
       (if (exists? js/queueMicrotask)
@@ -624,8 +700,14 @@
   already-unmounted roots; we swallow any unmount throw so one
   misbehaving root does not strand the rest of the drain. The
   sub-cache walk has its own per-entry try/catch (see
-  `dispose-frame-sub-caches!`)."
-  [{:keys [active-roots-cell warn-cache emitter-cell]}]
+  `dispose-frame-sub-caches!`).
+
+  rf2-t0x90: also unmounts the singleton after-render DRIVER ROOT (if
+  one was lazily armed) and clears its `set-tick` slot, so a torn-down
+  adapter releases it and a subsequent `init!` re-arms a fresh one
+  against the new adapter rather than bumping a stale setter."
+  [{:keys [active-roots-cell warn-cache emitter-cell
+           after-render-driver-root-cell after-render-set-tick-ref]}]
   (fn dispose-adapter! []
     (dispose-frame-sub-caches!)
     (doseq [root @active-roots-cell]
@@ -634,6 +716,12 @@
     (reset! active-roots-cell #{})
     (when warn-cache   (reset! warn-cache #{}))
     (when emitter-cell (reset! emitter-cell nil))
+    (when after-render-driver-root-cell
+      (when-let [root @after-render-driver-root-cell]
+        (try (.unmount root) (catch :default _ nil)))
+      (reset! after-render-driver-root-cell nil))
+    (when after-render-set-tick-ref
+      (reset! after-render-set-tick-ref nil))
     nil))
 
 (defn make-hiccup-emitter-cell
@@ -1220,14 +1308,19 @@
         ;; rf2-334d9: after-render queue + sentinel component + the
         ;; routed-hook impl. The adapter publishes the hook by passing
         ;; `:after-render-hook` to `substrate-adapter/route-hook!`.
-        after-render-queue-cell    (make-after-render-queue-cell)
-        after-render-set-tick-ref  (make-after-render-set-tick-ref)
+        after-render-queue-cell       (make-after-render-queue-cell)
+        after-render-set-tick-ref     (make-after-render-set-tick-ref)
+        ;; rf2-t0x90: holds the lazily-mounted singleton driver root so
+        ;; native-mount apps still get post-commit after-render timing.
+        after-render-driver-root-cell (make-after-render-driver-root-cell)
         after-render-sentinel      (make-after-render-sentinel
                                      after-render-queue-cell
                                      after-render-set-tick-ref)
         after-render-hook          (make-after-render-hook
                                      after-render-queue-cell
-                                     after-render-set-tick-ref)
+                                     after-render-set-tick-ref
+                                     after-render-sentinel
+                                     after-render-driver-root-cell)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
         ;; rf2-i21f5: one epoch scheduler per adapter, shared by
         ;; `replace-container!` and every `make-derived-value`, so a
@@ -1255,7 +1348,12 @@
         dispose-fn         (make-dispose-adapter!
                              {:active-roots-cell active-roots-cell
                               :warn-cache        warn-cache
-                              :emitter-cell      emitter-cell})
+                              :emitter-cell      emitter-cell
+                              ;; rf2-t0x90: release the singleton
+                              ;; after-render driver root + clear its
+                              ;; set-tick slot so a fresh init! re-arms.
+                              :after-render-driver-root-cell after-render-driver-root-cell
+                              :after-render-set-tick-ref     after-render-set-tick-ref})
         use-current-frame
         (fn use-current-frame []
           (use-context adapter-context/frame-context))
@@ -1679,6 +1777,33 @@
              ;; the contract by at least running `f`. Reagent and reagent-slim
              ;; both inject one, so this branch is dead in the reference.
              (f))
+           nil))
+        ;; rf2-b6nm5 — CANONICAL test-flush hook, converged across all four
+        ;; substrates (Decision 6 anointed `flush-views!`; previously stock
+        ;; Reagent surfaced none, slim surfaced a Promise-returning one in a
+        ;; SUBSTRATE ns). Same name, location (adapter ns, re-exported from
+        ;; here), and SHAPE as the React-hook spine's `flush-views!`: wrap
+        ;; React's `act()` so a subscribe → re-render cycle drives
+        ;; synchronously in test code; with no arg, flushes pending effects;
+        ;; returns nil. Inside `act` we drive the ratom-family synchronous
+        ;; render drain (the injected `:rdc/flush-render!` op — stock
+        ;; `reagent.core/flush` / slim's `reagent2.*` flush) so dirty
+        ;; components forceUpdate and Reactions recompute before `act`
+        ;; returns. No-op when act() is unreachable in the current React
+        ;; build (mirrors the React-hook spine `flush-views!`).
+        flush-views!
+        (fn flush-views!
+          ([] (flush-views! (fn [] nil)))
+          ([f]
+           (if-let [act (resolve-act-fn)]
+             (act (fn act-body []
+                    (if flush-render-op
+                      (flush-render-op f)
+                      (f))))
+             ;; No act() — degrade to a plain synchronous flush so a
+             ;; :node-test runner (no real React render path) still drains
+             ;; the render queue + dirty-set.
+             (if flush-render-op (flush-render-op f) (f)))
            nil))]
     {:make-state-container       make-state-container
      :read-container             read-container
@@ -1691,6 +1816,10 @@
      ;; rf2-40a84 — production synchronous render-commit, wired into the
      ;; adapter map's :flush-render! contract slot by make-ratom-adapter.
      :flush-render!              flush-render!
+     ;; rf2-b6nm5 — canonical nil-return test-flush hook (Decision 6),
+     ;; re-exported by both ratom adapter namespaces so all four substrates
+     ;; surface the SAME `flush-views!` Var with the SAME nil-return shape.
+     :flush-views!               flush-views!
      :set-hiccup-emitter!        (fn set-it! [f]
                                    (set-hiccup-emitter! emitter-cell f))
      :active-roots-cell          active-roots-cell

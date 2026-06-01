@@ -70,6 +70,24 @@
   resolves it at load time without a static :require."
   (:set-hiccup-emitter! spine-fns))
 
+(def flush-views!
+  "Flush pending slim renders synchronously. Wraps React's act() —
+  intended for test code only. Calls (act (fn [] (batching/flush!)));
+  with `f`, runs `f` then the synchronous render drain inside act.
+  Returns nil. No-op when act() is unreachable in the current React build.
+
+  Per rf2-3yij Decision 6 / rf2-b6nm5: the canonical test-flush hook,
+  surfaced identically (same name, same ADAPTER-ns location, same
+  nil-return shape) across all four substrates — Reagent, reagent-slim,
+  UIx, Helix — so a test suite ports across substrates touching only the
+  init! Var. This is the canonical convergence: previously the only slim
+  flush-views! lived in the SUBSTRATE ns `reagent2.dom.client` and RETURNED
+  A PROMISE (the goog.DEBUG-gated microtask→act→microtask Suspense-ordering
+  primitive, IMPL-SPEC §4.6), which diverged in both location and return
+  type. That substrate-level primitive remains for Suspense-deterministic
+  callers; this adapter-ns Var is the cross-substrate canonical surface."
+  (:flush-views! spine-fns))
+
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
 

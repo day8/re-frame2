@@ -35,13 +35,28 @@
 (def ^:private cfg
   {:adapter       uix-adapter/adapter
    :name          "UIx"
-   :probe-element (fn [] ($ Probe))})
+   :probe-element (fn [] ($ Probe))
+   ;; rf2-b6nm5 — the canonical test-flush Var for the parity shape pin.
+   :flush-views!  uix-adapter/flush-views!})
 
 (deftest after-render-hook-wired-under-uix
   (suite/assert-after-render-hook-wired cfg))
 
 (deftest after-render-runs-callback-after-next-commit-uix
   (suite/assert-after-render-runs-after-commit cfg))
+
+;; rf2-t0x90 — after-render parity on the NATIVE-mount path (raw
+;; createRoot + .render, the documented boot idiom that bypasses the
+;; spine's Fragment-wrap sentinel). The singleton driver root restores
+;; post-commit timing previously only the :render-slot path got.
+(deftest after-render-fires-on-native-mount-uix
+  (suite/assert-after-render-fires-on-native-mount cfg))
+
+;; rf2-b6nm5 — flush-views! is surfaced from the adapter ns with the
+;; canonical nil-return shape (Decision 6), converged across all four
+;; substrates. Node-safe shape pin.
+(deftest flush-views-canonical-shape-uix
+  (suite/assert-flush-views-canonical-shape cfg))
 
 ;; rf2-ee38b.1 — the spine `make-render` :hydrate? true branch
 ;; (hydrateRoot) had no React-hook coverage; close it for UIx + Helix.

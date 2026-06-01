@@ -57,6 +57,20 @@
   resolves it at load time without a static :require."
   (:set-hiccup-emitter! spine-fns))
 
+(def flush-views!
+  "Flush pending Reagent renders synchronously. Wraps React's act() —
+  intended for test code only. Calls (act (fn [] (reagent.core/flush)));
+  with `f`, runs `f` then the synchronous render drain inside act. Returns
+  nil. No-op when act() is unreachable in the current React build.
+
+  Per rf2-3yij Decision 6 / rf2-b6nm5: the canonical test-flush hook,
+  surfaced identically (same name, same adapter-ns location, same
+  nil-return shape) across all four substrates — Reagent, reagent-slim,
+  UIx, Helix — so a test suite ports across substrates touching only the
+  init! Var. Previously stock Reagent surfaced no adapter-level flush-views!
+  and tests reached for reagent.core/flush or react/act directly."
+  (:flush-views! spine-fns))
+
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
 
