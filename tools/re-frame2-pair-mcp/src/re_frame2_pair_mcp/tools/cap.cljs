@@ -74,6 +74,17 @@
   (let [raw (when args (j/get args "max-tokens"))]
     (base-cap/max-tokens (when (and (not (undefined? raw)) (some? raw)) raw))))
 
+(defn invalid-arg?
+  "True when `max-tokens-arg` rejected the per-call `:max-tokens` arg
+  (rf2-5rdit) — a negative value resolves to a
+  `{:rf.mcp/invalid-arg {...}}` rejection rather than a cap. The
+  `invoke` chokepoint tests this and short-circuits into an
+  `isError: true` result via `wire/err-text` instead of threading the
+  malformed cap into the wire-boundary pipeline. Delegates to
+  `base-cap/invalid-arg?` (the cross-MCP predicate)."
+  [x]
+  (base-cap/invalid-arg? x))
+
 (def overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
   fallback when a tool isn't listed."
