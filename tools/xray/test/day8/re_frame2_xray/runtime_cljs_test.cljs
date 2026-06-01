@@ -42,6 +42,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.runtime :as runtime]))
@@ -474,3 +475,112 @@
           "get-app-db scrubs the sensitive slot via egress-value")
       (is (= "ada" (get-in result [:value :auth :username]))
           "non-sensitive slots survive"))))
+
+;; ---------------------------------------------------------------------------
+;; (12) get-app-db-diff returns the changed-paths {:added :removed :changed}
+;;      slice shape — NOT two whole app-db snapshots (rf2-uv2q2).
+;; ---------------------------------------------------------------------------
+;;
+;; The accessor's docstring + the spec API table promise the
+;; changed-paths shape; the prior impl egressed the WHOLE :db-before +
+;; :db-after maps under {:before :after}. These tests pin the corrected
+;; shape so the drift cannot silently return, and prove the per-slice
+;; values route through egress-value (privacy + size minimisation).
+;;
+;; `reset-frame-db!` records a synthetic epoch with :db-before = the old
+;; app-db and :db-after = the injected value — the deterministic way to
+;; seed an epoch with a known before/after pair in a node unit test
+;; (the epoch artefact is a hard Xray dep per tools/xray/deps.edn).
+
+(defn- record-epoch-via-reset!
+  "Seed `before` into the sole frame, then `reset-frame-db!` to `after`
+  so the framework records a synthetic epoch carrying
+  `:db-before before` / `:db-after after`. Returns the recorded
+  epoch's `:epoch-id`."
+  [before after]
+  (rf/reg-event-db :test/seed-before (fn [_ _] before))
+  (rf/dispatch-sync [:test/seed-before])
+  (let [fid (first (rf/frame-ids))]
+    (rf/reset-frame-db! fid after)
+    (-> (rf/epoch-history fid) peek :epoch-id)))
+
+(deftest get-app-db-diff-returns-changed-paths-shape
+  (testing "`get-app-db-diff` projects the changed-paths
+            {:added :removed :changed} slice shape (rf2-uv2q2) — NOT the
+            prior {:before :after} whole-db snapshots"
+    (let [epoch-id (record-epoch-via-reset!
+                     {:keep "v" :gone "old" :flip 1}
+                     {:keep "v" :added "new" :flip 2})
+          result   (runtime/get-app-db-diff {:epoch-id epoch-id})]
+      (is (true? (:ok? result))
+          "diff resolves the sole frame + named epoch")
+      (let [diff (:diff result)]
+        (is (= #{:added :removed :changed} (set (keys diff)))
+            "the diff carries exactly the changed-paths buckets — no :before/:after")
+        (is (not (contains? diff :before))
+            "the whole-db :before snapshot is gone")
+        (is (not (contains? diff :after))
+            "the whole-db :after snapshot is gone")
+        ;; :added — a new top-level key.
+        (is (some #(= [:added] (:path %)) (:added diff))
+            ":added carries the new [:added] path slice")
+        (is (= "new" (some #(when (= [:added] (:path %)) (:value %)) (:added diff)))
+            ":added slice carries the after-value at the path")
+        ;; :removed — a key that disappeared.
+        (is (= "old" (some #(when (= [:gone] (:path %)) (:value %)) (:removed diff)))
+            ":removed slice carries the before-value at the path")
+        ;; :changed — a scalar that flipped (before + after).
+        (let [flip-row (some #(when (= [:flip] (:path %)) %) (:changed diff))]
+          (is (some? flip-row) ":changed carries the flipped [:flip] path")
+          (is (= 1 (:before flip-row)) ":changed slice carries the before-value")
+          (is (= 2 (:after flip-row)) ":changed slice carries the after-value"))))))
+
+(deftest get-app-db-diff-redacts-sensitive-slices
+  (testing "`get-app-db-diff` routes each changed-path slice through
+            egress-value — a schema-declared sensitive slot that changed
+            redacts in the :changed bucket (rf2-uv2q2 privacy)"
+    (let [epoch-id (record-epoch-via-reset!
+                     {:auth {:username "ada" :password "old-pw"}}
+                     {:auth {:username "ada" :password "new-pw"}})]
+      ;; Declare the sensitive path AFTER the resets so the declaration
+      ;; survives (same ordering as the get-app-db end-to-end test).
+      (seed-sensitive-schema!)
+      (let [result   (runtime/get-app-db-diff {:epoch-id epoch-id})
+            changed  (get-in result [:diff :changed])
+            pw-row   (some #(when (= [:auth :password] (:path %)) %) changed)]
+        (is (some? pw-row)
+            "the changed sensitive path appears in the :changed bucket")
+        (is (= :rf/redacted (:before pw-row))
+            ":before slice is redacted via egress-value")
+        (is (= :rf/redacted (:after pw-row))
+            ":after slice is redacted via egress-value")))))
+
+;; ---------------------------------------------------------------------------
+;; (13) get-handlers routes :meta through egress-value — the
+;;      every-read-routes-through-wire-elision invariant has no exception
+;;      (rf2-yl0v8).
+;; ---------------------------------------------------------------------------
+
+(deftest get-handlers-redacts-sensitive-meta
+  (testing "`get-handlers` routes each handler's :meta through
+            egress-value (rf2-yl0v8) — a sensitive-declared slot in a
+            handler's metadata redacts, holding the every-read-routes-
+            through-wire-elision invariant with no exceptions"
+    (seed-sensitive-schema!)
+    ;; Register an event whose registration-metadata carries a
+    ;; value-bearing slot at the schema-declared sensitive path. We use
+    ;; the registrar directly (not `reg-event-db`, whose macro emits its
+    ;; own metadata and would not let us plant the slot) so the meta map
+    ;; itself carries `{:auth {:password ...}}`. `egress-value` walks the
+    ;; meta map from root and substitutes :rf/redacted for the sensitive
+    ;; absolute path.
+    (registrar/register! :event :test/handler-with-secret
+                         {:handler-fn (fn [db _] db)
+                          :auth       {:password "leak-me"}})
+    (let [result   (runtime/get-handlers {:kind :event})
+          rec      (some #(when (= :test/handler-with-secret (:id %)) %)
+                         (:handlers result))]
+      (is (some? rec)
+          "the registered handler appears in the projection")
+      (is (= :rf/redacted (get-in rec [:meta :auth :password]))
+          ":meta routes through egress-value — the sensitive slot is redacted"))))
