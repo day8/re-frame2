@@ -280,6 +280,14 @@
   the `:unknown-tool` error envelope."
   (into {} (map (juxt :name :handler)) tools))
 
+(def tool-names
+  "Ordered vector of every registered tool name — the catalogue an agent
+  sees via `tools/list`, in the same authoring order as `tools`. The
+  dispatcher in `tools.cljs` folds this into the `:unknown-tool` error
+  `:hint` so a model that typo'd a name (or called a removed alias) can
+  see the live catalogue and recover without a round-trip."
+  (mapv :name tools))
+
 (def ^:private cacheable-set
   "Materialised set of tool names whose `:cacheable?` is truthy.
   Built once at load time so `cacheable?` is an O(1) membership test."

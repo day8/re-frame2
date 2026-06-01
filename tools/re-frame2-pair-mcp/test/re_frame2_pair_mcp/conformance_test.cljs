@@ -1232,14 +1232,15 @@
 
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
-    :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error."
+    :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue (rf2-tkmik)."
     :fixture/tool  "no-such-tool"
     :fixture/args  {}
     :fixture/eval-script
     [[:default nil]]
     :fixture/expect
     {:isError? true
-     :reason :unknown-tool}}])
+     :reason :unknown-tool
+     :edn-contains-keys #{:hint :available-tools}}}])
 
 ;; ---------------------------------------------------------------------------
 ;; Cache reset between fixtures — `cache` is module-level state shared

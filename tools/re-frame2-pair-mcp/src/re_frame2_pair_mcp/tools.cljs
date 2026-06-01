@@ -87,6 +87,64 @@
 (def tool-descriptors descriptors/tool-descriptors)
 (def tool-descriptors-js descriptors/tool-descriptors-js)
 
+(defn- edit-distance
+  "Cheap Levenshtein distance between two strings — used only to surface a
+  `did you mean` candidate in the `:unknown-tool` hint. Runs over the
+  ~25-name catalogue on the cold error path, so the naive O(m·n) row-DP
+  is plenty; no dependency for one off-the-happy-path string compare."
+  [a b]
+  (let [m (count a) n (count b)]
+    (loop [i 0 prev (vec (range (inc n)))]
+      (if (> i m)
+        (peek prev)
+        (recur
+          (inc i)
+          (loop [j 0 row [i] p prev]
+            (if (> j n)
+              row
+              (let [cost (if (= (nth a (dec i) nil) (nth b (dec j) nil)) 0 1)
+                    v    (if (zero? j)
+                           i
+                           (min (inc (peek row))           ;; deletion
+                                (inc (nth p j))            ;; insertion
+                                (+ cost (nth p (dec j))))) ;; substitution
+                    row  (if (zero? j) row (conj row v))]
+                (recur (inc j) row p)))))))))
+
+(defn- nearest-tool
+  "Closest registered tool name to `name` by edit distance, or nil when
+  nothing is within a sensible threshold (avoid an actively-misleading
+  suggestion for a wildly-off name). Threshold scales loosely with the
+  typo'd length so short names need a near-exact match."
+  [name]
+  (when (and (string? name) (seq name))
+    (let [[best d] (reduce (fn [[_ bd :as acc] cand]
+                             (let [cd (edit-distance name cand)]
+                               (if (< cd bd) [cand cd] acc)))
+                           [nil js/Infinity]
+                           registry/tool-names)
+          cutoff   (max 2 (quot (count name) 2))]
+      (when (and best (<= d cutoff)) best))))
+
+(defn- unknown-tool-envelope
+  "Build the `:unknown-tool` error envelope. Additive over the historical
+  `{:ok? false :reason :unknown-tool :tool name}` shape: carries a
+  recovery-shaped `:hint` (the surface's honest-error standard — cf.
+  cache.cljs `:rf.mcp/cache-hit` :hint, roots_discovery.cljs discovery
+  hints, server.cljs port hints) pointing the agent at `tools/list` plus
+  the live catalogue, and a `:did-you-mean` when a near name exists."
+  [name]
+  (let [near (nearest-tool name)
+        base (str "unknown tool" (when name (str " `" name "`")) "; "
+                  (when near (str "did you mean `" near "`? "))
+                  "call `tools/list` to see the available tools.")]
+    (cond-> {:ok?           false
+             :reason        :unknown-tool
+             :tool          name
+             :hint          base
+             :available-tools registry/tool-names}
+      near (assoc :did-you-mean near))))
+
 (defn- dispatch-tool*
   "Route a `tools/call` to the per-tool implementation. Unknown tools
   resolve to an isError result rather than throwing — keeps the server
@@ -95,12 +153,17 @@
   Lookup is a single `(get registry/handler-for name)` — the registry
   is the only place tool names are enumerated (rf2-47g8l). Every
   registered handler is a uniform 3-arity `(fn [conn args extra])`; the
-  registry adapts 2-arity per-tool handlers internally."
+  registry adapts 2-arity per-tool handlers internally.
+
+  An unknown name returns the recovery-shaped `:unknown-tool` envelope
+  (`unknown-tool-envelope`) — a `:hint` pointing at `tools/list` plus the
+  live `:available-tools` catalogue and a `:did-you-mean` near-match, so a
+  model that typo'd a name (rf2-tkmik) can recover without a dead end."
   [conn name args extra]
   (if-let [handler (get registry/handler-for name)]
     (handler conn args extra)
     (js/Promise.resolve
-      (wire/err-text {:ok? false :reason :unknown-tool :tool name}))))
+      (wire/err-text (unknown-tool-envelope name)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-boundary pipeline (rf2-3z0zi).
