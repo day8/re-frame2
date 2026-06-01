@@ -61,10 +61,13 @@
 (def explainer-fn     validator/explainer-fn)
 (def printer-fn       validator/printer-fn)
 
-;; Validator / explainer / printer (rf2-froe + rf2-wla45).
+;; Validator / explainer / printer (rf2-froe + rf2-wla45). Each fn has
+;; its own single-purpose setter; `set-schema-fns!` installs the bundle
+;; atomically (rf2-13meg — the honest bundle name).
 (def set-schema-validator!   validator/set-schema-validator!)
 (def set-schema-explainer!   validator/set-schema-explainer!)
 (def set-schema-printer!     validator/set-schema-printer!)
+(def set-schema-fns!         validator/set-schema-fns!)
 (def reset-schema-validator! validator/reset-schema-validator!)
 
 ;; Printer / walker memo clear hooks (rf2-17sqc). Test-support: the
@@ -160,6 +163,7 @@
 (late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
 (late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
 (late-bind/set-fn! :schemas/set-schema-printer!   set-schema-printer!)
+(late-bind/set-fn! :schemas/set-schema-fns!       set-schema-fns!)
 
 ;; Schema-walker hooks consumed by `re-frame.elision` to feed the
 ;; unified `[:rf/runtime :elision]` registry without statically depending on the

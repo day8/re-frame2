@@ -1075,16 +1075,16 @@
                             @traces))
             "no validation trace fires when validator is nil")))))
 
-(deftest set-schema-validator-map-arity-installs-both-fns
-  (testing "Per Spec 010 §Non-Malli validators — the map arity of
-            set-schema-validator! installs validate and explain
+(deftest set-schema-fns-bundle-installs-both-fns
+  (testing "Per Spec 010 §Non-Malli validators (rf2-13meg) — the bundle
+            setter set-schema-fns! installs validate and explain
             atomically. Apps that want a custom explainer alongside
             their custom validator use this form."
     (let [validate-calls (atom 0)
           explain-calls  (atom 0)
           v-fn (fn [_s v] (swap! validate-calls inc) (= v :good))
           e-fn (fn [s v]  (swap! explain-calls inc) {:my-explanation [s v]})]
-      (rf/set-schema-validator! {:validate v-fn :explain e-fn})
+      (rf/set-schema-fns! {:validate v-fn :explain e-fn})
       (rf/reg-app-schema [:k] :keyword)
       (let [traces (atom [])]
         (rf/register-listener! ::map (fn [ev] (swap! traces conj ev)))
@@ -1099,6 +1099,37 @@
           (is (= {:my-explanation [:keyword :nope]}
                  (-> violations first :tags :explain))
               "the trace's :explain key carries the custom explainer's output"))))))
+
+(deftest set-schema-fns-installs-all-three-atomically
+  (testing "rf2-13meg — the honest bundle setter set-schema-fns! installs
+            validator, explainer, AND printer in one atomic call. The
+            name says it sets the whole schema-language-fn bundle, not
+            just the validator."
+    (let [v-fn (fn [_ _] true)
+          e-fn (fn [_ _] {:explained true})
+          p-fn (fn [_] "::BUNDLE-PRINTER::")]
+      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
+      (is (= v-fn @schemas/validator-fn) "validator installed")
+      (is (= e-fn @schemas/explainer-fn) "explainer installed")
+      (is (= p-fn @schemas/printer-fn)   "printer installed")
+      (is (= "::BUNDLE-PRINTER::" (validator/run-printer :int))
+          "printer reaches the hot path"))))
+
+(deftest set-schema-validator-is-honest-validator-only
+  (testing "rf2-13meg — set-schema-validator! sets ONLY the validator.
+            The misleading map-arity that ALSO set explainer + printer is
+            gone: passing a map installs that literal map AS the validator
+            fn-value (a single-purpose setter), it does NOT bundle-install.
+            The explainer/printer are left at their defaults."
+    (let [default-explainer @schemas/explainer-fn
+          default-printer   @schemas/printer-fn
+          v-fn (fn [_ _] true)]
+      (rf/set-schema-validator! v-fn)
+      (is (= v-fn @schemas/validator-fn) "validator installed")
+      (is (= default-explainer @schemas/explainer-fn)
+          "explainer untouched — set-schema-validator! does not touch it")
+      (is (= default-printer @schemas/printer-fn)
+          "printer untouched — set-schema-validator! does not touch it"))))
 
 (deftest set-schema-explainer-only-leaves-validator-untouched
   (testing "set-schema-explainer! swaps just the explainer; the validator
@@ -1269,20 +1300,20 @@
     (is (= ":int" (validator/run-printer :int))
         "nil through the public surface falls back to default-edn-print")))
 
-(deftest printer-set-via-public-api-map-arity-installs-printer
-  (testing "rf2-pk8ur — the public rf/set-schema-validator! map arity
-            installs a `:print` printer alongside `:validate` / `:explain`
-            atomically. End-to-end pin of the documented one-call
-            substitute-Malli boot pattern via the public surface."
+(deftest printer-set-via-public-set-schema-fns-installs-printer
+  (testing "rf2-pk8ur + rf2-13meg — the public rf/set-schema-fns! bundle
+            setter installs a `:print` printer alongside `:validate` /
+            `:explain` atomically. End-to-end pin of the documented
+            one-call substitute-Malli boot pattern via the public surface."
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
-          p-fn (fn [_] "::FROM-PUBLIC-MAP-ARITY::")]
-      (rf/set-schema-validator! {:validate v-fn :explain e-fn :print p-fn})
+          p-fn (fn [_] "::FROM-PUBLIC-BUNDLE::")]
+      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
       (is (= v-fn @schemas/validator-fn))
       (is (= e-fn @schemas/explainer-fn))
       (is (= p-fn @schemas/printer-fn))
-      (is (= "::FROM-PUBLIC-MAP-ARITY::" (validator/run-printer :int))
-          "the printer installed via the map arity reaches the hot path"))))
+      (is (= "::FROM-PUBLIC-BUNDLE::" (validator/run-printer :int))
+          "the printer installed via the bundle setter reaches the hot path"))))
 
 ;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
 ;;

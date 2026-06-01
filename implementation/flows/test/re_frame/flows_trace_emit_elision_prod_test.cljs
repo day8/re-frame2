@@ -210,7 +210,7 @@
             written (recompute is never gated)."
     ;; Register a validator that REJECTS every value — if validation ran,
     ;; a violation would surface.
-    (schemas/set-schema-validator! {:validate (fn [_ _] false)})
+    (schemas/set-schema-fns! {:validate (fn [_ _] false)})
     (rf/reg-event-db :prod-elision/seed-validate
       (fn [db _] (assoc db :w 3 :h 4)))
     (rf/reg-flow

@@ -350,10 +350,20 @@
   kind. The authoritative store is keyed by `(frame-id, path)` so that
   registrations against frame A and frame B against the same path are
   independent entries. Pair-tools and source-coord tests read via
-  `app-schema-meta-at`."
+  `app-schema-meta-at`.
+
+  Per rf2-52dfy the `opts` argument is coerced through `coerce-opts`,
+  the SAME contract the read surface (`app-schema-at` /
+  `app-schema-meta-at` / `app-schemas`) uses: a bare keyword is the
+  `{:frame kw}` sugar, an opts map passes through, and any other shape
+  (a string, number, vector, …) throws `:rf.error/bad-app-schemas-arg`.
+  Write and read now AGREE on the opts contract — previously a bare
+  keyword was silently swallowed and the schema registered against the
+  DEFAULT frame, a footgun that disagreed with every read entry point."
   ([path schema] (reg-app-schema path schema {}))
-  ([path schema opts]
-   (let [frame-id     (resolve-frame opts)
+  ([path schema opts-or-frame-id]
+   (let [opts         (coerce-opts opts-or-frame-id)
+         frame-id     (resolve-frame opts)
          ;; Capture the path's prior schema BEFORE the swap so the
          ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
          ;; compare pre- vs post-reload shapes. nil on first registration.
@@ -432,7 +442,7 @@
   callers that rely on deterministic order should use a singular
   `reg-app-schema` chain instead)."
   ([path->schema] (reg-app-schemas path->schema {}))
-  ([path->schema opts]
+  ([path->schema opts-or-frame-id]
    ;; Defer the per-entry schema-derived elision repopulation (rf2-ee38b.6):
    ;; `populate-elision-for-frame!` walks EVERY registered schema in the
    ;; frame, so running it once per entry is O(n²) in the frame's schema
@@ -446,7 +456,14 @@
    ;; when at least one entry could actually change the elision registry
    ;; (`populate-relevant?` — a batch of flag-free fresh registrations,
    ;; the stress workload, skips the walk entirely).
-   (let [frame-id   (resolve-frame opts)
+   ;;
+   ;; Per rf2-52dfy — `opts` is coerced through the same `coerce-opts`
+   ;; contract the read surface uses (bare keyword → `{:frame kw}`
+   ;; sugar; bad shape → `:rf.error/bad-app-schemas-arg`). Write/read
+   ;; agree; the singular `reg-app-schema` call re-coerces the
+   ;; already-coerced map (idempotent — a map passes through verbatim).
+   (let [opts       (coerce-opts opts-or-frame-id)
+         frame-id   (resolve-frame opts)
          entry-opts (assoc opts :rf/defer-elision-populate? true)
          ;; Snapshot prior schemas BEFORE registering so relevance
          ;; reflects each entry's true re-registration status, matching

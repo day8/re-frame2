@@ -138,6 +138,70 @@
               (is (= bad-arg (:received data))
                   ":received slot carries the bad input verbatim"))))))))
 
+;; ---- reg-app-schema opts contract symmetry (rf2-52dfy) -------------------
+;;
+;; Pre-rf2-52dfy `reg-app-schema` plucked `(:frame opts)` directly off
+;; whatever was passed as `opts`. A bare keyword (`(reg-app-schema path
+;; schema :tenant/a)`) returned nil for `(:frame …)` and SILENTLY fell
+;; back to the DEFAULT frame — yet every read entry point (`app-schema-at`
+;; / `app-schema-meta-at` / `app-schemas`) routed its opts through
+;; `coerce-opts`, which treats a bare keyword as the `{:frame kw}` sugar.
+;; Write and read disagreed on the same shape: read targeted `:tenant/a`,
+;; write targeted `:rf/default`. rf2-52dfy routes write through the SAME
+;; `coerce-opts` contract so the two agree, and a genuinely bad shape
+;; (string / number / vector) fails loud instead of silently mis-routing.
+
+(deftest reg-app-schema-keyword-opts-matches-read-frame
+  (testing "rf2-52dfy — a bare-keyword opts registers against THAT frame
+            (the read API's `{:frame kw}` sugar), NOT silently against
+            the DEFAULT frame. Write and read agree."
+    (rf/reg-app-schema [:user] [:map [:id :int]] :tenant/a)
+    ;; Read the same way — both target :tenant/a.
+    (is (= [:map [:id :int]] (rf/app-schema-at [:user] :tenant/a))
+        "schema landed in :tenant/a, matching the read sugar")
+    (is (nil? (rf/app-schema-at [:user]))
+        "the DEFAULT frame is untouched — the silent-DEFAULT footgun is gone")
+    (is (nil? (rf/app-schema-at [:user] :rf/default))
+        "explicit DEFAULT-frame read also empty")))
+
+(deftest reg-app-schema-bad-opts-shape-fails-loud
+  (testing "rf2-52dfy — a non-keyword, non-map opts shape throws
+            :rf.error/bad-app-schemas-arg, matching coerce-opts (the read
+            surface's contract). No silent mis-registration."
+    (doseq [bad-arg ["tenant-a" 42 [:tenant :a]]]
+      (let [thrown (try (rf/reg-app-schema [:user] [:map] bad-arg)
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "bad opts " (pr-str bad-arg) " throws ex-info"))
+        (when (instance? clojure.lang.ExceptionInfo thrown)
+          (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))
+              "ex-info names the same error category the read surface uses"))))))
+
+(deftest reg-app-schema-valid-opts-map-registers-fine
+  (testing "rf2-52dfy — a valid {:frame ...} opts map still registers
+            against the named frame; the coercion is transparent for the
+            common shape."
+    (rf/reg-app-schema [:user] [:map] {:frame :tenant/b})
+    (is (= [:map] (rf/app-schema-at [:user] :tenant/b)))
+    ;; And the zero-opts arity still defaults to the current frame.
+    (rf/reg-app-schema [:auth] [:string])
+    (is (= [:string] (rf/app-schema-at [:auth]))
+        "two-arg arity registers against the current (default) frame")))
+
+(deftest reg-app-schemas-keyword-opts-matches-read-frame
+  (testing "rf2-52dfy — the bulk form coerces opts identically: a bare
+            keyword registers every entry against THAT frame, not the
+            DEFAULT frame; a bad shape fails loud."
+    (rf/reg-app-schemas {[:user] [:map] [:auth] [:string]} :tenant/c)
+    (is (= [:map]    (rf/app-schema-at [:user] :tenant/c)))
+    (is (= [:string] (rf/app-schema-at [:auth] :tenant/c)))
+    (is (nil? (rf/app-schema-at [:user]))
+        "DEFAULT frame untouched for the bulk form too")
+    (let [thrown (try (rf/reg-app-schemas {[:user] [:map]} "tenant-c")
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown))
+      (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))))))
+
 ;; ---- snapshot / restore / clear (test-support seam) ----------------------
 
 (deftest snapshot-and-restore-roundtrip

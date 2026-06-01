@@ -98,9 +98,17 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
 - **Signature**:
   ```clojure
   (set-schema-validator! validate-fn)
-  (set-schema-validator! {:validate validate-fn :explain explain-fn})
   ```
-- **Description**: "Install the validator the framework uses at every dev-time schema-validation site." `nil` disables validation entirely. The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework.
+- **Description**: "Install the validator the framework uses at every dev-time schema-validation site." Swaps ONLY the validator; `nil` disables validation entirely. The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework. To install the validator/explainer/printer together, use `set-schema-fns!`.
+
+#### `set-schema-fns!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
+  ```
+- **Description**: "Atomically install any subset of the validator / explainer / printer bundle from a single map." The honest bundle setter — named for what it sets, not just the validator. Each key is optional; an absent key leaves the existing registration in place, and a `nil` `:print` coerces to the default EDN canonicaliser. The one-call substitute-Malli boot pattern, so the three fns never drift mid-boot.
 
 #### `set-schema-explainer!`
 

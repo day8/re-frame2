@@ -84,10 +84,14 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 ## Swapping the validator
 
-`set-schema-validator!` is the **substitute-Malli seam** (`core.cljc:599-621`). Apps that want to drop the ~24KB gzipped Malli surface in production swap in a hand-written validator at boot:
+`set-schema-validator!` is the **substitute-Malli seam**. Apps that want to drop the ~24KB gzipped Malli surface in production swap in a hand-written validator at boot. `set-schema-validator!` swaps only the validator; `set-schema-fns!` installs the validator/explainer/printer bundle atomically (the honest bundle setter — its name says it sets all three):
 
 ```clojure
-(rf/set-schema-validator!
+;; Validator only — explainer/printer untouched.
+(rf/set-schema-validator! (fn [schema value] (my-validator schema value)))
+
+;; All three at once, atomically.
+(rf/set-schema-fns!
   {:validate (fn [schema value] (my-validator schema value))
    :explain  (fn [schema value] (my-explainer schema value))})
 
