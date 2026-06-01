@@ -84,7 +84,7 @@
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-error-projector reg-head
                                     reg-http-interceptor
-                                    reg-view reg-machine
+                                    reg-view reg-machine defmachine
                                     dispatch dispatch-sync subscribe inject-cofx
                                     ->interceptor
                                     with-frame with-new-frame frame-bound-fn
@@ -307,6 +307,52 @@
                             *file*
                             machine-id
                             machine)))
+
+;; ---- defmachine (value-registered per-element source capture; rf2-gwj8l) -
+;;
+;; The common app shape is `(def door-machine {…}) … (reg-machine :door/main
+;; door-machine)` — `reg-machine` sees only the `door-machine` symbol, so its
+;; compile-time literal-walk captures nothing (the spec form is not a map
+;; literal). `defmachine` is the `def`-replacement that walks the inline
+;; literal AT THE DEFINITION SITE and stamps `:rf.machine/source-coords` +
+;; `:rf.machine/handler-source` onto the def'd value, so the per-element
+;; source travels WITH the value into `reg-machine`. Per Spec 005
+;; §Source-coord stamping (value-registered machines).
+
+#?(:clj
+   (defmacro defmachine
+     "Define a machine-spec value with per-element source captured. A
+     drop-in for `def` whose body is a literal machine-spec map:
+
+         (defmachine door-machine
+           \"optional docstring\"
+           {:initial :locked
+            :guards  {:may-close? (fn [_] …)}
+            :actions {:count-open (fn [_] …)}
+            :states  {…}})
+
+         (reg-machine :door/main door-machine)
+
+     Walks the literal spec at expansion time and `assoc`s the
+     per-element source-coord index (`:rf.machine/source-coords`, keyed
+     `[:guards id]` / `[:actions id]` / spec-path tuples; rf2-8bp3) and
+     the per-id guard / action fn-form source strings
+     (`:rf.machine/handler-source`; rf2-ypu5i) onto the def'd value. When
+     that value is later passed to `reg-machine`, the stamps are already
+     present, so the `:machine-guard` / `:machine-action` registrar
+     handler-metas (and the Epoch machine-cascade source rendering) light
+     up for value-registered machines exactly as for inline ones
+     (rf2-gwj8l). Both stamps DCE under `:advanced + goog.DEBUG=false`.
+
+     Use `defmachine` for the `def`-then-register shape; use the
+     `reg-machine` macro directly when registering an inline literal."
+     [name & body]
+     (let [[doc-or-spec spec-or-nil] body]
+       (rm/expand-defmachine (symbol (str (ns-name *ns*)))
+                             *file*
+                             name
+                             doc-or-spec
+                             spec-or-nil))))
 
 ;; ---- public helpers re-exported for test access -------------------------
 ;;

@@ -113,7 +113,7 @@
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
             [re-frame.testbed.config :as testbed-config])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view defmachine]]))
 
 ;; ============================================================================
 ;; MACHINE 1 — :door/main  (a flat machine with guards + entry/exit + fx)
@@ -132,8 +132,14 @@
 ;; Guards / actions are NAMED entries in the machine's :guards / :actions
 ;; maps (inspectability bias, per the nine_states example) so the
 ;; focused-transition lens can render each one's id + fn source.
+;;
+;; VALUE-registered via `defmachine` (rf2-gwj8l): the door spec is `def`'d
+;; here and registered by SYMBOL below. `defmachine` (not plain `def`)
+;; stamps per-element source onto the value at the definition site so the
+;; Epoch machine-cascade renders each guard / action's source — plain `def`
+;; would leave `reg-machine` seeing only the symbol with nothing to capture.
 
-(def door-machine
+(defmachine door-machine
   {:initial :locked
    :data    {:opened-count 0
              :held-open?   false}
@@ -219,7 +225,7 @@
 ;; sending to this machine alongside the door machine in one cascade
 ;; exercises the multiple-machines instance-selection rule (#10).
 
-(def traffic-machine
+(defmachine traffic-machine
   {:type :parallel
 
    :regions
