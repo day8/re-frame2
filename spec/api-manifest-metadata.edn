@@ -245,6 +245,7 @@
   ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "reg-machine*"]        {:tier :advanced    :owner "005" :status "v1"}
+  ["re-frame.core" "defmachine"]          {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"}
   ["re-frame.core" "reg-app-schemas"]     {:tier :advanced    :owner "010" :status "v1"}
   ["re-frame.core" "add-marks"]           {:tier :advanced    :owner "015" :status "v1"}
