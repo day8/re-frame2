@@ -14,6 +14,7 @@
     "list-subscriptions",
     "read-dom",
     "read-recording",
+    "read-ui",
     "record",
     "reset-frame-db",
     "reset-operating-frame",

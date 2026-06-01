@@ -2523,6 +2523,267 @@
     {:ok? false :reason :no-element :selector selector}))
 
 ;; ---------------------------------------------------------------------------
+;; ui-read — view-plane RENDERED-CONTENT read + producing ENTITY (rf2-3bu3d.1)
+;; ---------------------------------------------------------------------------
+;;
+;; The DOM-to-source bridge above (dom-source-at / dom-describe /
+;; dom-find-by-src) answers "where in the SOURCE did this come from?" — a
+;; gesture/selector → source-coord + registration meta. It does NOT answer
+;; the most common UI-pairing question: "what does the thing I'm looking
+;; at actually SHOW, and which re-frame2 entity produced it?" Answering
+;; that meant hand-rolling an eval-cljs `querySelectorAll` + `textContent`
+;; slice with GUESSED selectors, then a SECOND round-trip to map the node
+;; back to a view-id. `ui-read` first-classes the whole gesture.
+;;
+;; ## Riding the view↔DOM map (zero testids)
+;;
+;; re-frame2 ALREADY maintains the view-id↔DOM-node mapping: every
+;; registered view's rendered root carries `data-rf-view="<id>"` (Spec 006
+;; §View tagging contract; Spec-Schemas §`:rf/view-id-attr`) — the SAME
+;; attribute the Xray pink hover-highlight resolves
+;; (`apply-view-highlight!` builds `[data-rf-view='<id>']` and toggles a
+;; class). The sibling `data-rf2-source-coord` lands on the same root
+;; (Spec 006 §Source-coord annotation). `ui-read` reuses BOTH: it never
+;; guesses a selector and never re-implements view discovery — it reads
+;; the attributes the substrate adapter already stamps, so it works on ANY
+;; re-frame2 app with NO app-specific test ids.
+;;
+;; ## Three entry points → one element → one entity
+;;
+;;   :view-id   — `(view-element view-id)` resolves `[data-rf-view='id']`
+;;                directly. The element IS the producing view's root.
+;;   :point     — `{:x N :y N}` → `document.elementFromPoint` → walk up to
+;;                the nearest `[data-rf-view]` ancestor (the producing
+;;                view). "What's under the cursor at (x,y)?"
+;;   :selector  — a CSS selector → `querySelector` → walk up to the
+;;                nearest tagged ancestor. Narrows a coarse hover to the
+;;                view that owns it.
+;;
+;; The resolved producing ENTITY is the headline payload — view-id,
+;; source-coord (attribute + `handler-meta :view` :file augmentation),
+;; render-key (a stable node hash, the fallback view-walker's `:node-key`
+;; vocabulary), and the live `subs-read` (the frame's materialised
+;; sub-cache query-vectors — "which subs feed this view?").
+;;
+;; ## Privacy — elide like snapshot / get-path
+;;
+;; Rendered DOM text can carry user data (a name, an email, a PDF dump).
+;; The returned text is routed through `re-frame.core/elide-wire-value`
+;; with off-box defaults (the SAME walker `snapshot` / `get-path` use, per
+;; Tool-Pair §Direct-read privacy posture) so a declared-large blob
+;; collapses to `:rf.size/large-elided` rather than shipping raw user DOM
+;; text unconditionally. A hard per-node character cap (`max-text`) trims
+;; the common case before the walker even sees it.
+;;
+;; Read-only by construction: only `textContent` / attribute strings /
+;; `elementFromPoint` / `querySelector` are read — never a write, a
+;; dispatch, or a node mutation.
+
+(defn- view-element
+  "Resolve the rendered root DOM element of a registered view by its id,
+   via the `[data-rf-view='<id>']` attribute the substrate adapter stamps
+   (Spec 006 §View tagging contract). Mirrors the selector
+   `apply-view-highlight!` (Xray) builds — the SAME view↔DOM map. Accepts
+   a keyword or string id; both stringify to the attribute value
+   (`(str id)`, the format the adapter writes). Returns the first match,
+   or nil."
+  [view-id]
+  (when (and (exists? js/document) (some? view-id))
+    (.querySelector js/document (str "[data-rf-view='" view-id "']"))))
+
+(defn- nearest-view-root
+  "Return `el` itself when it carries `data-rf-view`, else the nearest
+   ancestor that does — the producing view's root for an arbitrary node
+   (a point hit or a sub-selector match). Mirrors the fallback
+   view-walker's `nearest-tagged-ancestor` containment rule (Spec 006)."
+  [el]
+  (loop [n el]
+    (cond
+      (nil? n) nil
+      (and (some? (.-getAttribute n))
+           (some? (.getAttribute n "data-rf-view"))) n
+      :else (recur (.-parentNode n)))))
+
+(defn- node-attrs
+  "Collect a node's attributes as a `{name value}` map. Always includes
+   the structural identity attrs (id / class / role / type / name / value
+   / href / …) plus every `data-*` / `aria-*` attribute — the view-plane
+   idiom for surfacing rendered state. `data-rf-view` /
+   `data-rf2-source-coord` are dropped: they're framework-internal
+   annotations already surfaced structurally under `:entity`, so leaving
+   them in the raw attr map would be noise."
+  [el]
+  (let [structural #{"id" "class" "role" "type" "name" "value" "href"
+                     "title" "placeholder" "disabled" "checked" "selected"
+                     "hidden"}
+        internal   #{"data-rf-view" "data-rf2-source-coord"}]
+    (persistent!
+      (reduce
+        (fn [acc a]
+          (let [nm (.-name a)]
+            (if (and (not (contains? internal nm))
+                     (or (contains? structural nm)
+                         (.startsWith nm "data-")
+                         (.startsWith nm "aria-")))
+              (assoc! acc nm (.-value a))
+              acc)))
+        (transient {})
+        (array-seq (.-attributes el))))))
+
+(defn- view-entity
+  "Resolve the re-frame2 ENTITY that produced `view-root` — the headline
+   of a `ui-read`. `view-root` is a DOM element carrying `data-rf-view`
+   (or nil when the hit element had no tagged ancestor, e.g. a portal /
+   fragment root — Spec 006 §Documented edge cases). `frame-id` resolves
+   the sub-cache for the `:subs-read` slice.
+
+   Returns:
+     {:view-id      <keyword|string|nil>   ;; parsed from data-rf-view
+      :source-coord {:ns :handler-id :line :col :file}  ;; attr + handler-meta
+      :render-key   <int>                  ;; stable node hash (view-walker :node-key)
+      :subs-read    [<query-v> ...]}        ;; the frame's live materialised subs
+
+   When `view-root` is nil → `{:view-id nil :reason :no-tagged-view-root}`
+   (the content still rides; the entity is simply unresolvable for that
+   node)."
+  [view-root frame-id]
+  (if (nil? view-root)
+    {:view-id nil :reason :no-tagged-view-root}
+    (let [attr     (.getAttribute view-root "data-rf-view")
+          ;; Reuse the same parse the fallback view-walker uses
+          ;; (Spec 006): leading-colon → keyword, else raw string.
+          view-id  (cond
+                     (or (nil? attr) (not (string? attr))) nil
+                     (and (pos? (count attr)) (= ":" (subs attr 0 1)))
+                     (let [body  (subs attr 1)
+                           slash (.indexOf body "/")]
+                       (if (neg? slash)
+                         (keyword body)
+                         (keyword (subs body 0 slash) (subs body (inc slash)))))
+                     :else attr)
+          ;; Source-coord: the attribute carries <ns>:<sym>:<line>:<col>;
+          ;; handler-meta augments with :file (the four-segment attr can't
+          ;; carry an absolute path — Tool-Pair §Where the DOM-to-source
+          ;; helpers live).
+          attr-coord (some-> (.getAttribute view-root "data-rf2-source-coord")
+                             parse-rf2-coord)
+          meta-coord (when (some? view-id)
+                       (try (rf/handler-meta :view view-id) (catch :default _ nil)))
+          coord      (when (or attr-coord meta-coord)
+                       (merge (select-keys meta-coord [:ns :line :column :file])
+                              attr-coord))
+          ;; subs-read: the frame's live materialised sub-cache query
+          ;; vectors — "which subscriptions are feeding this frame's
+          ;; views?" The reactive cache is per-frame, not per-view (subs
+          ;; are frame-scoped), so this is the frame's reactive surface
+          ;; that the view consumes. Sorted by pr-str for stable output.
+          subs-read  (when frame-id
+                       (try
+                         (->> (or (subs-tooling/sub-cache-snapshot frame-id) {})
+                              keys
+                              (sort-by pr-str)
+                              vec)
+                         (catch :default _ nil)))]
+      {:view-id      view-id
+       :source-coord coord
+       :render-key   (hash view-root)
+       :subs-read    (or subs-read [])})))
+
+(defn ui-read
+  "Read the RENDERED content of a view (or the view at a point / selector)
+   as structured, ELIDED data, PLUS the re-frame2 entity that produced it
+   (rf2-3bu3d.1). The view-plane counterpart to `snapshot` / `get-path`'s
+   data-plane reads — answers \"what does the thing I'm looking at SHOW,
+   and what produced it?\" in ONE round-trip, on ANY re-frame2 app with
+   zero testids.
+
+   `opts` selects exactly one entry point (`:view-id` wins, then `:point`,
+   then `:selector`) and tunes the read:
+
+     :view-id   keyword/string — resolve `[data-rf-view='<id>']` (the same
+                view↔DOM map the Xray hover-highlight rides).
+     :point     {:x N :y N}    — `elementFromPoint`, then walk up to the
+                nearest tagged view root. \"What's under the cursor?\"
+     :selector  CSS string     — `querySelector`, then walk up to the
+                producing view root.
+     :max-text  per-node textContent char cap (default 2000). Over-cap
+                text is replaced with a `:rf.size/large-elided` marker
+                BEFORE the elision walker runs.
+     :frame     operating-frame override for the `:subs-read` slice +
+                the elision registry.
+
+   Returns:
+     {:ok?     true
+      :via     :view-id | :point | :selector
+      :entity  {:view-id <id> :source-coord {...} :render-key <int>
+                :subs-read [<query-v> ...]}
+      :content {:tag \"div\" :text <string|large-elided-marker>
+                :attrs {<name> <value> ...}}}
+
+   Failure modes (each :ok? false, never a silent empty):
+     :no-document            — no DOM (server-side / headless eval target)
+     :no-target-arg          — none of :view-id / :point / :selector given
+     :no-element             — the entry point matched nothing
+     :rf.error/ui-read-bad-selector — a malformed CSS selector"
+  ([] (ui-read {}))
+  ([opts]
+   (let [{:keys [view-id point selector max-text frame]} opts
+         max-text (if (and (number? max-text) (pos? max-text)) (long max-text) 2000)
+         frame-id (current-frame frame)]
+     (cond
+       (not (exists? js/document))
+       {:ok? false :reason :no-document}
+
+       (not (or (some? view-id) (some? point) (some? selector)))
+       {:ok?  false :reason :no-target-arg
+        :hint "pass exactly one of :view-id, :point {:x N :y N}, or :selector"}
+
+       :else
+       (try
+         (let [via    (cond (some? view-id) :view-id
+                            (some? point)   :point
+                            :else           :selector)
+               ;; Resolve the HIT element for the chosen entry point.
+               hit-el (case via
+                        :view-id  (view-element view-id)
+                        :point    (let [{:keys [x y]} point]
+                                    (.elementFromPoint js/document x y))
+                        :selector (.querySelector js/document selector))]
+           (if (nil? hit-el)
+             {:ok? false :reason :no-element :via via}
+             (let [;; The producing view root: for :view-id the hit IS the
+                   ;; root; for :point / :selector walk up to the nearest
+                   ;; tagged ancestor (a portal / fragment leaf may have
+                   ;; none — entity then reports :no-tagged-view-root).
+                   view-root (if (= via :view-id)
+                               hit-el
+                               (nearest-view-root hit-el))
+                   raw-text  (let [t (.-textContent hit-el)] (if (string? t) t ""))
+                   tn        (count raw-text)
+                   ;; Hard cap BEFORE the elision walker — keeps a 5 MB
+                   ;; <pre> from ever reaching the wire; emits the same
+                   ;; marker shape get-path / snapshot use (rf2-urjnc).
+                   capped    (if (> tn max-text)
+                               {:rf.size/large-elided
+                                {:type :dom-text :chars tn
+                                 :preview (subs raw-text 0 (min tn 120))}}
+                               raw-text)
+                   ;; Elide like snapshot / get-path — declared-large /
+                   ;; sensitive content collapses, never raw user DOM text
+                   ;; unconditionally (Tool-Pair §Direct-read privacy).
+                   text      (rf/elide-wire-value capped {:frame frame-id})]
+               {:ok?     true
+                :via     via
+                :entity  (view-entity view-root frame-id)
+                :content {:tag   (str/lower-case (or (.-tagName hit-el) ""))
+                          :text  text
+                          :attrs (node-attrs hit-el)}})))
+         (catch :default e
+           {:ok?     false
+            :reason  :rf.error/ui-read-bad-selector
+            :message (.-message e)}))))))
+
+;; ---------------------------------------------------------------------------
 ;; Signal recorder (rf2-zo4b9)
 ;; ---------------------------------------------------------------------------
 ;;

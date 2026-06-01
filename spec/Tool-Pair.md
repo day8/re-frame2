@@ -356,6 +356,16 @@ The audit found the upstream pair tool ships `dom/source-at`, `dom/find-by-src`,
 
 A future re-frame2 minor version may introduce framework-side helpers if the ecosystem converges on a single shape; the attribute contract is forward-compatible with that addition.
 
+### Reading rendered content + producing entity — the view→content read
+
+The DOM-to-source bridge above answers "*where in the code* did this come from?" — a gesture/selector → source-coord. The complementary view-plane question is "*what does the thing I'm looking at SHOW, and which view produced it?*" — given a view-id (or a point / selector), return the rendered subtree **plus** the producing re-frame2 entity in one read. This rides the **same** view-id↔DOM map the source bridge does, in the other direction:
+
+- The framework's commitment is again **the attributes**, not the helper. Every registered view's rendered root carries **both** `data-rf-view="<id>"` (the view-id, per [Spec-Schemas §`:rf/view-id-attr`](Spec-Schemas.md#rfview-id-attr)) and `data-rf2-source-coord` (the source coord). The view-id attribute is the *forward* index — given a view-id, `[data-rf-view='<id>']` locates the rendered root; given an arbitrary node (a point hit, a sub-match), the nearest `[data-rf-view]` ancestor is the producing view (the same DOM-containment rule the fallback view-walker uses, per [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)). A consuming tool needs no app-specific test ids — the substrate adapter already stamps the attribute on every view.
+- The framework does **not** ship the content-read helper. Like the source bridge, it is **tool-side**: the pair tool resolves the element via its host's DOM access, reads `textContent` / attribute strings, and recovers the producing entity (view-id from `data-rf-view`; `:file`-complete source coord via `(rf/handler-meta :view <id>)`; the frame's materialised subscriptions via the sub-cache read surface). The CLJS reference's pair tool ships this as a `ui/read` op (wire name `read-ui`).
+- **Privacy.** Rendered DOM text can carry user data, so a content read that egresses off-box **MUST** route the returned text through `re-frame.core/elide-wire-value` with off-box defaults — the same posture [§Direct-read privacy posture for `sub-cache` and `get-path`](#direct-read-privacy-posture-for-sub-cache-and-get-path) mandates for app-db reads. Declared-large content collapses to `:rf.size/large-elided`; raw user DOM text never rides unconditionally.
+
+The view-plane content read is **read-only by construction** — it reads `textContent` / attribute strings / element-at-point only; it never dispatches, mutates a node, or triggers a render (the render already happened; this is a no-recompute read of its output).
+
 ### Editor URI scheme allowlist
 
 Source-mapping clicks open the resolved coord in the developer's editor. The CLJS reference (and any port that ships editor integration) accepts **editor templates** — URI patterns parameterised by file + line that produce a clickable IDE-protocol URI. Built-in templates cover the common targets (`vscode://file/%s:%d`, `idea://open?file=%s&line=%d`, `cursor://...`, `subl://...`); custom templates let devs route to JetBrains family editors, Sublime, Emacs / org-tooling, vim, and long-tail editor schemes via a config-level slot:

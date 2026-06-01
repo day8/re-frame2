@@ -105,6 +105,20 @@ Read-only from the trace stream + epoch history.
 | `dom/fire-click-at-src` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-fire-click \"view.cljs\" 84)"}` | Synthesise a click on the element rendered by that line |
 | `dom/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-describe \"#save-button\")"}` | Tag, classes, both source-coord attributes, and any registration metadata they resolve to |
 
+## View → rendered content + producing entity (`ui/read`)
+
+**The most common UI-pairing question, first-classed.** The DOM source bridge above maps a gesture/selector → *source coord*; `read-dom` returns *content* by an explicit CSS selector. `ui/read` (MCP tool `read-ui`, rf2-3bu3d.1) does what neither does: given a **view-id** (or a point / CSS selector), return the **rendered subtree** as structured, elided data **PLUS the re-frame2 entity that produced it** — view-id, source-coord, render-key, and the frame's live `subs-read` — in one round-trip. It rides the **same view-id↔DOM map** the Xray pink hover-highlight uses (every registered view's root carries `data-rf-view="<id>"`, per [Spec 006 §View tagging contract](../../../spec/006-ReactiveSubstrate.md#view-tagging-contract-fallback)), so it works on **any** re-frame2 app with **zero testids** — no more guessing selectors then mapping the node back to a view by hand.
+
+Pass **exactly one** entry point (precedence `view-id` > `point` > `selector`). The returned `:text` is routed through `re-frame.core/elide-wire-value` (the same elision `snapshot` / `get-path` use), so large/sensitive content collapses to a `:rf.size/large-elided` marker rather than shipping raw user DOM text. Read-only by construction.
+
+| Op | Invocation | Returns |
+|---|---|---|
+| `ui/read` by view-id | `mcp__re-frame2-pair__read-ui {view-id: ":my.app/counter"}` | `{:ok? true :via :view-id :entity {:view-id … :source-coord {:ns … :line … :file …} :render-key … :subs-read [[:count] …]} :content {:tag "div" :text "Count: 3" :attrs {…}}}` |
+| `ui/read` by point | `mcp__re-frame2-pair__read-ui {point: {x: 120, y: 240}}` | The view under viewport point (120,240): `elementFromPoint` → nearest `[data-rf-view]` ancestor → entity + content |
+| `ui/read` by selector | `mcp__re-frame2-pair__read-ui {selector: "#save"}` | `querySelector` → walk up to the producing view → entity + content |
+
+The accepted args (`:additionalProperties false`): `view-id`, `point`, `selector`, `max-text` (per-node char cap, default 2000), `frame`, `build`. Failure modes: `:no-target-arg` (no entry point), `:no-element` (entry point matched nothing), `:rf.error/ui-read-bad-selector` (malformed CSS). A portal / fragment leaf with no tagged view ancestor still returns `:content`, with `:entity {:view-id nil :reason :no-tagged-view-root}`.
+
 ## Live watch (push-mode)
 
 Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same underlying assembled-epoch / trace stream.
