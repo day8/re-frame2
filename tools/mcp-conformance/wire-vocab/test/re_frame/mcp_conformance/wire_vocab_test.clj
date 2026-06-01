@@ -1078,15 +1078,22 @@
   parity is the round-2 audit fix this gate enforces)."
   [{:slot     :dropped-sensitive
     :schema   DroppedSensitive
-    :emitters #{:re-frame2-pair-mcp}
+    :emitters #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp-trace-window
                {:ok? true :epochs [] :dropped-sensitive 3}
                :re-frame2-pair-mcp-snapshot
-               {:ok? true :snapshot {} :dropped-sensitive 1}}}
+               {:ok? true :snapshot {} :dropped-sensitive 1}
+               ;; story-mcp emission (rf2-koq5m): `read-failures` /
+               ;; `run-variant` / `preview-variant` drop `:sensitive? true`
+               ;; assertion records at egress and surface the count via
+               ;; `egress/with-indicators` (→ mcp-base envelope helper).
+               :story-mcp-read-failures
+               {:variant-id :story.button/primary :status :pass
+                :total 1 :failures [] :assertions [] :dropped-sensitive 2}}}
 
    {:slot     :elided-large
     :schema   ElidedLarge
-    :emitters #{:re-frame2-pair-mcp}
+    :emitters #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp-snapshot
                {:ok? true :snapshot {} :elided-large 2}
                :re-frame2-pair-mcp-get-path
@@ -1098,6 +1105,18 @@
                   :reason :schema
                   :hint "User PDF; fetch via get-path."
                   :handle [:rf.elision/at [:user :pdf]]}}
+                :elided-large 1}
+               ;; story-mcp emission (rf2-koq5m): `run-variant` /
+               ;; `preview-variant` elide schema-`:large?` / over-threshold
+               ;; `:app-db` leaves and count the `:rf.size/large-elided`
+               ;; markers via `egress/count-elided` (→ mcp-base
+               ;; `count-elided-markers`).
+               :story-mcp-run-variant
+               {:status :pass :frame :story.button/primary
+                :app-db {:blob {:rf.size/large-elided
+                                {:path [:blob] :bytes 102400 :type :string
+                                 :reason :schema :hint nil
+                                 :handle [:rf.elision/at [:blob]]}}}
                 :elided-large 1}}}])
 
 (deftest envelope-indicator-fixtures-conform
@@ -1114,52 +1133,74 @@
   Restricted to the actual tool source — the spec/docs files may
   mention the slots without emitting them.
 
-  Post-rf2-vrbwx split: re-frame2-pair-mcp's envelope-slot emit point is the
-  centralised `wire/with-indicators` helper (rf2-dfk28); the literals
-  live in `wire.cljs`. Per-tool routing through the helper is pinned
-  in detail by `indicator_field_test.clj`; this gate just asserts the
-  two literals appear in the canonical helper location."
-  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"]
-   :story-mcp []})        ;; doesn't walk tree-typed payloads today
+  Both servers route through a single centralised emit-path that
+  delegates to the shared mcp-base helper
+  (`re-frame.mcp-base.envelope/with-indicators`), so the parity gate
+  pins the two literals at the per-server helper location:
 
-(deftest envelope-slot-parity-in-re-frame2-pair-mcp
+  - re-frame2-pair-mcp: `wire.cljs` `with-indicators` (rf2-dfk28); the
+    literals live in its docstring + delegation. Per-tool routing is
+    pinned in detail by `indicator_field_test.clj`.
+  - story-mcp (rf2-koq5m): `egress.cljc` `with-indicators` +
+    `count-elided` — the centralised egress helper the
+    `run-variant` / `preview-variant` / `read-failures` payload
+    builders thread through. `tools_test.clj` exercises the live
+    emission end-to-end."
+  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"]
+   :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"]})
+
+(deftest envelope-slot-parity-across-emitting-servers
   ;; MUST-level pin (Conventions rf2-2499j, Spec 009 §Indicator field
   ;; on tool responses): every server that emits one slot MUST emit
   ;; the other. The round-2 alignment audit (rf2-zjqh8) caught
   ;; re-frame2-pair-mcp emitting only `:dropped-sensitive`; this gate locks
-  ;; in the parity so the regression can't return silently.
-  (let [files (get envelope-emitter-source-files :re-frame2-pair-mcp)]
-    (is (seq files)
-        "No source files registered for re-frame2-pair-mcp envelope emit sites.")
-    (doseq [rel files]
-      (let [src (fx/read-source rel)]
-        (testing (str "re-frame2-pair-mcp " rel " — :dropped-sensitive literal")
-          (is (str/includes? src ":dropped-sensitive")
-              (str ":dropped-sensitive literal missing from " rel)))
-        (testing (str "re-frame2-pair-mcp " rel " — :elided-large literal")
-          (is (str/includes? src ":elided-large")
-              (str ":elided-large literal missing from " rel
-                   " — parity break per Conventions rf2-2499j.")))))))
+  ;; in the parity so the regression can't return silently. As of
+  ;; rf2-koq5m story-mcp is also a contracted emitter — the gate now
+  ;; runs across BOTH servers' helper sources.
+  (doseq [server [:re-frame2-pair-mcp :story-mcp]]
+    (let [files (get envelope-emitter-source-files server)]
+      (is (seq files)
+          (str "No source files registered for " server " envelope emit sites."))
+      (doseq [rel files]
+        (let [src (fx/read-source rel)]
+          (testing (str server " " rel " — :dropped-sensitive literal")
+            (is (str/includes? src ":dropped-sensitive")
+                (str ":dropped-sensitive literal missing from " rel)))
+          (testing (str server " " rel " — :elided-large literal")
+            (is (str/includes? src ":elided-large")
+                (str ":elided-large literal missing from " rel
+                     " — parity break per Conventions rf2-2499j."))))))))
 
-(deftest story-mcp-still-emits-zero-envelope-indicators
-  ;; Tripwire mirroring `story-mcp-still-emits-zero-cross-mcp-markers`.
-  ;; The day story-mcp adopts a tree-typed-payload walker (e.g. wires
-  ;; `elide-wire-value` over the `:app-db` slot in `preview-variant` /
-  ;; `run-variant`), both envelope slots MUST land together. This
-  ;; tripwire flips RED on the FIRST adoption so the reviewer can't
-  ;; merge half the parity.
-  (let [story-files fx/story-mcp-source-files
-        slots       [":dropped-sensitive" ":elided-large"]]
-    (doseq [rel  story-files
-            slot slots]
-      (testing (str "story-mcp source " rel " — " slot " absence")
-        (is (not (str/includes? (fx/read-source rel) slot))
-            (str slot " literal found in " rel
-                 ".\nIf story-mcp now walks a tree-typed payload, "
-                 "the OTHER envelope slot MUST land in the same commit "
-                 "(Conventions rf2-2499j MUST-level parity). Update "
-                 "`envelope-emitter-source-files` and "
-                 "`envelope-indicator-slots`."))))))
+(deftest story-mcp-routes-envelope-through-the-centralised-helper
+  ;; rf2-koq5m: story-mcp adopted the envelope-indicator parity. The
+  ;; centralised emit-path is `egress/with-indicators` (delegating to
+  ;; the shared mcp-base helper) + `egress/count-elided` (delegating to
+  ;; `count-elided-markers`). This pin asserts the helper exists AND
+  ;; that the three tree-walking tools route their payload through it —
+  ;; the structural guarantee that the omit-when-zero MUST lives in one
+  ;; place, mirroring `indicator_field_test.clj`'s pair-mcp routing pin.
+  (let [egress-rel "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
+        egress-src (fx/read-source egress-rel)]
+    (testing "egress.cljc defines the centralised with-indicators helper"
+      (is (str/includes? egress-src "(defn with-indicators")
+          (str "`with-indicators` helper missing from " egress-rel)))
+    (testing "egress.cljc delegates to the shared mcp-base envelope helper"
+      (is (str/includes? egress-src "base-envelope/with-indicators")
+          (str egress-rel " must delegate to "
+               "`re-frame.mcp-base.envelope/with-indicators` — the emit-path "
+               "MUST stay centralised in mcp-base (rf2-koq5m / rf2-ee38b.19).")))
+    (testing "egress.cljc defines count-elided over the mcp-base walker"
+      (is (str/includes? egress-src "base-elision/count-elided-markers")
+          (str egress-rel " must reuse "
+               "`re-frame.mcp-base.elision/count-elided-markers` for the "
+               ":elided-large count (rf2-koq5m)."))))
+  (doseq [rel ["tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
+               "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"]]
+    (testing (str rel " — routes payload through egress/with-indicators")
+      (is (str/includes? (fx/read-source rel) "egress/with-indicators")
+          (str rel " does not route its payload through "
+               "`egress/with-indicators` — the centralised emit-path is the "
+               "structural contract for the omit-when-zero MUST (rf2-koq5m).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:rf.mcp/cursor-stale` reason-value gate (rf2-i3ffz F-GAP-5).

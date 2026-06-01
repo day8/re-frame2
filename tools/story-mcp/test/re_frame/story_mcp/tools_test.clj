@@ -23,6 +23,7 @@
             [re-frame.story-mcp.server :as server]
             [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dev :as dev]
+            [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.story-mcp.tools.testing :as testing-tool]
@@ -1923,6 +1924,17 @@
   (schemas/reg-app-schema path [:any {:sensitive? true}]
                           {:frame variant-id}))
 
+(defn- declare-large!
+  "Register schema metadata flagging a slot `:large?` on the named
+  variant's frame. The tool egress helper refreshes schema declarations
+  before `elide-wire-value`, which substitutes the slot's value with the
+  `:rf.size/large-elided` marker — the leaf the `:elided-large`
+  indicator counts (rf2-koq5m)."
+  [variant-id path]
+  (ensure-variant-frame! variant-id)
+  (schemas/reg-app-schema path [:any {:large? true}]
+                          {:frame variant-id}))
+
 (defn- seed-app-db!
   "Write `db` into `variant-id`'s frame app-db. Helper for the privacy
   tests so we can populate slots without invoking a full `run-variant`."
@@ -2302,6 +2314,104 @@
         (is (= 2 (:total s)) "both records survive the egress")
         (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
         (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-koq5m (headline P1, privacy/observability MUST at the AI boundary) —
+;; egress indicator counts (`:dropped-sensitive` / `:elided-large`).
+;;
+;; story-mcp drops `:sensitive? true` assertion records and elides
+;; over-threshold / schema-`:large?` leaves at the wire egress, but
+;; surfaced NEITHER count — the canonical silent-swallow failure mode.
+;; spec/Conventions.md §Cross-MCP indicator-field vocabulary is MUST-
+;; level: a tool walking a tree-typed payload MUST carry an
+;; `:elided-large` count alongside the `:dropped-sensitive` count,
+;; omitting each slot when zero. The fix reuses the mcp-base primitives
+;; (`envelope/with-indicators` + `elision/count-elided-markers`) the
+;; sibling pair-mcp already wires.
+;;
+;; RED (pre-fix): the response carries no indicator slots even when a
+;; sensitive slot is dropped / a large value is elided.
+;; GREEN (post-fix): `:dropped-sensitive` / `:elided-large` present with
+;; the correct counts; omitted entirely on a clean read.
+;; ---------------------------------------------------------------------------
+
+(deftest read-failures-surfaces-dropped-sensitive-indicator
+  (testing ":dropped-sensitive count rides the envelope when a sensitive record is dropped"
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals :passed? true :tags [:public]}
+                      {:assertion  :rf.assert/path-equals :passed? false
+                       :sensitive? true :reason "secret mismatch"}
+                      {:assertion  :rf.assert/sub-equals :passed? false
+                       :sensitive? true :reason "another secret mismatch"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 1 (:total s)) "only the non-sensitive record survives")
+        (is (= 2 (:dropped-sensitive s))
+            "the count of dropped sensitive records rides the envelope (rf2-koq5m MUST)")))))
+
+(deftest read-failures-omits-indicators-when-nothing-dropped
+  (testing "neither indicator slot appears on a clean read (omit-when-zero MUST)"
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals :passed? true :tags [:public]}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (not (contains? s :dropped-sensitive))
+            ":dropped-sensitive omitted when zero")
+        (is (not (contains? s :elided-large))
+            ":elided-large omitted when zero")))))
+
+(deftest read-failures-includes-sensitive-clears-dropped-indicator
+  (testing ":include-sensitive true keeps the records, so :dropped-sensitive stays absent"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion  :rf.assert/path-equals :passed? false
+                       :sensitive? true :reason "secret mismatch"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
+                                       :include-sensitive true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 1 (:total s)) "the sensitive record survives the opt-in")
+        (is (not (contains? s :dropped-sensitive))
+            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
+
+(deftest run-variant-surfaces-elided-large-indicator
+  (testing ":elided-large count rides the envelope when a large value is elided"
+    (with-clean-frame [vid :story.button/primary]
+      ;; A schema-declared `:large?` slot whose value the egress walker
+      ;; substitutes with `:rf.size/large-elided` — the leaf the
+      ;; `:elided-large` indicator counts.
+      (seed-app-db! vid {:public "ok" :blob "a-big-uploaded-blob"})
+      (declare-large! vid [:blob])
+      (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        ;; The slot is replaced by the marker in the wire :app-db.
+        (is (contains? (get-in s [:app-db :blob]) :rf.size/large-elided)
+            "the large slot is replaced by the :rf.size/large-elided marker")
+        (is (pos-int? (:elided-large s))
+            "the count of elided leaves rides the envelope (rf2-koq5m MUST)")))))
+
+(deftest egress-with-indicators-honours-omit-when-zero
+  ;; Unit pin on the egress helper itself — the omit-when-zero rule it
+  ;; inherits from mcp-base. Belt-and-braces alongside the tool-level
+  ;; tests above so a drift in the helper wiring trips here directly.
+  (testing "both zero ⇒ payload unchanged"
+    (is (= {:ok? true}
+           (egress/with-indicators {:ok? true} {:dropped 0 :elided 0}))))
+  (testing "positive counts ⇒ both slots spliced"
+    (is (= {:ok? true :dropped-sensitive 3 :elided-large 2}
+           (egress/with-indicators {:ok? true} {:dropped 3 :elided 2}))))
+  (testing "count-elided walks the payload for :rf.size/large-elided markers"
+    (is (= 0 (egress/count-elided {:a 1 :b [2 3]})))
+    (is (= 1 (egress/count-elided {:a {:rf.size/large-elided {:path [:a] :bytes 99}}})))))
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing :app-db or assertions accepts :include-sensitive"

@@ -137,10 +137,11 @@
                           :checks     []}))
             incl?    (targs/include-sensitive? arguments)
             raw-db   (:app-db outcome)
+            [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
             payload  (cond-> {:status             (:status outcome)
                               :frame              (:frame outcome vk)
                               :app-db             (egress/elide-app-db raw-db vk incl?)
-                              :assertions         (egress/scrub-assertions (:assertions outcome) incl?)
+                              :assertions         assertions
                               :checks             (vec (:checks outcome))
                               :consumed-selectors (:consumed-selectors outcome #{})
                               ;; Evidence-slot projections (.4 — one tape, one
@@ -174,7 +175,14 @@
                        ;; attempt some expectation.
                        (contains? outcome :cannot-run)
                        (assoc :cannot-run (:cannot-run outcome)))]
-        (result/edn-result payload)))))
+        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; dropped sensitive assertion records + elided over-threshold
+        ;; leaves across every value-bearing slot. Omitted when zero
+        ;; (Conventions §Cross-MCP indicator-field vocabulary).
+        (result/edn-result
+          (egress/with-indicators payload
+                                  {:dropped dropped
+                                   :elided  (egress/count-elided payload)}))))))
 
 (defn tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
@@ -262,7 +270,7 @@
     (fn [vk]
       (let [incl?      (targs/include-sensitive? arguments)
             raw        (assertions/read-assertions vk)
-            scrubbed   (egress/scrub-assertions raw incl?)
+            [scrubbed dropped] (egress/scrub-assertions+count raw incl?)
             ;; Stamp the derived :status on every record so the agent reads
             ;; the SAME unified record shape `run-variant` emits.
             records    (story-result/assertion-records scrubbed)
@@ -272,7 +280,14 @@
                         :total      (count records)
                         :failures   failures
                         :assertions records}]
-        (result/edn-result payload)))))
+        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; how many sensitive assertion records were dropped at egress
+        ;; (+ any elided leaves). Omitted when zero (Conventions
+        ;; §Cross-MCP indicator-field vocabulary).
+        (result/edn-result
+          (egress/with-indicators payload
+                                  {:dropped dropped
+                                   :elided  (egress/count-elided payload)}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
