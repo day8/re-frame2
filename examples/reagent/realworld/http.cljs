@@ -77,9 +77,9 @@
    Body, if a clj coll, is JSON-encoded (`:request-content-type :json`).
    Decode defaults to `:json` (RealWorld returns JSON everywhere).
 
-   Use:
-     (rf/app-db-value ...) reads `:frame` from the cofx; pass through
-     here as `:frame` if you need a non-default frame.
+   The optional `:frame` arg selects which frame's auth slice the token
+   is read from (defaulting to `:rf/default`). In an event handler, pass
+   the cofx `:frame` through here if you need a non-default frame.
 
    Example:
      {:fx [[:rf.http/managed
