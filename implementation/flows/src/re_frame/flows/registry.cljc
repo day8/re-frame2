@@ -1,13 +1,27 @@
 (ns re-frame.flows.registry
-  "Per-frame flow registry — owns the `flows` and `last-inputs` atoms,
-  flow-map validation, registration (`reg-flow` / `clear-flow`), and
-  the registrar replacement-hook that invalidates the dirty-check on
-  hot reload.
+  "Per-frame flow registry — owns the `flows` registry atom and the
+  PER-FRAME `last-inputs` dirty-check containers, flow-map validation,
+  registration (`reg-flow` / `clear-flow`), and the registrar
+  replacement-hook that invalidates the dirty-check on hot reload.
 
   Per Spec 013 flows are FRAME-SCOPED: same flow-id can register against
   two frames with different `:inputs` / `:output` / `:path`, and
   undo / time-travel semantics belong to one frame's history. The
   registry shape is `{frame-id {flow-id flow-map}}`.
+
+  Dirty-check storage is PER-FRAME by construction (rf2-94ol5). Each
+  frame owns its own `last-inputs` container (`atom {flow-id inputs}`),
+  held in the `frame-last-inputs` registry keyed by frame-id. A frame's
+  drain reads and writes ONLY its own atom; the failed-flow rollback
+  snapshots and restores ONLY the draining frame's atom. Cross-frame
+  interference during a concurrent drain is therefore impossible by
+  construction — a frame can no more touch a sibling's dirty-check rows
+  than it can touch a sibling's app-db. (The prior single global atom
+  keyed `{flow-id {frame-id inputs}}` made the wholesale-snapshot
+  rollback over-broad: on a throw it reverted EVERY frame's rows, which
+  on the JVM could clobber a concurrently-draining sibling's just-
+  advanced rows. Mike ruled the structural per-frame-atom fix B over the
+  minimal per-frame-slice scoping A — 2026-06-01.)
 
   Per rf2-mnu8z this is the second leg of the flows split. The façade
   (`re-frame.flows`) re-exports the public surface — `reg-flow`,
@@ -16,7 +30,10 @@
   The underlying atoms themselves are PRIVATE to this artefact: external
   consumers (production code, the late-bind directory, test fixtures
   across artefacts) reach the registry state through the accessor seam
-  rather than dereferencing the atom Vars directly."
+  rather than dereferencing the atom Vars directly. `last-inputs-snapshot`
+  re-aggregates the per-frame atoms back into the canonical
+  `{flow-id {frame-id inputs}}` observation shape so its public contract
+  is unchanged across the storage restructure."
   (:require [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -28,16 +45,15 @@
 
 ;; ---- state ---------------------------------------------------------------
 ;;
-;; Per rf2-4gvb4 — the two atoms below are PRIVATE to this artefact. External
+;; Per rf2-4gvb4 — the atoms below are PRIVATE to this artefact. External
 ;; consumers reach the registry state through the public read accessors
 ;; (`flows-snapshot` / `last-inputs-snapshot`) and the reset fns
 ;; (`reset-flows!` / `reset-last-inputs!`) — the facade re-exports them at
 ;; `re-frame.flows`. The atoms themselves are NOT a public surface; treating
-;; them as one couples consumers to the internal shape (a future move to a
-;; concurrent map, a sharded structure, or a different bookkeeping layout
-;; would force every test fixture to follow). The accessor seam keeps the
-;; flexibility on the framework side while giving tests the read-and-reset
-;; affordances they actually need.
+;; them as one couples consumers to the internal shape (the per-frame
+;; container restructure below would otherwise force every test fixture to
+;; follow). The accessor seam keeps the flexibility on the framework side
+;; while giving tests the read-and-reset affordances they actually need.
 
 (defonce
   ^{:doc     "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
@@ -46,22 +62,55 @@
   flows
   (atom {}))
 
+;; Per rf2-94ol5 — PER-FRAME dirty-check storage. `frame-last-inputs` is a
+;; registry mapping `frame-id → (atom {flow-id last-seen-input-vec})`: each
+;; frame owns its OWN inner atom of dirty-check rows, mirroring how every
+;; other per-frame runtime cell (app-db container, router queue, sub-cache,
+;; drain-lock — see `re-frame.frame/new-frame-record`) is held independently
+;; per frame.
+;;
+;; This is the structural fix (Mike ruled B 2026-06-01): a frame's drain
+;; reads / writes ONLY `(get @frame-last-inputs frame-id)`, and the failed-
+;; flow rollback in `re-frame.flows/run-flows-on-db` snapshots / restores
+;; ONLY that one atom. A frame can no more clobber a sibling's dirty-check
+;; rows than it can clobber a sibling's app-db — cross-frame interference is
+;; impossible BY CONSTRUCTION, not merely avoided. The prior single global
+;; atom keyed `{flow-id {frame-id inputs}}` made the wholesale-snapshot
+;; rollback over-broad: on a throw it `reset!`-reverted EVERY frame's rows,
+;; so on the JVM a concurrently-draining sibling's just-advanced rows were
+;; clobbered (spurious recompute + sub-invalidation storm; violated the
+;; documented per-frame-independence invariant).
+;;
+;; The outer `frame-last-inputs` atom is mutated only on frame-slot
+;; lifecycle (first touch creates the inner atom; teardown / reset removes
+;; it). The hot per-drain path mutates the INNER atom in place — so the
+;; per-frame container identity is stable across a frame's lifetime and the
+;; reader / writer never contend on the outer registry.
 (defonce
-  ^{:doc     "Per-flow, per-frame last-inputs index: `flow-id → frame-id →
-              last-seen input vec`. Drives the dirty-check skip path in
-              `re-frame.flows/evaluate-flow!` (rf2-719e).
-
-              Shape note: the outer key is `flow-id` (not `[frame-id flow-id]`
-              flat) so the hot-reload invalidation hook (which fires on
-              `:flow` registrar replacement) can drop every per-frame entry
-              for the replaced flow with one `dissoc` — O(1) instead of the
-              prior O(N) walk over all entries. Per-frame slots stay
-              independent (each flow id can register against multiple
-              frames with its own dirty-check window per Spec 013
-              §Frame-scoping)."
+  ^{:doc     "frame-id → (atom {flow-id last-seen-input-vec}). Per-frame
+              dirty-check containers (rf2-94ol5). Each frame's inner atom is
+              read / written only by that frame's drain; the failed-flow
+              rollback restores only the draining frame's own atom."
     :private true}
-  last-inputs
+  frame-last-inputs
   (atom {}))
+
+(defn- ^:no-doc ensure-frame-last-inputs-atom!
+  "Return the inner `last-inputs` atom for `frame-id`, creating (and
+  registering) it on first touch. The create-if-absent is done under a
+  single `swap!` over the outer `frame-last-inputs` registry so concurrent
+  first-touches on the JVM converge on ONE inner atom (the loser's freshly
+  allocated atom is discarded; both threads then read the winner via the
+  returned value). Idempotent for an already-present frame — returns the
+  existing atom without allocating."
+  [frame-id]
+  (or (get @frame-last-inputs frame-id)
+      (get (swap! frame-last-inputs
+                  (fn [m]
+                    (if (contains? m frame-id)
+                      m
+                      (assoc m frame-id (atom {})))))
+           frame-id)))
 
 ;; ---- public read accessors (rf2-4gvb4) -----------------------------------
 ;;
@@ -79,50 +128,86 @@
   @flows)
 
 (defn last-inputs-snapshot
-  "Return the dirty-check `last-inputs` value: `{flow-id {frame-id inputs}}`.
-  Snapshot — observers MUST NOT mutate (the underlying atom is private)."
+  "Return the dirty-check value re-aggregated to the canonical observation
+  shape `{flow-id {frame-id inputs}}`. Reads every per-frame container
+  (rf2-94ol5 storage) and inverts the `{frame-id {flow-id inputs}}` layout
+  back to `flow-id`-outer so the public contract is unchanged across the
+  per-frame restructure. Empty per-frame containers contribute nothing, so
+  a frame whose dirty-check rows all cleared leaves no key behind.
+  Snapshot — observers MUST NOT mutate (the underlying atoms are private)."
   []
-  @last-inputs)
+  (reduce-kv
+    (fn [acc frame-id inner-atom]
+      (reduce-kv
+        (fn [acc flow-id inputs]
+          (assoc-in acc [flow-id frame-id] inputs))
+        acc
+        @inner-atom))
+    {}
+    @frame-last-inputs))
 
-;; ---- intra-artefact-only mutation helpers (rf2-4gvb4) --------------------
+;; ---- intra-artefact-only mutation helpers (rf2-4gvb4 / rf2-94ol5) --------
 ;;
-;; `re-frame.flows` (the facade evaluation path) updates `last-inputs` on
-;; every successful flow recompute and snapshots / restores it across the
-;; drain. These helpers keep the mutation contained in this namespace —
-;; the atom never escapes. NOT a public surface; ns-doc names the consumer.
+;; `re-frame.flows` (the facade evaluation path) reads / advances the
+;; draining frame's `last-inputs` on every successful flow recompute and
+;; snapshots / restores it across the drain. These helpers keep the mutation
+;; contained in this namespace — the atom never escapes — and are frame-
+;; scoped: every read / write / rollback names the frame it operates on, so
+;; no path can touch a sibling frame's container. NOT a public surface;
+;; ns-doc names the consumer.
 
-(defn ^:no-doc swap-last-inputs!
-  [f & args]
-  (apply swap! last-inputs f args))
+(defn ^:no-doc frame-last-inputs-snapshot
+  "Return the draining frame's dirty-check rows as a plain `{flow-id inputs}`
+  map (the drain-start snapshot for the failed-flow rollback). Empty map
+  when the frame has no container yet."
+  [frame-id]
+  (if-let [a (get @frame-last-inputs frame-id)]
+    @a
+    {}))
 
-(defn ^:no-doc reset-last-inputs-to!
-  "Restore `last-inputs` to `prior` (the drain-start snapshot). Called by
-  `re-frame.flows/run-flows-on-db`'s catch arm to roll back dirty-check
-  bookkeeping when a flow throws mid-cascade."
-  [prior]
-  (reset! last-inputs prior))
+(defn ^:no-doc get-frame-flow-last-inputs
+  "Read the last-seen input vec for `[frame-id flow-id]` — the dirty-check
+  skip-path read. `nil` when the frame has no container or the flow has no
+  row yet."
+  [frame-id flow-id]
+  (when-let [a (get @frame-last-inputs frame-id)]
+    (get @a flow-id)))
 
-;; ---- two-level-map maintenance helpers -----------------------------------
+(defn ^:no-doc set-frame-flow-last-inputs!
+  "Advance the dirty-check row for `[frame-id flow-id]` to `inputs` after a
+  successful recompute. Mutates only the frame's own inner atom (creating it
+  on first touch)."
+  [frame-id flow-id inputs]
+  (swap! (ensure-frame-last-inputs-atom! frame-id) assoc flow-id inputs))
+
+(defn ^:no-doc reset-frame-last-inputs-to!
+  "Restore the draining frame's `last-inputs` container to `prior` (its
+  drain-start snapshot, a plain `{flow-id inputs}` map). Called by
+  `re-frame.flows/run-flows-on-db`'s catch arm to roll back the draining
+  frame's — and ONLY the draining frame's — dirty-check bookkeeping when a
+  flow throws mid-cascade. A concurrently-draining sibling's container is a
+  different atom and is untouched (rf2-94ol5)."
+  [frame-id prior]
+  (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
+
+;; ---- last-inputs row maintenance (rf2-94ol5) -----------------------------
 ;;
-;; Both the `last-inputs` cache (`{flow-id {frame-id inputs}}`) and the
-;; per-frame `flows` registry (`{frame-id {flow-id flow-map}}`) are
-;; two-level maps maintained across three lifecycle paths (clear-flow,
-;; frame-destroy teardown, hot-reload invalidate). The two operations
-;; below are the invariants those paths share — extracted to one home
-;; each (rf2-ee38b.9 clarity) so the `{flow-id {frame-id ...}}` /
-;; "last surviving frame?" shapes live in exactly one place instead of
-;; being open-coded (and kept in sync) at every call site.
+;; With per-frame `last-inputs` containers, dropping one flow's dirty-check
+;; row for a frame is a plain `dissoc` on that frame's own inner atom — no
+;; two-level-map walk, and structurally incapable of touching a sibling
+;; frame's container. The clear-flow / frame-destroy / hot-reload-invalidate
+;; paths share this one helper so the "drop this flow's row for this frame"
+;; invariant lives in exactly one place. (The prior `prune-frame-row`
+;; maintained the global `{flow-id {frame-id v}}` map's inner-map emptiness;
+;; per-frame storage makes the dissoc unconditional and frame-local.)
 
-(defn- prune-frame-row
-  "Drop `frame-id`'s slot for `flow-id` in a `{flow-id {frame-id v}}`
-  map; remove the `flow-id` key entirely when its inner map empties.
-  The single home for the `last-inputs` two-level-map maintenance the
-  clear / teardown / hot-reload paths share."
-  [index flow-id frame-id]
-  (let [pruned (update index flow-id dissoc frame-id)]
-    (if (empty? (get pruned flow-id))
-      (dissoc pruned flow-id)
-      pruned)))
+(defn- drop-frame-flow-row!
+  "Drop `flow-id`'s dirty-check row from `frame-id`'s `last-inputs`
+  container. No-op when the frame has no container. Frame-local by
+  construction (rf2-94ol5)."
+  [frame-id flow-id]
+  (when-let [a (get @frame-last-inputs frame-id)]
+    (swap! a dissoc flow-id)))
 
 (defn- no-frame-holds?
   "True iff no frame in the per-frame `flows` map (`{frame-id {flow-id
@@ -439,11 +524,10 @@
              (when-not (identical? new-db db)
                (adapter/replace-container! container new-db))))
          (swap! flows update frame-id dissoc id)
-         ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
-         ;; this frame's slot for the cleared flow id, dropping the whole
-         ;; flow row when no other frame still holds an entry (the shared
-         ;; `prune-frame-row` invariant).
-         (swap! last-inputs prune-frame-row id frame-id)
+         ;; Drop the cleared flow's dirty-check row from THIS frame's own
+         ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
+         ;; frame registering the same id keeps its own row untouched.
+         (drop-frame-flow-row! frame-id id)
          ;; Only unregister from the registrar if this was the LAST frame
          ;; holding the flow id (the shared `no-frame-holds?` predicate) —
          ;; otherwise other frames still need the registry slot for
@@ -483,9 +567,10 @@
    1. Snapshot the flow-ids the destroyed frame owned (needed for the
       registrar prune in step 4).
    2. Dissoc `frame-id` from the per-frame flow registry.
-   3. For each flow-id present in `last-inputs`, dissoc the destroyed
-      frame's row. Drop the whole flow-id key when no other frame still
-      holds an entry for it.
+   3. Dissoc the destroyed frame's `last-inputs` container from the
+      per-frame `frame-last-inputs` registry — one step (rf2-94ol5),
+      since per-frame storage holds the destroyed frame's rows in its
+      own inner atom and removing the frame-keyed slot drops them all.
    4. For each flow-id the destroyed frame owned, drop the `:flow`
       registrar slot when no other frame still registers that id — the
       `:frame` stamped onto the registrar entry was the destroyed frame.
@@ -499,14 +584,11 @@
   (when frame-id
     (let [owned-flow-ids (keys (get @flows frame-id))]
       (swap! flows dissoc frame-id)
-      ;; Drop the destroyed frame's row from every flow-id via the shared
-      ;; `prune-frame-row` invariant (drops the flow-id key when its inner
-      ;; map empties).
-      (swap! last-inputs
-             (fn [m]
-               (reduce (fn [acc flow-id] (prune-frame-row acc flow-id frame-id))
-                       m
-                       (keys m))))
+      ;; Drop the destroyed frame's entire `last-inputs` container in one
+      ;; step (rf2-94ol5) — per-frame storage means the destroyed frame's
+      ;; rows ARE its inner atom, so removing the frame-keyed slot drops
+      ;; every row at once and cannot touch any sibling frame's container.
+      (swap! frame-last-inputs dissoc frame-id)
       ;; Registrar prune: drop the `:flow` slot for any flow-id the
       ;; destroyed frame owned that no surviving frame still holds (the
       ;; shared `no-frame-holds?` predicate — same shape `clear-flow`
@@ -536,11 +618,12 @@
     ;; isolation and wasting work under multi-frame setups (per-tenant
     ;; SSR, pair-tool replays). The registrar replacement-hook payload
     ;; carries `:now` (the new metadata) with `:frame` stamped at
-    ;; `reg-flow`-time; read the frame from there and dissoc only that
-    ;; frame's row via the shared `prune-frame-row` invariant (drops the
-    ;; whole flow-id key when no frame still holds an entry).
+    ;; `reg-flow`-time; read the frame from there and drop only that
+    ;; frame's row from its own `last-inputs` container (rf2-94ol5 —
+    ;; per-frame storage makes the sibling-frame untouched guarantee
+    ;; structural rather than reliant on careful keying).
     (let [frame-id (:frame now)]
-      (swap! last-inputs prune-frame-row id frame-id))))
+      (drop-frame-flow-row! frame-id id))))
 
 (defonce ^:private _hot-reload-hook
   ;; `defonce` only needs the side-effect to fire once at namespace
@@ -551,15 +634,16 @@
 ;; ---- test-only resets ----------------------------------------------------
 
 (defn reset-last-inputs!
-  "Test-only: clear the dirty-check `last-inputs` map. The flows
-  reset-runtime fixture uses this to drop stale per-flow state between
-  tests so re-registration does not silently no-op when new-inputs
-  =-equal a stale entry from a sibling test. Per rf2-tfw3 (the fourth
-  per-feature split): this is published through the late-bind hook
-  table so `re-frame.test-support`'s reset-runtime fixture can call it
-  without statically requiring `re-frame.flows`."
+  "Test-only: clear ALL per-frame dirty-check `last-inputs` containers
+  (rf2-94ol5 — drops the whole `frame-last-inputs` registry, discarding
+  every frame's inner atom). The flows reset-runtime fixture uses this to
+  drop stale per-flow state between tests so re-registration does not
+  silently no-op when new-inputs =-equal a stale entry from a sibling test.
+  Per rf2-tfw3 (the fourth per-feature split): this is published through
+  the late-bind hook table so `re-frame.test-support`'s reset-runtime
+  fixture can call it without statically requiring `re-frame.flows`."
   []
-  (reset! last-inputs {})
+  (reset! frame-last-inputs {})
   nil)
 
 (defn reset-flows!
@@ -576,8 +660,9 @@
   new-inputs `=`-equalled a leftover entry. The two-atom reset is the
   single sound invariant — anything calling `reset-flows!` wants flow
   state cleared, and `last-inputs` is downstream cache for the same
-  registry."
+  registry. Per rf2-94ol5 the dirty-check reset now drops every
+  per-frame `last-inputs` container (the `frame-last-inputs` registry)."
   []
   (reset! flows {})
-  (reset! last-inputs {})
+  (reset! frame-last-inputs {})
   nil)

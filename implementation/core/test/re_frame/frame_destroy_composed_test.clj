@@ -356,10 +356,11 @@
     ;; Seed the flow's last-inputs directly — under some inter-test
     ;; orderings the `run-flows!` walker's hook is gated by a sibling
     ;; reload (conformance suite reloads flows mid-pass). The direct
-    ;; swap pins the post-condition contract this test cares about
-    ;; (the destroy-frame! teardown clears the row) without depending
-    ;; on the flow walker firing during this specific dispatch.
-    (flows-registry/swap-last-inputs! assoc-in [:composed/area :composed/leak-audit] [3 4])
+    ;; write (frame-scoped per rf2-94ol5) pins the post-condition
+    ;; contract this test cares about (the destroy-frame! teardown
+    ;; clears the row) without depending on the flow walker firing
+    ;; during this specific dispatch.
+    (flows-registry/set-frame-flow-last-inputs! :composed/leak-audit :composed/area [3 4])
     (is (contains? (flows/flows-snapshot) :composed/leak-audit)
         "precondition: flow registry has a row for the frame")
     (is (= [3 4] (get-in (flows/last-inputs-snapshot) [:composed/area :composed/leak-audit]))
