@@ -64,20 +64,29 @@
 
 (defn- install-sensitive-schema!
   "Register a `[:auth :password]` sensitive schema slot against
-  `frame-id` and force the elision registry population. Returns nil."
+  `frame-id` and force the elision registry population. Returns nil.
+
+  The `[:auth]` slot is `[:maybe ...]` and `:password` is `:optional`
+  because these privacy tests legitimately drive cascades where `:auth`
+  is absent (a non-auth event) or `:password` is cleared mid-cascade —
+  states that must pass validation (rf2-v96fh: schema implies validation
+  now enforces every registered path on every commit). The `:sensitive?`
+  flag stays discoverable: the walker descends `:maybe` transparently."
   [frame-id]
   (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]]
+                     [:maybe [:map [:password {:optional true :sensitive? true} :string]]]
                      {:frame frame-id})
   (rf/populate-sensitive-from-schemas! frame-id)
   nil)
 
 (defn- install-large-schema!
   "Register a `[:blob :payload]` large schema slot against `frame-id`
-  and force the elision registry population."
+  and force the elision registry population. `[:blob]` is `[:maybe ...]`
+  / `:payload` `:optional` so cascades that never touch the blob path
+  pass validation (rf2-v96fh)."
   [frame-id]
   (rf/reg-app-schema [:blob]
-                     [:map [:payload {:large? true :hint "big"} :string]]
+                     [:maybe [:map [:payload {:optional true :large? true :hint "big"} :string]]]
                      {:frame frame-id})
   (rf/populate-elision-from-schemas! frame-id)
   nil)

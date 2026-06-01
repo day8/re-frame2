@@ -99,11 +99,18 @@
   against `frame-id`. Matches the shape an app exercising both privacy
   defences would register."
   [frame-id]
+  ;; Both paths are `[:maybe ...]` with `:optional` leaves: the mixed
+  ;; cascade drives db states where each path is absent (`:seed`/`:inc`
+  ;; write only `:n`; `:login` writes only `:auth`; `:upload` only
+  ;; `:blob`). rf2-v96fh enforces every registered schema path on every
+  ;; commit, so a path that is legitimately absent in a given cascade
+  ;; step must validate as nil. The `:sensitive?` / `:large?` per-slot
+  ;; flags stay discoverable — the walker descends `:maybe` transparently.
   (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]]
+                     [:maybe [:map [:password {:optional true :sensitive? true} :string]]]
                      {:frame frame-id})
   (rf/reg-app-schema [:blob]
-                     [:map [:payload {:large? true :hint "image"} :string]]
+                     [:maybe [:map [:payload {:optional true :large? true :hint "image"} :string]]]
                      {:frame frame-id})
   (rf/populate-sensitive-from-schemas! frame-id)
   (rf/populate-elision-from-schemas!   frame-id)
