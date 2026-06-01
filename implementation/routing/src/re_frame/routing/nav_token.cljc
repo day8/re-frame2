@@ -2,6 +2,10 @@
   "Navigation-token stale-result suppression for re-frame2 routing.
 
   Per Spec 012 §Navigation tokens — stale-result suppression. Owns:
+    - `:nav-token` cofx — injects the current navigation epoch token
+      (`[:rf/runtime :routing :current :nav-token]`) into an `:on-match`
+      handler's `:coeffects` under key `:nav-token`, so the handler can
+      capture it and thread it into an async continuation;
     - `:rf.test/simulate-http-resolution` — the test-only fixture
       analogue of the production-grade fx below;
     - `:rf.route/with-nav-token` fx — wraps an async-completion fx
@@ -18,6 +22,46 @@
             [re-frame.fx :as fx]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
+
+(def nav-token-cofx-meta
+  "Metadata for the `:nav-token` cofx registration. Per Spec 012
+  §Navigation tokens — stale-result suppression step 2: the cofx
+  injects the current navigation epoch token so an `:on-match`-reached
+  handler can capture the token live at scheduling time and thread it
+  into an async continuation (via `:rf.route/with-nav-token` or its own
+  follow-up event payload).
+
+  Universal platform: the route slice exists on both client and server,
+  so the cofx resolves under SSR and browser alike."
+  {:doc "The current navigation epoch token, read from
+`[:rf/runtime :routing :current :nav-token]` and injected under
+`:coeffects :nav-token`. Declare with `(inject-cofx :nav-token)` on an
+`:on-match`-reached handler; capture the value and thread it into an
+async continuation so a superseding navigation suppresses the stale
+result. Per Spec 012 §Navigation tokens — stale-result suppression."})
+
+(defn nav-token-cofx
+  "Handler fn for the `:nav-token` cofx. Reads the current navigation
+  epoch token from the injected `:db` coeffect (the runtime pre-populates
+  `:coeffects :db` with the frame's `app-db` value before the
+  interceptor chain runs) and injects it under `:coeffects :nav-token`.
+
+  1-arity is the canonical form. 2-arity accepts an explicit value
+  override — useful in tests / conformance harnesses that want to assert
+  the threading shape without standing up a route slice.
+
+  Meaningful only inside a handler reached via an `:on-match` drain (or a
+  follow-up of one), where `[:rf/runtime :routing :current :nav-token]`
+  holds the epoch the navigation cascade allocated. Read from any other
+  handler it reflects whatever navigation is currently active — which is
+  the correct \"is this still the live navigation?\" reading the
+  stale-suppression pattern wants."
+  ([ctx]
+   (let [db    (get-in ctx [:coeffects :db])
+         token (get-in db [:rf/runtime :routing :current :nav-token])]
+     (assoc-in ctx [:coeffects :nav-token] token)))
+  ([ctx token]
+   (assoc-in ctx [:coeffects :nav-token] token)))
 
 (defn simulate-http-resolution-handler
   "`:rf.test/simulate-http-resolution` event-fx handler. Registered by

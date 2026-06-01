@@ -596,28 +596,28 @@ When a route is loading and the user navigates away before the load completes, t
 ### Mechanism
 
 1. **Allocation.** When `:rf.route/transitioned` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
-2. **Carry.** Each `:on-match` dispatch receives the current `:nav-token` in cofx (under the key `:nav-token`):
+2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:nav-token` cofx via `(inject-cofx :nav-token)`; the cofx injects the current token (read from `[:rf/runtime :routing :current :nav-token]`) under the key `:nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time:
 
    ```clojure
-   ;; cofx of :on-match handlers
-   {:db        ...
-    :event     [:cart/load-items]
-    :nav-token "nav-42"}                       ;; the token at scheduling time
+   (rf/reg-event-fx :cart/load-items
+     [(rf/inject-cofx :nav-token)]              ;; <-- declare the cofx
+     (fn [{:keys [db nav-token]} _]             ;; <-- "nav-42", the token at scheduling time
+       ...))
    ```
 
-3. **Threading.** Async completions either (a) carry the token in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper which threads the token into the dispatched continuation:
+3. **Threading.** Async completions either (a) carry the captured token in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper which threads the token into the dispatched continuation:
 
    ```clojure
    {:fx [[:rf.route/with-nav-token
           {:do        [:dispatch [:cart/items-loaded items]]
-           :nav-token (:nav-token cofx)}]]}
+           :nav-token nav-token}]]}            ;; the token captured in step 2
    ```
 
-4. **Validation.** When the receiving handler runs, the framework-provided `:nav-token` cofx checks the carried token against the *current* `:rf/route` slice's `:nav-token`:
+4. **Validation.** On receipt, the carried token is checked against the *current* `:rf/route` slice's `:nav-token`. Path (b) — `:rf.route/with-nav-token` — performs this check for you; path (a) hands the captured token to the receiving handler, which compares it against its own freshly-injected `:nav-token` cofx and short-circuits on mismatch:
    - **Match.** The token is current; the result is committed normally.
-   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the handler does NOT run — no `:db` write, no `:fx`, no transition.
+   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the wrapped `:do` (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
 
-The validating cofx is shared infrastructure: any handler whose registration declares it (or any handler reached via `:rf.route/with-nav-token`) is automatically protected.
+The two halves are shared infrastructure: the `:nav-token` cofx supplies the capture-side token to any handler that declares `(inject-cofx :nav-token)`, and `:rf.route/with-nav-token` performs the receipt-side check for any continuation routed through it. A handler can use both (inject to capture, wrap to validate) or compare the cofx-injected token directly.
 
 ### What the slice looks like over time
 
