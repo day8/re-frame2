@@ -417,11 +417,15 @@ Reactive sweep — sub cascade + view re-renders, scoped to the focused epoch.
 
 **Rename history.** Original name: `Views`. Renamed to `Reactive`
 (rf2-wyvf2 · §11.5) to align with the perspective split. Renamed
-again to `View` per rf2-e33ad (Mike-direction 2026-05-21) — the
-panel's primary subject is the rendered **view** (hover a view-row,
-the rendered DOM highlights), with the sub cascade as supporting
-context. The internal panel-registry key stays `:views` (never a
-user contract). The L4 tab label renders as `View`.
+again to `View` per rf2-e33ad — the panel's primary subject is the
+rendered **view** (hover a view-row, the rendered DOM highlights),
+with the sub cascade as supporting context. Settled back on the
+plural `Views` per Mike-direction 2026-05-21 (canonically ratified
+rf2-5i8nn 2026-06-02): the all-plural-domain-noun convention aligns
+the tab vocabulary — Views / Flows / Schemas / Routes / Machines are
+all plural — and the Figma export (rf2-ad7zx) renders `Views`. The
+internal panel-registry key stays `:views` (never a user contract).
+The L4 tab label renders as `Views`.
 
 ### §3.1.1 Layout (rf2-e33ad · rf2-isun6)
 
@@ -4169,15 +4173,20 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Defer to follow-up bead** | Per super-prompt. The 3-lens model (handling / reactive / state) is sufficient for MVP. |
 
-### §11.5 Views → Reactive rename
+### §11.5 Views → Reactive → Views label history
 
-**Pick: (a) "Reactive".** Pairs with "Event"; accurately captures
-subs+views; reflects perspective split. Implementation note: the L3 tab
-key stays `:views` for backward registry / share-URL compat — only the
-**display label** rebases to "Reactive." (Pre-alpha posture says no
-back-compat shims, but `:views` is an internal id, not a user contract;
-share URLs are local-only dev surface. Keep the key for the smaller diff
-unless a follow-up cleans up display+key together.)
+**Canonical label: "Views"** (Mike-direction 2026-05-21, ratified
+rf2-5i8nn 2026-06-02). The display label briefly considered "Reactive"
+(rf2-wyvf2 — pairs with "Event", captures subs+views, reflects the
+perspective split) and "View" (rf2-e33ad — the rendered view as the
+panel's primary subject), but settled on the plural **"Views"**: the
+all-plural-domain-noun convention aligns the L4 tab vocabulary (Views /
+Flows / Schemas / Routes / Machines) and matches the Figma export
+(rf2-ad7zx). Implementation note: the L3 tab key stays `:views` for
+backward registry / share-URL compat — only the **display label**
+moves. (`:views` is an internal id, not a user contract; share URLs are
+local-only dev surface. Keep the key for the smaller diff unless a
+follow-up cleans up display+key together.)
 
 ---
 

@@ -62,9 +62,9 @@
   (subs/install!)
   (events/install!)
   ;; rf2-wyvf2 — register with the L4 tab registry. Display label is
-  ;; 'Reactive' per spec/021 §11.5; the tab key stays `:views` (the
-  ;; internal id is not a user contract — pre-alpha posture preserves
-  ;; the slot for the smaller diff).
+  ;; 'Views' per spec/021 §11.5 (rf2-5i8nn); the tab key stays `:views`
+  ;; (the internal id is not a user contract — pre-alpha posture
+  ;; preserves the slot for the smaller diff).
   (panel-registry/reg-l4-tab!
     {:id    :views
      ;; Display label renamed `Reactive` -> `View` -> `Views`. The
