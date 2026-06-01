@@ -1075,6 +1075,25 @@ Implementation notes:
 
 Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent and UIx adapters' — the contract is genuinely substrate-agnostic, and the Helix port surfaces no friction against the decision set.
 
+## Cross-substrate affordance summary
+
+The nine-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. It documents the surfaces **after** the rf2-z7hfp restructure, in which each React-shaped adapter's `frame-provider` is a **native substrate component** (UIx `defui`, Helix `defnc`) rather than a re-exported plain fn handed to `$`.
+
+| Affordance | Reagent (`day8/re-frame2-reagent`) | UIx (`day8/re-frame2-uix`) | Helix (`day8/re-frame2-helix`) |
+|---|---|---|---|
+| **Read a subscription** | `@(rf/subscribe [:q …])` — reactive deref inside a `reg-view`/Form-2 render fn. | `(use-subscribe [:q …])` — React hook (re-renders on change via `useSyncExternalStore`). | `(use-subscribe [:q …])` — React hook (same surface as UIx). |
+| **Explicit-frame read** | `@(rf/subscribe frame-id [:q …])` (2-arg). | `(use-subscribe frame-id [:q …])` (2-arg). | `(use-subscribe frame-id [:q …])` (2-arg). |
+| **Frame resolution (1-arg form)** | dynamic-var → React-context (surrounding `frame-provider`) → `:rf/default`. | Same chain; React-context tier read via `use-context`. | Same chain; React-context tier read via `use-context`. |
+| **Scope a frame to a subtree** (`frame-provider`) | Native hiccup component; **trailing-positional children**: `[rf/frame-provider {:frame :f} [header] [main]]`. | Native `defui` component, mounted via `$`; **children passed under `:children` in the props map**: `($ frame-provider {:frame :f :children [($ header) ($ main)]})`. | Native `defnc` component, mounted via `$`; **children under `:children` in props**: `($ frame-provider {:frame :f :children [($ header) ($ main)]})`. |
+| **Missing / `nil` `:frame`** | Falls through to `:rf/default` (deliberate default — matches the no-provider case; see [§Frame-provider via React context](#frame-provider-via-react-context)). | Same — `:rf/default`. | Same — `:rf/default`. |
+| **Frame keyword fidelity under the mount idiom** | `:r>` interop head bypasses Reagent prop conversion, so a namespaced frame keyword survives the React-context round trip. | The native `defui` routes props through UIx's lossless `argv` channel — keyword frame-ids survive intact by construction (rf2-z7hfp; was rf2-8svnm). | The native `defnc` routes props through `extract-cljs-props` (keyword keys + preserved keyword values) — survives by construction (rf2-z7hfp; was rf2-9ok1s). |
+| **Flush pending renders in a test** | No spine `flush-views!`. Classic Reagent uses Reagent's own `r/flush!` / `act` harness; `reagent-slim` ships its own `reagent2.dom.client/flush-views!`. | `(uix-adapter/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | `(helix-adapter/flush-views!)` — wraps React's `act()` (same surface as UIx). |
+| **`reg-view` macro** | Available (canonical view-registration surface). | `reg-view*` (plain-fn) when registry addressing is needed; most components are bare `defui`. | `reg-view*` (plain-fn) when needed; most components are bare `defnc`. |
+
+All three adapters read the **same** React Context object (`re-frame.adapter.context/frame-context` in core), so a mixed-substrate `frame-provider` chain composes — a UIx subtree under a Reagent provider (or vice versa) resolves the same frame.
+
+> **Known call-shape asymmetry (rf2-7kii2).** `frame-provider`'s children-passing differs across substrates: Reagent takes trailing-positional children (idiomatic hiccup), while UIx/Helix take children under a `:children` key in the props map. The rf2-z7hfp restructure made the keyword-mangling class impossible by construction but deliberately **preserved the documented call shapes**; whether to unify them onto the idiomatic per-substrate `$` trailing-args form is a separate design decision tracked outside this table.
+
 ## Subscription topology vs subscription tracking
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
