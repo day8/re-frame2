@@ -50,9 +50,28 @@
 
 (defn url-decode
   "Decode a percent-encoded string back to its raw form. Round-trip
-  inverse of url-encode."
+  inverse of url-encode.
+
+  HOST-SYMMETRIC: `+` stays a LITERAL `+` on BOTH hosts (it is NOT
+  swapped to a space). `js/decodeURIComponent` (CLJS) leaves `+`
+  untouched; `java.net.URLDecoder/decode` (JVM) is the
+  `application/x-www-form-urlencoded` decoder, which would turn a bare
+  `+` into a space — the wrong semantics here. We pre-escape every bare
+  `+` to `%2B` before handing the string to URLDecoder, so the JVM path
+  reproduces `decodeURIComponent` exactly: `+` → `+`, `%2B` → `+`,
+  `%20` → space, real spaces → space.
+
+  Per Spec 012 §Bidirectional URL ↔ params §`+` is a literal: re-frame2
+  never emits a bare `+` (url-encode swaps `+` → `%20`), the de-facto
+  browser reference is `decodeURIComponent` (which is `+`-literal), and
+  RFC 3986 treats `+` in path segments as a literal. A host-divergent
+  `+` would yield a different `:params` / `:query` slice for the same URL
+  on JVM (SSR) vs CLJS (browser) — the exact Spec 011 hydration-mismatch
+  class. Making JVM match CLJS closes that gap."
   [s]
-  #?(:clj  (java.net.URLDecoder/decode (str s) "UTF-8")
+  #?(:clj  (-> (str s)
+               (.replace "+" "%2B")
+               (java.net.URLDecoder/decode "UTF-8"))
      :cljs (js/decodeURIComponent (str s))))
 
 (defn safe-url-decode
