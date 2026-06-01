@@ -97,6 +97,23 @@
   `get-path` once they know the key of interest."
   :rf.mcp/summary)
 
+(def invalid-arg-key
+  "Top-level marker on an error-result rejecting a malformed per-call
+  argument at the wire boundary (rf2-5rdit). Shape:
+    `{:rf.mcp/invalid-arg {:arg <kw> :value <supplied> :hint <str>}}`.
+
+  Unlike `:rf.mcp/cursor-stale` (a `:reason` value on a generic
+  `{:ok? false}` envelope), this is a TOP-LEVEL wrapper carried as the
+  payload of an `isError: true` tool-result — an honest, recoverable
+  rejection the agent reads and corrects, not a server fault.
+
+  First emitter (rf2-5rdit): `cap/max-tokens` rejects a NEGATIVE
+  `:max-tokens` arg here rather than resolving it to a negative cap
+  (which would over-trip `apply-cap` and lock the agent out of every
+  response). The cross-MCP `:rf.mcp/*` namespace reserves the key for
+  any future per-call arg-validation rejection."
+  :rf.mcp/invalid-arg)
+
 ;; ---------------------------------------------------------------------------
 ;; :rf.size/* — size-elision markers
 ;; ---------------------------------------------------------------------------

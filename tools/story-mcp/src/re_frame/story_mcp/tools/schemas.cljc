@@ -14,9 +14,13 @@
   "Recurring fragment — every tool accepts a per-call `:max-tokens`
   override of the wire-boundary cap (rf2-rvyzy / rf2-zavp5). `0`
   disables the cap; default is
-  `re-frame.mcp-base.overflow/default-max-tokens` (5000)."
+  `re-frame.mcp-base.overflow/default-max-tokens` (5000). A NEGATIVE
+  value is rejected (rf2-5rdit): `:minimum 0` constrains it at
+  schema-validating hosts, and the wire-egress backstop surfaces a
+  `{:rf.mcp/invalid-arg {...}}` `isError` result for hosts that don't
+  validate."
   {:type "integer" :minimum 0
-   :description "Per-call wire-boundary token cap. 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`)."})
+   :description "Per-call wire-boundary token cap. Must be >= 0: 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`). A negative value is rejected with an `:rf.mcp/invalid-arg` error."})
 
 (def dedup-schema
   "Recurring fragment — every tool accepts a per-call `:dedup` opt-out

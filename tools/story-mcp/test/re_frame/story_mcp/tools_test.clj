@@ -1796,6 +1796,33 @@
     (let [r (wire-pipeline/invoke-tool "list-tags" {})]
       (is (not (overflow-marker? r))))))
 
+(deftest cap-negative-max-tokens-rejected-not-overflow-lockout
+  ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+  ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap. The
+  ;; handler is never dispatched and the result is an actionable
+  ;; `isError: true` error — not the `:rf.mcp/overflow` lock-out a
+  ;; negative ceiling used to cause (over-cap? trips on any non-negative
+  ;; token count against a negative cap, so even a tiny response was
+  ;; replaced by the overflow marker). The wire `:minimum 0` schema is the
+  ;; first line of defence for validating hosts; this is the egress
+  ;; backstop for hosts that don't validate.
+  (testing "negative :max-tokens surfaces an :rf.mcp/invalid-arg error, not overflow"
+    (let [r    (wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
+          body (get-in r [:structuredContent vocab/invalid-arg-key])]
+      (is (true? (:isError r))
+          "negative max-tokens surfaces as an isError tool-result")
+      (is (not (overflow-marker? r))
+          "NOT the overflow lock-out a negative cap used to cause")
+      (is (some? body) "result carries the :rf.mcp/invalid-arg rejection payload")
+      (is (= :max-tokens (:arg body)))
+      (is (= -1 (:value body)))
+      (is (re-find #"(?i)0 disables" (:hint body))
+          "hint states the disable sentinel so the agent's retry is correct")
+      ;; The text slot mirrors the structured payload (round-trips to EDN).
+      (is (= :max-tokens
+             (get-in (edn/read-string (-> r :content first :text))
+                     [vocab/invalid-arg-key :arg]))))))
+
 (deftest cap-honours-default-when-omitted
   (testing "absent `:max-tokens` falls back to `overflow/default-max-tokens` (5000)"
     ;; A tiny payload like `list-tags` is well under 5K tokens; verify

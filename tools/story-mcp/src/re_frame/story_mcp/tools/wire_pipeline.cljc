@@ -199,31 +199,40 @@
   zero compression win."
   [tool-name arguments]
   (when-let [t (registry/tool-by-name tool-name)]
-    (let [args      (or arguments {})
-          cap       (base-cap/max-tokens (get args :max-tokens))
-          ;; Dedup runs only on tools that opt in via `:dedup-eligible?`
-          ;; on the descriptor — and only when the caller leaves the
-          ;; `:dedup` arg at its default `true`. Ineligible tools never
-          ;; carry the `:dedup` slot in their input schema (per
-          ;; `with-dedup` on the descriptor), so any caller-supplied
-          ;; value is silently ignored.
-          eligible? (true? (:dedup-eligible? t))
-          dedup?    (and eligible?
-                         (args/parse-boolean (get args :dedup) true))
-          result    (try
-                      ((:handler t) args)
-                      (catch Throwable e
-                        (result/error-result (str "Tool handler threw: " (ex-message e))
-                                        {:tool      tool-name
-                                         :exception (.getName (class e))
-                                         :data      (ex-data e)})))
-          ;; Skip dedup on error envelopes (small bespoke payload; the
-          ;; flat `:rf.error` shape is more useful unwrapped than under
-          ;; a cache-of-one marker).
-          deduped   (if (true? (:isError result))
-                      result
-                      (apply-dedup result dedup?))]
-      (base-cap/apply-cap result-io deduped
-                          {:tool tool-name
-                           :cap  cap
-                           :hint (get overflow-hints tool-name)}))))
+    (let [args (or arguments {})
+          cap  (base-cap/max-tokens (get args :max-tokens))]
+      (if (base-cap/invalid-arg? cap)
+        ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+        ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
+        ;; cap. Surface it as an `isError: true` tool-result so the agent
+        ;; gets an actionable, recoverable error — NOT a silent lock-out
+        ;; where the bad cap over-trips `apply-cap`'s `over-cap?` and
+        ;; every response is replaced by the overflow marker. The handler
+        ;; is never dispatched; the malformed cap never reaches the gate.
+        (result/error-result (result/pr-edn cap) cap)
+        (let [;; Dedup runs only on tools that opt in via `:dedup-eligible?`
+              ;; on the descriptor — and only when the caller leaves the
+              ;; `:dedup` arg at its default `true`. Ineligible tools never
+              ;; carry the `:dedup` slot in their input schema (per
+              ;; `with-dedup` on the descriptor), so any caller-supplied
+              ;; value is silently ignored.
+              eligible? (true? (:dedup-eligible? t))
+              dedup?    (and eligible?
+                             (args/parse-boolean (get args :dedup) true))
+              result    (try
+                          ((:handler t) args)
+                          (catch Throwable e
+                            (result/error-result (str "Tool handler threw: " (ex-message e))
+                                            {:tool      tool-name
+                                             :exception (.getName (class e))
+                                             :data      (ex-data e)})))
+              ;; Skip dedup on error envelopes (small bespoke payload; the
+              ;; flat `:rf.error` shape is more useful unwrapped than under
+              ;; a cache-of-one marker).
+              deduped   (if (true? (:isError result))
+                          result
+                          (apply-dedup result dedup?))]
+          (base-cap/apply-cap result-io deduped
+                              {:tool tool-name
+                               :cap  cap
+                               :hint (get overflow-hints tool-name)}))))))

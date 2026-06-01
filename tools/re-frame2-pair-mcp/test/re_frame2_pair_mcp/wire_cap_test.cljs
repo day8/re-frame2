@@ -69,6 +69,28 @@
 (deftest max-tokens-arg-non-number-falls-back-to-default
   (is (= cap/default-max-tokens (cap/max-tokens-arg #js {"max-tokens" "bogus"}))))
 
+(deftest max-tokens-arg-negative-rejected-with-invalid-arg
+  ;; rf2-5rdit — a negative `:max-tokens` resolves to an
+  ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap (which
+  ;; would over-trip apply-cap and lock the agent out). The `invoke`
+  ;; chokepoint surfaces it as an isError result via `wire/err-text`.
+  (let [out (cap/max-tokens-arg #js {"max-tokens" -1})]
+    (is (cap/invalid-arg? out)
+        "negative max-tokens-arg is a rejection, not a negative cap")
+    (is (not (number? out)) "rejection is a marker map, not a (negative) cap")
+    (let [body (get out :rf.mcp/invalid-arg)]
+      (is (= :max-tokens (:arg body)))
+      (is (= -1 (:value body)))
+      (is (re-find #"(?i)0 disables" (:hint body)))))
+  (is (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" -5}))))
+
+(deftest invalid-arg?-discriminates
+  (is (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" -1})))
+  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" 0}))))
+  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" 100}))))
+  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {}))))
+  (is (not (cap/invalid-arg? nil))))
+
 ;; ---------------------------------------------------------------------------
 ;; sum-text-tokens — sums every `:text` slot.
 ;; ---------------------------------------------------------------------------

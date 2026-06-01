@@ -253,12 +253,23 @@
   ;; here at the single dispatch chokepoint.
   (when (not= name "discover-app")
     (wire/stick-build! conn args))
-  (let [enabled? (args/parse-bool-arg args :cache)
-        ctx      {:conn       conn
-                  :name       name
-                  :args       args
-                  :extra      extra
-                  :result     nil
-                  :cache-opts {:tool name :args args :enabled? enabled?}
-                  :cap-opts   {:tool name :cap (cap/max-tokens-arg args)}}]
-    (bs/run-and-extract wire-boundary-pipeline ctx)))
+  (let [cap (cap/max-tokens-arg args)]
+    (if (cap/invalid-arg? cap)
+      ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+      ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
+      ;; cap. Short-circuit into an `isError: true` result BEFORE the
+      ;; pipeline runs: the tool is never dispatched and the malformed
+      ;; cap never reaches `apply-cap` (where a negative ceiling would
+      ;; over-trip `over-cap?` and replace every response — even a tiny
+      ;; one — with the overflow marker, locking the agent out). The
+      ;; agent reads the actionable rejection and corrects the arg.
+      (js/Promise.resolve (wire/err-text cap))
+      (let [enabled? (args/parse-bool-arg args :cache)
+            ctx      {:conn       conn
+                      :name       name
+                      :args       args
+                      :extra      extra
+                      :result     nil
+                      :cache-opts {:tool name :args args :enabled? enabled?}
+                      :cap-opts   {:tool name :cap cap}}]
+        (bs/run-and-extract wire-boundary-pipeline ctx)))))

@@ -10,7 +10,7 @@ This doc is one of eight per-namespace contracts indexed from [`README.md`](READ
 `cap` owns:
 
 - The two-stage cap algorithm (sum tokens + chars in one pass → primary token gate OR secondary char gate → pass-through or replace).
-- The `max-tokens` per-call cap resolver (`0` resolves to `nil` = disabled; absent / non-number → `default-max-tokens`).
+- The `max-tokens` per-call cap resolver (`0` resolves to `nil` = disabled; absent / non-number → `default-max-tokens`; **negative → `{:rf.mcp/invalid-arg {...}}` rejection**, rf2-5rdit).
 - The `ResultIO` protocol — the per-consumer specialisation hook.
 - The recursion-safety invariant (the overflow marker itself must fit under the cap).
 
@@ -24,7 +24,7 @@ This doc is one of eight per-namespace contracts indexed from [`README.md`](READ
 
 The pipeline is a **two-stage** gate (rf2-ih7g4) that folds both sums in a **single pass** (rf2-hyp0z) over the content `:text` slots:
 
-1. **Resolve the cap.** `max-tokens` turns the raw `:max-tokens` MCP arg into the per-call cap: `nil` (caller passed `0` → disabled), `default-max-tokens` (5000; absent or non-number), or a positive integer (custom cap). When the resolved cap is `nil`, `apply-cap` short-circuits and returns the result untouched — **the disable mechanism is `max-tokens` resolving to `nil`, not the arg being `0` at the gate**.
+1. **Resolve the cap.** `max-tokens` turns the raw `:max-tokens` MCP arg into the per-call cap: `nil` (caller passed `0` → disabled), `default-max-tokens` (5000; absent or non-number), a positive integer (custom cap), or — for a **negative** number — an `{:rf.mcp/invalid-arg {...}}` rejection (rf2-5rdit; see [§Negative `:max-tokens` is rejected](#negative-max-tokens-is-rejected-rf2-5rdit)). When the resolved cap is `nil`, `apply-cap` short-circuits and returns the result untouched — **the disable mechanism is `max-tokens` resolving to `nil`, not the arg being `0` at the gate**.
 2. **Single-pass token + char sum.** One `transduce` over the `:text`-slot strings folds both `Σ token-estimate` and `Σ (count s)` in one walk (so a story-mcp `:structuredContent` is materialised once, not twice).
 3. **Two-stage over-budget decision** (`over-cap?`): trip when EITHER the token sum `> cap` (primary gate) OR the char sum `> cap * byte-cap-multiplier` (secondary byte gate — defence-in-depth against payloads where `(count s)/4` undercounts: CJK, emoji, base64, dense code). `reported-count` selects which count rides the marker's `:token-count` slot (the char count when the secondary gate is the one that tripped, else the token sum).
 4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`).
@@ -119,6 +119,19 @@ The structural guarantee comes from the marker shape — `:limit`, `:token-count
 2. **Local-host streaming consumers** — agents that stream tool responses (rather than load them into context) may opt out of the cap to receive the full payload.
 
 The default-ON posture matches the agent-ergonomics threat model: a stock install never accidentally floods the agent's context.
+
+## Negative `:max-tokens` is rejected (rf2-5rdit)
+
+A **negative** `:max-tokens` is neither a disable signal nor a valid cap. `max-tokens` rejects it with an `{:rf.mcp/invalid-arg {:arg :max-tokens :value <n> :hint "max-tokens must be >= 0; 0 disables the cap"}}` marker; the consumer surfaces that as an `isError: true` tool-result (the agent reads it and corrects the arg). The handler is never dispatched and the rejection never reaches `apply-cap` as a `:cap`.
+
+Why reject rather than clamp / treat-as-default (Mike ruled A, 2026-06-01): a negative value used to fall through to `(long raw)`, producing a negative ceiling. `over-cap?` (`(> tokens cap)`) is then true for ANY non-negative token count, so **every** response — even a 2-character one — was replaced by the `:rf.mcp/overflow` marker, locking the agent out of all tool data and emitting a nonsensical `:cap-tokens -1`. An honest, recoverable rejection at the AI/MCP boundary is the masterpiece CORRECTNESS posture: a malformed cap is an agent error worth telling the agent about, not a value to silently paper over.
+
+Helpers (in `cap`):
+
+- `invalid-arg-marker` — builds the `{:rf.mcp/invalid-arg {...}}` rejection payload.
+- `invalid-arg?` — the predicate each consumer gates on before threading the cap into `apply-cap`.
+
+The reserved key is `vocab/invalid-arg-key` (`:rf.mcp/invalid-arg`). The wire `:minimum 0` on story-mcp's `:max-tokens` input-schema is the first line of defence for schema-validating hosts; this egress rejection is the backstop for hosts that don't validate (pair-mcp's descriptor carries no `:minimum`).
 
 ## Conformance posture
 

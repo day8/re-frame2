@@ -61,7 +61,8 @@
   reads the same way on both sides. mcp-base stays free of
   platform-specific deps (`js-interop`, JVM reflection, etc); those
   live in the consumer's IO instance."
-  (:require [re-frame.mcp-base.overflow :as overflow]))
+  (:require [re-frame.mcp-base.overflow :as overflow]
+            [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; ResultIO — the per-server specialisation hook.
@@ -96,29 +97,78 @@
 ;; max-tokens — per-call cap resolver.
 ;; ---------------------------------------------------------------------------
 
+(def ^:const invalid-arg-hint
+  "Recovery hint embedded in the `:rf.mcp/invalid-arg` rejection when a
+  caller supplies a negative `:max-tokens` (rf2-5rdit). States the valid
+  domain AND the disable sentinel so the agent's next call is correct."
+  "max-tokens must be >= 0; 0 disables the cap")
+
+(defn invalid-arg-marker
+  "Build the `{:rf.mcp/invalid-arg {...}}` rejection payload (rf2-5rdit)
+  for a malformed per-call argument. `arg` is the offending arg keyword,
+  `value` the rejected value, `hint` the recovery prose.
+
+  The consumer wraps this in its own `isError: true` tool-result shape
+  (story-mcp `result/error-result`, re-frame2-pair-mcp `wire/err-text`) so
+  the agent receives an actionable, recoverable error rather than a
+  server crash or — in the negative-`:max-tokens` case — a silent
+  lock-out where every response is replaced by the overflow marker."
+  [arg value hint]
+  {vocab/invalid-arg-key {:arg   arg
+                          :value value
+                          :hint  hint}})
+
+(defn invalid-arg?
+  "True when `x` is an `{:rf.mcp/invalid-arg {...}}` rejection — the
+  sentinel `max-tokens` returns for an out-of-domain arg. Consumers
+  call this on the `max-tokens` result and, when true, surface `x` as
+  an `isError: true` tool-result INSTEAD of feeding it to `apply-cap`
+  as a `:cap` (a malformed cap must never reach the gate)."
+  [x]
+  (and (map? x) (contains? x vocab/invalid-arg-key)))
+
 (defn max-tokens
   "Resolve the per-call cap from an ALREADY-EXTRACTED raw value.
   Returns the integer cap in tokens, `nil` when the cap is disabled
-  (caller passed `0`), or `overflow/default-max-tokens` when absent or
-  not a number.
+  (caller passed `0`), `overflow/default-max-tokens` when absent or
+  not a number, or — for a NEGATIVE number — an
+  `{:rf.mcp/invalid-arg {...}}` REJECTION marker (rf2-5rdit).
 
   Each consumer extracts the raw value from its platform-specific args
   object — re-frame2-pair-mcp uses `(j/get args \"max-tokens\")` against a JS
   object; story-mcp uses `(get args :max-tokens)` against a CLJ map —
   and feeds the result here. The coercion rules (zero disables,
-  non-number falls back to default) are the cross-MCP convention.
+  negative rejects, non-number falls back to default) are the cross-MCP
+  convention.
 
   ## Disambiguation
 
   - `nil` return ⇒ caller disabled the cap (`max-tokens 0`).
     `apply-cap` skips enforcement entirely.
   - `default-max-tokens` (5000) return ⇒ caller didn't supply a value
-    OR supplied an unrecognised value. The default applies.
-  - positive integer return ⇒ caller supplied a custom cap."
+    OR supplied a non-number. The default applies.
+  - positive integer return ⇒ caller supplied a custom cap.
+  - `{:rf.mcp/invalid-arg {...}}` return ⇒ caller supplied a NEGATIVE
+    number. The consumer surfaces this as an `isError: true` result
+    (test via `invalid-arg?`) and MUST NOT pass it to `apply-cap`.
+
+  ## Why negatives are rejected, not clamped (rf2-5rdit)
+
+  A negative cap used to fall through to `(long raw)`, producing a
+  negative ceiling. `apply-cap`'s `over-cap?` then trips on ANY
+  non-negative token count, so every response — even a 2-character
+  one — was replaced by the `:rf.mcp/overflow` marker, locking the
+  agent out of all tool data until it changed the arg, and emitting a
+  nonsensical `:cap-tokens -1`. Mike ruled (2026-06-01) for an honest,
+  recoverable rejection at the AI/MCP boundary over silently clamping
+  or treating-as-default — the masterpiece CORRECTNESS posture: a
+  malformed cap is an agent error worth telling the agent about, not a
+  value to paper over."
   [raw]
   (cond
     (nil? raw)                       overflow/default-max-tokens
     (and (number? raw) (zero? raw))  nil
+    (and (number? raw) (neg? raw))   (invalid-arg-marker :max-tokens raw invalid-arg-hint)
     (number? raw)                    (long raw)
     :else                            overflow/default-max-tokens))
 

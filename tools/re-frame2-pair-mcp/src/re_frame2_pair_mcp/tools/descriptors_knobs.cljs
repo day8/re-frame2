@@ -11,12 +11,15 @@
 
 (def max-tokens-property
   {:type        "integer"
+   :minimum     0
    :description (str "Wire-boundary token-budget cap (default "
                      cap/default-max-tokens
                      "). Per spec/Principles.md §Tight token budget, "
                      "responses serialising over this estimate are "
                      "replaced with an `{:rf.mcp/overflow ...}` "
-                     "marker. Pass 0 to disable the cap.")})
+                     "marker. Must be >= 0: pass 0 to disable the cap. "
+                     "A negative value is rejected with an "
+                     "`{:rf.mcp/invalid-arg ...}` error (rf2-5rdit).")})
 
 (def limit-property
   "Per-tool descriptor slot for the `:limit` cursor-pagination knob

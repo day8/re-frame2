@@ -112,6 +112,10 @@
   (let [v (extract-edn result)]
     (and (map? v) (contains? v :rf.mcp/overflow))))
 
+(defn- invalid-arg? [result]
+  (let [v (extract-edn result)]
+    (and (map? v) (contains? v :rf.mcp/invalid-arg))))
+
 ;; ---------------------------------------------------------------------------
 ;; set-stubs! — install one or more namespace-slot stubs.
 ;;
@@ -292,6 +296,44 @@
                    (let [marker (-> (extract-edn result) :rf.mcp/overflow)]
                      (is (= "snapshot" (:tool marker)))
                      (is (> (:token-count marker) 100)))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-5rdit — negative :max-tokens is REJECTED at the invoke chokepoint,
+;; BEFORE the pipeline runs. The tool body is never dispatched and the
+;; result is an actionable `{:rf.mcp/invalid-arg ...}` error — NOT the
+;; `:rf.mcp/overflow` lock-out a negative cap used to cause (over-cap?
+;; trips on any non-negative token count against a negative ceiling, so
+;; even a tiny response was replaced by the overflow marker).
+;; ---------------------------------------------------------------------------
+
+(deftest negative-max-tokens-rejected-not-overflow-lockout
+  (async done
+    (let [args        (args-js {"max-tokens" -1})
+          dispatched? (atom false)]
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (reset! dispatched? true)
+                          ;; A tiny payload — under any sane positive cap.
+                          ;; With the OLD negative-cap bug this still
+                          ;; overflowed; with the fix the tool never runs.
+                          (js/Promise.resolve (mcp-result (pr-str {:ok? true}))))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [result]
+                   (is (true? (j/get result :isError))
+                       "negative max-tokens surfaces as an isError result")
+                   (is (invalid-arg? result)
+                       "result carries the :rf.mcp/invalid-arg rejection")
+                   (is (not (overflow? result))
+                       "NOT the overflow lock-out a negative cap used to cause")
+                   (is (false? @dispatched?)
+                       "the tool body is never dispatched — rejection short-circuits invoke")
+                   (let [body (-> (extract-edn result) :rf.mcp/invalid-arg)]
+                     (is (= :max-tokens (:arg body)))
+                     (is (= -1 (:value body)))
+                     (is (re-find #"(?i)0 disables" (:hint body))))
+                   (is (zero? (cache/size))
+                       "rejected calls do not touch the cache")
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | `cursor-stale-reason` | `:rf.mcp/cursor-stale` | Error-result `:reason` value | rf2-kbqq3 |
 | `cache-hit-key` | `:rf.mcp/cache-hit` | `{:tool … :digest … :hint …}` (content-free; agent host correlates by cache key) | rf2-3rt1f / rf2-36xod |
 | `summary-key` | `:rf.mcp/summary` | `{<tree-summary>}` (lazy-summary projection) | rf2-tygdv / rf2-u2029 |
+| `invalid-arg-key` | `:rf.mcp/invalid-arg` | `{:arg <kw> :value <supplied> :hint <str>}` — top-level wrapper carried as the payload of an `isError: true` result rejecting a malformed per-call arg. First emitter: `cap/max-tokens` on a negative `:max-tokens` (see [`cap.md` §Negative `:max-tokens` is rejected](cap.md#negative-max-tokens-is-rejected-rf2-5rdit)). | rf2-5rdit |
 
 ## Marker catalogue (`:rf.size/*`)
 

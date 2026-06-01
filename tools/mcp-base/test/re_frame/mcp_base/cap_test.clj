@@ -43,6 +43,7 @@
   (is (nil? (cap/max-tokens 0))))
 
 (deftest max-tokens-positive-integer-passed-through
+  (is (= 100 (cap/max-tokens 100)))
   (is (= 1000 (cap/max-tokens 1000)))
   (is (= 50000 (cap/max-tokens 50000))))
 
@@ -52,18 +53,47 @@
   (is (= overflow/default-max-tokens (cap/max-tokens [1 2 3]))))
 
 (deftest max-tokens-only-zero-disables-not-other-numbers
-  ;; Coverage gap (rf2-ynjts.17): the docstring is precise — ONLY a
-  ;; literal `0` disables the cap (returns nil); every other number is
-  ;; passed through as `(long raw)`. The existing tests pin nil-cap on
-  ;; `0` and passthrough on positives, but never pin that a NEGATIVE
-  ;; number is passed through (not treated as "disabled" and not
-  ;; defaulted). A regression that broadened the disable check to
-  ;; `(not (pos? raw))` would silently disable the cap for a negative
-  ;; arg — pin the exact `(zero? raw)` boundary.
-  (is (= -5 (cap/max-tokens -5))
-      "a negative number is NOT a disable signal — only 0 is")
+  ;; ONLY a literal `0` disables the cap (returns nil). A NEGATIVE number
+  ;; is neither a disable signal nor a passthrough cap — per Mike's
+  ;; rf2-5rdit ruling it is REJECTED as an out-of-domain arg (see
+  ;; `max-tokens-negative-rejected-with-invalid-arg` below). Smallest
+  ;; positive passes through unchanged.
+  (is (nil? (cap/max-tokens 0)) "0 is the sole disable signal")
   (is (= 1 (cap/max-tokens 1)) "smallest positive passes through")
-  (is (integer? (cap/max-tokens -5)) "coerced to long like every numeric arm"))
+  (is (cap/invalid-arg? (cap/max-tokens -1))
+      "a negative number is NOT a disable signal and NOT a cap — it is rejected"))
+
+(deftest max-tokens-negative-rejected-with-invalid-arg
+  ;; rf2-5rdit — Mike ruled A (REJECT). A negative `:max-tokens` used to
+  ;; fall through to `(long raw)`, producing a negative cap that
+  ;; over-tripped `apply-cap`'s `over-cap?` so EVERY response (even a
+  ;; 2-char one) was replaced by the overflow marker — locking the agent
+  ;; out of all tool data and emitting a nonsensical `:cap-tokens -1`.
+  ;; The resolver now returns an `{:rf.mcp/invalid-arg {...}}` rejection
+  ;; the consumer surfaces as an `isError: true` result.
+  (let [out (cap/max-tokens -1)]
+    (is (cap/invalid-arg? out)
+        "negative max-tokens resolves to an :rf.mcp/invalid-arg rejection, NOT a negative cap")
+    (is (not (number? out)) "the rejection is a marker map, not a (negative) cap integer")
+    (let [body (get out vocab/invalid-arg-key)]
+      (is (= :max-tokens (:arg body)) "rejection names the offending arg")
+      (is (= -1 (:value body)) "rejection echoes the rejected value")
+      (is (string? (:hint body)) "rejection carries an actionable recovery hint")
+      (is (re-find #"(?i)0 disables" (:hint body))
+          "hint states the disable sentinel so the agent's next call is correct")))
+  (is (cap/invalid-arg? (cap/max-tokens -5)) "larger-magnitude negatives reject too")
+  (is (cap/invalid-arg? (cap/max-tokens -1.5)) "negative doubles reject too"))
+
+(deftest invalid-arg?-predicate-discriminates
+  ;; The predicate consumers gate on. True only for the rejection marker;
+  ;; false for every valid `max-tokens` return (cap int, nil-disable,
+  ;; default) and for unrelated maps.
+  (is (cap/invalid-arg? (cap/max-tokens -1)))
+  (is (not (cap/invalid-arg? (cap/max-tokens 0))) "nil disable is not a rejection")
+  (is (not (cap/invalid-arg? (cap/max-tokens 100))) "a valid cap is not a rejection")
+  (is (not (cap/invalid-arg? (cap/max-tokens nil))) "the default is not a rejection")
+  (is (not (cap/invalid-arg? {:other :map})) "an unrelated map is not a rejection")
+  (is (not (cap/invalid-arg? nil)) "nil is not a rejection"))
 
 (deftest max-tokens-coerces-double-to-long
   (is (= 1000 (cap/max-tokens 1000.0)))
