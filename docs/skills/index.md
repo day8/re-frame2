@@ -10,7 +10,7 @@ re-frame2 ships eight skills, colocated under [`skills/`](https://github.com/day
 
 The exact mechanics depend on the agent you're driving. In **Claude Code**, install a skill by copying its directory into a project-level `.claude/skills/<name>/` (or globally into `~/.claude/skills/<name>/`). Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
 
-The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the single deep-dive index — every skill points at it for spec-corpus depth and EP rationale.
+The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the **spec-consuming** skills — they point at it for spec-corpus depth and EP rationale. (Two skills route their deep-dives elsewhere by design: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, and `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`.)
 
 ## The eight skills
 

@@ -27,12 +27,31 @@ allowed-tools:
 
 # re-frame2-xray
 
-A tour skill for **Xray** — the re-frame2 in-app devtools panel. Xray is
-the structural successor to re-frame-10x: where v1 organised debugging
-around the *epoch panel*, Xray organises it around the *story a cascade
-tells*. Every dispatch is a node in a graph of causes; every state delta
-is a slice you can scrub; every machine transition lands on a chart; every
-schema violation surfaces as an issue you cannot miss.
+A tour skill for **Xray** — the re-frame2 in-app devtools panel. Every
+dispatch is a node in a graph of causes; every state delta is a slice you
+can scrub; every machine transition lands on a chart; every schema
+violation surfaces as an issue you cannot miss.
+
+## Mental model: think in Redux DevTools, map onto Xray
+
+If you know **Redux DevTools** (and **React DevTools Profiler** for the
+re-render-cause surfaces), you already know 80% of Xray: it's the same
+genus — a state-debugging devtools panel with time-travel and an
+inspectable log of state changes — applied to re-frame2's event cascades.
+Anchor on that, then note the deliberate divergences.
+
+| Redux DevTools concept | Xray counterpart | Deliberate divergence |
+|---|---|---|
+| Action log (the left-rail list of dispatched actions) | The **L2 event spine** — one row per dispatched event, live-tailing | Each row is an *epoch* (a full six-domino cascade), not a single reducer call — far richer than an action entry |
+| Inspecting one action's state diff | The **Epoch** tab (hero) — the focused dispatch's numbered cascade, DISPATCH → COEFFECTS → HANDLER → FLOWS → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS | Redux shows action + state diff; the Epoch cascade shows the *whole causal chain* (cofx, interceptors, fx, flows, sub recompute, re-render), not just before/after state |
+| Time-travel / "jump to state" replay | The **scrubber · rewind · pins** chrome | **Passive by default** — scrubbing rebases the panels but does NOT move `app-db`; moving the live app is the explicit, confirmed `r` / `Shift+r` rewind (`restore-epoch`). Redux's slider *replays dispatches* into the store; Xray inverts that. |
+| State tree inspector | The **app-db** tab — sectioned, lazy-tree, inline diff annotations | Sectioned by reserved area (machines, routes, system-ids…) with downstream-subs hover, not a raw single tree |
+| React DevTools Profiler "why did this render?" | The **Views** tab — render-cause chips (`← :sub-id` vs `← props`) on every re-render leaf | Built into the same panel and tied to the epoch, not a separate profiler tab |
+| *(no Redux equivalent)* | **Static mode** — event-INDEPENDENT browse of what's *registered* (machines / routes / schemas / flows / interceptors) | Redux has no "what's registered?" surface; this is the registry-catalogue half Xray adds |
+
+(Xray is also the structural successor to re-frame-10x — re-frame2's own
+v1-internal predecessor — but it does not depend on or reference it; that
+lineage note matters mainly to v1-migrating users.)
 
 This skill answers three questions, and only three:
 
