@@ -2418,27 +2418,35 @@ captured by rf2-mszrz now drives placement.) Each step carries its own
 the step matching its phase (`interceptor-exception-target`). Both are
 **CONDITIONAL** — the substrate emits no per-interceptor "ran" trace (the
 chain runs as one unit; only a throw surfaces a trace), so a phase's step
-renders ONLY when an interceptor threw in that phase this cascade. Each
-row is a throwing interceptor: the interceptor `:id` (click-to-source) +
-the shared open-in-editor coord-chip glyph + a `:before` / `:after`
-phase chip + the shared "Exception Thrown" card. **rf2-siheh** — the
+renders ONLY when an interceptor threw in that phase this cascade.
+**rf2-rvxem** — each row is ONE inline line, in this order:
+`[INTERCEPTOR badge] [grey BEFORE/AFTER phase badge] <interceptor :id>
+<single ↗ go-to-source glyph>`. The `:INTERCEPTOR` badge LEADS the row
+(it is no longer a step-header above the rows — that painted a second,
+content-free badge); the **phase badge** sits right after it, BEFORE the
+name, rendered UPPERCASE (`BEFORE` / `AFTER`) as a grey chip
+(`:bg-3` / `:text-tertiary`) so it reads as a badge. **rf2-siheh** — the
 jump-to-source coord rides the projection row's `:coord` slot, resolved
 from the `:rf.error/interceptor-exception` trace's `:source-coord` tag
 (threaded by the router from the throwing interceptor's map). The
 **`->interceptor` macro** (framework, rf2-siheh) captures that coord from
 `(meta &form)` — before rf2-siheh `->interceptor` was a plain fn and the
 row had no coord to render (yz57h's `handler-meta :interceptor` lookup was
-unsatisfiable: interceptors are not a registry kind). The id label
-hyperlinks + the coord-chip mounts when a coord is present (parity with
-the EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows); both degrade to plain
-text + no chip when the interceptor was built via the `->interceptor*` fn,
-is a framework interceptor, or the bundle elided the coord in production.
-rf2-oqi0c
-**DROPPED** the badge's "N interceptor(s) threw" summary verb — redundant
-with the per-row id + the inline card below; the `:INTERCEPTOR` badge
-stands alone (it pulls the `:accent` token — the chain WRAPS the handler;
-they read as one identity family). A `:before` throw skips the handler;
-an `:after` throw runs the handler first, then throws on the way out.
+unsatisfiable: interceptors are not a registry kind). The id renders via
+the shared **`coord-link`**, which ALREADY emits `name ↗` — **a SINGLE
+go-to-source glyph** (rf2-rvxem FIX 1: the row formerly ALSO appended a
+standalone `coord-chip`, producing TWO `↗`; the HANDLER / COEFFECTS rows
+use `coord-link` alone, and only the plain-label SUBS / VIEWS /
+SIDE-EFFECTS rows pair a label with a `coord-chip` — the interceptor row
+had conflated the two). The id hyperlinks when a coord is present and
+degrades to plain text + no glyph when the interceptor was built via the
+`->interceptor*` fn, is a framework interceptor, or the bundle elided the
+coord in production. rf2-oqi0c **DROPPED** the badge's "N interceptor(s)
+threw" summary verb — redundant with the per-row id + the inline card
+below; the `:INTERCEPTOR` badge stands alone (it pulls the `:accent`
+token — the chain WRAPS the handler; they read as one identity family).
+A `:before` throw skips the handler; an `:after` throw runs the handler
+first, then throws on the way out.
 
 **SKIPPED steps (rf2-yz57h).** When an UPSTREAM `:before`-chain throw
 aborts the cascade — a coeffect injector (`:rf.error/coeffect-exception`)
@@ -2461,27 +2469,33 @@ failure, so it does NOT inflate the epoch outcome (the failing COEFFECT /
 INTERCEPTOR step is the load-bearing `:error` signal).
 
 **Inline error card (rf2-ahhgn · refined rf2-wnvid · sophistication pass
-rf2-ynvv7).** `view/error-block` renders a RAISED card (sibling to the
-amber schema-violation card) for ALL exception kinds. **rf2-ynvv7** lifts
-the card out of the flat violation skeleton it formerly borrowed and sits
-it in the design system the way the surrounding pipeline-step cards do —
-every colour / spacing value resolves through the theme token ns (`theme/
-tokens`), no hardcoded hex:
+rf2-ynvv7 · flattened rf2-iizhe).** `view/error-block` renders the
+exception card (sibling to the amber schema-violation card) for ALL
+exception kinds. **rf2-ynvv7** lifts the card out of the flat violation
+skeleton it formerly borrowed and sits it in the design system the way
+the surrounding pipeline-step cards do — every colour / spacing value
+resolves through the theme token ns (`theme/tokens`), no hardcoded hex.
+**rf2-iizhe** then makes it **FLAT** (no elevation): every other Xray
+surface is flat, so the prior drop shadow read as off; the failure tone
+is carried by the fill + edge + glyph, not a lift:
 
 - **Surface (rf2-ksl5m)** — a **very-light-red** fill: `:error` mixed ~7%
   over the raised `:bg-2` panel surface (an opaque 2-token `color-mix`, so
   it paints cleanly on light + dark). Still **quiet** — a subtle tint, NOT
   the saturated `:bg-violation` rose wash — but the error now reads on the
-  fill at a glance, joining the same `:error` tone the edge, rail, glow +
+  fill at a glance, joining the same `:error` tone the edge, rail +
   glyph already carry.
 - **Border + rail** — a refined hairline keyed to the error token via
   `tokens/with-alpha` (a tinted edge, not a solid-red box) plus a solid
   `:error` **left rail** (the same accented-left-edge language as the L4
   panel header stripe + the diff stripes), so severity reads at the
   column-1 anchor.
-- **Elevation** — a layered `box-shadow`: a soft neutral drop shadow (the
-  card lifts off the cascade) plus a faint `:error`-tinted ring so the
-  lift is keyed to the failure tone without flooding the fill.
+- **Flat — no elevation (rf2-iizhe)** — the card carries **no
+  `:box-shadow`**. The earlier layered shadow (a neutral drop shadow + a
+  faint `:error`-tinted `0 0 0 1px` ring) read as off against the flat
+  Xray UI, and the ring was redundant with the `:border` hairline; the
+  card sits flat like every other surface while staying clearly
+  error-keyed.
 - **Spacing + radius** — padding from the 4px `tokens/spacing` scale
   (`:gap-2` / `:gap-3`); radius matches the surrounding cards.
 - **Typographic hierarchy** — the `✗ Exception Thrown` headline (sans,
