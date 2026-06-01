@@ -163,17 +163,28 @@ guarded so a second call is a no-op.
 
 (xray/init!
  {:default-frame :app/main ; target-frame for the scrubber
- :theme :dark ; / :light / :high-contrast
- :density :compact ; / :cosy
- :ai-provider {:provider :claude}
- :buffer-depths {:trace 200 :epoch 50}})
+ :theme :dark ; / :light (settings persist)
+ :density :compact ; / :cosy (settings persist)
+ :buffer-depths {:epoch 50}}) ; per-frame ring depth
 ```
 
-Pre-alpha posture: `:default-frame` threads through to the
-`:rf.xray/set-target-frame` event. The other keys (`:theme`,
-`:density`, `:ai-provider`, `:buffer-depths`) are accepted today but
-not yet wired at runtime — passing them keeps host code forward-
-compatible. See `core.cljs` docstring for the current frontier.
+All four opts are wired today (the recognised set is exactly
+`:default-frame :theme :density :buffer-depths`, per the `init!` docstring
+in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
+
+- `:default-frame` dispatches `:rf.xray/set-target-frame`.
+- `:theme` / `:density` write the persisted Settings shape and apply the
+ matching class / font-size immediately (no reload).
+- `:buffer-depths` honours `{:epoch <n>}` only — it drives the substrate's
+ per-frame ring (depth + trace-keep to the same `n`). A `:trace` axis is
+ **silently dropped** (folded into the one `:epoch` knob per the rf2-3g9nw
+ D1=a ruling — one operator knob, atomic relationship).
+
+Unknown opt keys are silently ignored for forward-compat — so an `init!`
+that worked against a newer Xray won't break an older one. (There is **no**
+`:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` jar,
+not an `init!` knob.) See the `core.cljs` `init!` docstring for the
+authoritative per-opt contract.
 
 ## Pop-out to a second window
 
