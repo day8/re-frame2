@@ -225,7 +225,7 @@ gates. Pre-alpha posture: this menu is **prescriptive**, not advisory.
 |---|---|
 | Any `.md` under `spec/`, `docs/`, `migration/`, or `skills/` | `python -m mkdocs build --strict` (stage `docs/spec` + `docs/migration` first) + `python scripts/check_doc_slugs.py --verbose` + `python scripts/check_readme_links.py --ci` |
 | `implementation/<feat>/src/*` (any of: `schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `epoch`) | `cd implementation/<feat> && clojure -M:test` + `npm run test:cljs` from `implementation/` |
-| `implementation/core/src/*` | `cd implementation/core && clojure -M:test` AND every per-feature `cd implementation/<feat> && clojure -M:test` AND `npm run test:cljs` AND every `cd tools/<tool> && clojure -M:test` for tool in `{xray, story, story-mcp, mcp-base}` |
+| `implementation/core/src/*` | `cd implementation/core && clojure -M:test` + `npm run test:cljs` from `implementation/`. The per-feature + tool JVM matrix is CI-gated (`implementation_jvm` fires every per-feature JVM job on any `implementation/core/*` change) and need not be re-run locally unless the diff changes a cross-artefact contract — in which case treat it as the shared-protocol-surface row below and run the full matrix. |
 | Any public-surface namespace (e.g. `events.cljc`, `http_interceptors.cljc`, anything `:require`d from another artefact) | The artefact's own gate AND every `:require`r in the workspace. **MUST** discover them via: `git grep -lE "(:require \[.*re-frame\.<feat>\.)" implementation/ tools/` — gate each artefact in the resulting list. |
 | `implementation/adapters/*` (other than `reagent-slim`) | impl JVM matrix + `npm run test:cljs` + `npm run test:browser` (browser is the canonical adapter test surface — do NOT skip) |
 | `implementation/adapters/reagent-slim/*` | impl JVM matrix + reagent-slim bundle-isolation check |
@@ -389,6 +389,28 @@ commands; push + `gh pr create` titled `<scope>(<artefact>): <summary>
 (<BEAD_ID>)` — PR body MUST include a `## Quality gates` section
 (see "PR-body Quality gates section" above); return PR URL + per-step
 summary + test deltas, under <N> words.
+
+### Rigour / coverage-pass variant — require an adversarial case per surface
+
+A "coverage & rigour pass" is a Shape 1 dispatch whose deliverable is added
+test assertions over an existing surface. Such a pass MUST require **at
+least one adversarial/negative case per public surface touched** — a
+hostile input, a boundary value, or an error path — not just
+assertion-count growth.
+
+**Why this requirement exists.** A coverage pass measures breadth
+(assertion count), not defect-finding power. In the rf2-bcams audit
+window, 25+ rigour-pass PRs added thousands of assertions while a
+concurrent correctness sweep (rf2-5t8mr) over the *same* slices found
+defects the rigour pass missed — the `schemas` and `ssr` artefacts both
+got rigour PRs yet shipped the rf2-g5auo leak / rf2-1uex4 XSS untouched,
+because every added assertion exercised the happy path. Requiring a
+hostile/boundary/error case per surface is cheap, durable, and closes the
+coverage-vs-correctness gap.
+
+State the adversarial cases explicitly in the PR-body `## Quality gates`
+section so the mayor can confirm the pass exercised more than the happy
+path.
 
 ## Shape 2 — Cluster (multiple beads, single PR, sequenced commits)
 
