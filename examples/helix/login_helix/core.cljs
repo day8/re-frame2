@@ -256,8 +256,11 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce react-root
-  (react-dom-client/createRoot (js/document.getElementById "app")))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `createRoot` onto the shared `#app`.
+(defonce react-root (atom nil))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
@@ -269,4 +272,7 @@
   ;; machine handler is self-initialising — its `:initial`/`:data` seed
   ;; [:rf/runtime :machines :snapshots :auth.login/flow] when the flow first runs (per
   ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
-  (.render react-root ($ root-view)))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+    (.render @react-root ($ root-view))))

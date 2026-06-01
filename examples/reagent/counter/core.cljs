@@ -46,9 +46,13 @@
   [counter-buttons])
 
 ;; -- Mount -------------------------------------------------------------------
+;;
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
 
-(defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce react-root (atom nil))
 
 (defn run []
   ;; rf/init! takes the adapter spec map directly. Each adapter
@@ -56,4 +60,7 @@
   ;; var explicitly. There is no default-adapter registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
-  (rdc/render root [counter-app]))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [counter-app])))
