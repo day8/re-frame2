@@ -39,10 +39,15 @@
       via protocol — no `instance?` branch in core. The shape of
       `dispose!` and `add-on-dispose!` MUST NOT change.
 
-  Stage-4-A scope: pure reactive primitives, no DOM/component coupling.
-  Stage 4-B will add the microtask render scheduler and wire
-  `(set! batch/ratom-flush flush!)` so the render layer can drain the
-  reactive queue on each commit boundary."
+  Render-layer coupling: this ns stays pure reactive primitives, no
+  DOM/component dependency. The microtask render scheduler
+  (`reagent2.impl.batching`) couples to it in two directions, both via
+  the `rea-schedule` slot below — `batching` installs its `schedule`
+  fn into `rea-schedule` at ns-load so a dependency change schedules a
+  microtask drain, and `batching/flush-queues` calls `(ratom/flush!)`
+  on each commit boundary to drain the reactive queue synchronously.
+  ratom itself never names `batching` — the edge is one-way (batching
+  → ratom), keeping this ns DOM/component-free."
   (:refer-clojure :exclude [atom run!])
   (:require-macros [reagent2.ratom])
   (:require [clojure.set :as set]))
@@ -152,12 +157,12 @@
 ;;
 ;; Reactions whose dependencies have changed get pushed into rea-queue.
 ;; flush! drains the queue, recomputing each Reaction. The render
-;; scheduler (Stage 4-B, reagent2.impl.batching) hooks into this via
-;; the assignable `batch/ratom-flush` slot so the render-commit
-;; boundary drains pending reactive work.
-;;
-;; Stage 4-A ships rea-queue + flush! standalone; the render-side
-;; integration lands with 4-B.
+;; scheduler (reagent2.impl.batching) couples in via the `rea-schedule`
+;; hook below: on the first enqueue rea-enqueue calls the installed
+;; scheduler fn to request a microtask drain, and batching also calls
+;; `(ratom/flush!)` from its own commit-boundary drain. flush! itself
+;; is standalone — callable with no render layer present (the
+;; :node-test path exercises it directly).
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private rea-queue nil)
@@ -447,9 +452,9 @@
   contract. Loops until the queue is empty (a recompute may itself
   enqueue downstream Reactions).
 
-  Stage 4-A: callable directly. Stage 4-B's reagent2.impl.batching will
-  install this as `batch/ratom-flush` so the render-commit boundary
-  drains automatically."
+  Callable directly. reagent2.impl.batching also drives it from its
+  own commit-boundary drain (`flush-queues` calls `(ratom/flush!)`) so
+  the render layer drains pending reactive work before committing."
   []
   (loop []
     (let [q rea-queue]
