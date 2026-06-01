@@ -15,9 +15,11 @@ different substrate.
   is below.
 - **`use-subscribe` hook (Helix idiomatic)** — components call
   `(helix-adapter/use-subscribe [:counter/value])` directly.
-- **`rf/dispatcher` for click handlers** — Helix components call
-  `(rf/dispatcher)` to obtain `dispatch`, then close over it. There
-  is no auto-injection in Helix — `reg-view` stays Reagent-only;
+- **`(:dispatch (rf/frame-handle))` for click handlers** — Helix
+  components take `dispatch` off a `(rf/frame-handle)` and close over
+  it. The handle captures the render-time frame, so the closed-over
+  `dispatch` keeps targeting that frame even from an async callback.
+  There is no auto-injection in Helix — `reg-view` stays Reagent-only;
   Helix users write `defnc` directly.
 - **Shared frame-context** — the same React Context object the
   Reagent and UIx adapters consume. Cross-substrate parity is at the

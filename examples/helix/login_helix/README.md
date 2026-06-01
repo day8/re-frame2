@@ -18,9 +18,9 @@ layer differs.
   carry Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`); the
   view reads them via the `:rf/machine-has-tag?` framework sub. Same
   tag taxonomy as the Reagent reference; only the hook idiom differs.
-- **No auto-injection** — Helix components call `rf/dispatcher` and
-  `use-subscribe` directly. The component layer is explicit; the
-  artefact layer beneath is identical.
+- **No auto-injection** — Helix components take `dispatch` off a
+  `(rf/frame-handle)` and call `use-subscribe` directly. The component
+  layer is explicit; the artefact layer beneath is identical.
 
 ## Why this shape
 

@@ -17,8 +17,9 @@ Proves re-frame2 + Helix can build a substantive UI.
   (not a static screenshot): the log pane updates live as new lines
   arrive.
 - **Per-row dispatch from inside a `defnc`** — each row in the
-  process list is a `defnc` component that calls `(rf/dispatcher)`
-  and closes over `dispatch`; clicking a row dispatches selection.
+  process list is a `defnc` component that takes `dispatch` off a
+  `(rf/frame-handle)` and closes over it; clicking a row dispatches
+  selection.
 
 ## Why this shape
 

@@ -248,7 +248,7 @@
 
     ;; --- (2) The user's events / subs nses are required, ns-loading
     ;;        their registrations into the registrar before the deftests
-    ;;        run. Without this, dispatch/get-frame-db would hit empty.
+    ;;        run. Without this, dispatch/frame-db would hit empty.
     (is (contains? required 'acme.my-app.events)
         "events_test.cljs requires the user's events ns")
     (is (contains? required 'acme.my-app.subs)

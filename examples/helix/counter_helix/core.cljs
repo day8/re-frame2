@@ -8,8 +8,8 @@
      - `rf/init!` with the Helix adapter
      - `reg-event-db` / `reg-event-fx` / `reg-sub` (substrate-agnostic)
      - `use-subscribe` hook (Helix idiomatic)
-     - `rf/dispatcher` for click handlers (components call
-       dispatch / use-subscribe directly, no auto-injection)
+     - `(:dispatch (rf/frame-handle))` for click handlers (components
+       call dispatch / use-subscribe directly, no auto-injection)
      - The shared frame-context — the same React Context
        object the Reagent and UIx adapters consume
 
@@ -41,8 +41,10 @@
 ;;
 ;; `reg-view` (the macro) stays Reagent-only;
 ;; Helix users write `defnc` directly. There is no auto
-;; injection — the component calls `use-subscribe` and `rf/dispatcher`
-;; explicitly.
+;; injection — the component calls `use-subscribe` and takes
+;; `dispatch` off a `(rf/frame-handle)` explicitly. The handle
+;; captures the render-time frame, so the closed-over `dispatch`
+;; targets the right frame even from an async callback.
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])

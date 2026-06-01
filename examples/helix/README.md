@@ -17,7 +17,7 @@ Each example sits in its own folder with the CLJS source (`core.cljs`) and a han
 
 The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent and UIx siblings under [`../reagent/`](../reagent/) and [`../uix/`](../uix/); only the view layer differs. Helix components are written as `defnc` and consume subs via the `use-subscribe` hook (Decision 1).
 
-Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc` directly and pair it with `(rf/dispatcher)` for click handlers (Decision 3 — components call dispatch / use-subscribe explicitly, no auto-injection).
+Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc` directly and take `dispatch` off a `(rf/frame-handle)` for click handlers (Decision 3 — components call dispatch / use-subscribe explicitly, no auto-injection).
 
 ## What each example demonstrates
 

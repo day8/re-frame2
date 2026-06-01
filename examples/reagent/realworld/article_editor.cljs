@@ -95,7 +95,7 @@
 ;; against whatever frame the app boots on — the default frame in the
 ;; browser, and each per-test `make-frame` frame in the headless fixtures
 ;; (Spec 013 §Dynamic toggle via fx §Frame routing). Registering at ns-load
-;; would bind it only to `(current-frame)` and miss the test frames.
+;; would bind it only to `(current-frame-id)` and miss the test frames.
 
 (def can-submit-flow
   {:id     :editor/can-submit?
