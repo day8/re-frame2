@@ -768,12 +768,12 @@
             ["Ctrl+click" "Copy cascade-id"]]}
    {:group "Tab bar (L3)"
     :rows  [["1-6"             "Switch tab by index"]
-            ["h"               "Handler tab"]
+            ["e"               "Epoch tab"]
             ["a"               "App-db tab"]
             ["v"               "Views tab"]
             ["t"               "Trace tab"]
             ["m"               "Machines tab"]
-            ["i"               "Issues tab"]
+            ["r"               "Routes tab"]
             ["Ctrl+→ / Ctrl+←" "Next / previous tab"]]}
    {:group "Settings popup (modal-only)"
     :rows  [["g" "General tab"]

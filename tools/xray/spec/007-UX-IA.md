@@ -9,13 +9,14 @@ event**:
 
 | Tab | Bug-class it answers |
 |---|---|
-| **Event** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS → DB CHANGES → AFTER INTERCEPTORS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
+| **Epoch** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS → DB CHANGES → AFTER INTERCEPTORS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. Supersedes the retired Event/Handler tab per rf2-5gl5r. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
 | **app-db** (`a`) | "What changed because of this event?" — the complete app-db, sectioned by reserved `:rf/*` area, with inline diff annotations. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
 | **Views** (`v`) | "Why did these views re-render?" — the left → right reactive-flow graph (app-db → subs → views) + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. Rendered tab label follows the Figma export `Views` (rf2-ad7zx); the spec's rf2-e33ad display label was `View`; key stays `:views`.) |
 | **Trace** (`t`) | "What raw events fired in this cascade?" — readable-line timeline, op-family colour bands, relative timing. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5; dedicated redesign spec + Figma-handoff target: [`023-Trace-Panel.md`](./023-Trace-Panel.md).) |
 | **Machine** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
 | **Routes** (`r`) | "What did this event do to my routes?" — current route + this-epoch navigation + the registered route table. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §7. Promoted to its own L3 tab per rf2-nrbs9.) |
-| **Issues** (`i`) | "What's wrong here?" — errors · warnings · advisories (severity-coded rows). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.) |
+
+(The former **Issues** tab (`i`) was removed per rf2-gbz39 — Mike RULED Option (c), 2026-05-31. Errors · warnings · advisories now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal, rather than in a dedicated 7th tab.)
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
 dogfooding is properly Story's domain, where it already ships as
@@ -117,10 +118,10 @@ The four layers, top to bottom:
    The active/focused row takes a subtle background; functional semantic markers
    (redaction / issue / pin) ride as subtle per-row signals (§Event-list rows). The spine
    sub `:rf.xray/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes,
-   updated post rf2-5gl5r:
-   **Epoch · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
-   `e` `a` `v` `t` `m` `r` `i`. (The original Figma export listed Event/Handler at
+3. **L3 — Tab bar (40px).** Six tabs in the order the Figma export fixes,
+   updated post rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)):
+   **Epoch · app-db · Views · Trace · Machine · Routes**. Letter mnemonics:
+   `e` `a` `v` `t` `m` `r`. (The original Figma export listed Event/Handler at
    `:order 0`; rf2-5gl5r retired that panel in favour of the Epoch panel at
    `:order -1` — same letter mnemonic `e`, same leftmost position.) Each tab
    renders its **label only** (no `◉`/`○` glyph — Figma
@@ -1113,18 +1114,18 @@ active panel). `Esc` always returns focus to the event list.
 
 | Key | Tab |
 |---|---|
-| `1` | Event |
+| `1` | Epoch |
 | `2` | App-db |
 | `3` | Views |
 | `4` | Trace |
 | `5` | Machines |
-| `6` | Issues |
-| `e` | Event (mnemonic) |
+| `6` | Routes |
+| `e` | Epoch (mnemonic) |
 | `a` | App-db (mnemonic) |
 | `v` | Views (mnemonic — incl. subs nested under each view) |
 | `t` | Trace (mnemonic) |
 | `m` | Machines (mnemonic) |
-| `i` | Issues (mnemonic) |
+| `r` | Routes (mnemonic) |
 | `Ctrl+→` / `Ctrl+←` | Next / previous tab |
 
 ### Detail panel (L4)
@@ -1158,8 +1159,10 @@ click-drag pan have no keyboard equivalent.
   `c` unused.
 - `p` (Performance) — Performance panel dropped; `p` unused.
 - `w` (Flows) — Flows folded into Views; `w` unused.
-- `S` (Schemas) — schema violations live in Issues; `S` unused.
-- `h` (Hydration) — hydration mismatches live in Issues; `h` unused.
+- `S` (Schemas) — schema violations surface inline in the Epoch panel
+  (rf2-gbz39 removed the Issues tab per Option (c)); `S` unused.
+- `h` (Hydration) — hydration mismatches surface inline in the Epoch panel
+  (rf2-gbz39 removed the Issues tab per Option (c)); `h` unused.
 
 ## Detail panel renderer
 
@@ -1370,8 +1373,8 @@ on `Esc`, click-outside, or invocation of any item.
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- L4 tab jumps — Dynamic: Event / App DB / Views / Trace / Machines
-  / Routes / Issues; Static: Machines / Routes /
+- L4 tab jumps — Dynamic: Epoch / App DB / Views / Trace / Machines
+  / Routes; Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
