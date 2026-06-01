@@ -342,6 +342,16 @@
 
 #?(:clj
    (defn- jvm-build-request
+     "Build a JDK `HttpRequest` for one attempt from the encoded request
+     map. Selects the body publisher by `body` shape (none / String /
+     bytes / stringified-else), applies the per-attempt `:timeout-ms`
+     (the `(pos? …)` guard treats both `nil` and `0` as the no-timeout
+     opt-out — see the inline note), and sets each header individually
+     so a JDK header-validation throw can be isolated to the offending
+     header (surfaced as a `:rf.warning/http-header-invalid` trace rather
+     than sinking the whole request — rf2-9lun0). `sensitive?` is carried
+     only so that warning's `:url` can be routed through the privacy
+     composer (rf2-1jcpm)."
      [{:keys [method url headers body timeout-ms sensitive?]}]
      (let [b (HttpRequest/newBuilder (URI/create url))
            publisher (cond

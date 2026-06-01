@@ -250,6 +250,10 @@
   stub-fx-id)
 
 (defn uninstall-managed-request-stubs!
+  "Tear down the per-call stub fx-override `install-managed-request-stubs!`
+  registered. Idempotent — clearing an already-absent fx id is a no-op,
+  so a teardown that runs without a matching install (or twice) is safe.
+  Test-time helper."
   []
   (fx/clear-fx stub-fx-id)
   nil)

@@ -123,7 +123,12 @@
      (remove-from-actor-index! (:actor-id handle) handle))
    nil))
 
-(defn lookup-in-flight [request-id]
+(defn lookup-in-flight
+  "Return the request-handle currently registered under `request-id`, or
+  nil (when absent, or when `request-id` is nil). The handle carries the
+  `:abort-fn` the abort / supersede paths fire. Read-only — does not
+  mutate either index."
+  [request-id]
   (when request-id
     (get @in-flight request-id)))
 
