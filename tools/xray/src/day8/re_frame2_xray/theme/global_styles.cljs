@@ -152,23 +152,46 @@
     "@font-face{font-family:'Fraunces';font-style:normal;font-weight:900;"
     "font-display:swap;src:local('Fraunces Black');}\n"))
 
+;; ---- document-targeted `<style>` write (rf2-czcg5) ----------------------
+;;
+;; Every injector below writes a fixed-id `<style>` node into a target
+;; document's `<head>`. The main inline shell installs into
+;; `js/document`; the second-window pop-out (rf2-czcg5) installs the
+;; SAME stylesheet set into its own `window.document` so the shell's
+;; `var(--rf-xray-*)` reads resolve there too (otherwise the detached
+;; window renders unstyled — the `:root` custom properties live only on
+;; the opener's document). The `doc`-parameterised helper keeps the
+;; idempotent id-keyed DOM probe + the no-DOM guard in one place; the
+;; per-style injectors are thin wrappers that hand it their id + css.
+
+(defn- inject-style-node!
+  "Append a fixed-`id` `<style>` carrying `css` to `doc`'s `<head>`.
+  Idempotent — no-op when `doc` already carries a node with `style-id`,
+  or when `doc` is absent / lacks the DOM surface (node-test). Returns
+  nil. The single seam every per-style injector funnels through so the
+  main-document and pop-out-document install paths share one
+  implementation (rf2-czcg5)."
+  [doc style-id css]
+  (when (and (some? doc)
+             (.-head doc)
+             (.-createElement doc)
+             (.-getElementById doc))
+    (when-not (.getElementById doc style-id)
+      (let [node (.createElement doc "style")]
+        (set! (.-id node) style-id)
+        (.appendChild node (.createTextNode doc css))
+        (.appendChild (.-head doc) node))))
+  nil)
+
 (defn- inject-fonts!
-  "Append the `local()`-only `@font-face` `<style>` block to `<head>`.
-  No-op when the node already exists or when `js/document` is absent
+  "Append the `local()`-only `@font-face` `<style>` block to `doc`'s
+  `<head>`. No-op when the node already exists or when `doc` is absent
   (node-test). No third-party HTTP fetch is initiated — consumer
   projects opt-in to webfont URLs by injecting their own `@font-face`
   rules with `url()` entries (CSS layers candidates by family +
   weight)."
-  []
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (when-not (.getElementById js/document fonts-style-id)
-      (let [node (.createElement js/document "style")]
-        (set! (.-id node) fonts-style-id)
-        (.appendChild node (.createTextNode js/document font-faces-css))
-        (.appendChild (.-head js/document) node)))))
+  [doc]
+  (inject-style-node! doc fonts-style-id font-faces-css))
 
 ;; ---- per-theme CSS custom properties (rf2-5kfxe.6) ---------------------
 ;;
@@ -236,19 +259,10 @@
     "}\n"))
 
 (defn- inject-themes-style!
-  "Append the per-theme `<style>` block to `<head>`. Idempotent —
-  id-keyed DOM probe."
-  [themes]
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (when-not (.getElementById js/document themes-style-id)
-      (let [node (.createElement js/document "style")]
-        (set! (.-id node) themes-style-id)
-        (.appendChild node (.createTextNode js/document
-                                            (themes-css themes)))
-        (.appendChild (.-head js/document) node)))))
+  "Append the per-theme `<style>` block to `doc`'s `<head>`. Idempotent
+  — id-keyed DOM probe."
+  [doc themes]
+  (inject-style-node! doc themes-style-id (themes-css themes)))
 
 ;; ---- atmospheric grain overlay (rf2-5kfxe.7) ---------------------------
 ;;
@@ -332,18 +346,10 @@
     "}\n"))
 
 (defn- inject-grain-style!
-  "Append the grain `<style>` block to `<head>`. Idempotent — id-keyed
-  DOM probe."
-  []
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (when-not (.getElementById js/document grain-style-id)
-      (let [node (.createElement js/document "style")]
-        (set! (.-id node) grain-style-id)
-        (.appendChild node (.createTextNode js/document grain-css))
-        (.appendChild (.-head js/document) node)))))
+  "Append the grain `<style>` block to `doc`'s `<head>`. Idempotent —
+  id-keyed DOM probe."
+  [doc]
+  (inject-style-node! doc grain-style-id grain-css))
 
 ;; ---- motion keyframes (rf2-5kfxe.2 + rf2-5kfxe.3) ----------------------
 ;;
@@ -951,18 +957,10 @@
     "}\n"))
 
 (defn- inject-motion-style!
-  "Append the motion `<style>` block to `<head>`. Idempotent — id-keyed
-  DOM probe before write."
-  []
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (when-not (.getElementById js/document motion-style-id)
-      (let [node (.createElement js/document "style")]
-        (set! (.-id node) motion-style-id)
-        (.appendChild node (.createTextNode js/document motion-css))
-        (.appendChild (.-head js/document) node)))))
+  "Append the motion `<style>` block to `doc`'s `<head>`. Idempotent —
+  id-keyed DOM probe before write."
+  [doc]
+  (inject-style-node! doc motion-style-id motion-css))
 
 ;; ---- React Flow base stylesheet (rf2-5qsxo) -----------------------------
 ;;
@@ -1652,20 +1650,13 @@
 
 (defn- inject-react-flow-style!
   "Append the React Flow base stylesheet + the Xray palette override to
-  `<head>` (rf2-5qsxo). Idempotent — id-keyed DOM probe before write.
-  Dev-only: only ever called from `install!` on the Xray preload path."
-  []
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (when-not (.getElementById js/document react-flow-style-id)
-      (let [node (.createElement js/document "style")]
-        (set! (.-id node) react-flow-style-id)
-        (.appendChild node (.createTextNode js/document
-                                            (str react-flow-base-css
-                                                 react-flow-xray-theme-css)))
-        (.appendChild (.-head js/document) node)))))
+  `doc`'s `<head>` (rf2-5qsxo). Idempotent — id-keyed DOM probe before
+  write. Dev-only: only ever called from `install!` on the Xray preload
+  path."
+  [doc]
+  (inject-style-node! doc react-flow-style-id
+                      (str react-flow-base-css
+                           react-flow-xray-theme-css)))
 
 ;; ---- public entry ------------------------------------------------------
 
@@ -1675,23 +1666,44 @@
   ;; saves the work on every render of the shell.
   (atom false))
 
-(defn install!
-  "Idempotent — call from `shell-view`'s reg-view body. Injects the
-  `local()`-only `@font-face` block + motion keyframes + per-theme
-  CSS custom properties + the atmospheric grain overlay on first
-  paint of the shell. No third-party HTTP fetch is initiated; see
-  `font-faces-css` for consumer opt-in posture on webfont URLs."
-  []
-  (when-not @installed?
-    (inject-fonts!)
-    (inject-motion-style!)
+(defn install-into!
+  "Inject the full Xray stylesheet set into an ARBITRARY document's
+  `<head>` — the `local()`-only `@font-face` block + motion keyframes +
+  the React Flow base sheet + per-theme CSS custom properties + the
+  atmospheric grain overlay. Each injector is idempotent (id-keyed DOM
+  probe) so repeated calls converge to one node per style block.
+
+  `install!` targets `js/document` (the host page); the second-window
+  pop-out (rf2-czcg5) targets its own `window.document` so the shell's
+  `var(--rf-xray-*)` reads resolve in the detached window. Unlike
+  `install!` there is no `defonce` short-circuit here — the per-document
+  DOM probe is the only guard, because a pop-out document is a distinct
+  DOM whose nodes the opener's `@installed?` flag knows nothing about.
+  No third-party HTTP fetch is initiated; see `font-faces-css` for the
+  consumer opt-in posture on webfont URLs."
+  [doc]
+  (when (some? doc)
+    (inject-fonts! doc)
+    (inject-motion-style! doc)
     ;; rf2-5qsxo — React Flow's base stylesheet (the structural node /
     ;; edge / Controls chrome) so the Machines topology charts render the
     ;; Stately/xstate look instead of unstyled stacked boxes. Dev-only —
     ;; this preload path never runs in a production bundle.
-    (inject-react-flow-style!)
-    (inject-themes-style! tokens/themes)
-    (inject-grain-style!)
+    (inject-react-flow-style! doc)
+    (inject-themes-style! doc tokens/themes)
+    (inject-grain-style! doc))
+  nil)
+
+(defn install!
+  "Idempotent — call from `shell-view`'s reg-view body. Injects the
+  full Xray stylesheet set (see `install-into!`) into the host page's
+  `js/document` on first paint of the shell. The `defonce @installed?`
+  guard saves the per-render work; the per-style DOM probe inside each
+  injector is the real idempotency guarantee."
+  []
+  (when-not @installed?
+    (when (exists? js/document)
+      (install-into! js/document))
     (reset! installed? true))
   nil)
 

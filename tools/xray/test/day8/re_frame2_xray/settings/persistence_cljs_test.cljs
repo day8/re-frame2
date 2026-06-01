@@ -60,11 +60,14 @@
       "reload from localStorage restores 16"))
 
 (deftest panel-position-round-trips
-  (config/update-setting! :general :panel-position :popout)
-  (is (= :popout (config/get-setting :general :panel-position)))
+  ;; rf2-czcg5 — `:popout` was dropped as a panel-position (pop-out now
+  ;; launches from the chrome ⛶ button). `:fullscreen` is the remaining
+  ;; non-default position; round-trip it through localStorage.
+  (config/update-setting! :general :panel-position :fullscreen)
+  (is (= :fullscreen (config/get-setting :general :panel-position)))
   (reset! config/settings config/default-settings)
   (config/load-settings-from-storage!)
-  (is (= :popout (config/get-setting :general :panel-position))))
+  (is (= :fullscreen (config/get-setting :general :panel-position))))
 
 (deftest auto-open-on-error-round-trips
   (config/update-setting! :general :auto-open-on-error? true)

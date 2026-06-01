@@ -642,17 +642,25 @@
           {:db next-db
            :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
 
-    ;; Ribbon right-icon stubs — wired to events so the click round-
-    ;; trips through the registry surface even though the user-facing
-    ;; close behaviour is follow-on work. Per rf2-u3qm1 the pop-out
-    ;; ribbon button + `:rf.xray/popout` stub are gone — pop-out is
-    ;; programmatic-only via `(xray/popout!)` until the second-window
-    ;; UX lands (spec/011-Launch-Modes.md). No broken-claim button in
-    ;; chrome (silent-by-default — rf2-g3ghh / rf2-yn86j).
+    ;; Ribbon right-icon events. Per rf2-czcg5 the second-window UX has
+    ;; landed, so the chrome now carries a VISIBLE `⛶` pop-out button
+    ;; (shell.cljs `ribbon-right-icons`) that dispatches
+    ;; `:rf.xray/popout-shell`. The event fires the DOM-side
+    ;; `:rf.xray.fx/popout-shell` effect (mount/install-fx!) which calls
+    ;; `mount/popout!` — the event/fx bridge keeps shell.cljs free of a
+    ;; direct mount require (mirrors the close-shell bridge below). The
+    ;; programmatic `(xray/popout!)` API remains the secondary path.
     (rf/reg-event-db :rf.xray/open-settings
       (fn [db _event]
         ;; Settings popup lands behind rf2-pending-settings-modal.
         (assoc db :settings-open? true)))
+
+    (rf/reg-event-fx :rf.xray/popout-shell
+      (fn [_cofx _event]
+        ;; rf2-czcg5 — open the second-window pop-out via the DOM-side
+        ;; effect. No db change: the pop-out is a sibling mount surface,
+        ;; not a reactive flag.
+        {:fx [[:rf.xray.fx/popout-shell]]}))
 
     (rf/reg-event-fx :rf.xray/close-shell
       (fn [{:keys [db]} _event]

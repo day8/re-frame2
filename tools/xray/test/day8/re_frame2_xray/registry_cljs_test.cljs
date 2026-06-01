@@ -566,6 +566,9 @@
    :rf.xray/palette-open
    :rf.xray/palette-set-query
    :rf.xray/palette-toggle
+   ;; rf2-czcg5 — chrome `⛶` pop-out button → lowers to mount/popout!
+   ;; via the :rf.xray.fx/popout-shell effect.
+   :rf.xray/popout-shell
    :rf.xray/preview-cascade
    :rf.xray/remove-filter
    ;; rf2-6ni62 — L2 event-list column-divider double-click reset.
@@ -733,6 +736,10 @@
    ;; by `:rf.xray/close-shell`. Registered via `mount/install-fx!` from
    ;; the orchestrator; calls `mount/close!`.
    :rf.xray.fx/hide-shell
+   ;; rf2-czcg5 — `⛶` pop-out button: the DOM-side second-window launch
+   ;; effect fired by `:rf.xray/popout-shell`. Registered via
+   ;; `mount/install-fx!` alongside hide-shell; calls `mount/popout!`.
+   :rf.xray.fx/popout-shell
    ;; rf2-xzg1y — shared draggable column-widths persistence fx.
    ;; Attached to every `resize-pair` + `reset` event so the
    ;; post-mutation `{table-id {col-id px}}` map round-trips to

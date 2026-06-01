@@ -204,8 +204,10 @@ default). The resize handle is a worked example of "non-obvious
 affordance with iconographic alternative": discovery is via cursor
 change on edge hover, not via prose label.
 
-In `:popout` panel-position the browser's window controls govern size
-(no in-panel handle renders). In `:fullscreen` position the handle is
+In the second-window pop-out (`:popout` shell mode — launched from the
+chrome `⛶` button or `(xray/popout!)`, no longer a panel-position
+value per `rf2-czcg5`) the browser's window controls govern size, so no
+in-panel handle renders. In `:fullscreen` position the handle is
 suppressed — the panel fills the viewport.
 
 #### Auto-inject contract (rf2-70u8q)

@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.theme.global-styles :as global-styles]
             [day8.re-frame2-xray.theme.tokens :as tokens]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.views.resizable-table :as resizable-table]))
@@ -99,6 +100,9 @@
   (atom {:started? false :attempts 0}))
 
 (declare ensure-xray-frame!)
+;; rf2-czcg5 — `install-fx!` (below) registers `:rf.xray.fx/popout-shell`
+;; whose handler calls `popout!`, which is defined later in this ns.
+(declare popout!)
 
 (defn mounted?
   "True when the Xray shell has been mounted at least once. The shell
@@ -630,15 +634,27 @@
 ;; `static-persistence/install-fx!`) keeps `registry.cljs` free of any
 ;; direct DOM-toggle call.
 (defn install-fx!
-  "Idempotently register `:rf.xray.fx/hide-shell` — the effect that
-  performs the DOM-side shell hide. re-frame's registrar replaces in
-  place, so repeat calls (shadow-cljs `:after-load`) are harmless.
+  "Idempotently register the DOM-side chrome effects:
 
-  Handler signature `(fn [ctx args])` per the v2 reg-fx contract."
+  - `:rf.xray.fx/hide-shell` — hide the in-app shell (`close!`); fired
+    by the `✕` close button via `:rf.xray/close-shell`.
+  - `:rf.xray.fx/popout-shell` (rf2-czcg5) — open the second-window
+    pop-out (`popout!`); fired by the chrome `⛶` pop-out button via
+    `:rf.xray/popout-shell`. The event/fx bridge keeps `shell.cljs`
+    free of a direct `mount/popout!` call (which would form the
+    mount→shell→…→mount require cycle), mirroring the close-shell
+    bridge.
+
+  re-frame's registrar replaces in place, so repeat calls (shadow-cljs
+  `:after-load`) are harmless. Handler signature `(fn [ctx args])` per
+  the v2 reg-fx contract."
   []
   (rf/reg-fx :rf.xray.fx/hide-shell
     (fn [_ctx _args]
       (close!)))
+  (rf/reg-fx :rf.xray.fx/popout-shell
+    (fn [_ctx _args]
+      (popout!)))
   nil)
 
 (defn- teardown-popout-state!
@@ -796,14 +812,15 @@
 ;; `theme.tokens` has no transitive deps and is the canonical palette.
 
 ;; The overlay paints into the popout window's own document via
-;; imperative `set! style.background` etc. — that document does NOT
-;; carry the Xray `<style>` injection that registers the
-;; `--rf-xray-…` custom properties on `:root`, so reading from
-;; `tokens` (which is a `var(...)` map post rf2-on4cm) would resolve
-;; to the property's default initial value rather than the brand
-;; palette. These constants read `dark-palette` directly so the
-;; literal hex still flows through `theme/tokens` as the single
-;; source of truth.
+;; imperative `set! style.background` etc. Post rf2-czcg5 the popout
+;; document DOES carry the Xray `<style>` injection (the `:root`
+;; `--rf-xray-…` custom properties land via `style-popout-document!`),
+;; but these overlay constants deliberately keep reading `dark-palette`
+;; literal hex: the overlay is the broken-opener fallback and must
+;; remain legible even on the (defensive) path where injection never
+;; ran or the substrate tree threw before the vars resolved. The hex
+;; still flows through `theme/tokens` as the single source of truth, so
+;; the overlay stays in lockstep with the dark palette regardless.
 
 (def ^:private opener-gone-overlay-bg
   (:bg-0 tokens/dark-palette))
@@ -935,6 +952,55 @@
     (reset! id-atom id)
     id))
 
+;; ---- popout stylesheet hand-off (rf2-czcg5) -----------------------------
+;;
+;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Styling: the
+;; pop-out window MUST carry Xray's stylesheet + `:root` custom
+;; properties so the shell renders identically to the inline panel.
+;;
+;; The detached window is a DISTINCT document — its `<head>` does not
+;; carry the `<style>` blocks `global-styles/install!` wrote into the
+;; opener's `js/document` (fonts, motion seam, React-Flow base, the
+;; per-theme `--rf-xray-*` `:root` custom properties, grain). Every
+;; inline style + class rule in the shell resolves colours through
+;; `var(--rf-xray-…)`; absent those `:root` declarations the shell
+;; renders unstyled (the opener-gone overlay dodges this by reading
+;; literal `dark-palette` hex — the main shell cannot).
+;;
+;; `style-popout-document!` injects the full stylesheet set into the
+;; pop-out's document (via `global-styles/install-into!`) and mirrors
+;; the persisted theme onto the pop-out's `<html>` (so the matching
+;; `.rf-xray-theme-*` block — not just the `:root` light default —
+;; resolves). Accent rides in the same theme palette blocks (`:accent`
+;; is a palette token), so the single inject + theme-class write covers
+;; accent/theme together. Density / text-size / panel-width are CSS
+;; custom properties the user writes inline on the OPENER's `<html>`
+;; via `settings/effects`; the pop-out inherits the injected `:root`
+;; defaults (13px etc.) — live per-window overrides of those knobs are
+;; out of scope for the second-window mode.
+
+(defn- style-popout-document!
+  "Inject Xray's stylesheet set into the pop-out `doc` and stamp the
+  persisted theme class on its `<html>` so the shell renders identically
+  to the inline panel. Idempotent (the injectors id-probe; the theme
+  write is exclusive). No-op-safe when `doc` lacks a DOM surface."
+  [doc]
+  (when (some? doc)
+    (global-styles/install-into! doc)
+    ;; Mirror the persisted theme onto the pop-out `<html>` so the
+    ;; matching `.rf-xray-theme-*` palette block resolves (the injected
+    ;; `:root` block only carries the light default). Same class spelling
+    ;; `settings/effects/apply-theme!` writes on the opener.
+    (when-let [html (.-documentElement doc)]
+      (let [theme (or (config/get-setting :theme nil) :light)
+            klass (str settings-effects/theme-class-prefix (name theme))
+            cl    (.-classList html)]
+        (doseq [c [(str settings-effects/theme-class-prefix "dark")
+                   (str settings-effects/theme-class-prefix "light")]]
+          (try (.remove cl c) (catch :default _ nil)))
+        (try (.add cl klass) (catch :default _ nil)))))
+  nil)
+
 (defn popout!
   "Open a same-origin Xray pop-out window and render the shell into it.
   The pop-out shares the opener runtime and Xray frame; no
@@ -970,6 +1036,12 @@
                   body (.-body doc)
                   node (.createElement doc "div")]
               (set! (.-title doc) "Xray")
+              ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
+              ;; `--rf-xray-*` custom properties into the pop-out's own
+              ;; document and mirror the persisted theme, so the shell
+              ;; renders fully styled (visually identical to the inline
+              ;; panel) rather than unstyled against the bare window.
+              (style-popout-document! doc)
               (set! (.-id node) "rf-xray-popout-root")
               (.setAttribute node "data-rf-xray-mode" "popout")
               (.appendChild body node)
