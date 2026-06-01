@@ -295,11 +295,12 @@
        `:on-create` would otherwise fail per-request inside
        `setup-request-frame!`; one without `:root-view` would fail inside
        the writer thread, truncating the chunked response (rf2-ee38b.11).
-    2. hydration-payload policy (`:payload-keys` / `:payload-policy`) via
+    2. hydration-payload policy (the single `:payload` opt — vector
+       allowlist or whole-app-db keyword) via
        `payload-policy/validate-policy-opts!` — throws
        `:rf.error/ssr-missing-payload-policy` (or
        `:rf.error/ssr-unknown-payload-policy` on a typo'd policy) per
-       rf2-gtgf9.
+       rf2-gtgf9 / rf2-pffil.
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
        `:app-element-id` are strings or nil) via
        `trust/validate-trusted-shell-opts!` — both shells inject these

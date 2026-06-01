@@ -45,6 +45,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.test-fixture :as tf]))
 
 (use-fixtures :each tf/reset-runtime)
@@ -339,3 +340,134 @@
             (str "no :rf.ssr/hydration-mismatch on the baseline (server-"
                  "hash was nil); saw: "
                  (pr-str (mapv :operation traces))))))))
+
+;; ===========================================================================
+;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
+;;
+;; The symmetric client-side counterpart of `re-frame.ssr.ring/ssr-handler`.
+;; `hydrate!` fuses the read → dispatch `:rf/hydrate` → `verify-hydration!`
+;; ordering Spec 011 §Client flow mandates. These tests drive it on the JVM
+;; with an EXPLICIT `:payload` (no DOM to read from server-side) on a
+;; `:client`-platform frame, exercising the full server-`build-payload` →
+;; `hydrate!` → post-hydrate-sub round-trip without a browser.
+;; ===========================================================================
+
+(defn- build-server-payload
+  "Mirror the server-side payload build: project app-db per the policy and
+  assemble the canonical `:rf/hydration-payload` — the SAME
+  `re-frame.ssr.payload-policy/build-payload` path
+  `re-frame.ssr.ring.payload/build-payload` uses. `render-hash` is the
+  FNV-1a hash of the render-tree the server stringified."
+  [frame-id app-db render-hash policy-opts]
+  (payload-policy/build-payload
+    frame-id
+    (payload-policy/apply-policy app-db policy-opts)
+    render-hash
+    policy-opts))
+
+(deftest boot-hydrate-round-trips-server-payload-into-app-db
+  (testing "rf2-lq2ou: ssr/hydrate! with an explicit :payload dispatches
+            :rf/hydrate against the target client frame, and a post-hydrate
+            sub reflects the seeded slice — the server-build → hydrate! →
+            sub round-trip. hydrate! returns the applied payload."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "boot-helper client frame"
+                                       :platform :client})
+          ;; Server side: build the payload from the authoritative app-db
+          ;; slice via the same payload-policy path the Ring adapter uses.
+          server-app-db {:count 7 :title "seeded"
+                         :server-only/auth "SECRET"}
+          payload       (build-server-payload
+                          :rf/default server-app-db "deadbeef"
+                          {:version 1 :payload [:count :title]})
+          ;; Client side: the symmetric boot call.
+          returned      (ssr/hydrate! {:frame   client-frame
+                                       :payload payload})]
+      (is (= payload returned)
+          "hydrate! returns the applied payload so the caller can branch
+           on `was this server-rendered?`")
+      (is (= 7 (rf/subscribe-once client-frame [:count]))
+          "post-hydrate :count sub reflects the server-built payload slice")
+      (is (= "seeded" (rf/subscribe-once client-frame [:title]))
+          "post-hydrate :title sub reflects the server-built payload slice")
+      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+          ":hydrated? true once hydration metadata lands")
+      ;; The allowlist policy used to build the payload dropped the
+      ;; server-only key — the round-trip carries only the permitted slice.
+      (is (nil? (:server-only/auth (rf/frame-db client-frame)))
+          ":payload allowlist kept the server-only key off the wire +
+           thus out of the hydrated client app-db"))))
+
+(deftest boot-hydrate-nil-payload-is-client-only-noop
+  (testing "rf2-lq2ou: ssr/hydrate! with no payload (nil — the client-only
+            first-load shape) does NOT dispatch :rf/hydrate and returns
+            nil. The caller renders against the empty app-db."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "boot-helper client-only frame"
+                                       :platform :client})
+          returned     (ssr/hydrate! {:frame client-frame :payload nil})]
+      (is (nil? returned)
+          "nil payload → hydrate! returns nil (client-only first load)")
+      (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+          "no hydration metadata stashed — :rf/hydrate was never dispatched")
+      (is (= 0 (rf/subscribe-once client-frame [:count]))
+          "app-db is the empty default; the :count sub's fallback applies"))))
+
+(deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
+  (testing "rf2-lq2ou: hydrate!'s VERIFY step runs verify-hydration!
+            against the :render-tree-fn AFTER dispatching :rf/hydrate.
+            When the client render-tree hash != the server hash carried on
+            the payload, :rf.ssr/hydration-mismatch fires — the boot helper
+            wires the post-render mismatch detection symmetric with the
+            server's :emit-hash? marker."
+    (register-baseline-handlers!)
+    (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
+    (let [client-frame (rf/make-frame {:doc "boot-helper verify frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          ;; Server hash is a DELIBERATELY divergent value so the verify
+          ;; step's comparison fails — proving the verify step actually ran.
+          payload       (build-server-payload
+                          :rf/default {:count 7 :title "seeded"}
+                          "server00"                 ;; != the client tree hash
+                          {:version 1 :payload [:count :title]})
+          traces        (capture-traces!
+                          (fn []
+                            (ssr/hydrate!
+                              {:frame          client-frame
+                               :payload        payload
+                               :render-tree-fn (fn [] [:div.app [:span "client-render"]])})))]
+      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
+               "'server00' != client render-tree hash); saw: "
+               (pr-str (mapv :operation traces)))))))
+
+(deftest boot-hydrate-verify-step-silent-on-matching-render
+  (testing "rf2-lq2ou: when the client render-tree hash MATCHES the server
+            hash, the verify step is silent — no spurious mismatch on a
+            successful hydration. Counter-test to the divergent-render case
+            so the verify step can't be a false-positive generator."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "boot-helper verify-match frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          client-tree   [:div.app [:span "client-render"]]
+          ;; Compute the server hash from the SAME tree so the round-trip
+          ;; hashes agree — the happy path.
+          matched-hash  (ssr/render-tree-hash client-tree)
+          payload       (build-server-payload
+                          :rf/default {:count 7 :title "seeded"}
+                          matched-hash
+                          {:version 1 :payload [:count :title]})
+          traces        (capture-traces!
+                          (fn []
+                            (ssr/hydrate!
+                              {:frame          client-frame
+                               :payload        payload
+                               :render-tree-fn (fn [] client-tree)})))]
+      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
+               (pr-str (mapv :operation traces))))
+      ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
+      (is (= 7 (rf/subscribe-once client-frame [:count]))
+          ":rf/hydrate still applied the seeded slice"))))

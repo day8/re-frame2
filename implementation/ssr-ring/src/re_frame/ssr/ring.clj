@@ -16,7 +16,7 @@
   for this adapter: the hydration payload built from `app-db` cannot
   carry server-only response data (Set-Cookie auth tokens, internal
   `X-*` headers, redirect targets) by accident — the boundary is
-  enforced at the storage layer rather than via `:payload-keys`
+  enforced at the storage layer rather than via `:payload` allowlist
   filtering on every host endpoint. `build-payload` (in
   `re-frame.ssr.ring.payload`) ships the app-db slice exactly because
   the accumulator is structurally outside app-db.
@@ -164,32 +164,71 @@
     :version        — hydration payload's `:rf/version` (default 1).
     :schema-digest  — hydration payload's `:rf/schema-digest`, when
                       the app participates in the digest check.
-    :payload-keys   — Allowlist (recommended): a non-empty sequential
-                      coll of top-level app-db keys to ship in the
-                      payload's `:rf/app-db`. Other keys are dropped,
-                      including any keys added later as the app evolves.
-                      The recommended primary mechanism per the
-                      explicit fail-closed policy contract (rf2-gtgf9).
-    :payload-policy — Explicit policy keyword. The only currently-
-                      recognised value is
-                      `:rf.ssr.payload/whole-app-db`, which opts into
-                      shipping the whole `app-db`. Use only when the
-                      app's `app-db` is structurally safe to expose
-                      end-to-end. Mutually exclusive with
-                      `:payload-keys` (allowlist wins when both are
-                      passed; that's not a contradiction since the
-                      allowlist is a more-restrictive policy choice).
-                      One of `:payload-keys` or `:payload-policy`
-                      MUST be passed; absence of both throws
-                      `:rf.error/ssr-missing-payload-policy` at
-                      handler-construction time.
+    :payload        — Hydration-payload policy — REQUIRED, fail-closed
+                      (rf2-gtgf9; single-opt consolidation rf2-pffil).
+                      One opt, two shapes:
+                        • a non-empty VECTOR of top-level app-db keys —
+                          an allowlist (recommended). Only the listed
+                          keys ship in the payload's `:rf/app-db`; every
+                          other key is dropped, including keys added
+                          later as the app evolves.
+                        • the KEYWORD `:rf.ssr.payload/whole-app-db` —
+                          opts into shipping the whole `app-db`. Use only
+                          when the app's `app-db` is structurally safe to
+                          expose end-to-end.
+                      Absence throws `:rf.error/ssr-missing-payload-policy`
+                      at handler-construction time; an unrecognised
+                      keyword throws `:rf.error/ssr-unknown-payload-policy`.
+                      The single opt removes the prior surface's
+                      precedence/silent-ignore ambiguity — one value holds
+                      exactly one policy; the allowlist-vs-whole choice is
+                      the value's shape, not a contest between two opts.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.
     :content-type   — Content-Type header for HTML responses. Default
                       \"text/html; charset=utf-8\" (matches the SSR
                       runtime's default in the response accumulator).
-    :on-error       — (request throwable) → ring-response. Called when
+
+  ---- :on-error vs :error-view — the error-handling division (rf2-s2ndr) ----
+
+  TWO error opts handle TWO different failures. They are NOT alternatives;
+  a robust deployment usually wires BOTH. Pick by asking \"which failure
+  am I handling?\":
+
+  | Question                          | :error-view             | :on-error                        |
+  |-----------------------------------|-------------------------|----------------------------------|
+  | WHICH failure?                    | An exception INSIDE the | A transport / Ring-layer failure |
+  |                                   | re-frame drain or the   | the projector CANNOT see —       |
+  |                                   | render walk — something | per-request frame setup throw,   |
+  |                                   | the error PROJECTOR     | a render-time CLJ exception,     |
+  |                                   | catches.                | a header/cookie materialise      |
+  |                                   |                         | throw, a thrown `:on-create`.    |
+  | WHAT does it produce?             | The PROJECTED ERROR     | A raw Ring response map          |
+  |                                   | PAGE body (hiccup) — a  | `{:status … :headers … :body …}` |
+  |                                   | view keyword or         | returned verbatim to the server. |
+  |                                   | `(public-error)→hiccup` |                                  |
+  |                                   | fn, rendered through    |                                  |
+  |                                   | the SSR emitter.        |                                  |
+  | WHAT is its INPUT?                | The PUBLIC-ERROR map    | The raw `(request throwable)` —  |
+  |                                   | (sanitised by the       | the UNSANITISED throwable. The   |
+  |                                   | projector — safe to     | locked default NEVER reads it    |
+  |                                   | render).                | (rf2-kzvwq `.getMessage` leak).  |
+  | WHICH HTTP path?                  | Normal response with    | Last-resort net OUTSIDE the      |
+  |                                   | the projector's status  | normal pipeline (the projector   |
+  |                                   | (typically 500) + the   | never ran / can't run).          |
+  |                                   | rendered page.          |                                  |
+  | DEFAULT when omitted?             | Minimal default error   | Minimal locked 500 (\"Internal   |
+  |                                   | template.               | error\", topology-leak-safe).    |
+
+  Mnemonic: `:error-view` is the PROJECTED page (drain-time, sanitised,
+  hiccup); `:on-error` is the TRANSPORT net (Ring-layer, raw throwable,
+  outside the projector). A buggy `:error-view` falls back to the default
+  error template; a buggy `:on-error` falls back to `default-on-error`
+  (`safe-on-error`, rf2-ljjh0) — NEITHER bypasses the error boundary.
+
+    :on-error       — (request throwable) → ring-response. The TRANSPORT/
+                      Ring-layer error net (see table above). Called when
                       the per-request frame setup OR a Ring-layer /
                       transport failure the projector can't see throws.
                       Defaults to a minimal 500 response. NOTE: normal

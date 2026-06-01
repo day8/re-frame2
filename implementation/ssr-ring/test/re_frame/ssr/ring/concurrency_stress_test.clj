@@ -264,7 +264,7 @@
     (let [handler (ssr-ring/stream-handler
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
-                     :payload-policy :rf.ssr.payload/whole-app-db})]
+                     :payload :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client     (new-http-client)
               latch      (CountDownLatch. 1)
@@ -400,7 +400,7 @@
     (let [handler (ssr-ring/stream-handler
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
-                     :payload-policy :rf.ssr.payload/whole-app-db})]
+                     :payload :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client     (new-http-client)
               latch      (CountDownLatch. 1)
@@ -478,7 +478,7 @@
     (let [handler (ssr-ring/stream-handler
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
-                     :payload-policy :rf.ssr.payload/whole-app-db})]
+                     :payload :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client     (new-http-client)
               latch      (CountDownLatch. 1)

@@ -66,7 +66,7 @@
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
                       :root-view [:test/root]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))
           ;; Indices into the body string — the wire-order invariant
@@ -103,7 +103,7 @@
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
                       :root-view [:test/multi-root]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))
           ;; Extract the order of resolved chunks by finding each id's
@@ -134,7 +134,7 @@
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
                       :root-view [:test/fragile-root]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))]
       (is (= 200 (:status response)) "stream still 200 — failure is partial-render-safe")
@@ -151,7 +151,7 @@
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
                       :root-view [:test/static-root]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))]
       (is (str/includes? body "<h1>Just static</h1>") "static content emitted")
@@ -188,7 +188,7 @@
     (let [handler       (ssr-ring/stream-handler
                           {:on-create [:rf.test.stream/redirect]
                            :root-view [:test/should-not-stream]
-                           :payload-policy :rf.ssr.payload/whole-app-db})
+                           :payload :rf.ssr.payload/whole-app-db})
           baseline-fids (disj (frame/frame-ids) :rf/default)
           response      (handler {:uri "/secret" :request-method :get})]
       ;; Redirect response shape — status + Location, empty body, no
@@ -227,7 +227,7 @@
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.stream/redirect-ct]
                       :root-view [:test/redirect-ct-root]
-                      :payload-policy :rf.ssr.payload/whole-app-db})
+                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/secret" :request-method :get})
           headers  (:headers response)
           ct       (or (get headers "Content-Type") (get headers "content-type"))]
@@ -241,7 +241,7 @@
       (let [ns-handler (ssr-ring/ssr-handler
                          {:on-create [:rf.test.stream/redirect-ct]
                           :root-view [:test/redirect-ct-root]
-                          :payload-policy :rf.ssr.payload/whole-app-db})
+                          :payload :rf.ssr.payload/whole-app-db})
             ns-resp    (ns-handler {:uri "/secret" :request-method :get})
             ns-ct      (or (get (:headers ns-resp) "Content-Type")
                            (get (:headers ns-resp) "content-type"))]

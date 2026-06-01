@@ -130,8 +130,8 @@
   stream cleanly so the Ring server can EOF the response."
   [^OutputStream out frame-id resp opts]
   (try
-    (let [{:keys [root-view emit-hash? version schema-digest payload-keys
-                  payload-policy content-type]} opts
+    (let [{:keys [root-view emit-hash? version schema-digest payload
+                  content-type]} opts
           hiccup     (rf/with-frame frame-id
                        (lifecycle/resolve-root-view root-view))
           {:keys [head-html html-attrs body-attrs]}
@@ -161,10 +161,9 @@
             final-payload (rf/with-frame frame-id
                             (streaming/build-final-payload
                               frame-id final-hash
-                              {:version        version
-                               :schema-digest  schema-digest
-                               :payload-keys   payload-keys
-                               :payload-policy payload-policy}))]
+                              {:version       version
+                               :schema-digest schema-digest
+                               :payload       payload}))]
         ;; Shared id-pinned, `</script>`-escaped payload <script>
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))

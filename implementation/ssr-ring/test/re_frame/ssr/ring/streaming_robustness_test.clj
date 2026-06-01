@@ -307,7 +307,7 @@
     (let [handler (ssr-ring/stream-handler
                     {:on-create [:rf.test.server/init]
                      :root-view [:test/root]
-                     :payload-policy :rf.ssr.payload/whole-app-db})]
+                     :payload :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client   (new-http-client)
               req      (http-get-request port "/")
@@ -375,7 +375,7 @@
           handler        (ssr-ring/stream-handler
                            {:on-create [:rf.test.server/init-min]
                             :root-view throwing-root
-                            :payload-policy :rf.ssr.payload/whole-app-db})]
+                            :payload :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client   (new-http-client)
               req      (http-get-request port "/")
@@ -447,7 +447,7 @@
       (let [handler  (ssr-ring/stream-handler
                        {:on-create [:rf.test.server/init]
                         :root-view [:test/parking-root]
-                        :payload-policy :rf.ssr.payload/whole-app-db})
+                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
             drain    (future (with-open [^InputStream is (:body response)] (slurp is)))]
         (try
@@ -542,7 +542,7 @@
     (let [handler   (ssr-ring/stream-handler
                       {:on-create [:rf.test.server/init-bad-cookie]
                        :root-view [:test/big-root]
-                       :payload-policy :rf.ssr.payload/whole-app-db})
+                       :payload :rf.ssr.payload/whole-app-db})
           ;; Direct handler call (no Jetty needed — the throw is on the
           ;; request thread during head materialisation, before any
           ;; transport hand-off).
