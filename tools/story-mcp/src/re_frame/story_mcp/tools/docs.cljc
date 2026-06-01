@@ -483,7 +483,7 @@
 
    {:name           "list-assertions"
     :category       :docs
-    :description    (str "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids. Paginated per rf2-76sf6 — `:canonical` (the 7-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
+    :description    (str "The eight canonical `:rf.assert/*` events with payload arity + semantics (the seven dispatched assertions plus the tape-evaluated `:rf.assert/schema-error`), plus any project-registered assertion ids. Paginated per rf2-76sf6 — `:canonical` (the 8-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "

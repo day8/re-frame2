@@ -103,8 +103,8 @@
 (defn- read-edn-body
   "Parse an agent-supplied EDN string into a Clojure value with the
   rf2-g9fje hardening posture. Returns the parsed value on success, or
-  one of two sentinels on failure (caller maps these to
-  `error-result`s):
+  the `::edn-error` sentinel on failure (`coerce-body` maps it to an
+  `error-result`):
 
     `::edn-error` — `edn/read-string` threw (malformed EDN, tagged
                     literal, oversize / over-deep payload).

@@ -130,7 +130,8 @@
                               (rf2-4yuhi).
     :new-variant-id optional — when `:write-back` is true, register the
                               captured recording (translated to a live
-                              `:play-script` body) as a NEW variant with
+                              `:script` body, the public phase-4 play
+                              surface — rf2-7mj4z) as a NEW variant with
                               this id. Defaults to the source
                               `:variant-id` (overwrites in place).
     :doc           optional — docstring to embed in the snippet.
@@ -142,12 +143,13 @@
                               (default `\"story\"`).
     :write-back    optional — when true, also re-register the variant
                               via `reg-variant*` with the captured
-                              recording translated to a live
-                              `:play-script` body. Requires
-                              `allow-writes?` (same gate as
-                              `register-variant`). Wire-key shape per
-                              rf2-pmwgn: no `?` — Anthropic's input-
-                              schema property-name regex rejects it.
+                              recording translated to a live `:script`
+                              body (the public phase-4 play surface —
+                              rf2-7mj4z). Requires `allow-writes?`
+                              (same gate as `register-variant`).
+                              Wire-key shape per rf2-pmwgn: no `?` —
+                              Anthropic's input-schema property-name
+                              regex rejects it.
 
   Output:
     `{:variant-id <source>
