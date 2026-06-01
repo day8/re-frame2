@@ -232,13 +232,29 @@
 
 ;; ---- backoff --------------------------------------------------------------
 
+(def default-backoff
+  "rf2-t5mzx (F5) — the single source of truth for the exponential-backoff
+  defaults. Previously `:base-ms 250`, `:factor 2`, `:max-ms 5000` were
+  spelled inline in `compute-backoff-ms`'s `:or` map AND restated in
+  Spec 014 §Retry and backoff prose + the §The shape sample; the two
+  copies could silently drift. Naming the def makes the defaults a
+  referenceable constant the spec can point at, and any future change
+  edits one place."
+  {:base-ms 250 :factor 2 :max-ms 5000})
+
 (defn compute-backoff-ms
   "Per Spec 014 §Retry and backoff. Returns the delay in ms before the
   next attempt. `attempt` is the failing attempt number (1-based).
 
-  Per Spec 014 line 250 — `:jitter true` adds random ±25% jitter to
-  each delay (offset uniformly in [-0.25 × capped, +0.25 × capped])."
-  [{:keys [base-ms factor max-ms jitter] :or {base-ms 250 factor 2 max-ms 5000}} attempt]
+  Defaults (`default-backoff`): base-ms 250, factor 2, max-ms 5000.
+
+  Per Spec 014 §Retry and backoff — `:jitter true` adds random ±25%
+  jitter to each delay (offset uniformly in [-0.25 × capped, +0.25 ×
+  capped])."
+  [{:keys [base-ms factor max-ms jitter]
+    :or   {base-ms (:base-ms default-backoff)
+           factor  (:factor default-backoff)
+           max-ms  (:max-ms default-backoff)}} attempt]
   (let [raw      (* base-ms (Math/pow factor (max 0 (dec attempt))))
         capped   (min raw max-ms)
         ;; (- 1.0 (* 2.0 (rand))) is uniform in [-1.0, +1.0]; scaled by

@@ -10,7 +10,7 @@
 
 ## Abstract
 
-`:rf.http/managed` is the canonical HTTP fx for re-frame2 implementations that ship one. Take an args map, get a request issued; the fx handles transport, decoding, retry-with-backoff, and dispatching the reply back into the runtime. Co-located request and reply handling is the default — one event handler can branch on `(:rf/reply msg)` to handle both initial dispatch and async result — but explicit `:on-success` / `:on-failure` targets switch to the separate-handler shape when that fits better.
+`:rf.http/managed` is the canonical HTTP fx for re-frame2 implementations that ship one. Take an args map, get a request issued; the fx handles transport, decoding, retry-with-backoff, and dispatching the reply back into the runtime. The recommended shape is **two explicit handlers** — `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` — one event each for the request, the success, and the failure. Each handler stays small and single-purpose, and the failure path is named rather than folded into a branch. When the request and reply genuinely belong together, the fx also supports a **co-located** form: omit the handlers and one event handler branches on `(:rf/reply msg)` to serve both the initial dispatch and the async result.
 
 The fx specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic six-step shape (register → return `:fx` → post work → reply → dispatch → commit), pins the lifecycle slice from [Pattern-RemoteData](Pattern-RemoteData.md), and inherits the epoch carry from [Pattern-StaleDetection](Pattern-StaleDetection.md). It complements but does not replace the lower-level `:http` fx — apps that need wire-level control (custom transport, raw bytes, idiosyncratic protocols) keep using `:http`; apps that want the common case ergonomic use `:rf.http/managed`.
 
@@ -35,7 +35,54 @@ If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the
 
 ## The shape
 
-Single fx-id, single args map. Co-located request and reply handling is the default; the user can opt out by providing explicit `:on-success` / `:on-failure` targets.
+Single fx-id, single args map. The recommended shape names two explicit reply targets — `:on-success` and `:on-failure` — so each of the three concerns (issue, succeed, fail) is its own small handler and the failure path is impossible to overlook. Omitting them opts into the co-located form below.
+
+```clojure
+;; Issue the request — name where the success and failure replies land.
+(rf/reg-event-fx :article/load
+  (fn [{:keys [db]} [_ {:keys [slug]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :loading)
+             (assoc-in [:article :error]  nil))
+     :fx [[:rf.http/managed
+           {:request    {:method :get
+                         :url    (str "/articles/" slug)}
+            :decode     ArticleResponse
+            :accept     (fn [decoded]
+                          (if-let [article (:article decoded)]
+                            {:ok article}
+                            {:failure {:reason  :missing-article
+                                       :message "Response missing :article"}}))
+            :retry      {:on           #{:rf.http/transport :rf.http/http-5xx}
+                         :max-attempts 4
+                         :backoff      {:base-ms 250
+                                        :factor  2
+                                        :max-ms  5000
+                                        :jitter  true}}
+            :on-success [:article/loaded]
+            :on-failure [:article/load-error]}]]}))
+
+;; Success reply — the payload rides as the last event arg.
+(rf/reg-event-db :article/loaded
+  (fn [db [_ {:keys [value]}]]
+    (-> db
+        (assoc-in [:article :status] :loaded)
+        (assoc-in [:article :data]   value)
+        (assoc-in [:article :error]  nil))))
+
+;; Failure reply — named, not a branch.
+(rf/reg-event-db :article/load-error
+  (fn [db [_ {:keys [failure]}]]
+    (-> db
+        (assoc-in [:article :status] :error)
+        (assoc-in [:article :error]  failure))))
+```
+
+When the request resolves, the runtime dispatches `[:article/loaded {:kind :success :value article}]` (or `[:article/load-error {:kind :failure :failure ...}]`) — the reply payload is appended as the last argument to the named event.
+
+### Co-located form (request and reply in one handler)
+
+When the request and its reply genuinely belong together, omit `:on-success` / `:on-failure` and the reply routes back to the originating event id with the payload merged under `:rf/reply`. One handler then branches on the `(:rf/reply msg)` sentinel to serve both roles:
 
 ```clojure
 (rf/reg-event-fx :article/load
@@ -75,7 +122,9 @@ Single fx-id, single args map. Co-located request and reply handling is the defa
                                        :jitter  true}}}]]})))
 ```
 
-When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf/reply {:kind :success :value article})]` (or `:failure` shape) back to the same event id. The handler's `(if-let [reply ...] ...)` branch handles the result.
+When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf/reply {:kind :success :value article})]` (or `:failure` shape) back to the same event id. The handler's `(if-let [reply ...] ...)` branch handles the result. The co-located form keeps one mental model per feature; the two-handler form keeps each handler single-purpose. Prefer two handlers unless the reply logic is trivial and tightly coupled to the request.
+
+> Future consideration (out of scope here): a `defmanaged-event-fx`-style macro could collapse the three-handler boilerplate into a single declaration. Weighing it is deferred to post-v1 (rf2-2pymp) — it is not part of this spec.
 
 ## The args map
 
@@ -193,18 +242,19 @@ Sniff the response Content-Type header:
 - `text/*` → `:text`.
 - otherwise → `:blob`.
 
-Handles 90% of cases without ceremony. Whenever the runtime falls through to `:auto` (i.e., the user didn't supply `:decode`), it emits a single `:rf.warning/decode-defaulted` trace per request so the choice is visible in tooling and logs:
+Handles 90% of cases without ceremony. Whenever the runtime falls through to `:auto` (i.e., the user didn't supply `:decode`), it emits a `:rf.warning/decode-defaulted` trace so the choice is visible in tooling and logs. The warning is **latched one-shot-per-handler**: a happy-path handler that omits `:decode` re-issues the same defaulted request on every invocation, so emitting once per request would flood the trace surface with steady-state noise. The first defaulted request from a given originating event-id warns; subsequent requests from that handler stay quiet (a fresh handler id warns again). The handler id rides at `:handler-id`:
 
 ```clojure
 {:operation :rf.warning/decode-defaulted
  :op-type   :warning
  :tags      {:request-id  <id-or-nil>
+             :handler-id  <originating-event-id-or-nil>
              :url         <url>
              :content-type <header-value>
              :resolved-decoder <:json | :text | :blob>}}
 ```
 
-The warning is informational, not an error — auto-decode is supported and stable. The trace just lets pair tools and 10x panels surface "this handler is relying on the default" so users can choose to be explicit when they want.
+The warning is informational, not an error — auto-decode is supported and stable. The trace just lets pair tools and 10x panels surface "this handler is relying on the default" once per call site so users can choose to be explicit when they want.
 
 ### Schema reflection (optional, ergonomic)
 
@@ -449,7 +499,22 @@ The two outer-`:kind` values (`:success` / `:failure`) discriminate the reply br
 
 ## Reply addressing
 
-The `:on-success` / `:on-failure` keys default to "the originating event id with `:rf/reply` merged into the original message".
+`:on-success` / `:on-failure` name where the success and failure replies are dispatched. The recommended form supplies them explicitly (separate handlers); omitting them falls back to the co-located default — "the originating event id with `:rf/reply` merged into the original message".
+
+### Explicit target — separate handler (recommended)
+
+```clojure
+{:fx [[:rf.http/managed {... :on-success [:article/loaded] :on-failure [:article/load-error]}]]}
+```
+
+The `:rf/reply` payload is appended as the last argument to the dispatched event vector:
+
+```clojure
+[:article/loaded {:kind :success :value v}]
+[:article/load-error {:kind :failure :failure failure-map}]
+```
+
+Each reply lands on its own single-purpose handler — the failure path is named rather than a branch inside the request handler. This is the shape to reach for by default.
 
 ### Default (omitted) — co-located handler
 
@@ -463,19 +528,7 @@ The fx captures the originating event-id (from the dispatch envelope's cofx). On
 [<originating-event-id> (assoc original-msg :rf/reply {:kind :success :value v})]
 ```
 
-The handler's body is `(if-let [reply (:rf/reply msg)] ...handle... ...request...)`. One handler, two roles, distinguishable by the `:rf/reply` sentinel.
-
-### Explicit target — separate handler
-
-```clojure
-{:fx [[:rf.http/managed {... :on-success [:article/loaded] :on-failure [:article/load-error]}]]}
-```
-
-The `:rf/reply` payload is appended as the last argument to the dispatched event vector:
-
-```clojure
-[:article/loaded {:kind :success :value v}]
-```
+The handler's body is `(if-let [reply (:rf/reply msg)] ...handle... ...request...)`. One handler, two roles, distinguishable by the `:rf/reply` sentinel. Use it when the reply logic is trivial and tightly coupled to the request.
 
 Both addressing modes carry the same shape so handlers can correlate by inspecting either `(:rf/reply msg)` (in the merged form) or the appended last-arg (in the explicit form).
 
@@ -487,6 +540,8 @@ Both addressing modes carry the same shape so handlers can correlate by inspecti
 ```
 
 Fire-and-forget. Useful for telemetry beacons.
+
+A silenced `:on-failure` drops the failure reply with no handler. To keep this honest against the no-silent-swallow principle, the runtime emits a **one-shot `:rf.warning/failure-swallowed`** trace (per runtime, dev-only) the first time a NON-aborted failure (`:rf.http/transport` / `:rf.http/http-5xx` / `:rf.http/timeout` / `:rf.http/decode-failure` / `:rf.http/accept-failure` / …) is dropped by `:on-failure nil` — the silence is observable rather than invisible. Aborted requests (`:rf.http/aborted`, any reason) are excluded: a cancelled request that no longer wants its reply is correct-by-design silence, not a swallowed error. The warning is informational; there is no `:rf.error/*` for the path.
 
 ## Aborts
 
@@ -1184,7 +1239,7 @@ Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/regist
 
 ### 4. Trace-event redaction + stamping rules
 
-For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`), implementations MUST:
+For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`, `:rf.warning/failure-swallowed`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
 2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag. Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token.
@@ -1293,7 +1348,7 @@ Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing]
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
 - [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:spawn`.
 - [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
-- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, and the `:rf.http/*` failure-category traces follow it.
+- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, `:rf.warning/failure-swallowed`, and the `:rf.http/*` failure-category traces follow it.
 - [Spec 010 §Schemas](010-Schemas.md) — the schema language `:decode <schema>` consumes. Spec 010 standardises the schema-attachment surface (`:schema` metadata, `reg-app-schema`, `app-schemas-digest`) and the pluggable validator seam (Malli is the CLJS reference's default); the `:rf.http/managed` decode step parses the response body and applies the registered schema language's decode-or-validate primitive (on CLJS reference: `malli.core/decode` + `malli.transform/json-transformer`). There is no separate "Spec 010 decode pipeline" — the decode contract belongs to this Spec; Spec 010 provides the schema language.
 - [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.http/*` namespace is reserved for this Spec.
