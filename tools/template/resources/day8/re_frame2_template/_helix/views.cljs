@@ -2,8 +2,10 @@
   "Views (Helix substrate). Helix uses `defnc` rather than Reagent's
    function-style views; the dataflow is identical. Subscriptions deliver
    values via the `use-subscribe` hook, dispatches send events via
-   `rf/dispatcher`. There is no auto-injection on the Helix adapter —
-   components call these explicitly.
+   `(:dispatch (rf/frame-handle))`. There is no auto-injection on the
+   Helix adapter — components call these explicitly. The handle captures
+   the render-time frame, so the closed-over `dispatch` targets that
+   frame even from an async callback.
 
    Note: this file is starter-template render-path code, kept
    intentionally minimal so the dataflow reads at a glance. The inline

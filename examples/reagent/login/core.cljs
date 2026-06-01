@@ -323,8 +323,10 @@
 ;; ============================================================================
 ;;
 ;; Var-reference style (canonical per [004 §How registered views are used in
-;; hiccup]). The current API uses `rf/dispatcher` / `rf/subscriber` for
-;; frame-bound access inside views.
+;; hiccup]). `reg-view` auto-injects `dispatch` / `subscribe` as lexical
+;; bindings inside the view body — they are the ops of a frame-handle the
+;; macro captures at render time, so they stay bound to the render-time
+;; frame (no ambient lookup, survives async callbacks).
 
 ;; Form-2 view: the outer fn captures local component state in `state`
 ;; (a Reagent atom kept across renders); the inner fn is the actual

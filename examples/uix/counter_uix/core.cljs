@@ -8,8 +8,8 @@
      - `rf/init!` with the UIx adapter
      - `reg-event-db` / `reg-event-fx` / `reg-sub` (substrate-agnostic)
      - `use-subscribe` hook (UIx idiomatic)
-     - `rf/dispatcher` for click handlers (components call
-       dispatch / use-subscribe directly, no auto-injection)
+     - `(:dispatch (rf/frame-handle))` for click handlers (components
+       call dispatch / use-subscribe directly, no auto-injection)
      - The shared frame-context — the same React Context
        object the Reagent adapter consumes
 
@@ -39,8 +39,10 @@
 ;;
 ;; `reg-view` (the macro) stays Reagent-only;
 ;; UIx users write `defui` directly. There is no auto
-;; injection — the component calls `use-subscribe` and `rf/dispatcher`
-;; explicitly.
+;; injection — the component calls `use-subscribe` and takes
+;; `dispatch` off a `(rf/frame-handle)` explicitly. The handle
+;; captures the render-time frame, so the closed-over `dispatch`
+;; targets the right frame even from an async callback.
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
