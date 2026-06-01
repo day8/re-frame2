@@ -2161,6 +2161,28 @@ installs canonical vocabulary), and MUST fold the existing
   across processes rather than embedding the fn's object identity via
   `pr-str` (rf2-4gwja) — the deliberate trade-off is that two values
   differing ONLY in fn identity hash equal (determinism is the contract);
+- **normalise host-divergent numbers to a bit-stable form** so the
+  cross-host byte-stability contract holds for scalars too (rf2-vvqeo).
+  Integers pass through verbatim (host-identical `pr-str`, so existing
+  hashes do not rebase), but two number sub-kinds are NOT host-portable
+  through raw `pr-str` and MUST be normalised: a **ratio** (JVM
+  `clojure.lang.Ratio`; CLJS has none, reading `1/3` as the double 0.333…)
+  is coerced to its double value, and a **fractional or special double**
+  folds to `[:rf/double "<16-hex IEEE-754 bits>"]` — the bit pattern is
+  host-invariant for a given logical double, where `pr-str` formatting
+  ("1.0" vs "1", "1.0E21" vs "1e+21") is not. An integer-valued double
+  within 64-bit integer range folds to that integer (host-mandated: in CLJS
+  `1.0` IS the integer `1`, so the only cross-host-stable choice is to treat
+  a double `1.0` and the integer `1` as canonically equal). `##NaN` folds to
+  the single `:rf/nan` sentinel — collapsing every NaN bit-pattern to one
+  value AND giving the set/map `pr-str` sort a deterministic order in NaN's
+  presence (NaN is not `=`-reflexive, so a bare `(sort-by pr-str)` was
+  comparator-unstable). `##Inf` / `##-Inf` ride the `:rf/double` bit path
+  (their bits are host-stable). Set element ordering additionally uses a
+  **total comparator with a deterministic equal-`pr-str` tiebreak**, so two
+  distinct elements that canonicalise to the same `pr-str` (e.g. two
+  `:rf/opaque-fn` sentinels) get a stable relative order rather than the
+  comparator-unstable order a bare `(sort-by pr-str)` left;
 - enumerate the `:plan-hash` input fields;
 - compute `:run-hash` over the canonical epoch slice.
 

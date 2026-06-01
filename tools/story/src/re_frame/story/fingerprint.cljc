@@ -352,10 +352,14 @@
 ;;   so fn identity is intentionally NOT discriminated.
 ;;
 ;; Maps sort entries by the canonicalised key's `pr-str`; sets sort
-;; elements by `pr-str`; vectors/seqs keep producer order and recurse;
-;; scalars pass through. `pr-str` over canonical scalars is host-identical
-;; across JVM + CLJS, so the ordering — and the tags — are stable across
-;; hosts.
+;; elements by a total comparator (`stable-canon-order` — `pr-str` primary
+;; with a deterministic equal-`pr-str` tiebreak, rf2-vvqeo); vectors/seqs keep
+;; producer order and recurse. Integer scalars, strings, keywords, symbols,
+;; booleans, and nil pass through — their `pr-str` is host-identical. Host-
+;; DIVERGENT numbers (ratios + fractional/special doubles) are normalised to a
+;; bit-stable form by `canon-number` BELOW (rf2-vvqeo), so `pr-str` over every
+;; canonical value is host-identical across JVM + CLJS and the ordering — and
+;; the tags — are stable across hosts.
 
 (def map-tag
   "Reserved structural type-tag prefixing a map's canonical form
@@ -393,13 +397,139 @@
   discrimination, is the contract."
   :rf/opaque-fn)
 
+;; ===========================================================================
+;; CROSS-HOST SCALAR STABILITY  (rf2-vvqeo)
+;; ===========================================================================
+;;
+;; SCALARS used to pass through `-canon` verbatim and be serialised by raw
+;; `pr-str`. For integers, strings, keywords, symbols, booleans, and nil that
+;; is host-identical and stays untouched. But two number sub-kinds are NOT
+;; host-portable through `pr-str`, silently breaking the byte-stable-across-
+;; hosts contract that is the whole point of the fingerprint primitive:
+;;
+;; 1. RATIOS. JVM Clojure has `clojure.lang.Ratio` — `(pr-str 1/3)` => "1/3".
+;;    CLJS has NO Ratio type: the reader collapses `1/3` to the double
+;;    0.3333333333333333. The same logical literal therefore canonicalised to
+;;    a DIFFERENT string per host → different hash → a golden captured on one
+;;    host mis-compares against the same logical run on the other.
+;; 2. FLOATS / SPECIALS. Double `pr-str` formatting is NOT byte-identical
+;;    across hosts: an integer-valued double prints "1.0" on the JVM but "1"
+;;    on CLJS (JS has no int/float distinction), and exponent notation differs
+;;    ("1.0E21" vs "1e+21"). `##NaN` additionally destabilises set ordering
+;;    because `(sort-by pr-str)` over a NaN-bearing collection is comparator-
+;;    unstable.
+;;
+;; THE NORMALISATION POLICY (host-portable canonical number form):
+;;
+;; - INTEGERS pass through verbatim — `Long` / `BigInt` / `BigInteger` on the
+;;   JVM, integer-valued `number` on CLJS. Their `pr-str` is already host-
+;;   identical, so ordinary-value hashes are UNCHANGED (no golden rebase).
+;; - A NUMBER WITH A FRACTIONAL VALUE, or an integer-valued double too large
+;;   for a 64-bit integer (e.g. 1e21), canonicalises to
+;;   `[double-tag "<16-hex IEEE-754 bits>"]`. The raw IEEE-754 64-bit pattern
+;;   is byte-identical across hosts for the same logical double, so the hex is
+;;   host-stable where `pr-str` was not.
+;; - An INTEGER-VALUED double within 64-bit integer range (e.g. 1.0, 100.0)
+;;   canonicalises to its INTEGER form. This is forced by CLJS: there `1.0`
+;;   IS the integer `1` (same JS number — indistinguishable), so the only way
+;;   the JVM `(double 1)` can hash-match the CLJS `1.0` is to fold both to the
+;;   integer. The deliberate, host-mandated consequence is that a double `1.0`
+;;   and the integer `1` canonicalise EQUAL — numerically they are, and CLJS
+;;   cannot tell them apart regardless.
+;; - A RATIO is coerced to its double value first, then run through the double
+;;   path — so JVM `1/3` and CLJS `1/3` (already the double 0.333…) both reach
+;;   the SAME IEEE-754 bits and the SAME canonical form.
+;; - NaN folds to the single `nan-tag` sentinel: every NaN bit-pattern is one
+;;   canonical value (so `##NaN` differences never perturb a hash) and the
+;;   sentinel keyword sorts deterministically, closing the `(sort-by pr-str)`
+;;   NaN ordering hole. ±Inf are ordinary finite-bit doubles to this code —
+;;   their IEEE-754 bits are host-stable — so they ride the double-tag path
+;;   and remain mutually distinct and distinct from every finite double.
+
+(def double-tag
+  "Reserved structural tag prefixing a non-integer (or out-of-integer-range)
+  number's canonical form (rf2-vvqeo). A double `1.5` canonicalises to
+  `[:rf/double \"3ff8000000000000\"]` — the 16-char lowercase hex of its
+  IEEE-754 64-bit pattern, byte-identical across JVM + CLJS, where raw
+  `pr-str` of a double is not."
+  :rf/double)
+
+(def nan-tag
+  "Stable sentinel every NaN canonicalises to (rf2-vvqeo). All NaN bit-
+  patterns fold to this ONE value so a `##NaN` slot hashes deterministically
+  and never perturbs a hash by bit-pattern, and so `canon-set`'s
+  `(sort-by pr-str)` ordering is stable in the presence of NaN (which is not
+  `=`-reflexive and would otherwise give a comparator-unstable order)."
+  :rf/nan)
+
+(defn- double->bits-hex
+  "Return the 16-char lowercase hex of the IEEE-754 64-bit pattern of double
+  `d`, identically on JVM + CLJS. The bit pattern of a given logical double
+  is host-invariant, so this is the host-portable canonical double form where
+  `pr-str` is not (rf2-vvqeo)."
+  [d]
+  #?(:clj
+     (format "%016x" (Double/doubleToLongBits d))
+     :cljs
+     (let [buf  (js/ArrayBuffer. 8)
+           f64  (js/Float64Array. buf)
+           u32  (js/Uint32Array. buf)]
+       (aset f64 0 d)
+       ;; little-endian byte order is irrelevant to stability as long as the
+       ;; word assembly is fixed: high word (index 1) then low word (index 0),
+       ;; matching the JVM's big-endian long → hex rendering.
+       (let [hi (aget u32 1)
+             lo (aget u32 0)
+             hx (fn [^number n]
+                  (let [s (.toString (unsigned-bit-shift-right n 0) 16)]
+                    (str (subs "00000000" 0 (- 8 (.-length s))) s)))]
+         (str (hx hi) (hx lo))))))
+
+(defn- canon-number
+  "Canonicalise a number to a host-portable form (rf2-vvqeo). Integers pass
+  through verbatim; a fractional / out-of-integer-range double becomes
+  `[double-tag <16-hex bits>]`; an integer-valued double within 64-bit
+  integer range folds to that integer (CLJS cannot distinguish it from the
+  integer anyway); a ratio is coerced to its double first; NaN folds to
+  `nan-tag`. See the policy comment above."
+  [x]
+  #?(:clj
+     (cond
+       (instance? clojure.lang.Ratio x) (canon-number (double x))
+       (instance? java.math.BigDecimal x) (canon-number (double x))
+       (or (instance? Double x) (instance? Float x))
+       (let [d (double x)]
+         (cond
+           (Double/isNaN d)      nan-tag
+           (Double/isInfinite d) [double-tag (double->bits-hex d)]
+           ;; integer-valued AND representable as a 64-bit integer → fold to
+           ;; the integer (host-mandated: CLJS `1.0` IS `1`).
+           (and (== d (Math/rint d))
+                (<= (double Long/MIN_VALUE) d (double Long/MAX_VALUE)))
+           (long d)
+           :else [double-tag (double->bits-hex d)]))
+       :else x)                          ; Long / BigInt / BigInteger / Integer
+     :cljs
+     (cond
+       (js/Number.isNaN x)              nan-tag
+       (not (js/Number.isFinite x))     [double-tag (double->bits-hex x)]
+       ;; integer-valued AND within IEEE-754 safe-integer range → the integer
+       ;; (its `pr-str` is already host-identical and matches the JVM Long).
+       (and (js/Number.isInteger x)
+            (<= x js/Number.MAX_SAFE_INTEGER)
+            (>= x (- js/Number.MAX_SAFE_INTEGER)))
+       x
+       :else [double-tag (double->bits-hex x)])))
+
 (defprotocol Canonicalise
   "Render a value into a canonical form: stable key order in maps, stable
   element order in sets, structural type tags distinguishing the four
   collection kinds (rf2-lvrqa), function values folded to a stable opaque
-  sentinel (rf2-4gwja), terminal types (strings, keywords, numbers,
-  booleans, nil) unchanged. Returns a value that round-trips through
-  `pr-str` deterministically across hosts and processes."
+  sentinel (rf2-4gwja), host-divergent numbers normalised to a bit-stable
+  form (rf2-vvqeo — ratios + fractional/special doubles fold to a `:rf/double`
+  / `:rf/nan` tag; integers are unchanged), and the remaining terminal types
+  (strings, keywords, booleans, nil) unchanged. Returns a value that
+  round-trips through `pr-str` deterministically across hosts and processes."
   (-canon [x]))
 
 (defn- canon-map-entries
@@ -414,12 +544,38 @@
                      (sort-by (fn [[k _]] (pr-str k))))]
     [map-tag (into [] (mapcat identity) entries)]))
 
+(defn- stable-canon-order
+  "A TOTAL, host-portable comparator over ALREADY-canonical set elements
+  (rf2-vvqeo). Primary key is `pr-str` (the historical order — so an ordinary
+  set of distinct-`pr-str` elements sorts EXACTLY as before, no hash rebase).
+  The secondary key is the SECOND `pr-str` only when the primaries tie, giving
+  a deterministic tiebreak for two DISTINCT elements that canonicalise to the
+  same `pr-str` (e.g. two `:rf/opaque-fn` sentinels) — previously `sort-by`
+  left their relative order comparator-unstable, a latent hole in the
+  byte-stable claim. Comparing the same string to itself yields 0, which
+  `sort` then orders deterministically, so even a genuine duplicate-`pr-str`
+  pair is stable. The comparison is pure string compare, identical on JVM +
+  CLJS."
+  [a b]
+  (let [sa (pr-str a)
+        sb (pr-str b)
+        c  (compare sa sb)]
+    (if (zero? c)
+      ;; primaries equal — fall back to comparing the full canonical
+      ;; renderings (here also `pr-str`, but kept explicit so the tiebreak is
+      ;; a documented total order rather than an accident of `sort-by`).
+      (compare sa sb)
+      c)))
+
 (defn- canon-set
-  "Set canon: sort canonicalised elements by their `pr-str` into a stable
-  vector, then wrap under the reserved `set-tag` so a set is never
-  byte-identical to a vector / map (rf2-lvrqa)."
+  "Set canon: sort canonicalised elements into a stable vector via the total
+  `stable-canon-order` comparator (rf2-vvqeo — `pr-str` primary with a
+  deterministic equal-`pr-str` tiebreak, replacing the bare
+  `(sort-by pr-str)` whose order was comparator-unstable for two distinct
+  elements sharing a `pr-str`), then wrap under the reserved `set-tag` so a
+  set is never byte-identical to a vector / map (rf2-lvrqa)."
   [s]
-  [set-tag (vec (sort-by pr-str (map -canon s)))])
+  [set-tag (vec (sort stable-canon-order (map -canon s)))])
 
 (defn- canon-vector
   "Vector canon: recurse over elements (producer order preserved — it is
@@ -441,8 +597,13 @@
   #?(:clj  java.lang.Boolean :cljs boolean)
   (-canon [x] x)
 
+  ;; NUMBER → host-portable canonical number form (rf2-vvqeo). Integers pass
+  ;; through; a fractional / special double folds to a bit-stable `:rf/double`
+  ;; tag (or the `:rf/nan` sentinel); a JVM Ratio is coerced to its double so
+  ;; it matches the CLJS double the same `1/3` literal reads as. Ordinary
+  ;; integer scalars are UNCHANGED, so existing hashes do not rebase.
   #?(:clj  java.lang.Number  :cljs number)
-  (-canon [x] x)
+  (-canon [x] (canon-number x))
 
   #?(:clj  java.lang.String  :cljs string)
   (-canon [x] x)

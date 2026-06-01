@@ -293,6 +293,130 @@
           "a non-fn semantic difference still perturbs the plan-hash"))))
 
 ;; ===========================================================================
+;; CROSS-HOST SCALAR STABILITY (rf2-vvqeo)
+;; ===========================================================================
+;;
+;; Scalars used to pass through `-canon` verbatim and be `pr-str`'d raw. Two
+;; number sub-kinds are NOT host-portable through `pr-str` and silently broke
+;; the byte-stable-across-hosts contract:
+;;   1. RATIOS — JVM `(pr-str 1/3)` => "1/3"; CLJS has no Ratio, so `1/3` is
+;;      the double 0.333… — divergent strings, divergent hash.
+;;   2. FLOATS / SPECIALS — an integer-valued double prints "1.0" (JVM) vs "1"
+;;      (CLJS); exponent notation differs; `##NaN` also destabilises the
+;;      `(sort-by pr-str)` set order.
+;; The fix normalises host-divergent numbers to a bit-stable canonical form
+;; (`[:rf/double <16-hex IEEE-754 bits>]` / the `:rf/nan` sentinel / an integer
+;; for integer-valued doubles), leaving INTEGERS / strings / keywords / normal
+;; collections byte-identical (no golden rebase). The CLJS companion
+;; (`re-frame.story-fingerprint-cljs-test`) asserts the SAME canonical forms +
+;; hashes on CLJS — that pairing IS the cross-host-equivalence proof.
+
+(deftest ordinary-value-canonical-forms-are-unchanged
+  (testing "REGRESSION GUARD (rf2-vvqeo): the canonical form + content-hash of
+            ordinary (non-host-divergent) values is byte-identical to the
+            pre-change baseline — the scalar-stability fix MUST NOT rebase any
+            existing golden. These literals were captured from the shipping
+            primitive BEFORE the fix; if any drifts, an ordinary value's hash
+            moved and goldens would silently mis-compare."
+    ;; [value  expected-canonical-form  expected-content-hash]
+    (let [cases [[42                    "42"                     "211a4621"]
+                 [-7                     "-7"                     "ab492c45"]
+                 [(bigint 100000000000000000000) "100000000000000000000N" "86b7e419"]
+                 ["hello"                "\"hello\""              "3409cbf2"]
+                 [:foo/bar               ":foo/bar"               "3ac20368"]
+                 ['sym                   "sym"                    "2bdbe3fa"]
+                 [true                   "true"                   "28c0a6cf"]
+                 [false                  "false"                  "d4bea88b"]
+                 [nil                    "nil"                    "8d40a9c3"]
+                 [[1 2 3]                "[:rf/vec [1 2 3]]"      "234450cb"]
+                 [{:a 1 :b "x" :c :k}    "[:rf/map [:a 1 :b \"x\" :c :k]]" "418d9acd"]
+                 [#{:a :b :c}            "[:rf/set [:a :b :c]]"   "405ea2f0"]
+                 [{:x [{:y #{1 2}} {:z :w}]}
+                  "[:rf/map [:x [:rf/vec [[:rf/map [:y [:rf/set [1 2]]]] [:rf/map [:z :w]]]]]]"
+                  "2435e981"]
+                 [{:status :pass :app-db {:n 1 :items [{:sku "A"}]}}
+                  "[:rf/map [:app-db [:rf/map [:items [:rf/vec [[:rf/map [:sku \"A\"]]]] :n 1]] :status :pass]]"
+                  "98b520a4"]]]
+      (doseq [[v cf ch] cases]
+        (is (= cf (pr-str (fp/canonical-form v)))
+            (str "canonical form of " (pr-str v) " drifted — golden rebase!"))
+        (is (= ch (fp/content-hash v))
+            (str "content-hash of " (pr-str v) " drifted — golden rebase!"))))))
+
+(deftest ratios-canonicalize-host-portably
+  (testing "a JVM Ratio canonicalises to the SAME bit-stable double form its
+            CLJS double counterpart reaches — `1/3` and `(/ 1.0 3.0)` (the
+            double CLJS reads `1/3` as) share a canonical form + hash"
+    (is (= [fp/double-tag "3fd5555555555555"] (fp/canonical-form 1/3)))
+    (is (= (fp/canonical-form 1/3) (fp/canonical-form (/ 1.0 3.0))))
+    (is (= (fp/content-hash 1/3) (fp/content-hash (/ 1.0 3.0)))
+        "ratio and its double value hash equal — cross-host equivalence")
+    (is (= (fp/canonical-hash {:r 1/3}) (fp/canonical-hash {:r (/ 1.0 3.0)}))
+        "the same holds nested inside a hashed slice"))
+  (testing "distinct ratios remain distinct (sensitivity not lost)"
+    (is (not= (fp/canonical-form 1/3) (fp/canonical-form 2/3)))))
+
+(deftest floats-canonicalize-host-portably
+  (testing "an integer-valued double folds to its INTEGER form — host-mandated
+            (CLJS `1.0` IS the integer `1`), so JVM `1.0` and `1` canonicalise
+            EQUAL and the CLJS companion's `1.0` matches"
+    (is (= 1   (fp/canonical-form 1.0)))
+    (is (= 100 (fp/canonical-form 100.0)))
+    (is (= (fp/canonical-form 1.0) (fp/canonical-form 1))))
+  (testing "a fractional double folds to the bit-stable `[:rf/double <hex>]`"
+    (is (= [fp/double-tag "3ff8000000000000"] (fp/canonical-form 1.5)))
+    (is (not= (fp/canonical-form 1.5) (fp/canonical-form 1))
+        "1.5 is NOT integer-valued — distinct from 1")
+    (is (not= (fp/canonical-form 1.5) (fp/canonical-form 2.5))
+        "distinct fractional doubles stay distinct"))
+  (testing "an integer-valued double too large for a 64-bit integer takes the
+            bit path (no silent overflow to a wrong long)"
+    (is (= [fp/double-tag "444b1ae4d6e2ef50"] (fp/canonical-form 1e21)))))
+
+(deftest nan-and-inf-canonicalize-host-portably
+  (testing "every NaN folds to the single `:rf/nan` sentinel — a `##NaN` slot
+            hashes deterministically and never perturbs a hash by bit-pattern"
+    (is (= fp/nan-tag (fp/canonical-form Double/NaN)))
+    (is (= (fp/content-hash Double/NaN) (fp/content-hash Double/NaN)))
+    (is (= (fp/canonical-hash {:x Double/NaN})
+           (fp/canonical-hash {:x Double/NaN}))
+        "two NaN-bearing slices hash equal"))
+  (testing "±Inf ride the bit-double path — host-stable bits, mutually distinct
+            and distinct from every finite double"
+    (is (= [fp/double-tag "7ff0000000000000"] (fp/canonical-form Double/POSITIVE_INFINITY)))
+    (is (= [fp/double-tag "fff0000000000000"] (fp/canonical-form Double/NEGATIVE_INFINITY)))
+    (is (not= (fp/canonical-form Double/POSITIVE_INFINITY)
+              (fp/canonical-form Double/NEGATIVE_INFINITY)))
+    (is (not= (fp/canonical-form Double/POSITIVE_INFINITY) (fp/canonical-form 1.5)))
+    (is (not= fp/nan-tag (fp/canonical-form Double/POSITIVE_INFINITY)))))
+
+(deftest nan-bearing-set-orders-deterministically
+  (testing "a NaN in a set no longer destabilises ordering — every NaN folds to
+            the `:rf/nan` sentinel BEFORE the set sort, so the set hashes
+            stably across builds (the `(sort-by pr-str)` NaN hole, closed)"
+    (is (= (fp/content-hash #{1 Double/NaN :a})
+           (fp/content-hash #{1 Double/NaN :a})))
+    ;; a freshly-constructed NaN-bearing set hashes identically — the exact
+    ;; cross-build / cross-host instability the bare comparator risked.
+    (is (= (fp/content-hash (set [Double/NaN :a 1]))
+           (fp/content-hash (set [1 :a Double/NaN]))))))
+
+(deftest canon-set-has-a-stable-equal-pr-str-tiebreak
+  (testing "two DISTINCT fns in a set both fold to `:rf/opaque-fn` (equal
+            `pr-str`); the `stable-canon-order` comparator gives them a
+            deterministic order, so the set hashes stably across independent
+            builds — the latent `(sort-by pr-str)` tie hole (rf2-vvqeo)"
+    (let [build (fn [] #{(fn [] 1) (fn [] 2) :marker})]
+      (is (= (fp/content-hash (build)) (fp/content-hash (build)))
+          "an equal-pr-str-bearing set hashes identically across builds")))
+  (testing "ordinary distinct-`pr-str` set order is the SAME as the historical
+            `(sort-by pr-str)` order — no golden rebase for normal sets"
+    ;; verified by the unchanged content-hash 405ea2f0 for #{:a :b :c} in
+    ;; `ordinary-value-canonical-forms-are-unchanged`; this restates the
+    ;; element-ordering directly.
+    (is (= [fp/set-tag [:a :b :c]] (fp/canonical-form #{:c :a :b})))))
+
+;; ===========================================================================
 ;; CANONICAL VERSION — the bumped tag is recorded (rf2-lvrqa)
 ;; ===========================================================================
 
