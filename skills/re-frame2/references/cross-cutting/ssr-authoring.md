@@ -130,7 +130,7 @@ When the page shell + header should render immediately while slow subtrees strea
  [slow-card card-id]]                         ;; renders the fallback until the card's data resolves, then streams in
 ```
 
-Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see `Pattern-SSR-Loaders` (reachable via `boot.md`'s `:spawn-all` fan-out shape). Low priority — skip unless the task is explicitly streaming SSR.
+Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md). Low priority — skip unless the task is explicitly streaming SSR.
 
 ## Common gotchas
 
@@ -143,6 +143,7 @@ Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card da
 
 ## Cross-references
 
+- SSR patterns: [`../../patterns/form-action.md`](../../patterns/form-action.md) (handling an HTML form POST — progressive enhancement, CSRF, multipart); [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md) (parallel data fetch via `:spawn-all` before render). A page typically uses Loaders for the GET render and FormAction for subsequent POSTs.
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide chapter: [`docs/guide/20-server-side.md`](../../../../docs/guide/20-server-side.md) — narrative walkthrough, head/meta and hydration sections.
