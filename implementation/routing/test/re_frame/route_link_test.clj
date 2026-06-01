@@ -77,8 +77,10 @@
 
 (deftest route-link-href-with-query-and-fragment
   (testing ":query and :fragment are appended to the href"
+    ;; :q is optional so /search is reachable without a query (exercised by
+    ;; the empty-:fragment sub-case below); when present it must be a string.
     (rf/reg-route :route/search {:path  "/search"
-                                 :query [:map [:q :string]]})
+                                 :query [:map [:q {:optional true} :string]]})
 
     (let [[_ attrs] (routing/route-link-render-ssr
                      {:to    :route/search
