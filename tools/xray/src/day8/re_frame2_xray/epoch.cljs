@@ -22,6 +22,9 @@
   - `mount.cljs` seeds `:rf.xray/sync-epoch-history` at first open.
   - `panels.app-db-diff-sections` dispatches `:rf.xray/select-epoch`
     when a section's epoch chip is clicked.
+  - `shell/tab-bar` dispatches `:rf.xray/reset-to-epoch` (rf2-hga49) —
+    the UI rewind affordance — and reads `:rf.xray/reset-flash` for the
+    inline failure flash.
 
   Splitting the plumbing out makes the cross-cutting intent visible:
   the slot is `:rf/xray`-frame state shared across every panel that
@@ -46,6 +49,35 @@
   (rf/reg-sub :rf.xray/selected-epoch-id
     (fn [db _query]
       (get db :selected-epoch-id)))
+
+  ;; rf2-hga49 — transient `reset-to-event` failure flash. Holds a short
+  ;; message string when a `rf/restore-epoch` rewind fails (epoch aged
+  ;; out of the buffer, or a restore-during-drain rejection). nil =
+  ;; nothing to show. The flash is INLINE on the tab ribbon — never a
+  ;; modal — and self-clears (the Reset event schedules the clear). A
+  ;; failure must never be a silent lie; it must also never block.
+  (rf/reg-sub :rf.xray/reset-flash
+    (fn [db _query]
+      (get db :reset-flash)))
+
+  ;; ---- effects -----------------------------------------------------------
+
+  ;; rf2-hga49 — `restore-epoch` is a side-effecting framework call (it
+  ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
+  ;; so it lives in an fx, not a `reg-event-db` reducer. `rf/restore-epoch`
+  ;; returns `false` on any of the six documented failure modes (per
+  ;; Tool-Pair §Time-travel — Restore) leaving the frame unchanged; on
+  ;; failure we dispatch the inline flash so the operator is told (never
+  ;; a silent lie). The framework also emits a structured `:rf.epoch/*`
+  ;; trace row on the bus — Xray's own Trace panel surfaces the specifics.
+  ;; re-frame2 fx handlers are `(fn [ctx args] …)` — `args` is the value
+  ;; from the `:fx` vector entry (here the `{:frame … :epoch-id …}` map).
+  (rf/reg-fx :rf.xray.fx/restore-epoch
+    (fn [_ctx {:keys [frame epoch-id]}]
+      (when (and frame epoch-id)
+        (let [ok? (rf/restore-epoch frame epoch-id)]
+          (when-not ok?
+            (rf/dispatch [:rf.xray/reset-flash-failed]))))))
 
   ;; ---- events ------------------------------------------------------------
 
@@ -150,5 +182,39 @@
       (-> db
           (assoc :selected-epoch-id epoch-id)
           (assoc-in [:focus :epoch-id] epoch-id))))
+
+  ;; `:rf.xray/reset-to-epoch` (rf2-hga49) — the UI rewind affordance.
+  ;; The tab ribbon's `Reset` button dispatches this with the OBSERVED
+  ;; frame (the frame Xray is inspecting — the frame-switcher selection,
+  ;; NOT `:rf/xray` Xray's own chrome frame) and the currently-focused
+  ;; epoch-id. The view supplies both from `:rf.xray/observed-frame` +
+  ;; `:rf.xray/focus-epoch-id` so this event stays a thin trampoline into
+  ;; the `:rf.xray.fx/restore-epoch` effect (which calls the framework's
+  ;; `rf/restore-epoch`, targeting the epoch's `:db-after` — "if the
+  ;; event still exists, app state must be as if the event happened").
+  ;; No dialog, no confirmation — the button just does it (programmers
+  ;; are power users). A nil frame / epoch-id is a guarded no-op (the
+  ;; button is disabled when no epoch is focused, but the event stays
+  ;; defensive).
+  (rf/reg-event-fx :rf.xray/reset-to-epoch
+    (fn [_cofx [_ frame epoch-id]]
+      {:fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
+
+  ;; `:rf.xray/reset-flash-failed` (rf2-hga49) — set the inline failure
+  ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
+  ;; `rf/restore-epoch` returns false. `:rf.trace/no-emit? true` keeps
+  ;; Xray's own chrome event off the trace bus it is inspecting.
+  (rf/reg-event-db :rf.xray/reset-flash-failed
+    {:rf.trace/no-emit? true}
+    (fn [db _event]
+      (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")))
+
+  ;; `:rf.xray/clear-reset-flash` (rf2-hga49) — clear the inline flash.
+  ;; Dispatched by the view's auto-dismiss timer / the next successful
+  ;; reset. `:rf.trace/no-emit? true` per the sibling rationale.
+  (rf/reg-event-db :rf.xray/clear-reset-flash
+    {:rf.trace/no-emit? true}
+    (fn [db _event]
+      (dissoc db :reset-flash)))
 
   nil)

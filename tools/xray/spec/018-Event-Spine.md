@@ -317,11 +317,16 @@ below remains the canonical shape; this callout records what the
 
 **rf2-pjjwh — clean Figma mock layout.** ONE row shape, four columns,
 matching the Figma EventList exactly. The active (selected) row is marked
-by BACKGROUND ONLY (`bg-[var(--devtools-hover)]`):
+by a darker `:selected-row-bg` background **plus a leading `>` caret**
+(rf2-hga49 — see [Selected-row visibility](#selected-row-visibility-rf2-hga49)
+below; the background-only mock failed on issue rows). A fixed-width 10px
+caret gutter leads every row (empty when not selected) so selecting never
+shifts the columns:
 
 ```
 │ Col          │ Width        │ Content                              │
 ├──────────────┼──────────────┼──────────────────────────────────────┤
+│ (caret)      │ 10px         │ > when selected, else empty          │
 │ Event id     │ flex mono    │ :order/submit (accent keyword colour)│
 │ Source       │ 52px         │ ui / fx / timer / router (muted)     │
 │ Timestamp    │ ≥76px        │ 12:30:05.123 (right-aligned)         │
@@ -329,7 +334,11 @@ by BACKGROUND ONLY (`bg-[var(--devtools-hover)]`):
 ```
 
 rf2-pjjwh RETIRED these decorations the mock did not carry: the leading
-focus gutter (+ its glyph `● ◉ x ▥`), the origin-prefix glyph before the
+focus gutter (+ its glyph `● ◉ x ▥`) — note rf2-hga49 later reintroduced a
+narrower 10px caret gutter carrying a single `>` selection glyph (a
+deliberate override of the background-only mock, which was indistinguishable
+on a selected issue row; see [Selected-row visibility](#selected-row-visibility-rf2-hga49)) —
+the origin-prefix glyph before the
 source tag, the activity badges (`⚠ 🌐 🤖`), the trailing 2px lifecycle
 status stripe, the redaction marker, and the out-of-focus dimming. The
 dropped fields (full event vector + args, sequence number, frame, source
@@ -398,6 +407,29 @@ glyph-free post-rf2-pjjwh).
   whether focused or not, with the focus state intact underneath), the LIVE
   head-pulse, and any cross-epoch perf-budget chrome. A clean (non-issue)
   row carries no wash.
+
+#### Selected-row visibility (rf2-hga49)
+
+The selection signal and the issue wash share the background channel, and a
+low-opacity pink wash painted over the (old) `:hover`-grey selection drowned
+the grey — a **selected error row was indistinguishable** from an unselected
+one. The contract is now a **three-part, coordinated treatment** so selection
+is unmistakable on any row state (clean / issue, focused / not):
+
+1. **Leading `>` caret** — a fixed-width 10px gutter leads every row,
+   carrying a single `>` glyph (accent colour) when the row is selected and
+   empty otherwise. Background-INDEPENDENT, so it reads through the wash.
+   The matching header carries an empty 10px gutter spacer so columns never
+   drift.
+2. **Darker `:selected-row-bg` background** — the selected background is the
+   dedicated `:selected-row-bg` token (a step darker than `:hover`) rather
+   than `:hover` itself, so selection reads as a state distinct from hover
+   AND shows through the wash.
+3. **Paler `:bg-issue-row` wash** — the issue wash alpha is lowered (dark
+   ~10%, light ~12%, moved in lock-step) so the darker grey reads through it.
+
+See [`022-Design-Tokens.md`](022-Design-Tokens.md) for the
+`:selected-row-bg` token + the paled `:bg-issue-row` values.
 
 ### Row variants
 
@@ -539,6 +571,40 @@ rf2-q7who Thread B):
 
 The `data-testid="rf-xray-tab-bar"` selector remains the canonical
 test addressing surface; ARIA is the user-facing assistive contract.
+
+### Tab-ribbon chrome — context label + Reset (rf2-hga49)
+
+The L3 tab ribbon (the dark band carrying the tab buttons) carries two
+chrome affordances besides the tabs:
+
+- **Context label (LEFT):** a `↳ selected` label (corner-down-right glyph
+  + muted text) signalling that the tabs below project the
+  currently-selected L2 event. (rf2-hga49 shortened the earlier
+  `for selected event` copy to `selected` — the glyph already carries the
+  sense.)
+- **`Reset` button (FAR RIGHT, after a `margin-left:auto` spacer):** the UI
+  half of the **inspect-vs-rewind** principle. Xray can inspect a past
+  epoch (passive); the `Reset` button (`↺`) **rewinds the live app** to it
+  (active). It dispatches `:rf.xray/reset-to-epoch` with the **observed**
+  frame (`:rf.xray/observed-frame` — the frame-switcher selection, NEVER
+  `:rf/xray`) and the **focused** epoch-id (`:rf.xray/focus-epoch-id`),
+  which trampolines into the `:rf.xray.fx/restore-epoch` effect →
+  `(rf/restore-epoch <observed-frame> <epoch-id>)`. The target is the
+  epoch's `:db-after` ("if the event still exists, app state must be as if
+  the event happened" — matches the shipped runtime, zero framework
+  change).
+  - **No dialog, no confirmation** — the button just does it (programmers
+    are power users). This is a deliberate departure from the deleted Time
+    Travel panel's modal-confirmation flow ([`002-Time-Travel.md`](002-Time-Travel.md)
+    §Restore failure modes / §Failure surfacing described the now-removed
+    panel's modal).
+  - **Disabled** (dimmed, `not-allowed` cursor) when no epoch is focused.
+  - **Failure** (the rare framework cases — epoch aged out of the buffer,
+    or a restore-during-drain rejection → `rf/restore-epoch` returns
+    `false`) sets `:rf.xray/reset-flash`, a brief **inline** message left of
+    the button (`role=status`), NEVER a modal — and never a silent lie. The
+    framework's structured `:rf.epoch/*` failure row also lands on the trace
+    bus, which the Trace tab surfaces.
 
 ### Detail panel layout
 

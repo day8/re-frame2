@@ -2556,12 +2556,13 @@
         (is (= "left" (:text-align (style-of r-event-id)))
             "row event-id keyword is explicitly left-aligned")))))
 
-(deftest focused-row-uses-hover-fill-not-blue-ring
-  (testing "rf2-cplj8 — the selected/active row marks itself with a subtle
-            :hover background fill (Figma EventList `isActive` →
-            `bg-[var(--devtools-hover)]`), NOT a full 1px blue ring. The
-            border stays the transparent border-box base so the columns
-            never drift from the header."
+(deftest focused-row-uses-selected-bg-not-blue-ring
+  (testing "rf2-cplj8 + rf2-hga49 — the selected/active row marks itself
+            with a darker `:selected-row-bg` background fill (rf2-hga49
+            stepped this DARKER than `:hover` so selection reads distinctly
+            from hover AND survives under the issue-row pink wash), NOT a
+            full 1px blue ring. The border stays the transparent border-box
+            base so the columns never drift from the header."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
@@ -2575,8 +2576,12 @@
         ;; shorthand to an explicit `:background-color` so the issue-row
         ;; wash can ride as a separate `:background-image` layer that
         ;; composes over (not clobbers) the focus highlight.
-        (is (= (:hover tokens) (:background-color style))
-            "focused row background is the subtle :hover fill")
+        ;; rf2-hga49 — the focus fill is now the dedicated darker
+        ;; `:selected-row-bg`, NOT `:hover`.
+        (is (= (:selected-row-bg tokens) (:background-color style))
+            "focused row background is the darker :selected-row-bg fill")
+        (is (not= (:hover tokens) (:background-color style))
+            "focused row background is no longer the :hover grey")
         ;; a clean focused cascade carries NO issue wash — only the
         ;; focus-highlight background-color, no overlay layer.
         (is (nil? (:background-image style))
@@ -2585,3 +2590,198 @@
             "focused row border is the transparent base — NO blue ring")
         (is (not= (str "1px solid " (:accent tokens)) (:border style))
             "focused row does NOT paint the :accent blue ring")))))
+
+;; -------------------------------------------------------------------------
+;; rf2-hga49 — tab-ribbon chrome: relabel + Reset button + selected-error-
+;; row visibility
+;; -------------------------------------------------------------------------
+
+(deftest tab-bar-context-label-reads-selected
+  (testing "rf2-hga49 — the L3 tab-ribbon contextual label reads the terse
+            `selected` (was `for selected event`), keeping the ↳ glyph."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree  (shell/shell-view)
+            label (find-by-testid tree "rf-xray-tab-bar-context-label")
+            txt   (text-nodes label)]
+        (is (some? label) "the context label renders")
+        (is (re-find #"selected" txt) "label reads `selected`")
+        (is (not (re-find #"for selected event" txt))
+            "the old `for selected event` copy is gone")
+        (is (re-find #"↳" txt) "the corner-down-right glyph is kept")))))
+
+(deftest tab-bar-reset-button-disabled-with-no-focus
+  (testing "rf2-hga49 — with no epoch focused the Reset button renders
+            disabled and carries no on-click (the button is the UI rewind
+            affordance; nothing to rewind to until an event is selected)."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree  (shell/shell-view)
+            reset (find-by-testid tree "rf-xray-tab-bar-reset")
+            attrs (second reset)]
+        (is (some? reset) "the Reset button renders")
+        (is (true? (:disabled attrs)) "Reset is disabled when no epoch focused")
+        (is (nil? (:on-click attrs))
+            "no on-click wired while disabled (no accidental rewind)")
+        (is (re-find #"Reset" (text-nodes reset)) "button reads `Reset`")))))
+
+(deftest tab-bar-reset-button-dispatches-restore-on-observed-frame
+  (testing "rf2-hga49 — with an epoch focused, clicking Reset dispatches
+            `:rf.xray/reset-to-epoch` with the OBSERVED frame (NOT :rf/xray)
+            and the focused epoch-id, so the live app rewinds to that
+            epoch's :db-after."
+    (xray-setup!)
+    ;; Two cascades on :rf/default. Seed an epoch-history whose records
+    ;; carry literal :dispatch-id ↔ :epoch-id links so the focus resolves
+    ;; an :epoch-id (epoch-id-for-cascade matches the literal slot).
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:baz/qux]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                         [{:epoch-id "epoch-1" :dispatch-id 1}
+                          {:epoch-id "epoch-2" :dispatch-id 2}]])
+      ;; Focus the NON-head cascade (id 1) on :rf/default → RETRO mode,
+      ;; where the focus honours the resolved epoch-id (LIVE auto-follows
+      ;; head, which would mask the pin).
+      (rf/dispatch-sync [:rf.xray/focus-cascade 1 :rf/default]))
+    (rf/with-frame :rf/xray
+      (let [observed @(rf/subscribe [:rf.xray/observed-frame])
+            epoch-id @(rf/subscribe [:rf.xray/focus-epoch-id])]
+        (is (= :rf/default observed) "observed frame is the inspected app frame")
+        (is (= "epoch-1" epoch-id) "the focused cascade's epoch-id resolves")
+        (let [dispatches (atom [])]
+          (with-redefs [rf/dispatch* (fn
+                                       ([ev]       (swap! dispatches conj ev) nil)
+                                       ([ev _opts] (swap! dispatches conj ev) nil))]
+            (let [tree    (shell/shell-view)
+                  reset   (find-by-testid tree "rf-xray-tab-bar-reset")
+                  handler (:on-click (second reset))]
+              (is (false? (:disabled (second reset)))
+                  "Reset is enabled when an epoch is focused")
+              (is (fn? handler) "an on-click is wired when enabled")
+              (handler nil)))
+          (is (some #(and (= :rf.xray/reset-to-epoch (first %))
+                          (= :rf/default (second %))
+                          (= epoch-id (nth % 2)))
+                    @dispatches)
+              ":rf.xray/reset-to-epoch fired with observed frame + epoch-id"))))))
+
+(deftest reset-to-epoch-event-trampolines-into-restore-fx
+  (testing "rf2-hga49 — `:rf.xray/reset-to-epoch` is a thin event-fx that
+            routes into the `:rf.xray.fx/restore-epoch` effect, which calls
+            the framework's `rf/restore-epoch` with the supplied frame +
+            epoch-id (the framework call lives in the fx, not a db
+            reducer)."
+    (xray-setup!)
+    (let [restore-calls (atom [])]
+      (with-redefs [rf/restore-epoch (fn [frame epoch-id]
+                                       (swap! restore-calls conj [frame epoch-id])
+                                       true)]
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-7"])))
+      (is (= [[:rf/default "epoch-7"]] @restore-calls)
+          "the event→fx chain called rf/restore-epoch with frame + epoch-id"))))
+
+(deftest reset-to-epoch-fx-flashes-on-restore-failure
+  (testing "rf2-hga49 — when `rf/restore-epoch` returns false (a documented
+            failure mode), the fx dispatches the inline failure flash; a
+            true return sets no flash."
+    (xray-setup!)
+    ;; failure path → flash set
+    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
+    (rf/with-frame :rf/xray
+      (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
+          "a false restore sets the inline failure flash"))
+    ;; clear, then success path → no flash
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/clear-reset-flash]))
+    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] true)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
+    (rf/with-frame :rf/xray
+      (is (nil? @(rf/subscribe [:rf.xray/reset-flash]))
+          "a successful restore leaves no flash"))))
+
+(deftest reset-flash-failed-sets-inline-flash-and-clears
+  (testing "rf2-hga49 — a restore failure sets the inline `:rf.xray/reset-
+            flash` message (surfaced on the ribbon, never a modal); the
+            clear event dissocs it."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/reset-flash-failed]))
+    (rf/with-frame :rf/xray
+      (let [flash @(rf/subscribe [:rf.xray/reset-flash])
+            tree  (shell/shell-view)
+            el    (find-by-testid tree "rf-xray-reset-flash")]
+        (is (string? flash) "the flash message is set after a failure")
+        (is (some? el) "the inline flash renders on the ribbon")
+        (is (= "status" (:role (second el)))
+            "the flash carries role=status (announced, not a modal)")))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/clear-reset-flash]))
+    (rf/with-frame :rf/xray
+      (let [flash @(rf/subscribe [:rf.xray/reset-flash])
+            tree  (shell/shell-view)
+            el    (find-by-testid tree "rf-xray-reset-flash")]
+        (is (nil? flash) "the flash clears")
+        (is (nil? el) "the inline flash is removed from the ribbon")))))
+
+(deftest selected-issue-row-is-distinguishable
+  (testing "rf2-hga49 — the bead's core bug: a SELECTED ERROR row must be
+            visibly distinct from an unselected one. The three coordinated
+            signals — the leading `>` caret, the darker `:selected-row-bg`
+            background-color, and the (paled) issue wash on the
+            `:background-image` layer — all coexist so selection survives
+            the pink wash."
+    (xray-setup!)
+    ;; cascade 1 — clean. cascade 2 — carries an issue trace. Focus row 2.
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:boom/throw]))
+    (trace-collector/seed-trace-for-test! (error-trace-ev 2))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-cascade 2 :rf/default]))
+    (rf/with-frame :rf/xray
+      (let [tree      (shell/shell-view)
+            issue-row (find-by-testid tree "rf-xray-event-row-2")
+            style     (style-of issue-row)
+            caret     (find-by-testid issue-row "rf-xray-row-selection-caret")]
+        (is (some? issue-row) "the selected issue row renders")
+        ;; (1) leading caret — background-INDEPENDENT selection signal.
+        (is (some? caret) "the row carries the selection-caret gutter span")
+        (is (re-find #">" (text-nodes caret))
+            "the selected row paints the `>` caret glyph")
+        ;; (2) darker selection background that survives the wash.
+        (is (= (:selected-row-bg tokens) (:background-color style))
+            "selected row paints the darker :selected-row-bg")
+        ;; (3) the issue wash still composes over it.
+        (is (= "true" (:data-rf-xray-issue-row (second issue-row)))
+            "the row is still flagged as an issue row")
+        (is (re-find #"--rf-xray-bg-issue-row"
+                     (str (:background-image style)))
+            "the issue wash still rides the :background-image layer")))))
+
+(deftest unselected-row-caret-gutter-is-empty
+  (testing "rf2-hga49 — the caret gutter is fixed-width on EVERY row but
+            empty (no glyph) when the row is not selected, so selecting a
+            row never shifts the columns."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
+    ;; Focus auto-snaps to head (id 2); row 1 is unselected.
+    (rf/with-frame :rf/xray
+      (let [tree   (shell/shell-view)
+            row1   (find-by-testid tree "rf-xray-event-row-1")
+            caret1 (find-by-testid row1 "rf-xray-row-selection-caret")
+            row2   (find-by-testid tree "rf-xray-event-row-2")
+            caret2 (find-by-testid row2 "rf-xray-row-selection-caret")]
+        (is (some? caret1) "unselected row still reserves the caret gutter")
+        (is (= "10px" (:width (style-of caret1)))
+            "the gutter is a fixed 10px on the unselected row")
+        (is (empty? (text-nodes caret1))
+            "no caret glyph on the unselected row")
+        (is (re-find #">" (text-nodes caret2))
+            "the selected head row DOES paint the caret")
+        (is (= "10px" (:width (style-of caret2)))
+            "selected + unselected gutters share the same fixed width")))))

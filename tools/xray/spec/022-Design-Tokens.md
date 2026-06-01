@@ -97,6 +97,14 @@ one edit per token.
   alpha so the row text + other row signals stay legible and the wash COMPOSES over the
   selected/focused-row background. Full hex values live in `theme/tokens.cljc` (the source of
   truth for every token).
+- **L2 selected-row background (`selected-row-bg`, rf2-hga49):** the L2 event row's SELECTED
+  (focused) background — a step DARKER than `hover` so selection reads as a state distinct from
+  mere hover AND survives UNDER the `bg-issue-row` pink wash (which previously drowned the
+  `hover`-grey selection on an error row — the selected error row was indistinguishable from an
+  unselected one). The fix is three coordinated parts: this darker `selected-row-bg`, a leading
+  `>` caret in a fixed 10px gutter the focused row paints (background-INDEPENDENT), and a now-PALER
+  `bg-issue-row` (alpha lowered to ~10% dark / ~12% light, moved in lock-step) so the darker grey
+  reads through the wash. See [`018-Event-Spine.md`](018-Event-Spine.md) §Selected-row visibility.
 - **Views / recompute:** changed/recomputed highlight → `changed` (= `accent`); unchanged /
   short-circuited → `unchanged` (= `dim`). Use the accent sparingly (the changed node, not whole
   rows) so the UI doesn't over-saturate.
