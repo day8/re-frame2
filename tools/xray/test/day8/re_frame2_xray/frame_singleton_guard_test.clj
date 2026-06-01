@@ -7,8 +7,8 @@
   literal. Two shells on one page then collided on the one global
   app-db. The de-singleton refactor (rf2-lnluk + rf2-r0o63)
   parameterized the shell frame and made every out-of-render dispatch
-  capture the SURROUNDING instance frame via a frame-aware dispatcher
-  (`reg-view`'s injected `(dispatcher)` / `rf/frame-bound-fn` /
+  capture the SURROUNDING instance frame via a frame-bound dispatch
+  (`reg-view`'s injected `dispatch` / `(:dispatch (rf/frame-handle))` /
   `rf/current-frame-id`), so N instances stay isolated.
 
   This SOURCE-TEXT guard (JVM, runs in the fast `clojure -M:test`

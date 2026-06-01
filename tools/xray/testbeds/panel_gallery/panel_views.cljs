@@ -54,7 +54,7 @@
   `re-frame.views/reg-view*`. The Reagent component-vector form
   `[epoch-panel/Panel]` is therefore safe here — React resolves the
   wrapped class's `:contextType`, the facade body reads
-  `current-frame` correctly, and inside the facade body the per-
+  `current-frame-id` correctly, and inside the facade body the per-
   panel discipline (function-call for plain-fn leaves, vector for
   reg-view leaves) takes over."
   (:require [re-frame.core :as rf]

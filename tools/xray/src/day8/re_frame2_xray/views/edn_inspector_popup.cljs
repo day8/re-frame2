@@ -401,7 +401,7 @@
         ;; rf2-nesy9 — capture the surrounding instance frame at render
         ;; time so the deferred close handlers dispatch into it, not a
         ;; `:rf/xray` literal. popup-chrome renders inside the panels'
-        ;; reg-views (and the stack reg-view), so current-frame resolves
+        ;; reg-views (and the stack reg-view), so current-frame-id resolves
         ;; through the React-context tier here.
         frame         (rf/current-frame-id)
         close-handler (close-fn mount-id {:on-close on-close} frame)

@@ -267,9 +267,10 @@
   ;; rf2-tqlmq — wrap `shell-view` ITSELF in the shell's frame-provider at
   ;; the mount so the whole shell (not just its panels) renders in the
   ;; Xray frame. `shell-view` is a `reg-view`, so its `:rf.view/rendered`
-  ;; trace carries `(provider/current-frame)`; rendered BARE (no enclosing
-  ;; provider — its own provider sits INSIDE its body, around the panels)
-  ;; `current-frame` fell through to `:rf/default`, so the shell-view's own
+  ;; trace carries the resolved `current-frame-id`; rendered BARE (no
+  ;; enclosing provider — its own provider sits INSIDE its body, around
+  ;; the panels) `current-frame-id` fell through to `:rf/default`, so the
+  ;; shell-view's own
   ;; render trace leaked into the inspected app frame's epoch `:renders`.
   ;; With the provider moved out one level, `shell-view`'s render resolves
   ;; to `default-frame-id` (the trace-disabled `:rf/xray` frame registered

@@ -92,7 +92,7 @@
 ;; click-handler fires after React pops the frame context, so the
 ;; render-time capture is what keeps the dispatch on the right instance
 ;; frame (N parallel shells stay isolated). The widget root threads
-;; everywhere through plain fns, so a render-time `current-frame`
+;; everywhere through plain fns, so a render-time `current-frame-id`
 ;; capture is cleaner than plumbing a `dispatch-fn` through the whole
 ;; inspect/browse/diff/mini tree — and replaces the prior
 ;; `{:frame :rf/xray}` singleton literal.
@@ -109,7 +109,7 @@
   ;; rf2-nesy9 — capture the surrounding instance frame at RENDER time
   ;; so the deferred copy click dispatches back to it (not a `:rf/xray`
   ;; literal). The widget renders inside the panels' `reg-view`s, so
-  ;; `current-frame` resolves through the React-context tier here.
+  ;; `current-frame-id` resolves through the React-context tier here.
   (let [frame (rf/current-frame-id)]
    [:button {:data-testid testid
             :aria-label  "Copy value to clipboard"

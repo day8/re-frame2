@@ -314,15 +314,20 @@ brings the full chrome onto the same footing.
 `:rf/xray` literal in the render tree. Every out-of-render dispatch
 (affordance click handlers, raw window listeners, components rendered
 outside their own provider) resolves to the surrounding **instance**
-frame via a captured frame-aware dispatcher (`reg-view`'s injected
-`(dispatcher)` / `rf/frame-bound-fn` closing over `(rf/current-frame)`
-at render time) — never a literal and never a bare global `rf/dispatch`.
-For a deeply-fanned tree of plain `defn` renderers (e.g. the Trace /
-Epoch / Machine panels), the canonical idiom is a **render-time
-`(rf/current-frame)` capture** in each leaf renderer (the helper runs
-inside the panel's `reg-view` render, so `current-frame` resolves
-through the React-context tier) — cleaner than threading a `dispatch-fn`
-through every intermediate fn. The de-singleton sweep (rf2-1w07r EPIC,
+frame via a captured frame-bound op (`reg-view`'s injected `dispatch` /
+`subscribe`, which the macro expands over a `frame-handle` that captures
+the render frame) — never a literal and never a bare global
+`rf/dispatch`. For a deeply-fanned tree of plain `defn` renderers (e.g.
+the Trace / Epoch / Machine panels), the canonical idiom is a
+**render-time `(rf/current-frame-id)` capture** in each leaf renderer
+(the helper runs inside the panel's `reg-view` render, so
+`current-frame-id` resolves through the React-context tier), passed as a
+per-call `{:frame frame}` opt — cleaner than threading a `dispatch-fn`
+through every intermediate fn. For ops that fire after the dynamic frame
+context unwinds (async clipboard / `setTimeout` continuations, held
+watcher subscriptions), capture a `(rf/frame-handle)` once and call its
+`:dispatch` / `:subscribe` — the bundle survives the async boundary. The
+de-singleton sweep (rf2-1w07r EPIC,
 closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
 and static surface now captures its instance frame, and the
 `:rf/xray`-literal / global-dispatch guard's `pending-migration`

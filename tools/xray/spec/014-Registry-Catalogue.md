@@ -86,7 +86,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.xray/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:rf.privacy/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
-| `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/get-frame-db`). | Every settled epoch on the target frame. |
+| `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/frame-db`). | Every settled epoch on the target frame. |
 | `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/event-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
 
 ### Events
@@ -182,7 +182,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 Spec: [`004-App-DB-Diff.md`](./004-App-DB-Diff.md).
 
 Slice-centric `app-db` inspector. Reads the host frame's `app-db` via
-`rf/get-frame-db` + the target-frame's epoch-history; produces the
+`rf/frame-db` + the target-frame's epoch-history; produces the
 `[op path before after]` diff triples the view consumes.
 
 ### Subscriptions

@@ -2968,10 +2968,11 @@ re-break what phase 1 lands. All five are tested in
    `data-testid` derived from `[panel-id mount-id path]`; the `▸`
    span's `:on-click` dispatches
    `[:rf.xray.edn-inspector/toggle-node panel-id mount-id path rendered-expanded?]`
-   via the **lexically-injected frame-aware dispatcher** — the widget
-   is `reg-view`-registered (per rf2-y59tb) so its body's `dispatch`
-   closure inherits the surrounding `frame-provider` from React
-   context. Mounted under `:rf/xray` (App-DB panel) the click lands
+   via the **reg-view-injected frame-bound `dispatch`** — the widget
+   is `reg-view`-registered (per rf2-y59tb) so the macro expands its
+   body's `dispatch` over a `frame-handle` capturing the surrounding
+   `frame-provider`'s frame from React context. Mounted under `:rf/xray`
+   (App-DB panel) the click lands
    in `:rf/xray`'s app-db; under any other frame it lands in that
    frame's app-db. No explicit `{:frame :rf/xray}` envelope — the
    frame is captured by `reg-view` at mount.
@@ -3270,8 +3271,8 @@ Mechanics:
   This pins the dispatch frame regardless of where the widget
   mounts — popup state is Xray-global (the popup-stack-view
   subscribes only against `:rf/xray`), unlike expansion state
-  which is per-frame and uses the lexically-captured frame-
-  aware dispatcher.
+  which is per-frame and uses the reg-view-injected frame-bound
+  `dispatch`.
 - `popup-mount-id` is derived from the edn-inspector's own
   mount-id (`"ddp-" + mount-id`) — stable per call-site mount,
   so re-clicking the affordance **raises** the existing popup

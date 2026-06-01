@@ -318,20 +318,22 @@
   carries no override), register window-level move/up handlers,
   dispatch resize-pair events on each move, clean up on up.
 
-  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured at
-  render time by the surrounding `resizable-table` `reg-view` body via
-  `(:dispatch (rf/frame-handle))`. The pointer-move/up handlers run OUTSIDE the React
-  tree (via raw `window.addEventListener`), so the dynamic frame
-  context has unwound by the time they fire — but the captured closure
-  already bound `(current-frame)` synchronously during render, so every
-  tick/commit lands on the SURROUNDING instance frame's app-db, not a
-  `:rf/xray` literal and not the host's `:rf/default`. (Pre rf2-r0o63
-  this wrapped each dispatch in `(rf/with-frame :rf/xray …)` — correct
-  for the single shell, but it entrenched the singleton: two shells
-  would both write the global `:rf/xray` column-widths and clobber each
-  other. The captured dispatcher keeps N instances isolated; it also
-  preserves the Mike-pair-debug-2026-05-27 fix — dispatches never leak
-  to the host's `:rf/default`.)"
+  `dispatch-fn` (rf2-r0o63) is the frame-bound `dispatch` the
+  surrounding `resizable-table` `reg-view` body injects (the macro
+  expands it over a `frame-handle` capturing the render frame). The
+  pointer-move/up handlers run OUTSIDE the React tree (via raw
+  `window.addEventListener`), so the dynamic frame
+  context has unwound by the time they fire — but the injected
+  `dispatch` already bound the instance frame synchronously during
+  render, so every tick/commit lands on the SURROUNDING instance
+  frame's app-db, not a `:rf/xray` literal and not the host's
+  `:rf/default`. (Pre rf2-r0o63 this wrapped each dispatch in
+  `(rf/with-frame :rf/xray …)` — correct for the single shell, but it
+  entrenched the singleton: two shells would both write the global
+  `:rf/xray` column-widths and clobber each other. The frame-bound
+  `dispatch` keeps N instances isolated; it also preserves the
+  Mike-pair-debug-2026-05-27 fix — dispatches never leak to the host's
+  `:rf/default`.)"
   [dispatch-fn table-id left-id right-id ev]
   (.preventDefault ev)
   (.stopPropagation ev)
@@ -483,7 +485,7 @@
   `dispatch` resolve to the SURROUNDING instance frame (the shell's
   `frame-id`) through React-context. The column-widths slot is read via
   the injected `subscribe` and the raw-window-listener drag flow
-  dispatches via the captured `(dispatcher)` — so N shells keep
+  dispatches via the injected frame-bound `dispatch` — so N shells keep
   independent column widths. (Pre rf2-r0o63 this was a plain `defn`
   that escaped to a hardcoded `:rf/xray` frame via `rf/with-frame`,
   which entrenched the singleton; the `reg-view` registration is the
@@ -518,8 +520,8 @@
     :or   {header? true}}]
   ;; rf2-r0o63 — the injected `subscribe` resolves to the surrounding
   ;; instance frame via React-context (the column-widths slot lives on
-  ;; THIS shell's frame), and `dispatch-fn` captures that frame's
-  ;; dispatcher for the raw-window-listener drag flow (which fires after
+  ;; THIS shell's frame), and `dispatch-fn` is the injected frame-bound
+  ;; `dispatch` for the raw-window-listener drag flow (which fires after
   ;; render unwinds).
   ;;
   ;; Defensive: `subscribe` returns nil when the sub isn't registered
