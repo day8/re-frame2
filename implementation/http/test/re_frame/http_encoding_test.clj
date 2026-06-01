@@ -48,6 +48,20 @@
     (is (= 5000 (encoding/compute-backoff-ms {} 20))
         "attempt 20 = very large, clamped to max-ms 5000")))
 
+(deftest default-backoff-is-the-single-source-of-truth
+  (testing "rf2-t5mzx (F5) — `default-backoff` names the exponential-backoff
+            defaults Spec 014 §Retry and backoff documents (base-ms 250,
+            factor 2, max-ms 5000), and `compute-backoff-ms` draws its `:or`
+            defaults from it so the two can't drift"
+    (is (= {:base-ms 250 :factor 2 :max-ms 5000} encoding/default-backoff)
+        "the named def matches the spec-documented defaults")
+    ;; An empty config must produce exactly the curve the named defaults imply.
+    (is (= 250 (encoding/compute-backoff-ms {} 1)))
+    (is (= 500 (encoding/compute-backoff-ms {} 2)))
+    (is (= (:max-ms encoding/default-backoff)
+           (encoding/compute-backoff-ms {} 20))
+        "deep-attempt delay clamps to default-backoff's :max-ms")))
+
 (deftest compute-backoff-ms-custom-base-and-factor
   (testing "rf2-9dro2 — caller-supplied :base-ms and :factor override
             the defaults"

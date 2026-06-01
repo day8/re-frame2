@@ -510,8 +510,9 @@
        ;; CookieHandler, so cookies are neither sent nor stored regardless
        ;; of the value. Rather than silently no-op, emit the standard
        ;; `:rf.http/cljs-only-key-ignored-on-jvm` trace so the dropped key
-       ;; is visible to off-box monitors. (Spec 014 §JVM degradation table
-       ;; needs the `:credentials` row added — left for the mayor.)
+       ;; is visible to off-box monitors. Spec 014 §JVM degradation table
+       ;; carries the `:credentials` row (rf2-t5mzx) so the table and the
+       ;; shipped behaviour agree.
        (doseq [k [:mode :cache :referrer :integrity :credentials]]
          (when (contains? request k)
            (emit-cljs-only-skipped! k url sensitive?)))
@@ -574,9 +575,66 @@
 ;; the surrounding comments describe visible in code. The load-bearing
 ;; concurrency comments stay at the call sites.
 
+(defonce ^:private failure-swallowed-warned?
+  ;; rf2-rl5tt — one-shot latch so the "real failure swallowed by
+  ;; `:on-failure nil`" warning fires once per runtime, not once per
+  ;; swallowed request. Fire-and-forget telemetry beacons (`:on-failure
+  ;; nil`) are a legitimate steady-state pattern, so a per-request trace
+  ;; would be noise; the single warning makes the FIRST silently-dropped
+  ;; non-aborted failure visible (the no-silent-swallow principle) without
+  ;; flooding the trace surface for callers who knowingly opted out.
+  (atom false))
+
+(defn- warn-failure-swallowed!
+  "rf2-rl5tt — surface a swallowed REAL failure once per runtime.
+
+  When a request fails and the caller passed an explicit `:on-failure
+  nil`, `build-reply-event` legitimately silences the reply (fire-and-
+  forget). But a NON-aborted failure (transport / 5xx / decode / accept /
+  timeout) routed into that silence is a real error the app never sees —
+  the anti-pattern the committed no-silent-swallow principle calls out.
+  Emit a one-shot `:rf.warning/failure-swallowed` so the dropped failure
+  is observable in dev / tooling.
+
+  Aborts (`:rf.http/aborted`, any reason) are EXCLUDED: a cancelled
+  request that no longer wants its reply is correct-by-design silence,
+  not a swallowed error."
+  [failure url sensitive?]
+  (when (and interop/debug-enabled?
+             (not= :rf.http/aborted (:kind failure))
+             (compare-and-set! failure-swallowed-warned? false true))
+    (trace/emit! :warning :rf.warning/failure-swallowed
+                 (privacy/prepare-emit-tags
+                   {:url     url
+                    :failure failure
+                    :reason  (str "an HTTP request failed with `:kind "
+                                  (pr-str (:kind failure))
+                                  "` but `:on-failure nil` silenced the "
+                                  "reply — the failure was dropped with no "
+                                  "handler. If the silence is intentional "
+                                  "(fire-and-forget telemetry), ignore this; "
+                                  "otherwise supply an `:on-failure` target.")}
+                   (true? sensitive?)))))
+
+(defn- on-failure-silenced?
+  "True when the ctx carries an explicit `:on-failure nil` — the exact
+  condition under which `build-reply-event` silences a `:failure` reply
+  (`:supplied?` true with a `nil` `:value`). Mirrors the encoding-side
+  silence branch so the swallow-warning fires for precisely the replies
+  that get dropped."
+  [ctx]
+  (let [explicit (:explicit-on-failure ctx)]
+    (and (:supplied? explicit) (nil? (:value explicit)))))
+
 (defn- dispatch-failure!
-  "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot."
+  "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
+
+  rf2-rl5tt — when the reply is silenced by an explicit `:on-failure nil`
+  AND the failure is not an abort, surface it once via
+  `warn-failure-swallowed!` before the (no-op) dispatch."
   [ctx failure]
+  (when (on-failure-silenced? ctx)
+    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
   (dispatch-reply! (assoc ctx
                           :kind          :failure
                           :reply-payload {:kind    :failure
@@ -959,6 +1017,12 @@
                           :decode-supplied? decode-supplied?
                           :request-id       request-id
                           :url              url
+                          ;; rf2-xuvj7 — the originating event-id keys the
+                          ;; one-shot-per-handler decode-defaulted latch.
+                          ;; Nil for synthetic / test-path callers with no
+                          ;; origin event; the latch degrades to a shared
+                          ;; runtime-wide slot in that case.
+                          :handler-id       (first (:origin-event ctx))
                           :sensitive?       (:sensitive? ctx)
                           ;; rf2-wu1n5 — thread the keyword-cap from the
                           ;; normalised ctx into the decoder; nil means
