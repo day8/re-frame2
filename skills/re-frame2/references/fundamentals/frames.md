@@ -117,7 +117,7 @@ The metadata map (`reg-frame` in `re-frame.frame`) accepts:
 
 - `:doc` — one-sentence what-and-why.
 - `:preset` — one of `:default :test :story :ssr-server`; expands at registration into a fixed metadata bundle.
-- `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two value shapes are honoured (`fx.cljc:62-142`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same two shapes.
+- `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two active override forms (resolved by `fx/resolve-fx-with-overrides`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). A value that is neither (and an absent key) is treated as no override — the original fx-id flows through. The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same forms.
 - `:platform` — `:client` or `:server`; gates fx whose `:platforms` set excludes the active platform.
 - `:drain-depth` — bound on dispatch-cascade depth (default 100; `:story` preset tightens to 16).
 - `:on-create` / `:on-destroy` — event vectors fired synchronously at lifecycle transitions.
@@ -132,7 +132,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 [rf/frame-provider {:frame :stories} [my-story-shell]]
 ```
 
-`reg-view`-wrapped components participate automatically (the wrapper carries `:contextType`). Plain Reagent fns under a non-default `frame-provider` fall through to `:rf/default` — the runtime emits `:rf.warning/plain-fn-under-non-default-frame-once` to flag the footgun (`adapter/reagent.cljs:140-148`).
+`reg-view`-wrapped components participate automatically (the wrapper carries `:contextType`). Plain Reagent fns under a non-default `frame-provider` fall through to `:rf/default` — the runtime emits `:rf.warning/plain-fn-under-non-default-frame-once` to flag the footgun (the Reagent adapter's view-wiring; behaviour locked by `cross_spec_dom_cljs_test`).
 
 ## Common gotchas
 

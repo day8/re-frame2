@@ -23,10 +23,10 @@ Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub compo
   (fn [[a b] query-v] ...))
 
 ;; Optional metadata as first positional arg
-(rf/reg-sub :id {:doc "..." :spec ...} <chain> handler)
+(rf/reg-sub :id {:doc "..." :schema ...} <chain> handler)
 ```
 
-Verified in `implementation/core/src/re_frame/subs.cljc:79` (`reg-sub`) and `subs.cljc:49` (`parse-reg-sub-args`). There is **one** registration form in v2 — `reg-sub-raw` is removed (`subs.cljc:80-81`).
+Verified in `implementation/core/src/re_frame/subs.cljc` (the `reg-sub` fn and the `parse-reg-sub-args` helper). There is **one** registration form in v2 — `reg-sub-raw` is removed.
 
 Lookup is via `rf/subscribe`:
 
@@ -72,7 +72,7 @@ Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-c
 
 ## Common gotchas
 
-- **No `reg-sub-raw`.** v1's escape-hatch is removed. If you need to compose, layer subs with `:<-`. If you need a one-shot read off `app-db` outside the reactive graph (tests, SSR), use `rf/compute-sub` (`subs.cljc:379`) which returns a value, not a reaction.
+- **No `reg-sub-raw`.** v1's escape-hatch is removed. If you need to compose, layer subs with `:<-`. If you need a one-shot read off `app-db` outside the reactive graph (tests, SSR), use `rf/compute-sub` (the `compute-sub` fn in `subs.cljc`) which returns a value, not a reaction.
 - **Subscribe returns a reaction.** Always deref with `@`. Inside a Reagent view this auto-tracks; outside of a reactive context the deref is a one-shot read and won't update.
 - **The query-vector is the cache key.** `[:my-sub 1]` and `[:my-sub 2]` are distinct cache entries. Re-using the same vector across renders is fine; constructing fresh vectors with identical content is also fine (`=`-equal keys hit the same cache slot).
 - **Signal subs (`:<-`) accept a query-vector, not just an id.** `:<- [:other-sub arg]` is legal and threads the arg through.
@@ -80,8 +80,8 @@ Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-c
 
 ## Deeper material
 
-Sub topology inspection (`sub-topology`), cache snapshots, the disposal algorithm under reconcile, validation against `:spec`: `SKILL-REDIRECT.md` → **EP — Reactive substrate (006)**, **Definitive API reference**.
+Sub topology inspection (`sub-topology`), cache snapshots, the disposal algorithm under reconcile, validation against the output `:schema`: `SKILL-REDIRECT.md` → **EP — Reactive substrate (006)**, **Definitive API reference**.
 
 ---
 
-*Derived from `implementation/core/src/re_frame/subs.cljc` @ main `89bd9c3`. Re-verify line numbers after sub-cache disposal-algorithm changes.*
+*Derived from `implementation/core/src/re_frame/subs.cljc` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after sub-cache disposal-algorithm changes.*

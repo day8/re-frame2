@@ -20,15 +20,15 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 ## Step by step
 
-**1. Dispatch.** `(rf/dispatch [:event-id args])` builds an envelope `{:event ... :frame ... :dispatch-id ...}` and appends it to the target frame's router queue (`router.cljc:370`). Returns `nil` immediately — non-blocking.
+**1. Dispatch.** `(rf/dispatch [:event-id args])` builds an envelope `{:event ... :frame ... :dispatch-id ...}` and appends it to the target frame's router queue (`dispatch!` / `enqueue-envelope!` in `router.cljc`). Returns `nil` immediately — non-blocking.
 
-**2. Drain scheduled.** The router schedules a drain via the substrate's microtask hook. `dispatch-sync` (`router.cljc:390`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:on-create`).
+**2. Drain scheduled.** The router schedules a drain via the substrate's microtask hook. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:on-create`).
 
 **3. Drain pops envelope.** For each event, the runtime looks up the registered handler's interceptor chain.
 
-**4. Cofx injection.** Each `inject-cofx` interceptor runs in source order; each writes under `[:coeffects :cofx-id]`. The standard `:db` (current `app-db` value) and `:event` (the dispatched vector) are already populated (`cofx.cljc:92-104`).
+**4. Cofx injection.** Each `inject-cofx` interceptor runs in source order; each writes under `[:coeffects :cofx-id]`. The standard `:db` (current `app-db` value) and `:event` (the dispatched vector) are already populated (`cofx.cljc`).
 
-**5. Validation (dev only).** If the handler carries a `:spec`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (`events.cljc:123-128`). `validate-at-boundary-interceptor` runs this same check in production.
+**5. Validation (dev only).** If the handler carries a `:schema`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (the schema check + skip-handler honouring in `spec.cljc` / `events.cljc`). `validate-at-boundary-interceptor` runs this same check in production.
 
 **6. User handler.** The wrapped handler-fn fires:
 
@@ -36,30 +36,30 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 - `reg-event-fx` receives `(cofx, event)` → returns `{:db ... :fx [...]}`; runtime stashes both under `(:effects ctx ...)`.
 - `reg-event-ctx` receives `ctx` → returns `ctx` (advanced).
 
-**7. Effect-shape policing.** Non-`:db`/non-`:fx` top-level keys emit `:rf.error/effect-map-shape` and are dropped (`events.cljc:81`). v2's effect map is closed.
+**7. Effect-shape policing.** Non-`:db`/non-`:fx` top-level keys emit `:rf.error/effect-map-shape` and are dropped (`police-effect-map-shape!` in `events.cljc`). v2's effect map is closed.
 
 **8. `:db` commits.** `re-frame.substrate.adapter/replace-container!` writes the new value into the frame's app-db container. **Atomic.**
 
-**9. `:fx` walks.** `do-fx` (`fx.cljc:203`) iterates the `[fx-id args]` pairs in source order, synchronously. Each fx-handler runs to completion before the next begins. Errors and unknown ids trace independently — the walk continues.
+**9. `:fx` walks.** `do-fx` (in `fx.cljc`) iterates the `[fx-id args]` pairs in source order, synchronously. Each fx-handler runs to completion before the next begins. Errors and unknown ids trace independently — the walk continues.
 
 **10. Subs recompute.** The substrate's reaction graph fires off the container change. Layer-1 subs that read changed paths recompute by `=`; layer-2+ subs cascade topologically. Unchanged-by-`=` values short-circuit cascades.
 
 **11. Views re-render.** Reagent components subscribed to dirty subs re-render. Source-coord metadata captured by `reg-view` lets Xray / re-frame2-pair point at the originating Var.
 
-**12. Drain continues.** Any `[:dispatch ...]` entries from step 9 are now on the queue. Drain loops until queue is empty (`router.cljc`). Run-to-completion: one dispatch fully settles before the next outside event starts.
+**12. Drain continues.** Any `[:dispatch ...]` entries from step 9 are now on the queue. Drain loops until the queue is empty (`router.cljc`). Run-to-completion: one dispatch fully settles before the next outside event starts.
 
 ## Per-step reference
 
 | Step | Where it lives | Surface |
 |---|---|---|
-| Dispatch / queue | `router.cljc:370-388` | `rf/dispatch`, `rf/dispatch-sync` |
-| Interceptor chain | `events.cljc:111-167` | metadata `:spec`, interceptors vector |
-| Cofx injection | `cofx.cljc:57-89` | `rf/inject-cofx` |
-| Handler invocation | `events.cljc:111-167` | `reg-event-db` / `-fx` / `-ctx` |
-| Effect-map policing | `events.cljc:81-105` | `:rf.error/effect-map-shape` trace |
+| Dispatch / queue | `router.cljc` (`dispatch!` / `dispatch-sync!`) | `rf/dispatch`, `rf/dispatch-sync` |
+| Interceptor chain | `events.cljc` (handler-wrapping fns) | metadata `:schema`, interceptors vector |
+| Cofx injection | `cofx.cljc` | `rf/inject-cofx` |
+| Handler invocation | `events.cljc` (handler-wrapping fns) | `reg-event-db` / `-fx` / `-ctx` |
+| Effect-map policing | `events.cljc` (`police-effect-map-shape!`) | `:rf.error/effect-map-shape` trace |
 | `:db` commit | `subs.cljc` + substrate adapter | atomic via `replace-container!` |
-| `:fx` walk | `fx.cljc:203-225` | `reg-fx`, `:fx-overrides` |
-| Sub recompute | `subs.cljc:166-285` | reaction graph + deferred ref-count cache |
+| `:fx` walk | `fx.cljc` (`do-fx` / `handle-one-fx`) | `reg-fx`, `:fx-overrides` |
+| Sub recompute | `subs.cljc` | reaction graph + deferred ref-count cache |
 | Render | adapter (`reagent.cljs`, ...) | `reg-view` |
 
 ## Canonical mini-example
@@ -126,4 +126,4 @@ Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2
 
 ---
 
-*Derived from `implementation/core/src/re_frame/{router,events,cofx,fx,subs}.cljc` and the substrate adapters under `implementation/core/src/re_frame/substrate/` @ main `89bd9c3`. Re-verify line numbers after router or interceptor-chain changes.*
+*Derived from `implementation/core/src/re_frame/{router,events,cofx,fx,subs}.cljc` and the substrate adapters under `implementation/core/src/re_frame/substrate/` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after router or interceptor-chain changes.*

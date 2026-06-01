@@ -15,10 +15,10 @@ Authoring a custom effect handler with `reg-fx`, or working out what to put insi
 ;;   args :: whatever the `:fx` entry put in the second slot
 ```
 
-Verified in `implementation/core/src/re_frame/fx.cljc:33`. Metadata may carry:
+Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metadata may carry:
 
 - `:doc` — one-sentence what-and-why
-- `:spec` — Malli schema for `args` (dev-time validation)
+- `:schema` — Malli schema for `args` (dev-time validation)
 - `:platforms` — `#{:client :server}`; defaults to both. Fx with mismatched platforms emit `:rf.fx/skipped-on-platform` instead of running.
 
 ## The fx-map shape
@@ -32,7 +32,7 @@ Verified in `implementation/core/src/re_frame/fx.cljc:33`. Metadata may carry:
       ...]}
 ```
 
-Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after `:db` commits (`fx.cljc:4-9`). Any other top-level key — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`events.cljc:81`). v2 deliberately removed v1's auto-routed top-level effect keys.
+Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after `:db` commits (`fx.cljc:4-9`). Any other top-level key — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` in `events.cljc`). v2 deliberately removed v1's auto-routed top-level effect keys.
 
 The reserved fx-ids the core runtime handles directly (`fx.cljc:10-22`):
 
@@ -85,7 +85,7 @@ Per `fx.cljc:4-9`:
 - **Returning a value from an fx handler does nothing.** Side effects are the point. `:rf.fx/handled` is emitted on success so the epoch projection records the run.
 - **`:platforms #{:client}` makes the fx skip silently on server.** A `:rf.fx/skipped-on-platform` warning fires — fine for browser-only side effects, but check this if a fx mysteriously doesn't run under SSR.
 - **Fx errors are isolated.** A throw inside one fx emits `:rf.error/fx-handler-exception` but does not abort the `:fx` walk. Don't rely on later entries seeing earlier failures.
-- **Override the fx surface per frame**, not globally: `(rf/reg-frame :frame-id {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})`. Used heavily for test stubs and stories (`frame.cljc:115-118`).
+- **Override the fx surface per frame**, not globally: `(rf/reg-frame :frame-id {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})`. Used heavily for test stubs and stories (`:fx-overrides` in `reg-frame`'s metadata, `frame.cljc`).
 
 ## Deeper material
 

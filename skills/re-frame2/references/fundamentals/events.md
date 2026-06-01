@@ -18,14 +18,14 @@ Two surfaces: a CLJ `defmacro` (captures `:ns` / `:line` / `:file`) and a CLJS `
 (rf/reg-event-ctx id          handler-fn)                   ;; (context) -> context  (advanced)
 ```
 
-Verified in `implementation/core/src/re_frame/events.cljc:188-225` (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) and `implementation/core/src/re_frame/core.cljc:167-224` (the macro layer). `normalise-args` (`events.cljc:171`) accepts:
+Verified in `implementation/core/src/re_frame/events.cljc` (`reg-event-db` / `reg-event-fx` / `reg-event-ctx` fns) and `implementation/core/src/re_frame/core.cljc` (the macro layer). The `normalise-args` helper accepts:
 
 - `(reg-event-db :id handler)`
-- `(reg-event-db :id {:doc "..." :spec ...} handler)`
+- `(reg-event-db :id {:doc "..." :schema ...} handler)`
 - `(reg-event-db :id [icpt1 icpt2] handler)`
 - `(reg-event-db :id {:doc "..."} [icpt1 icpt2] handler)`
 
-The **metadata-map** is reflective-only (`:doc`, `:spec`, `:tags`, `:platforms`, ...). The **interceptors vector** is positional. Putting `:interceptors` inside the metadata-map silently drops the chain — the runtime emits `:rf.warning/interceptors-in-metadata-map` to flag it (`events.cljc:38`).
+The **metadata-map** is reflective-only (`:doc`, `:schema`, `:tags`, `:platforms`, ...). The **interceptors vector** is positional. Putting `:interceptors` inside the metadata-map silently drops the chain — the runtime emits `:rf.warning/interceptors-in-metadata-map` to flag it (see `warn-interceptors-in-metadata-map!` in `events.cljc`).
 
 ## Event vector shape
 
@@ -39,7 +39,7 @@ The dispatched value is a vector `[event-id & args]`. The handler receives the w
 (rf/dispatch [:todo/add "buy milk"])
 ```
 
-Dispatch is non-blocking — events queue and drain run-to-completion. `dispatch-sync` (`router.cljc:390`) drains immediately and is for outside-the-runtime callers (test setup, REPL); calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`.
+Dispatch is non-blocking — events queue and drain run-to-completion. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) drains immediately and is for outside-the-runtime callers (test setup, REPL); calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`.
 
 ## Canonical mini-example
 
@@ -70,16 +70,16 @@ The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handle
 
 ## Common gotchas
 
-- **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any non-`:db`/non-`:fx` top-level key (`events.cljc:81`).
+- **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any non-`:db`/non-`:fx` top-level key (`police-effect-map-shape!` in `events.cljc`).
 - **`:interceptors` is not a metadata key.** Pass the chain as the positional third argument, not as `{:interceptors [...]}`.
 - **The event vector's first element is the event id.** Always destructure it as `[_ arg1 arg2]` — the id is in `args` because the whole vector is passed.
 - **`reg-event-ctx` is rarely the right tool.** It hands you the raw interceptor context. Use it only when you need to manipulate the chain itself; otherwise `reg-event-db` or `reg-event-fx`.
-- **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:spec`, `:tags`, `:platforms` are read by Xray, re-frame2-pair, and the dev-time validator. They do not affect runtime behaviour except where called out (`:spec` for dev validation; `:platforms` on `reg-fx`).
+- **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:schema`, `:tags`, `:platforms` are read by Xray, re-frame2-pair, and the dev-time validator. They do not affect runtime behaviour except where called out (`:schema` for dev validation; `:platforms` on `reg-fx`).
 
 ## Deeper material
 
-Full effect-map contract, interceptor chain composition, dispatch envelope shape, the dev-time `:spec` validator: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Schemas (010)**, **Definitive API reference**.
+Full effect-map contract, interceptor chain composition, dispatch envelope shape, the dev-time `:schema` validator: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Schemas (010)**, **Definitive API reference**.
 
 ---
 
-*Derived from `implementation/core/src/re_frame/events.cljc` and `implementation/core/src/re_frame/core.cljc` @ main `89bd9c3`. Re-verify line numbers after substantial registrar / events refactors.*
+*Derived from `implementation/core/src/re_frame/events.cljc` and `implementation/core/src/re_frame/core.cljc` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after substantial registrar / events refactors.*
