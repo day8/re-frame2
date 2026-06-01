@@ -100,7 +100,7 @@ the slot.
 | Key | Required | Meaning |
 |---|---|---|
 | `:id` | yes | The overlay kind. One of `#{:after-rings :spawn-all-join :cancellation-cascade}` (the closed set `chart.cljs/overlay-ids`). An `:id` outside this set is **ignored** — a host data error, not a runtime fallback; dev builds (`re-frame.interop/debug-enabled?`) emit a `js/console.warn`. |
-| `:tick` | no | Opaque value the host bumps to force the overlay to re-measure the DOM + repaint. One rAF clock per chart stays host-owned (Lock #8 — see [§One chart-level, visibility-gated animation clock](#one-chart-level-visibility-gated-animation-clock)); the clock just delivers its tick on the descriptor(s) it drives. Replaces the former flat `:after-ring-tick` + `:overlay-tick`. The always-on label-collisions overlay re-measures on the **first** non-nil descriptor `:tick`. |
+| `:tick` | no | Opaque value the host bumps to force the overlay to re-measure the DOM + repaint. One rAF clock per chart stays host-owned (Lock #8 — see [§One chart-level, visibility-gated animation clock](#one-chart-level-visibility-gated-animation-clock)); the clock just delivers its tick on the descriptor(s) it drives. Replaces the former flat `:after-ring-tick` + `:overlay-tick`. |
 
 Per-`:id` variant keys:
 
@@ -447,84 +447,21 @@ fallback is unchanged.
 The chart surfaces `data-cross-hierarchy` on each transition edge
 label so DOM tests + hosts can pin the convention.
 
-### Post-render label-collision avoidance (rf2-r7vsr · Phase 3)
+### Post-render label-collision avoidance — RETIRED (rf2-0xbgx)
 
-`rf2-j10sm` shipped Phase 1 (padded label backgrounds) + Phase 2 (the
-multi-event `[source target]` collapse). The residue case Phase 3
-targets: a label that sits at the geometric anchor of a cross-
-hierarchy edge whose ELK-routed bend-point path threads between
-containers and parks the label on top of a populated state's
-interior. ELK + the label-anchor heuristics cannot avoid this in
-general — by construction, the label sits ON the routed path, and
-the routed path may cross a non-incident node's interior.
-
-The chart mounts a sibling overlay
-(`chart.overlays.label-collisions/LabelCollisionsOverlay`) that runs
-a **pure post-render pass** after xyflow paints:
-
-1. Walk every label (`[data-testid^="rf-mv-chart-edge-"]`) and every
-   node (`[data-testid^="rf-mv-chart-node-"]`), reading each
-   element's bounding rect via `getBoundingClientRect`.
-2. Subtract the chart wrapper's viewport origin so all rects live
-   in the chart's container-local coordinate frame (the shared
-   overlay frame per `overlay-anchor`).
-3. For each label, test AABB intersection against every node's
-   inflated bounding box AND every other label's box. If clear:
-   nothing to do.
-4. If colliding: sample `max-candidate-positions` (currently 8)
-   evenly along the label's edge path string (threaded via the
-   `data-edge-path-d` data-attr on the label container), ordered by
-   proximity to the original geometric anchor. The first candidate
-   that resolves the intersection wins; the overlay overrides the
-   label's `style.transform` with a `translate()` that anchors its
-   centre at the new point.
-5. If no candidate within budget clears every obstacle: the label
-   stays at its React-rendered position and the residue is
-   reported.
-
-The pass is **pure post-process**: it does not change the projector,
-does not couple to any React state, and does not alter the painted
-edge path. The renderer (`chart.edges/transition-edge`) emits the
-path string + the geometric anchor on the label's data-attrs:
-
-| Data-attr | Source | Meaning |
-|---|---|---|
-| `data-edge-path-d` | `chart.edges/edge-path` `:d` | The SVG path string the renderer painted. |
-| `data-label-anchor-x` | `chart.edges/edge-path` `:label-x` | The geometric label-x (before any sibling-y row offset). |
-| `data-label-anchor-y` | `chart.edges/edge-path` `:label-y` + the per-sibling y row offset | The y the label was rendered at. |
-
-So the post-pass is purely DOM-driven — no recomputation, no React-
-state coupling. The renderer is the single source of truth for the
-path geometry; the post-pass only slides labels along that same
-geometry.
-
-#### Chart-root surface
-
-The chart root surfaces the residue count + the colliding label-ids
-so visual-regression tests + hosts can pin the post-pass output:
-
-| Attribute | Type | Meaning |
-|---|---|---|
-| `data-label-collisions` | non-negative integer | Count of labels still intersecting a node body after the post-pass. **Visual-regression tests assert this is `"0"`** for the testdeck. |
-| `data-label-collision-ids` | space-joined sorted ids | The label `data-testid`s of the residue labels. `""` when zero. |
-
-The overlay re-measures on every Reagent commit (post-mount + post-
-update), on window resize (rAF-throttled), and on a host-driven
-`:tick` value bump (Xray's overlay clock flows through). Pure
-geometry is JVM-tested in
-`chart.overlays.label-collision-geometry` (AABB intersection, SVG-
-path waypoint parsing, arc-length sampling, proximity-ordered
-candidate generation, and the greedy per-label resolver).
-
-#### Debug affordance — `?debug-chart=1`
-
-When the page URL carries `?debug-chart=1` (or any non-empty
-`debug-chart` query value), each measure pass groups its label
-bboxes + the resolver's `:collisions` / `:shifted` summary to
-`console.group` / `console.log` / `console.warn`. Off by default so
-the production / normal-use console stays clean. The flag is read
-fresh on every measure pass so toggling it in the address bar takes
-effect without a reload.
+The `chart.overlays.label-collisions/LabelCollisionsOverlay`
+post-render pass (rf2-r7vsr · Phase 3) is **retired**. It swept
+edge-label elements (`[data-testid^="rf-mv-chart-edge-"]`) reading
+`data-edge-path-d` / `data-label-anchor-x/y`, but after the
+events-as-nodes paradigm shift (rf2-qo5xy) the event/guard/action
+label rides on the event **node** — the structural in/out transition
+edges carry an empty `:eventLabel`, so no edge-label element with
+those data-attrs is emitted and the sweep always found zero labels.
+With elk layout + events-as-nodes, label-on-node-body collisions are
+a non-issue, so the overlay + its pure geometry resolver
+(`label-collision-geometry`), the `data-edge-path-d` /
+`data-label-anchor-x/y` data-attrs, and the `data-label-collisions` /
+`data-label-collision-ids` chart-root attrs are all removed.
 
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 
