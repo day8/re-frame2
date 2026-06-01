@@ -166,6 +166,21 @@
     (is (= [fp/double-tag "444b1ae4d6e2ef50"] (fp/canonical-form 1e21)))
     (is (= "66b23237" (fp/content-hash 1e21)))))
 
+(deftest large-integers-canonicalize-host-portably-on-cljs
+  (testing "an integer beyond the IEEE-754 safe-integer range takes the lossy
+            bit-double path on CLJS (rf2-7w1vp) — CLJS has no exact integer
+            past 2^53, so `1e20` (what CLJS reads `100000000000000000000` as)
+            canonicalises to the SAME `[:rf/double <hex>]` form + hash the JVM
+            large bigint reaches. This pairing IS the cross-host proof."
+    (is (= [fp/double-tag "4415af1d78b58c40"] (fp/canonical-form 1e20)))
+    (is (= "8a4b7ac2" (fp/content-hash 1e20))
+        "matches the JVM `(fp/content-hash (bigint 100000000000000000000))`"))
+  (testing "an integer AT max-safe-integer passes through verbatim on CLJS —
+            no golden rebase for safe-range integers"
+    (is (= fp/max-safe-integer (fp/canonical-form fp/max-safe-integer)))
+    (is (= "9f16836d" (fp/content-hash fp/max-safe-integer))
+        "matches the JVM `(fp/content-hash 9007199254740991)` literal")))
+
 (deftest nan-and-inf-canonicalize-host-portably-on-cljs
   (testing "NaN folds to the `:rf/nan` sentinel — matches the JVM, hashes stably"
     (is (= fp/nan-tag (fp/canonical-form js/NaN)))

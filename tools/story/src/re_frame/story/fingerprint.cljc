@@ -421,9 +421,24 @@
 ;;
 ;; THE NORMALISATION POLICY (host-portable canonical number form):
 ;;
-;; - INTEGERS pass through verbatim — `Long` / `BigInt` / `BigInteger` on the
-;;   JVM, integer-valued `number` on CLJS. Their `pr-str` is already host-
-;;   identical, so ordinary-value hashes are UNCHANGED (no golden rebase).
+;; - INTEGERS WITHIN the IEEE-754 safe-integer range (±2^53-1) pass through
+;;   verbatim — `Long` / `BigInt` / `BigInteger` on the JVM, integer-valued
+;;   `number` on CLJS. Their `pr-str` is host-identical, so ordinary-value
+;;   hashes are UNCHANGED (no golden rebase).
+;; - 3. LARGE INTEGERS (rf2-7w1vp). An integer whose magnitude EXCEEDS the
+;;   safe-integer range (2^53-1) is NOT host-portable: JavaScript's `Number`
+;;   cannot represent it exactly, so CLJS rounds it to the nearest double,
+;;   while a JVM `Long` / `BigInt` keeps full precision and `pr-str`s it
+;;   verbatim ("100000000000000000000N"). The same logical integer therefore
+;;   canonicalised to a bare integer string on the JVM but `[:rf/double <hex>]`
+;;   on CLJS → divergent hash. POLICY: route such an integer through the SAME
+;;   lossy IEEE-754 `double->bits-hex` path on BOTH hosts. Both agree on the
+;;   double approximation (CLJS has no other option; the JVM converts via
+;;   `(double x)`), so the canonical form is host-stable. The deliberate cost
+;;   is that two distinct large integers that round to the SAME double share a
+;;   canonical form — acceptable because CLJS cannot tell them apart anyway,
+;;   and a 64-bit-id / nanoTime / BigInt riding a hashed slice now diffs
+;;   cross-host stably rather than spuriously.
 ;; - A NUMBER WITH A FRACTIONAL VALUE, or an integer-valued double too large
 ;;   for a 64-bit integer (e.g. 1e21), canonicalises to
 ;;   `[double-tag "<16-hex IEEE-754 bits>"]`. The raw IEEE-754 64-bit pattern
@@ -462,6 +477,15 @@
   `=`-reflexive and would otherwise give a comparator-unstable order)."
   :rf/nan)
 
+(def ^:const max-safe-integer
+  "The largest integer JavaScript's `Number` represents EXACTLY — 2^53-1
+  (`js/Number.MAX_SAFE_INTEGER`). An integer of greater magnitude has no
+  exact `js/Number` representation, so CLJS rounds it to the nearest double
+  and the canonical form must take the lossy IEEE-754 bit path on BOTH hosts
+  to agree (rf2-7w1vp). Integers within ±this range `pr-str` host-identically
+  and pass through verbatim — no golden rebase."
+  9007199254740991)
+
 (defn- double->bits-hex
   "Return the 16-char lowercase hex of the IEEE-754 64-bit pattern of double
   `d`, identically on JVM + CLJS. The bit pattern of a given logical double
@@ -486,12 +510,17 @@
          (str (hx hi) (hx lo))))))
 
 (defn- canon-number
-  "Canonicalise a number to a host-portable form (rf2-vvqeo). Integers pass
-  through verbatim; a fractional / out-of-integer-range double becomes
-  `[double-tag <16-hex bits>]`; an integer-valued double within 64-bit
-  integer range folds to that integer (CLJS cannot distinguish it from the
-  integer anyway); a ratio is coerced to its double first; NaN folds to
-  `nan-tag`. See the policy comment above."
+  "Canonicalise a number to a host-portable form (rf2-vvqeo + rf2-7w1vp).
+  An integer WITHIN the IEEE-754 safe-integer range (±2^53-1, `max-safe-
+  integer`) passes through verbatim — its `pr-str` is host-identical. An
+  integer OUTSIDE that range (a large `Long` / `BigInt` / `BigInteger` /
+  `js/Number`) takes the SAME lossy `[double-tag <16-hex bits>]` IEEE-754
+  path on BOTH hosts (rf2-7w1vp — CLJS cannot represent it exactly anyway,
+  so JVM exactness is traded for cross-host agreement). A fractional / out-
+  of-integer-range double becomes `[double-tag <16-hex bits>]`; an integer-
+  valued double within 64-bit integer range folds to that integer (CLJS
+  cannot distinguish it from the integer anyway); a ratio is coerced to its
+  double first; NaN folds to `nan-tag`. See the policy comment above."
   [x]
   #?(:clj
      (cond
@@ -508,7 +537,19 @@
                 (<= (double Long/MIN_VALUE) d (double Long/MAX_VALUE)))
            (long d)
            :else [double-tag (double->bits-hex d)]))
-       :else x)                          ; Long / BigInt / BigInteger / Integer
+       ;; An INTEGER whose magnitude exceeds the IEEE-754 safe-integer range
+       ;; (2^53-1) is NOT host-portable through `pr-str` (rf2-7w1vp): CLJS has
+       ;; no exact integer past 2^53 — a `js/Number` rounds it to the nearest
+       ;; double, and the CLJS branch below already routes it through
+       ;; `double->bits-hex`. So a JVM `Long` / `BigInt` / `BigInteger` of the
+       ;; same logical magnitude must take the SAME lossy IEEE-754 path to
+       ;; agree cross-host. Within the safe range, integers pass through
+       ;; verbatim (their `pr-str` is host-identical — no golden rebase).
+       (integer? x)
+       (if (<= (- max-safe-integer) x max-safe-integer)
+         x
+         [double-tag (double->bits-hex (double x))])
+       :else x)                          ; non-integer / unrecognised numeric
      :cljs
      (cond
        (js/Number.isNaN x)              nan-tag
@@ -527,7 +568,9 @@
   collection kinds (rf2-lvrqa), function values folded to a stable opaque
   sentinel (rf2-4gwja), host-divergent numbers normalised to a bit-stable
   form (rf2-vvqeo — ratios + fractional/special doubles fold to a `:rf/double`
-  / `:rf/nan` tag; integers are unchanged), and the remaining terminal types
+  / `:rf/nan` tag; safe-range integers are unchanged, integers beyond ±2^53-1
+  take the same lossy `:rf/double` path on both hosts — rf2-7w1vp), and the
+  remaining terminal types
   (strings, keywords, booleans, nil) unchanged. Returns a value that
   round-trips through `pr-str` deterministically across hosts and processes."
   (-canon [x]))
