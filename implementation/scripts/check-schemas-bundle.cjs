@@ -2,28 +2,40 @@
 /*
  * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost, bead rf2-fqbcy).
  *
- * Spec 010 §Bundle cost (lines 567-606) catalogues the gzipped costs
- * of requiring `re-frame.schemas` against the baseline counter:
+ * Spec 010 §Bundle cost catalogues the gzipped cost of requiring
+ * `re-frame.schemas`. Per rf2-v96fh (schema implies validation) the
+ * `re-frame.schemas` facade now `:require`s `re-frame.schemas.malli`
+ * itself, so REQUIRING THE SCHEMAS ARTEFACT IMPLIES MALLI — there is no
+ * longer a 'schemas required, no Malli' bundle posture. A registered
+ * schema therefore always validates rather than soft-passing into a
+ * silent no-op. The only Malli-free posture is not requiring the
+ * schemas artefact at all (the no-feature counter app, pinned by the
+ * counter bundle-isolation gate — NOT this gate).
  *
- *   Baseline (no schemas, no Malli):                       91.7 KB
- *   `[re-frame.schemas]` required, no Malli:               97.2 KB
- *   `[re-frame.schemas]` + `[malli.core]` required:       120.8 KB
- *   Typical app: reg-app-schema + :spec on every reg-*:   121.5 KB
+ * This gate uses two probe builds:
  *
- * This gate uses two probe builds to assert the schemas surface stays
- * within band:
+ *   schemas-bundle-probe        — requires ONLY `re-frame.schemas`.
+ *                                 Under Ruling A the facade pulls the
+ *                                 Malli adapter, so this is the
+ *                                 canonical 'schemas surface (Malli
+ *                                 wired)' cost. Asserts ≤ 100 KB gzipped.
+ *   schemas-bundle-probe-malli  — requires `re-frame.schemas` AND the
+ *                                 adapter EXPLICITLY. Under Ruling A the
+ *                                 explicit require is redundant (the
+ *                                 facade already loaded it), so this
+ *                                 bundle is the SAME size. Asserts
+ *                                 ≤ 100 KB gzipped.
  *
- *   schemas-bundle-probe        — schemas required, NOT Malli.
- *                                 Asserts ≤ 100 KB gzipped (spec row 2
- *                                 + 3 KB headroom).
- *   schemas-bundle-probe-malli  — schemas + Malli adapter required.
- *                                 Asserts ≤ 125 KB gzipped (spec row 3
- *                                 + 5 KB headroom).
- *
- * Also asserts the Malli-on bundle is STRICTLY LARGER than the
- * Malli-off bundle (a regression that DCE-eliminated Malli would
- * silently turn the budget check into a vacuous "pass" — this guard
- * keeps the methodology honest).
+ * Schema-implies-validation regression guard (replaces the pre-rf2-v96fh
+ * 'Malli strictly larger' delta guard): the two bundles MUST be
+ * APPROXIMATELY EQUAL. Ruling A made Malli mandatory for any schemas
+ * consumer, so the explicit-require delta collapsed to ~0 by design. If
+ * a future change reverts the facade's adapter require, `schemas-bundle-
+ * probe` (no explicit adapter require) would drop back to its ~59 KB
+ * Malli-free figure while `schemas-bundle-probe-malli` stayed at ~91 KB
+ * — the equality assertion then fails, catching the regression and
+ * proving the facade still auto-wires Malli (i.e. schema still implies
+ * validation).
  *
  * Strategy: gzip every .js file under the bundle's output-dir and
  * sum the compressed sizes. Mirrors the methodology used by the
@@ -45,24 +57,25 @@ const report = createGateReporter();
 
 // ----- the schemas bundle-cost contract -------------------------------------
 
-// Each entry's `gzippedMaxBytes` is the spec's documented figure plus a
-// small headroom (3-5 KB) so non-deterministic compression variations
-// (zlib version, OS) don't trigger spurious fails. Tighten over time as
-// the figures stabilise — every figure below was anchored against the
-// spec text rather than current empirical runs to give the gate
-// regression-detection teeth from day one.
+// Per rf2-v96fh both probes pull Malli (the facade requires the
+// adapter), so both sit at the schemas-surface-with-Malli cost
+// (~91 KB gzipped empirically; the spec's older 120.8 KB row was a
+// conservative pre-Closure-tuning estimate). The ≤ 100 KB ceiling
+// leaves ~9 KB headroom over the empirical figure so non-deterministic
+// compression variations (zlib version, OS) don't trigger spurious
+// fails. Tighten over time as the figures stabilise.
 const BUNDLES = [
   {
     name:            'schemas-bundle-probe',
     bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe'),
-    specRow:         'row 2 — [re-frame.schemas] required, no Malli (97.2 KB)',
-    gzippedMaxBytes: 100 * 1024,   // 100 KB (spec 97.2 KB + 2.8 KB headroom)
+    specRow:         '[re-frame.schemas] required ⇒ Malli wired (rf2-v96fh)',
+    gzippedMaxBytes: 100 * 1024,   // 100 KB (empirical ~91 KB + ~9 KB headroom)
   },
   {
     name:            'schemas-bundle-probe-malli',
     bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe-malli'),
-    specRow:         'row 3 — [re-frame.schemas] + [malli.core] (120.8 KB)',
-    gzippedMaxBytes: 125 * 1024,   // 125 KB (spec 120.8 KB + 4.2 KB headroom)
+    specRow:         '[re-frame.schemas] + explicit [malli] (redundant, rf2-v96fh)',
+    gzippedMaxBytes: 100 * 1024,   // 100 KB (same surface as the sibling probe)
   },
 ];
 
@@ -120,30 +133,43 @@ function main() {
     }
   }
 
-  // Methodology guard — the Malli-on bundle MUST be strictly larger
-  // than the Malli-off bundle. If both end up the same size, Closure
-  // has DCE'd malli.core away (e.g. because the adapter ns no longer
-  // publishes the late-bind hooks at load time), and the +Malli gate
-  // becomes vacuous.
+  // Schema-implies-validation regression guard (rf2-v96fh) — replaces
+  // the pre-rf2-v96fh 'Malli-on strictly larger' delta guard. Under
+  // Ruling A the `re-frame.schemas` facade requires the Malli adapter
+  // itself, so the explicit `[re-frame.schemas.malli]` require in the
+  // `-malli` probe is redundant and both bundles carry the SAME Malli
+  // surface. They MUST therefore be APPROXIMATELY EQUAL.
+  //
+  // If a future change reverts the facade's adapter require,
+  // `schemas-bundle-probe` (no explicit adapter require) drops back to
+  // its ~59 KB Malli-free figure while `schemas-bundle-probe-malli`
+  // (explicit require) stays at ~91 KB — a ~32 KB gap that trips this
+  // guard, proving the facade no longer auto-wires Malli (i.e. schema
+  // no longer implies validation). The tolerance absorbs the few bytes
+  // of init-fn-name difference between the two probe namespaces.
   let methodologyOk = true;
   if (sizes['schemas-bundle-probe'] != null &&
       sizes['schemas-bundle-probe-malli'] != null) {
     const probe      = sizes['schemas-bundle-probe'];
     const probeMalli = sizes['schemas-bundle-probe-malli'];
-    const delta      = probeMalli - probe;
-    // Spec row 3 - row 2 = 23.6 KB.  Require ≥ 15 KB of growth to
-    // confirm Malli landed; below that, Closure DCE'd something.
-    const minDelta = 15 * 1024;
-    const ok = delta >= minDelta;
+    const delta      = Math.abs(probeMalli - probe);
+    // Equality tolerance. The two probes differ only by their init-fn
+    // names; the Malli surface is identical. 2 KB comfortably absorbs
+    // symbol-name noise while still catching the ~32 KB regression a
+    // reverted facade require would produce.
+    const maxDelta = 2 * 1024;
+    const ok = delta <= maxDelta;
     const tag = ok ? 'OK' : 'FAIL';
     report.detail('');
-    report.detail(`  [${tag}] methodology guard — Malli-on bundle is strictly larger`);
-    report.detail(`        delta: ${fmtKb(delta)} (${delta} bytes)`);
-    report.detail(`        threshold: ≥ ${fmtKb(minDelta)} (Spec row 3 − row 2 = 23.6 KB)`);
+    report.detail(`  [${tag}] schema-implies-validation guard — both probes carry Malli (equal)`);
+    report.detail(`        |delta|: ${fmtKb(delta)} (${delta} bytes)`);
+    report.detail(`        tolerance: ≤ ${fmtKb(maxDelta)} (Ruling A: facade auto-wires Malli)`);
     if (!ok) {
       methodologyOk = false;
-      report.detail('        FAIL — Malli adapter\'s body was eliminated;');
-      report.detail('        the +Malli gate is now vacuous.');
+      report.detail('        FAIL — the two probes diverged. Most likely the');
+      report.detail('        `re-frame.schemas` facade no longer requires');
+      report.detail('        `re-frame.schemas.malli`, so requiring schemas no');
+      report.detail('        longer implies validation (rf2-v96fh regression).');
     }
   }
 

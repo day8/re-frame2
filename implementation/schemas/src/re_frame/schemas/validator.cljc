@@ -48,10 +48,20 @@
   rf2-p7va substitute-validator pattern: the `re-frame.schemas.malli`
   adapter namespace publishes Malli's `validate` and `explain` into the
   late-bind hook table on ns-load. The default fns below consult the
-  table on every call. Apps opt in to Malli validation by requiring
-  `re-frame.schemas.malli` at app boot — the same pattern on both
-  runtimes (no JVM-vs-CLJS asymmetry). When the adapter ns is not
-  loaded the default fns soft-pass per Spec 010 §Recommended soft-pass."
+  table on every call.
+
+  Per rf2-v96fh (schema implies validation) the `re-frame.schemas`
+  facade now `:require`s `re-frame.schemas.malli` itself, so loading the
+  schemas artefact wires the Malli hooks automatically — the default
+  validator is LIVE the moment a schema is registered. The soft-pass
+  branch below (return `true` when `:schemas/malli-validate` is unbound)
+  is therefore the defensive fallback for two residual cases, NOT the
+  default state: (1) a non-Malli port / app that installed its own
+  validator via `set-schema-fns!` and never bound the Malli hook, and
+  (2) test harnesses that deliberately unbind the hook to exercise the
+  absent path. Per Spec 010 §Recommended soft-pass an unbound default
+  validator passes rather than failing, so a substitute-validator
+  app is never blocked by Malli's absence."
   (:require [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))

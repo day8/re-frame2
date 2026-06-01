@@ -20,11 +20,48 @@
   default validator delegates to Malli; apps drop Malli by registering
   a different fn (or `nil` for a hard no-op).
 
+  **Schema implies validation (rf2-v96fh).** Loading this artefact
+  `:require`s `re-frame.schemas.malli`, which publishes Malli's
+  `validate` / `explain` / `humanize` into the late-bind hook table at
+  ns-load time. The CLJS reference therefore validates against the
+  default Malli validator the moment a schema is registered — there is
+  no inert \"registered a schema but it silently validates nothing\"
+  state. (Pre-rf2-v96fh the adapter had to be required *separately* at
+  app boot; an app that forgot the require registered schemas that
+  soft-passed every value — a footgun where \"I registered a schema\"
+  did NOT imply \"it validates.\")
+
+  Because Malli is now wired by *the schemas artefact* (not by core),
+  bundle isolation is preserved at the artefact boundary: an app that
+  never `:require`s `re-frame.schemas` (the no-feature counter
+  reference app) pays nothing for Malli. An app that DOES use schemas
+  pays the Malli surface (~24 KB gzipped, Spec 010 §Bundle cost) — the
+  deliberate tradeoff Ruling A accepts so registration always implies
+  validation. Apps that want schemas-as-inert-data without the Malli
+  surface call `(set-schema-validator! nil)` at boot to disable every
+  validation site (Spec 010 §Worked example — installing a no-op
+  validator); note that under static CLJS compilation requiring the
+  artefact still loads Malli's body, so the nil opt-out disables
+  validation *behaviour* but does not remove Malli from the bundle —
+  the only Malli-free posture is not requiring the schemas artefact.
+
   Public façade over `re-frame.schemas.{validator,storage,walker,
   digest,validate}` — re-exports the symbols external consumers reach
   through (tests, `re-frame.core-schemas`, the late-bind hook table)
   and owns the late-bind hook publication."
   (:require [re-frame.late-bind :as late-bind]
+            ;; rf2-v96fh — schema implies validation. Requiring the
+            ;; schemas artefact pulls the Malli adapter so the default
+            ;; validator is LIVE (publishes `:schemas/malli-validate`
+            ;; etc. at ns-load); `reg-app-schema` then validates rather
+            ;; than soft-passing into a silent no-op. The adapter ns
+            ;; requires only `malli.core` + `malli.error` + late-bind —
+            ;; no cycle back to this facade. Malli becomes a dependency
+            ;; of the schemas artefact, NOT of core: an app that never
+            ;; requires `re-frame.schemas` stays Malli-free (Spec 010
+            ;; §Bundle cost; verified by the counter bundle-isolation
+            ;; gate). Loaded for its ns-load side effect only.
+            [re-frame.schemas.malli]
             [re-frame.schemas.digest :as digest]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validate :as validate]
