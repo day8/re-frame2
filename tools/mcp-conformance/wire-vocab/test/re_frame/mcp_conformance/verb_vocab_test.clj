@@ -95,6 +95,12 @@
     "snapshot"
     "trace-window"
     "watch-epochs"
+    "orient"            ; rf2-3bu3d.8 — bare-verb mega-op app-shape summary
+                        ; (re-frame2-pair; spans liveness / frames /
+                        ; app-db-top-keys / registry counts+ids / machines in
+                        ; one round-trip). First-contact orientation on an
+                        ; unfamiliar app; composes the existing introspection
+                        ; surfaces. Lock #9 in pair-mcp DESIGN-RATIONALE.md.
     "record"})          ; rf2-zo4b9 — bare-verb mega-op signal recorder
                         ; (re-frame2-pair; spans app-db / sub / DOM / focus
                         ; signals). Distinct from the `record-as-` prefix

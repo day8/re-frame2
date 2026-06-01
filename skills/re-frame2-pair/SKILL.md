@@ -35,6 +35,11 @@ allowed-tools:
   - mcp__re-frame2-pair__list-streams
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
+  # Read-only orientation ops (rf2-3bu3d.7 + rf2-3bu3d.8) — one-call
+  # app-shape summary for first contact on an unfamiliar app, and a
+  # validated read of a single subscription's current value.
+  - mcp__re-frame2-pair__orient
+  - mcp__re-frame2-pair__read-sub
   # Operating-frame ops (rf2-zomfq) — read/set/reset the session's
   # default operating frame for the multi-frame model (Spec 002). See
   # the "Multi-frame model — set the operating frame" section below.
