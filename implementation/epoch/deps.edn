@@ -5,8 +5,9 @@
 ;; epoch surface — the per-frame `:rf/epoch-record` ring buffer
 ;; (`epoch-history`), the `(rf/configure :epoch-history {:depth N})`
 ;; knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the
-;; `restore-epoch` rewind with its six documented failure modes
+;; `restore-epoch` rewind with its seven documented failure modes
 ;; (`:rf.epoch/restore-unknown-epoch`,
+;; `:rf.epoch/restore-non-ok-record`,
 ;; `:rf.epoch/restore-schema-mismatch`,
 ;; `:rf.epoch/restore-missing-handler`,
 ;; `:rf.epoch/restore-version-mismatch`,
