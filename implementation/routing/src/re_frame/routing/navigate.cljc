@@ -11,12 +11,48 @@
   facade owns the `events/reg-event-fx :rf.route/navigate` call so a
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr cohesion
   split: NAVIGATE-EVENT seam."
-  (:require [re-frame.registrar :as registrar]
+  (:require [clojure.string :as str]
+            [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
+
+;; Per Spec 012 §Navigation is an event — the arity contract:
+;;   [:rf.route/navigate target]              ;; no path-params, no opts
+;;   [:rf.route/navigate target params]       ;; params 2nd, opts absent
+;;   [:rf.route/navigate target params opts]  ;; params 2nd, OPTS THIRD
+;; The two trailing maps are positionally ambiguous to a reader
+;; (rf2-1os1c): the likely mistake is dropping an OPTS-shaped map into
+;; the PARAMS slot — `[:rf.route/navigate :route/x {:replace? true}]`
+;; reads as "navigate with these path-params" but the author meant opts.
+;; `opts-only-keys` names the keys that ONLY ever belong in the opts map.
+(def ^:private opts-only-keys
+  "Keys the trailing `opts` map recognises (Spec 012 §Navigation is an
+  event) that are NOT path-param names. An occurrence of one of these in
+  the PARAMS slot — and not as a declared path-param of the target route
+  — is the classic params/opts swap and is rejected (rf2-1os1c)."
+  #{:replace? :scroll :fragment :bypass-leave-guard?})
+
+(defn- misplaced-opts-keys
+  "Disambiguate the params/opts positional swap (rf2-1os1c). Returns the
+  seq of opts-only keys present in the PARAMS slot that the target route
+  does NOT declare as path-params — i.e. keys that can only sensibly be
+  opts. Empty (falsy via `seq`) when `params` is clean. Route-id form
+  only; the `{:url ...}` form has no positional params slot.
+
+  Declared path-param names are read from the compiled pattern's
+  `:names` (string capture names), so a route that legitimately captures
+  a segment named `:scroll`/`:fragment`/… is never false-flagged."
+  [route-meta params]
+  (when (and (map? params) (seq params))
+    (let [declared (into #{}
+                         (map keyword)
+                         (:names (:rf.route/compiled route-meta)))]
+      (seq (filter (fn [k] (and (contains? opts-only-keys k)
+                                (not (contains? declared k))))
+                   (keys params))))))
 
 (defn navigate-handler
   "`:rf.route/navigate` event-fx handler. Registered by the façade so a
@@ -53,6 +89,11 @@
                           (and (map? target) (:fragment target))
                           matched-fragment)
           route-meta  (registrar/lookup :route route-id)
+          ;; rf2-1os1c: catch the params/opts positional swap at the
+          ;; event boundary. Route-id form only — the `{:url ...}` form
+          ;; has no positional params slot.
+          misplaced   (when (keyword? target)
+                        (misplaced-opts-keys route-meta params))
           ;; Per Spec 012 §Query strings and fragments: `:query-retain`
           ;; on the TARGET route names the keys that should be carried
           ;; through from the current `:rf.route/query` slice when the
@@ -63,6 +104,24 @@
           ;; automatically preserve `?theme=dark` / `?locale=en`
           ;; without explicitly threading those keys through every call
           ;; site (rf2-u8t3s). Caller-supplied values always win.
+          ;; Cross-route coercion-class carry (rf2-b3rzz): retained
+          ;; values are pulled from the CURRENT route's `:query` slice
+          ;; VERBATIM — already coerced to that route's class (a keyword
+          ;; via `[:enum ...]`, an int via `:int`, …) — and carried into
+          ;; the target unchanged. They are NOT re-coerced against the
+          ;; target route's `:query` schema. The target's `:query`
+          ;; validator still runs at the call site (below + in
+          ;; `route-url`), so a class mismatch (current route typed the
+          ;; key `[:enum :a :b]`, target types it `:string`) surfaces as
+          ;; a validation failure rather than silently desyncing. The
+          ;; contract: authors keep a `:query-retain` key's type
+          ;; CONSISTENT across every route that retains it (same trust
+          ;; class as the `:query` schema being author-named intent).
+          ;; Re-coercion was considered + rejected: retained values are
+          ;; runtime values, not URL strings, so re-running
+          ;; string→class coercion is ill-typed; verbatim-carry keeps the
+          ;; merge a pure `select-keys`. See Spec 012 §Query strings and
+          ;; fragments §:query-retain cross-route coercion class.
           retain-keys  (:query-retain route-meta)
           retained     (when (seq retain-keys)
                          (select-keys (get-in db [:rf/runtime :routing :current :query])
@@ -106,6 +165,30 @@
                            (get-in db [:rf/runtime :routing :current])
                            route-id path-params query-params fragment)]
       (cond
+        ;; rf2-1os1c: params/opts positional swap. An opts-only key
+        ;; (`:replace?` / `:scroll` / `:fragment` / `:bypass-leave-guard?`)
+        ;; sits in the PARAMS slot and is not a declared path-param of
+        ;; the target route — the author almost certainly meant to pass
+        ;; it as the THIRD `opts` arg. Reject loudly (caller bug; slice
+        ;; unchanged, no push) so the swap fails at the event boundary
+        ;; rather than navigating with a wrong URL or silently dropping
+        ;; the intended opts. Per Spec 012 §Navigation is an event.
+        (seq misplaced)
+        (do
+          (trace/emit-error! :rf.error/navigate-arity-misuse
+                             {:where    :event
+                              :route-id route-id
+                              :reason   (str "opts-shaped key(s) "
+                                             (str/join ", " (map pr-str misplaced))
+                                             " appeared in the PARAMS slot (2nd arg) of "
+                                             "[:rf.route/navigate " route-id " params opts]. "
+                                             "These belong in the OPTS map (3rd arg): "
+                                             "[:rf.route/navigate " route-id " {} {...opts}]. "
+                                             "Navigation rejected.")
+                              :keys     (vec misplaced)
+                              :recovery :no-recovery})
+          {})
+
         ;; Caller-bug schema failure: reject (slice unchanged, no push).
         (= ::reject url)
         {}

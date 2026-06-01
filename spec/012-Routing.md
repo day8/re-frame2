@@ -95,6 +95,8 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
+- `:rf.error/invalid-route-metadata` — `reg-route` was passed a bare metadata key outside the reserved set (a likely typo), or non-map metadata. Thrown at registration (caller bug; dev *and* prod). Names the offending `:keys` and the `:reserved` vocabulary. See [§Authoring-boundary key validation](#authoring-boundary-key-validation).
+- `:rf.error/navigate-arity-misuse` — `[:rf.route/navigate target params opts]` was dispatched with an opts-only key (`:replace?` / `:scroll` / `:fragment` / `:bypass-leave-guard?`) in the **params** slot that the target route does not declare as a path-param (the classic params/opts swap). Navigation rejected; `:where :event`. See [§Arities — params is 2nd, opts is 3rd](#arities--params-is-2nd-opts-is-3rd).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
 
@@ -230,6 +232,14 @@ The twelve keys cluster into three axes by what each key controls:
 
 The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch (audit Finding 1) considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
 
+##### Authoring-boundary key validation
+
+Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on-matched` for `:on-match`, `:querey` for `:query`) would otherwise be silently accepted and fail later at nav-time, or never — a silent-swallow that costs a debugging session. `reg-route` therefore **validates the metadata at the authoring boundary**: a **bare** (unqualified) key outside the twelve reserved keys is rejected at registration with a thrown `:rf.error/invalid-route-metadata` (canonical thrown-error shape per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract); `:where 'rf/reg-route`), whose `:keys` slot names every offending key and `:reserved` slot carries the valid vocabulary. This is a **caller bug**, so it throws in dev *and* prod (it is not user input). Non-map metadata is rejected the same way, naming the route.
+
+**Namespaced keys are exempt.** Route metadata is an open map for host/app extension keys, but only under a namespace (`:myapp/analytics-id`, `:myapp/layout`) — see [§Other pattern-level requirements](#other-pattern-level-requirements). Bare keys are the framework's reserved vocabulary; namespaced keys are the extension surface. The split makes the typo case (a bare key) distinguishable from the extension case (a namespaced key) without a registry of permitted host keys.
+
+**Cross-feature reserved keys.** A small number of bare keys are reserved by *other* framework features that extend route metadata — currently `:head`, owned by SSR ([011 §Head/meta contract](011-SSR.md#headmeta-contract): "routes name which head to use via `:head` route metadata"). These pass the guard because the framework owns them, even though they are not among the twelve routing-owned keys above. The accepted-key set is therefore the routing-owned twelve plus the enumerated cross-feature keys; a new framework feature that adds a bare route-metadata key adds it to that set.
+
 ##### Per-key table
 
 | Key | Axis | Type | Purpose |
@@ -317,7 +327,20 @@ The trailing `opts` map is open. The pattern recognises:
 - `:replace?` (use `replaceState` rather than `pushState` — for redirects, search-as-you-type filters, login-flow returns where the back button should not return to the intermediate URL).
 - `:scroll` (per-call override of the route's `:scroll` metadata; same enum/map shape, see "Scroll restoration").
 - `:fragment` (target `#fragment` for the new URL; see "Fragments" below). May also be supplied as `:fragment` on the target map.
+- `:bypass-leave-guard?` (skip the active route's `:can-leave` gate for this navigation; see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)).
 - Hosts may add their own keys under a chosen namespace.
+
+##### Arities — params is 2nd, opts is 3rd
+
+The event vector has two trailing **maps** in fixed positions — `params` second, `opts` third — which are positionally ambiguous to a reader. The three arities are:
+
+```clojure
+[:rf.route/navigate target]              ;; no path-params, no opts
+[:rf.route/navigate target params]       ;; PATH-PARAMS in the 2nd slot; opts absent
+[:rf.route/navigate target params opts]  ;; path-params 2nd, OPTS THIRD
+```
+
+At a call site `[:rf.route/navigate :route/x {...}]` the `{...}` is **path-params**, not opts. The classic mistake is dropping an opts-shaped map into the params slot — `[:rf.route/navigate :route/cart {:replace? true}]` *reads* like "navigate with these opts" but is parsed as "navigate with path-param `:replace?`". The runtime **rejects this swap**: when an opts-only key (`:replace?`, `:scroll`, `:fragment`, `:bypass-leave-guard?`) appears in the params slot and is **not** a declared path-param of the target route, navigation is rejected (slice unchanged, no URL push) and `:rf.error/navigate-arity-misuse` (`:where :event`) is emitted naming the misplaced key. A route that *legitimately* captures a path segment named `:fragment` (`"/anchor/:fragment"`) is not false-flagged — the key is a declared path-param, not a misplaced opt. To pass opts, use the explicit three-arity form with an empty (or real) params map: `[:rf.route/navigate :route/cart {} {:replace? true}]`.
 
 #### Target form — route-id vs URL-string
 
@@ -478,6 +501,17 @@ Two pure helpers, both registered, both queryable:
   - Throws `:rf.error/route-url-validation` if `path-params` doesn't conform to the route's `:params` schema, or `query-params` doesn't conform to the route's `:query` schema (caller bug; not user input).
 
 Both work against the same registered route table, so adding/removing a route updates both directions automatically.
+
+##### `route-url` nil-policy: path params vs query params
+
+`route-url` applies **two different nil-policies** to the path side and the query side — same function, opposite rules. The split is deliberate, but it is surprising enough to document explicitly (it otherwise costs a debugging session when `{:page nil}` mysteriously vanishes):
+
+| Slot | `nil` (or absent) value | present-but-falsy value (`false`, `0`, `""`) |
+|---|---|---|
+| **Path param** (a `:name` / `*name` segment) | **Hard error** — throws `:rf.error/missing-route-param`. The URL cannot be built without the segment. | **Round-trips.** A falsy-but-present value is a legitimate segment (`/items/0`). |
+| **Query param** (a key in `query-params`) | **Silently elided** — `{:page nil}` omits the key entirely (no bare `?page=`, no throw). | **Round-trips.** A falsy-but-present value emits (`?archived=false`). |
+
+The query-side elision is the useful default for **absent optional query keys**: a search form that conditionally adds `?sort=` only when a sort is chosen passes `{:sort nil}` and gets a clean URL with no `sort` key. The path side cannot elide — a missing path segment has no URL to produce — so it throws. Both sides agree on the present-but-falsy case: a falsy value is real data and round-trips. Authors who need a query key to always be present must supply a non-nil value (use a sentinel string, not `nil`).
 
 #### Param validation at the call site
 
@@ -761,6 +795,14 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 | Defaults | n/a (absence = no match) | `:query-defaults` map |
 
 `:query-defaults` populates absent query keys at match time. `:query-retain` is a set of keys that should be **carried through subsequent navigations** even when the caller didn't supply them — useful for global state encoded in the URL (`:theme`, `:locale`, `:debug`). The merge is performed inside `:rf.route/navigate`'s handler (which has access to `app-db` and reads the current `:rf.route/query` slice) before `route-url` is called; `route-url` itself is pure and does not consult `app-db` (per [§Bidirectional URL ↔ params](#bidirectional-url--params)). The result: a `[:rf.route/navigate :route/cart]` from a search page preserves `?theme=dark`.
+
+#### `:query-retain` cross-route coercion class
+
+Retained query values are pulled from the **current** route's `:query` slice and merged into the **target** route's outgoing query **verbatim** — they are *not* re-coerced against the target route's `:query` schema. This matters because the current route may have coerced a retained value into a specific class: a `[:enum :light :dark]`-typed key arrives in the slice as the **keyword** `:dark` (per [§Keyword-interning cap](#keyword-interning-cap-on-query-keys--values)), an `:int`-typed key as a **number**. Carrying verbatim means that keyword/number flows into the target unchanged.
+
+**The contract: keep a retain key's type consistent across every route that retains it.** Because the merge is a pure `select-keys` (no re-coercion), an author who types `:theme` as `[:enum :light :dark]` on route A and as `:string` on route B will carry a *keyword* `:dark` into B's `:string` slot. This is **caught, not silent**: the target route's `:query` validator runs at the call site (in `:rf.route/navigate`'s handler and in `route-url`), so a class mismatch surfaces as a validation failure (rejecting the navigation per [§Param validation at the call site](#param-validation-at-the-call-site)) rather than desyncing the slice.
+
+Re-coercing retained values against the target schema was considered and rejected: retained values are already-coerced **runtime values**, not URL strings, so re-running the string→class coercion pipeline on them is ill-typed (the coercer's input contract is a raw URL string). Verbatim carry keeps the retain-merge a pure `select-keys` and keeps `route-url` pure (it never sees the merge). Consistency across routes is an author-named-intent invariant, the same trust class as the `:query` schema itself.
 
 Coercion is data-shaped (the `:query` schema is the coercion specification — `:int` coerces `"2"` → `2`); per-key middleware functions are not part of the contract — data over functions.
 
