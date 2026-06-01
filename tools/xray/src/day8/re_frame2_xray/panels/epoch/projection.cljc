@@ -514,9 +514,26 @@
 ;; TIMERS / DATA-REDUCTION / SNAPSHOT-DIFF / FX). That layout buried the
 ;; CASCADE — the operator had to read TRANSITION (top), then scroll down to
 ;; LIFECYCLE, then back up to GUARDS, to reconstruct what actually happened
-;; in what order. The substrate already emits in cascade order (guards →
-;; exit actions → transition → entry actions → always → …); the projection
-;; just needs to thread the same INSERTION ORDER into a single row vector.
+;; in what order. The redesign threads the per-emit stream into a single
+;; row vector.
+;;
+;; CANONICAL PHASE ORDER (rf2-tjqd8). The rows are NOT rendered in raw
+;; trace-INSERTION order. The substrate's live emit order is exit →
+;; entry → transition-LAST (the `:rf.machine/transition` summary emit
+;; trails the exit+entry actions so its `:after` reflects the accumulated
+;; data). Rendered verbatim, the TRANSITION lands AFTER the entry action —
+;; confusing in the centerpiece panel, where the operator expects the
+;; statechart reading "leave the old state → change state → enter the new
+;; state". The projection therefore RE-SORTS rows panel-side into the
+;; canonical `(kind, phase)` order:
+;;
+;;   guard → exit → TRANSITION → entry → always → after-action → timer
+;;
+;; with a STABLE sort (rows in the same rank keep their substrate emit
+;; order — multiple actions in one phase keep their run order). This is a
+;; panel-side presentation re-sort ONLY; the substrate trace order is
+;; untouched (changing it would affect every consumer). See
+;; `cascade-row-rank` + `machine-cascade-rows`.
 ;;
 ;; The cascade row vector replaces the category-grouped `:machine` map
 ;; entirely (rf2-u69j7). One row per substrate emit that participated in
@@ -549,6 +566,53 @@
    :rf.machine/transition       :transition
    :rf.machine.timer/cancelled  :timer})
 
+(def ^:private cascade-rank
+  "Canonical (kind, phase) presentation rank for the machine cascade
+  (rf2-tjqd8). Lower sorts earlier. The order encodes the statechart
+  reading the operator expects:
+
+    guard → exit → TRANSITION → entry → always → after-action → timer
+
+  The `:transition` KIND sits at rank 2 — between the exit-phase actions
+  (rank 1) and the entry-phase actions (rank 3) — even though the
+  substrate emits the `:rf.machine/transition` summary LAST. `:guard`
+  leads (rank 0): guards gate the transition, so they read before it.
+  `:timer` trails (rank 6): timer-cancels are post-commit housekeeping.
+
+  Bootstrap / lifecycle phases slot beside their nearest sibling:
+  `:initial-entry` ranks with `:entry`, `:destroy-exit` with `:exit`."
+  {;; guards — gate the transition; read first
+   [:guard nil]              0
+   ;; exit-phase actions — leave the old state
+   [:action :exit]           1
+   [:action :destroy-exit]   1
+   ;; the state change itself — between exit and entry
+   [:transition nil]         2
+   ;; transition-phase actions ride WITH the transition (between exit
+   ;; and entry, by intent: they fire as part of the state change)
+   [:action :transition]     2
+   ;; entry-phase actions — enter the new state
+   [:action :entry]          3
+   [:action :initial-entry]  3
+   ;; always — intra-macrostep follow-ups after entry settled
+   [:action :always]         4
+   ;; after-action — `:after` timer continuations
+   [:action :after-action]   5
+   ;; timer cancellations — post-commit housekeeping
+   [:timer nil]              6})
+
+(defn cascade-row-rank
+  "Canonical presentation rank for a cascade row (rf2-tjqd8). Reads the
+  row's `[:kind :phase]` against `cascade-rank`; `:phase` participates
+  only for `:action` rows (other kinds key on `[kind nil]`). Unknown
+  combinations fall to a high sentinel rank so a future kind/phase
+  surfaces at the tail rather than silently jumping the canonical
+  order. Pure-data; the stable sort in `machine-cascade-rows` is keyed
+  off this."
+  [{:keys [kind phase]}]
+  (let [k (if (= :action kind) [:action phase] [kind nil])]
+    (get cascade-rank k 99)))
+
 (defn- guard-cascade-row
   "Build a cascade row from a `:rf.machine/guard-evaluated` trace event
   (rf2-u69j7). Outcome is one of `:pass / :fail / :threw` (rf2-82a0u
@@ -570,11 +634,23 @@
   `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit`), the action-id, the input snapshot,
   per-action fx attribution, the data-write the action returned, and
-  the threw? signal."
+  the threw? signal.
+
+  rf2-5hjb5 — the action's data DELTA is carried as a `[:data-before
+  :data-write]` pair: `:data-before` is the action's INPUT `:data`
+  (lifted off the `:input {:data … :event …}` snapshot the substrate
+  stamps), `:data-write` is the action's RETURNED `:data` (off
+  `:outcome`). The view renders the action body as an edn-inspector DIFF
+  of `:data-before → :data-write`, so a data-mutating action (entry
+  `:count-open`: `{:opened-count 0}` → `{:opened-count 1}`) shows its
+  delta inline, while a no-op action (exit `:clear-hold`, data unchanged)
+  shows no delta."
   [ev]
   (let [outcome     (common/tag-of ev :outcome)
+        input       (common/tag-of ev :input)
         action-fx   (when (map? outcome) (:fx outcome))
-        action-data (when (map? outcome) (:data outcome))]
+        action-data (when (map? outcome) (:data outcome))
+        data-before (when (map? input) (:data input))]
     (cond-> {:kind        :action
              :action-id   (common/tag-of ev :action-id)
              :phase       (common/tag-of ev :phase)
@@ -582,13 +658,18 @@
              :threw?      (= :rf.error/action-threw outcome)
              :duration-ms (common/tag-of ev :duration-ms)
              :machine-id  (common/tag-of ev :machine-id)
-             :input       (common/tag-of ev :input)}
+             :input       input}
       (common/tag-of ev :exception)
       (assoc :exception (common/tag-of ev :exception))
       (seq action-fx)
       (assoc :fx (vec action-fx))
       (some? action-data)
-      (assoc :data-write action-data))))
+      (assoc :data-write action-data)
+      ;; rf2-5hjb5 — the pre-image of the action's `:data` write, lifted
+      ;; off the input snapshot so the view renders an inspector diff
+      ;; without re-walking the trace.
+      (some? data-before)
+      (assoc :data-before data-before))))
 
 (defn- transition-cascade-row
   "Build a cascade row from a `:rf.machine/transition` trace event
@@ -791,33 +872,52 @@
   / duration / interleaved code body WITHOUT a second pass over the
   trace stream.
 
-  ORDER COMES FROM SUBSTRATE INSERTION ORDER — the substrate already
-  emits guards / exit actions / transition / entry actions / always /
-  after-action / timer-cancels in cascade order (Spec 005 §Trace events
-  + rf2-82a0u). We just walk the same `:trace-events` vector in order
-  and surface every `machine-cascade-trace-ops` member as a row. The
-  view layer numbers rows 1..N via `:step` (assigned here, contiguous
-  over only the rows that fired).
+  CANONICAL PHASE ORDER (rf2-tjqd8) — the rows are RE-SORTED panel-side
+  into `guard → exit → TRANSITION → entry → always → after-action →
+  timer` rather than rendered in raw substrate emit order. The substrate
+  emits the `:rf.machine/transition` summary LAST (after exit + entry
+  actions accumulate the data), so the verbatim emit order is exit →
+  entry → transition; rendering it that way lands the TRANSITION after
+  the entry action, which mis-reads the statechart. The re-sort is a
+  STABLE sort keyed by `[cascade-row-rank :trace-index]` — rows in the
+  same rank keep their substrate emit order (multiple actions in one
+  phase keep their run order). This is presentation-only; the substrate
+  trace order is untouched.
 
-  Per rf2-wwc3j: post-build each row is enriched with `:source-state` /
-  `:target-state` / `:event-id` derived from the surrounding `:transition`
-  emit. These slots feed `cascade-row-source-key` so inline-fn `:entry` /
-  `:exit` / `:guard` / transition / timer rows can resolve their spec-
-  path tuple under `:rf.machine/source-coords` (rf2-8bp3).
+  Pipeline:
+  1. Walk `:trace-events` in trace order; build one row per
+     `machine-cascade-trace-ops` member, stamping `:trace-index` (the
+     emit-order tiebreaker for the stable sort).
+  2. `enrich-cascade-rows` (rf2-wwc3j) — stamps `:source-state` /
+     `:target-state` / `:event-id` from the surrounding `:transition`
+     emit. This MUST run on the trace-ordered rows (the
+     surrounding-transition resolution is emit-order-sensitive).
+  3. Stable-sort by canonical rank, then re-number `:step` 1..N over the
+     sorted order so the view's left-rail ordinal reflects the rendered
+     order.
+
+  The enrichment slots feed `cascade-row-source-key` so inline-fn
+  `:entry` / `:exit` / `:guard` / transition / timer rows can resolve
+  their spec-path tuple under `:rf.machine/source-coords` (rf2-8bp3).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
   reg-event-db / reg-event-fx cascades — the redesign is
   machine-specific and the empty vec drives the view's empty-state
   branch off the prior handler-step rendering unchanged)."
   [events]
-  (let [base (vec
-               (map-indexed
-                 (fn [i row]
-                   (assoc row :step (inc i) :trace-index i))
-                 (keep ev->cascade-row
-                       (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
-                               events))))]
-    (enrich-cascade-rows base)))
+  (let [base     (vec
+                   (map-indexed
+                     (fn [i row] (assoc row :trace-index i))
+                     (keep ev->cascade-row
+                           (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
+                                   events))))
+        enriched (enrich-cascade-rows base)
+        ;; Stable canonical sort: rank first, emit-order (:trace-index)
+        ;; as tiebreaker so intra-phase run order is preserved.
+        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) enriched))]
+    ;; Re-number :step over the FINAL (canonical) order so the left-rail
+    ;; ordinal reads top-to-bottom as rendered.
+    (vec (map-indexed (fn [i row] (assoc row :step (inc i))) sorted))))
 
 (defn machine-cascade-total-ms
   "Sum of every cascade row's `:duration-ms` (rf2-u69j7). nil when no
@@ -2887,16 +2987,18 @@
   "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
   view's per-row header. Pure-data; the view never reaches into a
   row's slots to compute its label."
-  [{:keys [kind action-id guard-id phase from-state to-state state reason
-           machine-id]}]
+  [{:keys [kind action-id guard-id phase from-state to-state state reason]}]
   (case kind
     :guard       (str "guard " (ns-keyword guard-id))
     :action      (str (when phase (str (name phase) " "))
                       "action " (ns-keyword action-id))
-    :transition  (str "transition "
-                      (when machine-id
-                        (str (ns-keyword machine-id) " · "))
-                      (if from-state (pr-str from-state) "?")
+    ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb is JUST the state
+    ;; change `<before> → <after>`, made the focal point. The redundant
+    ;; leading "transition" word (the KIND pill already says TRANSITION)
+    ;; and the machine-name echo (`:door/main` — already the cascade
+    ;; context) are DROPPED; the lower-line state/event repetition is
+    ;; dropped in the view (`cascade-row-transition-details`).
+    :transition  (str (if from-state (pr-str from-state) "?")
                       " → "
                       (if to-state (pr-str to-state) "?"))
     :timer       (str "timer " (when state (pr-str state))

@@ -393,9 +393,6 @@
 (def ^:private diff-before-style
   {:color error-colour})
 
-(def ^:private diff-after-success-style
-  {:color success-colour})
-
 (def ^:private diff-glyph-bold-style
   {:font-weight 700})
 
@@ -542,25 +539,36 @@
   {:color      text-secondary-colour
    :font-style "italic"})
 
-(def ^:private cascade-transition-details-style
-  {:padding        "3px 0 4px 21px"
-   :display        "flex"
-   :flex-direction "column"
-   :gap            "2px"
-   :font-family    mono-stack
-   :font-size      "11px"})
+;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb (`<before> → <after>`,
+;; now the focal point) renders VISUALLY PRIMARY: larger + bolder than
+;; the guard/action verbs so the state change is the headline of the
+;; collapsed transition zone. The hue is the magenta TRANSITION-kind tone
+;; (`badge/cascade-kind-colour :transition`) — the same identity the kind
+;; pill paints — so the eye reads pill + state change as one unit.
+(def ^:private cascade-transition-verb-link-button-style
+  {:background            "transparent"
+   :border                "none"
+   :padding               0
+   :margin                0
+   :color                 (badge/cascade-kind-colour :transition)
+   :cursor                "pointer"
+   :font-family           mono-stack
+   :font-size             "13px"
+   :font-weight           700
+   :text-decoration       "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display               "inline-flex"
+   :align-items           "center"
+   :gap                   "4px"
+   :white-space           "nowrap"})
 
-(def ^:private cascade-from-to-row-style
-  {:display     "inline-flex"
-   :align-items "center"
-   :gap         "6px"
-   :flex-wrap   "wrap"})
-
-(def ^:private cascade-trigger-row-style
-  {:display     "inline-flex"
-   :align-items "center"
-   :gap         "6px"
-   :color       text-secondary-colour})
+(def ^:private cascade-transition-verb-plain-style
+  {:color       (badge/cascade-kind-colour :transition)
+   :font-family mono-stack
+   :font-size   "13px"
+   :font-weight 700
+   :white-space "nowrap"})
 
 (def ^:private cascade-row-style
   {:display        "flex"
@@ -2414,16 +2422,26 @@
 
   rf2-80u5a / rf2-ehd8v — the affordance reads the same `<label> + ↗`
   shape as the HANDLER step's verb so the operator's eye trains on
-  ONE source-link grammar across the panel."
+  ONE source-link grammar across the panel.
+
+  rf2-ge6uj ISSUE 3 — the `:transition` row's verb (`<before> → <after>`)
+  renders with the PROMINENT transition style (larger / bolder / magenta)
+  so the state change is the focal point of the collapsed transition
+  zone; every other kind keeps the standard verb chrome."
   [row coord verb-string]
   ;; rf2-vw5pi — shared `coord-link`; per-site styles preserved. The
   ;; testid is now a single stem (`…-verb-link-<step>`) across both the
   ;; clickable + plain branches — the prior `…-verb-<step>` plain-only
   ;; variant was a hand-rolled artefact, not pinned by any selector.
-  (coord-link/coord-link coord verb-string
-                         (str "rf-xray-epoch-machine-cascade-verb-link-" (:step row))
-                         {:style       cascade-verb-link-button-style
-                          :plain-style cascade-verb-plain-style}))
+  (let [transition? (= :transition (:kind row))]
+    (coord-link/coord-link coord verb-string
+                           (str "rf-xray-epoch-machine-cascade-verb-link-" (:step row))
+                           {:style       (if transition?
+                                           cascade-transition-verb-link-button-style
+                                           cascade-verb-link-button-style)
+                            :plain-style (if transition?
+                                           cascade-transition-verb-plain-style
+                                           cascade-verb-plain-style)})))
 
 (defn- source-form->string
   "Coerce a cascade-row source-form value into a printable Clojure
@@ -2491,13 +2509,42 @@
                  :style cascade-row-source-missing-style}
           "<source not yet captured>"])])))
 
+(defn- cascade-row-action-data-diff
+  "Render an `:action` row's `:data` DELTA through the edn-inspector in
+  DIFF mode (rf2-5hjb5). The action's RETURNED `:data` (`:data-write`,
+  the AFTER) renders with inline diff annotations against the action's
+  INPUT `:data` (`:data-before`, the BEFORE), reusing the same
+  inspector diff posture the App-db panel ships (`{:before <prior>}`,
+  cf. `handler-db-diff-block`).
+
+  A data-mutating action shows its delta inline (entry `:count-open`:
+  `{:opened-count 0}` → `{:opened-count 1}` paints the changed leaf with
+  the `~ … ← was 0` gutter chrome). A no-op action whose `:data` is
+  unchanged (exit `:clear-hold`) renders the value with NO delta — the
+  inspector's `:same` rows carry no gutter glyph. When no pre-image was
+  captured (`:data-before` absent — e.g. a fixture trace) the inspector
+  mounts in browse mode (no `:before`), still surfacing the written
+  value."
+  [{:keys [data-write data-before step] :as _row}]
+  [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-" step)
+         :style cascade-detail-row-style}
+   [:span {:style cascade-detail-success-arrow-style} "↳"]
+   [:span {:style cascade-detail-label-style} "data Δ"]
+   [:span {:style cascade-detail-value-style}
+    [ei/edn-inspector data-write
+     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-data step]
+              :card?                  false
+              :default-expanded-depth 3}
+       (some? data-before) (assoc :before data-before))]]])
+
 (defn- cascade-row-action-outcome-details
   "Render the per-action outcome details for an `:action` cascade row
   (rf2-u69j7). Three slots ride below the row's source body:
 
   - DATA Δ — when the action returned a `:data` write, surface the
-    delta the action contributed (rf2-9c27r-style per-action
-    attribution, now inline rather than buried in a category roll-up).
+    delta the action contributed as an edn-inspector DIFF (rf2-5hjb5 —
+    input `:data` → outcome `:data`), reusing the App-db panel's diff
+    posture. Supersedes the prior `ei/mini` one-liner.
   - FX — when the action returned a `:fx` list, surface each emitted
     fx-id (per-action attribution; same data as the FX step's
     `:attributed-to` chip, now visible IN the action's row).
@@ -2508,22 +2555,16 @@
   row stays minimal for actions that ran without side-effects."
   [row]
   (let [{:keys [data-write fx threw? exception]} row]
-    (when (or data-write (seq fx) threw?)
+    (when (or (some? data-write) (seq fx) threw?)
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
                                (:step row))
              :style cascade-outcome-details-style}
        ;; Per-action DATA Δ — the data the action wrote into the
-       ;; snapshot. Surface as `↳ data Δ <map>` so the cascade
-       ;; row tells the operator 'this action wrote …' without
-       ;; reading the post-cascade snapshot diff.
+       ;; snapshot, rendered as an inspector DIFF (input → outcome) so
+       ;; the cascade row tells the operator 'this action changed X
+       ;; from A to B' inline (rf2-5hjb5).
        (when (some? data-write)
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-"
-                                  (:step row))
-                :style cascade-detail-row-style}
-          [:span {:style cascade-detail-success-arrow-style} "↳"]
-          [:span {:style cascade-detail-label-style} "data Δ"]
-          [:span {:style cascade-detail-value-style}
-           [ei/mini data-write 80]]])
+         (cascade-row-action-data-diff row))
        ;; Per-action FX attribution — each fx-id the action emitted
        ;; in its outcome's `:fx` slot. The view layer already
        ;; surfaces these via the FX step's `:attributed-to` chip;
@@ -2559,31 +2600,18 @@
                         (.-message ^js exception))
                       (str exception)))])])])))
 
-(defn- cascade-row-transition-details
-  "Render the transition's `from → to` chrome under a `:transition`
-  cascade row (rf2-u69j7). Pulls the state vectors off the
-  `:from-state` / `:to-state` slots the projection hoisted from the
-  trace's `:before` / `:after` snapshots."
-  [row]
-  (let [{:keys [from-state to-state event microsteps]} row]
-    (when (or from-state to-state event microsteps)
-      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-"
-                               (:step row))
-             :style cascade-transition-details-style}
-       (when (or from-state to-state)
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-from-to-"
-                                  (:step row))
-                :style cascade-from-to-row-style}
-          [:span {:style cascade-detail-label-style} "state"]
-          [:span {:style diff-before-style} [ei/mini from-state 30]]
-          [:span {:style cascade-detail-label-style} "→"]
-          [:span {:style diff-after-success-style} [ei/mini to-state 30]]])
-       (when (vector? event)
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-trigger-"
-                                  (:step row))
-                :style cascade-trigger-row-style}
-          [:span {:style cascade-detail-label-style} "event"]
-          [ei/mini event 40]])])))
+;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
+;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
+;; <before-state → after-state>` (the verb IS the state change — see
+;; `projection/cascade-row-label`, which now emits just `<from> → <to>`),
+;; rendered visually PRIMARY via `cascade-transition-verb-link-style`. The
+;; prior repetitive body (`cascade-row-transition-details`) is REMOVED: it
+;; re-stated the state change on a labelled `state <from> → <to>` line and
+;; echoed the triggering `event [...]` underneath — both redundant (the
+;; KIND pill already says TRANSITION; the DISPATCH step + cascade context
+;; already name the event). The transition MAP literal still renders as
+;; the row's source body (`cascade-row-source-body`, rf2-wwc3j) — the
+;; `{:target :guard :action}` delight shape — which is NOT repetitive.
 
 (defn- cascade-row-view
   "Render one cascade row (rf2-u69j7). Layout:
@@ -2594,11 +2622,12 @@
         ↳ fx …
 
   The row's `:kind` keys all the chrome variants: `:action` rides the
-  full layout (phase chip + source body + outcome details);
-  `:guard` rides a thinner layout (source body, no phase chip);
-  `:transition` rides the state-change layout (no source body,
-  state-vector before/after); `:timer` rides a minimal layout (no
-  source body, no phase chip, just the kind + state + reason)."
+  full layout (phase chip + source body + outcome details — incl. the
+  rf2-5hjb5 inspector data DIFF); `:guard` rides a thinner layout
+  (source body, no phase chip); `:transition` rides the prominent
+  state-change verb (`<before> → <after>`) + the transition-map source
+  body, with NO repetitive detail block (rf2-ge6uj ISSUE 3); `:timer`
+  rides a minimal layout (kind + state + reason, no source body)."
   [machine-meta row]
   (let [{:keys [kind step phase duration-ms outcome threw?]} row
         coord       (cascade-row-coord machine-meta row)
@@ -2632,12 +2661,15 @@
            :else                nil)
          (when (or (= :transition kind) (and (= :guard kind) outcome-lbl))
            outcome-lbl))]]
-     ;; Source code body (always visible per rf2-u69j7) — actions + guards only
+     ;; Source code body (always visible per rf2-u69j7) — actions + guards
+     ;; + the transition MAP literal (the rf2-wwc3j delight shape).
      (cascade-row-source-body row source-form)
-     ;; Per-row outcome details — kind-specific
+     ;; Per-row outcome details — kind-specific. rf2-ge6uj ISSUE 3 — the
+     ;; `:transition` row carries NO extra detail body: the prominent
+     ;; header verb (`<before> → <after>`) is the focal point and the
+     ;; prior repetitive `state … / event …` lines are gone.
      (case kind
        :action     (cascade-row-action-outcome-details row)
-       :transition (cascade-row-transition-details row)
        nil)]))
 
 (defn- machine-cascade-view
@@ -2706,8 +2738,18 @@
   actions render their data-write + fx attribution + source code
   body."
   [{:keys [cascade] :as _machine-row} event-id]
+  ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
+  ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
+  ;; as a `reg-event-fx` carrying `:rf/machine? true` + the stamped spec
+  ;; under `:rf/machine` (with `:rf.machine/handler-source` +
+  ;; `:rf.machine/source-coords`, rf2-ypu5i / rf2-8bp3). The prior
+  ;; `:machine` lookup resolved nil, so `cascade-row-source-form` /
+  ;; `cascade-row-coord` saw no spec → every exit / entry action + guard
+  ;; row rendered the `<source not yet captured>` placeholder. Reading
+  ;; under `:event` surfaces the spec so the interleaved source code +
+  ;; click-to-source coords resolve.
   (let [machine-meta (when (some? event-id)
-                       (try (rf/handler-meta :machine event-id)
+                       (try (rf/handler-meta :event event-id)
                             (catch :default _ nil)))]
     [:div {:data-testid "rf-xray-epoch-handler-machine"}
      (machine-cascade-view machine-meta (or cascade []))]))
@@ -2782,12 +2824,27 @@
   rf2-ehd8v / Mike pair-debug 2026-05-26 — the verb itself IS the
   goto-source affordance; the legacy SOURCE sub-header that
   carried the file:line + [open] chrome is gone (handler-source-
-  block now leads with the code body directly)."
+  block now leads with the code body directly).
+
+  rf2-ge6uj ISSUE 1 — the EVENT HANDLER glyph was MISSING for machine
+  events. A machine is registered as an ordinary `:event` handler
+  carrying `:rf/machine? true` + the top-level `reg-machine` call-site
+  `:file` / `:line` (Spec 005 §Querying machines). There is NO
+  `:machine` registrar kind (`registrar/kinds` is `:event :sub :fx …
+  :machine-guard :machine-action`), so the prior `(if machine? :machine
+  :event)` lookup resolved nil for machine events → `coord` nil →
+  `coord-link` painted the plain (glyph-less) span. Reading the meta
+  under `:event` for BOTH flavours surfaces the call-site coord, so the
+  machine EVENT HANDLER carries the same `↗` glyph a plain event does.
+  (Verified machine-specific: a plain-event EVENT HANDLER already
+  resolved its coord under `:event` and had the glyph.)"
   [flavour event-id]
-  (let [machine? (= :reg-machine flavour)
-        meta     (when (some? event-id)
-                   (try (rf/handler-meta
-                          (if machine? :machine :event) event-id)
+  (let [meta     (when (some? event-id)
+                   ;; Machine + plain event handlers BOTH live under the
+                   ;; `:event` kind (the machine is a `reg-event-fx` with
+                   ;; `:rf/machine? true`); the call-site coord rides the
+                   ;; top-level `:file` / `:line` for both.
+                   (try (rf/handler-meta :event event-id)
                         (catch :default _ nil)))
         coord    (coord-from-handler-meta meta)
         label    (proj/handler-flavour-label flavour)]
