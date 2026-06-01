@@ -135,7 +135,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
-| `rf/configure` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
+| `rf/configure!` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
 | `rf/frame-ids` / `rf/view` | registry reads |
 | `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:on-error` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta` |

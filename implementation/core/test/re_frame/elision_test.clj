@@ -102,7 +102,7 @@
 ;; `:rf.warning/large-value-unschema'd` advisory is configurable, with
 ;; normative precedence:
 ;;
-;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure :elision …)`  >  16384
+;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! :elision …)`  >  16384
 ;;
 ;; A threshold of 0 disables runtime auto-detect (only declared / schema
 ;; entries elide; the unschema'd-large warning never fires).
@@ -129,7 +129,7 @@
     (rf/unregister-listener! :elision-test/default-thresh)))
 
 (deftest configured-threshold-takes-effect
-  ;; rf2-le2qu — the IMPL gap: `(rf/configure :elision {:rf.size/threshold-bytes N})`
+  ;; rf2-le2qu — the IMPL gap: `(rf/configure! :elision {:rf.size/threshold-bytes N})`
   ;; must lower (or raise) the runtime auto-detect threshold. A 100-byte
   ;; threshold makes a small string trip the warning that the 16384 default
   ;; would have ignored.
@@ -140,7 +140,7 @@
     (is (= 0 (count-unschema'd-warnings traces))
         "300-byte string is under the 16384 default — no warning")
     ;; Lower the configured threshold; now the same shape warns.
-    (rf/configure :elision {:rf.size/threshold-bytes 100})
+    (rf/configure! :elision {:rf.size/threshold-bytes 100})
     (rf/elide-wire-value {:b {:s small}})
     (is (= 1 (count-unschema'd-warnings traces))
         "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns")
@@ -150,7 +150,7 @@
   ;; The configure case stores the value where elision reads it — direct
   ;; assertion against the elision config, mirroring the :sub-cache shape
   ;; of configure-test.
-  (rf/configure :elision {:rf.size/threshold-bytes 4096})
+  (rf/configure! :elision {:rf.size/threshold-bytes 4096})
   (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
       "(configure :elision {:rf.size/threshold-bytes N}) reaches the elision config"))
 
@@ -160,14 +160,14 @@
   ;; then pass a large explicit opt on the call (must NOT warn).
   (let [s      (apply str (repeat 300 "z"))          ; ~302 bytes
         traces (collect-traces! :elision-test/opt-wins)]
-    (rf/configure :elision {:rf.size/threshold-bytes 50})
+    (rf/configure! :elision {:rf.size/threshold-bytes 50})
     ;; Configured 50 alone would warn for a 302-byte string; but the
     ;; explicit per-call opt of 100000 raises the bar above it.
     (rf/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000})
     (is (= 0 (count-unschema'd-warnings traces))
         "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
     ;; And conversely an explicit small opt wins over a large configured value.
-    (rf/configure :elision {:rf.size/threshold-bytes 1000000})
+    (rf/configure! :elision {:rf.size/threshold-bytes 1000000})
     (rf/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
     (is (= 1 (count-unschema'd-warnings traces))
         "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns")
@@ -179,12 +179,12 @@
   ;; unschema'd string never trips the warning.
   (let [big    (apply str (repeat 5000 "ABCDEFGH")) ; ~40002 bytes — well over default
         traces (collect-traces! :elision-test/zero)]
-    (rf/configure :elision {:rf.size/threshold-bytes 0})
+    (rf/configure! :elision {:rf.size/threshold-bytes 0})
     (rf/elide-wire-value {:a {:big big}})
     (is (= 0 (count-unschema'd-warnings traces))
         "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
     ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
-    (rf/configure :elision {:rf.size/threshold-bytes 100})
+    (rf/configure! :elision {:rf.size/threshold-bytes 100})
     (rf/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
     (is (= 0 (count-unschema'd-warnings traces))
         "explicit threshold-bytes 0 opt disables runtime auto-detect for that call")
@@ -196,7 +196,7 @@
   ;; marker regardless of threshold (including threshold 0).
   (rf/reg-app-schema [:doc] [:string {:large? true :hint "blob"}])
   (rf/populate-elision-from-schemas!)
-  (rf/configure :elision {:rf.size/threshold-bytes 0})
+  (rf/configure! :elision {:rf.size/threshold-bytes 0})
   (let [out (rf/elide-wire-value {:doc "x"})]
     (is (elision/marker? (:doc out))
         "schema-declared :large? paths elide independent of the runtime threshold")))

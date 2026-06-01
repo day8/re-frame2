@@ -35,7 +35,7 @@
   (trace/clear-frame-no-emit!)
   ;; Restore default cascades-retained between tests so a depth-tweaking
   ;; test does not bleed configuration into the next.
-  (rf/configure :trace-buffer {:cascades-retained 50})
+  (rf/configure! :trace-buffer {:cascades-retained 50})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -87,7 +87,7 @@
 
 (deftest cascade-keyed-eviction
   (testing "ring evicts by CASCADE slot, not by raw event count"
-    (rf/configure :trace-buffer {:cascades-retained 3})
+    (rf/configure! :trace-buffer {:cascades-retained 3})
     (rf/reg-event-db :ping (fn [db _] db))
     (dotimes [_ 10] (rf/dispatch-sync [:ping]))
     (let [cascades (rf/trace-buffer :rf/default)]
@@ -96,7 +96,7 @@
 
 (deftest cascade-burst-cannot-evict-prior-cascades
   (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"
-    (rf/configure :trace-buffer {:cascades-retained 5})
+    (rf/configure! :trace-buffer {:cascades-retained 5})
     (rf/reg-event-db :ping (fn [db _] db))
     ;; Run 5 cascades; emit a small burst of synthetic events under
     ;; cascade #3 (simulating a sub-skip flood inside one event).
@@ -126,7 +126,7 @@
 
 (deftest frame-isolation-cascade-bursts-dont-cross-rings
   (testing "a burst of cascades in one frame cannot evict cascades in another"
-    (rf/configure :trace-buffer {:cascades-retained 3})
+    (rf/configure! :trace-buffer {:cascades-retained 3})
     (rf/reg-frame :app/main {:doc "ordinary application frame"})
     (rf/reg-event-db :work (fn [db _] db))
     (rf/dispatch-sync [:work] {:frame :app/main})
@@ -171,7 +171,7 @@
 
 (deftest per-frame-cascades-retained-override
   (testing ":rf.trace/cascades-retained on reg-frame applies per-frame"
-    (rf/configure :trace-buffer {:cascades-retained 5})
+    (rf/configure! :trace-buffer {:cascades-retained 5})
     (rf/reg-frame :tb/deep {:rf.trace/cascades-retained 200
                             :doc "deep diagnostics"})
     (rf/reg-frame :tb/shallow {:doc "shallow — default applies"})
@@ -185,7 +185,7 @@
 
 (deftest cascades-retained-zero-disables-retention
   (testing "{:cascades-retained 0} disables the ring; surface stays live"
-    (rf/configure :trace-buffer {:cascades-retained 0})
+    (rf/configure! :trace-buffer {:cascades-retained 0})
     (rf/reg-event-db :ping (fn [db _] db))
     (dotimes [_ 5] (rf/dispatch-sync [:ping]))
     (is (= [] (rf/trace-buffer :rf/default))

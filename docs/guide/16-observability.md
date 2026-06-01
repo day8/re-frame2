@@ -78,7 +78,7 @@ So alongside the live stream, each frame keeps a **ring buffer** of recent histo
 There's exactly one knob:
 
 ```clojure
-(rf/configure :trace-buffer {:cascades-retained 50})  ;; the default
+(rf/configure! :trace-buffer {:cascades-retained 50})  ;; the default
 ```
 
 Fifty cascades. That's "the last fifty things the app did," diagnostic detail and all. It matches how operators actually think — "show me my last 50 events" — and it has a pleasant property: a chatty subscription that recomputes a thousand times in one cascade can't flood the buffer and evict the cascade you actually care about, because the whole noisy cascade lives or dies in *one* slot. Set it to `0` to disable the buffer (live delivery still works); raise it for a longer post-mortem window.

@@ -200,7 +200,7 @@
     ;; records mid-run — the count / ordering invariants below pin the
     ;; no-cap case. The depth-cap behaviour itself is covered by the
     ;; existing `ring-depth-evicts-oldest` deterministic pin (rf2-shjf).
-    (rf/configure :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
     (let [per-thread
           (vec
             (for [i (range n-threads)]
@@ -301,7 +301,7 @@
     ;; Bump the ring depth above iters — invariant 3 below counts the
     ;; final history; the cap behaviour is covered by the deterministic
     ;; `ring-depth-evicts-oldest` pin.
-    (rf/configure :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
     (rf/reg-frame :rd7a7.fanout/main {:doc "fanout-stress frame"})
     (rf/reg-event-db :bump (fn [db [_ i]]
                              (assoc db :last i)))
@@ -437,7 +437,7 @@
     ;; the test pins the no-cap case so the count assertion is exact.
     ;; A separate test under the existing depth-evicts pin (rf2-shjf)
     ;; covers the cap behaviour.
-    (rf/configure :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
     (rf/reg-frame :rd7a7.race/main {:doc "ring-buffer race frame"})
     (rf/reg-event-db :bump (fn [db [_ i]]
                              (assoc db :last i)))

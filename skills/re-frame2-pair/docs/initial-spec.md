@@ -28,7 +28,7 @@ re-frame2-pair inverts this. It operates on the live browser runtime *and* on so
 
 - **re-frame2** — the subject. The reference implementation targets Reagent v2 + shadow-cljs.
 - **`re-frame.interop/debug-enabled?` true** — automatic in dev builds; production elides per Spec 009 §Production builds. Without this, the trace stream and epoch history are no-ops and this skill has nothing to read.
-- **Optional: re-frame2 source-coord annotation** (`(rf/configure :source-coords {:annotate-dom? true})`) — populates `data-rf2-source-coord` on rendered DOM nodes. Without this, the DOM->source bridge degrades; with it, every annotated element resolves to `{:ns :line :file :column}`.
+- **Optional: re-frame2 source-coord annotation** (`(rf/configure! :source-coords {:annotate-dom? true})`) — populates `data-rf2-source-coord` on rendered DOM nodes. Without this, the DOM->source bridge degrades; with it, every annotated element resolves to `{:ns :line :file :column}`.
 - **Optional: re-com with debug instrumentation + `:src (at)`** at call sites — populates `data-rc-src`. Either annotation source unlocks the bridge; both can be present (re-frame2's wins).
 - **shadow-cljs** as the build tool, with nREPL enabled.
 
@@ -76,8 +76,8 @@ Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame
 
 - `(re-frame.trace.tooling/register-listener! :re-frame2-pair cb)` — raw trace stream (also re-exported on `rf/`). The skill's listener id is fixed (one listener per skill per Spec 009).
 - `(rf/register-epoch-listener! :re-frame2-pair-epoch cb)` — assembled-epoch stream. Mirrors `register-listener!`'s contract.
-- `(re-frame.trace.tooling/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure :trace-buffer {:depth N})`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
-- `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure :epoch-history {:depth N})`).
+- `(re-frame.trace.tooling/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! :trace-buffer {:depth N})`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
+- `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! :epoch-history {:depth N})`).
 - `(rf/restore-epoch frame-id epoch-id)` — first-class time-travel with six documented failure modes (Tool-Pair §Time-travel).
 
 No adapter layer; no internal-state introspection; no second source of truth. If a feature isn't in the Tool-Pair contract, the skill doesn't ship it (and the gap becomes a `bd` bead candidate — see "Asymmetries to monitor in the spec" in `STATUS.md`).

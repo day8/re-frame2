@@ -1514,7 +1514,7 @@
 
 ;; ---- configure / substrate adapter / boot --------------------------------
 
-(defn configure
+(defn configure!
   "Configure a process-level runtime knob. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
     :trace-buffer  {:cascades-retained N}           per-frame trace-ring cascade count

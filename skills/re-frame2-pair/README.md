@@ -47,7 +47,7 @@ Designed for web apps built from the following stack — in pre-alpha, it has no
 
 - A [re-frame2](https://github.com/day8/re-frame2) application (reference implementation: CLJS + Reagent v2)
 - `re-frame.interop/debug-enabled?` true (the `goog.DEBUG` mirror — set automatically in dev builds; production elides the trace and epoch surfaces per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md))
-- Optional: re-frame2's source-coord annotation enabled (`(rf/configure :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
+- Optional: re-frame2's source-coord annotation enabled (`(rf/configure! :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
 You don't need to make any changes to your code/project to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side.

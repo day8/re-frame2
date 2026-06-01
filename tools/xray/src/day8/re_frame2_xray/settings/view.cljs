@@ -874,13 +874,13 @@
 ;;
 ;; * Epoch history (rf2-3zyyx, slot `:general :epoch-history`) — wired
 ;;   to the framework's per-frame epoch ring depth via
-;;   `(rf/configure :epoch-history {:depth N})` (see
+;;   `(rf/configure! :epoch-history {:depth N})` (see
 ;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
 ;;   `:general` for back-compat with the persisted settings shape;
 ;;   only the popup home moved here (rf2-pu9sb).
 ;; * Cascades retained (slot `:buffer :cascades-retained`) — wired to
 ;;   the framework's per-frame trace ring depth via
-;;   `(rf/configure :trace-buffer {:cascades-retained N})` (rf2-43koh
+;;   `(rf/configure! :trace-buffer {:cascades-retained N})` (rf2-43koh
 ;;   consumer substrate).
 ;; * App-db inspector collapse threshold (slot
 ;;   `:buffer :app-db/inspector-collapse-threshold`) — stored for the

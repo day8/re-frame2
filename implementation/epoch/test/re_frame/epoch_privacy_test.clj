@@ -499,7 +499,7 @@
 (deftest retention-cap-zero-drops-every-trace-events
   (testing ":trace-events-keep 0 drops :trace-events from every
             record — the structured projections survive"
-    (rf/configure :epoch-history {:trace-events-keep 0})
+    (rf/configure! :epoch-history {:trace-events-keep 0})
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -518,7 +518,7 @@
 (deftest retention-cap-explicit-large-keeps-all
   (testing "an explicit :trace-events-keep value >= the depth cap
             keeps every record's :trace-events — the opt-back-in path"
-    (rf/configure :epoch-history {:trace-events-keep 100})
+    (rf/configure! :epoch-history {:trace-events-keep 100})
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))

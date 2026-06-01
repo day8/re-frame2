@@ -10,7 +10,7 @@ The first thing to understand is that the configuration surface isn't scattered 
 
 | Lifetime | Surface | Examples |
 |---|---|---|
-| Process-wide, value is data | `(rf/configure :key opts)` | trace-buffer depth, elision threshold, epoch history |
+| Process-wide, value is data | `(rf/configure! :key opts)` | trace-buffer depth, elision threshold, epoch history |
 | Process-wide, value is a fn/component | `(rf/set-x!)` / `(rf/install-x!)` | schema validator, schema explainer, substrate adapter |
 | Per-frame, lives as long as one frame | `reg-frame` / `make-frame` metadata, or `dispatch` opts | `:drain-depth`, `:on-error`, `:fx-overrides`, `:interceptors` |
 
@@ -18,14 +18,14 @@ The first two are global; the third is local. And there's a load-bearing rule si
 
 ### Bucket 1 — `configure`, for data knobs
 
-`(rf/configure key opts)` is the one entry point for process-level data settings. The vocabulary is closed-and-additive: there are four keys today, they're never renamed, never removed, and new ones arrive only by Spec change. Four keys. That's it.
+`(rf/configure! key opts)` is the one entry point for process-level data settings. The vocabulary is closed-and-additive: there are four keys today, they're never renamed, never removed, and new ones arrive only by Spec change. Four keys. That's it.
 
 **`:epoch-history` — how far back can you rewind?**
 
 ```clojure
-(rf/configure :epoch-history {:depth 50})        ;; the default
-(rf/configure :epoch-history {:depth 200})       ;; deeper history; more memory
-(rf/configure :epoch-history {:depth 0})         ;; disable entirely
+(rf/configure! :epoch-history {:depth 50})        ;; the default
+(rf/configure! :epoch-history {:depth 200})       ;; deeper history; more memory
+(rf/configure! :epoch-history {:depth 0})         ;; disable entirely
 ```
 
 Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — into a ring buffer, and that buffer is what powers Xray's time-travel, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface. 50 epochs comfortably covers a debug session (you almost never want to rewind further than 50 user actions). 200 suits a long stress run. 0 disables it — the right call for SSR production, where no replayer is attached and the per-cascade allocation is pure waste.
@@ -37,9 +37,9 @@ There's a `:redact-fn` build-time hook for apps that record sensitive material i
 **`:trace-buffer` — how many trace events sit in memory?**
 
 ```clojure
-(rf/configure :trace-buffer {:depth 200})        ;; the default
-(rf/configure :trace-buffer {:depth 1000})       ;; longer trace history
-(rf/configure :trace-buffer {:depth 0})          ;; disable the buffer
+(rf/configure! :trace-buffer {:depth 200})        ;; the default
+(rf/configure! :trace-buffer {:depth 1000})       ;; longer trace history
+(rf/configure! :trace-buffer {:depth 0})          ;; disable the buffer
 ```
 
 This is the ring of `:rf.*/*` trace events backing your dev tooling — the same stream [chapter 16 — Observability](16-observability.md) ships off-box, the same stream re-frame2-pair-mcp reads when an agent asks "what just happened." 200 holds one complex cascade comfortably (a user action fanning out into 30+ machine transitions, an HTTP round-trip, a handful of sub-runs). Bump it when you're hunting a bug that spans multiple user actions and events are rotating out before you can read them. Set it to 0 if you've registered listeners that ship events live (they get every event regardless of the buffer; the buffer is then just wasted memory). Dev-only, same as `:epoch-history`.
@@ -47,9 +47,9 @@ This is the ring of `:rf.*/*` trace events backing your dev tooling — the same
 **`:elision` — how big is "big enough to elide"?**
 
 ```clojure
-(rf/configure :elision {:rf.size/threshold-bytes 16384})   ;; the default — 16KB
-(rf/configure :elision {:rf.size/threshold-bytes 65536})   ;; tolerate bigger inline values
-(rf/configure :elision {:rf.size/threshold-bytes 0})       ;; disable runtime size-detection
+(rf/configure! :elision {:rf.size/threshold-bytes 16384})   ;; the default — 16KB
+(rf/configure! :elision {:rf.size/threshold-bytes 65536})   ;; tolerate bigger inline values
+(rf/configure! :elision {:rf.size/threshold-bytes 0})       ;; disable runtime size-detection
 ```
 
 This is the *runtime auto-detection* threshold for the wire-elision walker from [chapter 23](23-privacy-and-large-things.md): a value bigger than this gets a `:rf.size/large-elided` marker even when no schema pre-declared it `:large?`. 16KB is the default because that's about where pretty-printing a value into a Datadog event starts being a bad idea. Tune up if your back-end eats larger events and you want fewer refetch round-trips. Set it to 0 and *only* schema-declared `:large?` slots elide — the right setting if you've audited every slot via schemas and want zero accidental elision. One thing that is **never** size-gated: `:sensitive?`. Secrets redact regardless of size; the threshold governs `:large?` only.

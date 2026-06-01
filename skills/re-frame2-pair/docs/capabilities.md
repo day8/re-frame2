@@ -74,7 +74,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Restore an epoch | *done* | `epoch/restore` over `rf/restore-epoch` |
 | Step back one epoch | *done* | `undo/step-back` (sugar) |
 | Restore failure surfaces | *done* | Six modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
-| Configure ring depth | *done* | `(rf/configure :epoch-history {:depth N})` |
+| Configure ring depth | *done* | `(rf/configure! :epoch-history {:depth N})` |
 | Reverse side effects | *guardrail* | Restore rewinds `app-db` only; SKILL.md asks Claude to enumerate non-pure effects from the cascade and warn before restoring |
 
 ---

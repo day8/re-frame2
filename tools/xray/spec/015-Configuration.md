@@ -433,7 +433,7 @@ Buffer tab:
 - `:cascades-retained` — count of cascades retained in each frame's
   trace ring. Mirrors
   `re-frame.trace.tooling/default-cascades-retained` (`50`) and
-  writes through to `(rf/configure :trace-buffer {:cascades-retained
+  writes through to `(rf/configure! :trace-buffer {:cascades-retained
   N})` once the Settings UX wires the runtime knob (per rf2-43koh).
   Renamed from `:trace-buffer/keep` (events) at rf2-43koh — the unit
   changed from events to cascades when Xray's separate ring was

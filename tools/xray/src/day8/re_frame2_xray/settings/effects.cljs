@@ -412,16 +412,16 @@
 ;; ---- epoch history (rf2-3zyyx — spec/021 §10.7, §13) -------------------
 ;;
 ;; The Epoch history slider in Settings → General writes through to the
-;; substrate's per-frame ring depth via `(rf/configure :epoch-history
+;; substrate's per-frame ring depth via `(rf/configure! :epoch-history
 ;; {:depth N})` — the same runtime knob `re-frame.epoch.state/merge-config!`
 ;; gates on. The substrate reads the depth on every `record!` so the new
 ;; cap takes effect on the next drain settle; existing oversize histories
 ;; are NOT retroactively trimmed (pre-alpha posture — the substrate
 ;; comment on `elide-just-crossed-trace-events` documents this exactly).
 ;;
-;; ## Why route through `rf/configure` rather than reach into epoch.state
+;; ## Why route through `rf/configure!` rather than reach into epoch.state
 ;;
-;; `re-frame.core/configure` is the published API (per spec/Tool-Pair
+;; `re-frame.core/configure!` is the published API (per spec/Tool-Pair
 ;; §Bounded history + Conventions §Configure keys). Reaching directly
 ;; into `re-frame.epoch.state/merge-config!` would couple Xray to an
 ;; internal seam; the `configure` fn late-binds through the hook table
@@ -448,7 +448,7 @@
   [n]
   (when (and (number? n) (pos? n))
     (try
-      (rf/configure :epoch-history {:depth             (long n)
+      (rf/configure! :epoch-history {:depth             (long n)
                                     :trace-events-keep (long n)})
       (catch :default _ nil)))
   nil)
@@ -619,7 +619,7 @@
     ;; substrate's per-frame ring buffer matches the user's saved
     ;; capacity BEFORE the first dispatch settles into it. No-op-safe
     ;; when the epoch artefact isn't loaded (the late-bind hook in
-    ;; `re-frame.core/configure` returns nil so the call is a tap-only
+    ;; `re-frame.core/configure!` returns nil so the call is a tap-only
     ;; no-op).
     (apply-epoch-history! (get-in s [:general :epoch-history]))
     ;; Panel-position is intentionally NOT applied at boot — the

@@ -127,7 +127,7 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
 
 (defn ^:export main []
   (rf/init! reagent/adapter)
-  (rf/configure :trace-buffer {:depth 500})
+  (rf/configure! :trace-buffer {:depth 500})
   (rdom/render [views/root] (js/document.getElementById "app")))
 ```
 

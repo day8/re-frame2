@@ -126,7 +126,7 @@
                                   :note (str "Neither data-rf2-source-coord nor "
                                              "data-rc-src is on any element. "
                                              "DOM->source ops will degrade. Enable "
-                                             "(rf/configure :source-coords {:annotate-dom? true}) "
+                                             "(rf/configure! :source-coords {:annotate-dom? true}) "
                                              "or use re-com with :src (at)."))
                     auto-selected? build-id)))
 
