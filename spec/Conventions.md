@@ -352,6 +352,38 @@ This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise
 
 **The three-form family is deliberately preserved.** The three-form family (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) is deliberately preserved from re-frame v1 for migration ergonomics. The noise is acknowledged; the cost of breaking v1 muscle memory exceeds the readability win of collapsing.
 
+## No silent swallow — recognised input MUST signal
+
+This is the repo-level honest-signal rule the [§`:interceptors` is positional](#interceptors-is-positional-not-metadata-reg-event-) warning above is one instance of. It is the normative realisation of [Principles §No silent swallow](Principles.md#no-silent-swallow) — that principle names the *why*; this section is the MUST.
+
+> **Rule.** A user-supplied value that is **recognised as input** but **cannot be honoured** MUST produce a structured warning or error. Silent ignore is allowed **only** for explicitly namespaced extension keys in an extension map.
+
+"Recognised as input" means the value reached a slot the runtime reads — an opts key in a known opts position, an fx-override of a reserved fx-id, a callback whose return the runtime consumes, one of a pair of explicit options. "Cannot be honoured" means the runtime declines to act on it: it's an unknown key, the override is ignored, the return is dropped, the two options conflict. In every such case the runtime MUST signal — a dev-gated `:rf.warning/*` advisory (per [§Error-id and warning-id grammar](#error-id-and-warning-id-grammar)) when the cascade can continue safely, or a `:rf.error/*` when it cannot. **Silence is a dishonest signal**: the caller observes success, the value vanishes, and the defect surfaces far from its cause with no breadcrumb to follow.
+
+### The extension-key carve-out is load-bearing
+
+The single exception — silent ignore of **explicitly namespaced extension keys in an open extension map** — is what makes the rule compatible with [§Reserved namespaces](#reserved-namespaces-framework-owned)' open-map accretion and [Principles §Spec-ulation](Principles.md#spec-ulation). An open map (registration metadata, a machine snapshot's `:data`, a spawn-spec, a frame config) tolerates user-namespaced keys it does not recognise *by design* — that is how a producer adds vocabulary without a coordinated breaking change. Those keys are **not "recognised input the runtime declined to honour"**; they are foreign keys the runtime was never asked to interpret. The discriminator is recognition: a key in the framework's known set that the runtime drops is a silent swallow (banned); a user-namespaced key in an explicitly open map that the runtime never claims to read is accretion (allowed). A *bare* or *framework-namespaced* key the runtime does not recognise is on the wrong side of the line — it reads as a typo of a real key and MUST warn (the `:rf.warning/interceptors-in-metadata-map` and `:rf.warning/unknown-dispatch-opt` cases).
+
+### Pre-alpha is the window to be strict
+
+Pre-alpha re-frame2 carries no in-flight consumers a strict signal would break, so the rule ships at full strictness: every recognised-but-unhonourable input warns or errors today, with no tolerance grace period. The **only** sanctioned future relaxation is an opt-in `:allow-unknown? true` escape hatch on the relevant surface — a caller who deliberately wants forward-compatibility against a newer producer's vocabulary can suppress the unknown-key warning for that call. The escape hatch is **not shipped pre-1.0** and is recorded here only to fix the one forward-compat lever so a later relaxation is additive (a new opt) rather than a contract change to the rule itself. Absent the opt, the default is strict.
+
+### Per-surface applications
+
+The rule is cross-cutting; each surface applies it in its own spec and registrar, NOT here. The concrete instances that motivated naming the rule (each fixed in its own change, each an application of this principle):
+
+| Surface | Recognised-but-unhonourable input | Instance bead |
+|---|---|---|
+| Core dispatch | unknown opts key in the dispatch opts map (`:rf.warning/unknown-dispatch-opt`) | rf2-jbzhj |
+| Core fx | reserved-fx fn-override that was silently ignored while `:rf.fx/override-applied` lied that it applied | rf2-nnma3 |
+| Managed HTTP | `:on-failure nil` swallowing a real (non-aborted) failure with no dev-time signal | rf2-rl5tt |
+| SSR | conflicting `:payload-keys` + `:payload-policy` explicit opts (consolidated to one `:payload`, fail-closed) | rf2-pffil |
+| State machines | `:on-spawn` callback return silently dropped while the teaching surface implied it was recorded | rf2-g72p8 |
+| pair-mcp | `:unknown-tool` error envelope that dead-ended an agent with no `:hint` / `tools/list` pointer | rf2-tkmik |
+| Schemas | `reg-app-schema` silently accepting a bare keyword as opts and registering against the default frame | rf2-52dfy |
+
+New surfaces apply the rule by mechanism: if a recognised input cannot be honoured, signal it — and reach for the extension-key carve-out only when the dropped key is a user-namespaced key in an explicitly open map. A surface that seems to *need* silent-ignore of a recognised input is evidence of a missing warning, not an exception to the rule — file a bead against the owning spec rather than swallowing.
+
 ## Implementation note — persistent data structures
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other in-scope JS-cross-compile-language ports pick a host-idiomatic library (Immer or Immutable.js for TypeScript / Squint; im.kt or `kotlinx.collections.immutable` for Kotlin/JS; native PDS from the source language for Fable (F#) / Scala.js / PureScript / Melange / ReScript / Reason). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).

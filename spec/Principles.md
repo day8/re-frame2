@@ -7,7 +7,7 @@
 
 Each principle below is a one-line statement followed by one paragraph of guidance. The longer arguments — *why* the discipline principles are worth their cost — live in §Rationale essays at the end. Goals (the *what we're optimising for*) are owned by [000 §Goals](000-Vision.md#goals); this doc names the *how*.
 
-The 9 discipline principles, 2 foundational essays, and 1 deliverable principle below break into three groups:
+The 10 discipline principles, 2 foundational essays, and 1 deliverable principle below break into three groups:
 
 - **Discipline principles** — properties an individual EP can be graded against. The [AI-First Audit](AI-Audit.md) does exactly that grading.
 - **Foundational essays** — the deeper arguments for *why* the discipline principles are worth the cost. Live in §Rationale essays below.
@@ -76,6 +76,12 @@ Run-to-completion drain semantics, explicit effect boundaries, and inspectable s
 
 The [009 §Error contract](009-Instrumentation.md#error-contract) defines the structured shape; every error category carries a stable `:operation` keyword and a documented `:tags` payload.
 
+### No silent swallow
+
+**Principle:** a recognised input that cannot be honoured produces a signal — never silence.
+
+When the runtime *recognises* a user-supplied value as input but cannot act on it — an unknown opts key, a reserved-fx override it ignores, a callback whose return it drops, a conflicting pair of explicit options — it MUST emit a structured warning or error rather than continue as if the value were never supplied. Silent ignore is a *dishonest signal*: the caller sees success, the value vanishes, and the bug surfaces far from its cause with no breadcrumb. The carve-out is narrow and load-bearing — silent ignore is allowed **only** for explicitly namespaced extension keys in an open extension map, which is exactly what [§Spec-ulation](#spec-ulation)'s open-map accretion depends on. The normative MUST, the carve-out, and the pre-alpha-strictness rationale (with the `:allow-unknown?` forward-compat escape hatch) live in [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal); this principle names the *why* behind that rule. It is the honest-signal sibling of *machine-readable errors* — that principle governs the *shape* of a failure; this one governs *that a recognised-but-unhonourable input fails loudly at all*.
+
 ### Low hidden context
 
 **Principle:** behaviour is determined by visible inputs.
@@ -128,6 +134,7 @@ Templates per kind — add an event handler, add a schema-bound view, scaffold a
 - [AI-Audit.md](AI-Audit.md) — applies the discipline principles as a grading rubric to each Spec.
 - [Construction-Prompts.md](Construction-Prompts.md) — the "construction prompts" deliverable.
 - [009 §Error contract](009-Instrumentation.md#error-contract) — the structured-errors realisation of "machine-readable errors."
+- [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal) — the normative rule realising "no silent swallow," with the extension-key carve-out and the `:allow-unknown?` escape hatch.
 
 ---
 
