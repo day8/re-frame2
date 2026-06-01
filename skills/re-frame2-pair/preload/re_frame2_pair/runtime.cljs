@@ -605,6 +605,22 @@
         r  (validate-registered :event id)]
     (assoc r :event event-v)))
 
+(defn validate-sub-id
+  "Validate the head of a subscription query-vector against the `:sub`
+   registrar (rf2-3bu3d.7). `query-v` is the parsed sub vector; the id is
+   its first element. Returns the `validate-registered` shape, plus echoes
+   the `:query-v` so the wire result carries the resolved value.
+
+   The read-side counterpart of `validate-event-id`: a typo'd sub-id
+   (`[:current-userr]`) returns `:reason :unknown-id` with `:nearest`
+   matches instead of silently subscribing to a non-existent sub and
+   handing back nil/garbage (the typo-silent-nil mistake class the raw
+   `eval-cljs` read invited)."
+  [query-v]
+  (let [id (when (sequential? query-v) (first query-v))
+        r  (validate-registered :sub id)]
+    (assoc r :query-v query-v)))
+
 (defn- handler-fn-hash
   "Opaque hash for hot-reload probe comparisons. Function refs aren't
    reliably `=`, so hash a stringified form."
@@ -736,6 +752,75 @@
        @(rf/subscribe frame-id query-v)
        (catch :default e
          {:ok? false :reason :sub-error :message (.-message e) :frame frame-id})))))
+
+(defn read-sub!
+  "Validated one-shot subscription read (rf2-3bu3d.7) — the read-side
+   no-silent-swallow counterpart to `dispatch-consequence!`.
+
+   The #1 read on any re-frame2 app is a subscription value, and dropping
+   to raw `eval-cljs` `@(rf/subscribe [:foo])` is stringly + UNVALIDATED:
+   a typo'd sub-id silently subscribes to a non-existent sub and returns
+   nil/garbage. `read-sub!` closes that mistake class with the SAME
+   discipline `dispatch-consequence!` applies on the write side:
+
+     1. VALIDATE the sub-id (the query-vector's head) against the LIVE
+        `:sub` registrar FIRST (`validate-sub-id`). An unknown id returns
+        the structured `:reason :unknown-id` + `:nearest` matches WITHOUT
+        subscribing — never a silent nil. The result echoes `:query-v`.
+     2. Resolve the operating frame the same way every other read op does
+        (explicit override -> session pin -> sole app frame). No frame ->
+        `:reason :ambiguous-frame` (never silently reads `:rf/default`).
+     3. Subscribe + deref ONCE through `rf/subscribe` (the standard cache
+        lifecycle), inside a `try`. A deref/computation throw returns
+        `:reason :sub-error` carrying the message — a structured error,
+        never a bare nil.
+
+   On success returns `{:ok? true :query-v <v> :frame <id> :value <v>}`.
+   The `:value` is the RAW deref; the MCP `read-sub` tool wraps it through
+   `re-frame.core/elide-wire-value` at the wire boundary (the privacy
+   posture, like snapshot's `:sub-cache` slice + `get-path`) — this
+   runtime fn returns the verbatim value so direct CLJS callers (and the
+   wire wrapper) see the real thing.
+
+   `query-v` must be a non-empty sequential (a sub vector). A non-vector /
+   empty shape returns `:reason :not-a-sub-vector` — the read-side
+   analogue of dispatch's `:not-an-event-vector`."
+  ([query-v] (read-sub! query-v (current-frame)))
+  ([query-v frame-id]
+   (cond
+     (or (not (sequential? query-v)) (empty? query-v))
+     {:ok?    false
+      :reason :not-a-sub-vector
+      :query-v query-v
+      :hint   "a subscription read needs a non-empty query vector, e.g. [:current-user] or [:cart/total]."}
+
+     :else
+     (let [v (validate-sub-id query-v)]
+       (cond
+         ;; Unknown sub-id — structured error, NO subscribe (no silent
+         ;; nil). Echo the resolved query-v alongside the nearest matches.
+         (not (:ok? v))
+         (assoc v :subscribed? false)
+
+         (nil? frame-id)
+         {:ok?    false
+          :reason :ambiguous-frame
+          :query-v query-v
+          :hint   "Multi-frame session with no selected frame — pass `frame-id` or call `select-frame!` first."}
+
+         :else
+         (try
+           {:ok?     true
+            :query-v query-v
+            :frame   frame-id
+            :value   @(rf/subscribe frame-id query-v)}
+           (catch :default e
+             {:ok?     false
+              :reason  :sub-error
+              :query-v query-v
+              :frame   frame-id
+              :message (.-message e)
+              :hint    "the subscription handler threw while computing its value — inspect the sub's reg-sub body."})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Machines (Spec 005)
@@ -3640,3 +3725,84 @@
                                                 [fid (count (rf/epoch-history fid))])
                                               fids))
      :pair-epoch-count          (count @pair-epoch-ids)}))
+
+;; ---------------------------------------------------------------------------
+;; App-shape orientation summary (rf2-3bu3d.8)
+;; ---------------------------------------------------------------------------
+
+(def ^:private orient-registrar-kinds
+  "The registrar kinds whose COUNTS the orientation summary reports — the
+   closed v1 registrar set (mirrors `handler-meta`'s `registrar-kinds`).
+   `:event` / `:sub` / `:fx` additionally surface their full sorted id
+   vectors (the most navigable surfaces for 'what can I drive / read');
+   the rest contribute counts only so the summary stays compact and under
+   the wire cap. Drill via `list-handlers {kind ...}` for the full ids of
+   any kind."
+  [:event :sub :fx :cofx :view :frame :route :flow :head :error-projector])
+
+(defn- registrar-count
+  "Count of registered ids under `kind`, defensively zero on a registrar
+   that doesn't exist (an app that registered nothing of that kind)."
+  [kind]
+  (count (try (keys (rf/registrations kind)) (catch :default _ nil))))
+
+(defn orient
+  "App-shape orientation summary (rf2-3bu3d.8) — answer 'what is this app
+   and what can I drive?' in ONE round-trip.
+
+   When an agent connects to an UNFAMILIAR app, orienting otherwise takes
+   several calls (discover-app + snapshot top-keys + list-handlers +
+   list-subscriptions + machines/routes). `orient` composes those into a
+   single compact map by reusing the existing introspection surfaces — no
+   reinvention:
+
+     :liveness        the `health` liveness fact (debug-enabled? +
+                      frame counts) — the freshness check stays on
+                      discover-app; orient names enough to know the read
+                      is trustworthy.
+     :frames          {:all [...] :app [...] :operating <id>} — the
+                      `frames-list` view (reserved `:rf/*` tool frames
+                      split out via `app-frame-ids`).
+     :app-db-top-keys {<app-frame-id> [<top-level key> ...]} — the
+                      top-level app-db keys per APP frame (the cheap
+                      'what state shape is this' read; drill with
+                      `get-path` / `snapshot`). Tool frames are excluded
+                      (rf2-3bu3d.6 posture) so the summary doesn't
+                      overflow on Xray/SSR inspection state.
+     :registry        {:counts {<kind> N ...}
+                       :events [...] :subs [...] :fx [...]} — registrar
+                      COUNTS for every v1 kind, plus the full sorted id
+                      vectors for the three most navigable kinds. Drill
+                      any other kind via `list-handlers {kind ...}`.
+     :machines        the registered machine ids (`rf/machines`).
+
+   Compact + summarized by design (respect the wire cap): counts + the
+   high-value id vectors + per-frame top-keys, NOT the full app-db. The
+   MCP `orient` op (or `discover-app :orient true`) routes here.
+
+   Side effects: installs the trace/epoch/last-click listeners via
+   `health` (idempotent)."
+  []
+  (let [h        (health)
+        app-fids (app-frame-ids)]
+    {:ok?      true
+     :liveness {:debug-enabled?      (:debug-enabled? h)
+                :frame-count         (count (:frames h))
+                :app-frame-count     (count app-fids)
+                :ambiguous-frame?    (:ambiguous-frame? h)
+                :runtime-instance-id (:runtime-instance-id h)}
+     :frames   {:all       (:frames h)
+                :app       app-fids
+                :operating (:operating-frame h)}
+     :app-db-top-keys
+     (into {}
+           (map (fn [fid]
+                  [fid (let [db (rf/app-db-value fid)]
+                         (when (map? db) (vec (sort-by pr-str (keys db)))))]))
+           app-fids)
+     :registry {:counts (into {} (map (fn [k] [k (registrar-count k)]))
+                              orient-registrar-kinds)
+                :events (registrar-list :event)
+                :subs   (registrar-list :sub)
+                :fx     (registrar-list :fx)}
+     :machines (vec (rf/machines))}))

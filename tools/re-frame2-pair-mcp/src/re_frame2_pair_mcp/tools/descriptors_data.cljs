@@ -261,6 +261,40 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
+;; orient
+;; ---------------------------------------------------------------------------
+
+(def orient
+  {:name "orient"
+   :description (str "App-shape orientation summary in ONE round-trip (rf2-3bu3d.8) — \"what is this app "
+                     "and what can I drive?\". First-contact on an UNFAMILIAR app otherwise took several "
+                     "calls (discover-app + snapshot top-keys + list-handlers + list-subscriptions + "
+                     "machines); orient composes them by reusing the existing introspection surfaces. "
+                     "Most valuable for devs NOT working on re-frame2 tooling: they hand you an arbitrary "
+                     "app and you need a fast map of it. "
+                     "Returns: :liveness {:debug-enabled? :frame-count :app-frame-count :ambiguous-frame? "
+                     ":runtime-instance-id} (run discover-app for the full freshness token); :frames "
+                     "{:all [...] :app [...] :operating <id>} (reserved :rf/* tool frames split out); "
+                     ":app-db-top-keys {<app-frame-id> [<top-level key> ...]} (the cheap 'what state "
+                     "shape' read per APP frame — tool frames excluded so the summary doesn't overflow); "
+                     ":registry {:counts {<kind> N ...} :events [...] :subs [...] :fx [...]} (registrar "
+                     "COUNTS for every v1 kind plus the full sorted ids for the three most navigable "
+                     "kinds); :machines [...]. "
+                     "Compact + summarized by design (respects the wire cap) — counts + high-value id "
+                     "vectors + per-frame top-keys, NOT the full app-db. Drill via list-handlers / "
+                     "list-subscriptions / snapshot / get-path / read-sub. "
+                     "Examples: "
+                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
+                     "2. Production build (debug off): {} -> {:ok? true :liveness {:debug-enabled? false ...} ...} — trace/epoch surfaces elide, but the registry/frame shape still answers.")
+   :typicalTokens 600
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:build {:type "string"
+                                      :description "shadow-cljs build id. Defaults per the session-resolved build / SHADOW_CLJS_BUILD_ID / :app."}}
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
 ;; eval-cljs
 ;; ---------------------------------------------------------------------------
 
@@ -819,6 +853,69 @@
                                                                      "Default false ⇒ sensitive paths return the `:rf/redacted` "
                                                                      "sentinel.")}
                               :build   {:type "string"}}
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; read-sub
+;; ---------------------------------------------------------------------------
+
+(def read-sub
+  {:name "read-sub"
+   :description (str "Read a subscription value — the #1 read on any re-frame2 app — VALIDATED, with "
+                     "no-silent-swallow parity with dispatch (rf2-3bu3d.7). PREFER this over raw "
+                     "`eval-cljs` `@(re-frame.core/subscribe [:foo])`: that is stringly (you must know "
+                     "the ns alias), UNVALIDATED (a typo'd sub-id silently subscribes to a non-existent "
+                     "sub and hands back nil/garbage), and un-elided (a huge value can blow the wire). "
+                     "Also better than the snapshot :sub-cache slice, which only sees subs ALREADY "
+                     "materialised — read-sub subscribes a not-yet-mounted sub on demand. "
+                     "The `sub` arg is parsed as EDN ONCE server-side and MUST be a vector "
+                     "(`[:current-user]`, `[:user/by-id 42]`); host-form source is rejected with "
+                     ":reason :not-a-sub-vector, unreadable input with :reason :invalid-sub-edn (same "
+                     "data-not-source gate as dispatch). The sub-id (the vector head) is VALIDATED "
+                     "against the live :sub registrar: an unknown id returns :reason :unknown-id with "
+                     ":nearest matches (e.g. \"unknown :sub :current-userr; did you mean :current-user?\") "
+                     "and does NOT subscribe — never a silent nil. A sub handler that throws while "
+                     "computing returns :reason :sub-error with the message — a structured error, not "
+                     "a bare nil. "
+                     "Frame targeting: optional :frame resolves the operating frame (explicit > session "
+                     "pin > sole app frame); a multi-frame session with no selection returns "
+                     ":reason :ambiguous-frame rather than silently reading :rf/default. "
+                     "Privacy / elision (per Tool-Pair §Direct-read privacy posture, like snapshot's "
+                     ":sub-cache slice + get-path): the value is run through "
+                     "`re-frame.core/elide-wire-value` server-side — declared-sensitive values redact "
+                     "to :rf/redacted, declared-large values elide to :rf.size/large-elided. Pass "
+                     "`elision false` / `include-sensitive true` (honoured only when launched with "
+                     "--allow-sensitive-reads) to see the raw value. "
+                     "Examples: "
+                     "1. Hit: {:sub \"[:current-user]\"} -> {:ok? true :query-v [:current-user] :frame :rf/default :value {:id 42 :name \"Ada\"} :elision true}. "
+                     "2. Sub with args: {:sub \"[:user/by-id 42]\"} -> {:ok? true :query-v [:user/by-id 42] :value {...}}. "
+                     "3. Unknown sub-id (validated, NOT subscribed): {:sub \"[:current-userr]\"} -> {:ok? false :reason :unknown-id :kind :sub :id :current-userr :query-v [:current-userr] :nearest [:current-user] :subscribed? false :hint \"unknown :sub :current-userr; did you mean :current-user?\"}. "
+                     "4. Bad shape: {:sub \"42\"} -> {:ok? false :reason :not-a-sub-vector :parsed-type :scalar}. "
+                     "5. Large value elided: {:sub \"[:report/pdf]\"} -> {:ok? true :value {:rf.size/large-elided {...}} :elision true}. "
+                     "6. Multi-frame, no frame arg: {:sub \"[:cart/total]\"} -> {:ok? false :reason :ambiguous-frame :hint \"...pass `frame`...\"}.")
+   :typicalTokens 400
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:sub   {:type "string"
+                                      :description (str "The subscription query vector as EDN, e.g. \"[:current-user]\" "
+                                                        "or \"[:user/by-id 42]\". MUST be a vector — non-vector EDN and "
+                                                        "host-form source are rejected. Parsed once, echoed under "
+                                                        ":query-v, and the sub-id validated against the live :sub "
+                                                        "registrar (unknown -> :reason :unknown-id + :nearest, NOT "
+                                                        "subscribed).")}
+                              :frame {:type "string"
+                                      :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection returns :ambiguous-frame."}
+                              :elision knobs/elision-property
+                              :include-sensitive {:type "boolean"
+                                                   :description (str "Opt in to seeing the raw value when it derives from a "
+                                                                     "declared-sensitive app-db slot (the walker's "
+                                                                     "`:rf.size/include-sensitive?` opt). Default false ⇒ "
+                                                                     "sensitive values return the `:rf/redacted` sentinel. "
+                                                                     "Honoured only when the server was launched with "
+                                                                     "--allow-sensitive-reads.")}
+                              :build {:type "string"}}
+                 :required ["sub"]
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------

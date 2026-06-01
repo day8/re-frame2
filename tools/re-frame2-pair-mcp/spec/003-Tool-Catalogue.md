@@ -6,7 +6,11 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The twenty-six MCP tools. All twenty-six are catalogued below; the
+The twenty-eight MCP tools. All twenty-eight are catalogued below; the
+read-side ops `read-sub` (rf2-3bu3d.7 — the validated one-shot
+subscription read, no-silent-swallow parity with `dispatch`) and
+`orient` (rf2-3bu3d.8 — the app-shape orientation summary, one
+round-trip first-contact on an unfamiliar app), the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
@@ -403,6 +407,58 @@ ladder's four named reasons cover the common path.
 
 There is no fallback inject path; see the skill's SKILL.md §Setup for
 the two-line preload entry.
+
+## orient
+
+> Implemented by `tools.orient`; routes through the runtime `orient`
+> fn, which composes `health` + `app-frame-ids` + `registrar-list` +
+> `app-db-value` top-keys + `rf/machines`. rf2-3bu3d.8.
+
+**App-shape orientation summary in one round-trip** — the first-contact
+answer to "what is this app and what can I drive?". When an agent
+connects to an **unfamiliar** app, orienting otherwise took several
+calls: `discover-app` (frames / health) + `snapshot` summary (app-db
+top-keys) + `list-handlers` (event-ids) + `list-subscriptions` (sub-ids)
++ machines. `orient` composes those into one compact map by **reusing
+the existing introspection surfaces** — no parallel implementation.
+Most valuable precisely for devs **not** working on re-frame2 tooling:
+they hand the agent an arbitrary app and the agent needs a fast map of
+it.
+
+The summary shape:
+
+```clojure
+{:ok? true
+ :liveness {:debug-enabled?      bool
+            :frame-count         N
+            :app-frame-count     N
+            :ambiguous-frame?    bool
+            :runtime-instance-id <uuid>}
+ :frames   {:all [...] :app [...] :operating <id>}
+ :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
+ :registry {:counts {<kind> N ...}    ; every v1 registrar kind
+            :events [...] :subs [...] :fx [...]}  ; full ids for the 3 navigable kinds
+ :machines [...]}
+```
+
+Compact + **summarized by design** (respects the wire cap): registrar
+**counts** for every v1 kind, the full sorted **id vectors** for the
+three most navigable kinds (`:event` / `:sub` / `:fx`), and per-app-frame
+app-db **top-keys** — *not* the full app-db. Drill via the existing
+`list-handlers` / `list-subscriptions` / `snapshot` / `get-path` /
+`read-sub` ops.
+
+Reserved `:rf/*` **tool frames** (Xray's `:rf/xray`, SSR slots, …) are
+split out of `:frames` (`:app` vs `:all`) and **excluded** from
+`:app-db-top-keys` (the rf2-3bu3d.6 posture) so a first-contact
+orientation doesn't overflow on tool-frame inspection state. The full
+freshness/liveness token stays on `discover-app`; `orient` carries
+enough of it (`:debug-enabled?`, the frame counts, `:ambiguous-frame?`)
+to know the read is trustworthy.
+
+Read-only + idempotent across same-state calls — cacheable like the
+other read tools. `:reason :orient-failed` (with `:message`) on a
+runtime/eval failure; the standard preload diagnostics otherwise.
 
 ## Universal: server launch flags
 
@@ -1570,6 +1626,52 @@ wants several slices in the same round-trip; both share the same
 `:reason :path-and-paths-both-supplied` if both were supplied;
 `:reason :empty-paths` if `paths` was an empty vector;
 `:reason :get-path-failed` (with `:message`) on any other failure.
+
+## read-sub
+
+> Implemented by `tools.read-sub`; routes through the runtime
+> `read-sub!` (validate → resolve frame → subscribe + deref once) +
+> `re-frame.core/elide-wire-value` at the wire boundary. rf2-3bu3d.7.
+
+Read a **subscription value** — the single most common read on any
+re-frame2 app — **validated**, with **no-silent-swallow parity with
+`dispatch`**. Prefer this over the raw `eval-cljs`
+`@(re-frame.core/subscribe [:foo args])` incantation (stringly,
+**un-validated** — a typo'd sub-id silently subscribes to a
+non-existent sub and returns nil/garbage — and un-elided), and over the
+`snapshot` `:sub-cache` slice (which only sees subs **already
+materialised** in the reactive cache).
+
+The `sub` arg is parsed as EDN **once** server-side and MUST be a
+`vector?` (`[:current-user]`, `[:user/by-id 42]`). Host-form source is
+rejected with `:reason :not-a-sub-vector`, unreadable input with
+`:reason :invalid-sub-edn` — the same data-not-source gate `dispatch`
+applies to `event` (rf2-vflrg). The sub-id (the vector head) is
+**validated against the live `:sub` registrar** (the read-side mirror
+of `dispatch`'s event-id validation, rf2-3bu3d.3): an unknown id returns
+the structured `:reason :unknown-id` with `:nearest` matches and does
+**not** subscribe — never a silent nil. A sub handler that throws while
+computing returns `:reason :sub-error` carrying the message — a
+structured error, not a bare nil.
+
+Frame targeting mirrors every other read op: optional `:frame` resolves
+the operating frame (explicit → session pin → sole app frame); a
+multi-frame session with no selection returns `:reason :ambiguous-frame`
+rather than silently reading `:rf/default`.
+
+Privacy / elision matches `snapshot`'s `:sub-cache` slice and
+`get-path` (per [Tool-Pair §Direct-read privacy
+posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)):
+the value is run through `re-frame.core/elide-wire-value` server-side —
+declared-sensitive values redact to `:rf/redacted`, declared-large
+values elide to `:rf.size/large-elided`. `elision false` /
+`include-sensitive true` (honoured only under `--allow-sensitive-reads`)
+opt back in to the raw value.
+
+Success: `{:ok? true :query-v <v> :frame <id> :value <elided-value>
+:elision <bool>}`. The structured failures (`:not-a-sub-vector` /
+`:invalid-sub-edn` / `:missing-sub` / `:unknown-id` / `:ambiguous-frame`
+/ `:sub-error`) ride back as `:isError` envelopes.
 
 ## read-dom
 
