@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 438,
+ :var-count 470,
  :tier-vocab
  [:front-porch
   :advanced
@@ -16,7 +16,39 @@
   :internal-public
   :deprecated]}
  :vars
- [{:namespace "day8.re-frame2-xray.mount", :var "mounted?", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+ [{:namespace "day8.re-frame2-xray.config", :var "default-accent", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config", :var "default-accent-css-var", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config", :var "default-layout-host-css-var", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config", :var "default-layout-host-selector", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config", :var "default-layout-host-snippet", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config", :var "default-layout-host-width", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.mount", :var "mounted?", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.open-in-editor", :var "open-chip", :tier :tooling, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-app-db-diff!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-cancellation-cascade-popover!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-cancellation-cascade-side-panel!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-epoch-panel!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-event-spine!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-machine-inspector!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-managed-fx!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-reactive-panel!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-routing!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-segment-inspector!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-shell!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels", :var "mount-trace!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.app-db-diff", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.epoch-panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.machine-inspector", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.reactive-panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.routing", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.trace", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.runtime", :var "egress-record", :tier :tooling, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.runtime", :var "egress-value", :tier :tooling, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.runtime", :var "session-id", :tier :tooling, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.flows.panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.interceptors.panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.routes.panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.schemas.panel", :var "Panel", :tier :internal-public, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
