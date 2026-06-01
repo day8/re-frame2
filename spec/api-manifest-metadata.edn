@@ -80,10 +80,78 @@
   {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; --- Xray mount family (day8/re-frame2-xray) — host-embed surface,
-  ;;     internal-public per spec/API.md §Tiering of cross-tool surfaces.
-  ;;     Curated row (direction-1 only): probe verifies it still resolves. ---
-  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}]
+  ;; --- Xray (day8/re-frame2-xray) — the live public surface (rf2-jhn46).
+  ;;     Migrated off the `:xray-spec-known-unmanifested` allowlist into real
+  ;;     :cljs-only rows so the gkp0t Xray-spec projection check resolves them
+  ;;     to manifest rows and the 2mtte CLJS probe runtime-verifies them.
+  ;;     ALL are curated subsets (direction-1 only — the probe verifies each
+  ;;     rowed var still resolves; rename / removal → RED). The mount family is
+  ;;     `internal-public` per spec/API.md §Tiering of cross-tool surfaces (the
+  ;;     standing classification); the published constants + the Xray↔MCP read
+  ;;     seam + the editor-chip are `tooling` (dev/inspection surfaces consumed
+  ;;     by story-mode chrome, docs generators, and the pair-MCP servers — not
+  ;;     application logic). Owner "tools/xray"; status "post-v1 lib". ---
+  ;;
+  ;; day8.re-frame2-xray.mount — the shell lifecycle (only `mounted?` rowed;
+  ;; the open/close/teardown machinery is "otherwise unrowed-internal").
+  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; day8.re-frame2-xray.panels — the `mount-<panel>!` aggregator family
+  ;; (007-UX-IA §Mountable panel contract). internal-public — a host-embed
+  ;; surface; an app never calls these. (`mount-issues-ribbon!` +
+  ;; `mount-inline-panel!` are REMOVED surfaces the spec names in removal
+  ;; prose — they stay on the allowlist, not rowed; `mount-views!` was
+  ;; renamed → `mount-reactive-panel!`.)
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-app-db-diff!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-popover!"   :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-side-panel!" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-epoch-panel!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-event-spine!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-machine-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-managed-fx!"                     :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-reactive-panel!"                 :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-routing!"                        :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-segment-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-trace!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; The six Dynamic-mode canonical Panel reg-views + the four Static-mode
+  ;; Panel reg-views (spec/API.md §Panel reg-views + §Static-mode Panel
+  ;; reg-views). Each panel namespace exports a single public `Panel` — the
+  ;; bare-var symbol the Xray-spec projection check resolves. internal-public:
+  ;; the leaves the shell composes; NOT a host-facing single-panel embed
+  ;; surface (hosts embed the full shell per 008-Embedding-Contract).
+  {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.epoch-panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.machine-inspector"    :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.reactive-panel"       :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.routing"              :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.trace"                :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.flows.panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.interceptors.panel"   :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.routes.panel"         :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.schemas.panel"        :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; day8.re-frame2-xray.config — the published layout-host constants
+  ;; (spec/API.md §Published layout-host constants). Named CLJS vars so
+  ;; tooling (story-mode chrome, docs generators) refers to the exact
+  ;; spelling without forking the string — `tooling`. (Curated subset: the
+  ;; per-key setters + the settings round-trip are otherwise unrowed-internal.)
+  {:namespace "day8.re-frame2-xray.config" :var "default-accent"                :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config" :var "default-accent-css-var"        :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config" :var "default-layout-host-css-var"   :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config" :var "default-layout-host-selector"  :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config" :var "default-layout-host-snippet"   :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.config" :var "default-layout-host-width"     :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; day8.re-frame2-xray.open-in-editor — the editor-URI mirror chip
+  ;; (spec/API.md §Open in editor). A documented panel-author surface — `tooling`.
+  {:namespace "day8.re-frame2-xray.open-in-editor" :var "open-chip" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; day8.re-frame2-xray.runtime — the Xray ↔ MCP read-and-mutate seam
+  ;; (spec/API.md §Runtime accessor surface). The discovery sentinel
+  ;; (`session-id`) + the two named safe-egress entry points. Public-for-
+  ;; tools, not public-for-host-apps — `tooling`. (Curated subset: the
+  ;; accessor band fns are documented at their tool-name rows in the Xray
+  ;; spec, not the manifest; only the seam's named entry points are rowed.)
+  {:namespace "day8.re-frame2-xray.runtime" :var "egress-record" :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.runtime" :var "egress-value"  :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
@@ -125,34 +193,20 @@
    "mount-fn-for"            ; re-frame.story.ui.xray-embed sub-ns
    "popout-full-shell!"}     ; re-frame.story.ui.xray-embed sub-ns
 
- ;; tools/xray/spec/API.md public-var references the manifest does not yet
- ;; carry. REPORTED, not fixed (rf2-gkp0t: the Xray spec file is owned by a
- ;; concurrent worker — this check surfaces the drift; the manifest's Xray
- ;; coverage is presently the single `mounted?` read). The whole live Xray
- ;; panel + mount surface is enumerated here so the check is GREEN today but
- ;; goes RED the moment a NEW Xray panel/mount symbol appears in the spec or
- ;; an enumerated one is renamed — the same allowlist discipline as above.
- ;; A manifest-expansion follow-on should migrate these into :cljs-only Xray
- ;; rows and delete them here.
+ ;; tools/xray/spec/API.md public-var references the manifest does not carry.
+ ;; rf2-jhn46 MIGRATED the live Xray public surface (the `Panel` exports, the
+ ;; `mount-<panel>!` aggregator family, the `config` published constants, the
+ ;; `open-in-editor` chip, and the `runtime` discovery-sentinel + safe-egress
+ ;; entry points) into real `:cljs-only` rows above — they now resolve to
+ ;; manifest rows AND are runtime-verified by the 2mtte CLJS probe. The only
+ ;; entries that remain are two `mount-<panel>!` names the Xray spec mentions
+ ;; ONLY in REMOVAL prose: the underlying defns were deleted, so there is no
+ ;; live var to introspect and no honest manifest row — exactly the
+ ;; knowingly-unmanifested case this allowlist exists for. The check still
+ ;; goes RED if any OTHER Xray panel/mount symbol enters the spec unrowed.
  :xray-spec-known-unmanifested
- #{;; Dynamic-mode canonical six Panel reg-views (day8.re-frame2-xray.panels.*)
-   "Panel"                   ; the bare `Panel` export shared across every panel namespace
-   ;; mount-*! panel-host aggregator family (007-UX-IA §Mountable panel contract)
-   "mount-app-db-diff!" "mount-epoch-panel!" "mount-machine-inspector!"
-   "mount-routing!" "mount-trace!" "mount-views!" "mount-event-spine!"
-   "mount-segment-inspector!" "mount-managed-fx!"
-   "mount-cancellation-cascade-popover!" "mount-cancellation-cascade-side-panel!"
-   "mount-shell!" "mount-issues-ribbon!" "mount-inline-panel!"
-   ;; day8.re-frame2-xray.config — published layout-host constants (§Published
-   ;; layout-host constants); named CLJS vars so tooling refers to the exact spelling.
-   "default-layout-host-selector" "default-layout-host-css-var"
-   "default-layout-host-width" "default-accent-css-var" "default-accent"
-   "default-layout-host-snippet"
-   ;; day8.re-frame2-xray.open-in-editor — the editor-URI mirror chip.
-   "open-chip"
-   ;; day8.re-frame2-xray.runtime — the Xray ↔ MCP read seam discovery sentinel
-   ;; + safe-egress entry points (§Runtime accessor surface).
-   "session-id" "egress-value" "egress-record"}
+ #{"mount-issues-ribbon!"    ; spec/API.md §Panel reg-views — REMOVED with the Issues tab (rf2-gbz39, Option (c)); named in removal prose only
+   "mount-inline-panel!"}    ; spec/API.md §What this doesn't expose — REMOVED (rf2-sbfb7, "A — delete both"); named in removal prose only
 
  ;; skills/ (excl. re-frame-migration) call-position `(rf/<var>` references
  ;; the manifest does not carry. The checked skills teach against the LIVE
