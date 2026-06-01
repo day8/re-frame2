@@ -235,4 +235,28 @@
       (let [form (read-dom-form selector sub-selector limit max-text attrs)]
         (probe/eval-after-runtime!
           conn build-id form :read-dom-failed
-          (fn [envelope] (wire/ok-text envelope)))))))
+          (fn [envelope]
+            ;; The browser-side form ALWAYS returns a map (a `{:ok? ...}`
+            ;; envelope or the no-document / bad-selector error). A nil /
+            ;; non-map here means the eval came back BLANK —
+            ;; `cljs-eval-value` reads a blank shadow result as `nil`
+            ;; (no runtime answered, or the result slot was empty). Left
+            ;; unguarded, `(wire/ok-text nil)` projected to a `null`
+            ;; structuredContent that the SDK's outputSchema validation
+            ;; rejected at the transport layer with
+            ;; `expected record at structuredContent, received null`
+            ;; (rf2-r5erl) — bypassing the normal error contract. Surface
+            ;; it as a structured `{:ok? false ...}` like `orient` does.
+            (if (map? envelope)
+              (wire/ok-text (assoc envelope :build build-id))
+              (wire/err-text
+                {:ok?      false
+                 :reason   :rf.error/read-dom-blank-result
+                 :build    build-id
+                 :selector selector
+                 :hint     (str "read-dom's browser eval returned a blank "
+                                "value (no map envelope). The runtime "
+                                "likely did not answer the eval — reload "
+                                "the app tab so the re-frame2-pair runtime "
+                                "reconnects, then retry. Run discover-app "
+                                "to confirm :liveness :fresh.")}))))))))

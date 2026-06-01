@@ -50,5 +50,9 @@
       conn build-id form :orient-failed
       (fn [v]
         (if (map? v)
-          (wire/ok-text v)
-          (wire/err-text {:ok? false :reason :unexpected-shape :value v}))))))
+          ;; rf2-8t3ct / rf2-fmho5 — echo the canonical resolved `:build`
+          ;; so the agent sees which build this orientation ran against
+          ;; (the session-sticky target when `:build` was omitted) and can
+          ;; copy it straight into later calls.
+          (wire/ok-text (assoc v :build build-id))
+          (wire/err-text {:ok? false :reason :unexpected-shape :value v :build build-id}))))))

@@ -132,3 +132,29 @@
                  (is (err? r))
                  (is (= :unexpected-shape (:reason (read-result-text r))))
                  (done))))))
+
+(deftest echoes-resolved-build-for-round-tripping
+  ;; rf2-8t3ct / rf2-fmho5 — orient echoes the canonical resolved :build
+  ;; (the session-sticky target when :build is omitted) so the agent sees
+  ;; which build it oriented against.
+  (async done
+    (stub-eval! nil sample-summary)
+    (-> (orient/orient-tool (fresh-conn) #js {})
+        (.then (fn [r]
+                 (is (= :app (:build (read-result-text r)))
+                     "orient echoes the resolved :build keyword")
+                 (done))))))
+
+(deftest echoes-session-sticky-build-when-omitted
+  ;; With a session target cached (a prior discover-app), orient with no
+  ;; :build arg resolves to AND echoes that sticky target (rf2-fmho5).
+  (async done
+    (stub-eval! nil sample-summary)
+    (let [conn (fresh-conn)]
+      (swap! conn assoc :resolved-build-id :examples/step-deck
+                        :probed-builds #{:examples/step-deck})
+      (-> (orient/orient-tool conn #js {})
+          (.then (fn [r]
+                   (is (= :examples/step-deck (:build (read-result-text r)))
+                       "orient resolves + echoes the session-sticky build")
+                   (done)))))))

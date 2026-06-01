@@ -122,6 +122,31 @@ explicit `:build` both routes that call and re-points the sticky
 default. Multi-build workspaces re-specify `:build` when switching the
 target.
 
+**Round-trippable canonical ids (rf2-8t3ct).** The canonical build id
+is the **keyword** (`:examples/step-deck`). `discover-app` echoes it
+under both `:build-id` and `:build` (the latter matching the *input arg
+name*), and the read-family ops (`orient`, `read-dom`, `read-ui`,
+`eval-cljs`) echo the resolved `:build` on their result. A value copied
+out of any of those slots works unchanged as a later `:build` arg — the
+only alias axis is colon-tolerance (source (1) above), which is
+deterministic: both the bare-qualified and colon-prefixed string forms
+read back to the same keyword. There is no fuzzy build-alias surface to
+disambiguate; the registry is the finite set of shadow-cljs running
+builds, addressed by exact keyword.
+
+**Per-session scope, never a process-global (rf2-fmho5).** The sticky
+`:resolved-build-id` lives on the **conn-atom**, which is created
+per-server-instance (`nrepl/make-conn`, held in `server.cljs`'s
+`session-state`). Under the MCP stdio model each client spawns its own
+server process — so the sticky target is scoped to that one
+connection/session and can never leak across clients. When no session
+target exists and the bare `:app` default isn't running while several
+builds are, the eval-path resolver (`probe/resolve-build!`) rejects with
+a structured `:no-runtime-for-build` enumerating `:running-builds`, and
+the plain read path surfaces the same candidate list via the diagnostic
+ladder's `:build-not-running` rung — a clear ambiguous-target error
+listing candidates, never a silent wrong-build pick or a host failure.
+
 Distinct from the per-session **response** cache (rf2-3rt1f, see
 [`Principles.md`](./Principles.md) § Per-session response cache) —
 that one memoises full response payloads by (tool, args) hash within a

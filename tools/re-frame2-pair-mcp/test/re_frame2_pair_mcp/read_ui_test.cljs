@@ -24,6 +24,7 @@
   read."
   (:require [cljs.test :refer-macros [deftest is async]]
             [clojure.string :as str]
+            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]))
@@ -192,4 +193,35 @@
                    (let [edn (tu/extract-edn r)]
                      (is (false? (:ok? edn)))
                      (is (= :rf.error/ui-read-bad-selector (:reason edn))))
+                   (done)))))))
+
+(deftest blank-eval-result-becomes-structured-error-not-host-failure
+  ;; rf2-r5erl sibling: a blank eval result (nil) must not produce a null
+  ;; structuredContent that the SDK rejects at the transport layer.
+  (async done
+    (-> (tu/with-stubbed-eval! nil
+          (fn []
+            (read-ui/read-ui-tool (fresh-conn) #js {:selector "body"})))
+        (.then (fn [r]
+                 (is (tu/error? r))
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :rf.error/read-ui-blank-result (:reason edn))))
+                 (is (some? (j/get r :structuredContent))
+                     "structuredContent must NOT be null (rf2-r5erl)")
+                 (is (object? (j/get r :structuredContent)))
+                 (done))))))
+
+(deftest happy-result-echoes-canonical-build
+  ;; rf2-8t3ct / rf2-fmho5 — read-ui echoes the resolved :build.
+  (async done
+    (let [canned {:ok? true :via :selector
+                  :entity {:view-id :my.app/x :source-coord nil :render-key 1 :subs-read []}
+                  :content {:tag "div" :text "x" :attrs {}}}]
+      (-> (tu/with-stubbed-eval! canned
+            (fn []
+              (read-ui/read-ui-tool (fresh-conn) #js {:selector "#x"})))
+          (.then (fn [r]
+                   (is (= :app (:build (tu/extract-edn r)))
+                       "echoes the resolved :build keyword")
                    (done)))))))

@@ -351,10 +351,18 @@ a build cached by a prior discover-app) is honoured verbatim and skips
 auto-selection.
 
 **Returns**: an `:ok? true` map with `:debug-enabled?`, `:frames`,
-`:coord-annotation-enabled?`, `:build-id`. On success the resolved
-build-id is cached on the conn-atom (`:resolved-build-id`, rf2-l9ixp);
+`:coord-annotation-enabled?`, `:build-id`, and a canonical `:build`
+(rf2-8t3ct — the same value as `:build-id`, echoed under the **input
+arg name** so a caller copies it straight back into a later tool's
+`:build` slot; round-trippable, since `:build`-arg coercion reads both
+`"examples/step-deck"` and `":examples/step-deck"` back to the same
+keyword). On success the resolved build-id is cached on the conn-atom
+(`:resolved-build-id`, rf2-l9ixp) — the session-sticky target;
 subsequent tool calls may omit the `:build` arg — see
-[`API.md` §Build-id resolution](./API.md#build-id-resolution).
+[`API.md` §Build-id resolution](./API.md#build-id-resolution). The
+read-family ops (`orient`, `read-dom`, `read-ui`, `eval-cljs`) echo the
+resolved `:build` on their result so the operating target stays visible
+even when implicitly selected (rf2-fmho5).
 
 **Id representation (rf2-cg37y).** Every build/frame id discover-app
 surfaces — `:build-id`, `:frames`, and the diagnostic `:running-builds`
@@ -1735,12 +1743,26 @@ view-plane idiom for surfacing rendered state), `build` (string).
 When nothing matched (no app mounted, or the selector matched no
 element): `{:ok? true :count 0 :nodes []}`.
 
+Every `:ok? true` result also echoes the resolved `:build` keyword
+(rf2-8t3ct / rf2-fmho5) so the operating target stays visible even when
+implicitly selected from the session-sticky cache.
+
 `:reason :missing-selector` if `selector` was omitted / blank (no
 nREPL round-trip);
 `:reason :rf.error/read-dom-bad-selector` (with `:message`) when
 `querySelectorAll` throws on a malformed selector;
 `:reason :rf.error/read-dom-no-document` when the eval target has no
 `js/document` (headless / server-side);
+`:reason :rf.error/read-dom-blank-result` (rf2-r5erl) when the browser
+eval came back **blank** (no map envelope — the runtime didn't answer,
+e.g. a dropped WebSocket). This is returned as a normal `{:ok? false}`
+tool result; it is NEVER a host-level transport failure. (Earlier a
+blank eval threaded `nil` into the result envelope, whose `null`
+`structuredContent` failed the SDK's `outputSchema` validation with
+`expected record at structuredContent, received null` — bypassing this
+error contract entirely. `wire/ok-text` / `err-text` now guarantee a
+non-null `structuredContent` record, and read-dom maps a blank result
+to this reason.);
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :read-dom-failed` (with `:message`) on any other failure.
 

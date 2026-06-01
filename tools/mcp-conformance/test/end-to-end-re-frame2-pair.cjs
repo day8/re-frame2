@@ -150,6 +150,19 @@ runWithWatchdog(
       { name: 'subscribe', arguments: { topic: 'trace' } },
       { name: 'list-subscriptions', arguments: {} },
       { name: 'list-streams', arguments: {} },
+      // rf2-r5erl — read-dom (and its read-ui sibling + orient) MUST
+      // produce an SDK-valid result envelope, never a null
+      // structuredContent that the SDK's outputSchema validation rejects
+      // at the transport layer (`expected record at structuredContent,
+      // received null`). The bug surfaced on a LIVE read-dom whose
+      // browser eval came back blank; degraded mode exercises the same
+      // envelope-assembly path (the eval short-circuits at
+      // :nrepl-port-not-found through wire/err-text). Including them here
+      // pins the read-family envelope shape at the authoritative SDK
+      // layer, not just a unit proxy.
+      { name: 'read-dom', arguments: { selector: 'body', limit: 1 } },
+      { name: 'read-ui', arguments: { selector: 'body' } },
+      { name: 'orient', arguments: {} },
     ];
 
     // Call one tool and assert the shared degraded envelope. Returns the
@@ -194,6 +207,11 @@ runWithWatchdog(
       'snapshot',
       'subscribe',
       'list-subscriptions',
+      // rf2-r5erl — the read-family envelopes must carry a non-null
+      // object structuredContent through the SDK like every other tool.
+      'read-dom',
+      'read-ui',
+      'orient',
     ]) {
       const resp = degradedResp[label];
       if (resp.structuredContent === undefined || resp.structuredContent === null) {

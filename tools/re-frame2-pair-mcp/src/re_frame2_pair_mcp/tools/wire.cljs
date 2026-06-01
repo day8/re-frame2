@@ -45,26 +45,80 @@
 ;; projection (keywords lose their `:`, sets become arrays, etc.).
 ;; The text slot remains the source of truth for cljs-readable round-
 ;; trip; the structured slot is the SDK-friendly view.
+;;
+;; ## structuredContent must never be `null` (rf2-r5erl)
+;;
+;; Every tool descriptor declares a map-shaped `:outputSchema`
+;; (`{:type "object" ...}`, rf2-3l3be). When a descriptor carries an
+;; `:outputSchema`, the npm MCP SDK VALIDATES the result's
+;; `structuredContent` against it — and a `null` is not an object, so
+;; the SDK rejects the whole `tools/call` with a host-level
+;; `Invalid tools/call result: expected record at structuredContent,
+;; received null` BEFORE the EDN ever reaches the agent. That bypasses
+;; re-frame2-pair's `{:ok? false ...}` error contract entirely.
+;;
+;; A `null` reaches here exactly when `v` is `nil` — e.g. a tool that
+;; threads a blank nREPL eval result straight into `ok-text`
+;; (`cljs-eval-value` returns `nil` for a blank value). `read-dom`
+;; hit this in the wild (rf2-r5erl); `read-ui` did not, by luck of
+;; always getting a map back. Rather than rely on every call-site
+;; guarding nil, we make the wire shape TOTAL: a `nil` payload
+;; projects to a structured `{:rf.mcp/null true}` sentinel object so
+;; `structuredContent` is always a record the SDK accepts. The EDN
+;; text slot still carries the verbatim `(pr-str v)` (`"nil"`) so the
+;; cljs-readable round-trip is unchanged for hosts that read the text.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private null-structured-sentinel
+  "JS object substituted for `structuredContent` when the EDN payload is
+  `nil` (rf2-r5erl). A `null` structuredContent fails the SDK's
+  outputSchema validation (`expected record ... received null`); this
+  sub-object keeps the slot a record. Hosts that read the EDN text slot
+  see the verbatim `nil`; hosts that read the structured slot see the
+  sentinel and know the payload was empty."
+  {"rf.mcp/null" true})
+
+(defn- structured-of
+  "Project `v` to the `:structuredContent` JS value, guaranteeing a
+  non-null record (rf2-r5erl). `(clj->js v)` is `null` exactly when
+  `v` is `nil`; substitute the `:rf.mcp/null` sentinel object so the
+  SDK's outputSchema validation (which requires an object) never
+  rejects the result at the transport layer."
+  [v]
+  (if (nil? v)
+    (clj->js null-structured-sentinel)
+    (let [sc (clj->js v)]
+      ;; clj->js of a non-nil scalar can still be a JS primitive (a
+      ;; number / string / boolean), which is also not a record. Wrap
+      ;; any non-object projection in the sentinel-shaped envelope so
+      ;; the slot is always object-typed. (Tool payloads are maps in
+      ;; practice; this is the total-function backstop.)
+      (if (object? sc) sc (clj->js {"rf.mcp/value" v})))))
 
 (defn ok-text
   "Success result envelope. Always emits both `:content` (the
   pr-str EDN text) and `:structuredContent` (the JS-coerced
   projection of the same value). Agent hosts that recognise
   `:structuredContent` read the typed object; others fall back to
-  parsing the text slot."
+  parsing the text slot.
+
+  `:structuredContent` is guaranteed a non-null record (rf2-r5erl) —
+  a `nil` payload projects to the `:rf.mcp/null` sentinel object so the
+  SDK's outputSchema validation never rejects the result for a `null`
+  structuredContent."
   [v]
   #js {:content          #js [#js {:type "text" :text (pr-str v)}]
-       :structuredContent (clj->js v)})
+       :structuredContent (structured-of v)})
 
 (defn err-text
   "Error result envelope. Same dual-slot shape as `ok-text` plus
   `:isError true` so the agent client surfaces the failure to the
-  LLM without aborting the conversation (per MCP §Error Handling)."
+  LLM without aborting the conversation (per MCP §Error Handling).
+  `:structuredContent` is non-null by construction (rf2-r5erl)."
   [v]
   #js {:isError          true
        :content          #js [#js {:type "text" :text (pr-str v)}]
-       :structuredContent (clj->js v)})
+       :structuredContent (structured-of v)})
 
 (defn with-indicators
   "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,
