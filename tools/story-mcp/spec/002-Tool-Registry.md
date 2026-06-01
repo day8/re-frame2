@@ -37,6 +37,17 @@ assembles this shape through `re-frame.story.result/run-result`; the MCP
 handlers project its slots (scrubbing the value-bearing ones at egress)
 rather than re-deriving a verdict.
 
+**Frozen, schema-backed contract (rf2-3nbl5.6).** This unified shape is a
+**frozen public contract** — the ONE result language spoken IDENTICALLY
+across the CLJS test surface, the Story UI Test mode, and these MCP tools.
+A result object crosses the MCP boundary with **NO semantic translation**:
+the wire payload is the SAME `:status` / `:assertions` / `:checks` /
+`:consumed-selectors` shape the CLJS boundary minted, validated by the
+SAME Malli schema (`re-frame.story.result/RunResult`, re-exported as
+`story/run-result-schema`). The cross-surface round-trip
+(CLJS → Story UI → MCP) is gated by
+`re-frame.story-mcp.run-result-roundtrip-test`.
+
 **Clean break (pre-alpha, Mike 2026-05-31).** The pre-unification flat
 shape (`:passing?` boolean, the `:lifecycle` *verdict*, a flat
 `:assertions` vector with no `:status`) is REMOVED outright — NO compat

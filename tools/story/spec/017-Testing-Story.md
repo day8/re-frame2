@@ -1797,6 +1797,26 @@ is API-stable, but the storage/source of truth is one tape so Story UI,
 CI, docs, agents, and future golden/diff tools cannot disagree about what
 happened.
 
+**Schema-backed, frozen contract (rf2-3nbl5.6).** This shape is a
+**frozen public contract** — the ONE result language spoken IDENTICALLY
+across `story/run`, `story/is`, `story/render-variant`, the Story UI Test
+mode, story-mcp `run-variant` / `read-failures`, and generated run
+artifacts. A result object moves **CLJS test → Story UI → MCP with NO
+semantic translation**. The contract is **executable**: the Malli schema
+`re-frame.story.result/RunResult` (with `AssertionRecord` / `CheckRecord`,
+re-exported as `story/run-result-schema` + `story/valid-run-result?` /
+`story/explain-run-result`) is the statement of record, and the
+cross-surface round-trip is gated by
+`re-frame.story-mcp.run-result-roundtrip-test`. The map schema is
+deliberately **open** — the verdict + judgement + agreement-floor slots
+are pinned, while the evidential `.4` projections and the identity /
+timing / provenance slots (`:frame`, `:decorators`, …) ride along. The
+verdict is `:status`, read via `story/result-status` /
+`story/result-passed?`; there is **NO `:passing?` boolean** and **no
+lifecycle-as-verdict** (the clean break, rf2-ba86n.17 — a boolean could
+not express the distinct `:cannot-run` THIRD outcome, and a lifecycle
+state is the frame's mount state, not the run's judgement).
+
 ```clojure
 {:status :pass                          ; :pass | :fail | :cannot-run | :error
  :variant/id optional-keyword

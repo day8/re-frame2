@@ -62,7 +62,8 @@
   `re-frame.core` / the DOM, so the whole assembly runs under
   `clojure -M:test`. The runner reads the tape + the accumulator and hands
   the vectors here; the assembly never touches the runtime."
-  (:require [re-frame.story.assertions    :as assertions]
+  (:require [malli.core                   :as m]
+            [re-frame.story.assertions    :as assertions]
             [re-frame.story.play.evidence :as evidence]
             [re-frame.story.requirements  :as requirements]))
 
@@ -80,6 +81,129 @@
                     not even attempt (the distinct THIRD status, §`:cannot-run`);
   - `:error`      — a handler / fx / step threw."
   #{:pass :fail :cannot-run :error})
+
+;; ===========================================================================
+;; THE SCHEMA-BACKED CONTRACT  (rf2-3nbl5.6 — API governance freeze)
+;; ===========================================================================
+;;
+;; The unified run-result is a FROZEN, schema-backed public contract: the ONE
+;; result language spoken IDENTICALLY across `story/run`, `story/is`,
+;; `story/render-variant`, the Story UI Test mode, story-mcp `run-variant` /
+;; `read-failures`, and generated run artifacts. A result object moves
+;; CLJS test → Story UI → MCP with NO semantic translation — these Malli
+;; schemas are the executable statement of that contract (spec/017 §Run
+;; result). They are plain Malli forms (`metosin/malli`), survive `:advanced`
+;; (plain data), and run on both JVM + CLJS.
+;;
+;; The verdict is `:status` (an `Status` enum) — there is NO `:passing?`
+;; boolean and NO lifecycle-as-verdict (the clean break, rf2-ba86n.17): a
+;; boolean could not express the distinct `:cannot-run` THIRD outcome, and a
+;; lifecycle state (`:ready` / `:error`) is the frame's mount state, not the
+;; run's judgement. The accessors are `result-status` / `result-passed?`
+;; (re-exported from `re-frame.story`); a green/red bit is DERIVED from
+;; `:status`, never stored.
+;;
+;; The map schemas are deliberately OPEN (`{:closed false}`): the load-bearing
+;; contract slots (`:status` + the judgement / evidence slots) are pinned, but
+;; a runner / MCP / artifact layer MAY carry additional provenance slots
+;; (`:frame`, `:decorators`, `:rendered-hiccup`, `:snapshot`, …) without
+;; breaking the contract. What is frozen is the SHARED vocabulary every
+;; surface reads, not an exhaustive key list.
+
+(def Status
+  "The frozen verdict enum (spec/017 §Run result). The ONE field every
+  run / assertion / check carries — `:pass` | `:fail` | `:cannot-run` |
+  `:error`. Replaces the retired `:passing?` boolean (it could not express
+  the `:cannot-run` THIRD status)."
+  (into [:enum] statuses))
+
+(def AssertionRecord
+  "Malli schema for ONE evaluated assertion record (spec/017 §Run result —
+  Assertion record). `:status` is the frozen verdict; `:passed?` is the
+  legacy boolean kept ONLY as a diagnostic mirror (the verdict is
+  `:status`). Open map — the `.18` atom fields and source-coords ride
+  along."
+  [:map {:closed false}
+   [:assertion   {:optional true} :keyword]
+   [:status      Status]
+   [:passed?     {:optional true} [:maybe :boolean]]
+   [:payload     {:optional true} [:sequential :any]]
+   [:expected    {:optional true} :any]
+   [:actual      {:optional true} :any]
+   [:reason      {:optional true} [:maybe [:or :keyword :string]]]
+   [:cannot-run? {:optional true} :boolean]
+   [:source      {:optional true} :any]
+   [:elapsed-ms  {:optional true} [:maybe number?]]])
+
+(def CheckRecord
+  "Malli schema for ONE check record (spec/017 §Run result — Check record)
+  — a named check id grouping the assertion records its assertions
+  produced. `:status` aggregates the group via the ONE aggregation rule."
+  [:map {:closed false}
+   [:check      :keyword]
+   [:status     Status]
+   [:assertions [:vector AssertionRecord]]])
+
+(def RunResult
+  "Malli schema for the ONE unified run-result (spec/017 §Run result) — the
+  FROZEN public contract every Story runner, Test mode, CI, `clojure.test`
+  / `cljs.test`, and story-mcp consume IDENTICALLY. Open map: the verdict
+  + judgement + agreement-floor slots are pinned; the evidential `.4`
+  projections and the identity / timing / provenance slots are optional
+  (a host without the epoch artefact omits the evidential ones; a bare
+  re-read like `read-failures` omits the tape-floor slots).
+
+  The frozen, always-present slots:
+
+  - `:status`             — the verdict (`Status`); the headline every
+                            surface reads.
+  - `:assertions`         — the unified assertion records.
+  - `:checks`             — the named check-record groups.
+  - `:consumed-selectors` — the agreement-floor's exactly-consumed
+                            schema-violation selector set (the single
+                            source of truth Test mode reads, never
+                            re-derives). Always present (`#{}` when empty)."
+  [:map {:closed false}
+   [:status             Status]
+   [:assertions         [:vector AssertionRecord]]
+   [:checks             [:vector CheckRecord]]
+   [:consumed-selectors [:set :any]]
+   ;; identity / timing (the API-stable provenance slots) — optional
+   [:variant/id      {:optional true} :keyword]
+   [:plan-hash       {:optional true} [:maybe :string]]
+   [:run-hash        {:optional true} [:maybe :string]]
+   [:runner          {:optional true} :any]
+   [:required-runner {:optional true} [:maybe [:set :any]]]
+   [:fidelity        {:optional true} [:maybe [:set :any]]]
+   [:elapsed-ms      {:optional true} [:maybe number?]]
+   [:app-db          {:optional true} :any]
+   ;; evidential `.4` projections — optional (a host without the epoch
+   ;; artefact projects empty / omits these)
+   [:epoch-tape        {:optional true} [:sequential :any]]
+   [:narrative         {:optional true} [:sequential :any]]
+   [:schema-violations {:optional true} [:sequential :any]]
+   [:warnings          {:optional true} [:sequential :any]]
+   [:effects           {:optional true} [:sequential :any]]
+   [:sub-runs          {:optional true} [:sequential :any]]
+   [:renders           {:optional true} [:sequential :any]]
+   [:reactive-counts   {:optional true} :map]
+   ;; the run-level :cannot-run refusals, present iff the runner could not
+   ;; attempt some expectation
+   [:cannot-run {:optional true} [:sequential :any]]])
+
+(defn valid-run-result?
+  "True iff `result` conforms to the frozen `RunResult` contract
+  (rf2-3nbl5.6). Pure data → data — the executable check Test mode / CI /
+  MCP / the test corpus run to prove a result speaks the ONE language."
+  [result]
+  (m/validate RunResult result))
+
+(defn explain-run-result
+  "Malli explanation of why `result` does NOT conform to the frozen
+  `RunResult` contract, or nil when it conforms. Pure data → data — the
+  diagnostic companion to `valid-run-result?`."
+  [result]
+  (m/explain RunResult result))
 
 (defn record-status
   "Derive the `:status` for ONE assertion record from its outcome fields.
