@@ -685,9 +685,19 @@
   Frame-resolution: when `frame-kw` is missing or `nil`, falls through to
   `:rf/default` — defensive default that matches the no-provider
   behaviour and avoids breaking tooling-generated trees that elide the
-  frame. Children are normalised to a flat arg list (a single non-
-  sequential child is wrapped) before being handed to
-  `provider-element`.
+  frame.
+
+  Children-normalisation: the native trailing-`$`-children idiom
+  (rf2-7kii2) hands this core whatever shape each substrate's element
+  macro stashes on `:children` — a JS ARRAY for multiple trailing
+  children (UIx's `(cljs.core/array …)`, Helix's `(into-array …)`), a
+  SINGLE element for one trailing child (Helix), a CLJS vector/seq, or
+  `nil` (no children). All four collapse to a flat positional arg list
+  for `provider-element`: a JS array is spread via `array-seq`, an
+  existing CLJS sequential is passed through, `nil` becomes no children,
+  and any lone non-collection child is wrapped. React keys multi-child
+  arrays correctly because they reach `createElement` as distinct
+  positional args, not a single array child.
 
   This fn touches NO substrate prop-marshalling: the native component
   shell in each adapter has already read its props in the substrate's
@@ -699,7 +709,11 @@
   [frame-kw children]
   (apply adapter-context/provider-element
          (or frame-kw :rf/default)
-         (if (sequential? children) children [children])))
+         (cond
+           (nil? children)              nil
+           (array? children)            (array-seq children)
+           (sequential? children)       children
+           :else                        [children])))
 
 ;; ---- render flush for tests ----------------------------------------------
 ;;

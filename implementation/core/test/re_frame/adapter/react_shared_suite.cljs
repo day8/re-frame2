@@ -547,11 +547,13 @@
 ;; a NATIVE substrate component (`defui` / `defnc`) that is NOT directly
 ;; CLJS-invocable (UIx's `glue-args` would read nil; Helix's
 ;; `extract-cljs-props` throws in dev on a map). So the shape assertions
-;; target the core builder directly — and the END-TO-END `$`-shape
-;; propagation (the formerly-bespoke-patched class) is pinned by each
-;; adapter's `frame-provider-dollar-shape-propagates-frame` DOM regression
-;; test (rf2-9ok1s / rf2-8svnm). Both halves are substrate-shared: the core
-;; logic here, the native-shell-under-`$` behaviour in the DOM twins.
+;; target the core builder directly — including the rf2-7kii2 JS-array
+;; children branch the trailing-`$`-children unification added — and the
+;; END-TO-END `$`-shape propagation (the formerly-bespoke-patched class)
+;; is pinned by each adapter's `frame-provider-trailing-children-propagate-
+;; frame` DOM regression test (rf2-9ok1s / rf2-8svnm / rf2-7kii2). Both
+;; halves are substrate-shared: the core logic here, the native-shell-
+;; under-`$` behaviour in the DOM twins.
 ;;
 ;; Naming follows the UIx-direction per rf2-uqlce: `provider-element-
 ;; frame-kw` / `provider-element-children` describe what the slot
@@ -612,9 +614,9 @@
 
 (defn assert-frame-provider-single-child-coerced-to-vector
   "(build-frame-provider-element :session child-a) — a single child (NOT
-  a vector) — does not throw and is coerced to a one-element children
-  sequence by the `(if (sequential? children) children [children])`
-  branch. Pins the core's single-vs-sequential coercion."
+  a collection, e.g. Helix's lone trailing `$` child) — does not throw and
+  is coerced to a one-element children sequence by the core's `:else`
+  normalisation branch. Pins the single-child coercion."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: single child coerced to vector")
     (let [single-child :fake-single-child-marker
@@ -631,7 +633,7 @@
             "single child produced a one-element children slot")))))
 
 (defn assert-frame-provider-sequential-children-preserved
-  "A sequential children vector flows through the core's coercion branch
+  "A sequential children vector flows through the core's normalisation
   unchanged — multiple children are handed to the Provider as separate
   args."
   [{:keys [name]}]
@@ -645,6 +647,28 @@
         (is (some? kids))
         (is (= 2 (.-length kids))
             "sequential children produced a two-element children slot")))))
+
+(defn assert-frame-provider-js-array-children-spread
+  "rf2-7kii2 — the native trailing-`$`-children idiom hands the core a JS
+  ARRAY for multiple children (UIx's `(cljs.core/array …)` via `glue-args`,
+  Helix's `(into-array …)` via `extract-cljs-props`). `array?` must be
+  detected and the array SPREAD into positional args, so the children
+  reach `createElement` as N distinct args (not a single nested-array
+  child). This pins the array branch the trailing-children unification
+  added."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: JS-array children spread to positional args (rf2-7kii2)")
+    (let [a :child-a
+          b :child-b
+          el (spine/build-frame-provider-element :session #js [a b])]
+      (is (some? el))
+      (is (= :session (provider-element-frame-kw el)))
+      (let [kids (provider-element-children el)]
+        (is (some? kids))
+        (is (= 2 (.-length kids))
+            "JS-array children spread to a two-element children slot")
+        (is (= a (aget kids 0)) "first child preserved positionally")
+        (is (= b (aget kids 1)) "second child preserved positionally")))))
 
 ;; ===========================================================================
 ;; warn-once fires-once (Spec 006 §Documented exemption) — G5
@@ -2191,17 +2215,18 @@
   it is mounted via the substrate's OWN `$` (the documented call shape)
   rather than invoked directly. The entry file supplies a
   `:frame-provider-mount-element` thunk `(fn [frame-kw child-el] ...)`
-  that builds `($ frame-provider {:frame frame-kw :children [child-el]})`
-  in the substrate's idiom — exercising the native shell through `$`, the
-  exact surface the old per-substrate prop-mangling defect (rf2-9ok1s /
-  rf2-8svnm) hid under. This makes the 1-arg-resolution contract a
+  that builds `($ frame-provider {:frame frame-kw} child-el)` in the
+  substrate's idiom — the idiomatic TRAILING-CHILDREN shape (rf2-7kii2),
+  no `:children` prop-map key — exercising the native shell through `$`,
+  the exact surface the old per-substrate prop-mangling defect (rf2-9ok1s
+  / rf2-8svnm) hid under. This makes the 1-arg-resolution contract a
   full end-to-end check of the moved-up seam.
 
   cfg keys:
     :frame-provider-mount-element   thunk (fn [frame-kw child-el]) →
-                                    the substrate `($ frame-provider …)`
-                                    element with `child-el` as its only
-                                    child
+                                    the substrate `($ frame-provider {…}
+                                    child-el)` element with `child-el` as
+                                    its only trailing child
     :probe-frame-provider-element   thunk → the 1-arg-form
                                     ProbeFrameProvider element
     :probe-frame-provider-observed  atom the ProbeFrameProvider pushes

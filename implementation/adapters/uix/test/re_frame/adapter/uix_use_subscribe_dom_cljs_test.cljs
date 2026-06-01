@@ -109,11 +109,12 @@
 (def ^:private cfg
   {:adapter               uix-adapter/adapter
    :name                  "UIx"
-   ;; rf2-z7hfp — mount the NATIVE frame-provider component via UIx's `$`
-   ;; (the documented shape), not a direct CLJS-fn invocation.
+   ;; rf2-z7hfp / rf2-7kii2 — mount the NATIVE frame-provider component via
+   ;; UIx's `$` using the idiomatic TRAILING-CHILDREN shape (no `:children`
+   ;; prop-map key), not a direct CLJS-fn invocation.
    :frame-provider-mount-element
    (fn [frame-kw child-el]
-     ($ uix-adapter/frame-provider {:frame frame-kw :children [child-el]}))
+     ($ uix-adapter/frame-provider {:frame frame-kw} child-el))
    ;; tracks-app-db
    :probe-element         (fn [] (uix/$ Probe))
    :probe-observed        probe-observed
@@ -170,25 +171,33 @@
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
 
-;; ---- regression: frame-provider under the documented `$` shape (rf2-8svnm / rf2-z7hfp) -
+;; ---- regression: frame-provider under the idiomatic `$` trailing-children shape (rf2-8svnm / rf2-z7hfp / rf2-7kii2) -
 ;;
 ;; The UIx twin of the Helix rf2-9ok1s defect, now pinning the moved-up
-;; seam (rf2-z7hfp). HISTORY: `frame-provider` used to be a plain
-;; re-exported spine CLJS fn (not a `defui`), so UIx's `$` routed it
-;; through `uix.compiler.alpha/react-component-element` → `interpret-attrs`,
-;; which stringified keyword prop values and DROPPED the namespace —
-;; `:frame` silently resolved to `:rf/default` and the subtree rendered
-;; nothing. A bespoke un-mangling wrapper (manual `.-uix-component?` marker
-;; + `glue-uix-props`) patched it per-adapter.
+;; seam (rf2-z7hfp) AND the unified trailing-children call shape
+;; (rf2-7kii2). HISTORY: `frame-provider` used to be a plain re-exported
+;; spine CLJS fn (not a `defui`), so UIx's `$` routed it through
+;; `uix.compiler.alpha/react-component-element` → `interpret-attrs`, which
+;; stringified keyword prop values and DROPPED the namespace — `:frame`
+;; silently resolved to `:rf/default` and the subtree rendered nothing. A
+;; bespoke un-mangling wrapper (manual `.-uix-component?` marker +
+;; `glue-uix-props`) patched it per-adapter.
 ;;
 ;; rf2-z7hfp MOVED THE SEAM UP: `frame-provider` is now a NATIVE UIx
 ;; `defui` component. `$` therefore routes its props through the LOSSLESS
 ;; `uix-component-element` (`argv`) path by construction (a `defui` is
 ;; stamped `.-uix-component?` automatically), so keyword frame-ids survive
-;; intact with no per-adapter patch. This test mounts the provider via the
-;; EXACT documented `($ frame-provider {...})` shape and asserts the
-;; descendant `use-subscribe` reads the WRAPPED frame's value — the
-;; structural guarantee that the prop-mangling class cannot reopen.
+;; intact with no per-adapter patch.
+;;
+;; rf2-7kii2 UNIFIED THE CALL SHAPE: children now ride the native `$`
+;; TRAILING-ARGS channel — `($ frame-provider {:frame :f} c1 c2)` — exactly
+;; as for every other UIx component and mirroring Reagent's trailing hiccup.
+;; The old `:children`-in-props-map form (and its silent-drop footgun) is
+;; gone. This test mounts the provider via the idiomatic trailing shape
+;; with TWO children and asserts BOTH descendant `use-subscribe`s read the
+;; WRAPPED frame's value — the structural guarantee that (a) the prop-
+;; mangling class cannot reopen and (b) native trailing children propagate
+;; the frame and render.
 
 (defn- browser? []
   (and (exists? js/document)
@@ -201,8 +210,8 @@
           (.-act test-utils))
         (catch :default _ nil))))
 
-(deftest frame-provider-dollar-shape-propagates-frame
-  (testing "UIx — ($ frame-provider {...}) propagates :frame to descendants (rf2-8svnm)"
+(deftest frame-provider-trailing-children-propagate-frame
+  (testing "UIx — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render (rf2-7kii2)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -212,7 +221,7 @@
                 query-v  [:rf.uix-use-subscribe-test/k]]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (reset! probe-frame-provider-observed [])
-            (rf/reg-frame frame-kw {:doc "rf2-8svnm $-shape frame-provider probe"})
+            (rf/reg-frame frame-kw {:doc "rf2-7kii2 trailing-children frame-provider probe"})
             (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
             (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
             (rf/reg-sub (first query-v) (fn [db _] (:k db)))
@@ -221,12 +230,17 @@
               (try
                 (act-fn
                   (fn []
-                    ;; The documented public call shape — props flow
-                    ;; through UIx's `$` as a raw JS object.
+                    ;; The idiomatic public call shape — TWO native trailing
+                    ;; children (no `:children` key), flowing through UIx's
+                    ;; `$` → `glue-args` → the native `defui` shell.
                     (.render root
                       ($ uix-adapter/frame-provider
-                         {:frame frame-kw :children [($ ProbeFrameProvider)]}))))
+                         {:frame frame-kw}
+                         ($ ProbeFrameProvider)
+                         ($ ProbeFrameProvider)))))
                 (is (some #{:wrapped} @probe-frame-provider-observed)
-                    "descendant use-subscribe read the wrapped frame's value, not :rf/default")
+                    "trailing children's use-subscribe read the wrapped frame's value, not :rf/default")
+                (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
+                    "both trailing children rendered (not dropped)")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))

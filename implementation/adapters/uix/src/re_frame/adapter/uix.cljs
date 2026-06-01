@@ -50,11 +50,19 @@
 
 (defui frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider. UIx call shape (exactly
-  as documented in Spec 002 / Spec 006):
+  children in the shared frame Context Provider. UIx call shape — the
+  idiomatic `$` TRAILING-CHILDREN form, identical to every other UIx
+  component and mirroring Reagent's trailing-hiccup mental model
+  (rf2-7kii2):
 
-      ($ frame-provider {:frame :session
-                         :children [($ header) ($ main)]})
+      ($ frame-provider {:frame :session}
+         ($ header)
+         ($ main))
+
+  Children ride the native `$` trailing-args channel; there is no
+  `:children` prop-map key to remember (forgetting it used to drop the
+  subtree silently — that footgun is gone by construction). A single
+  child works too: `($ frame-provider {:frame :session} ($ app))`.
 
   Per rf2-sixo: missing or `nil` `:frame` falls through to `:rf/default`.
   The three React-shaped adapters share one React Context (per rf2-3yij
@@ -67,9 +75,12 @@
   `defui`, UIx's `$` stamps it `.-uix-component?` and routes its props
   through the LOSSLESS `uix-component-element` (`argv`) path — `glue-args`
   reconstructs the original CLJS props map with keyword values intact
-  (namespace preserved). The body then reads `:frame` / `:children`
-  off that clean CLJS map and delegates to the substrate-agnostic spine
-  core `build-frame-provider-element` (frame-resolution + element-build).
+  (namespace preserved) AND folds the native trailing children into the
+  `:children` key (UIx's `$`/`glue-args` contract: `($ Comp props c1 c2)`
+  arrives as `{... :children #js [c1 c2]}`). The body reads `:frame` /
+  `:children` off that clean CLJS map and delegates to the substrate-
+  agnostic spine core `build-frame-provider-element` (frame-resolution +
+  element-build).
 
   This replaces the former bespoke un-mangling wrapper (rf2-8svnm: a
   plain re-export plus a manual `.-uix-component?` marker and a

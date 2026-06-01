@@ -113,11 +113,12 @@
 (def ^:private cfg
   {:adapter               helix-adapter/adapter
    :name                  "Helix"
-   ;; rf2-z7hfp — mount the NATIVE frame-provider component via Helix's
-   ;; `$` (the documented shape), not a direct CLJS-fn invocation.
+   ;; rf2-z7hfp / rf2-7kii2 — mount the NATIVE frame-provider component via
+   ;; Helix's `$` using the idiomatic TRAILING-CHILDREN shape (no
+   ;; `:children` prop-map key), not a direct CLJS-fn invocation.
    :frame-provider-mount-element
    (fn [frame-kw child-el]
-     ($ helix-adapter/frame-provider {:frame frame-kw :children [child-el]}))
+     ($ helix-adapter/frame-provider {:frame frame-kw} child-el))
    ;; tracks-app-db
    :probe-element         (fn [] ($ Probe))
    :probe-observed        probe-observed
@@ -174,25 +175,31 @@
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :helix :name "Helix"}))
 
-;; ---- regression: frame-provider under the documented `$` shape (rf2-9ok1s / rf2-z7hfp) -
+;; ---- regression: frame-provider under the idiomatic `$` trailing-children shape (rf2-9ok1s / rf2-z7hfp / rf2-7kii2) -
 ;;
-;; Pins the moved-up seam (rf2-z7hfp). HISTORY: `frame-provider` used to
-;; be a plain re-exported spine CLJS fn (not a `defnc`), so Helix's `$`
-;; routed props through `helix.impl.props/-props` and handed the fn a
-;; *raw JS object* with string keys "frame"/"children" — the fn read
-;; `nil` for both, `:frame` silently resolved to `:rf/default`, and the
-;; subtree rendered nothing. A bespoke `gobj/get` un-mangling wrapper
-;; patched it per-adapter.
+;; Pins the moved-up seam (rf2-z7hfp) AND the unified trailing-children
+;; call shape (rf2-7kii2). HISTORY: `frame-provider` used to be a plain
+;; re-exported spine CLJS fn (not a `defnc`), so Helix's `$` routed props
+;; through `helix.impl.props/-props` and handed the fn a *raw JS object*
+;; with string keys "frame"/"children" — the fn read `nil` for both,
+;; `:frame` silently resolved to `:rf/default`, and the subtree rendered
+;; nothing. A bespoke `gobj/get` un-mangling wrapper patched it per-adapter.
 ;;
 ;; rf2-z7hfp MOVED THE SEAM UP: `frame-provider` is now a NATIVE Helix
 ;; `defnc` component. `$` therefore routes its props through
 ;; `extract-cljs-props`, which beans the JS object back into a CLJS map
 ;; with keyword keys (and Helix preserves keyword VALUES) — so `:frame`
-;; destructures cleanly by construction, with no per-adapter patch. This
-;; test mounts the provider via the EXACT documented `($ frame-provider
-;; {...})` shape and asserts the descendant `use-subscribe` reads the
-;; WRAPPED frame's value — the structural guarantee that the prop-mangling
-;; class cannot reopen.
+;; destructures cleanly by construction, with no per-adapter patch.
+;;
+;; rf2-7kii2 UNIFIED THE CALL SHAPE: children now ride the native `$`
+;; TRAILING-ARGS channel — `($ frame-provider {:frame :f} c1 c2)` — exactly
+;; as for every other Helix component and mirroring Reagent's trailing
+;; hiccup. The old `:children`-in-props-map form (and its silent-drop
+;; footgun) is gone. This test mounts the provider via the idiomatic
+;; trailing shape with TWO children and asserts BOTH descendant
+;; `use-subscribe`s read the WRAPPED frame's value — the structural
+;; guarantee that (a) the prop-mangling class cannot reopen and (b) native
+;; trailing children propagate the frame and render.
 
 (defn- browser? []
   (and (exists? js/document)
@@ -205,8 +212,8 @@
           (.-act test-utils))
         (catch :default _ nil))))
 
-(deftest frame-provider-dollar-shape-propagates-frame
-  (testing "Helix — ($ frame-provider {...}) propagates :frame to descendants (rf2-9ok1s)"
+(deftest frame-provider-trailing-children-propagate-frame
+  (testing "Helix — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render (rf2-7kii2)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -216,7 +223,7 @@
                 query-v  [:rf.helix-use-subscribe-test/k]]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (reset! probe-frame-provider-observed [])
-            (rf/reg-frame frame-kw {:doc "rf2-9ok1s $-shape frame-provider probe"})
+            (rf/reg-frame frame-kw {:doc "rf2-7kii2 trailing-children frame-provider probe"})
             (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
             (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
             (rf/reg-sub (first query-v) (fn [db _] (:k db)))
@@ -225,12 +232,17 @@
               (try
                 (act-fn
                   (fn []
-                    ;; The documented public call shape — props flow
-                    ;; through Helix's `$` as a raw JS object.
+                    ;; The idiomatic public call shape — TWO native trailing
+                    ;; children (no `:children` key), flowing through Helix's
+                    ;; `$` → `extract-cljs-props` → the native `defnc` shell.
                     (.render root
                       ($ helix-adapter/frame-provider
-                         {:frame frame-kw :children [($ ProbeFrameProvider)]}))))
+                         {:frame frame-kw}
+                         ($ ProbeFrameProvider)
+                         ($ ProbeFrameProvider)))))
                 (is (some #{:wrapped} @probe-frame-provider-observed)
-                    "descendant use-subscribe read the wrapped frame's value, not :rf/default")
+                    "trailing children's use-subscribe read the wrapped frame's value, not :rf/default")
+                (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
+                    "both trailing children rendered (not dropped)")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))

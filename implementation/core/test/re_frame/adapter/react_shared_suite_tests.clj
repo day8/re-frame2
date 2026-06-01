@@ -110,6 +110,8 @@
     :fn   'assert-frame-provider-single-child-coerced-to-vector}
    {:test 'frame-provider-sequential-children-preserved
     :fn   'assert-frame-provider-sequential-children-preserved}
+   {:test 'frame-provider-js-array-children-spread
+    :fn   'assert-frame-provider-js-array-children-spread}
 
    {:section "warn-once fires-once (Spec 006)"}
    {:test 'warn-once-fires-once
