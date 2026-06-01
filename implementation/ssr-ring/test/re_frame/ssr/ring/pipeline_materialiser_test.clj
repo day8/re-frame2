@@ -236,6 +236,61 @@
       (is (= "text/html" (get result "Content-Type"))
           "the defaulted Content-Type survives — the map was never nulled"))))
 
+;; ===========================================================================
+;; merge-pair-into-header-map — dev-gated warning on a non-string value
+;;
+;; rf2-b0jlr: a non-string header value reaching the fold is host-dependent
+;; and almost certainly a caller bug (Ring header values must be strings).
+;; The fold still tolerates it (the :else arm), but it surfaces a dev-gated
+;; :warning trace naming the offending key + value-type rather than silently
+;; coercing or passing it through. A string value emits NO warning.
+;; ===========================================================================
+
+(defn- collect-non-string-header-warnings
+  "Run `thunk` while listening for `:rf.ssr/ssr-non-string-header-value`
+  warning traces; return the collected events."
+  [thunk]
+  (let [traces (atom [])]
+    (rf/register-listener! ::non-string-header-watch
+      (fn [ev] (when (= :rf.ssr/ssr-non-string-header-value (:operation ev))
+                 (swap! traces conj ev))))
+    (try
+      (thunk)
+      (finally
+        (rf/unregister-listener! ::non-string-header-watch)))
+    @traces))
+
+(deftest non-string-header-value-emits-exactly-one-dev-warning
+  (testing "rf2-b0jlr: a non-string header value reaching the fold emits
+            exactly one :warning trace naming the offending key + value-type;
+            the value still folds in (the :else-arm tolerance is unchanged)"
+    (let [warnings (collect-non-string-header-warnings
+                     (fn []
+                       (let [result (headers/merge-pair-into-header-map
+                                      {} ["X-Count" 5])]
+                         (is (= {"X-Count" 5} result)
+                             "the non-string value still folds in verbatim"))))]
+      (is (= 1 (count warnings)) "exactly one warning for one non-string value")
+      (let [ev   (first warnings)
+            tags (:tags ev)]
+        (is (= :rf.ssr/ssr-non-string-header-value (:operation ev)))
+        (is (= :warning (:op-type ev)) "emitted at :warning severity")
+        (is (= "X-Count" (:header tags)) "the warning names the offending header key")
+        (is (= "java.lang.Long" (:value-type tags))
+            "the warning names the value's concrete type")))))
+
+(deftest string-header-value-emits-no-warning
+  (testing "rf2-b0jlr: a string header value (the contract-compliant common
+            path) emits NO warning"
+    (let [warnings (collect-non-string-header-warnings
+                     (fn []
+                       (headers/merge-pair-into-header-map {} ["X-Custom" "v"])
+                       (-> {}
+                           (headers/merge-pair-into-header-map ["Vary" "Accept"])
+                           (headers/merge-pair-into-header-map ["Vary" "Cookie"]))))]
+      (is (= [] warnings)
+          "no non-string-header-value warning for string-valued headers"))))
+
 (deftest header-fold-collapses-repeated-names-through-full-fold
   (testing "rf2-ynjts.14: the full fold collapses repeated names into a
             vector AND keeps singletons scalar in one pass — the contract
