@@ -59,7 +59,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `populate-elision-from-schemas!` | boot hydrator | Walks the frame's app-schemas and writes `{:large? true :source :schema}` declarations into `[:rf/runtime :elision :declarations]`. Idempotent. No-op when schemas artefact absent. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into `[:rf/runtime :elision :sensitive-declarations]`. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
-| `(configure :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
+| `(configure! :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 ### `re-frame.http`
 
@@ -90,7 +90,7 @@ Per-frame epoch snapshots get one privacy hook — the `:redact-fn`. Runs once p
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `(configure :epoch-history {:redact-fn fn})` | runtime config | Install a record-in / record-out fn that mutates the assembled `:rf/epoch-record` before ring-append. Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the raw record for that drain only — does not break the drain. Production-elided (the whole epoch surface rides `debug-enabled?`). | [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
+| `(configure! :epoch-history {:redact-fn fn})` | runtime config | Install a record-in / record-out fn that mutates the assembled `:rf/epoch-record` before ring-append. Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the raw record for that drain only — does not break the drain. Production-elided (the whole epoch surface rides `debug-enabled?`). | [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
 | `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event in the record had `:sensitive? true`. Computed BEFORE `:redact-fn` runs (so the rollup is preserved even when redact-fn erases the leaves it keyed on). | [Tool-Pair §Time-travel](Tool-Pair.md) |
 | `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Strips raw `:db-before` / `:db-after`, runs `elide-wire-value` on captured trace events, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The **single emission site** for `:rf/redacted` + `:rf.size/large-elided` markers when shipping epoch data off-box. Idempotent. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
 | `projected-history` | projection fn | `(rf/projected-history frame-id)` — `(mapv projected-record (epoch-history frame-id))`. Off-box-safe equivalent of `epoch-history`. | [Tool-Pair §Time-travel](Tool-Pair.md) |

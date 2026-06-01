@@ -1170,7 +1170,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :dispatch-later queue a new envelope. This is the "envelope-field-copying
 ;; when queueing children" mechanism named in [§Cascade propagation]
 ;; (#cascade-propagation). `:event` and `:dispatched-at` are NOT inherited —
-;; the child gets its own. Per , `:source` is NOT inherited either —
+;; the child gets its own. `:source` is NOT inherited either —
 ;; each child dispatch's `:source` reflects its IMMEDIATE trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the queueing fx
 ;; handler. Inheriting `:source` mis-attributed every fx-emitted dispatch
