@@ -176,7 +176,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Read.** [`spec/010-Schemas.md`](https://day8.github.io/re-frame2/spec/010-Schemas/) and [Implementor-Checklist §Schemas](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#schemas-if-q4-is-yes).
 
-**Contract.** `:spec` registration metadata; `reg-app-schema`; validation at boundaries (handler entry, sub return, fx args, app-db at registered paths); validation-failure trace events; production elision per EP 009.
+**Contract.** `:schema` registration metadata (the unified vocabulary term across every surface — v1's `:spec` metadata key was renamed to `:schema` with no back-compat alias, per [`spec/010-Schemas.md` §Vocabulary unified](https://day8.github.io/re-frame2/spec/010-Schemas/)); `reg-app-schema`; validation at boundaries (handler entry, sub return, fx args, app-db at registered paths); validation-failure trace events; production elision per EP 009.
 
 **Common trap.** Open vs closed shapes — open by default is non-negotiable; opt-in `:closed true` per registration.
 
