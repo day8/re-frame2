@@ -6,7 +6,7 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The twenty-five MCP tools. All twenty-five are catalogued below; the
+The twenty-six MCP tools. All twenty-six are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
@@ -16,7 +16,9 @@ surface the session frame pin, the escape from tier-4 `:ambiguous-frame`),
 the write pair `restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the
 Tool-Pair time-travel + state-injection primitives, gated behind
 `--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
-committing), the view-plane read `read-dom` (rf2-nfjil), and the signal
+committing), the view-plane reads `read-dom` (rf2-nfjil) + the typed
+`ui/read` op `read-ui` (rf2-3bu3d.1 — rendered content + producing
+entity, riding the view-id↔DOM map), and the signal
 recorder `record` + `read-recording` + `watch-until` (rf2-zo4b9 — the
 first-class recorder for races + watch sessions) live in the live
 registry at
@@ -1632,6 +1634,89 @@ nREPL round-trip);
 `js/document` (headless / server-side);
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :read-dom-failed` (with `:message`) on any other failure.
+
+## read-ui
+
+The typed **`ui/read`** op (a.k.a. `view/rendered`, rf2-3bu3d.1) — the
+complement to `read-dom`. Where `read-dom` needs an explicit CSS
+selector and returns only content, `read-ui` rides the **view-id↔DOM
+map** and returns the rendered subtree **plus the re-frame2 entity that
+produced it**, in one round-trip: given a **view-id** (or a point / CSS
+selector), `{:via … :entity {…} :content {…}}`. It answers the most
+common UI-pairing question — "what does the thing I'm looking at SHOW,
+and what produced it?" — on **any** re-frame2 app with **zero testids**.
+
+**Riding the view↔DOM map.** The browser-side work
+(`re-frame2-pair.runtime/ui-read`) reuses the mapping the substrate
+adapter already maintains: every registered view's rendered root carries
+`data-rf-view="<id>"` (Spec 006 §View tagging contract; Spec-Schemas
+§`:rf/view-id-attr`) — the **same** attribute the Xray pink
+hover-highlight resolves (`apply-view-highlight!`) — and the sibling
+`data-rf2-source-coord` carries the source coord. `read-ui` reads those
+attributes directly; it never guesses a selector and never
+re-implements view discovery.
+
+Named with the catalogued `read-<thing>` verb (NAMING.md §The verb
+table), so it lands with zero catalogue churn — a no-recompute read of
+state the substrate already rendered.
+
+**Three entry points → one entity** (precedence `view-id` > `point` >
+`selector`): `:view-id` resolves `[data-rf-view='<id>']` directly;
+`:point {:x :y}` runs `elementFromPoint` then walks up to the nearest
+tagged ancestor (the producing view — "what's under the cursor?");
+`:selector` runs `querySelector` then walks up to the view. The
+`:entity` slot is the headline — `:view-id`, `:source-coord` (`{:ns
+:handler-id :line :col}` from the attribute, augmented with `:file` via
+`(rf/handler-meta :view <id>)`), `:render-key` (a stable node hash), and
+`:subs-read` (the frame's live materialised sub-cache query-vectors).
+
+**Privacy — elide like `snapshot` / `get-path`.** The rendered `:text`
+is routed through `re-frame.core/elide-wire-value` with off-box defaults
+(see §Size-elision; Tool-Pair §Direct-read privacy posture) — a
+declared-large blob collapses to `:rf.size/large-elided` rather than
+shipping raw user DOM text unconditionally. A hard per-node `max-text`
+cap (default 2000) trims the common case before the walker runs.
+
+**Read-only by construction.** Only `textContent` / attribute strings /
+`elementFromPoint` / `querySelector` are read — never a write, a
+dispatch, or a node mutation. The descriptor carries the read-only
+annotations so hosts auto-approve.
+
+**Args**: pass exactly one of `view-id` (string — registry view id, e.g.
+`":my.app/header"`), `point` (object `{x N y N}`), `selector` (string —
+CSS selector); plus `max-text` (integer — per-node `textContent` char
+cap, default 2000), `frame` (string — operating frame for the
+`:subs-read` slice + elision registry), `build` (string).
+
+**Returns** on success:
+
+```clojure
+{:ok?    true
+ :via    :view-id            ; | :point | :selector
+ :entity {:view-id      :my.app/counter
+          :source-coord {:ns "my.app" :handler-id "counter"
+                         :line 42 :col 3 :file "/abs/my/app.cljs"}
+          :render-key   8123
+          :subs-read    [[:count] [:user]]}
+ :content {:tag   "div"
+           :text  "Count: 3"  ; capped + elided (or :rf.size/large-elided marker)
+           :attrs {"class" "counter" "data-count" "3"}}}
+```
+
+A portal / fragment leaf with no tagged view ancestor still returns
+`:content`, with `:entity {:view-id nil :reason :no-tagged-view-root}`.
+
+`:reason :no-target-arg` if no entry point was supplied (no nREPL
+round-trip);
+`:reason :no-element` (with `:via`) when the entry point matched
+nothing;
+`:reason :no-document` when the eval target has no `js/document`
+(headless / server-side);
+`:reason :rf.error/ui-read-bad-selector` (with `:message`) on a
+malformed CSS selector;
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :rf.error/read-ui-failed` (with `:message`) on any other
+failure.
 
 ## record
 

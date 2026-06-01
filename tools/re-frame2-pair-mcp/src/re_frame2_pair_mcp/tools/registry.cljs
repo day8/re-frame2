@@ -74,6 +74,7 @@
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
+            [re-frame2-pair-mcp.tools.read-ui :as read-ui]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
@@ -189,6 +190,16 @@
     ;; as the action / streaming tools.
     :cacheable? false
     :descriptor data/read-dom}
+   {:name       "read-ui"
+    :handler    (ignoring-extra #(read-ui/read-ui-tool %1 %2))
+    ;; The typed ui/read op (rf2-3bu3d.1) — rendered view content + the
+    ;; producing entity, riding the view<->DOM map. Read of live rendered
+    ;; DOM, same posture as read-dom: NOT cacheable — the precheck-hash
+    ;; short-circuit keys on `(hash app-db)`, but the DOM (and the live
+    ;; sub-cache the :subs-read slice reads) can change without an app-db
+    ;; mutation, so a cache keyed on app-db would serve stale render reads.
+    :cacheable? false
+    :descriptor data/read-ui}
    {:name       "record"
     :handler    (ignoring-extra #(record/record-tool %1 %2))
     ;; Installs a live recorder on the runtime (mints a recording-id, runs

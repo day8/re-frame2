@@ -871,6 +871,83 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
+;; read-ui
+;; ---------------------------------------------------------------------------
+
+(def read-ui
+  {:name "read-ui"
+   :description (str "The typed ui/read op (rf2-3bu3d.1) — a.k.a. view/rendered. Given a VIEW-ID (or a point / "
+                     "CSS selector) return the RENDERED subtree as structured, ELIDED data PLUS the re-frame2 "
+                     "ENTITY that produced it, in ONE round-trip. The complement to read-dom: read-dom needs an "
+                     "explicit CSS selector and returns only content; read-ui rides the view-id<->DOM map, so it "
+                     "answers 'what does the thing I'm looking at SHOW, and what produced it?' on ANY re-frame2 app "
+                     "with ZERO testids. Rides the SAME view<->DOM mapping the Xray pink hover-highlight uses: every "
+                     "registered view's rendered root carries data-rf-view=\"<id>\" (Spec 006 §View tagging contract); "
+                     "the sibling data-rf2-source-coord carries the source coord. read-ui reads those attributes the "
+                     "substrate adapter already stamps — it never guesses a selector and never re-implements view "
+                     "discovery. "
+                     "Pass EXACTLY ONE entry point (precedence view-id > point > selector): :view-id resolves "
+                     "[data-rf-view='<id>'] directly; :point {x N y N} runs elementFromPoint then walks up to the "
+                     "producing view root ('what's under the cursor?'); :selector runs querySelector then walks up to "
+                     "the view. The :entity slot is the headline — :view-id, :source-coord ({:ns :handler-id :line "
+                     ":col} from the attribute, augmented with :file via handler-meta :view), :render-key (a stable "
+                     "node hash), and :subs-read (the frame's live materialised sub-cache query-vectors — which subs "
+                     "feed this view). The :content slot is {:tag :text :attrs}. "
+                     "PRIVACY: the rendered :text is routed through re-frame.core/elide-wire-value with off-box "
+                     "defaults (the SAME walker snapshot / get-path use, per Tool-Pair §Direct-read privacy posture) "
+                     "— a declared-large blob collapses to {:rf.size/large-elided ...} rather than shipping raw user "
+                     "DOM text unconditionally; a hard :max-text cap (default 2000) trims the common case first. "
+                     "READ-ONLY by construction — only textContent / attribute strings / elementFromPoint / "
+                     "querySelector are read; never a write, dispatch, or node mutation. Pairs with dispatch :settle "
+                     "/ :await-render: dispatch -> settle -> read-ui is a deterministic observe-with-provenance. "
+                     "Examples: "
+                     "1. By view-id: {:view-id \":my.app/counter\"} -> {:ok? true :via :view-id :entity {:view-id "
+                     ":my.app/counter :source-coord {:ns \"my.app\" :handler-id \"counter\" :line 42 :col 3 :file "
+                     "\"/abs/my/app.cljs\"} :render-key 8123 :subs-read [[:count] [:user]]} :content {:tag \"div\" "
+                     ":text \"Count: 3\" :attrs {\"class\" \"counter\" \"data-count\" \"3\"}}}. "
+                     "2. By point: {:point {:x 120 :y 240}} -> resolves the view under (120,240): {:ok? true :via "
+                     ":point :entity {:view-id :my.app/row ...} :content {...}}. "
+                     "3. By selector: {:selector \"#save\"} -> {:ok? true :via :selector :entity {:view-id "
+                     ":my.app/toolbar ...} :content {:tag \"button\" :text \"Save\" :attrs {\"id\" \"save\"}}}. "
+                     "4. Large text elided: {:view-id \":my.app/log\" :max-text 100} -> :content :text "
+                     "{:rf.size/large-elided {:type :dom-text :chars 54000 :preview \"...\"}}. "
+                     "5. No tagged view root (portal / fragment leaf): {:point {:x 5 :y 5}} -> {:ok? true :via :point "
+                     ":entity {:view-id nil :reason :no-tagged-view-root} :content {...}}. "
+                     "6. No entry point: {} -> {:ok? false :reason :no-target-arg}. "
+                     "7. No element: {:view-id \":nope\"} -> {:ok? false :reason :no-element :via :view-id}. "
+                     "8. Bad selector: {:selector \"###\"} -> {:ok? false :reason :rf.error/ui-read-bad-selector}.")
+   :typicalTokens 700
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:view-id  {:type "string"
+                                         :description (str "Registry view id, e.g. \":my.app/header\". Resolves "
+                                                           "[data-rf-view='<id>'] (Spec 006 §View tagging contract) — the "
+                                                           "view<->DOM map the Xray hover-highlight rides. Wins over :point "
+                                                           "and :selector when more than one is supplied.")}
+                              :point    {:type "object"
+                                         :description (str "Viewport point {x N y N} — elementFromPoint, then walk up to "
+                                                           "the nearest data-rf-view ancestor (the producing view). 'What "
+                                                           "view is under the cursor at (x,y)?' Used when :view-id is absent.")
+                                         :properties {:x {:type "number"}
+                                                      :y {:type "number"}}}
+                              :selector {:type "string"
+                                         :description (str "CSS selector — querySelector, then walk up to the producing "
+                                                           "view root. A malformed selector returns :reason "
+                                                           ":rf.error/ui-read-bad-selector. Used when :view-id and :point "
+                                                           "are absent.")}
+                              :max-text {:type "integer"
+                                         :description (str "Per-node textContent character cap (default 2000). Text longer "
+                                                           "than this collapses to a {:rf.size/large-elided {:type :dom-text "
+                                                           ":chars N :preview \"...\"}} marker before the elision walker runs "
+                                                           "— same shape get-path / snapshot emit (rf2-urjnc).")}
+                              :frame    {:type "string"
+                                         :description (str "Operating frame (e.g. \":stories\") — scopes the :subs-read "
+                                                           "slice and the elision registry. Defaults to the operating frame.")}
+                              :build    {:type "string"}}
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
 ;; record
 ;; ---------------------------------------------------------------------------
 
