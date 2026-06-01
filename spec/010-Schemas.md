@@ -4,7 +4,7 @@
 >
 > **Portable contract** (every port): `:schema` metadata on every `reg-*`; path-based `app-db` schemas via `reg-app-schema`; pluggable validator via `set-schema-validator!`; implementation-defined default validator. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
 >
-> **CLJS reference's default validator**: Malli (`malli.core/validate` + `malli.core/explain`), with soft-pass when Malli is absent. Other ports document their own defaults (see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)).
+> **CLJS reference's default validator**: Malli (`malli.core/validate` + `malli.core/explain`). On the CLJS reference, **schema implies validation** — requiring the `re-frame.schemas` artefact wires Malli automatically (the facade `:require`s the `re-frame.schemas.malli` adapter), so `reg-app-schema` always validates rather than soft-passing into a silent no-op. The recommended soft-pass (claim 4) survives only as the cross-port default-absent posture and as the behaviour when an app installs a non-Malli substitute validator. Other ports document their own defaults (see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)).
 
 ## Abstract
 
@@ -555,6 +555,8 @@ Apps that want a **hard fail** when the default library is absent (a stricter po
 
 This recommendation is normative-soft: ports that ship a different default-absent behaviour document the divergence in their README, and apps that depend on the soft-pass behaviour pin it explicitly with their own registered validator.
 
+**CLJS reference note (rf2-v96fh).** The CLJS reference's *default* path never reaches the soft-pass: requiring the `re-frame.schemas` artefact wires Malli (per [§Schema implies validation on CLJS](#schema-implies-validation-on-cljs-malli-wired-by-the-artefact)), so a registered schema always validates. The soft-pass survives on the CLJS reference only for substitute-validator apps that never bind the Malli hook (a `clojure.spec` bridge whose validator is its own; an app that explicitly leaves the validator unbound). This is the divergence Ruling A documents: "schema implies validation" is a stronger guarantee than the cross-port recommended soft-pass, chosen so the common case ("I registered a schema") is never a silent no-op.
+
 ### Locked rules
 
 - **One validator fn per process** is in effect at any time. Last-write-wins on re-registration. The validator is _for the schema language_, not per-app-instance — Malli, Zod, or a custom validator is a process-global choice.
@@ -565,40 +567,32 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:schema` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
-### Opting in to Malli validation on CLJS
+### Schema implies validation on CLJS (Malli wired by the artefact)
 
-CLJS apps that want the default Malli validator to run **must** require the `re-frame.schemas.malli` adapter namespace at app boot:
+On the CLJS reference, **requiring the schemas artefact wires the default Malli validator automatically** — there is nothing extra to opt into. The `re-frame.schemas` facade `:require`s the `re-frame.schemas.malli` adapter ns, whose only job is to publish `malli.core/validate` / `malli.core/explain` / `malli.error/humanize` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain` / `:schemas/malli-humanize`). The schemas artefact's default validator consults these hooks on every call:
 
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.schemas]         ;; load the schemas artefact
-            [re-frame.schemas.malli])) ;; publish Malli into the late-bind hook table
+            [re-frame.schemas])) ;; loads the artefact ⇒ Malli is wired ⇒ schemas validate
 ```
 
-The adapter namespace's only job is to publish `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain`). The schemas artefact's default validator consults these hooks on every call; absent the hook (i.e. the adapter ns was not required) the validator soft-passes per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent).
+The rule is **"I registered a schema" ⇒ "it validates"** (rf2-v96fh, Ruling A). Pre-rf2-v96fh the adapter had to be required *separately* at app boot; an app that loaded `re-frame.schemas` but forgot `[re-frame.schemas.malli]` registered schemas that soft-passed every value — a footgun where registration did NOT imply validation. The CLJS reference closes that gap by making the schemas artefact own its default validator's wiring.
 
-The motivation is the bug fixed: CLJS has no runtime `resolve`, so the previous implementation's `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The late-bind adapter pattern (matching the substitute-validator precedent) preserves Malli's optional-dep status while making the opt-in explicit and runtime-correct.
+The original motivation for the late-bind adapter pattern still holds: CLJS has no runtime `resolve`, so the older `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The adapter ns publishing the hooks at ns-load fixes that runtime-correctly; rf2-v96fh additionally makes the facade load the adapter so the opt-in is not a separate, forgettable step.
 
-On the **JVM** loading the adapter namespace is optional but harmless — the schemas artefact's `default-malli-validate` falls back to `requiring-resolve` so JVM apps that have Malli on the classpath get Malli validation without an explicit require. Apps that want their bundle to be runtime-identical on JVM and CLJS require `re-frame.schemas.malli` on both sides.
+**Substitute validators and the soft-pass.** An app that wants a different schema language (a `clojure.spec` bridge, a custom validator) installs it via `set-schema-validator!` / `set-schema-fns!` at boot. The soft-pass branch in the default validator (return `true` when `:schemas/malli-validate` is unbound) is then the cross-port default-absent posture per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent) — it is no longer reachable on the CLJS reference's default path, because the facade always wires Malli.
+
+On the **JVM** the same wiring applies — loading `re-frame.schemas` loads the adapter, so JVM apps validate against Malli without a separate require. The contract is symmetric across runtimes.
 
 ### Worked example — installing a no-op validator at boot (CLJS reference)
 
-The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cost-audit.md` §3.7 / §4): an app that doesn't need runtime schema validation can install a no-op at boot and avoid pulling the default validator's schema-language library (Malli on the CLJS reference) into its production bundle.
+An app that uses schemas as inert data — surfaced via `app-schemas` / `app-schemas-digest` for tooling, but never validated at runtime — installs a no-op validator at boot. This disables every validation call site (the dev-mode hot path AND the boundary interceptor):
 
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.schemas]   ;; load the schemas artefact
-            ;; NOTE: we do NOT require [re-frame.schemas.malli] here —
-            ;; the late-bind adapter pattern gates Malli
-            ;; on an explicit require. Skipping the require means
-            ;; Malli is never pulled into the bundle, and the
-            ;; default validator soft-passes per §Recommended
-            ;; soft-pass. The (rf/set-schema-validator! nil) below
-            ;; tightens the soft-pass arm to an active no-op so the
-            ;; intent is explicit.
-            ))
+            [re-frame.schemas])) ;; loads the artefact ⇒ Malli is wired (rf2-v96fh)
 
 ;; Install the no-op BEFORE the first reg-app-schema / :schema metadata.
 ;; Any (fn [schema value] truthy?) that returns true unconditionally
@@ -613,6 +607,8 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
   {:schema [:cat [:= :auth/login] [:map [:email :string]]]}
   ...)
 ```
+
+**`set-schema-validator! nil` disables validation *behaviour*, not Malli's *bundle cost* (rf2-v96fh).** Under static CLJS compilation, requiring `re-frame.schemas` loads the Malli adapter at module-init, so Malli's body is in the bundle regardless of the nil validator. The nil opt-out is the right tool when you want schemas-as-data with zero validation overhead, but it is **not** a Malli-bundle-cost opt-out. The only Malli-free posture on the CLJS reference is **not requiring the schemas artefact at all** — an app that needs neither `reg-app-schema` nor `:schema` metadata pays nothing (the no-feature counter reference app, pinned by the counter bundle-isolation gate). This is the deliberate tradeoff Ruling A accepts: "schema implies validation" is worth the bounded Malli surface for apps that use schemas; apps that don't use schemas are unaffected.
 
 ### Boundary-validation seam
 
@@ -638,17 +634,17 @@ For the bundle-cost tradeoffs of the CLJS reference's Malli default and how to o
 
 ### Bundle cost
 
-The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 production bundle (per `findings/malli-bundle-cost-audit.md` §3.2 / §4 — bead). The cost is real but bounded; the figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
+The CLJS reference's Malli mandate adds a bounded gzipped cost to a typical re-frame2 production bundle. Per rf2-v96fh (schema implies validation) **requiring `re-frame.schemas` pulls Malli automatically** — the facade `:require`s the `re-frame.schemas.malli` adapter, so there is no longer a "schemas required, no Malli" posture: any schemas consumer pays the Malli surface. The figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
 
 | Scenario | gzipped | Δ vs baseline |
 |---|---:|---:|
 | Baseline counter (no schemas, no Malli) | 91.7 KB | — |
-| `[re-frame.schemas]` required, no Malli | 97.2 KB | +5.6 KB |
-| `[re-frame.schemas] [malli.core]` required, no validation | 120.8 KB | +29.1 KB |
-| Typical app: `reg-app-schema` + `:schema` on every reg-* | 121.5 KB | +29.8 KB |
+| `[re-frame.schemas]` required ⇒ Malli wired (rf2-v96fh) | ~91 KB | ~+0–30 KB |
 | Heavy: validate + explain + decode + transform + generator | 156.1 KB | +64.5 KB |
 
-The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas` namespace adds ~5.6 KB, and `malli.core`'s reachable body adds ~24 KB on top. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
+The schemas-with-Malli delta is bounded by `malli.core`'s reachable body (~24 KB gzipped headline; the older 120.8 KB row was a conservative pre-Closure-tuning estimate — the current `schemas-bundle-probe` measures ~91 KB gzipped, within the ≤ 100 KB gate ceiling). Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
+
+> **The schemas-bundle gate** (`scripts/check-schemas-bundle.cjs`, run by `npm run test:schemas-bundle`) builds two probes: `schemas-bundle-probe` requires only `re-frame.schemas`, `schemas-bundle-probe-malli` requires the adapter explicitly on top. Under rf2-v96fh the explicit require is redundant, so the two bundles are the same size — the gate asserts that equality as the schema-implies-validation regression guard (a revert of the facade require would drop the first probe back to its ~59 KB Malli-free figure and break the equality).
 
 **Inter-namespace DCE works; intra-namespace DCE does not.** Closure prunes `malli.error`, `malli.transform`, `malli.generator`, etc. from a typical bundle because the user code doesn't require them — only `malli.core` survives. Inside `malli.core`, Closure cannot prove the data-driven dispatch internals dead, so the full namespace stays. The practical rule is: **require what you need at the namespace boundary; nothing more.**
 
@@ -665,16 +661,18 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 - `malli.registry` — composite-registry helpers; ~3 KB gzipped (most lives in `malli.core`).
 - `malli.dev`, `malli.dev.pretty`, `malli.experimental`, `malli.instrument`, `malli.json-schema`, `malli.swagger`, `malli.provider`, `malli.util` — dev-only tooling; never bundle into production code.
 
-**Opt-out path — bypass Malli entirely.** Apps that don't want the Malli bundle install a different validator (or `nil`) via `set-schema-validator!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point) and / PR #237). `set-schema-validator!` with `nil` is the documented hard-no-op: every `validate-*!` site short-circuits to `true`, no validate call ever runs, and the schemas artefact stops carrying a static dependency on Malli. Apps that don't `(:require [malli.core])` themselves pay only the ~5.6 KB schemas-artefact cost.
+**Disabling validation behaviour — `set-schema-validator! nil`.** Apps that want schemas-as-inert-data with zero runtime validation overhead install `nil` via `set-schema-validator!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). This is the documented hard-no-op: every `validate-*!` site short-circuits to `true` and no validate call ever runs.
 
 ```clojure
-;; Apps that want zero runtime validation surface (and zero Malli bundle cost)
+;; Apps that want zero runtime validation surface (schemas are inert data)
 (rf/set-schema-validator! nil)
 ```
 
+**Per rf2-v96fh, `nil` does NOT remove Malli from the bundle.** Under static CLJS compilation, requiring `re-frame.schemas` loads the Malli adapter at module-init regardless of the runtime validator value, so Malli's body is in the bundle. The nil opt-out disables validation *behaviour*, not Malli's *bundle cost*. The only Malli-free posture on the CLJS reference is **not requiring the schemas artefact at all** — an app that needs neither `reg-app-schema` nor `:schema` metadata pays nothing for schemas or Malli (verified by the counter bundle-isolation gate). This is the deliberate tradeoff Ruling A accepts: making "schema implies validation" airtight is worth the bounded Malli surface for the apps that actually use schemas.
+
 **Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:rf.schema/at-boundary` (per [§Production builds](#production-builds) and / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:schema` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
 
-**Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps already only carry `malli.core`, not the error / transform / generator subset), and the mandate-cost is bounded by what `malli.core` weighs gzipped: ~24 KB. The heavy-decode scenario (which pulls `malli.error` + `malli.transform` + `malli.generator`) is worst-case; the typical-app cost is half that, and the opt-out path drops it to zero.
+**Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps carry `malli.core` + `malli.error` — the latter for the humanize hook — not the transform / generator subset), and the mandate-cost is bounded by what those namespaces weigh gzipped. The heavy-decode scenario (which pulls `malli.transform` + `malli.generator` on top) is worst-case; the typical schemas-consumer cost is a fraction of that. Per rf2-v96fh the cost is paid by any app that requires the schemas artefact (schema implies validation); the way to pay zero is to not require the schemas artefact at all.
 
 ### What schemas don't do
 
