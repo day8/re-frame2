@@ -66,11 +66,17 @@
   `register-context-provider` is passed in (NOT spine-built) because it
   is the Reagent-component-shaped frame-provider from `re-frame.views`,
   distinct from the React-hook spine's hook-shaped one — keeping the core
-  spine free of a spine→views dependency edge. The `:hook-ops` are
-  injected stock-`reagent.*` impls so the spine never names a reactive-
-  atom ns (bundle isolation, identical to `make-ratom-spine`'s
-  `:ratom-ops` contract). Per-hook rationale lives at
-  `spine/make-ratom-adapter`."
+  spine free of a spine→views dependency edge. That provider keeps
+  children as trailing-positional hiccup (`[provider frame-kw & children]`)
+  — Reagent's idiomatic shape and the cross-substrate baseline the UIx /
+  Helix `$`-trailing-children providers were aligned toward (rf2-7kii2,
+  which moved only those React-hook adapters; the Reagent shape is
+  unchanged).
+
+  The `:hook-ops` are injected stock-`reagent.*` impls so the spine
+  never names a reactive-atom ns (bundle isolation, identical to
+  `make-ratom-spine`'s `:ratom-ops` contract). Per-hook rationale lives
+  at `spine/make-ratom-adapter`."
   (spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent
