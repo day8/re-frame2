@@ -268,7 +268,7 @@
           "history.current points at /cart")
 
       ;; Slice side-effect: :rf/route was rewritten.
-      (let [route (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])]
+      (let [route (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
         (is (= :hist/cart (:id route))
             "the :rf/route slice carries the new route id")
         (is (some? (:nav-token route))
@@ -295,7 +295,7 @@
     (is (= 3 (:index @*history-state*))
         "index points at the most recent entry")
     (is (= :hist/article
-           (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "the slice tracks the most recently pushed URL")))
 
 (deftest url-requested-external-url-does-not-push-cljs
@@ -306,7 +306,7 @@
     (is (= ["/"] (:entries @*history-state*))
         "external URL did not append a history entry")
     (is (= :hist/home
-           (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "external URL did not rewrite the app route to not-found")))
 
 (deftest scroll-position-captured-before-forward-nav-cljs
@@ -317,7 +317,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
     (is (= [12 345]
            (routing/lookup-scroll-position
-             (rf/frame-db :rf/default)
+             (rf/app-db-value :rf/default)
              "/cart"))
         "scroll position for the route being left is saved before the scroll strategy runs")))
 
@@ -330,7 +330,7 @@
     (is (= ["/"] (:entries @*history-state*))
         "duplicate URL-bound frame did not push to browser history")
     (is (= :hist/cart
-           (:id (get-in (rf/frame-db :hist/duplicate-owner) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/app-db-value :hist/duplicate-owner) [:rf/runtime :routing :current])))
         "the non-owner frame still updates its own route slice")))
 
 ;; =========================================================================
@@ -345,7 +345,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
     (is (= :hist/checkout
-           (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "slice is on /checkout before the back-button")
 
     ;; Simulate back-button: browser would (a) move history.index back
@@ -367,7 +367,7 @@
               (rf/dispatch-sync
                 [:rf.route/handle-url-change (current-url *history-state*)])))]
       (is (= :hist/cart
-             (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+             (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
           "the slice fell back to :hist/cart after the popstate-style dispatch")
       (is (= 1 (count traces))
           "the popstate dispatch fires exactly one :rf.route.nav-token/allocated")
@@ -398,7 +398,7 @@
 
       (is @fired? "the popstate listener registered via addEventListener fired")
       (is (= :hist/cart
-             (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+             (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
           "the slice landed on /cart through the listener-driven popstate path"))))
 
 ;; ---- rf2-6qgbs.4: popstate drives the URL-OWNER frame --------------------
@@ -439,23 +439,23 @@
     (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
     (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
         "owner-frame forward nav pushed both URLs onto the history stack")
-    (is (= :hist/checkout (:id (get-in (rf/frame-db :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
         "owner slice is on /checkout before Back")
 
     ;; --- Back: browser moves the pointer + fires popstate. ---
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:id (get-in (rf/frame-db :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/cart (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
         "Back restored the OWNER frame's slice to /cart via the installed listener")
-    (is (nil? (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+    (is (nil? (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         ":rf/default (the non-owner) was NOT mutated by the popstate")
 
     ;; --- Forward: pointer moves up, popstate fires again. ---
     (.forward (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/checkout (:id (get-in (rf/frame-db :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
         "Forward restored the OWNER frame's slice back to /checkout")
-    (is (nil? (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+    (is (nil? (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         ":rf/default still untouched after Forward")
 
     (rf/remove-history-listener!)))
@@ -470,12 +470,12 @@
 
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
-    (is (= :hist/checkout (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "default slice on /checkout before Back")
 
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+    (is (= :hist/cart (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "Back restored :rf/default's slice to /cart — default-owned routing unregressed")
 
     (rf/remove-history-listener!)))
@@ -496,7 +496,7 @@
     (register-routes!)
     ;; Forward nav lands on /articles/intro.
     (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
-    (let [pre-nav-token (-> (rf/frame-db :rf/default)
+    (let [pre-nav-token (-> (rf/app-db-value :rf/default)
                             :rf/runtime :routing :current :nav-token)]
 
       ;; Capture both :rf.route/fragment-changed AND
@@ -527,7 +527,7 @@
         (is (zero? (count @allocations))
             "fragment-only nav does NOT allocate a new nav-token")
 
-        (let [route (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])]
+        (let [route (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
           (is (= "section-2" (:fragment route))
               "[:rf/runtime :routing :current :fragment] is updated to the new fragment")
           (is (= :hist/article (:id route))
@@ -668,7 +668,7 @@
   (testing "push A → push B → pop → push C → pop → pop yields the correct route cascade"
     (register-routes!)
     (let [route-id (fn []
-                     (:id (get-in (rf/frame-db :rf/default) [:rf/runtime :routing :current])))
+                     (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
           pop-and-dispatch!
           (fn []
             (.back (.-history js/globalThis.window))

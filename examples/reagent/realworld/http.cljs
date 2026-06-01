@@ -61,7 +61,7 @@
 (defn- token-from-frame
   "Read the current JWT (or nil) from the auth slice on the given frame."
   [frame]
-  (some-> (rf/frame-db (or frame :rf/default))
+  (some-> (rf/app-db-value (or frame :rf/default))
           :auth :token))
 
 (defn request
@@ -78,7 +78,7 @@
    Decode defaults to `:json` (RealWorld returns JSON everywhere).
 
    Use:
-     (rf/frame-db ...) reads `:frame` from the cofx; pass through
+     (rf/app-db-value ...) reads `:frame` from the cofx; pass through
      here as `:frame` if you need a non-default frame.
 
    Example:

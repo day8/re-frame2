@@ -119,7 +119,7 @@
           "sanity — the targeted epoch has the expected :db-after")
       (is (true? (rf/restore-epoch :rf/default target-id))
           "restore-epoch returns true on the happy path")
-      (is (= {:n 1} (rf/frame-db :rf/default))
+      (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db now matches the named epoch's :db-after"))))
 
 ;; ---- 3. Ring depth cap -----------------------------------------------------

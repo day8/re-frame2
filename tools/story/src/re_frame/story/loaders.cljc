@@ -188,11 +188,11 @@
   `{:state <state-kw> :data {...}}` or nil if the machine hasn't fired
   yet on this frame.
 
-  `rf/frame-db` returns the value-form app-db map (per Spec 002
+  `rf/app-db-value` returns the value-form app-db map (per Spec 002
   §Public registrar query API); we then `get-in` to the machine's
   snapshot slot."
   [frame-id]
-  (let [db (rf/frame-db frame-id)]
+  (let [db (rf/app-db-value frame-id)]
     (when db
       (get-in db [:rf/runtime :machines :snapshots lifecycle-machine-id]))))
 
@@ -425,14 +425,14 @@
       ;; A literal function predicate. Authors usually pass a registered
       ;; event-id (a keyword) but a fn is a legal Clojure value at this
       ;; layer; the runtime threads the frame's app-db through.
-      (boolean (pred (rf/frame-db frame-id)))
+      (boolean (pred (rf/app-db-value frame-id)))
 
       (predicate-event? pred)
       (do
         (try
           (rf/dispatch-sync [pred] {:frame frame-id})
           (catch #?(:clj Throwable :cljs :default) _ nil))
-        (boolean (:rf.story/loaders-complete? (rf/frame-db frame-id))))
+        (boolean (:rf.story/loaders-complete? (rf/app-db-value frame-id))))
 
       (vector? pred)
       (vector-of-events-satisfied? frame-id pred)

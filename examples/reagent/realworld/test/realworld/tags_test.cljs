@@ -16,9 +16,9 @@
 (defn tag-query-test []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
-    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-db f)))))
+    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
     (rf/dispatch-sync [:home/show-your-feed] {:frame f})
-    (assert (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-db f)))))))
+    (assert (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))))
 
 (defn- snapshot [db]
   (get-in db [:rf/runtime :machines :snapshots :realworld/tags]))
@@ -29,7 +29,7 @@
    deref so the test runs in any CLJS host)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
-                  (rf/frame-db frame)))
+                  (rf/app-db-value frame)))
 
 (defn tags-machine-load-test []
   ;; The :tags lifecycle — load happy path through the machine. The
@@ -47,7 +47,7 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags}})]
     ;; After :app/initialise → :tags/initialise → [:reset], the machine
     ;; sits at :idle with empty :data.
-    (let [snap (snapshot (rf/frame-db f))]
+    (let [snap (snapshot (rf/app-db-value f))]
       (assert (= :idle (:state snap)))
       (assert (= []    (get-in snap [:data :tags])))
       (assert (= 0     (get-in snap [:data :attempt]))))
@@ -58,7 +58,7 @@
     ;; ["intro" "demo" "clojure"]` are now the machine's `:state
     ;; :loaded` + `:data :tags`.
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [db   (rf/frame-db f)
+    (let [db   (rf/app-db-value f)
           snap (snapshot db)]
       (assert (= :loaded (:state snap)))
       (assert (= ["intro" "demo" "clojure"]
@@ -84,7 +84,7 @@
     ;; canned-success stub resolves synchronously so we see :loaded
     ;; again at the end with the attempt counter bumped.
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [snap (snapshot (rf/frame-db f))]
+    (let [snap (snapshot (rf/app-db-value f))]
       (assert (= :loaded (:state snap)))
       (assert (= 2 (get-in snap [:data :attempt]))))))
 
@@ -98,7 +98,7 @@
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags-failure}})]
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [db   (rf/frame-db f)
+    (let [db   (rf/app-db-value f)
           snap (snapshot db)]
       (assert (= :error (:state snap)))
       (assert (some? (get-in snap [:data :error])))

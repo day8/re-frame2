@@ -39,7 +39,7 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- 1. flat two-region parallel machine — initial state map ------------
 

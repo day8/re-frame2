@@ -53,7 +53,7 @@
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/frame-db :rf/default))))))
+    (is (= 2 (:n (rf/app-db-value :rf/default))))))
 
 (deftest sub-chain-cljs
   (testing "layer-1 + layer-2 subs return computed values"
@@ -253,7 +253,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
-    (is (= 12 (:area (rf/frame-db :rf/default))))))
+    (is (= 12 (:area (rf/app-db-value :rf/default))))))
 
 ;; ---- routing --------------------------------------------------------------
 

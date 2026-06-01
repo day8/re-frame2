@@ -55,7 +55,7 @@
        handler's interceptor chain as the outermost `:after` — before the
        `:db` install — per Spec 013 §Drain integration.
     6. Asserts each of:
-       - `:final-app-db` — submap match against `rf/frame-db`
+       - `:final-app-db` — submap match against `rf/app-db-value`
          (single-frame; reads `:rf/default`).
        - `:final-app-dbs` — `{frame-id db}` per-frame submap match
          (multi-frame; per Spec 013 §Frame-scoping).
@@ -548,13 +548,13 @@
       (let [expect           (or (:fixture/expect fixture) {})
             expected-db      (:final-app-db expect)
             ;; Multi-frame: `:final-app-dbs` is `{frame-id db}`; each db
-            ;; submap-matches against that frame's `frame-db`.
+            ;; submap-matches against that frame's `app-db-value`.
             expected-dbs     (:final-app-dbs expect)
-            final-db         (rf/frame-db :rf/default)
+            final-db         (rf/app-db-value :rf/default)
             final-dbs        (when expected-dbs
                                (into {}
                                      (for [[fid _] expected-dbs]
-                                       [fid (rf/frame-db fid)])))
+                                       [fid (rf/app-db-value fid)])))
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]

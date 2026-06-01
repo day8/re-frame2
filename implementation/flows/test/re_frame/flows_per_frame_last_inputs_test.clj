@@ -257,7 +257,7 @@
                    "+ a no-op :db write + sub invalidation."))
 
           ;; B's app-db is correct regardless: 2 × 7 = 14.
-          (is (= 14 (:out (rf/frame-db :rf2-94ol5/b)))
+          (is (= 14 (:out (rf/app-db-value :rf2-94ol5/b)))
               "B's flow output is correct (2 × 7)")
 
           ;; B's last-inputs row survives intact at [7].

@@ -835,7 +835,7 @@
   A per-call `:frame` in the dispatch opts MUST NOT override the
   captured frame — the handle is LOCKED to one frame. It is an
   OPERATION BUNDLE, not a container: read the frame's app-db value via
-  `(rf/frame-db (:frame handle))`, not the handle itself."
+  `(rf/app-db-value (:frame handle))`, not the handle itself."
   ([]         (make-frame-handle (current-frame-id) nil))
   ([frame-id] (make-frame-handle frame-id nil)))
 
@@ -1134,16 +1134,17 @@
   §`:rf/frame-meta`."}
   frame-meta   frame/frame-meta)
 
-(defn frame-db
+(defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
-  container). Per Spec 002 §The public registrar query API."
+  container) — pairs with `app-db-container` (the container accessor).
+  Per Spec 002 §The public registrar query API."
   [frame-id]
   (frame/frame-app-db-value frame-id))
 
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db — convenience over
-  `(get-in (rf/frame-db frame-id) path)`. Frame resolution:
+  `(get-in (rf/app-db-value frame-id) path)`. Frame resolution:
   `(:frame opts)` if supplied, else `(current-frame-id)`. Returns `nil`
   if the frame is missing or the path resolves to nothing. Per Spec 002
   §The public registrar query API."

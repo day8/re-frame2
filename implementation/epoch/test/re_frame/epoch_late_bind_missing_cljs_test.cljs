@@ -93,5 +93,5 @@
     ;; (no exception).
     (is (true? (rf/reset-frame-db! :rf/default {:n 99}))
         "reset-frame-db! succeeds with the hook present (sanity)")
-    (is (= {:n 99} (rf/frame-db :rf/default))
+    (is (= {:n 99} (rf/app-db-value :rf/default))
         "app-db now carries the injected value")))

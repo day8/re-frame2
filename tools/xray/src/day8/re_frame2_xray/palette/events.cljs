@@ -118,7 +118,7 @@
 ;; so the console log lands either way.
 
 (defn- snapshot-app-db!
-  "Side-effect: drop `(rf/frame-db target-frame)` onto the JS
+  "Side-effect: drop `(rf/app-db-value target-frame)` onto the JS
   console and copy a pr-str of it to the clipboard when reachable.
   No-op when neither console nor clipboard is present (test
   runtimes). Returns nil."
@@ -126,7 +126,7 @@
   (try
     (let [tf  (or target-frame :rf/default)
           db  (when (some? (frame/frame tf))
-                (rf/frame-db tf))
+                (rf/app-db-value tf))
           tag (str "[rf2-xray] palette snapshot · frame "
                    (pr-str tf))]
       (when (and (exists? js/console) (.-log js/console))

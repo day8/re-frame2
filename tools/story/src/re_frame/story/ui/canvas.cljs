@@ -401,7 +401,7 @@
 (defn- run-with-shell-opts!
   "Drive `run-variant` with the shell's current modes / cell overrides /
   substrate. Returns nothing — the promise resolves async; the canvas
-  reads the variant's frame-db reactively after each run."
+  reads the variant's app-db-value reactively after each run."
   [variant-id]
   (let [shell @state/shell-state-atom
         opts  {:active-modes   (:active-modes shell)
@@ -483,7 +483,7 @@
       vb sb (or (:substrate @state/shell-state-atom) :reagent))))
 
 (defn- canvas-inner
-  "The inner render fn — reads the variant's frame-db reactively. Split
+  "The inner render fn — reads the variant's app-db-value reactively. Split
   out so the outer `canvas` component can wrap with a lifecycle for
   run-variant + tear-down.
 

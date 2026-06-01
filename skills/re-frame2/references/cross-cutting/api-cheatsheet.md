@@ -39,7 +39,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/frame-bound-fn` | `([args] body+)` — macro: fn that re-binds the captured frame in its body (async callbacks) |
 | `rf/frame-bound-fn*` | `(f)` / `(frame-id f)` — `*`-twin of the macro; wraps an existing fn value |
 | `rf/current-frame-id` | `()` — active frame id; `:rf/default` outside any binding |
-| `rf/frame-db` | `(frame-id)` — value-form app-db read (plain map, no deref) |
+| `rf/app-db-value` | `(frame-id)` — value-form app-db read (plain map, no deref) |
 | `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame |
 | `rf/make-frame` / `rf/reset-frame!` / `rf/destroy-frame!` | low-level frame lifecycle |
 

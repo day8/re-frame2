@@ -102,7 +102,7 @@
 
         (testing "the dispatch proceeded — frame B's handler ran"
           (is (true? @b-ran) "frame B's :b/leaf handler ran (warning did NOT refuse)")
-          (is (true? (:b-ran? (rf/frame-db :cfx.test/b)))
+          (is (true? (:b-ran? (rf/app-db-value :cfx.test/b)))
               "frame B's app-db reflects the handler's effect"))
 
         (testing "no `:rf.error/dispatch-sync-in-handler` fires for the cross-frame case"
@@ -149,7 +149,7 @@
 
       (is (empty? (cross-frame-warnings recorded))
           "no frame is mid-drain when the dispatch-sync! fires — no warning expected")
-      (is (true? (:b-ran? (rf/frame-db :cfx.test/b)))
+      (is (true? (:b-ran? (rf/app-db-value :cfx.test/b)))
           ":b/leaf still ran successfully"))))
 
 (deftest fires-on-cross-frame-dispatch-sync-during-async-drain

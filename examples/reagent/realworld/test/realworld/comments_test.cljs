@@ -46,8 +46,8 @@
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     (rf/dispatch-sync [:comment-form/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (assert (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-db f)))))
-    (assert (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-db f)))))))
+    (assert (= "hello" (:slug (rf/compute-sub [:article/data] (rf/app-db-value f)))))
+    (assert (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
 
 (defn comment-submit-test []
   (th/reg-canned-success-by-url! :realworld.test/canned-comment-post
@@ -88,7 +88,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
     (rf/dispatch-sync [:comment-form/edit-field :body "Nice article."] {:frame f})
     (rf/dispatch-sync [:comment-form/submit] {:frame f})
-    (assert (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-db f)))))
+    (assert (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/app-db-value f)))))
     ;; Initial GET returned [] (no existing comments); POST returned 1
     ;; saved comment → exactly 1 comment in the slice after submit.
-    (assert (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-db f)))))))
+    (assert (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))

@@ -41,7 +41,7 @@
 
 (def frame-dbs
   "frame-id -> atom holding the frame's app-db. Stand-in for the real
-   container behind `rf/frame-db` and the targets of `rf/subscribe`."
+   container behind `rf/app-db-value` and the targets of `rf/subscribe`."
   (atom {}))
 
 (defn register-frame!
@@ -64,11 +64,11 @@
   "Mirrors `re-frame.core/subscribe`'s 2-arity form `(subscribe
    frame-id query-v)`. The CLJS runtime calls this in `subs-sample`.
    Returns a deref-able stand-in (an atom whose value derives from
-   the frame-db) so `@(subscribe frame-id query-v)` works."
+   the app-db-value) so `@(subscribe frame-id query-v)` works."
   [frame-id query-v]
   (let [container (get @frame-dbs frame-id)]
     (when container
-      ;; Project the query against the frame-db. For the test we
+      ;; Project the query against the app-db-value. For the test we
       ;; treat query-v as a path into the db.
       (atom (get-in @container query-v)))))
 

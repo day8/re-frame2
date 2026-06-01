@@ -48,14 +48,14 @@
 
 (defn- await-reply!
   "Wait up to `timeout-ms` for `(pred db)` to be truthy against
-  `(rf/frame-db :rf/default)`. Returns the final db on success;
+  `(rf/app-db-value :rf/default)`. Returns the final db on success;
   throws `:rf.test/poll-timeout` on timeout. Thin alias over
   `test-support/poll-until` (rf2-fun38) — preserves the per-file
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
    (test-support/poll-until
-     #(let [db (rf/frame-db :rf/default)] (when (pred db) db))
+     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-helpers reply"})))
 
 ;; ---- 1. (rf.http/get url args) dispatches through canned-success ----------

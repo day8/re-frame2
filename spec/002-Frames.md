@@ -345,7 +345,7 @@ Tests use this pattern as their fixture lifecycle:
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (try
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-      (is (= :validating (get-in (rf/frame-db f) [:auth :state])))
+      (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
 ```
@@ -581,7 +581,7 @@ The frame affordances are organised by **what you are trying to do**, not by mec
 - **Scope:** `with-frame` (pin to an existing frame), `with-new-frame` (create + own + destroy), `frame-provider` (React subtree).
 - **Hold (carry a frame's ops as a value, across async):** `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced wrap).
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
-- **Reads / lifecycle:** `frame-db`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta`.
+- **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta`.
 
 ### `frame-handle` — the keystone affordance (CLJS reference)
 
@@ -599,7 +599,7 @@ Ambient frame lookup (dynamic var → React context → `:rf/default`) does **no
 
 - The frame is captured at CREATION; every op targets the captured frame and survives async (`setTimeout`, `Promise.then`, websocket `onmessage`, observer callbacks).
 - A per-call `:frame` in the dispatch opts MUST NOT override the captured frame — the handle is **locked** to one frame.
-- It is an OPERATION BUNDLE, not a container: read the frame's app-db value via `(rf/frame-db (:frame handle))`, not the handle itself.
+- It is an OPERATION BUNDLE, not a container: read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
 
 ```clojure
 (rf/reg-view StreamView [_]
@@ -817,7 +817,7 @@ Always available, frame-keyword-targeted via the opts arg:
 @(rf/subscribe [:items]          {:frame :todo})
 ```
 
-These are also the right APIs from non-Reagent contexts (server-side, headless tests, agents). No `dispatch-to` / `subscribe-to` sugar functions exist — the two-arg form is the one mechanism. On the JVM, `subscribe` cannot return a deref-able reactive (no Reagent) — the headless equivalent for "compute a sub against an `app-db` value" is `compute-sub`, defined in [008-Testing §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm). JVM tests typically read `(rf/frame-db <id>)` and pass that into `(rf/compute-sub query-v db)`; `subscribe` on the JVM is supported only when the substrate adapter provides a value-shape implementation.
+These are also the right APIs from non-Reagent contexts (server-side, headless tests, agents). No `dispatch-to` / `subscribe-to` sugar functions exist — the two-arg form is the one mechanism. On the JVM, `subscribe` cannot return a deref-able reactive (no Reagent) — the headless equivalent for "compute a sub against an `app-db` value" is `compute-sub`, defined in [008-Testing §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm). JVM tests typically read `(rf/app-db-value <id>)` and pass that into `(rf/compute-sub query-v db)`; `subscribe` on the JVM is supported only when the substrate adapter provides a value-shape implementation.
 
 ### `with-frame` and `with-new-frame`
 
@@ -842,7 +842,7 @@ Use case: REPL sessions, tests that share a fixture across multiple `deftest` bl
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init]})]
   (rf/dispatch-sync [:auth/login])
-  (is (= :authenticated (get-in (rf/frame-db f) [:auth :state]))))
+  (is (= :authenticated (get-in (rf/app-db-value f) [:auth :state]))))
 ```
 
 Used when the frame's lifetime is exactly the body. The macro evaluates `expr`, binds the resulting frame keyword to `sym`, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
@@ -1438,7 +1438,7 @@ Authors of fx that escape into async land *do* have to forward the frame — eit
 
 ### The public registrar query API
 
-re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 10 (Strong introspection surface)](000-Vision.md#goals) says this is first-class. **The contract for registry queries (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`) is owned by [001 §The query API](001-Registration.md#the-query-api).** The table below restates that surface alongside the frame-runtime queries (`frame-db`, `snapshot-of`, `sub-topology`, `sub-cache`) that 002 owns:
+re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 10 (Strong introspection surface)](000-Vision.md#goals) says this is first-class. **The contract for registry queries (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`) is owned by [001 §The query API](001-Registration.md#the-query-api).** The table below restates that surface alongside the frame-runtime queries (`app-db-value`, `snapshot-of`, `sub-topology`, `sub-cache`) that 002 owns:
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
@@ -1448,7 +1448,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |
-| `(rf/frame-db id)` | Current `app-db` value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
+| `(rf/app-db-value id)` | Current `app-db` value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
 | `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form uses `:rf/default` frame; two-arg accepts `{:frame frame-id}`. | Yes |
 | `(rf/sub-topology)` | **Static** dependency graph from `:<-` declarations: a map of `sub-id → {:inputs [<input-sub-ids>], :doc, :ns/:line/:file}`. Pure data derived from the registrar at registration time. | Yes |
 | `(rf/sub-cache id)` | **Runtime** cache state for a frame: which subs are currently materialised, their current cached values, dependent components if any. Requires the reactive runtime. | **No** — CLJS-only |
@@ -1459,7 +1459,7 @@ The metadata maps returned by `handler-meta` and `frame-meta` follow a documente
 
 ### Per-frame and trace surface
 
-- **Per-frame app-db inspection** — covered by `frame-db` above.
+- **Per-frame app-db inspection** — covered by `app-db-value` above.
 - **Trace per frame.** Each frame owns its own cascade-keyed trace ring. Trace events emitted inside an in-flight cascade route to the frame whose router / reactive substrate / view wrapper is running — they never cross into sibling frames. Each frame's ring is sized independently via `:rf.trace/cascades-retained` (default 50; per-frame override on `reg-frame`); `(rf/trace-buffer frame-id)` reads cascade bundles from that frame's ring; cross-frame consumers (pair tools, multi-frame story sessions) merge by `:dispatch-id` across rings. Frameless emits stream live to listeners only and bypass every ring. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) for the full contract.
 - **Hot-reload notifications.** `reg-frame`/`reg-event-*`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Per the B4 ruling, hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
 

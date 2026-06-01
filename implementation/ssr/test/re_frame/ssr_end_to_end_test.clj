@@ -13,7 +13,7 @@
 
     1. Build a per-request frame via make-frame {:on-create [:rf/server-init request]}.
     2. The on-create event dispatches :http/get (stubbed via :fx-overrides).
-    3. The drain settles synchronously — frame-db reflects post-drain state.
+    3. The drain settles synchronously — app-db-value reflects post-drain state.
     4. render-to-string against the registered root view emits HTML
        carrying data-rf-render-hash on the root element.
     5. Build a serialisable payload: {:rf/version :rf/frame-id :rf/app-db :rf/render-hash}.
@@ -125,7 +125,7 @@
                           :on-create    [:rf/server-init {:uri "/articles"}]
                           :fx-overrides {:http/get :http/get.canned-articles}})
           ;; (2)+(3) drain settled via :on-create + dispatch-sync chain
-          server-db    (rf/frame-db server-frame)]
+          server-db    (rf/app-db-value server-frame)]
 
       (is (= 2 (count (:articles server-db)))
           "post-drain server app-db carries the canned articles")
@@ -170,7 +170,7 @@
                                {:doc      "Hydrated client frame"
                                 :platform :client})]
             (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-            (let [client-db (rf/frame-db client-frame)]
+            (let [client-db (rf/app-db-value client-frame)]
               ;; The server's app-db replaced the client's empty app-db.
               (is (= (:articles server-db) (:articles client-db))
                   ":rf/hydrate replaced the client app-db with payload's :rf/app-db")
@@ -900,7 +900,7 @@
           f         (rf/make-frame {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
       (is (= "head-hash-server-A"
-             (get-in (rf/frame-db f) [:rf/runtime :ssr :hydration :server-hash]))
+             (get-in (rf/app-db-value f) [:rf/runtime :ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server's head-hash")
 
       (rf/register-listener! ::head (fn [ev] (swap! traces conj ev)))
@@ -1744,7 +1744,7 @@
         (let [f  (rf/make-frame
                    {:on-create    [:rf/server-init {:uri "/articles"}]
                     :fx-overrides {:http/get :http/get.canned-articles}})
-              db (rf/frame-db f)]
+              db (rf/app-db-value f)]
           (rf/unregister-listener! ::ssr)
           (is @stub-fired? "the override redirected the fx to the stub")
           (is (= 2 (count (:articles db)))

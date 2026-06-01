@@ -64,7 +64,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 6 | `expectTextEquals(below-clock-ticks, '0 ticks')` | A | Same. → same target. |
 | 7 | `expectTextEquals(above-title-state, ':idle')` | A | Machine initial state per frame. → same target. |
 | 8 | `expectTextEquals(below-title-state, ':idle')` | A | Same. → same target. |
-| 9 | After 3× above-inc click: above-counter = '3' AND below-counter = '0' | A | The canonical counter-isolation contract. → same target — `(dispatch [::inc])` against frame `:above` × 3 then `(rf.frame-db :above) :counter` = 3 and `(rf.frame-db :below) :counter` = 0. |
+| 9 | After 3× above-inc click: above-counter = '3' AND below-counter = '0' | A | The canonical counter-isolation contract. → same target — `(dispatch [::inc])` against frame `:above` × 3 then `(rf.app-db-value :above) :counter` = 3 and `(rf.app-db-value :below) :counter` = 0. |
 | 10 | After below-inc click: above stays 3, below = 1 | A | Same canonical isolation. → same target. |
 | 11 | After 2× above-tick: above-ticks=2, below-ticks=0 | A | Clock-tick handler resolves against originating frame. → same target. |
 | 12 | After below-tick: above stays 2, below=1 | A | Same. → same target. |
@@ -77,8 +77,8 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 19 | `:rf.xray/set-target-frame` round-trip on :above | A | Xray-side event + sub roundtrip. → `tools/xray/test/.../target_frame_roundtrip_cljs_test.cljs` (Xray is already heavy in panels_e2e CLJS tests; extend that surface). |
 | 20 | Same on :below | A | Same. → same target. |
 | 21 | Reset away from host frames on nil | A | Same. → same target. |
-| 22 | `(rf.frame-db :above) :counter` = 3 | A | Same as #9 underlying contract. → same target as #9 (avoid dual coverage). |
-| 23 | `(rf.frame-db :below) :counter` = 1 | A | Same as #10. → same target. |
+| 22 | `(rf.app-db-value :above) :counter` = 3 | A | Same as #9 underlying contract. → same target as #9 (avoid dual coverage). |
+| 23 | `(rf.app-db-value :below) :counter` = 1 | A | Same as #10. → same target. |
 | 24 | `:rf/xray` carries no `:counter` leak | A | Cross-frame app-db isolation (host → Xray direction of Spec 008 §State isolation). → `tools/xray/test/.../embedding_contract_isolation_cljs_test.cljs` (new file). |
 | 25 | `expectVisible` page banner timing | C | DOM mount; keep at Playwright. STAYS (subsumed by #1/#2). |
 | 26 | Polling DOM mirror reflects post-dispatch state | C-residual | Trivial — proves substrate re-renders. After A-migrations land, the 3 substrate-smoke adapters already cover this. DROP from this spec post-migration. |
@@ -288,7 +288,7 @@ One bead per spec.cjs file. Each can dispatch in parallel where target test file
 Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root spec.cjs file deletion. **Six beads, parallel-dispatchable.**
 
 **Wave 2 (rf2-lcg1z, COMPLETED):**
-- `B7` — `tools/xray/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/frame-db as the only legitimate cross-frame read, destroy-independence). Xray-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Xray-displayable showcase. **Surface: framework multi-frame.**
+- `B7` — `tools/xray/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/app-db-value as the only legitimate cross-frame read, destroy-independence). Xray-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Xray-displayable showcase. **Surface: framework multi-frame.**
 
 **Wave 3 (rf2-pxb7t, COMPLETED — single-bundle worker, sequential):**
 - `B8` — `testbeds/ssr_basic/spec.cjs` deleted. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj` (5 deftests / 11 substantive assertions covering :rf/hydrate replace-app-db + `[:rf/runtime :ssr :hydration]` metadata stash + post-hydrate dispatch round-trip + :rf/response payload echo + :rf.ssr/compatibility-check-skipped trace emit + no-mismatch-on-baseline).

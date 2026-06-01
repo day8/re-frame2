@@ -347,7 +347,7 @@
      (if (nil? fid)
        {:ok? false :reason :no-frame-resolved
         :hint "Pass :frame :foo or register at least one frame."}
-       (let [db    (rf/frame-db fid)
+       (let [db    (rf/app-db-value fid)
              value (if (seq path) (get-in db path) db)]
          {:ok?   true
           :frame fid

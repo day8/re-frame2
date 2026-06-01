@@ -16,7 +16,7 @@ Most apps never touch any of this — a single-frame app just calls `rf/dispatch
 | Scope a React subtree to a frame | `frame-provider` |
 | Hold a frame's ops as a value (async / closures) | `frame-handle` (common); `frame-bound-fn` / `frame-bound-fn*` (advanced) |
 | One-off explicit routing | `{:frame …}` opt on `dispatch` / `subscribe` |
-| Read a frame's app-db / its id | `frame-db` / `current-frame-id` |
+| Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 
 A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback uses `frame-bound-fn`.
 
@@ -41,7 +41,7 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 
 ;; Inspect.
 (rf/current-frame-id)               ;; returns the active frame id
-(rf/frame-db :frame-id)             ;; current app-db VALUE (plain map, no deref)
+(rf/app-db-value :frame-id)             ;; current app-db VALUE (plain map, no deref)
 ```
 
 Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`.
@@ -70,7 +70,7 @@ When you `setTimeout` or hand a callback to a promise, the ambient frame binding
   (.then promise #(dispatch [:result-arrived %])))
 ```
 
-`(rf/frame-handle)` captures `(current-frame-id)`; `(rf/frame-handle :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/frame-db (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
+`(rf/frame-handle)` captures `(current-frame-id)`; `(rf/frame-handle :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
 
 For an arbitrary callback body (not just dispatch / subscribe), wrap it so `*current-frame*` is re-established inside:
 
@@ -95,7 +95,7 @@ Per-test isolated frame, from `examples/reagent/login/core.cljs`:
                                        {:email "user@example.com"
                                         :password "correct-horse"}]]
                     {:frame f})
-  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-db f)))))
+  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))))
 ```
 
 Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination.

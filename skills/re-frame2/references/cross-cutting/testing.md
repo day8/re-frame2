@@ -42,7 +42,7 @@ Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framewor
 
 ```clojure
 (rf/dispatch-sync [:counter/inc])
-(is (= 1 (:n (rf/frame-db :rf/default))))
+(is (= 1 (:n (rf/app-db-value :rf/default))))
 ```
 
 `ts/dispatch-sequence` fires a vector of events in order, each drained before the next:
@@ -81,7 +81,7 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
 
 On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
 
-## Asserting state: `assert-path-equals` / `assert-db-equals` and `frame-db`
+## Asserting state: `assert-path-equals` / `assert-db-equals` and `app-db-value`
 
 Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story event-family:
 
@@ -97,7 +97,7 @@ Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
 ```clojure
-(rf/frame-db :rf/default)                  ;; whole app-db, any frame
+(rf/app-db-value :rf/default)                  ;; whole app-db, any frame
 (rf/snapshot-of [:cart :items])             ;; get-in over the current frame
 (rf/snapshot-of [:cart :items] {:frame :stories})
 ```
@@ -183,7 +183,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
     (let [tree (counter-view {:n 0})
           btn  (h/find-by-testid tree "counter-inc")]
       (h/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would
-      (is (= 1 (:n (rf/frame-db f)))))))
+      (is (= 1 (:n (rf/app-db-value f)))))))
 ```
 
 - `find-by-testid` / `find-all-by-testid` — locate node(s) by `:data-testid`.
@@ -214,7 +214,7 @@ A machine's snapshot lives at `(get-in app-db [:rf/runtime :machines :snapshots 
 (rf/dispatch-sync [:loader [:fetch]])
 
 ;; Direct snapshot access — full-shape assertions
-(let [s (get-in (rf/frame-db :rf/default) [:rf/runtime :machines :snapshots :loader])]
+(let [s (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots :loader])]
   (is (= :loading      (:state s)))
   (is (= #{:transient} (:tags s))))
 

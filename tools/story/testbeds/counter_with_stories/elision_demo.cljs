@@ -238,7 +238,7 @@
 ;; Xray applies when it renders its app-db inspector panel.
 
 (defn- walk-app-db! []
-  (let [db     (rf/frame-db :rf/default)
+  (let [db     (rf/app-db-value :rf/default)
         elided (rf/elide-wire-value db {:frame :rf/default})]
     (js/console.log "[app-db elision walk]" (pr-str elided))))
 

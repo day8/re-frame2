@@ -45,7 +45,7 @@
         ;; reply lands inside the dispatch-sync stack — :in-flight
         ;; goes empty AGAIN by the time we check.
         (rf/dispatch-sync [:ws.app/request "hello"] {:frame f})
-        (let [db   (rf/frame-db f)
+        (let [db   (rf/app-db-value f)
               snap (snapshot db)]
           (assert (= {} (get-in snap [:data :in-flight]))
                   ":in-flight slot was cleared on reply")
@@ -65,10 +65,10 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [pre-count (count (get-in (rf/frame-db f) [:messages :received]))]
+        (let [pre-count (count (get-in (rf/app-db-value f) [:messages :received]))]
           (messages/send-server-push! {:type :push
                                        :note "from the server"})
-          (let [post (get-in (rf/frame-db f) [:messages :received])]
+          (let [post (get-in (rf/app-db-value f) [:messages :received])]
             (assert (= (inc pre-count) (count post)))
             ;; newest-first. Each logged message also carries a UI-assigned
             ;; :rx-seq stamp (stable React key), so compare the body subset.
@@ -84,7 +84,7 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (rf/dispatch-sync [:ws.app/subscribe-demo] {:frame f})
-        (let [db (rf/frame-db f)
+        (let [db (rf/app-db-value f)
               snap (snapshot db)]
           (assert (contains? (get-in snap [:data :subscriptions]) :demo-topic)
                   ":data :subscriptions tracks the topic")
@@ -104,7 +104,7 @@
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 1}] {:frame f})
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 2}] {:frame f})
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 3}] {:frame f})
-    (let [received (get-in (rf/frame-db f) [:messages :received])]
+    (let [received (get-in (rf/app-db-value f) [:messages :received])]
       (assert (= [{:type :push :n 3}
                   {:type :push :n 2}
                   {:type :push :n 1}]

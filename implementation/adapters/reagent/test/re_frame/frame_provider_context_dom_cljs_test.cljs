@@ -363,9 +363,9 @@
             (fn []
               (rdc/render root [rf/frame-provider {:frame target}
                                 [render-fn]])))
-          (is (= :here (:stamped (rf/frame-db target)))
+          (is (= :here (:stamped (rf/app-db-value target)))
               "the wrapped frame's app-db carries the stamp — dispatch routed there")
-          (is (not= :here (:stamped (rf/frame-db :rf/default)))
+          (is (not= :here (:stamped (rf/app-db-value :rf/default)))
               ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))

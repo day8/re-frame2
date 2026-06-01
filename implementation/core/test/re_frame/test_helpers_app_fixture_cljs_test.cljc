@@ -70,10 +70,10 @@
 
 (defn- counter-view
   "Form-1 view that reads `:n` straight off `app-db` via
-  `frame-db` — keeps the test self-contained without reaching
+  `app-db-value` — keeps the test self-contained without reaching
   for `subscribe` / reactive caches."
   []
-  (let [n (:n (rf/frame-db (rf/current-frame-id)))]
+  (let [n (:n (rf/app-db-value (rf/current-frame-id)))]
     [:div {:data-testid "counter-root"}
      [:span {:data-testid "counter-display"} (str n)]]))
 
@@ -89,7 +89,7 @@
         (reset! seen-frame (rf/current-frame-id))
         (is (= :test-app @seen-frame)
             "with-frame binding kicks in for the body")
-        (is (= 0 (:n (rf/frame-db :test-app)))
+        (is (= 0 (:n (rf/app-db-value :test-app)))
             ":install ran inside the frame and dispatched :counter-init"))
       (is (= :test-app @seen-frame))
       (is (nil? (get @frame/frames :test-app))

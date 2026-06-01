@@ -118,7 +118,7 @@
     (rf/reg-event-db :wf/initialise (fn [_ _] {:counter 42}))
     (let [captured-db (atom nil)]
       (rf/with-new-frame [f (rf/make-frame {:on-create [:wf/initialise]})]
-        (reset! captured-db (rf/frame-db f)))
+        (reset! captured-db (rf/app-db-value f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))
 

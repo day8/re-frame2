@@ -113,7 +113,7 @@
     ;; The :on-create cofx fires :boot/initialise during make-frame,
     ;; which dispatches [:app/boot [:rf/start]]. The synchronous
     ;; drain runs all four canned-success stubs to completion.
-    (let [db    (rf/frame-db f)
+    (let [db    (rf/app-db-value f)
           state (rf/compute-sub [:app.boot/state] db)]
       (assert (= :ready state)
               (str "expected boot machine state :ready, got " state))
@@ -142,7 +142,7 @@
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
                                    :boot.test/canned-boot-success}})]
-    (let [db      (rf/frame-db f)
+    (let [db      (rf/app-db-value f)
           staging (:boot/staging db)]
       ;; Each staging-key holds the payload that came back from the
       ;; matching URL. Cross-talk (e.g. :flags staging holding the
@@ -174,7 +174,7 @@
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
                                    :boot.test/canned-boot-fail}})]
-    (let [db    (rf/frame-db f)
+    (let [db    (rf/app-db-value f)
           state (rf/compute-sub [:app.boot/state] db)]
       ;; Every child fails (the canned-failure stub is blanket); the
       ;; first failure routes the boot to :failed via :on-any-failed.

@@ -55,7 +55,7 @@
         "trace-buffer is nil or empty under :advanced + goog.DEBUG=false
          — buffer surface elides while the handler still runs")
     ;; Cross-check: the handler DID run — only the trace surface elided.
-    (is (= 3 (:n (rf/frame-db :rf/default)))
+    (is (= 3 (:n (rf/app-db-value :rf/default)))
         "handler ran the expected number of times — only the trace
          surface (buffer + listener) elided")))
 

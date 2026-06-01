@@ -336,7 +336,7 @@
       ;; Seed a known app-db value via a clean dispatch first.
       (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
       (rf/dispatch-sync [:seed])
-      (is (= {:seeded 1} (rf/frame-db :rf/default)) "seeded")
+      (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
       ;; Now register a handler that mutates :db and then throws. Even
       ;; though it produced a :db value before throwing, nothing installs.
       (rf/reg-event-db :throws
@@ -350,7 +350,7 @@
       (try
         (rf/dispatch-sync [:throws])
         (finally (rf/unregister-listener! ::rec)))
-      (is (= {:seeded 1} (rf/frame-db :rf/default))
+      (is (= {:seeded 1} (rf/app-db-value :rf/default))
           "app-db is UNCHANGED — the handler threw before the install")
       (is (not-any? #(= :rf.event/db-changed (:operation %)) @traces)
           "NO :rf.event/db-changed on a handler throw — nothing was installed"))))
@@ -367,7 +367,7 @@
                        :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
       (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
       (rf/dispatch-sync [:seed])
-      (is (= {:seeded 1} (rf/frame-db :rf/default)) "seeded")
+      (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
       ;; This handler successfully writes :db; the interceptor's :after
       ;; then throws — so a :db effect IS present when the throw fires,
       ;; yet nothing installs (the error path returns before the commit).
@@ -378,7 +378,7 @@
       (try
         (rf/dispatch-sync [:writes-then-after-throws])
         (finally (rf/unregister-listener! ::rec)))
-      (is (= {:seeded 1} (rf/frame-db :rf/default))
+      (is (= {:seeded 1} (rf/app-db-value :rf/default))
           "app-db is UNCHANGED — the interceptor :after threw before the install
            even though the handler's :db effect was present")
       (is (not-any? #(= :rf.event/db-changed (:operation %)) @traces)

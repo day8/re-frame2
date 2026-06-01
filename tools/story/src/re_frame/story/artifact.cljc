@@ -355,7 +355,7 @@
          (fn []
            (let [outcomes (replay-into-frame! frame-id artifact hooks)
                  tape     (vec (rf/epoch-history frame-id))
-                 app-db   (rf/frame-db frame-id)]
+                 app-db   (rf/app-db-value frame-id)]
              (replay-result {:epoch-tape tape
                              :artifact   artifact
                              :outcomes   outcomes

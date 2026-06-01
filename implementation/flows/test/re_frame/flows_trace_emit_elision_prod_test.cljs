@@ -122,7 +122,7 @@
           "no trace events delivered for the recompute under prod"))
     ;; Cross-check: the flow computed the correct value into app-db.
     (is (= 12
-           (get-in (rf/frame-db :rf/default) [:rect :area]))
+           (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "flow output written to app-db slot — only trace surface elided")))
 
 ;; ---- :rf.flow/failed elides under prod ------------------------------------
@@ -224,5 +224,5 @@
                    (rf/dispatch-sync [:prod-elision/seed-validate])))]
       (is (empty? seen)
           "no schema-validation-failure (or any other) trace under prod"))
-    (is (= 12 (get-in (rf/frame-db :rf/default) [:prod-elision/area]))
+    (is (= 12 (get-in (rf/app-db-value :rf/default) [:prod-elision/area]))
         "flow output still written — only the validation/trace surface elided")))

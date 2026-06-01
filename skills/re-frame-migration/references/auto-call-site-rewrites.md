@@ -47,8 +47,8 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 
 ;; REWRITE
 ;; Remove the :require entirely; replace usages per the table:
-@db/app-db           → (rf/frame-db :rf/default)
-@re-frame.db/app-db  → (rf/frame-db :rf/default)
+@db/app-db           → (rf/app-db-value :rf/default)
+@re-frame.db/app-db  → (rf/app-db-value :rf/default)
 (reset! re-frame.db/app-db v) → flag (Type B — see M-15) — propose
                                  (rf/dispatch-sync [::reset-app-db v])
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)

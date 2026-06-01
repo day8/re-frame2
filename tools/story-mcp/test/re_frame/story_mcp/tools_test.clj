@@ -1430,7 +1430,7 @@
       (let [run    (invoke "run-variant" {:variant-id "story.button/replayed"})
             run-n  (let [deadline (+ (System/nanoTime) (* 2 1000000000))]
                      (loop []
-                       (let [v (:n (rf/frame-db :story.button/replayed))]
+                       (let [v (:n (rf/app-db-value :story.button/replayed))]
                          (cond
                            (and (integer? v) (pos? v)) v
                            (< (System/nanoTime) deadline)
@@ -1878,7 +1878,7 @@
 
 (defn- frame-container [variant-id]
   ;; `re-frame.frame/app-db-container` returns the substrate container (an
-  ;; atom under plain-atom); the user-facing `rf/frame-db` returns
+  ;; atom under plain-atom); the user-facing `rf/app-db-value` returns
   ;; the dereferenced VALUE. Tests need the container so they can write
   ;; the elision-registry slot back.
   ((requiring-resolve 're-frame.frame/app-db-container) variant-id))

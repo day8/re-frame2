@@ -188,7 +188,7 @@
       ;; Seed: mark :load-articles as in-flight in app-db. The flow runs
       ;; once on this seed event and the count lands at 1.
       (rf/dispatch-sync [:http/issue :load-articles])
-      (is (= 1 (get-in (rf/frame-db :rf/default) [:derived :pending-count]))
+      (is (= 1 (get-in (rf/app-db-value :rf/default) [:derived :pending-count]))
           "precondition: flow ran on the seed event; pending count is 1")
       (is (= [#{:load-articles}] @flow-evals)
           "precondition: flow saw the populated in-flight slot")
@@ -205,10 +205,10 @@
 
       ;; Post-install assertions: the cleared slot AND the cleared count
       ;; landed together in the SAME install.
-      (is (nil? (get-in (rf/frame-db :rf/default)
+      (is (nil? (get-in (rf/app-db-value :rf/default)
                         [:http/in-flight :load-articles]))
           "the in-flight slot was cleared by the handler's :db effect")
-      (is (zero? (get-in (rf/frame-db :rf/default)
+      (is (zero? (get-in (rf/app-db-value :rf/default)
                          [:derived :pending-count]))
           "the flow's derived count reflects the CLEARED in-flight slot
            — landed in the SAME install as the dissoc, not on the next
@@ -275,11 +275,11 @@
       ;; Seed BEFORE registering the throwing flow, so the seed event
       ;; settles cleanly.
       (rf/dispatch-sync [:http/issue :load-articles])
-      (is (true? (get-in (rf/frame-db :rf/default)
+      (is (true? (get-in (rf/app-db-value :rf/default)
                          [:http/in-flight :load-articles]))
           "precondition: app-db's in-flight slot is populated for
            :load-articles before the cancel")
-      (let [baseline-db (rf/frame-db :rf/default)]
+      (let [baseline-db (rf/app-db-value :rf/default)]
 
         ;; Now register a flow over [:http/in-flight] that throws on
         ;; every eval. It will throw on the :cancel drain.
@@ -295,11 +295,11 @@
 
         ;; The handler's :db did NOT land — pre-install throw discards
         ;; the entire pending :db (handler dissoc + flow write alike).
-        (is (= baseline-db (rf/frame-db :rf/default))
+        (is (= baseline-db (rf/app-db-value :rf/default))
             "app-db is byte-for-byte the pre-cancel value — the handler's
              dissoc was rolled in with the flow's pending write and
              discarded wholesale by the flow throw")
-        (is (true? (get-in (rf/frame-db :rf/default)
+        (is (true? (get-in (rf/app-db-value :rf/default)
                            [:http/in-flight :load-articles]))
             "app-db's in-flight slot for :load-articles is STILL populated
              — the cancel's dissoc did NOT install")

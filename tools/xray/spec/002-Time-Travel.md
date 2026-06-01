@@ -24,7 +24,7 @@ The **scrubber** (the ribbon `[◀ ▶ ⏭]` cluster + the L2 event list,
 per [`018-Event-Spine.md`](018-Event-Spine.md) §6) lets the programmer
 walk history **without disturbing the live app**. Scrubbing is
 **passive** — every Xray panel rebases to show "what the world looked
-like at epoch N" — but `(rf/frame-db ...)` still returns the live
+like at epoch N" — but `(rf/app-db-value ...)` still returns the live
 value. The user's mouse clicks against the app still hit live state.
 
 Rewinding the runtime is **explicit and confirmed** — a `Rewind here`
@@ -38,7 +38,7 @@ won't work because X" is structured rather than a silent no-op.
 Passive scrubbing + explicit `r` (rewind) + `Shift+r` (hard rewind
 with failure-mode modal) + `*` (pin a labelled snapshot at current
 epoch). Pins survive the ring buffer ageing-out the underlying epoch
-— the pin retains `:frame-db` so "Reset to pinned" works even after
+— the pin retains `:app-db-value` so "Reset to pinned" works even after
 the epoch dropped off the scrubber.
 
 ---
@@ -135,7 +135,7 @@ Dragging the scrubber rebases every panel's view of history. The
 Epoch panel rebases to the dragged-to epoch. The app-db panel
 shows the historical snapshot.
 
-But `(rf/frame-db ...)` continues to return the live value. The
+But `(rf/app-db-value ...)` continues to return the live value. The
 live app behind Xray does **not** rebase visually. The user's mouse
 clicks against the app still hit the live state.
 
@@ -223,17 +223,17 @@ A pin is the **4-tuple** `(epoch-id × frame-db-value × dispatch-id × user-lab
 | Slot | Source | Why it's pinned |
 |---|---|---|
 | `:epoch-id` | `:rf/epoch-record :epoch-id` ([Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)) | The opaque history key the scrubber and `restore-epoch` both address. |
-| `:frame-db` | `:rf/epoch-record :db-after` | A direct handle to the value the user marked — survives if `epoch-history` ages the slot out of the ring buffer. |
+| `:app-db-value` | `:rf/epoch-record :db-after` | A direct handle to the value the user marked — survives if `epoch-history` ages the slot out of the ring buffer. |
 | `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :rf.trace/dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id)) | Links the pin to the cascade that produced the epoch. |
 | `:label` | User-supplied string (the prompt that opens when `*` fires) | What the programmer reads on the scrubber. Defaults to `pin-<n>` (incrementing per session) if the user dismisses the prompt. |
 
 The capture is **eager**: pinning copies the four slots into Xray's
 in-memory pin store at pin time. Pins survive the ring-buffer
 ageing-out the underlying epoch — the pin retains
-`:frame-db` so "Reset to pinned" still works after the epoch itself
+`:app-db-value` so "Reset to pinned" still works after the epoch itself
 has dropped off the scrubber.
 
-The `:frame-db` snapshot is the same `app-db` value the framework
+The `:app-db-value` snapshot is the same `app-db` value the framework
 already retained for `:db-after`; pinning takes a fresh reference,
 not a copy. Cost is one map entry plus a string per pin.
 
@@ -253,7 +253,7 @@ renders **detached** (no tick mark on the track):
        (aged-out)
 ```
 
-The detached chip is still clickable; the pin's `:frame-db` is still
+The detached chip is still clickable; the pin's `:app-db-value` is still
 restorable via "Reset to pinned" (below). The detached marker is the
 visible signal that the pin out-lives the ring buffer.
 
@@ -265,7 +265,7 @@ visible signal that the pin out-lives the ring buffer.
   the pin's `:epoch-id`.
 - **Right-click a pin chip** → action menu:
   - **Reset to pinned** — confirmed rewind. Calls
-    `(rf/reset-frame-db! frame-id pin.frame-db)` (per [Tool-Pair
+    `(rf/reset-frame-db! frame-id pin.app-db-value)` (per [Tool-Pair
     §Pair-tool writes — state
     injection](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection);
     schema-validates against the **current** schema set). The pin's
@@ -288,7 +288,7 @@ right-click → menu path.
 ### Why `reset-frame-db!` not `restore-epoch`
 
 "Reset to pinned" calls `reset-frame-db!`, not `restore-epoch`,
-because the pin's `:frame-db` is **value-direct**: there is no
+because the pin's `:app-db-value` is **value-direct**: there is no
 epoch-id lookup against `epoch-history` that could miss (the pin
 holds the value directly, so it works even after age-out).
 `reset-frame-db!` bypasses the cascade, schema-validates against
