@@ -23,10 +23,10 @@
   script) resolves the repo root from its OWN location via node's
   `path` module — which works identically on Windows, macOS, and Linux —
   exports it as the `RF2_TESTBED_PROJECT_ROOT` env var, and spawns
-  `shadow-cljs`. The 6 affected builds in
-  `implementation/shadow-cljs.edn` seed the define from that env var via
-  `#shadow/env`, so the absolute root is the ACTUAL repo root of whatever
-  checkout did the build — never a literal.
+  `shadow-cljs`. Every testbed build in `implementation/shadow-cljs.edn`
+  (the Xray testbeds plus the Story testbeds + static build) seeds the
+  define from that env var via `#shadow/env`, so the absolute root is the
+  ACTUAL repo root of whatever checkout did the build — never a literal.
 
   `resolve-project-root` then joins that root with the tool-relative
   testbed subdir (`\"tools/xray/testbeds\"` /  `\"tools/story/testbeds\"`)
