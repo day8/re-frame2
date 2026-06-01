@@ -163,7 +163,19 @@
   [:rf/redacted])
 
 ;; ---------------------------------------------------------------------------
-;; Pure: code-gen — `(reg-variant ... :script {...})` snippet
+;; Pure: dispatch-only code-gen — `(reg-variant ... :script {...})` snippet
+;;
+;; NOTE (rf2-nkjkj): this is the LEGACY dispatch-only codegen. It reads
+;; the bare `:events` stream, so it sees dispatched events + inserted
+;; assertions ONLY — it is BLIND to DOM interactions (which live in
+;; `:entries`). The interactive recorder's PRIMARY save dialog no longer
+;; uses this path; it renders the rich `:play-script` translation off
+;; `:entries` (`recorder.play-export/recording->play-script` +
+;; `render-variant-form`) so canvas clicks/types/submits are never
+;; dropped. `gen-play-snippet` survives ONLY as the codegen for the MCP
+;; `record-as-variant` record-and-sleep flow, whose capture path produces
+;; no DOM entries (so the dispatch-only view is complete there) and for
+;; the `story/gen-play-snippet` public re-export.
 ;;
 ;; rf2-7mj4z: `gen-play-snippet` emits the PUBLIC `:script` authoring slot
 ;; (spec/017 §Public vocabulary), NOT the transitional `:play-script`
@@ -493,22 +505,29 @@
 ;; rf2-d5u89 — per-event timestamps + DOM-event entries
 ;;
 ;; The original recorder model carried `:events` (a vector of event
-;; vectors) — sufficient for the simple `gen-play-snippet` codegen which
-;; wraps each as a `:dispatch-sync` step, but blind to TIMING and DOM
-;; INTERACTION which the rich `:play-script` DSL needs to emit `:click`
-;; / `:type` / `:wait` steps.
+;; vectors) — sufficient for a dispatch-only codegen which wraps each
+;; as a `:dispatch-sync` step, but blind to TIMING and DOM INTERACTION
+;; which the rich `:play-script` DSL needs to emit `:click` / `:type` /
+;; `:wait` steps.
 ;;
-;; The model now carries a parallel `:entries` vector keyed on the
-;; same index as `:events`. Each entry is one of:
+;; `:entries` is the recorder's SINGLE SOURCE OF TRUTH for codegen
+;; (rf2-nkjkj): the primary save dialog renders the `:play-script`
+;; translation off this stream. Each entry is one of:
 ;;
 ;;   {:kind :event/dispatch :event <vec> :t <ms>}
 ;;   {:kind :dom/click      :selector <str> :t <ms>}
 ;;   {:kind :dom/type       :selector <str> :text <str> :t <ms>}
 ;;   {:kind :dom/submit     :selector <str> :t <ms>}
 ;;
-;; `:events` stays canonical for the simple `gen-play-snippet` codegen
-;; (which emits `:dispatch-sync` `:play-script` steps). `:entries` is
-;; the richer surface the rich `:play-script` translator consumes.
+;; `:entries` is a SUPERSET of `:events`: every recordable dispatch
+;; and assertion lands in BOTH streams (via `append` / `append-
+;; assertion`), but DOM interactions (via `append-dom`) land in
+;; `:entries` ONLY — `:events` never sees them. The two streams are
+;; therefore NOT index-aligned the moment any DOM event is captured;
+;; `:entries` carries strictly >= the rows `:events` does. `:events`
+;; survives as the bare-dispatch view consumed by the legacy MCP
+;; record-and-sleep codegen (`gen-play-snippet`), whose capture path
+;; never produces DOM entries, so the asymmetry is invisible there.
 ;;
 ;; `:t` is ms since `:started-ms`; pure helpers accept a `now-ms`
 ;; argument for deterministic testing. (Helper fns `now-ms*`,
