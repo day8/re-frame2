@@ -116,7 +116,7 @@
    [:received [:vector Message]]
    ;; Last correlated reply landed via :ws.app/request-reply (or via
    ;; :ws/handle-message for server pushes) — handy for the request-reply
-   ;; round-trip view + the Playwright smoke assertion.
+   ;; round-trip view + the headless test assertion.
    [:last-reply [:maybe :any]]
    ;; Monotonic counter feeding each message's stable :rx-seq.
    [:rx-count :int]])

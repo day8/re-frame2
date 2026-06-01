@@ -35,11 +35,10 @@
                   the multi-tag union to one visible word.
 
                   A sibling `:ws-reconnect-attempts` counter surfaces
-                  the machine's `:retries` slot directly — this lets
-                  the Playwright smoke assert the reconnect counter
-                  advanced after a Drop click without relying on
-                  catching the transient RECONNECTING window in the
-                  pill text."}
+                  the machine's `:retries` slot directly — this lets a
+                  test assert the reconnect counter advanced after a
+                  Drop click without relying on catching the transient
+                  RECONNECTING window in the pill text."}
           status-pill []
   (let [connected?     @(subscribe [:ws/connected?])
         reconnecting?  @(subscribe [:ws/reconnecting?])

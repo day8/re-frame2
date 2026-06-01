@@ -43,7 +43,7 @@
   "How many mock items each child processes per shard. Three shards
    running in parallel at 50ms/item produces a ~5-second job that's
    long enough to demonstrate progress visibly and short enough to
-   keep the Playwright smoke fast."
+   keep the headless test fast."
   100)
 
 (def default-tick-ms

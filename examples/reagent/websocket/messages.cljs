@@ -16,7 +16,7 @@
    2. **Mock-server bridge.** A small in-process JS `WebSocket`-shaped
       stub the example uses when no real WebSocket endpoint is
       available — keeps the example standalone for the headless
-      `npm run test:cljs` runs and the Playwright smoke. The stub
+      tests (under `test/websocket/`). The stub
       registers itself as `js/MockWebSocketServer` and a couple of
       `:rf/inject-socket-event` fxs let the headless tests deliver
       `:opened` / `:received` / `:closed` events synchronously without
@@ -56,8 +56,8 @@
 ;; MOCK WEBSOCKET SERVER
 ;; ============================================================================
 ;;
-;; Implements a tiny `js/WebSocket`-shaped object for the headless smoke
-;; and the Playwright spec. Supports two interaction shapes:
+;; Implements a tiny `js/WebSocket`-shaped object for the headless tests
+;; and the example's own buttons. Supports two interaction shapes:
 ;;
 ;;   (1) Auto-echo replies for outbound `{:type :request ...}`. The
 ;;       server immediately echoes a reply on the same socket carrying
@@ -91,8 +91,8 @@
 
 (defn- ^:private later
   "Run `f` synchronously in mock-sync mode; via `setTimeout` otherwise.
-   This is the only knob that separates headless-test mode from the
-   browser-driven Playwright smoke."
+   This is the only knob that separates headless-test mode (sync) from
+   the browser-driven example (async, microtask-delivered)."
   [f]
   (if (:sync? @mock-server-state)
     (f)
@@ -170,7 +170,7 @@
               (later
                 #(deliver-to-actor! actor-id :closed {:code 1000})))}))
 
-;; Exposed seams the views (and the Playwright spec) use to drive the
+;; Exposed seams the views (and the headless tests) use to drive the
 ;; mock without dispatching through the actor.
 
 (defn- ^:private deliver-external!
@@ -187,7 +187,7 @@
 
 (defn send-server-push!
   "Deliver a synthetic server push to every live mock socket. Used by
-   the Playwright spec and the example's 'Trigger server push' button
+   the headless tests and the example's 'Trigger server push' button
    to demonstrate the inbound translation path."
   [body]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
