@@ -1602,7 +1602,9 @@
       (is (= :views (:step s)))
       (is (= :VIEWS (:badge s)))
       (is (= 1 (count (:rows s))))
-      (is (= ::counter-view (-> s :rows first :view-id))))))
+      (is (= ::counter-view (-> s :rows first :view-id)))
+      (is (= :rendered (-> s :rows first :status))
+          "rf2-3b9w4 — a rendered row carries :status :rendered"))))
 
 (deftest views-step-reads-rich-rendered-marker-test
   (testing "rf2-6djth — projection reads the substrate's rich
@@ -1666,9 +1668,11 @@
           "fresh mount carries :mount, not a re-render cause"))))
 
 (deftest unmounted-views-rows-test
-  (testing "rf2-gmw1i — `unmounted-views-rows` projects each
+  (testing "rf2-gmw1i / rf2-3b9w4 — `unmounted-views-rows` projects each
             `:rf.view/unmounted` trace event into a row with `:view-id`,
-            `:instance`, `:frame`"
+            `:instance`, `:frame`, and the rf2-3b9w4 `:status :unmounted`
+            + `:unmounted? true` markers so it can ride the same
+            views-table as the rendered rows (red strikethrough)"
     (let [rows (proj/unmounted-views-rows
                  [(view-unmounted-ev :app/Counter [:Counter 0] :rf/default)
                   (view-unmounted-ev :app/Sidebar [:Sidebar 0] :rf/default)])]
@@ -1676,40 +1680,89 @@
       (is (= :app/Counter (-> rows first :view-id)))
       (is (= [:Counter 0] (-> rows first :instance)))
       (is (= :rf/default (-> rows first :frame)))
+      (is (= :unmounted (-> rows first :status)))
+      (is (true? (-> rows first :unmounted?)))
+      (is (= [] (-> rows first :subs-read))
+          "an unmounted instance dereffed nothing this cascade")
       (is (= :app/Sidebar (-> rows second :view-id)))))
 
   (testing "rf2-gmw1i — no `:rf.view/unmounted` events → empty vec"
     (is (= [] (proj/unmounted-views-rows
                 [(view-render-ev :app/Counter [])])))))
 
-(deftest views-step-surfaces-unmounted-rows-test
-  (testing "rf2-gmw1i — `views-step` carries `:unmounted-rows` when
-            `:rf.view/unmounted` events fired alongside re-renders"
-    (let [s (proj/views-step
-              [(view-render-ev :app/Counter [])
-               (view-unmounted-ev :app/SidebarItem [:SidebarItem 0]
-                                  :rf/default)])]
-      (is (= 1 (count (:rows s))))
-      (is (= 1 (count (:unmounted-rows s))))
-      (is (= :app/SidebarItem (-> s :unmounted-rows first :view-id)))))
+(deftest views-step-folds-unmounted-into-rows-test
+  (testing "rf2-3b9w4 (SUPERSEDES rf2-gmw1i :unmounted-rows sub-section) —
+            `views-step` folds unmounted rows into the SAME `:rows`
+            (rendered first, unmounted following) + carries
+            `:unmounted-count`"
+    (let [s    (proj/views-step
+                 [(view-render-ev :app/Counter [])
+                  (view-unmounted-ev :app/SidebarItem [:SidebarItem 0]
+                                     :rf/default)])
+          rows (:rows s)]
+      (is (= 2 (count rows)) "rendered + unmounted ride in one collection")
+      (is (= :rendered (-> rows first :status)) "rendered rows come first")
+      (is (= :unmounted (-> rows second :status)) "unmounted rows follow")
+      (is (= :app/SidebarItem (-> rows second :view-id)))
+      (is (= 1 (:unmounted-count s)) "tail count for the header verb")
+      (is (not (contains? s :unmounted-rows))
+          "the separate :unmounted-rows slot is RETIRED")))
 
-  (testing "rf2-gmw1i — unmount-only cascade (no renders) → step still
-            present; `:rows` empty, `:unmounted-rows` populated"
+  (testing "rf2-3b9w4 — unmount-only cascade (no renders) → step still
+            present; `:rows` is the unmounted rows; `:unmounted-count`
+            equals the row count"
     (let [s (proj/views-step
               [(view-unmounted-ev :app/Tooltip [:Tooltip 0] :rf/default)])]
       (is (some? s) "step rendered even when no re-renders fired")
       (is (= :views (:step s)))
-      (is (= [] (:rows s)))
-      (is (= 1 (count (:unmounted-rows s))))))
+      (is (= 1 (count (:rows s))))
+      (is (= :unmounted (-> s :rows first :status)))
+      (is (= 1 (:unmounted-count s)))))
 
-  (testing "rf2-gmw1i — no view events at all → step OMITTED"
+  (testing "rf2-3b9w4 — no view events at all → step OMITTED"
     (is (nil? (proj/views-step []))))
 
-  (testing "rf2-gmw1i — only re-renders, no unmounts → `:unmounted-rows`
+  (testing "rf2-3b9w4 — only re-renders, no unmounts → `:unmounted-count`
             slot ABSENT (omit-by-absence)"
     (let [s (proj/views-step [(view-render-ev :app/Counter [])])]
-      (is (not (contains? s :unmounted-rows))
-          "absent slot conveys absence, not an empty vec"))))
+      (is (not (contains? s :unmounted-count))
+          "absent slot conveys absence")
+      (is (= 1 (count (:rows s)))))))
+
+(deftest views-row-sub-status-join-test
+  (testing "rf2-3b9w4 — `view-rows` joins each dereffed sub against the
+            epoch's `subscription-rows` to colour-code col-3: :new
+            (first-run this epoch) / :changed (value changed) /
+            :unchanged. Keyed by the SAME value the cell renders."
+    (let [events [;; a fresh-cache sub (first-run) → :new
+                  (assoc-in (sub-run-ev [:counter/total] false nil 5)
+                            [:tags :rf.sub/first-run?] true)
+                  ;; a recomputed-changed sub → :changed
+                  (sub-run-ev [:counter/parity] true 0 1)
+                  ;; a ran-but-unchanged sub → :unchanged
+                  (sub-run-ev [:counter/label] false "n" "n")
+                  ;; the view dereffed all three
+                  (view-render-ev :app/Counter
+                                  [[:counter/total] [:counter/parity]
+                                   [:counter/label]])]
+          idx    (proj/sub-status-index events)]
+      (is (= :new       (get idx [:counter/total])))
+      (is (= :changed   (get idx [:counter/parity])))
+      (is (= :unchanged (get idx [:counter/label])))
+      ;; indexed under the bare sub-id too
+      (is (= :new       (get idx :counter/total)))
+      (let [row (-> (proj/views-step events) :rows first)]
+        (is (= :new       (get-in row [:sub-status [:counter/total]])))
+        (is (= :changed   (get-in row [:sub-status [:counter/parity]])))
+        (is (= :unchanged (get-in row [:sub-status [:counter/label]]))))))
+
+  (testing "rf2-3b9w4 — a sub the view read but that ran outside the
+            captured run-set is absent from `:sub-status` (the cell
+            defaults it to grey/unchanged)"
+    (let [row (-> (proj/views-step
+                    [(view-render-ev :app/Counter [[:counter/orphan]])])
+                  :rows first)]
+      (is (not (contains? (:sub-status row) [:counter/orphan]))))))
 
 ;; ---- top-level project --------------------------------------------------
 

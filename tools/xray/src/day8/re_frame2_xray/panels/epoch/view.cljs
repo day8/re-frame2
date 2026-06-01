@@ -1073,26 +1073,9 @@
 (def ^:private views-cell-id-clickable-style
   (assoc views-cell-id-span-style :cursor "pointer"))
 
-(def ^:private views-row-duration-style
-  {:color       text-tertiary-colour
-   :margin-left "8px"
-   :font-size   "10px"})
-
-;; rf2-bhi3t — the per-row render-cause chip ("← props" / "← :sub-id").
-;; Sub-driven re-renders tint accent (the reactive cause — same family
-;; as the sub column); props-driven re-renders tint tertiary (the muted
-;; orthogonal `:rf/props` channel). Mounts render no chip — the cause
-;; question is about RE-renders, and the (mounted) signal lives elsewhere.
-(def ^:private views-row-cause-base-style
-  {:margin-left "8px"
-   :font-size   "10px"
-   :font-family mono-stack})
-
-(def ^:private views-row-cause-sub-style
-  (assoc views-row-cause-base-style :color accent-colour))
-
-(def ^:private views-row-cause-props-style
-  (assoc views-row-cause-base-style :color text-tertiary-colour))
+;; rf2-3b9w4 — `views-row-duration-style` + the rf2-bhi3t render-cause
+;; chip styles (`views-row-cause-*`) RETIRED with the col-1 strip (Mike
+;; pair 2026-06-01: drop the cause chip + duration from the VIEWS row).
 
 (def ^:private views-anonymous-style
   {:color text-tertiary-colour :font-style "italic"})
@@ -1102,27 +1085,62 @@
 
 (def ^:private italic-style {:font-style "italic"})
 
-;; -- UNMOUNTED views table -----------------------------------------------
+;; rf2-3b9w4 — VIEWS row mount/re-render glyph. Mirrors the
+;; SUBSCRIPTIONS leaf-scalar glyph idiom (`+` = added/mount, `~` =
+;; modified/re-render) so the VIEWS column reads with the SAME
+;; vocabulary the operator already learned in the SUBSCRIPTIONS step:
+;;
+;;   `+`  first MOUNT      — green `:diff-added-stripe` (the instance is
+;;                           newly alive, parity with `:added` chrome).
+;;   `~`  RE-render        — amber `:diff-modified-stripe` (the instance
+;;                           recomputed, parity with `:modified` chrome).
+(def ^:private views-glyph-cell-style
+  {:flex        "0 0 16px"
+   :padding-top "1px"
+   :font-size   "11px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
 
-(def ^:private unmounted-views-table-style
-  disposed-subs-table-style)
+(def ^:private views-glyph-mount-style
+  (assoc views-glyph-cell-style :color (:diff-added-stripe tokens)))
 
-(def ^:private unmounted-th-auto-style
-  {:flex "1 1 auto" :padding "5px 8px"})
+(def ^:private views-glyph-rerender-style
+  (assoc views-glyph-cell-style :color (:diff-modified-stripe tokens)))
 
-(def ^:private unmounted-glyph-cell-style
-  disposed-glyph-cell-style)
+;; rf2-3b9w4 — UNMOUNTED row: red strikethrough (diff-removed posture).
+;; Reuses the inspector's reserved `:diff-removed-*` token family + the
+;; same `line-through` decoration the edn-inspector paints on `:removed`
+;; leaves, so an unmounted view row reads visually identical to a
+;; removed entry in any diff surface.
+(def ^:private views-row-unmounted-style
+  {:text-decoration "line-through"
+   :color           (:diff-removed-stripe tokens)
+   :border-left     (str "2px solid " (:diff-removed-stripe tokens))
+   :padding-left    "4px"
+   :background      (:diff-removed-wash tokens)})
 
-(def ^:private unmounted-id-cell-style
-  {:flex        "1 1 auto"
-   :padding     "5px 8px"
-   :min-width   0
-   :font-family mono-stack
-   :font-size   "12px"
-   :word-break  "break-word"})
+(def ^:private views-glyph-unmounted-style
+  (assoc views-glyph-cell-style :color (:diff-removed-stripe tokens)))
 
-(def ^:private unmounted-id-span-style
-  disposed-id-span-style)
+;; rf2-3b9w4 — col-3 per-sub colour code. GREEN = new (first-run this
+;; epoch), ORANGE = changed value, GREY = unchanged. Tones reuse the
+;; status palette (`:success` / `:warning` / `:text-tertiary`) so the
+;; VIEWS subs column reads the same green/amber/grey story the
+;; SUBSCRIPTIONS step paints for the same subs.
+(def ^:private views-sub-new-style      {:color success-colour})
+(def ^:private views-sub-changed-style  {:color warning-colour})
+(def ^:private views-sub-unchanged-style {:color text-tertiary-colour})
+
+(defn- views-sub-status-style
+  "Map a per-sub `:new` / `:changed` / `:unchanged` status to its
+  colour-code wrapper style (rf2-3b9w4). Unknown / nil → unchanged
+  (grey) — a sub the projection didn't classify reads neutral."
+  [status]
+  (case status
+    :new       views-sub-new-style
+    :changed   views-sub-changed-style
+    views-sub-unchanged-style))
 
 ;; -- SCHEMA VIOLATION sub-block (rf2-xgeag) -------------------------------
 ;;
@@ -3906,51 +3924,89 @@
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
-(defn- render-cause-chip
-  "Render the per-row render-cause attribution chip (rf2-bhi3t).
+;; rf2-3b9w4 — `render-cause-chip` (rf2-bhi3t) RETIRED. Mike pair
+;; 2026-06-01: the col-1 cause chip + duration are dropped from the
+;; VIEWS row. The mount/re-render GLYPH (`+` / `~`) now carries the
+;; first-class "why did this render" signal; the col-3 sub colour-code
+;; (green/orange/grey) shows WHICH dereffed sub drove a re-render. The
+;; render-args DIFF column that would have superseded the inferred
+;; `← props` cause is split to its own instrumentation + view beads
+;; (rf2-rpgq8 / rf2-u3lii).
 
-  A view re-renders for exactly one of two reasons — a SUBSCRIPTION it
-  derefs changed value, or its PROPS changed (the orthogonal `:rf/props`
-  channel). This chip answers that first debugging question inline:
+(defn- views-glyph
+  "rf2-3b9w4 — the col-1 mount/re-render/unmount indicator. Mirrors the
+  SUBSCRIPTIONS leaf-scalar glyph vocabulary:
 
-    `{:kind :sub :sub-id <id>}`  →  `← :sub-id` (accent-tinted; the sub
-                                    routes through `ei/mini` so it carries
-                                    the same syntax-token chrome the subs
-                                    column uses).
-    `:props`                     →  `← props` (tertiary-tinted; muted).
-    `:mount`                     →  nil (the cause question is about
-                                    RE-renders; a first render has no
-                                    re-render cause).
+    `+`  first MOUNT  (`:cause :mount`)          — green.
+    `~`  RE-render    (sub-driven or props-driven) — amber.
+    `−`  UNMOUNT      (`:status :unmounted`)      — red (diff-removed).
 
-  `idx` keys the `data-testid` per row."
-  [cause idx]
-  (cond
-    (and (map? cause) (= :sub (:kind cause)))
-    [:span {:data-testid (str "rf-xray-epoch-view-row-cause-" idx)
-            :data-rf-render-cause "sub"
-            :style views-row-cause-sub-style}
-     "← " [ei/mini (:sub-id cause) 60]]
+  Returns a `<span>` with a per-row testid + a `data-rf-view-glyph`
+  attribute (`mount` / `rerender` / `unmount`) so tests + the operator
+  read the posture without parsing colour."
+  [{:keys [cause unmounted?]} idx]
+  (let [[glyph kind style]
+        (cond
+          unmounted?        ["−" "unmount"  views-glyph-unmounted-style]
+          (= :mount cause)  ["+" "mount"    views-glyph-mount-style]
+          :else             ["~" "rerender" views-glyph-rerender-style])]
+    [:span {:data-testid       (str "rf-xray-epoch-view-row-glyph-" idx)
+            :data-rf-view-glyph kind
+            :style             style}
+     glyph]))
 
-    (= :props cause)
-    [:span {:data-testid (str "rf-xray-epoch-view-row-cause-" idx)
-            :data-rf-render-cause "props"
-            :style views-row-cause-props-style}
-     "← props"]
+(defn- views-subs-cell
+  "rf2-3b9w4 — the col-3 subs cell. Each dereffed sub renders through
+  `ei/mini` (the edn-inspector leaf primitive — syntax-token chrome)
+  wrapped in a per-sub colour-code span:
 
-    :else nil))
+    GREEN  — `:new`       (the sub's cache slot was created this epoch)
+    ORANGE — `:changed`   (the sub recomputed to a new value this epoch)
+    GREY   — `:unchanged` (ran but neither created nor value-changed,
+                           OR ran outside the captured run-set)
+
+  `sub-status` is the row's `{<sub-key> <status>}` join the projection
+  computed against the epoch's `:sub-runs`. An unmounted row carries an
+  empty `sub-status` + empty `subs-read`, so its cell reads `(none)`."
+  [subs-read sub-status idx]
+  [:div {:data-rf-xray-resizable-col "subs"
+         :data-testid (str "rf-xray-epoch-view-row-subs-" idx)
+         :style views-cell-subs-style}
+   (cond
+     (and (sequential? subs-read) (seq subs-read))
+     (into [:div {:style views-subs-list-style}]
+           (for [s subs-read
+                 :let [status (get sub-status s)]]
+             [:div {:data-rf-sub-status (name (or status :unchanged))
+                    :style (views-sub-status-style status)}
+              [ei/mini s 60]]))
+     (some? subs-read)
+     [:span {:data-rf-sub-status (name (or (get sub-status subs-read) :unchanged))
+             :style (views-sub-status-style (get sub-status subs-read))}
+      [ei/mini subs-read 60]]
+     :else
+     [:span {:style italic-style} "(none)"])])
 
 (defn- views-table
-  "Render the VIEWS table — 2 columns (views / subs). Per the bead
-  body's §VIEWS (Step 8) shape (rf2-6djth).
+  "Render the VIEWS table — 2 columns (view / subs) — for the rf2-3b9w4
+  redesign (Mike pair 2026-06-01).
 
   Each row carries:
-    - view-id (hyperlinked via the registrar's `:view` meta coord)
-    - the render cause (rf2-bhi3t — `← :sub-id` when a deref'd sub
-      changed value, `← props` when a re-render had no own sub change;
-      the orthogonal `:rf/props` channel)
-    - duration (when stamped, rendered as a muted chip below the id)
-    - the subs the view dereffed during this render (one per line —
-      vectors via `pr-str`, scalars via `ns-keyword`).
+    - a col-1 GLYPH (`+` mount / `~` re-render / `−` unmount) +
+      the view NAME (routed through `ei/mini` so it reads as an
+      inspectable data entity — syntax-token chrome, parity with the
+      App-db / subs value cells) + the go-to-source coord-chip.
+      The prior render-cause chip + duration are REMOVED.
+    - the subs the view dereffed, each colour-coded green/orange/grey
+      by its `:new` / `:changed` / `:unchanged` posture this epoch
+      (`views-subs-cell`).
+
+  UNMOUNTED views ride in the SAME table (rows tagged `:unmounted?` by
+  the projection), rendered with a red strikethrough (diff-removed
+  posture) so the operator reads the epoch's full view delta — what
+  re-rendered AND what tore down — in one scan. The go-to-source
+  affordance stays on unmounted rows (the view's definition outlives the
+  torn-down instance).
 
   rf2-jnxfj — mounts through the shared `rt/resizable-table` so
   column widths are user-draggable + persist across reloads via
@@ -3966,126 +4022,67 @@
       :columns         columns
       :rows            rows
       :row-key         (fn [_ i] (str "view-" i))
-      :row-attrs       (fn [{:keys [view-id]} i]
-                         {:data-testid (str "rf-xray-epoch-view-row-" i)
+      :row-attrs       (fn [{:keys [view-id unmounted?]} i]
+                         {:data-testid  (str "rf-xray-epoch-view-row-" i)
                           :data-view-id (when view-id (pr-str view-id))
+                          :data-rf-view-status (if unmounted? "unmounted" "rendered")
                           ;; rf2-2f962 — pink-stripe view-name hover
                           ;; affordance. Pure DOM side-effect on the
                           ;; row wrapper; no layout perturbation.
                           :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
                           :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
-                          :style (if (< i (dec (count rows)))
-                                   subs-row-style-with-border
-                                   subs-row-style)})
+                          :style (cond-> (if (< i (dec (count rows)))
+                                           subs-row-style-with-border
+                                           subs-row-style)
+                                   unmounted? (merge views-row-unmounted-style))})
       :row-cells
-      (fn [{:keys [view-id subs-read duration-ms cause]} i]
-        [;; view cell
+      (fn [{:keys [view-id subs-read sub-status unmounted?] :as row} i]
+        [;; view cell — GLYPH + name (as data) + go-to-source.
          [:div {:data-rf-xray-resizable-col "view"
                 :style views-cell-view-style}
+          (views-glyph row i)
           [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
-                  :style (if view-id
+                  :style (if (and view-id (not unmounted?))
                            views-cell-id-clickable-style
                            views-cell-id-span-style)}
-           ;; rf2-309cy — view-id keyword routes through `ei/mini` so
-           ;; it carries the same syntax-token chrome the sibling subs-
-           ;; read cell uses (rf2-8w8er intent). Pre-fix the cell rendered
-           ;; via `proj/ns-keyword` → plain coloured text, an inconsistency
-           ;; against the syntax-highlighted subs-read column to its right.
+           ;; rf2-309cy / rf2-3b9w4 — view-id keyword routes through
+           ;; `ei/mini` so the row reads as an inspectable data entity,
+           ;; same syntax-token chrome the App-db / subs value cells use.
            (if (some? view-id)
              [ei/mini view-id 60]
              [:span {:style views-anonymous-style}
               "<anonymous view>"])
+           ;; rf2-3b9w4 — go-to-source coord-chip stays on EVERY row,
+           ;; including unmounted (the view's definition outlives the
+           ;; instance). Empty in standard_epochs (no coords); a real
+           ;; jump-to-source in apps with coords.
            (coord-chip/coord-chip (view-coord view-id)
-                                  (str "rf-xray-epoch-view-row-coord-" i))]
-          (render-cause-chip cause i)
-          (when (number? duration-ms)
-            [:span {:style views-row-duration-style}
-             (proj/format-duration-ms duration-ms)])]
-         ;; subs cell
-         [:div {:data-rf-xray-resizable-col "subs"
-                :data-testid (str "rf-xray-epoch-view-row-subs-" i)
-                :style views-cell-subs-style}
-          ;; rf2-8w8er — each sub-id renders through `mini` so the
-          ;; column reads as syntax-highlighted tokens.
-          (cond
-            (and (sequential? subs-read) (seq subs-read))
-            (into [:div {:style views-subs-list-style}]
-                  (for [s subs-read]
-                    [:div [ei/mini s 60]]))
-            (some? subs-read)
-            [ei/mini subs-read 60]
-            :else
-            [:span {:style italic-style} "(none)"])]])}]))
-
-(defn- unmounted-views-table
-  "Render the UNMOUNTED VIEWS sub-section (rf2-gmw1i) — one row per
-  `:rf.view/unmounted` trace event. Visually distinct from the
-  re-render rows: a red/error glyph conveys the teardown semantic.
-  Click-to-source uses the same `(rf/handler-meta :view view-id)`
-  resolver the re-render rows use, so the operator can jump to the
-  view's definition even when the instance is gone.
-
-  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
-  column widths are user-draggable + persist across reloads via
-  the `:rf.xray.epoch/views-unmounted` table-id slot."
-  [rows]
-  (let [columns [{:id :glyph     :label ""               :default-flex "24px"}
-                 {:id :unmounted :label "unmounted view" :default-flex "1fr"}]]
-    [rt/resizable-table
-     {:table-id        :rf.xray.epoch/views-unmounted
-      :container-attrs {:data-testid "rf-xray-epoch-views-unmounted-table"
-                        :style       unmounted-views-table-style}
-      :header-attrs    {:style table-header-row-style}
-      :columns         columns
-      :rows            rows
-      :row-key         (fn [_ i] (str "unmounted-" i))
-      :row-attrs       (fn [{:keys [view-id]} i]
-                         {:data-testid  (str "rf-xray-epoch-view-unmounted-row-" i)
-                          :data-view-id (when view-id (pr-str view-id))
-                          :style (if (< i (dec (count rows)))
-                                   subs-row-style-with-border
-                                   subs-row-style)})
-      :row-cells
-      (fn [{:keys [view-id]} i]
-        [;; glyph cell
-         [:div {:data-rf-xray-resizable-col "glyph"
-                :style unmounted-glyph-cell-style}
-          ;; Teardown glyph — `✗` red/error tone conveys the view
-          ;; came off the reactive graph (rf2-gmw1i).
-          "✗"]
-         ;; unmounted-view cell
-         [:div {:data-rf-xray-resizable-col "unmounted"
-                :style unmounted-id-cell-style}
-          [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
-                  :style unmounted-id-span-style}
-           ;; rf2-309cy — view-id keyword routes through `ei/mini` so
-           ;; the UNMOUNTED row matches the re-render row's chrome (same
-           ;; data-shape, same syntax-highlighted token rendering).
-           (if (some? view-id)
-             [ei/mini view-id 60]
-             [:span {:style disposed-anonymous-style}
-              "<anonymous view>"])
-           (coord-chip/coord-chip (view-coord view-id)
-                                  (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])}]))
+                                  (str "rf-xray-epoch-view-row-coord-" i))]]
+         ;; subs cell — colour-coded per-sub (green/orange/grey).
+         (views-subs-cell subs-read sub-status i)])}]))
 
 (defn render-views-step
   "Render the VIEWS step (present when views re-rendered OR when
-  views unmounted during the cascade — rf2-gmw1i).
+  views unmounted during the cascade).
 
-  Header counter reads `N re-rendered; M unmounted` when both
-  surfaces are non-empty; collapses to `N re-rendered` or `M
-  unmounted` when one half is absent. The unmounted sub-section
-  is omitted entirely when no unmount-trace events fired."
-  [{:keys [rows unmounted-rows step-number]}]
-  (let [n (count rows)
-        m (count unmounted-rows)
-        verb (cond
-               (and (pos? n) (pos? m))
-               (str n " re-rendered; " m " unmounted")
-               (pos? m)
-               (str m " unmounted")
-               :else
-               (str n " view" (when (not= 1 n) "s") " re-rendered"))]
+  rf2-3b9w4 (SUPERSEDES rf2-gmw1i's separate UNMOUNTED sub-section) —
+  re-rendered AND unmounted views render in ONE table (`views-table`):
+  rendered rows first, unmounted rows (red strikethrough, diff-removed
+  posture) following. Header verb reads `N re-rendered; M unmounted`
+  when both halves are non-empty; collapses to one half when the other
+  is absent. `:unmounted-count` (projection) carries M; N is the
+  rendered remainder."
+  [{:keys [rows unmounted-count step-number]}]
+  (let [total (count rows)
+        m     (or unmounted-count 0)
+        n     (- total m)
+        verb  (cond
+                (and (pos? n) (pos? m))
+                (str n " re-rendered; " m " unmounted")
+                (pos? m)
+                (str m " unmounted")
+                :else
+                (str n " view" (when (not= 1 n) "s") " re-rendered"))]
     [:div {:data-testid "rf-xray-epoch-step-views"
            :data-step-kw "views"}
      (numbered-circle step-number :VIEWS)
@@ -4096,10 +4093,8 @@
         :expandable? false
         :testid "rf-xray-epoch-views"}
        nil)
-     (when (pos? n)
-       (views-table rows))
-     (when (pos? m)
-       (unmounted-views-table unmounted-rows))]))
+     (when (pos? total)
+       (views-table rows))]))
 
 ;; ---- SCHEMA VIOLATION sub-block (rf2-xgeag) -----------------------------
 ;;

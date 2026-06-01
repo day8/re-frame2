@@ -733,35 +733,55 @@
       (is (string/includes? subs ":counter/threshold")
           "every consumed sub renders, one per line"))))
 
-(deftest views-row-shows-render-cause-test
-  (testing "rf2-bhi3t — the VIEWS table attributes WHY each view
-            re-rendered: `← :sub-id` when a deref'd sub changed value,
-            `← props` when the re-render had no own sub change (the
-            orthogonal :rf/props channel). A fresh mount carries no
-            cause chip."
+(deftest views-row-shows-mount-rerender-glyph-test
+  (testing "rf2-3b9w4 — the VIEWS row carries a mount/re-render GLYPH in
+            col-1 (replacing the retired rf2-bhi3t cause chip + duration):
+            `+` first mount, `~` re-render. The glyph carries a
+            `data-rf-view-glyph` posture attribute (mount / rerender)."
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app/ChildA
                         :subs-read [[:child-a/value]]
-                        :cause {:kind :sub :sub-id :child-a/value}
-                        :duration-ms 0.4}
-                       {:view-id :app/ChildB
-                        :subs-read [[:child-b/label]]
-                        :cause :props
-                        :duration-ms 0.3}
+                        :sub-status {[:child-a/value] :changed}
+                        :status :rendered
+                        :cause {:kind :sub :sub-id :child-a/value}}
                        {:view-id :app/ChildC
                         :subs-read []
-                        :cause :mount
-                        :duration-ms 0.2}]}
+                        :sub-status {}
+                        :status :rendered
+                        :cause :mount}]}
+          tree  (view/render-views-step step)
+          g-re  (th/find-by-testid tree "rf-xray-epoch-view-row-glyph-0")
+          g-mnt (th/find-by-testid tree "rf-xray-epoch-view-row-glyph-1")]
+      (is (some? g-re) "re-render row renders a glyph")
+      (is (= "rerender" (:data-rf-view-glyph (second g-re)))
+          "a re-render (non-mount cause) reads `~` / rerender")
+      (is (= "mount" (:data-rf-view-glyph (second g-mnt)))
+          "a fresh mount reads `+` / mount")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-view-row-cause-0"))
+          "the rf2-bhi3t render-cause chip is RETIRED"))))
+
+(deftest views-row-colour-codes-subs-test
+  (testing "rf2-3b9w4 — col-3 colour-codes each dereffed sub by its
+            posture this epoch: GREEN :new / ORANGE :changed / GREY
+            :unchanged, carried via `data-rf-sub-status`."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app/Counter
+                        :subs-read [[:counter/total] [:counter/parity]
+                                    [:counter/label]]
+                        :sub-status {[:counter/total]  :new
+                                     [:counter/parity] :changed
+                                     [:counter/label]  :unchanged}
+                        :status :rendered
+                        :cause :mount}]}
           tree (view/render-views-step step)
-          a    (text-of tree "rf-xray-epoch-view-row-cause-0")
-          b    (text-of tree "rf-xray-epoch-view-row-cause-1")]
-      (is (some? a) "sub-driven row renders a cause chip")
-      (is (string/includes? a ":child-a/value")
-          "sub-driven cause names the cause sub")
-      (is (string/includes? b "props")
-          "props-driven re-render reads `← props`")
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-view-row-cause-2"))
-          "a fresh mount carries no render-cause chip"))))
+          subs (th/find-by-testid tree "rf-xray-epoch-view-row-subs-0")
+          statuses (->> (tree-seq vector? seq subs)
+                        (filter vector?)
+                        (keep #(:data-rf-sub-status (second %)))
+                        set)]
+      (is (contains? statuses "new") "first-run sub coded :new (green)")
+      (is (contains? statuses "changed") "value-changed sub coded :changed (orange)")
+      (is (contains? statuses "unchanged") "unchanged sub coded grey"))))
 
 (deftest views-row-graceful-degrades-when-id-absent-test
   (testing "rf2-6djth — a row whose view-id is nil renders an
@@ -793,63 +813,68 @@
       (is (fn? (:on-mouse-leave attrs))
           "row carries an on-mouse-leave handler"))))
 
-;; ---- rf2-gmw1i — VIEWS step surfaces unmounted views ------------------
+;; ---- rf2-3b9w4 — unmounted views ride the SAME table (red strikethrough)
 
-(deftest views-unmounted-section-renders-when-rows-present-test
-  (testing "rf2-gmw1i — when projection carries `:unmounted-rows`, the
-            VIEWS step renders an UNMOUNTED sub-section listing each
-            torn-down view; header reads `N re-rendered; M unmounted`"
+(deftest views-unmounted-rows-render-in-same-table-test
+  (testing "rf2-3b9w4 (SUPERSEDES rf2-gmw1i sub-section) — unmounted rows
+            ride in the SAME views-table as rendered rows, with a red
+            strikethrough (`data-rf-view-status=unmounted` + `−` glyph)
+            and the go-to-source coord-chip retained. Header reads
+            `N re-rendered; M unmounted`."
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app.counter/Counter
-                        :subs-read [[:counter/total]] :duration-ms 0.5}]
-                :unmounted-rows [{:view-id :app.sidebar/Item
-                                  :instance [:Item 0]
-                                  :frame :rf/default}]}
+                        :subs-read [[:counter/total]] :sub-status {}
+                        :status :rendered :cause :mount}
+                       {:view-id :app.sidebar/Item
+                        :instance [:Item 0] :frame :rf/default
+                        :subs-read [] :sub-status {}
+                        :status :unmounted :unmounted? true}]
+                :unmounted-count 1}
           tree (view/render-views-step step)
           header (text-of tree "rf-xray-epoch-views-header")
-          unmounted-tbl (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table")
-          row0 (th/find-by-testid tree "rf-xray-epoch-view-unmounted-row-0")]
-      (is (some? unmounted-tbl)
-          "the UNMOUNTED sub-section is present when unmounted-rows are present")
-      (is (some? row0)
-          "the per-unmounted-view row renders")
-      (is (string/includes? header "1 re-rendered")
-          "header reads `1 re-rendered`")
-      (is (string/includes? header "1 unmounted")
-          "header reads `... 1 unmounted`")
-      (let [id-text (text-of tree "rf-xray-epoch-view-unmounted-row-id-0")]
-        (is (string/includes? id-text ":app.sidebar/Item")
-            "unmounted view's id renders in the row")))))
+          rendered-row  (th/find-by-testid tree "rf-xray-epoch-view-row-0")
+          unmounted-row (th/find-by-testid tree "rf-xray-epoch-view-row-1")
+          glyph (th/find-by-testid tree "rf-xray-epoch-view-row-glyph-1")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-views-table"))
+          "there is ONE views-table; no separate unmounted table")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
+          "the separate UNMOUNTED table is RETIRED")
+      (is (= "rendered" (:data-rf-view-status (second rendered-row))))
+      (is (= "unmounted" (:data-rf-view-status (second unmounted-row)))
+          "the unmounted row tags `data-rf-view-status=unmounted` (red strikethrough posture)")
+      (is (= "unmount" (:data-rf-view-glyph (second glyph)))
+          "the unmounted row reads the `−` / unmount glyph")
+      (is (string/includes? (text-of tree "rf-xray-epoch-view-row-id-1") ":app.sidebar/Item")
+          "the unmounted view's id renders inline in the table")
+      (is (string/includes? header "1 re-rendered"))
+      (is (string/includes? header "1 unmounted")))))
 
-(deftest views-unmounted-section-omitted-without-rows-test
-  (testing "rf2-gmw1i — when no `:unmounted-rows`, no UNMOUNTED
-            sub-section renders; header reads the legacy `N views
-            re-rendered` shape"
+(deftest views-no-unmounts-header-shape-test
+  (testing "rf2-3b9w4 — no unmounts → header reads `N views re-rendered`
+            (no unmount tail)"
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app.counter/Counter
-                        :subs-read [[:counter/total]] :duration-ms 0.5}]}
+                        :subs-read [[:counter/total]] :sub-status {}
+                        :status :rendered :cause :mount}]}
           tree (view/render-views-step step)
           header (text-of tree "rf-xray-epoch-views-header")]
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
-          "no UNMOUNTED table renders when unmounted-rows is absent")
       (is (string/includes? header "1 view re-rendered")
           "header reads `1 view re-rendered` (no unmount tail)"))))
 
 (deftest views-step-unmount-only-cascade-renders-test
-  (testing "rf2-gmw1i — when the cascade is unmount-only (no re-renders)
-            the step still renders; the re-render table is absent;
-            header reads `M unmounted`"
+  (testing "rf2-3b9w4 — unmount-only cascade (no re-renders): the single
+            views-table renders the unmounted row; header reads
+            `M unmounted`"
     (let [step {:step :views :badge :VIEWS :step-number 6
-                :rows []
-                :unmounted-rows [{:view-id :app/Tooltip
-                                  :instance [:Tooltip 0]
-                                  :frame :rf/default}]}
+                :rows [{:view-id :app/Tooltip
+                        :instance [:Tooltip 0] :frame :rf/default
+                        :subs-read [] :sub-status {}
+                        :status :unmounted :unmounted? true}]
+                :unmounted-count 1}
           tree (view/render-views-step step)
           header (text-of tree "rf-xray-epoch-views-header")]
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-views-table"))
-          "the re-render table is omitted when no rows fired")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
-          "the UNMOUNTED table renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-views-table"))
+          "the single views-table renders the unmount-only row")
       (is (string/includes? header "1 unmounted")
           "header reads the unmount-only shape"))))
 
@@ -2075,15 +2100,19 @@
           "the keyword text is still present (mini renders the colon + ns + name)"))))
 
 (deftest unmounted-views-row-view-id-routes-through-mini-test
-  (testing "rf2-309cy — UNMOUNTED VIEWS row's view-id keyword routes
-            through `ei/mini` (parity with the re-render row's chrome)."
+  (testing "rf2-309cy / rf2-3b9w4 — an UNMOUNTED row's view-id keyword
+            routes through `ei/mini` (parity with the re-render row's
+            chrome). Post-rf2-3b9w4 the unmounted row lives in the SAME
+            views-table (unified `rf-xray-epoch-view-row-id-<i>` testid),
+            not a separate sub-section."
     (let [step {:step :views :badge :VIEWS :step-number 6
-                :rows []
-                :unmounted-rows [{:view-id :app.sidebar/Item
-                                  :instance [:Item 0]
-                                  :frame :rf/default}]}
+                :rows [{:view-id :app.sidebar/Item
+                        :instance [:Item 0] :frame :rf/default
+                        :subs-read [] :sub-status {}
+                        :status :unmounted :unmounted? true}]
+                :unmounted-count 1}
           tree (view/render-views-step step)
-          id-cell (th/find-by-testid tree "rf-xray-epoch-view-unmounted-row-id-0")]
+          id-cell (th/find-by-testid tree "rf-xray-epoch-view-row-id-0")]
       (is (some? id-cell)
           "the unmounted view-id span renders")
       (is (pos? (count (mini-mounts id-cell)))

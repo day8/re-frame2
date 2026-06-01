@@ -1657,11 +1657,51 @@
     (some? triggered-by) {:kind :sub :sub-id triggered-by}
     :else                :props))
 
+(defn sub-status-index
+  "rf2-3b9w4 — build a `{<sub-key> <status>}` lookup from the epoch's
+  `subscription-rows`, so the VIEWS table can colour-code each sub a
+  view dereffed by how it behaved THIS epoch:
+
+    `:new`       — the run that CREATED this sub's cache slot
+                   (`:first-run?`). Spec semantics: globally first-run
+                   THIS epoch (the sub's cache entry came alive this
+                   cascade), NOT 'first time this particular view read
+                   it'. We key off the SUBSCRIPTIONS step's own
+                   `:first-run?` so the VIEWS colour reads identically
+                   to the green `:added` chrome the SUBSCRIPTIONS value
+                   cell paints for the same sub — one consistent story
+                   per epoch, no per-view-instance state the projection
+                   doesn't track.
+    `:changed`   — recomputed and the value differed (`:changed?` and
+                   NOT first-run).
+    `:unchanged` — ran but neither created nor value-changed.
+
+  Each sub is indexed under BOTH its full query-vector (`:sub-vec`) and
+  its bare sub-id (`:sub-id`) so the VIEWS join resolves whether the
+  view's `deref-subs` entry is a full `[:id arg…]` vector or a bare
+  keyword. A sub absent from the index (ran outside the captured run
+  set) resolves to `:unchanged` at the call-site default."
+  [events]
+  (let [rows (subscription-rows events)]
+    (reduce
+      (fn [idx {:keys [sub-id sub-vec changed? first-run?]}]
+        (let [status (cond first-run? :new
+                           changed?   :changed
+                           :else      :unchanged)]
+          (cond-> idx
+            (some? sub-vec) (assoc sub-vec status)
+            (some? sub-id)  (assoc sub-id status))))
+      {}
+      rows)))
+
 (defn view-rows
   "Project view-render events into rows. Each row carries the view-id,
   the subs the view dereffed during this render, the wall-clock
-  duration of the render-fn, and the render `:cause` (rf2-bhi3t —
-  `:mount` / `{:kind :sub :sub-id <id>}` / `:props`).
+  duration of the render-fn, the render `:cause` (rf2-bhi3t —
+  `:mount` / `{:kind :sub :sub-id <id>}` / `:props`), a `:status`
+  (`:rendered`), and a `:sub-status` map (rf2-3b9w4) joining each
+  dereffed sub to its `:new` / `:changed` / `:unchanged` posture this
+  epoch.
 
   Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
   per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
@@ -1672,21 +1712,32 @@
   no per-row detail. Legacy `:view-id` / `:subs-read` reads are
   retained as fixture-compatibility fallbacks."
   [events]
-  (vec
-    (for [ev (filter-op events :rf.view/rendered)]
-      (let [mount?       (common/tag-of ev :rf.view/mount?)
-            triggered-by (common/tag-of ev :rf.view/triggered-by)]
-        {:view-id      (or (common/tag-of ev :rf.view/id)
-                           (common/tag-of ev :view-id))
-         :subs-read    (or (common/tag-of ev :rf.view/deref-subs)
-                           (common/tag-of ev :rf.view/subs)
-                           (common/tag-of ev :subs-read)
-                           [])
-         :mount?       mount?
-         :triggered-by triggered-by
-         :cause        (render-cause mount? triggered-by)
-         :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
-                           (common/tag-of ev :duration-ms))}))))
+  (let [sub-idx (sub-status-index events)]
+    (vec
+      (for [ev (filter-op events :rf.view/rendered)]
+        (let [mount?       (common/tag-of ev :rf.view/mount?)
+              triggered-by (common/tag-of ev :rf.view/triggered-by)
+              subs-read    (or (common/tag-of ev :rf.view/deref-subs)
+                               (common/tag-of ev :rf.view/subs)
+                               (common/tag-of ev :subs-read)
+                               [])]
+          {:view-id      (or (common/tag-of ev :rf.view/id)
+                             (common/tag-of ev :view-id))
+           :subs-read    subs-read
+           ;; rf2-3b9w4 — per-sub status for the col-3 colour code.
+           ;; Keyed by the SAME value the view cell renders (sub-vec or
+           ;; bare keyword) so the cell looks up its colour directly.
+           :sub-status   (into {}
+                               (keep (fn [s]
+                                       (when-let [st (get sub-idx s)]
+                                         [s st])))
+                               (if (sequential? subs-read) subs-read [subs-read]))
+           :status       :rendered
+           :mount?       mount?
+           :triggered-by triggered-by
+           :cause        (render-cause mount? triggered-by)
+           :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
+                             (common/tag-of ev :duration-ms))})))))
 
 (defn unmounted-views-rows
   "Project `:rf.view/unmounted` events into rows (rf2-gmw1i). Each row
@@ -1700,31 +1751,49 @@
       :rf.view/render-key  — the per-instance tuple (used as :instance)
       :frame               — the originating frame
 
+  rf2-3b9w4 — each row is tagged `:status :unmounted` + `:unmounted?
+  true` so it can ride in the SAME `views-step` `:rows` table as the
+  re-rendered rows (rendered with a red strikethrough, diff-removed
+  posture) rather than in a separate sub-section. `:subs-read` is `[]`
+  (a torn-down instance dereffed nothing this cascade) so the unified
+  table's subs cell reads empty for these rows.
+
   Returns an empty vec when no view-unmount events fired."
   [events]
   (vec
     (for [ev (filter-op events :rf.view/unmounted)]
-      {:view-id  (common/tag-of ev :rf.view/id)
-       :instance (common/tag-of ev :rf.view/render-key)
-       :frame    (common/tag-of ev :frame)})))
+      {:view-id    (common/tag-of ev :rf.view/id)
+       :instance   (common/tag-of ev :rf.view/render-key)
+       :frame      (common/tag-of ev :frame)
+       :subs-read  []
+       :sub-status {}
+       :status     :unmounted
+       :unmounted? true})))
 
 (defn views-step
   "VIEWS step row. nil when no view-render events fired AND no view-
   unmount events fired (the step is OMITTED — conditional).
 
-  Per rf2-gmw1i — `:unmounted-rows` carries one row per
-  `:rf.view/unmounted` trace event so the operator sees which views
-  tore down alongside the re-render rows. The step surfaces when
-  either side has content; empty rows are absent (omit-by-absence)."
+  rf2-3b9w4 (Mike pair 2026-06-01, SUPERSEDES the rf2-gmw1i separate
+  `:unmounted-rows` sub-section) — re-rendered AND unmounted views ride
+  in ONE `:rows` collection. Rendered rows (`:status :rendered`) come
+  first, unmounted rows (`:status :unmounted`) follow; the view renders
+  unmounted rows with a red strikethrough (diff-removed posture) inline
+  in the same table, so the operator reads the epoch's full view delta —
+  what re-rendered AND what tore down — in a single scan.
+
+  `:unmounted-count` carries the tail count for the header verb
+  (`N re-rendered; M unmounted`). The step surfaces when either side
+  has content."
   [events]
-  (let [rows           (view-rows events)
-        unmounted-rows (unmounted-views-rows events)]
-    (when (or (seq rows) (seq unmounted-rows))
+  (let [rendered  (view-rows events)
+        unmounted (unmounted-views-rows events)]
+    (when (or (seq rendered) (seq unmounted))
       (cond-> {:step  :views
                :badge :VIEWS
-               :rows  rows}
-        (seq unmounted-rows)
-        (assoc :unmounted-rows unmounted-rows)))))
+               :rows  (into rendered unmounted)}
+        (seq unmounted)
+        (assoc :unmounted-count (count unmounted))))))
 
 ;; ---- SCHEMA VIOLATIONS step ----------------------------------------------
 ;;
