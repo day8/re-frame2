@@ -88,6 +88,31 @@
           (update :note (fn [existing]
                           (if existing (str sentence " " existing) sentence)))))))
 
+(defn- with-frame-resolution
+  "Annotate a healthy (non-ambiguous) discover-app payload with the
+  resolved operating frame and, when applicable, the auto-resolution
+  fact (rf2-3bu3d.4).
+
+  `health` carries `:operating-frame` (the runtime's resolved frame),
+  `:frames` (all registered), and `:app-frames` (frames with `:rf/*`
+  tool frames removed). When a tool frame was excluded — `:app-frames`
+  shorter than `:frames` — AND resolution auto-landed on the sole
+  remaining app frame, seed a note so the operator sees that ops resolve
+  to that frame WITHOUT a `frames/select`, and which frames the tooling
+  excluded. The resolved frame is also echoed under `:operating-frame`
+  (already on `health`) so every op's frame target is never a guess."
+  [health]
+  (let [{:keys [frames app-frames operating-frame]} health
+        excluded (vec (remove (set app-frames) frames))]
+    (if (and (seq excluded) operating-frame)
+      (let [sentence (str "Operating frame auto-resolved to " operating-frame
+                          " — the sole app frame. Excluded :rf/* tool frame(s): "
+                          excluded ". No frames/select needed; pass --frame to "
+                          "target a tool frame explicitly.")]
+        (update health :note (fn [existing]
+                               (if existing (str sentence " " existing) sentence))))
+      health)))
+
 (defn- with-freshness
   "Attach the assembled freshness/liveness token to an `:ok? true`
   health payload (rf2-ertqw). Async — reads the JVM-side build worker
@@ -147,10 +172,19 @@
                 (with-freshness conn build-id
                   (assoc health :ok? true
                                 :warning :ambiguous-frame
-                                :note (str "Multiple frames registered: "
-                                           (vec (:frames health))
+                                ;; rf2-3bu3d.4 — point the operator at the
+                                ;; APP frames (the real choices). `:rf/*`
+                                ;; tool frames (`:rf/xray`, …) were already
+                                ;; excluded from the ambiguity count, so
+                                ;; naming them here as candidates would
+                                ;; mislead. Genuine ambiguity = two-plus
+                                ;; app frames.
+                                :note (str "Multiple app frames registered: "
+                                           (vec (or (:app-frames health) (:frames health)))
                                            ". Mutating ops require --frame :foo "
-                                           "or run `frames/select` first."))
+                                           "or run `frames/select` first. "
+                                           "(`:rf/*` tool frames are excluded "
+                                           "from this list.)"))
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
 
               (not (:coord-annotation-enabled? health))
@@ -174,6 +208,6 @@
                 ;; `:app` env-var fallback. Invalidates on nREPL reconnect.
                 (wire/mark-resolved-build-id! conn build-id)
                 (with-freshness conn build-id
-                  (assoc health :ok? true :build-id build-id)
+                  (with-frame-resolution (assoc health :ok? true :build-id build-id))
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id))))))))
         (.catch (fn [err] (probe/err->result :discover-failed err)))))))))

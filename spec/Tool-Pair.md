@@ -393,12 +393,16 @@ Pair-shaped tools (re-frame-pair, re-frame2-pair, [re-frame-pair-improver](https
 |---|---|---|
 | 1 | **Explicit per-call override** | The caller passes a frame-id with the op (e.g. `(rf/app-db-value :stories)`, `(subs-sample [:cart/total] :stories)`, `{:frame :stories}` on dispatch opts). |
 | 2 | **Session-pinned selection** | The tool's session has called `select-frame!` (or its equivalent) since the last reset; the pinned id is the resolved frame. |
-| 3 | **Sole-registered frame** | The framework's `(rf/frame-ids)` returns exactly one frame. That frame is the resolved frame, regardless of whether it is `:rf/default` or some other id. |
-| 4 | **Nil** (ambiguous) | More than one frame is registered, the session has not pinned a selection, and the caller did not pass an override. The resolver yields nil; the op routes via the §Ambiguity surface below. |
+| 3 | **Sole-registered app frame** | After excluding `:rf/*` reserved **tool frames** (see below), exactly one **app frame** remains registered. That frame is the resolved frame, regardless of whether it is `:rf/default` or some other id. |
+| 4 | **Nil** (ambiguous) | Two or more **app frames** are registered, the session has not pinned a selection, and the caller did not pass an override. The resolver yields nil; the op routes via the §Ambiguity surface below. |
 
-**Single-frame applications never reach tier 4.** A re-frame2 application with only `:rf/default` registered always resolves at tier 3; the pair tool's UX is identical to single-frame re-frame. The contract is structurally backwards-compatible — a single-frame consumer sees no ambiguity prompt.
+**Single-app applications never reach tier 4.** A re-frame2 application with only `:rf/default` registered always resolves at tier 3; the pair tool's UX is identical to single-frame re-frame. The contract is structurally backwards-compatible — a single-app consumer sees no ambiguity prompt.
 
-**`:rf/default` is not a special-case fallback.** A common naïve implementation would fall back to `:rf/default` at tier 4 (since it's always pre-registered per [002 §`:rf/default`](002-Frames.md#rfdefault)). The hybrid contract **rejects** that fallback: a multi-frame app's `:rf/default` is one frame among many, and silently landing reads or writes there masks the ambiguity rather than surfacing it. Tier 3 picks `:rf/default` only when it is **uniquely** registered.
+**Reserved tool frames are excluded from the ambiguity count.** A pairing session almost always runs against an app that *also* carries a framework-reserved `:rf/*` **tool frame** — Xray's `:rf/xray` inspector frame ([009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) registers it with `:rf.trace/frame-no-emit? true`), a stories build, an SSR slot. These frames live under the framework-reserved `:rf/*` root ([Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)); they are devtool surfaces the *tooling* mounted, not the application the operator is pairing against. The resolver is therefore **reserved-frame-aware**: tiers 3 and 4 count only **app frames** — `(rf/frame-ids)` with the `:rf/*` tool frames removed. A single-app session that *also* carries an `:rf/xray` frame (the common Xray-instrumented case) has exactly one app frame and resolves at tier 3 — it does **not** pay a tier-4 `:ambiguous-frame` tax for a choice that doesn't exist. A two-plus-app-frame session stays genuinely ambiguous at tier 4 regardless of any tool frames present.
+
+The exclusion keys off the **reserved-namespace rule** (a frame-id whose namespace is `rf`), never a hardcoded `:rf/xray`, so it holds for every `:rf/*` tool frame any project mounts. The **sole carve-out is `:rf/default`**: [Conventions.md §The single-root reserved set](Conventions.md#the-single-root-reserved-set) names it "the universal default frame id" — it shares the `:rf/*` root but *is* the canonical app frame, so it is never treated as a tool frame and is counted as an app frame at tiers 3 and 4. A `frames/list` (or `get-operating-frame`) read surfaces both `:frames` (all registered) and `:app-frames` (the reserved-frame-aware view) so a tool UI can show the distinction.
+
+**`:rf/default` is not a special-case fallback.** A common naïve implementation would fall back to `:rf/default` at tier 4 (since it's always pre-registered per [002 §`:rf/default`](002-Frames.md#rfdefault)). The hybrid contract **rejects** that fallback: a multi-app application's `:rf/default` is one app frame among many, and silently landing reads or writes there masks the ambiguity rather than surfacing it. Tier 3 picks `:rf/default` only when it is the **unique** app frame.
 
 **Session-pin lifecycle.** A `select-frame!` call binds the operating frame for the session and persists across subsequent calls (the "implicit-until-reset" half of the hybrid posture). The selection is cleared by either a `reset-operating-frame!` (or equivalent) call, a runtime reload (the session sentinel changes, per [§How AI tools attach](#how-ai-tools-attach)), or destroying the pinned frame (the next resolution falls through to tier 3 or 4). Pair tools that surface a "current operating frame" indicator in their UI read the session pin directly; tools that want to show the *resolved* frame call the resolver and display its result (or "ambiguous" when nil).
 
@@ -425,13 +429,14 @@ Pair-shaped tools that implement the operating-frame contract MUST expose three 
 - **Inspect the operating frame.** A read returning the **resolved** operating frame (or nil when ambiguous) plus the **pinned** selection (when distinct from resolved) plus the **all-registered** frame list (so callers can pick a target). The reference impl shape:
 
 ```clojure
-{:ok?       true
- :frames    [<frame-id> ...]   ;; (rf/frame-ids)
- :selected  <frame-id|nil>     ;; tier-2 session pin
- :operating <frame-id|nil>}    ;; result of full resolution (nil = ambiguous)
+{:ok?        true
+ :frames     [<frame-id> ...]   ;; (rf/frame-ids) — all registered
+ :app-frames [<frame-id> ...]   ;; (rf/frame-ids) minus :rf/* tool frames
+ :selected   <frame-id|nil>     ;; tier-2 session pin
+ :operating  <frame-id|nil>}    ;; result of full resolution (nil = ambiguous)
 ```
 
-The triple-shape lets a tool UI render both "you have pinned X" (the selection) and "writes will go to X" (the resolved frame) — useful when the two diverge (e.g. tier-1 override on the current call, or sole-registered tier-3 fallthrough that the user hasn't explicitly chosen).
+The shape lets a tool UI render "you have pinned X" (the selection), "writes will go to X" (the resolved frame), and "these are the app frames vs the tool frames present" (`:app-frames` ⊆ `:frames`). When `:app-frames` holds exactly one id while `:frames` holds more, the session is single-app-plus-tool-frame and `:operating` auto-resolved to that lone app frame (no `select-frame!` was needed). The selection and resolved frame diverge on a tier-1 override on the current call, or a sole-app tier-3 fallthrough the user hasn't explicitly chosen.
 
 **MCP / RPC surfacing.** Tools that expose pair surfaces over MCP / RPC SHOULD enumerate the three ops in their tool catalogue under stable names (typically `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`). The runtime contract does not pin the wire names — only the semantics — but cross-tool consistency lets a user trained on re-frame2-pair carry the mental model to re-frame-pair-improver, Xray, or Story without relearning the resolver.
 
@@ -465,7 +470,27 @@ The triple-shape lets a tool UI render both "you have pinned X" (the selection) 
 ;; => {:ok? false :reason :ambiguous-frame ...}
 ```
 
-The example exercises every tier — explicit override (tier 1), session pin (tier 2 binding and re-use, plus tier-1 supersession), and tier-4 refusal both before and after reset. Single-frame apps never reach the refusal path.
+The example exercises every tier — explicit override (tier 1), session pin (tier 2 binding and re-use, plus tier-1 supersession), and tier-4 refusal both before and after reset. Single-app apps never reach the refusal path.
+
+```clojure
+;; Reserved-frame-aware resolution: an Xray-instrumented single-app
+;; session. Two frames are registered — the app's :rf/default and Xray's
+;; :rf/xray tool frame — but only ONE is an app frame, so resolution is
+;; unambiguous WITHOUT a select-frame!.
+(frames-list)
+;; => {:ok? true
+;;     :frames     [:rf/default :rf/xray]   ;; both registered
+;;     :app-frames [:rf/default]            ;; :rf/xray excluded (a :rf/* tool frame)
+;;     :selected   nil
+;;     :operating  :rf/default}             ;; tier-3 auto-resolved the sole app frame
+
+;; The first mutating op proceeds against :rf/default — no :ambiguous-frame tax.
+(pair-dispatch-sync! [:counter/inc])
+;; => {:ok? true :epoch-id ... :frame :rf/default}
+
+;; Targeting the tool frame still works via an explicit override (tier 1).
+(app-db-value :rf/xray)                    ;; reads the Xray frame explicitly
+```
 
 ## How AI tools attach
 
@@ -818,4 +843,4 @@ The runtime contract above is fixed; the notes below capture open design questio
 
 ### Multi-frame operating-frame resolution — hybrid posture
 
-Resolved: pair-shaped tools resolve a multi-frame application's operating frame via the four-tier rule pinned at [§Operating frame — multi-frame resolution](#operating-frame). The shipped impl in `re-frame2-pair.runtime` (per [rf2-19xl](https://github.com/day8/re-frame2/pull/190)) is the canonical reference — `current-frame-id` walks **explicit override → session pin → sole-registered frame → nil**, and both read-shaped (`subs-sample`, `snapshot`, `epoch-history`, …) and mutating-shaped (`pair-dispatch-sync!`, `app-db-reset!`, `restore-epoch`) ops refuse with `{:ok? false :reason :ambiguous-frame}` when resolution yields nil. `:rf/default` is not a tier-4 fallback — silently routing to it would mask the ambiguity in a multi-frame session. The hybrid posture (explicit-context-set, implicit-until-reset) supersedes the earlier "Lean" note in §Design notes; single-frame applications never reach the refusal path. The tool surface MUST expose `set-operating-frame` / `reset-operating-frame` / `get-operating-frame` ops (names illustrative; semantics normative) so multi-frame users can pin a target, clear the pin, and inspect the resolver's view. See [§Operating frame — multi-frame resolution](#operating-frame) for the full contract.
+Resolved: pair-shaped tools resolve a multi-frame application's operating frame via the four-tier rule pinned at [§Operating frame — multi-frame resolution](#operating-frame). The shipped impl in `re-frame2-pair.runtime` (per [rf2-19xl](https://github.com/day8/re-frame2/pull/190)) is the canonical reference — `current-frame` walks **explicit override → session pin → sole-registered app frame → nil**, and both read-shaped (`subs-sample`, `snapshot`, `epoch-history`, …) and mutating-shaped (`pair-dispatch-sync!`, `app-db-reset!`, `restore-epoch`) ops refuse with `{:ok? false :reason :ambiguous-frame}` when resolution yields nil. The resolver is **reserved-frame-aware** (rf2-3bu3d.4): tiers 3 and 4 count only app frames — `(rf/frame-ids)` with `:rf/*` reserved tool frames (Xray's `:rf/xray`, SSR slots) removed, the sole carve-out being `:rf/default` (the universal default app frame). So a single-app session that also carries an `:rf/xray` frame resolves at tier 3 without a `frames/select`. `:rf/default` is not a tier-4 fallback — silently routing to it would mask the ambiguity in a multi-app session. The hybrid posture (explicit-context-set, implicit-until-reset) supersedes the earlier "Lean" note in §Design notes; single-frame applications never reach the refusal path. The tool surface MUST expose `set-operating-frame` / `reset-operating-frame` / `get-operating-frame` ops (names illustrative; semantics normative) so multi-frame users can pin a target, clear the pin, and inspect the resolver's view. See [§Operating frame — multi-frame resolution](#operating-frame) for the full contract.
