@@ -41,6 +41,46 @@
   [query-v]
   (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :ref-count]))
 
+(defn- entry
+  [query-v]
+  (get-in @(:sub-cache (frame/frame :rf/default)) [query-v]))
+
+;; ---- cache-entry shape pins Spec 006 §Cache shape (rf2-spnfk) --------------
+;;
+;; Spec 006 §Cache shape advertises EXACTLY {:reaction :inputs :ref-count}.
+;; This test pins that key-set so a phantom slot (:value / :on-dispose /
+;; :pending-dispose / :registered-at / :derived-container) re-introduced in
+;; `compute-and-cache!` is caught and forces a matching spec edit. The
+;; cached VALUE is never a stored slot — it lives on the reaction, read via
+;; deref — so the entry MUST NOT carry a :value key.
+
+(deftest cache-entry-shape-matches-spec-006
+  (testing "a freshly-built cache entry stores exactly :reaction :inputs :ref-count"
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    (let [r (rf/subscribe [:sum])]
+      (is (= 5 @r))
+      ;; Layer-2 entry: inputs resolved to the :<- chain.
+      (let [e (entry [:sum])]
+        (is (= #{:reaction :inputs :ref-count} (set (keys e)))
+            "entry key-set is exactly {:reaction :inputs :ref-count} — no
+             :value / :on-dispose / :pending-dispose / :registered-at slot")
+        (is (= [[:a] [:b]] (:inputs e)) ":inputs holds the resolved :<- chain")
+        (is (= 1 (:ref-count e)))
+        (is (some? (:reaction e)) "the reaction (derived container) is stored")
+        (is (not (contains? e :value))
+            "the value lives on the reaction (deref), never a stored slot"))
+      ;; Layer-1 entry: empty :<- chain.
+      (let [e (entry [:a])]
+        (is (= #{:reaction :inputs :ref-count} (set (keys e)))
+            "layer-1 entry key-set is identical")
+        (is (= [] (:inputs e)) "layer-1 sub has no :<- inputs"))
+      (rf/unsubscribe [:sum]))))
+
 ;; ---- synchronous disposal --------------------------------------------------
 
 (deftest sync-disposal-on-last-unsubscribe

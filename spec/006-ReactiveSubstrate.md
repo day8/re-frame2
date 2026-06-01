@@ -460,18 +460,18 @@ A subscription's value lives in the per-frame **sub-cache**. This section define
 Each frame holds one sub-cache, keyed by `[query-vector]`:
 
 ```clojure
-;; Per-frame sub-cache, conceptual shape.
-;; In CLJS the values are Reagent Reactions; on plain-atom hosts they are
-;; thunks that recompute on deref. The shape is the same.
+;; Per-frame sub-cache, the entry shape the reference stores.
+;; The entry wraps a substrate-specific *derived container* — in CLJS a
+;; Reagent Reaction; on plain-atom hosts a thunk that recomputes on deref
+;; (per [§make-derived-value]). The cached value is NOT a separate slot:
+;; it lives ON the derived container and is read via deref. Disposal is
+;; the derived container's own on-dispose hook (CLJS: interop/add-on-dispose!
+;; on the Reaction), NOT an entry-level callback vector.
 
 {[query-vector]
- {:value             v          ;; current cached value
-  :derived-container c          ;; substrate-specific container (per [§make-derived-value])
-  :inputs            [[q1] [q2]] ;; resolved :<- chain (vector of query-vectors)
-  :ref-count         n          ;; how many readers currently hold a reference
-  :on-dispose        [...]      ;; callbacks that fire when ref-count drops to 0
-  :pending-dispose   <handle>   ;; opaque timer-handle iff disposal is scheduled
-  :registered-at     <ts>}}     ;; for trace correlation
+ {:reaction  r            ;; the substrate-specific derived container
+  :inputs    [[q1] [q2]]  ;; resolved :<- chain (vector of input query-vectors)
+  :ref-count n}}          ;; how many readers currently hold a reference
 ```
 
 The cache is held inside the frame container (per [002 §What lives in a frame](002-Frames.md#what-lives-in-a-frame)). Two frames running the same `(rf/subscribe [:cart/total])` compute against their own `app-db`s and cache against their own caches; isolation is automatic.
@@ -485,19 +485,23 @@ Lookup [query-v] in frame F:
   k ← cache-key(query-v)
   If F.sub-cache[k] exists:
     F.sub-cache[k].ref-count += 1
-    return F.sub-cache[k].derived-container
+    return F.sub-cache[k].reaction      ;; the derived container
   Otherwise (cache miss):
     meta    ← registrar.lookup(:sub, first(query-v))
     inputs  ← resolve-inputs(meta, F)         ;; recurses for :<- inputs
     body    ← meta.fn
     derived ← substrate.make-derived-value(
-                inputs.map(c → c.derived-container),
+                inputs.map(c → c.reaction),
                 (in-vals) → body(in-vals, query-v))
-    F.sub-cache[k] ← {:value (read derived)
-                      :derived-container derived
-                      :inputs inputs
-                      :ref-count 1
-                      :on-dispose [(fn [] (dispose-cache-slot! F k))]}
+    F.sub-cache[k] ← {:reaction  derived
+                      :inputs    inputs
+                      :ref-count 1}
+    ;; Wire disposal on the derived container itself — when its last
+    ;; derefer drops, release input refs and dissoc the slot. The cache
+    ;; holds NO entry-level dispose-fn vector; it relies on the container's
+    ;; own on-dispose hook (CLJS: interop/add-on-dispose! on the Reaction).
+    on-dispose(derived, () → { for q in inputs: unsubscribe(F, q)
+                               F.sub-cache.dissoc(k) })
     trace! :sub/registered {:query-v query-v :frame F.id}
     return derived
 ```
@@ -575,14 +579,19 @@ When the last subscriber drops, the cache slot is evicted **in-tick**: the react
 On subscriber detach (view unmounts, tool disconnects):
   entry.ref-count -= 1
   If entry.ref-count == 0:
-    for each dispose-fn in entry.on-dispose: dispose-fn()
-    F.sub-cache.dissoc(k)
+    dispose(entry.reaction)      ;; fires the derived container's on-dispose
+                                 ;; hook → releases input refs, dissocs the slot
     trace! :rf.sub/dispose {:rf.sub/query-v k :frame F.id
                             :rf.sub/reason :no-more-derefers}
 
 On subscriber attach (cache HIT; the slot already exists):
   entry.ref-count += 1
 ```
+
+Disposal is wired on the derived container, not an entry-level callback
+vector: disposing `entry.reaction` runs the on-dispose hook that
+`compute-and-cache!` registered (CLJS: `interop/add-on-dispose!`), which
+both releases the input refs (layer-2+ cascade) and dissoc's the slot.
 
 A subscribe arriving AFTER the disposal is treated as a fresh cache miss: `compute-and-cache!` builds a new reaction against the registered sub body. The recomputed value will `=` what was disposed (same body, same `app-db`) so the post-rebuild render observes no value change.
 
@@ -662,8 +671,7 @@ When a frame is destroyed (per [002 §Destroy](002-Frames.md#destroy)):
 ```
 On destroy-frame! F:
   For each k → entry in F.sub-cache:
-    For each dispose-fn in entry.on-dispose:
-      dispose-fn()
+    dispose(entry.reaction)        ;; runs the container's on-dispose hook
   F.sub-cache.clear()
   trace! :sub-cache/cleared {:frame F.id}
 ```
@@ -679,7 +687,7 @@ Three contract guarantees this enforces:
 - **Drain-loop integration** ([002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)): invalidation fires once per `process-event!`, at the single deferred `:db` install (step 2) — the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (step 1, per [013 §Drain integration](013-Flows.md#drain-integration)), so the value installed is the flow-augmented db. There is exactly one invalidation per event, at that install, and subscriptions observe the **flow-augmented** db on recompute. A handler can rely on subscriptions reflecting the new `app-db` from inside `do-fx` (the `:fx` walk at step 3, after the install).
 - **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body. Tracked with the rest of hot-reload semantics in the bead-tracked work.
 - **Machine subscriptions** ([005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)): a machine's snapshot lives at `[:rf/runtime :machines :snapshots <id>]` and is read like any other slice of `app-db`; `sub-machine` is a thin convenience over `reg-sub`. Sub-cache invalidation works the same.
-- **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (ref-count + grace-period, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
+- **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (synchronous ref-counting on derefer-count → 0, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
 
 ### Per-host implementation notes
 
@@ -813,7 +821,6 @@ This section is the **bridging pseudocode** for both. For each contract function
   (doseq [[_ frame-record] @frame/frames]
     (when-let [cache (:sub-cache frame-record)]
       (doseq [[_ entry] @cache]
-        (some-> (:pending-dispose entry) interop/clear-timeout!)
         (some-> (:reaction entry) interop/dispose!))
       (reset! cache {})))
   ;; Step 2 — unmount any active React 19 Roots.
@@ -831,14 +838,17 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
 
 ```clojure
 ;; The cache is per-frame: keyed by [query-vector], stored on the frame.
-;; Each entry points to a Reagent Reaction that wraps the sub's body.
+;; Each entry is a map {:reaction r :inputs [...] :ref-count n} — the
+;; Reagent Reaction wraps the sub's body; the cached value lives ON the
+;; Reaction and is read via deref (no :value slot). See [§Cache shape].
 
 (defn subscribe [frame query-v]
-  (let [k (cache-key query-v)
+  (let [k     (cache-key query-v)
         cache (:sub-cache frame)]
-    (or (get @cache k)                                ;; cache hit: existing reaction
-        (let [r (compute-and-cache frame query-v)]     ;; cache miss: build chain
-          r))))
+    (if-let [entry (get @cache k)]
+      (do (swap! cache update-in [k :ref-count] inc)  ;; cache hit: bump ref-count
+          (:reaction entry))
+      (compute-and-cache frame query-v))))            ;; cache miss: build chain
 
 (defn- compute-and-cache [frame query-v]
   (let [meta     (registrar/lookup :sub (first query-v))
@@ -850,17 +860,19 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
         ;; sub semantics from v1 — same algorithm, now scoped per frame.
         r        (ratom/make-reaction
                    (fn [] (apply body-fn (conj (mapv deref inputs) query-v))))]
-    (swap! (:sub-cache frame) assoc k r)
-    ;; When this reaction's last reader disposes, GC the cache slot.
+    (swap! (:sub-cache frame) assoc k {:reaction r :inputs inputs :ref-count 1})
+    ;; When this reaction's last reader disposes, release the input refs
+    ;; symmetrically (layer-2+ cascade) then GC the cache slot.
     (interop/add-on-dispose! r
       (fn []
+        (doseq [input-q inputs] (unsubscribe frame input-q))
         (swap! (:sub-cache frame)
-               (fn [cm] (if (identical? r (get cm k)) (dissoc cm k) cm)))))
+               (fn [cm] (if (identical? r (get-in cm [k :reaction])) (dissoc cm k) cm)))))
     r))
 
 (defn dispose-frame-subs! [frame]
   (let [cache (:sub-cache frame)]
-    (doseq [[_ r] @cache] (interop/dispose! r))
+    (doseq [[_ entry] @cache] (interop/dispose! (:reaction entry)))
     (reset! cache {})))
 ```
 

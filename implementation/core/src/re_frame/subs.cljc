@@ -9,7 +9,10 @@
   Layer-3+: same shape as Layer-2 with deeper chains.
 
   The cache is per-frame, keyed by query-vector. Each entry holds:
-    {:value v :reaction r :inputs [...] :ref-count n :on-dispose [...]}
+    {:reaction r :inputs [...] :ref-count n}
+  The cached value is NOT a stored slot — it lives on the reaction and is
+  read via deref. Disposal is wired on the reaction itself
+  (interop/add-on-dispose!), not an entry-level callback slot.
 
   Invalidation runs as part of replace-container! — when app-db changes,
   the substrate adapter's reaction graph fires; layer-1 subs recompute
@@ -273,8 +276,7 @@
     (when (and cache sub-meta)
       (swap! cache assoc k {:reaction   reaction
                             :inputs     input-signals
-                            :ref-count  1
-                            :on-dispose []})
+                            :ref-count  1})
       (interop/add-on-dispose! reaction
         (fn []
           ;; A layer-2+ sub's construction called `subscribe` once per

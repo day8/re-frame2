@@ -107,8 +107,7 @@
           (swap! dispose-calls assoc r 0)
           (swap! cache assoc k {:reaction   r
                                 :inputs     []
-                                :ref-count  0
-                                :on-dispose []})))
+                                :ref-count  0})))
       (is (= n-keys (count @cache))
           "all contended slots populated")
 
@@ -176,8 +175,7 @@
           (swap! dispose-calls assoc r 0)
           (swap! cache assoc k {:reaction   r
                                 :inputs     []
-                                :ref-count  0
-                                :on-dispose []})))
+                                :ref-count  0})))
 
       ;; The fn lives in re-frame.subs.cache (post rf2-0ytl4 seam S-A).
       (let [dispose-fn subs-cache/dispose-entry-now!]
