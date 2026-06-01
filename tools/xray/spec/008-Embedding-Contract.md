@@ -194,7 +194,7 @@ panel/beat/path is [the new surface]."
 
 ```clojure
 {:frame       <frame-id>   ; the HOST frame Xray should observe (optional)
- :panel       <tab-id>     ; which L4 tab to surface (one of the 7 below)
+ :panel       <tab-id>     ; which L4 tab to surface (one of the 6 below)
  :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
  :dispatch-id <id>         ; cascade root to pin the spine to
  :path        [<k> ...]    ; app-db path to highlight in the App-db panel
@@ -203,13 +203,21 @@ panel/beat/path is [the new surface]."
 ```
 
 Every field is optional; an empty command is a well-formed no-op focus.
-`:panel` accepts the 7 canonical tab ids (the
-`day8.re-frame2-xray.focus/valid-panels` set, also re-exported as
-`core/valid-focus-panels`):
+`:panel` accepts the canonical tab ids. The **shipped**
+`day8.re-frame2-xray.focus/valid-panels` set (also re-exported as
+`core/valid-focus-panels`) is the single source of truth for this
+enum — this doc must match it exactly, not hand-restate a divergent
+list:
 
 ```
-#{:epoch :app-db :views :trace :machines :routes :issues}
+#{:epoch :app-db :views :trace :machines :routes}
 ```
+
+(Six tabs. The `:issues` tab was removed per rf2-gbz39 — issues now
+surface inline in the Epoch panel + the L2 event-row pink-wash + the
+always-on issues ribbon signal, so `:issues` is no longer a focusable
+panel. A host that validates a focus command against `:issues` gets
+`{:ok? false :reason :unknown-panel}` from `focus!`.)
 
 (internal registry keys per [`007-UX-IA.md`](./007-UX-IA.md) §The
 4-layer chrome L3). The `:source` map is host-agnostic provenance —

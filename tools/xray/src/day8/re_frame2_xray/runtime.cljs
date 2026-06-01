@@ -180,35 +180,94 @@
   (vec (rf/frame-ids)))
 
 ;; ---------------------------------------------------------------------------
-;; Privacy egress — single emission site
+;; Privacy egress — the single named safe-egress entry point
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per MUST-inventory rows #15 / #17 / #19: every direct-read accessor
-;; routes returned values through `re-frame.core/elide-wire-value`
-;; before egress. The single normative emission site lives in the
-;; framework; the runtime's job is to call it with both
-;; `:include-sensitive?` and `:include-large?` defaulting `false` and
-;; to honour the caller's opt-in. The opt-in lives in the MCP-server
-;; side's tool args; the runtime accepts the bools as plain args so
-;; the eval form is one shape per call.
+;; routes returned values through the framework's wire-elision walker
+;; (`re-frame.core/elide-wire-value`) before egress. The walker is the
+;; framework's single normative emission site; what was missing — and
+;; what rf2-rcogp fixes — is a single NAMED off-box egress fn here so
+;; THE SAFE PATH IS THE SHORT PATH.
+;;
+;; The threat model (Tool-Pair §Privacy egress, Security.md §Off-box
+;; egress): this runtime hands values to an AI/MCP boundary and to
+;; logs, both of which are sensitive sinks. The danger the senior-dev
+;; API critique (rf2-814or) flagged is that `elide-wire-value` does
+;; NOT bake off-box defaults — a forwarder author must KNOW to pass
+;; `:rf.size/include-sensitive? false` + `:rf.size/include-large?
+;; false`, and the unsafe path (`pr-str` the raw value you already
+;; hold) is the same length or shorter. The fix: `egress-value` /
+;; `egress-record` apply the off-box defaults already, so the
+;; forwarder author's shortest call is the safe one and the verbose
+;; opt-juggling never has to be re-derived per call site.
+;;
+;; Off-box default polarity: both `include-sensitive?` and
+;; `include-large?` default `false` (the walker substitutes the slot —
+;; sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`). A
+;; caller passing `true` opts back in to seeing the raw value. The
+;; runtime API uses plain-keyword opts; these fns translate to the
+;; framework's `:rf.size/*` namespaced opt keys.
 
-(defn- elide
-  "Route `value` through the framework's wire-elision walker with both
-  privacy + size defaults. Caller passes `:include-sensitive?` /
-  `:include-large?` to opt back in per call (the runtime API uses
-  plain-keyword opts; this wrapper translates to the framework's
-  `:rf.size/*` namespaced opt keys per
-  `re-frame.elision/elide-wire-value`). Tools wrap their ready-to-
-  egress payload with this fn — single emission site per MUST-inventory
-  row #17."
+(defn egress-value
+  "The single named off-box safe-egress fn for an arbitrary value
+  (app-db slice, sub value, machine state, trace event, …). Routes
+  `value` through the framework's wire-elision walker
+  (`re-frame.core/elide-wire-value`) with the off-box privacy + size
+  defaults BAKED IN, so the shortest call is the safe one.
+
+  Off-box defaults: `include-sensitive?` + `include-large?` both
+  `false` — sensitive slots become `:rf/redacted`, large slots become
+  the `:rf.size/large-elided` marker. A caller that is itself the
+  trust boundary opts back in per call:
+
+      (egress-value v)                            ; safe (defaults)
+      (egress-value v {:include-sensitive? true}) ; opt back in
+
+  Every direct-read accessor on this runtime calls this fn before a
+  value crosses the off-box boundary (MUST-inventory rows #15 / #17 /
+  #19). rf2-rcogp — the safe path is the short path."
   ([value]
-   (elide value nil))
+   (egress-value value nil))
   ([value {:keys [include-sensitive? include-large?]
            :or   {include-sensitive? false
                   include-large?     false}}]
    (rf/elide-wire-value value
                         {:rf.size/include-sensitive? include-sensitive?
                          :rf.size/include-large?     include-large?})))
+
+(defn egress-record
+  "The single named off-box safe-egress fn for one epoch record. On the
+  safe default path it routes the `:rf/epoch-record` through the
+  framework's normative epoch projection
+  (`re-frame.core/projected-record`) so payload slots are wire-elided
+  with off-box defaults while bookkeeping slots (`:epoch-id`,
+  `:dispatch-id`, `:outcome`, …) pass through unchanged.
+
+  `projected-record` already bakes the off-box defaults — naming the
+  off-box egress of an epoch record `egress-record` (parallel to
+  `egress-value` for arbitrary values) gives a forwarder author ONE
+  obvious safe entry point for either shape instead of a choice
+  between `elide-wire-value` (and the right opts) and
+  `projected-record` (with no opts) they must first learn the
+  difference between.
+
+  Opt-back-in: when a caller that is itself the trust boundary opts in
+  to seeing sensitive or large slots (`{:include-sensitive? true}` /
+  `{:include-large? true}`), the record is routed through
+  `egress-value` with the opt instead — the normative epoch projection
+  has no opt-in arg, so the value walker carries the per-call override.
+  No opts (or both `false`) ⇒ the normative `projected-record` path.
+  rf2-rcogp — the safe path is the short path."
+  ([record]
+   (egress-record record nil))
+  ([record {:keys [include-sensitive? include-large?]
+            :or   {include-sensitive? false
+                   include-large?     false}}]
+   (if (or include-sensitive? include-large?)
+     (egress-value record {:include-sensitive? include-sensitive?
+                           :include-large?     include-large?})
+     (rf/projected-record record))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inspection band (9 accessors)
@@ -245,8 +304,8 @@
                              (dissoc :frame :include-sensitive? :include-large?)
                              (assoc :flat true))
              events      (trace-tooling/trace-buffer fid filter-opts)
-             scrubbed    (mapv #(elide % {:include-sensitive? include-sensitive?
-                                          :include-large?     include-large?})
+             scrubbed    (mapv #(egress-value % {:include-sensitive? include-sensitive?
+                                                 :include-large?     include-large?})
                                events)]
          {:ok?    true
           :frame  fid
@@ -267,8 +326,8 @@
        {:ok? false :reason :no-frame-resolved
         :hint "Pass :frame :foo or register at least one frame."}
        (let [records  (rf/epoch-history fid)
-             scrubbed (mapv #(elide % {:include-sensitive? include-sensitive?
-                                       :include-large?     include-large?})
+             scrubbed (mapv #(egress-record % {:include-sensitive? include-sensitive?
+                                               :include-large?     include-large?})
                             records)]
          {:ok?    true
           :frame  fid
@@ -293,8 +352,8 @@
          {:ok?   true
           :frame fid
           :path  (vec path)
-          :value (elide value {:include-sensitive? include-sensitive?
-                               :include-large?     include-large?})})))))
+          :value (egress-value value {:include-sensitive? include-sensitive?
+                                      :include-large?     include-large?})})))))
 
 (defn get-app-db-diff
   "Tool: `get-app-db-diff`. Slice diff for a named epoch — read
@@ -324,10 +383,10 @@
            :frame fid :epoch-id epoch-id}
           (let [before (:db-before match)
                 after  (:db-after  match)
-                diff   {:before (elide before {:include-sensitive? include-sensitive?
-                                               :include-large?     include-large?})
-                        :after  (elide after  {:include-sensitive? include-sensitive?
-                                               :include-large?     include-large?})}]
+                diff   {:before (egress-value before {:include-sensitive? include-sensitive?
+                                                      :include-large?     include-large?})
+                        :after  (egress-value after  {:include-sensitive? include-sensitive?
+                                                      :include-large?     include-large?})}]
             {:ok?      true
              :frame    fid
              :epoch-id epoch-id
@@ -365,8 +424,8 @@
           {:ok?        true
            :frame      fid
            :machine-id machine-id
-           :state      (elide m {:include-sensitive? include-sensitive?
-                                 :include-large?     include-large?})})))))
+           :state      (egress-value m {:include-sensitive? include-sensitive?
+                                        :include-large?     include-large?})})))))
 
 (defn get-machine-list
   "Tool: `get-machine-list`. List of registered machines per frame
@@ -378,9 +437,9 @@
      {:ok?      true
       :machines (into {}
                       (map (fn [mid]
-                             [mid (elide (rf/machine-meta mid)
-                                         {:include-sensitive? include-sensitive?
-                                          :include-large?     include-large?})]))
+                             [mid (egress-value (rf/machine-meta mid)
+                                                {:include-sensitive? include-sensitive?
+                                                 :include-large?     include-large?})]))
                       ids)
       :count    (count ids)})))
 
@@ -411,8 +470,8 @@
                         (mapcat #(trace-tooling/trace-buffer % {:flat true}))
                         (rf/frame-ids))
          issues   (filterv #(contains? issue-op-types (:op-type %)) events)
-         scrubbed (mapv #(elide % {:include-sensitive? include-sensitive?
-                                   :include-large?     include-large?})
+         scrubbed (mapv #(egress-value % {:include-sensitive? include-sensitive?
+                                          :include-large?     include-large?})
                         issues)]
      {:ok?    true
       :issues scrubbed
@@ -672,8 +731,8 @@
 
   This fn is the runtime-side **result shaper** the server's wrapper
   invokes on the eval'd value before egress:
-  `{:ok? true :value (elide value)}` — privacy + size scrubbing applied
-  to the eval'd result with caller's `:include-sensitive?` /
+  `{:ok? true :value (egress-value value)}` — privacy + size scrubbing
+  applied to the eval'd result with caller's `:include-sensitive?` /
   `:include-large?` opt-in.
 
   The synchronous-extent binding of `*current-origin*` per Lock #4 / I6
@@ -682,7 +741,7 @@
   ([value] (eval-form-result value nil))
   ([value opts]
    {:ok?   true
-    :value (elide value opts)}))
+    :value (egress-value value opts)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Meta band (2 accessors)

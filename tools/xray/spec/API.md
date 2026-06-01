@@ -184,7 +184,7 @@ implementation reality — ~40 symbols across 6 namespaces).
               :path [:checkout :state]
               :source {:kind :story/assertion}})
 (xray/focus! :checkout {:panel :trace})   ;; positional host-frame form
-xray/valid-focus-panels                   ;; the 7 valid :panel ids
+xray/valid-focus-panels                   ;; the 6 valid :panel ids (see 008 §Host-facing focus API; :issues removed rf2-gbz39)
 
 (xray/load-theme css-string)
 ;; Programmatically swap the palette: injects `css-string` as a dedicated
@@ -672,16 +672,32 @@ silently picking one. The MCP server's tool-arg layer is the right
 place to refuse mutations against an ambiguous resolution; reads
 degrade through the documented `:no-frame-resolved` fallback.
 
-### Privacy egress (single emission site)
+### Privacy egress — the single named safe-egress entry point
 
-Every direct-read accessor routes returned values through
-`re-frame.core/elide-wire-value` before egress. The single normative
-emission site lives in the framework; the runtime's job is to call
-it with `:include-sensitive?` and `:include-large?` defaulting
-`false` and to honour the caller's opt-in (per MUST-inventory rows
-#2 / #15 / #17 / #19). Callers pass plain `:include-sensitive?` /
-`:include-large?` opts; the runtime translates to the framework's
-`:rf.size/*` namespaced opt keys.
+Every direct-read accessor routes returned values through one named
+off-box safe-egress fn before egress, so **the safe path is the short
+path** (rf2-rcogp). The framework owns the normative walker
+(`re-frame.core/elide-wire-value`) and the normative epoch projection
+(`re-frame.core/projected-record`); the runtime wraps each with the
+off-box defaults BAKED IN so a forwarder author never re-derives the
+opt-juggling per call site:
+
+```clojure
+(day8.re-frame2-xray.runtime/egress-value value)   ;; arbitrary value (app-db slice, sub, trace event, …)
+(day8.re-frame2-xray.runtime/egress-record record) ;; one :rf/epoch-record
+```
+
+Off-box defaults: `:include-sensitive?` and `:include-large?` both
+default `false` — sensitive slots become `:rf/redacted`, large slots
+become the `:rf.size/large-elided` marker. A caller that is itself the
+trust boundary opts back in per call
+(`{:include-sensitive? true}` / `{:include-large? true}`). `egress-record`
+routes through `projected-record` on the safe default path (bookkeeping
+slots pass through unchanged) and through `egress-value` when the
+caller opts in (the projection has no opt-in arg). This is the runtime's
+half of MUST-inventory rows #2 / #15 / #17 / #19; callers pass plain
+`:include-sensitive?` / `:include-large?` opts, the fns translate to the
+framework's `:rf.size/*` namespaced opt keys.
 
 ### Inspection band (9 accessors — read-only)
 

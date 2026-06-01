@@ -438,13 +438,14 @@ Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
 
 **Re-registration semantics.** `register-listener!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-listener!` re-registration under an existing key.
 
-**Worked example.** A minimal recorder that prints every error trace to the console:
+**Worked example.** A minimal recorder that prints every error trace to the console. The `(when-not (:sensitive? trace-event) …)` guard is the load-bearing line: listeners receive **every** event regardless of `:sensitive?` (per [§Listener filtering semantics](#listener-filtering-semantics)), so any listener body that egresses a payload off-box — and `println` to a console that may be captured into a log IS an off-box sink — MUST gate on the flag. Teaching the safe shape here, at the copy site, is deliberate: the worked example is the first thing a tool author copies (per the egress-ergonomics ruling rf2-rcogp / rf2-nqugc).
 
 ```clojure
 (rf/register-listener!
   :my-app/error-logger
   (fn [trace-event]
-    (when (= :error (:op-type trace-event))
+    (when (and (= :error (:op-type trace-event))
+               (not (:sensitive? trace-event)))  ;; gate any off-box egress on :sensitive?
       (println (:operation trace-event)
                (-> trace-event :tags :reason)))))
 ```

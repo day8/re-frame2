@@ -377,3 +377,100 @@
       (is (true? (:ok? result)))
       (is (vector? (:issues result)))
       (is (number? (:count result))))))
+
+;; ---------------------------------------------------------------------------
+;; (11) egress-value / egress-record — the single named safe-egress fn
+;;      (rf2-rcogp: THE SAFE PATH IS THE SHORT PATH).
+;; ---------------------------------------------------------------------------
+;;
+;; The runtime hands values to an off-box AI/MCP boundary and to logs.
+;; rf2-rcogp ships one NAMED off-box egress fn with the off-box defaults
+;; baked in, so the forwarder author's shortest call is the safe one.
+;; These tests are the failing-before / passing-after regression: the
+;; named fn redacts a sensitive value / record on the off-box path, and
+;; the call sites we rerouted (get-app-db / get-epoch-history / …) still
+;; redact end-to-end.
+
+(defn- seed-sensitive-schema! []
+  ;; Mirror the framework's schema-declared sensitive path setup
+  ;; (implementation/core/test/re_frame/elision_test.clj
+  ;; §schema-sensitive-path-redacts): a `{:sensitive? true}` slot
+  ;; hydrates the per-frame `:sensitive-declarations` so the wire walker
+  ;; substitutes `:rf/redacted` for that path on off-box egress.
+  ;;
+  ;; The `:sensitive-declarations` live in app-db at
+  ;; `[:rf/runtime :elision :sensitive-declarations]`, so `populate-…!`
+  ;; MUST run AFTER any whole-db `reg-event-db` reset in a test (a reset
+  ;; that returns a fresh map would otherwise wipe `:rf/runtime`).
+  (rf/reg-app-schema [:auth]
+                     [:map
+                      [:username :string]
+                      [:password {:sensitive? true} :string]])
+  (rf/populate-sensitive-from-schemas!))
+
+(deftest egress-value-redacts-sensitive-on-the-safe-default-path
+  (testing "`egress-value` with no opts (the SHORT path) redacts a
+            schema-declared sensitive slot — the off-box defaults are
+            baked in so a forwarder author never re-derives the opts"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-value {:auth {:username "ada" :password "shh"}})]
+      (is (= "ada" (get-in out [:auth :username]))
+          "non-sensitive slots pass through verbatim")
+      (is (= :rf/redacted (get-in out [:auth :password]))
+          "the sensitive slot is redacted on the bare (default) call"))))
+
+(deftest egress-value-opts-back-in-to-sensitive
+  (testing "a caller that is itself the trust boundary opts back in to
+            the raw value with `{:include-sensitive? true}`"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-value {:auth {:password "shh"}}
+                                    {:include-sensitive? true})]
+      (is (= "shh" (get-in out [:auth :password]))
+          ":include-sensitive? true ⇒ the raw value passes through"))))
+
+(deftest egress-record-redacts-sensitive-payload-slots
+  (testing "`egress-record` routes an epoch record through the normative
+            epoch projection on the safe default path — payload slots
+            (:db-before / :db-after) are wire-elided while bookkeeping
+            slots pass through unchanged"
+    (seed-sensitive-schema!)
+    (let [record  {:epoch-id    "e1"
+                   :dispatch-id 7
+                   :event-id    :auth/login
+                   :db-before   {:auth {:username "ada" :password "shh"}}
+                   :db-after    {:auth {:username "ada" :password "newpw"}}}
+          out     (runtime/egress-record record)]
+      (is (= "e1" (:epoch-id out)) "bookkeeping :epoch-id passes through")
+      (is (= 7 (:dispatch-id out)) "bookkeeping :dispatch-id passes through")
+      (is (= :rf/redacted (get-in out [:db-before :auth :password]))
+          "the sensitive payload slot is redacted in :db-before")
+      (is (= :rf/redacted (get-in out [:db-after :auth :password]))
+          "the sensitive payload slot is redacted in :db-after")
+      (is (= "ada" (get-in out [:db-before :auth :username]))
+          "non-sensitive payload slots pass through"))))
+
+(deftest egress-record-opts-back-in-to-sensitive
+  (testing "`egress-record` with `{:include-sensitive? true}` routes
+            through `egress-value` so the opt-in reaches the walker
+            (the normative projection has no opt-in arg)"
+    (seed-sensitive-schema!)
+    (let [record {:db-after {:auth {:password "shh"}}}
+          out    (runtime/egress-record record {:include-sensitive? true})]
+      (is (= "shh" (get-in out [:db-after :auth :password]))
+          ":include-sensitive? true ⇒ the raw value passes through"))))
+
+(deftest get-app-db-redacts-sensitive-end-to-end
+  (testing "the rerouted `get-app-db` call site still redacts a
+            sensitive slot end-to-end (regression: the named egress fn
+            is wired into the accessor)"
+    (rf/reg-event-db :test/seed-auth
+      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/dispatch-sync [:test/seed-auth])
+    ;; Populate AFTER the whole-db reset so the declarations survive.
+    (seed-sensitive-schema!)
+    (let [result (runtime/get-app-db)]
+      (is (true? (:ok? result)))
+      (is (= :rf/redacted (get-in result [:value :auth :password]))
+          "get-app-db scrubs the sensitive slot via egress-value")
+      (is (= "ada" (get-in result [:value :auth :username]))
+          "non-sensitive slots survive"))))
