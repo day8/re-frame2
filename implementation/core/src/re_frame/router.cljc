@@ -179,6 +179,16 @@
         ;; ordering guarantee — NOT a trace concern — so the flag is
         ;; carried unconditionally (never gated on interop/debug-enabled?).
         machine-internal?  (true? (:rf.machine/internal? opts))]
+    ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
+    ;; opt like `:fram` for `:frame`) rather than silently swallowing
+    ;; them. Dev-only: `unknown-dispatch-opts` returns nil under
+    ;; `interop/debug-enabled? false`, so the whole `when-let` body —
+    ;; including the diagnostics-ns warning fn — DCEs in production. Every
+    ;; dispatch path (`dispatch!`, `dispatch-sync!`, the frame-handle ops)
+    ;; funnels through here, so this is the single chokepoint for the
+    ;; check. The dispatch proceeds unchanged regardless (warn-only).
+    (when-let [unknown (diag/unknown-dispatch-opts opts)]
+      (diag/emit-unknown-dispatch-opts-warning! unknown event))
     (cond-> {:event                  event
              :frame                  (or (:frame opts) default-frame)
              ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`

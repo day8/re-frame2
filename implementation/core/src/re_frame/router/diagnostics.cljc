@@ -146,6 +146,80 @@
                   id)))))
         (frame/frame-ids)))
 
+(def ^:const known-dispatch-opts
+  "Per rf2-jbzhj — the closed set of keys `build-envelope` reads off the
+  `dispatch` / `dispatch-sync` opts map (and therefore the only keys that
+  affect dispatch behaviour). Every other key is silently swallowed, so a
+  typo'd opt (`:fram` for `:frame`, `:src` for `:source`) changes nothing
+  and gives no signal — the no-silent-swallow principle (rf2-3nbl5.1)
+  forbids that quietness. `emit-unknown-dispatch-opts-warning!` warns on
+  any opts key outside this set.
+
+  The set mirrors the reads in `re-frame.router/build-envelope`:
+    :frame                  resolved target frame
+    :fx-overrides           per-call fx-id remapping
+    :interceptor-overrides  per-call interceptor remapping
+    :trace-id               tooling correlation id
+    :source                 closed-enum trigger-kind / functional-origin
+    :source-detail          per-source-kind detail payload
+    :origin                 actor identity tag
+    :rf.trace/call-site     macro-stamped invocation coord (dev-only)
+    :rf.machine/internal?   machine-internal continuation flag (front-queue)"
+  #{:frame :fx-overrides :interceptor-overrides :trace-id :source
+    :source-detail :origin :rf.trace/call-site :rf.machine/internal?})
+
+(defn unknown-dispatch-opts
+  "Return the seq of keys in `opts` that fall OUTSIDE
+  `known-dispatch-opts`, or nil when every key is known (so callers can
+  `when-let` the result). Dev-only — the sole caller gates on
+  `interop/debug-enabled?`."
+  [opts]
+  (when interop/debug-enabled?
+    (seq (remove known-dispatch-opts (keys opts)))))
+
+(defn emit-unknown-dispatch-opts-warning!
+  "Per rf2-jbzhj: emit `:rf.warning/unknown-dispatch-opt` when a
+  `dispatch` / `dispatch-sync` opts map carries one or more keys outside
+  the recognised `known-dispatch-opts` set. The runtime reads only the
+  known keys in `build-envelope`; an unrecognised key (almost always a
+  typo — `:fram` instead of `:frame`) is otherwise silently swallowed and
+  changes nothing, producing wrong behaviour with no signal. Pre-alpha
+  posture: surface it loudly rather than ship a quiet footgun (aligns with
+  the committed no-silent-swallow principle, rf2-3nbl5.1).
+
+  One warning per dispatch call carrying unknown keys: the message names
+  every bad key and the full known set so the fix is obvious. The dispatch
+  proceeds unchanged — this is observational, never refusal (`:recovery
+  :no-recovery`).
+
+  Body gated on `interop/debug-enabled?` so the whole surface — the
+  warning keyword's interned slot, the reason-string allocation, the
+  `unknown-dispatch-opts` walk — DCEs wholesale under `:advanced` +
+  `goog.DEBUG=false` (rf2-gaqwr). The caller in `build-envelope` reads the
+  unknown-key seq inside the same gate so production never walks the opts."
+  [unknown event]
+  (when interop/debug-enabled?
+    (let [event-id (first event)
+          unknown  (vec unknown)
+          reason   (str "Dispatch of `" event-id "` was given unrecognised "
+                        "opts key" (when (> (count unknown) 1) "s") " "
+                        (pr-str unknown) ". The runtime reads only "
+                        (pr-str (vec (sort known-dispatch-opts)))
+                        " — any other key is silently ignored, so a typo "
+                        "(e.g. `:fram` for `:frame`) changes nothing and "
+                        "gives no signal. Check for a misspelt opt; if you "
+                        "intended a custom payload, put it inside the event "
+                        "vector, not the dispatch opts map.")]
+      (trace/emit! :warning
+                   :rf.warning/unknown-dispatch-opt
+                   {:event        event
+                    :event-id     event-id
+                    :unknown-keys unknown
+                    :known-keys   (vec (sort known-dispatch-opts))
+                    :detected-at  (interop/now-ms)
+                    :reason       reason
+                    :recovery     :no-recovery}))))
+
 (defn emit-cross-frame-warning!
   "Per rf2-fp97: emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
   when `dispatch-sync!` lands on frame `target-id` while a different
