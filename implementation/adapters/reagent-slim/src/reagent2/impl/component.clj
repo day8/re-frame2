@@ -11,19 +11,19 @@
   macro is shipped — `reg-view` is the single canonical view-registration
   surface (per the rf2-yfbx decision).
 
-  Public macros (consumed by `reg-view`'s expansion):
+  Public fns (compile-time helpers, consumed by `reg-view`'s expansion):
 
-    classify-form-body — return a keyword form-tag for the body. Pure
-                         compile-time helper; no runtime cost.
+    classify-form-body — return a keyword form-tag for the body.
+    tag-form-meta      — wrap a form-tag in the `{:reagent2/form ...}`
+                         metadata map `reg-view` stamps onto the
+                         wrapper fn so the runtime can read it.
 
-    form-tagged-fn     — emit `(fn ~argv ~@body)` with the form-tag
-                         attached as meta on the fn-form so the
-                         runtime can read it.
-
-  No CLJ-side runtime code lives here; only the compile-time helpers
-  consumed by CLJS build sites via `:require-macros`. The classification
-  logic is pure-data; both helpers are usable from `re-frame.core`
-  (or any other macro that wants to amortise the runtime detection)."
+  These run at macroexpansion time (CLJ), not at runtime — the macro
+  invoking them folds the result into the emitted CLJS. They are plain
+  `defn`s (the classification logic is pure-data), so any macro that
+  wants to amortise the runtime detection — `re-frame.core/reg-view`
+  or otherwise — can call them directly. No CLJS-side runtime code
+  lives in this ns."
   (:refer-clojure :exclude [fn?]))
 
 ;; ---------------------------------------------------------------------------

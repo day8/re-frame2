@@ -1,12 +1,11 @@
 (ns reagent2.dom.client
   "Mount entry + test-flush primitive for the day8/reagent-slim artefact.
 
-  Stage 4-B scope (rf2-6hyy): the `flush-views!` test primitive lands
-  here per IMPL-SPEC §2.4 + §4. The mount entries (`create-root`,
-  `render`, `unmount`, `hydrate-root`) are scaffolded as deferred so
-  Stage 4-D's hiccup interpreter (`reagent2.impl.template`) can wire
-  the render path without re-touching this ns. Their final
-  implementations land with Stage 4-D / 4-E.
+  Per IMPL-SPEC §2.4 + §4. The `flush-views!` test primitive and the
+  mount entries (`create-root`, `render`, `unmount`, `hydrate-root`)
+  all live here. `render` / `hydrate-root` walk the user's hiccup once
+  via the hiccup interpreter `reagent2.impl.template/as-element` and
+  hand the resulting React element tree to React's root.
 
   Public Vars (per IMPL-SPEC §2.4):
 
@@ -60,12 +59,7 @@
     Suspense test in dom_client_cljs_test.cljs.
 
   Production cost: zero. `flush-views!` is gated on `js/goog.DEBUG` and
-  DCEs entirely under `:advanced` + `goog.DEBUG=false`.
-
-  Stage 4-D: `render` and `hydrate-root` are wired to the hiccup
-  interpreter `reagent2.impl.template/as-element`. Both call paths
-  walk the user's hiccup tree once and produce React elements; React
-  then drives its own concurrent rendering through the root."
+  DCEs entirely under `:advanced` + `goog.DEBUG=false`."
   (:require [reagent2.impl.batching :as batching]
             [reagent2.impl.template :as template]
             ["react" :as react]
@@ -87,9 +81,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- resolve-act
-  "Look up React's `act`. Returns the fn or nil. Cached across calls
-  in dev — re-resolved once per `flush-views!` so a test fixture that
-  swaps the React module mid-run sees the swap."
+  "Look up React's `act`. Returns the fn or nil. Re-resolved on every
+  call (not cached) so a test fixture that swaps the React module
+  mid-run sees the swap on the next `flush-views!`."
   []
   (or (.-act react)
       ;; Fallback: pre-18.3 lived in react-dom/test-utils. We don't
