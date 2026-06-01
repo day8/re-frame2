@@ -203,6 +203,78 @@
                    (is (re-find #"dispatch-and-collect" @captured))
                    (done)))))))
 
+(deftest settle-mode-routes-to-dispatch-and-settle
+  ;; rf2-vk79g — `:settle true` routes to the SYNCHRONOUS runtime
+  ;; `dispatch-and-settle!` (dispatch-sync → flush-render! → re-read the
+  ;; settled epoch). Unlike `:await-render`, the runtime fn returns a map
+  ;; directly, so the emitted form is the ordinary `rt-call` (NOT the
+  ;; await-promise mailbox wrapper).
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 11 :settled? true
+                                         :render-events [] :cascade-summary {:renders 1}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :settle true})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [form @captured]
+                     (is (re-find #"dispatch-and-settle!" form)
+                         ":settle routes to the synchronous dispatch-and-settle!")
+                     (is (not (str/includes? form "__rf2pair_await__"))
+                         "NO mailbox wrapper — dispatch-and-settle! is synchronous")
+                     (let [parsed (cljs.reader/read-string form)]
+                       (is (= 're-frame2-pair.runtime/dispatch-and-settle! (first parsed)))
+                       (is (= [:list/toggle] (second parsed)))))
+                   (let [edn (read-result-text r)]
+                     (is (= :settle (:mode edn)) "mode is :settle")
+                     (is (true? (:settled? edn)) "the settled flag rides through"))
+                   (done)))))))
+
+(deftest settle-wins-over-other-mode-flags
+  ;; `:settle` is the most complete single-call shape — it wins over
+  ;; await-render / trace / queued when set together.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 11 :settled? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]"
+                                           :settle true :trace true :queued true
+                                           :await-render true})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (re-find #"dispatch-and-settle!" form)
+                         ":settle wins — routes to dispatch-and-settle! despite trace/queued/await-render")
+                     (is (not (str/includes? form "__rf2pair_await__"))
+                         "no await-render mailbox path — settle is synchronous"))
+                   (done)))))))
+
+(deftest settle-runtime-failure-surfaces-as-error
+  ;; A frame-untargetable settle (the runtime's pair-dispatch-sync!
+  ;; :ok? false rides through dispatch-and-settle! verbatim) must surface
+  ;; as an :isError envelope WITHOUT a :mode slot — the rf2-ldfnx
+  ;; invariant holds through the settle path too.
+  (async done
+    (let [runtime-result {:ok?    false
+                          :reason :no-epoch-recorded
+                          :event  [:list/toggle]
+                          :frame  :rf/gone
+                          :hint   "epoch-history is empty after dispatch."}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]"
+                                           :frame ":rf/gone"
+                                           :settle true})))
+          (.then (fn [r]
+                   (is (err? r) "runtime :ok? false ⇒ :isError even on the settle path")
+                   (let [edn (read-result-text r)]
+                     (is (= :no-epoch-recorded (:reason edn)))
+                     (is (not (contains? edn :mode))
+                         "NO :mode slot — the dispatch did not settle"))
+                   (done)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Dispatch CONSEQUENCE (rf2-3bu3d.2) + echo/validate (rf2-3bu3d.3) — the
 ;; DEFAULT now returns the re-frame2 consequence, not a transport ack. A

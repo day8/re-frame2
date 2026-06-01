@@ -54,7 +54,45 @@
   returns a browser-side Promise; the server awaits it through the
   shared `await-promise` mailbox (the same plumbing `eval-cljs :await`
   uses). A render-settle that doesn't complete within `:timeout-ms`
-  (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`."
+  (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`.
+
+  ## Dispatch-and-settle — `:settle` (rf2-vk79g)
+
+  `:settle true` closes the observe→drive loop SYNCHRONOUSLY and returns
+  the COMPLETE epoch in ONE call: dispatch → flush renders → return the
+  settled epoch INCLUDING its `:rf.view/render` + `:rf.view/unmounted`
+  entries. It routes to the runtime `dispatch-and-settle!`, which:
+  dispatch-sync → `(re-frame.substrate.adapter/flush-render!)` (the
+  SYNCHRONOUS render-commit contract fn — React `flushSync` /
+  `reagent.core/flush`, resolved from the INSTALLED adapter, ZERO
+  substrate hardcoding) → re-read the epoch (now carrying the
+  back-filled renders/unmounts).
+
+  ### `:settle` vs `:await-render`
+
+  Both make `dispatch → observe` one step; they differ in flush
+  primitive and transport:
+
+  - `:await-render` flushes via `re-frame.interop/after-render` (the
+    rAF-scheduled, post-commit / pre-paint hook) and is ASYNC — the form
+    returns a Promise the server awaits through the mailbox. On a
+    backgrounded tab the underlying React lane commit is rAF-throttled,
+    so it can stall. It resolves to the dispatch CONSEQUENCE envelope
+    (no full epoch).
+
+  - `:settle` flushes via `flush-render!` (`flushSync`) — NOT
+    rAF-scheduled, so it commits even headless / backgrounded, and is
+    fully SYNCHRONOUS. No Promise, no mailbox: the runtime form returns
+    the settled epoch directly. The result carries the assembled
+    `:epoch` plus a `:render-events` slot (the `:rf.view/render` +
+    `:rf.view/unmounted` entries folded into it) — the headline
+    view-lifecycle signal. SCOPE: async fx (http / timers) stay observed
+    via `watch-epochs`; `:settle` only settles the SYNCHRONOUS cascade +
+    render flush.
+
+  Both force synchronous dispatch. `:settle` wins over `:await-render` /
+  `:trace` / `:queued` when set (it is the most complete single-call
+  shape)."
   (:require [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -226,21 +264,28 @@
 (defn dispatch-tool [conn args]
   (let [event-str    (wire/arg args :event)
         build-id     (wire/arg-build conn args)
-        await-render? (boolean (wire/arg args :await-render))
+        ;; rf2-vk79g: `:settle` is the most complete single-call shape —
+        ;; dispatch → SYNCHRONOUS flush-render! → return the settled epoch
+        ;; WITH its `:rf.view/render` / `:rf.view/unmounted` entries. It
+        ;; routes to the runtime `dispatch-and-settle!` (fully synchronous
+        ;; — no Promise / mailbox), so it wins over every other mode flag.
+        settle?      (boolean (wire/arg args :settle))
+        await-render? (boolean (and (wire/arg args :await-render) (not settle?)))
         timeout-ms   (or (wire/arg args :timeout-ms) await-promise/default-timeout-ms)
         ;; rf2-gfu33: `:await-render` forces synchronous dispatch — the
         ;; cascade must have committed before the render can settle
-        ;; against the new state. An explicit `:trace` still wins (the
+        ;; against the new state. `:settle` likewise forces sync. An
+        ;; explicit `:trace` still wins for the non-settle modes (the
         ;; caller asked for the assembled epoch); otherwise sync.
-        sync?        (boolean (or (wire/arg args :sync) await-render?))
-        trace?       (boolean (wire/arg args :trace))
+        sync?        (boolean (or (wire/arg args :sync) await-render? settle?))
+        trace?       (boolean (and (wire/arg args :trace) (not settle?)))
         ;; rf2-3bu3d.2 — `:queued true` opts INTO the async transport-ack
         ;; shape (`{:settled? false}`). Without it the default is the
         ;; SYNC CONSEQUENCE (`dispatch-consequence!`) so a no-op is
         ;; VISIBLE (`:db-changed? false :effects-fired []`) instead of a
         ;; fake ack. `:trace` / `:sync` / `:await-render` still win.
         queued?      (boolean (and (wire/arg args :queued)
-                                   (not trace?) (not sync?)))
+                                   (not trace?) (not sync?) (not settle?)))
         ;; rf2-ldfnx — coerce `frame` via the colon-tolerant
         ;; `->frame-keyword` (the shared `fresh-keyword` path), NOT the
         ;; raw `(keyword ...)` of `wire/arg-keyword`. The documented
@@ -280,10 +325,16 @@
             ;; a genuine no-op is visible. `:queued` opts into the async
             ;; settled?-false transport ack; `:trace` returns the full
             ;; assembled epoch.
-            fn-sym     (cond trace?  'dispatch-and-collect
+            ;; rf2-vk79g — `:settle` routes to the synchronous
+            ;; `dispatch-and-settle!` (dispatch-sync → flush-render! →
+            ;; re-read the settled epoch). It returns a map directly, so
+            ;; it rides the ordinary `eval-after-runtime!` path (no
+            ;; Promise / mailbox, unlike `:await-render`).
+            fn-sym     (cond settle? 'dispatch-and-settle!
+                             trace?  'dispatch-and-collect
                              queued? 'pair-dispatch!
                              :else   'dispatch-consequence!)
-            mode (cond trace? :trace queued? :queued :else :sync)]
+            mode (cond settle? :settle trace? :trace queued? :queued :else :sync)]
         (if await-render?
           ;; rf2-gfu33 — render-settle path. The form's synchronous
           ;; return is a Promise; await it through the shared mailbox so
