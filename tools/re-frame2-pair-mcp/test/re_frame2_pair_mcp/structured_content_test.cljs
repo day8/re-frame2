@@ -88,3 +88,49 @@
       ;; is a JS object (the precise shape is pinned in the cache test
       ;; corpus elsewhere).
       (is (object? (j/get result :structuredContent))))))
+
+;; ---------------------------------------------------------------------------
+;; structuredContent is NEVER null (rf2-r5erl).
+;;
+;; Every tool descriptor declares a map-shaped `:outputSchema`
+;; (`{:type "object"}`). The npm MCP SDK validates `structuredContent`
+;; against it, and a `null` is not a record — the SDK rejects the whole
+;; `tools/call` at the transport layer with
+;; `Invalid tools/call result: expected record at structuredContent,
+;; received null`. read-dom hit this in the wild when its browser eval
+;; came back blank (`cljs-eval-value` → nil → `(wire/ok-text nil)` →
+;; `(clj->js nil)` → null). `ok-text` / `err-text` now make the slot a
+;; total non-null record.
+;; ---------------------------------------------------------------------------
+
+(deftest ok-text-nil-payload-never-emits-null-structured-content
+  (testing "wire/ok-text with a nil payload emits a non-null structured record (rf2-r5erl)"
+    (let [result (wire/ok-text nil)]
+      (is (some? (j/get result :structuredContent))
+          ":structuredContent must NOT be null — the SDK outputSchema check rejects null")
+      (is (object? (j/get result :structuredContent))
+          ":structuredContent must be a record (object), not a primitive")
+      (is (true? (j/get-in result [:structuredContent "rf.mcp/null"]))
+          "the nil payload projects to the :rf.mcp/null sentinel object")
+      (is (= "nil" (content-text result))
+          "the EDN text slot still carries the verbatim nil for the cljs round-trip"))))
+
+(deftest err-text-nil-payload-never-emits-null-structured-content
+  (testing "wire/err-text with a nil payload emits a non-null structured record (rf2-r5erl)"
+    (let [result (wire/err-text nil)]
+      (is (true? (j/get result :isError)))
+      (is (some? (j/get result :structuredContent)))
+      (is (object? (j/get result :structuredContent))
+          ":structuredContent must be a record even on the error path"))))
+
+(deftest ok-text-scalar-payload-wraps-to-a-record
+  (testing "a non-map scalar payload still projects to an object structuredContent (rf2-r5erl)"
+    ;; clj->js of a bare scalar (number / string / bool) is a JS
+    ;; primitive — also not a record. The total-function backstop wraps
+    ;; it so the slot is always object-typed.
+    (doseq [v [42 "hi" true]]
+      (let [result (wire/ok-text v)]
+        (is (object? (j/get result :structuredContent))
+            (str "scalar " (pr-str v) " must wrap to an object structuredContent"))
+        (is (= (pr-str v) (content-text result))
+            "the EDN text slot still carries the verbatim scalar")))))

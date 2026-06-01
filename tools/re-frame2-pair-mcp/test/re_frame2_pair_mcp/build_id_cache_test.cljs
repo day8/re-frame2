@@ -339,6 +339,159 @@
                     "explicit build is not an auto-selection"))
               (done)))))))
 
+;; ---------------------------------------------------------------------------
+;; Round-trippable build ids (rf2-8t3ct).
+;;
+;; The canonical build id is a keyword (`:examples/step-deck`). A value
+;; copied out of a discover-app result's `:build` / `:build-id` slot must
+;; resolve back to the SAME build when passed as a later `:build` arg.
+;; The only alias axis is colon-tolerance (the EDN-ish `":foo"` vs bare
+;; `"foo"` an agent might serialise); `fresh-keyword` normalises both to
+;; the canonical keyword.
+;; ---------------------------------------------------------------------------
+
+(deftest discover-app-echoes-canonical-round-trippable-build
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime-probe-cache! conn :examples/step-deck)
+          args (tu/args->js {:build "examples/step-deck"})]
+      (-> (tu/with-stubbed-eval! healthy-health
+            (fn [] (discover-app/discover-app conn args)))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                ;; rf2-8t3ct — both the historical :build-id and the new
+                ;; input-name-matching :build carry the canonical keyword.
+                (is (= :examples/step-deck (:build-id edn)))
+                (is (= :examples/step-deck (:build edn))
+                    "discover-app echoes a canonical :build matching the input arg name")
+                ;; Round-trip: feed the echoed value back as a `:build`
+                ;; arg and confirm it resolves to the same keyword.
+                (is (= (:build edn)
+                       (wire/arg-build conn (tu/args->js {:build (:build edn)})))
+                    "the echoed :build round-trips unchanged through arg-build"))
+              (done)))))))
+
+(deftest canonical-build-round-trips-from-both-alias-forms
+  ;; The echoed canonical keyword, re-serialised either as the bare
+  ;; qualified string or the colon form, resolves identically — the
+  ;; deterministic alias contract (rf2-8t3ct). The two alias forms are
+  ;; exactly the colon-tolerance axis: `subs (str kw) 1` (drop the
+  ;; leading `:`) and `str kw` (keep it) both read back to `kw`.
+  (let [conn      (fresh-conn)
+        canonical :examples/step-deck
+        bare      (subs (str canonical) 1)   ; "examples/step-deck"
+        colon     (str canonical)]           ; ":examples/step-deck"
+    (is (= "examples/step-deck" bare) "sanity: the bare qualified form")
+    (is (= canonical (wire/arg-build conn (tu/args->js {:build bare})))
+        "bare qualified string round-trips to the canonical keyword")
+    (is (= canonical (wire/arg-build conn (tu/args->js {:build colon})))
+        "colon-prefixed form round-trips identically")
+    (is (= (wire/arg-build conn (tu/args->js {:build bare}))
+           (wire/arg-build conn (tu/args->js {:build colon})))
+        "the two alias forms are indistinguishable post-coercion")))
+
+;; ---------------------------------------------------------------------------
+;; Per-session isolation (rf2-fmho5).
+;;
+;; The sticky target lives on the per-connection conn-atom, NOT in a
+;; process-global. The MCP stdio model spawns one server process (and
+;; thus one session-state / conn-atom) per client, so distinct sessions
+;; are distinct conn-atoms by construction. This pins that a write to one
+;; conn's resolved-build-id never leaks into another conn.
+;; ---------------------------------------------------------------------------
+
+(deftest resolved-build-id-does-not-leak-across-sessions
+  (let [session-a (fresh-conn)
+        session-b (fresh-conn)
+        no-build  (tu/args->js {})]
+    ;; Session A discovers / sticks examples/step-deck.
+    (wire/mark-resolved-build-id! session-a :examples/step-deck)
+    ;; Session B sticks a DIFFERENT build.
+    (wire/mark-resolved-build-id! session-b :testbeds/panel-gallery)
+    (is (= :examples/step-deck (wire/arg-build session-a no-build))
+        "session A resolves to ITS sticky target")
+    (is (= :testbeds/panel-gallery (wire/arg-build session-b no-build))
+        "session B resolves to ITS sticky target — no cross-session leak")
+    ;; A fresh, untouched session falls through to the env default — it
+    ;; inherits NOTHING from A or B (no process-global).
+    (is (= :app (wire/arg-build (fresh-conn) no-build))
+        "a fresh session sees no sticky target from other sessions")))
+
+(deftest sticky-target-is-not-a-process-global
+  ;; Belt-and-braces: the sticky state is keyed on the conn-atom identity.
+  ;; Two conns with the same shape are independent atoms; mutating one's
+  ;; :resolved-build-id must not be observable on the other.
+  (let [a (fresh-conn)
+        b (fresh-conn)]
+    (swap! a assoc :resolved-build-id :only-a)
+    (is (= :only-a (:resolved-build-id @a)))
+    (is (nil? (:resolved-build-id @b))
+        "the sticky target is per-conn-atom, never shared across sessions")))
+
+;; ---------------------------------------------------------------------------
+;; Ambiguous-target / no-target structured error (rf2-fmho5).
+;;
+;; "If no session target exists and multiple runtimes are available, fail
+;; with a clear ambiguous-target error listing candidates." The eval-path
+;; resolver (`resolve-build!`, used by eval-cljs) rejects with a
+;; structured `:no-runtime-for-build` ex-info enumerating `:running-builds`
+;; when the build is the bare default (no explicit/cached choice) and
+;; zero-or-many builds run — never a silent wrong-build pick, never a
+;; host-level transport failure. (The plain read path surfaces the same
+;; candidate list via the diagnostic ladder's `:build-not-running` rung,
+;; pinned in probe_test.)
+;; ---------------------------------------------------------------------------
+
+(deftest resolve-build-rejects-with-candidates-when-no-target-and-many-run
+  (async done
+    ;; NB restore `probe/running-builds` INLINE before calling `done` —
+    ;; a `.finally`-scoped restore fires AFTER `done` advances to the next
+    ;; test and would leak the multi-build stub into a neighbour (the
+    ;; rf2-wb06a race the orient/invoke suites document).
+    (let [orig probe/running-builds
+          restore! (fn [] (set! probe/running-builds orig))
+          conn (fresh-conn)]
+      ;; No cached build, no explicit arg → build is the bare :app default
+      ;; (explicit? false). Two builds run → ambiguous.
+      (set! probe/running-builds
+            (fn [_] (js/Promise.resolve [:examples/step-deck :testbeds/panel-gallery])))
+      (-> (probe/resolve-build! conn :app false)
+          (.then (fn [_]
+                   (restore!)
+                   (is false "must reject on an ambiguous target")
+                   (done)))
+          (.catch (fn [err]
+                    (restore!)
+                    (let [data (ex-data err)]
+                      (is (= :no-runtime-for-build (:reason data))
+                          "structured reason, not a host failure")
+                      (is (= [:examples/step-deck :testbeds/panel-gallery]
+                             (:running-builds data))
+                          "the error lists the candidate builds"))
+                    (done)))))))
+
+(deftest resolve-build-honours-cached-session-target-over-ambiguity
+  ;; A session-sticky target (set by a prior discover-app) is treated as
+  ;; deliberate — `resolve-build!` resolves to it verbatim even on a
+  ;; multi-build workspace, so the sticky default actually removes the
+  ;; ambiguity instead of re-triggering it (rf2-fmho5 + rf2-l9ixp).
+  (async done
+    (let [conn (fresh-conn)]
+      ;; Cache a session target, then resolve with explicit? derived from
+      ;; the cache (arg-build-explicit? treats a cache hit as deliberate).
+      (swap! conn assoc :resolved-build-id :examples/step-deck)
+      (let [bid       (wire/arg-build conn (tu/args->js {}))
+            explicit? (wire/arg-build-explicit? conn (tu/args->js {}))]
+        (is (= :examples/step-deck bid))
+        (is (true? explicit?) "a cached session target counts as deliberate")
+        (-> (probe/resolve-build! conn bid explicit?)
+            (.then (fn [resolved]
+                     (is (= :examples/step-deck resolved)
+                         "the sticky session target wins — no ambiguous-target error")
+                     (done)))
+            (.catch (fn [_] (is false "must not reject when a session target is cached") (done))))))))
+
 (deftest auto-select-single-build-returns-pair
   ;; Unit-pin the probe helper directly: exactly-one → [build true];
   ;; zero/many → [nil false].

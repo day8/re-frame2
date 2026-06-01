@@ -24,6 +24,7 @@
   form's internal contract."
   (:require [cljs.test :refer-macros [deftest is async testing]]
             [clojure.string :as str]
+            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]))
@@ -165,4 +166,55 @@
                    (let [edn (tu/extract-edn r)]
                      (is (false? (:ok? edn)))
                      (is (= :rf.error/read-dom-bad-selector (:reason edn))))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-r5erl — a BLANK eval result must NOT crash the MCP envelope.
+;;
+;; `cljs-eval-value` resolves to `nil` when shadow returns a blank value
+;; (the runtime didn't answer the eval). The original read-dom threaded
+;; that nil straight into `(wire/ok-text nil)`, whose `(clj->js nil)`
+;; structuredContent is JS `null` — and the SDK's outputSchema validation
+;; rejects a null structuredContent at the TRANSPORT layer
+;; (`expected record at structuredContent, received null`), bypassing the
+;; normal `{:ok? false}` error contract. read-dom now turns a blank
+;; result into a structured error; the envelope's structuredContent is a
+;; non-null record either way.
+;; ---------------------------------------------------------------------------
+
+(deftest blank-eval-result-becomes-structured-error-not-host-failure
+  (async done
+    ;; nil canned value = the blank shadow eval that triggered rf2-r5erl.
+    (-> (tu/with-stubbed-eval! nil
+          (fn []
+            (read-dom/read-dom-tool (fresh-conn) #js {:selector "body" :limit 1})))
+        (.then (fn [r]
+                 (is (tu/error? r)
+                     "a blank eval surfaces as a normal isError tool result, not a thrown host failure")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :rf.error/read-dom-blank-result (:reason edn))
+                       "structured reason, not a transport exception")
+                   (is (= "body" (:selector edn)) "echoes the selector"))
+                 ;; The load-bearing rf2-r5erl assertion: structuredContent
+                 ;; is a NON-NULL record so the SDK outputSchema check passes.
+                 (is (some? (j/get r :structuredContent))
+                     "structuredContent must NOT be null (the rf2-r5erl crash)")
+                 (is (object? (j/get r :structuredContent))
+                     "structuredContent must be a record")
+                 (done))))))
+
+(deftest happy-result-echoes-canonical-build
+  ;; rf2-8t3ct / rf2-fmho5 — a successful read-dom echoes the canonical
+  ;; resolved :build so the agent sees (and can round-trip) the target.
+  (async done
+    (let [canned {:ok? true :selector "body" :count 0 :truncated? false :nodes []}]
+      (-> (tu/with-stubbed-eval! canned
+            (fn []
+              (read-dom/read-dom-tool (fresh-conn) #js {:selector "body"})))
+          (.then (fn [r]
+                   (let [edn (tu/extract-edn r)]
+                     (is (true? (:ok? edn)))
+                     (is (= :app (:build edn))
+                         "echoes the resolved :build keyword (round-trippable)"))
                    (done)))))))

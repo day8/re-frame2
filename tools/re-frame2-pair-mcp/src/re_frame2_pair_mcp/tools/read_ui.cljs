@@ -154,4 +154,22 @@
             form  (ef/emit (ef/rt-call 'ui-read opts))]
         (probe/eval-after-runtime!
           conn build-id form :rf.error/read-ui-failed
-          (fn [envelope] (wire/ok-text envelope)))))))
+          (fn [envelope]
+            ;; The runtime's `ui-read` ALWAYS returns a map. A nil /
+            ;; non-map means a BLANK eval result (the runtime didn't
+            ;; answer) — guard it so `ok-text` never sees `nil` and
+            ;; emits a `null` structuredContent the SDK rejects
+            ;; (rf2-r5erl, the sibling of read-dom's bug). Echo the
+            ;; resolved `:build` on success for round-trippable
+            ;; selection (rf2-8t3ct / rf2-fmho5).
+            (if (map? envelope)
+              (wire/ok-text (assoc envelope :build build-id))
+              (wire/err-text
+                {:ok?    false
+                 :reason :rf.error/read-ui-blank-result
+                 :build  build-id
+                 :hint   (str "read-ui's browser eval returned a blank "
+                              "value (no map envelope). Reload the app tab "
+                              "so the re-frame2-pair runtime reconnects, "
+                              "then retry; run discover-app to confirm "
+                              ":liveness :fresh.")}))))))))

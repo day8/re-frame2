@@ -208,6 +208,15 @@
                 ;; `:app` env-var fallback. Invalidates on nREPL reconnect.
                 (wire/mark-resolved-build-id! conn build-id)
                 (with-freshness conn build-id
-                  (with-frame-resolution (assoc health :ok? true :build-id build-id))
+                  ;; rf2-8t3ct — echo the CANONICAL `:build` keyword
+                  ;; alongside the historical `:build-id`. The two carry
+                  ;; the same value; `:build` matches the INPUT arg name so
+                  ;; an agent copies it straight back into a later tool's
+                  ;; `:build` slot (round-trippable). `fresh-keyword` reads
+                  ;; both `"examples/step-deck"` and `":examples/step-deck"`
+                  ;; back to this same keyword.
+                  (with-frame-resolution (assoc health :ok? true
+                                                       :build-id build-id
+                                                       :build    build-id))
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id))))))))
         (.catch (fn [err] (probe/err->result :discover-failed err)))))))))
