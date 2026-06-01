@@ -1,8 +1,8 @@
 # 05 — Flows
 
-A flow is a piece of derived state. You declare its inputs (other paths or subs), its computation (a pure fn over those inputs), and the path in `app-db` it should write its output to. The runtime watches the inputs, recomputes the output when any of them change, and writes the result. It's a sub-with-a-side-effect-on-`app-db` — useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub), without having to remember to recompute it manually.
+A flow is a piece of derived state. You declare its inputs (a vector of `app-db` **paths** — not subs), its computation (a pure fn over the values at those paths), and the path in `app-db` it should write its output to. The runtime watches the input paths, recomputes the output when any of their values change, and writes the result. It's a sub-with-a-side-effect-on-`app-db` — useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub over the output path), without having to remember to recompute it manually.
 
-Flows replace v1's `on-changes` interceptor and a chunk of what `reg-sub-raw` was used for. They also replace much of what `enrich` did. The point: derived state is now a *registered, named, observable, restorable* thing, not a closure hidden behind an interceptor.
+Flows replace v1's `on-changes` interceptor — same compute-on-input-change semantics, registered in the runtime rather than wired into individual events. They also replace much of what `enrich` did. The point: derived state is now a *registered, named, observable, restorable* thing, not a closure hidden behind an interceptor.
 
 The normative source is [013-Flows.md](../../spec/013-Flows.md).
 
@@ -59,7 +59,7 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 
 ### Frame-scoping
 
-The `:flow` registrar slot is **last-registration-wins across frames** — registering the same id against multiple frames shares one registrar slot keyed by `flow-id` only. For full per-frame discovery use `@re-frame.flows/flows` directly; the per-frame runtime registry is the source of truth for evaluation. See [013 §Frame-scoping](../../spec/013-Flows.md#frame-scoping).
+The `:flow` registrar slot is **last-registration-wins across frames** — registering the same id against multiple frames shares one registrar slot keyed by `flow-id` only. For full per-frame discovery read the encapsulated runtime registry via the public snapshot accessor `re-frame.flows/flows-snapshot` (it returns the `{frame-id {flow-id flow-map}}` shape) — **not** the private `@re-frame.flows/flows` atom, which is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation. See [013 §Frame-scoping](../../spec/013-Flows.md#frame-scoping).
 
 ### Frame-destroy teardown
 
@@ -75,6 +75,28 @@ Sometimes you want to register or clear a flow from inside an event handler — 
 | `[:rf.fx/clear-flow id]` | flow id | v1 | Clear a registered flow at runtime via `:fx`. |
 
 The signature mirrors `reg-flow` / `clear-flow` exactly — same opts, same return semantics. Use whichever surface matches your call site.
+
+### The one-event lag — the least-obvious thing about flows
+
+> A flow registered with `:rf.fx/reg-flow` **does not compute its initial output during that event.** It first fires on the **next** drain on the same frame.
+
+This is the single least-obvious flow behaviour, so it is worth internalising before you reach for `:rf.fx/reg-flow`. The reason is structural: the `:fx` walk is the *last* drain stage, and it runs **after** the flow transform has already evaluated this event's flows (see [Spec 013 §Drain integration](../../spec/013-Flows.md#drain-integration)). The newly-registered flow simply was not in the registry when the transform walked, so it has nothing to compute on *this* event. It computes on the next drain on that frame.
+
+In the common case the lag is invisible — you register a flow in an `:enter`-style handler and the user's next interaction materialises the output. When you genuinely need the initial value *now*, dispatch a follow-up no-op event from the same handler to re-trigger the drain (the flow is in the registry by the time that dispatched event drains):
+
+```clojure
+(rf/reg-event-fx :wizard/enter-step-2
+  (fn [_ _]
+    {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
+                            :inputs [[:step-2 :foo] [:step-2 :bar]]
+                            :output (fn [foo bar] (compute foo bar))
+                            :path   [:step-2 :result]}]
+          [:dispatch [:wizard/settle]]]}))   ;; flow computes on THIS drain
+
+(rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+```
+
+This is a deliberate, explicit step — not a hidden one — and most apps never need it. The lag is by design: closing it would require a second `app-db` install per event, breaking the one-install-per-event invariant. See [Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag) for the full rationale.
 
 ## Failure semantics
 

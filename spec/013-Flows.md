@@ -104,7 +104,7 @@ Three consequences follow:
 
 **Registrar slot semantics under multi-frame registration.** The `:flow` registrar kind (per [001-Registration §Registration grammar](001-Registration.md#registration-grammar)) is keyed by `flow-id` only — the same flow id registered against multiple frames shares one registrar slot. The per-frame runtime registry `{frame-id {flow-id flow-map}}` is the source of truth for evaluation; the registrar slot is metadata used for hot-reload tracking and tooling introspection. When the same flow id is registered against two frames with different `:output` fns and `:path` slots, **the registrar slot carries the most-recently-registered frame's flow-map** with `:frame frame-id` stamped into the metadata. Callers reading the slot via the registrar (e.g. a Xray flow panel that wants to enumerate "all flows in the runtime") observe last-registration-wins on the metadata view while every frame's flow walk (`run-flows-on-db`) continues to evaluate against its own slot of the runtime registry unaffected.
 
-This asymmetry is **intentional for v1**: the runtime correctness (each frame's flows compute independently) is the load-bearing property; the registrar metadata is a tooling convenience. A future spec revision MAY introduce a frame-aware query surface (`flow-meta` / `(flows {:frame ...})`) or migrate the registrar slot to a frame-indexed shape, but doing so today would inflate the registrar API surface for a use case (tools enumerating cross-frame flows) that has not surfaced in v1. Apps targeting multi-tenant frames with shared flow ids and per-frame-different definitions should rely on the runtime registry (`@re-frame.flows/flows`), not the registrar slot, for full per-frame discovery.
+This asymmetry is **intentional for v1**: the runtime correctness (each frame's flows compute independently) is the load-bearing property; the registrar metadata is a tooling convenience. A future spec revision MAY introduce a frame-aware query surface (`flow-meta` / `(flows {:frame ...})`) or migrate the registrar slot to a frame-indexed shape, but doing so today would inflate the registrar API surface for a use case (tools enumerating cross-frame flows) that has not surfaced in v1. Apps targeting multi-tenant frames with shared flow ids and per-frame-different definitions should read the runtime registry through the public snapshot accessor `re-frame.flows/flows-snapshot` (returning the `{frame-id {flow-id flow-map}}` shape), **not** the private `@re-frame.flows/flows` atom and **not** the registrar slot, for full per-frame discovery. The `flows-snapshot` accessor is the encapsulation boundary: the per-frame registry atom is private (the facade re-exports only the read accessors `flows-snapshot` / `last-inputs-snapshot` and the reset fns), so consumers depending on the snapshot survive any future change to the atom's internal representation.
 
 Frame defaulting matches the rest of the API: a bare `(reg-flow flow)` resolves the frame via `(current-frame)`, picking up `with-frame` bindings or falling through to `:rf/default`. Tests and per-tenant runtimes that need an explicit frame pass `{:frame ...}` as the second arg.
 
@@ -380,7 +380,33 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 **Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` opt — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
 
-**Sequencing.** `:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — *after* the flow after-interceptor has already evaluated for the current event. A flow registered mid-event therefore first runs on the *next* event drain on the same frame. Its initial output appears one event after registration. Apps that need the value immediately can dispatch a synthetic re-walk event after registration.
+### Sequencing — the one-event lag
+
+> **This is the single least-obvious thing about flows. Read it before you reach for `:rf.fx/reg-flow`.** A flow registered mid-event does **not** compute its initial output during *that* event — it first fires on the **next** drain on the same frame.
+
+`:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — and the `:fx` walk is the *last* drain stage, **after** the flow-transform `:after` has already evaluated for the current event (per [§Drain integration](#drain-integration), step 4 runs after step 2). The newly-registered flow was not in the per-frame registry when the flow transform walked it, so it cannot have computed. Its initial output therefore appears **one event after registration**, on the next drain on the same frame.
+
+This lag is a **structural consequence of the [§Drain integration](#drain-integration) contract**, not an oversight. The flow transform rewrites the handler's *pending* `:db` effect as the outermost `:after` (step 2); the single deferred `:db` install (step 3) is the cascade's only `app-db` write; `:fx` walks last (step 4). Re-running the flow transform after `:fx` registered a new flow would require a *second* `app-db` install in the same event — breaking the "exactly one `:db` install per event" invariant ([§Drain integration](#drain-integration) property 4), the pending-effect-transform model ([§Resolved decisions §Flows transform the pending `:db` effect](#flows-transform-the-pending-db-effect-as-the-outermost-after-resolved)), and the atomic-commit contract ([§Failure semantics](#failure-semantics)). So the lag stands by design; closing it would mean either a post-install re-walk (the prior design, removed outright) or an async mid-event re-walk (deferred — see [§Open questions §Synchronous re-walk after `:rf.fx/reg-flow`](#synchronous-re-walk-after-rffxreg-flow)).
+
+**Working with the lag.** In the common case the lag is invisible: you register a flow in `:enter` and the user's *next* interaction (which dispatches an event) materialises the output. When you genuinely need the initial value *now*, dispatch a follow-up event from the same handler whose only job is to re-trigger the drain — the flow computes on that drain:
+
+```clojure
+(rf/reg-event-fx :wizard/enter-step-2
+  (fn [_ _]
+    {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
+                            :inputs [[:step-2 :foo] [:step-2 :bar]]
+                            :output (fn [foo bar] (compute foo bar))
+                            :path   [:step-2 :result]}]
+          ;; The flow is in the registry by the time THIS dispatched event
+          ;; drains — so the flow transform on :wizard/settle computes the
+          ;; initial output. Without this, :step-2/result stays unset until
+          ;; the user's next interaction.
+          [:dispatch [:wizard/settle]]]}))
+
+(rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+```
+
+This is a deliberate, explicit step — not a hidden one. Most apps never need it.
 
 **`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
 
@@ -440,7 +466,7 @@ The vector form (`:inputs [[:width] [:height]] :output (fn [w h] ...)`) matches 
 
 ### Synchronous re-walk after `:rf.fx/reg-flow`
 
-A flow registered mid-event first fires on the next event drain (one-event lag for the initial value). An opt-in "register and run immediately" effect could close the lag at the cost of mid-event re-walking. Defer until a real use case forces it. **Status:** `:post-v1 tracked` — file a bead when a concrete use case surfaces.
+A flow registered mid-event first fires on the next event drain (one-event lag for the initial value — the structural consequence documented at [§Sequencing — the one-event lag](#sequencing--the-one-event-lag)). An opt-in "register and run immediately" effect could close the lag at the cost of a *second* mid-event `app-db` install, which would break the one-install-per-event invariant ([§Drain integration](#drain-integration) property 4) and the atomic-commit contract ([§Failure semantics](#failure-semantics)) — so it is genuinely deferred design work, not a quick toggle. Until then the lag is loudly signposted (spec §Sequencing, the `:rf.fx/reg-flow` fx-handler docstring, and [docs/api/05-flows.md §The one-event lag](../docs/api/05-flows.md)) and worked around with an explicit follow-up `:dispatch`. Defer until a real use case forces it. **Status:** `:post-v1 tracked` — file a bead when a concrete use case surfaces.
 
 ## Resolved decisions
 
