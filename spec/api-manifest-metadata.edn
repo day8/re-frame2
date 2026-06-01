@@ -63,6 +63,7 @@
   {:namespace "re-frame.core" :var "frame-provider" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1" :runtime-verified? false}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}

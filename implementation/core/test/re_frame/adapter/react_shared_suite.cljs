@@ -2180,6 +2180,84 @@
             (when-let [u @unmount]
               (try (u) (catch :default _ nil))))))))))
 
+;; ---- flush-views! cross-substrate parity (rf2-b6nm5) ----------------------
+
+(defn assert-flush-views-canonical-shape
+  "rf2-b6nm5: the canonical test-flush hook `flush-views!` is surfaced
+  from this adapter's ns with the canonical nil-return shape (Decision 6).
+  Node-safe (no DOM): pins the SHAPE — the Var is a fn, the 0-arity call
+  returns nil and does not throw under the :node-test runner (act() gated
+  / unreachable there ⇒ the spine degrades to a plain synchronous flush).
+  The cross-substrate convergence (same name + nil-return on all four
+  substrates) is what lets a test suite port touching only the init! Var.
+
+  cfg keys:
+    :flush-views! the adapter ns's flush-views! Var"
+  [{:keys [name flush-views!]}]
+  (testing (str name " — flush-views! surfaced with canonical nil-return shape (rf2-b6nm5)")
+    (is (fn? flush-views!)
+        "the adapter ns exposes flush-views! as a fn (Decision 6 canonical hook)")
+    (is (nil? (flush-views!))
+        "0-arity flush-views! returns nil — the converged contract across all four substrates")))
+
+(defn assert-after-render-fires-on-native-mount
+  "rf2-t0x90: `(interop/after-render f)` fires post-commit even when the
+  app was mounted via the SUBSTRATE-NATIVE renderer (the documented boot
+  idiom: `uix-dom/render-root` / Helix's `(.render root …)`) rather than
+  through the adapter's `:render` slot.
+
+  The defect this pins: the Fragment-wrap after-render sentinel only
+  enters the tree on the `:render`-slot path. The documented idiom mounts
+  natively (createRoot + .render), bypassing `make-render`, so a natively-
+  mounted UIx/Helix app had NO sentinel — `(rf/after-render f)` degraded
+  to a bare microtask FOREVER, defeating the post-commit-timing contract
+  Reagent's global `r/after-render` honours regardless of mount path. The
+  fix arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
+  is called with no app-tree sentinel, restoring post-commit parity.
+
+  This test mounts the probe with a RAW `react-dom-client/createRoot` +
+  `.render` (NOT `substrate-adapter/render`) — exactly the native idiom
+  that bypasses the spine's Fragment-wrap — then asserts after-render
+  still fires.
+
+  cfg keys:
+    :probe-element  a thunk returning a fresh substrate probe ELEMENT
+                    (reused from the :render-slot after-render twin)."
+  [{:keys [name probe-element]}]
+  (testing (str name " — after-render fires on the NATIVE-mount path (rf2-t0x90)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [fired      (atom 0)
+            callback   (fn native-after-render-cb [] (swap! fired inc))
+            mount-node (make-mount-node!)
+            ;; NATIVE mount — raw createRoot + .render, NOT
+            ;; substrate-adapter/render. This is the documented boot idiom
+            ;; (uix-dom/render-root / Helix .render). The spine's
+            ;; Fragment-wrap sentinel is therefore NOT in this tree — the
+            ;; exact gap rf2-t0x90 names.
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-element))))
+          (is (zero? @fired)
+              "no after-render fn enqueued yet ⇒ no fires")
+          ;; With NO app-tree sentinel present, the after-render hook arms
+          ;; the singleton driver root (a detached React root carrying the
+          ;; sentinel) and bumps its tick — the useLayoutEffect drain fires
+          ;; post-commit. Enqueue + drain under act so the commit lands
+          ;; synchronously in the test env.
+          (act-fn (fn [] (interop/after-render callback)))
+          (is (= 1 @fired)
+              "after-render fired post-commit on the native-mount path —
+               the singleton driver root delivered parity (rf2-t0x90)")
+          ;; A second enqueue + drain — the driver-root sentinel survives
+          ;; (its useLayoutEffect runs every commit), so subsequent
+          ;; after-render calls also fire.
+          (act-fn (fn [] (interop/after-render callback)))
+          (is (= 2 @fired)
+              "subsequent after-render also fires via the driver root")
+          (finally
+            (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))
+
 ;; ---- hydrate render branch (rf2-ee38b.1 — closes the React-hook spine
 ;;       hydrate test gap that Reagent/reagent-slim already cover) ----------
 
@@ -2568,6 +2646,128 @@
             (is (or (nil? (get @cache cache-key-v))
                     (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
                 "post-unmount cache entry dropped or ref-count at zero")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+;; ---- StrictMode double-mount refcount (rf2-nymuy) -------------------------
+;;
+;; React 19's createRoot + <StrictMode> is the DEFAULT dev scaffold
+;; (Vite/CRA/Next). StrictMode intentionally double-invokes effects on
+;; mount: run-effect → run-cleanup → run-effect-again. For use-subscribe
+;; that drives subscribe → unsubscribe (refcount 1 → 0, which per
+;; rf2-cmfln disposes the cached reaction SYNCHRONOUSLY) → subscribe again
+;; (fresh cache miss, rebuild). Because StrictMode is the default dev
+;; environment for the substrates these adapters target, a real app hits
+;; this path on literally every mount — but the single-mount tests above
+;; (rf2-7g959, rf2-mwft2) never exercise the double-invoke churn. This
+;; assertion closes that gap: the disposal+refcount dance is exactly the
+;; class of bug that only surfaces under StrictMode double-invoke (a
+;; disposed-then-derefed reaction, a watch leaked because remove-watch ran
+;; against a stale reaction identity, or a ref-count driven below zero).
+
+(defn assert-use-subscribe-strictmode-double-mount-refcount-balances
+  "rf2-nymuy: mount the use-subscribe refcount probe wrapped in
+  `React.StrictMode` under `act()`. StrictMode double-invokes the mount
+  effect (effect → cleanup → effect), driving the spine's
+  subscribe/unsubscribe refcount dance through a momentary 1 → 0 → 1
+  transition. Asserts:
+
+    (a) after the double-invoke settles, exactly one effect is live — the
+        sub-cache ref-count is pinned at 1 (NOT 2 from a leaked first
+        mount, NOT negative);
+    (b) the observed subscribe/unsubscribe spy calls balance — net
+        ref-count never drops below zero across the double-invoke;
+    (c) after unmount the cache entry is dropped or its ref-count is 0;
+    (d) the probe's deref observed a correct (non-throwing) value through
+        the churn — no 'deref of disposed reaction'.
+
+  Reuses the refcount-probe cfg surface (the probe reads its frame from
+  `:refcount-target` and subscribes to `:rc-query` under `:rc-frame`).
+
+  cfg keys:
+    :probe-refcount-element  thunk → the ProbeRefcount element (2-arg form)
+    :refcount-target         atom the ProbeRefcount reads its target
+                             frame-id from
+    :rc-frame                frame-id keyword for the refcount probe
+    :rc-query                query-v keyword ProbeRefcount subscribes to"
+  [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
+  (testing (str name " — use-subscribe StrictMode double-mount keeps refcount balanced (rf2-nymuy)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target rc-frame)
+      (rf/reg-frame rc-frame {:doc "rf2-nymuy StrictMode refcount probe frame"})
+      (rf/reg-event-db ::sm-seed (fn [_ _] {:m 7}))
+      (rf/dispatch-sync [::sm-seed] {:frame rc-frame})
+      (rf/reg-sub rc-query (fn [db _] (:m db)))
+      (let [subscribe-calls   (atom 0)
+            unsubscribe-calls (atom 0)
+            real-subscribe    subs/subscribe
+            real-unsubscribe  subs/unsubscribe
+            cache-key-v       [rc-query]
+            cache             (:sub-cache (frame/frame rc-frame))
+            mount-node        (make-mount-node!)
+            root              (react-dom-client/createRoot mount-node)]
+        ;; Spies mirror the rf2-mwft2 stable-deps-key bypass: preserve the
+        ;; 1-/2-arity shape and dispatch straight to the canonical 2-arity
+        ;; REAL so a single logical call is not double-counted through the
+        ;; Var recur.
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]
+                         (swap! subscribe-calls inc)
+                         (real-subscribe (frame/resolve-current-frame) query-v))
+                        ([frame-id query-v]
+                         (swap! subscribe-calls inc)
+                         (real-subscribe frame-id query-v)))
+                      subs/unsubscribe
+                      (fn spy-unsubscribe
+                        ([query-v]
+                         (swap! unsubscribe-calls inc)
+                         (real-unsubscribe (frame/resolve-current-frame) query-v))
+                        ([frame-id query-v]
+                         (swap! unsubscribe-calls inc)
+                         (real-unsubscribe frame-id query-v)))]
+          (try
+            ;; Mount the probe wrapped in React.StrictMode — the
+            ;; double-invoke fires effect → cleanup → effect on mount.
+            (act-fn (fn []
+                      (.render root
+                               (React/createElement
+                                 (.-StrictMode React) nil
+                                 (probe-refcount-element)))))
+            ;; After the double-invoke settles exactly ONE effect is live.
+            ;; If the spine leaked the first mount's subscription (a stale
+            ;; reaction identity, an unbalanced refcount) the ref-count
+            ;; would read 2 here, or the entry would have been disposed to
+            ;; 0/nil by a 1 → 0 transition that the re-subscribe failed to
+            ;; restore.
+            (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                (str "post-StrictMode-double-mount ref-count is exactly 1 "
+                     "(no leaked first-mount subscription, no negative count) "
+                     "— observed subscribe=" @subscribe-calls
+                     " unsubscribe=" @unsubscribe-calls))
+            ;; The double-invoke fires at least one extra subscribe AND one
+            ;; extra unsubscribe vs a single mount — and they BALANCE: the
+            ;; net (subscribe − unsubscribe) is exactly 1 (one live
+            ;; subscription), never negative.
+            (is (>= @subscribe-calls 2)
+                "StrictMode double-invoked the subscribe (mount + remount)")
+            (is (= 1 (- @subscribe-calls @unsubscribe-calls))
+                (str "net subscribe − unsubscribe is exactly 1 across the "
+                     "double-invoke (refcount never driven below zero) — "
+                     "subscribe=" @subscribe-calls
+                     " unsubscribe=" @unsubscribe-calls))
+            ;; The probe's deref survived the disposed-then-rebuilt churn —
+            ;; a working render (DOM present) proves no 'deref of disposed
+            ;; reaction' threw during the StrictMode remount.
+            (is (= "m=7" (.-textContent mount-node))
+                "probe observed the correct subscribed value through the
+                 StrictMode churn (no deref-of-disposed-reaction throw)")
+            ;; Unmount returns the refcount to baseline.
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                "post-unmount cache entry dropped or ref-count at zero — disposal balanced")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
