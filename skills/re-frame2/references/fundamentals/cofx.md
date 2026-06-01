@@ -20,10 +20,10 @@ Registering a `reg-cofx` handler that injects an input (current time, localStora
 (rf/inject-cofx :cofx-id value)
 ```
 
-Verified in `implementation/core/src/re_frame/cofx.cljc:77` (`reg-cofx`) and `cofx.cljc:134` (`inject-cofx`). Metadata may carry:
+Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx` and `inject-cofx` fns). Metadata may carry:
 
 - `:doc` — one-sentence what-and-why
-- `:spec` — Malli schema for the injected value (Spec 010 §Validation order step 2)
+- `:schema` — Malli schema for the injected value (Spec 010 §Validation order step 2)
 - `:platforms` — `#{:client :server}`; defaults to both. Cofx with mismatched platforms emit `:rf.cofx/skipped-on-platform` instead of running. Mirrors the `reg-fx` contract per `spec/011-SSR.md` §Effect handling on the server — a client-only cofx (browser locale, localStorage, navigator-info) silently no-ops when injected under an SSR-server frame so it neither blows up under JVM render nor injects nonsense values. The event handler still runs; only the injection is skipped. Example: `^{:platforms #{:client}} (rf/reg-cofx :browser-locale (fn [ctx] (assoc-in ctx [:coeffects :browser-locale] js/navigator.language)))` is safe to register on both platforms; under an `:ssr-server` frame the injection is skipped and the handler sees `nil` for `:browser-locale`.
 
 `inject-cofx` returns an **interceptor** — pass it in the event's interceptors vector (the positional slot, not the metadata-map):
@@ -36,7 +36,7 @@ Verified in `implementation/core/src/re_frame/cofx.cljc:77` (`reg-cofx`) and `co
 
 ## Standard cofx
 
-The runtime ships `:db` and `:event` — both are already populated on the context before the chain runs (`cofx.cljc:92-104`), so explicitly injecting them is a no-op. They exist for symmetry with v1. Everything else (current time, browser language, localStorage values, ids) is user-registered.
+The runtime ships `:db` and `:event` — both are already populated on the context before the chain runs (the standard `:db` / `:event` cofx in `cofx.cljc`), so explicitly injecting them is a no-op. They exist for symmetry with v1. Everything else (current time, browser language, localStorage values, ids) is user-registered.
 
 ## Canonical mini-example
 
@@ -163,7 +163,7 @@ Narrative treatment of the same pattern (for humans): [`docs/guide/07-effects-an
 ## Common gotchas
 
 - **`inject-cofx` returns an interceptor, not the value.** It must go in the positional interceptors vector, not the metadata-map (the metadata-map's `:interceptors` key is silently dropped — see [events.md](events.md)).
-- **The injected key convention is the cofx-id itself.** Stash under `[:coeffects :my/cofx-id]` so destructuring with `{:my/keys [...]}` works cleanly. If `:spec` validation is declared on the cofx metadata, the validator looks up under the cofx-id key (`cofx.cljc:33-36`).
+- **The injected key convention is the cofx-id itself.** Stash under `[:coeffects :my/cofx-id]` so destructuring with `{:my/keys [...]}` works cleanly. If `:schema` validation is declared on the cofx metadata, the validator looks up under the cofx-id key (`maybe-validate-cofx!` in `cofx.cljc`).
 - **Order matters.** Interceptors run in vector order; a cofx that depends on another cofx's value must come after it.
 - **Two-arg form is for parameterised injection.** Use `(inject-cofx :random-int max-value)` when the same cofx-id needs a different value per attachment.
 - **Missing registration is a structured error trace, not a throw.** `inject-cofx` of an unregistered id emits `:rf.error/no-such-cofx` (carrying `:cofx-id`, `:event-id`, and the optional 2-arity `:cofx-value`) and lets the ctx flow through unchanged (`cofx.cljc:~78,88`). Subscribe via `register-listener!` (or watch through Xray / re-frame2-pair) to surface these.
@@ -171,8 +171,8 @@ Narrative treatment of the same pattern (for humans): [`docs/guide/07-effects-an
 
 ## Deeper material
 
-Cofx validation (`:spec`), the late-bind seam for `:schemas/validate-cofx!`, full coeffect-map shape: `SKILL-REDIRECT.md` → **EP — Schemas (010)**, **Definitive API reference**.
+Cofx validation (`:schema`), the late-bind seam for `:schemas/validate-cofx!`, full coeffect-map shape: `SKILL-REDIRECT.md` → **EP — Schemas (010)**, **Definitive API reference**.
 
 ---
 
-*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `9d548e18`. Re-verify line numbers after cofx-chain, schema-validation, or `:platforms`-gate changes.*
+*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `9d548e18`. Citations are symbol-level; re-verify symbol homes after cofx-chain, schema-validation, or `:platforms`-gate changes.*

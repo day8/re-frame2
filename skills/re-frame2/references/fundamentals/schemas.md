@@ -6,7 +6,7 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 
 ## Prerequisite
 
-`reg-app-schema` and the validator surface ship in the optional **`day8/re-frame2-schemas`** artefact (`core.cljc:537-542`). Add it to `deps.edn` and `(:require [re-frame.schemas])` at app boot, otherwise `reg-app-schema` throws `:rf.error/schemas-artefact-missing`.
+`reg-app-schema` and the validator surface ship in the optional **`day8/re-frame2-schemas`** artefact (the `reg-app-schema` macro + schema-query aliases in `re-frame.core` are late-bound to `re-frame.schemas`). Add it to `deps.edn` and `(:require [re-frame.schemas])` at app boot, otherwise `reg-app-schema` throws `:rf.error/schemas-artefact-missing`.
 
 ## Canonical signatures
 
@@ -22,7 +22,7 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 (rf/set-schema-explainer!  explain-fn)
 ```
 
-Verified: `reg-app-schema` macro at `implementation/core/src/re_frame/core.cljc:527`; the query fns at `:571-597`; the validator seam at `:599-622`.
+Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form), the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases, and the `set-schema-validator!` / `set-schema-fns!` validator seam — all `def`-aliased onto the `re-frame.schemas` artefact.
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
@@ -37,7 +37,7 @@ Every `reg-*` macro accepts a `:schema` key in its metadata-map:
   (fn [db [_ trip-type]] (assoc-in db [:flight :trip-type] trip-type)))
 ```
 
-In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:schema` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (`spec.cljc:154-238`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
+In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:schema` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (sets `:rf/skip-handler?`; see `re-frame.spec`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
 
 ## `validate-at-boundary-interceptor` — opt-in production validation
 
@@ -53,7 +53,7 @@ For handlers that **must** validate even in production (HTTP response ingestion,
   (fn [_ [_ payload]] ...))
 ```
 
-The interceptor reuses the handler's existing `:schema` (or the deprecated `:spec` alias) — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
+The interceptor reuses the handler's existing `:schema` metadata — it does NOT introduce a parallel schema (`re-frame.spec/validate-at-boundary-interceptor`).
 
 Behaviour matrix:
 
@@ -112,4 +112,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*

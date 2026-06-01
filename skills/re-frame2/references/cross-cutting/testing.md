@@ -115,7 +115,7 @@ For a sub graph under test, **prefer `compute-sub`** — it runs the registered 
 (is (= 60 (rf/compute-sub [:item-sum] {:items [10 20 30]})))
 ```
 
-`compute-sub` supports the `:<-` chain shape exactly like `subscribe` does and validates the return value against any `:spec` metadata on the sub.
+`compute-sub` supports the `:<-` chain shape exactly like `subscribe` does and validates the return value against any output `:schema` metadata on the sub.
 
 When the test is exercising the live cache (e.g. layer-2 sub on top of a real dispatch), use `subscribe-once`:
 
