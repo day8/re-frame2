@@ -34,6 +34,12 @@ allowed-tools:
   - mcp__re-frame2-pair__list-streams
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
+  # Operating-frame ops (rf2-zomfq) — read/set/reset the session's
+  # default operating frame for the multi-frame model (Spec 002). See
+  # the "Multi-frame model — set the operating frame" section below.
+  - mcp__re-frame2-pair__get-operating-frame
+  - mcp__re-frame2-pair__set-operating-frame
+  - mcp__re-frame2-pair__reset-operating-frame
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
   # story-mcp — live-session tools only (HYBRID split). The
   # authoring-side surface (register-variant, get-variant,
