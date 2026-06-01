@@ -48,6 +48,7 @@
   ;; stock-vs-slim contrast pair; the rest of the catalogue defaults to
   ;; slim.)
   (:require [reagent.dom.client :as rdc]
+            [reagent.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; The Spec 010 schema-attachment ns lives in
@@ -329,12 +330,14 @@
 ;; frame (no ambient lookup, survives async callbacks).
 
 ;; Form-2 view: the outer fn captures local component state in `state`
-;; (a Reagent atom kept across renders); the inner fn is the actual
-;; render fn. dispatch / subscribe are auto-injected and visible in
-;; both the outer and inner fn bodies.
+;; — a *reactive* `reagent.core/atom` kept across renders, the idiomatic
+;; Reagent primitive for component-local render state (matching todomvc,
+;; which reserves a bare `(atom ...)` only for non-render refs). The
+;; inner fn is the actual render fn. dispatch / subscribe are
+;; auto-injected and visible in both the outer and inner fn bodies.
 (reg-view ^{:doc "The login form view: email + password + submit button + error display."}
           login-form []
-  (let [state (atom {:email "" :password ""})]
+  (let [state (reagent/atom {:email "" :password ""})]
     (fn []
       (let [busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
             err   @(subscribe [:auth.login/error])]
