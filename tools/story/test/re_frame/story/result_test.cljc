@@ -16,6 +16,7 @@
   - schema / warning / effect projections AGREE with the epoch tape;
   - `story/is` reports per assertion (`result->reports`)."
   (:require [clojure.test :refer [deftest is testing]]
+            [malli.core               :as m]
             [re-frame.epoch.capture   :as capture]
             [re-frame.story.result   :as result]
             [re-frame.story.play.evidence :as evidence]
@@ -651,3 +652,46 @@
     (is (false? (result/passed? {:status :fail})))
     (is (false? (result/passed? {:status :cannot-run})))
     (is (false? (result/passed? {:status :error})))))
+
+;; ===========================================================================
+;; THE FROZEN SCHEMA-BACKED CONTRACT  (rf2-3nbl5.6)
+;; ===========================================================================
+
+(deftest run-result-schema-accepts-every-assembled-result
+  (testing "every shape `run-result` assembles conforms to the frozen RunResult"
+    (doseq [parts [{}                                   ; vacuous green
+                   {:epoch-tape []}                     ; clean tape
+                   {:assertions [{:assertion :rf.assert/path-equals
+                                  :payload [[:k] 1] :passed? false}]}
+                   {:variant/id :story.x/y :plan-hash "p" :run-hash "r"
+                    :runner :headless :elapsed-ms 3
+                    :assertions [{:assertion :rf.assert/path-equals
+                                  :payload [[:k] 1] :passed? true}]}
+                   {:epoch-tape [(epoch {:trace-events
+                                         [{:operation :rf.error/schema-validation-failure
+                                           :tags {:where :event :failing-id :x}}]})]}]]
+      (let [r (result/run-result parts)]
+        (is (result/valid-run-result? r)
+            (str "assembled result must conform: " (pr-str (result/explain-run-result r))))))))
+
+(deftest run-result-schema-pins-the-verdict-and-rejects-passing
+  (testing ":status is required and must be one of the four verdicts"
+    (is (result/valid-run-result? {:status :pass :assertions [] :checks [] :consumed-selectors #{}}))
+    (is (not (result/valid-run-result? {:status :green :assertions [] :checks [] :consumed-selectors #{}}))
+        "an unknown verdict is rejected")
+    (is (not (result/valid-run-result? {:assertions [] :checks [] :consumed-selectors #{}}))
+        ":status is required — there is no verdict-less result"))
+  (testing "the load-bearing slots are required"
+    (is (not (result/valid-run-result? {:status :pass}))
+        ":assertions / :checks / :consumed-selectors are part of the contract")))
+
+(deftest assertion-and-check-records-carry-the-frozen-status
+  (testing "assertion records validate with a unified :status"
+    (is (m/validate result/AssertionRecord
+                    {:assertion :rf.assert/path-equals :status :fail :passed? false}))
+    (is (not (m/validate result/AssertionRecord
+                         {:assertion :rf.assert/path-equals :passed? false}))
+        ":status is the verdict — an assertion record without it does not conform"))
+  (testing "check records group assertion records under a :status"
+    (is (m/validate result/CheckRecord
+                    {:check :checks/cart :status :pass :assertions []}))))

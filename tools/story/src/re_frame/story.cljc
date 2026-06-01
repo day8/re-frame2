@@ -1376,6 +1376,37 @@
   [result]
   (result/passed? result))
 
+;; ---- the frozen, schema-backed run-result contract (rf2-3nbl5.6) --------
+;;
+;; The unified run-result is a FROZEN public contract — the ONE result
+;; language spoken IDENTICALLY across `run` / `is` / `render-variant`, the
+;; Story UI Test mode, and story-mcp `run-variant` / `read-failures`. These
+;; re-export the executable Malli schema (`re-frame.story.result/RunResult`)
+;; + its validators so any surface (CI, MCP, the test corpus) can prove a
+;; result conforms without a parallel schema. The verdict is `:status`
+;; (`result-status` / `result-passed?`); there is NO `:passing?` boolean
+;; (the clean break, rf2-ba86n.17).
+
+(def run-result-schema
+  "Per spec/017 §Run result (rf2-3nbl5.6) — the frozen Malli schema for the
+  unified run-result. The ONE schema-backed contract Story UI, CI,
+  `clojure.test`, and story-mcp validate against (see
+  `re-frame.story.result/RunResult`)."
+  result/RunResult)
+
+(defn valid-run-result?
+  "Per spec/017 §Run result (rf2-3nbl5.6) — true iff `result` conforms to
+  the frozen `run-result-schema`. Pure data → data."
+  [result]
+  (result/valid-run-result? result))
+
+(defn explain-run-result
+  "Per spec/017 §Run result (rf2-3nbl5.6) — Malli explanation of why
+  `result` does NOT conform to the frozen `run-result-schema`, or nil when
+  it conforms. Pure data → data."
+  [result]
+  (result/explain-run-result result))
+
 (defn result->reports
   "Per spec/017 §Public execution API — project a unified `result` into the
   ordered vector of clojure.test report maps (`{:type :pass|:fail|:error
