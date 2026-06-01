@@ -2,9 +2,11 @@
 /*
  * Narrow orchestrator for the occasional Story feature/load gate.
  *
- * Compiles only the Story testbeds needed by
- * tools/story/test/story_feature_load.cjs, stages their HTML files,
- * serves implementation/out/examples, and invokes the quiet runner.
+ * Compiles only the Story testbeds (counter-with-stories + login-form)
+ * needed by the quiet runner's specs — tools/story/test/
+ * story_feature_load.cjs AND story_browser_scenarios.cjs — stages their
+ * HTML files, serves implementation/out/examples, and invokes the
+ * runner (run-story-feature-load-tests.cjs).
  */
 
 const { spawnSync } = require('child_process');
