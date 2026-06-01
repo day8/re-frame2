@@ -126,6 +126,7 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.await-promise :as await-promise]
+            [re-frame2-pair-mcp.tools.result-envelope :as renv]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -251,15 +252,34 @@
         (-> (probe/resolve-and-preflight! conn build-id explicit?)
             (.then (fn [resolved-build]
                      (if-not await?
-                       ;; Default path — today's semantics: pr-str the
-                       ;; synchronous return verbatim, Promises included.
-                       (-> (nrepl/cljs-eval-value conn resolved-build user-form)
-                           (.then (fn [v]
-                                    (wire/ok-text
-                                      (cond-> {:ok?   true
-                                               :value v
-                                               :build resolved-build}
-                                        frame (assoc :frame frame))))))
+                       ;; Default path — wrap the form in the typed
+                       ;; result codec (rf2-qobqy) so a genuine nil, an
+                       ;; unresolved-symbol throw, and an unserializable
+                       ;; value are DISTINCT tagged outcomes instead of
+                       ;; collapsing to a bare nil. The runtime
+                       ;; classifies; the server projects via
+                       ;; `renv/envelope->result`. (`:await true` keeps
+                       ;; the Promise-mailbox path — a thenable form
+                       ;; needs the await dance, not the sync classify.)
+                       (let [wrapped (renv/wrap-form user-form)]
+                         (-> (nrepl/cljs-eval-value conn resolved-build wrapped)
+                             (.then
+                               (fn [v]
+                                 (let [result
+                                       (renv/envelope->result
+                                         v
+                                         (fn [genuine]
+                                           (cond-> {:ok?   true
+                                                    :value genuine
+                                                    :build resolved-build}
+                                             frame (assoc :frame frame))))
+                                       result (if (renv/error? result)
+                                                (cond-> (assoc result :build resolved-build)
+                                                  frame (assoc :frame frame))
+                                                result)]
+                                   (if (renv/error? result)
+                                     (wire/err-text result)
+                                     (wire/ok-text result)))))))
                        ;; Await path (rf2-xn4f9) — wrap the form, dispatch
                        ;; on the sentinel, poll the mailbox if needed. The
                        ;; mailbox plumbing lives in `await-promise`

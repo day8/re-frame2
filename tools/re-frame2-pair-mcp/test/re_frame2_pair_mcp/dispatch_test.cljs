@@ -135,10 +135,12 @@
 (deftest accepts-edn-vector-and-emits-data-arg
   ;; Happy path: `[:cart/checkout]` reads as a vector, flows into
   ;; `rt-call` as a normal data arg, and emits as a pr-str'd literal
-  ;; inside the runtime call.
+  ;; inside the runtime call. rf2-3bu3d.2 — the DEFAULT now routes
+  ;; through `dispatch-consequence!` (validate + echo + consequence).
   (async done
     (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:dispatched? true}
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :db-changed? false
+                                         :changed-paths [] :effects-fired [] :no-op? true}
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:cart/checkout]"})))
@@ -146,17 +148,17 @@
                    (is (not (err? r)))
                    (let [form @captured]
                      (is (string? form))
-                     ;; The runtime call is `(rt/pair-dispatch! [:cart/checkout] {})`
-                     ;; (or `pair-dispatch-sync!` / `dispatch-and-collect` for
-                     ;; sync / trace modes). The event vector rides as an EDN
-                     ;; literal — pinned via the `pr-str` shape.
-                     (is (re-find #"pair-dispatch!" form))
+                     ;; The default runtime call is now
+                     ;; `(rt/dispatch-consequence! [:cart/checkout] {})`.
+                     ;; The event vector rides as an EDN literal — pinned
+                     ;; via the `pr-str` shape.
+                     (is (re-find #"dispatch-consequence!" form))
                      (is (re-find #"\[:cart/checkout\]" form))
                      ;; And critically — NO host-form splice. The form is
                      ;; standalone CLJS that the runtime can read back as
                      ;; data. We can round-trip the outer call as EDN.
                      (let [parsed (cljs.reader/read-string form)]
-                       (is (= 're-frame2-pair.runtime/pair-dispatch! (first parsed))
+                       (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed))
                            "first arg is the qualified fn symbol")
                        (is (= [:cart/checkout] (second parsed))
                            "second arg is the event vector — DATA, not source")))
@@ -177,15 +179,17 @@
                      (is (= [:cart/add {:sku "abc"}] (second parsed))))
                    (done)))))))
 
-(deftest sync-mode-routes-to-pair-dispatch-sync
+(deftest sync-mode-routes-to-dispatch-consequence
+  ;; rf2-3bu3d.2 — `:sync true` (like the default) routes through
+  ;; `dispatch-consequence!`, the validate+echo+consequence surface.
   (async done
     (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:dispatched? true}
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 1}
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:cart/checkout]" :sync true})))
           (.then (fn [_]
-                   (is (re-find #"pair-dispatch-sync!" @captured))
+                   (is (re-find #"dispatch-consequence!" @captured))
                    (done)))))))
 
 (deftest trace-mode-routes-to-dispatch-and-collect
@@ -197,6 +201,87 @@
                                       #js {:event "[:cart/checkout]" :trace true})))
           (.then (fn [_]
                    (is (re-find #"dispatch-and-collect" @captured))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Dispatch CONSEQUENCE (rf2-3bu3d.2) + echo/validate (rf2-3bu3d.3) — the
+;; DEFAULT now returns the re-frame2 consequence, not a transport ack. A
+;; no-op is VISIBLE; an unknown event-id is VALIDATED at the boundary and
+;; returns a structured error with nearest matches, never a silent
+;; success; the resolved event is ECHOed back.
+;; ---------------------------------------------------------------------------
+
+(deftest default-returns-consequence-shape
+  ;; The runtime's dispatch-consequence! return (the consequence slots)
+  ;; rides through to the wire envelope. :db-changed? / :changed-paths /
+  ;; :effects-fired / :no-op? / :resolved all surface.
+  (async done
+    (let [runtime-result {:ok? true :epoch-id 7
+                          :db-changed? true :changed-paths [[:counter]]
+                          :effects-fired [:db] :no-op? false
+                          :resolved [:counter/inc]}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn) #js {:event "[:counter/inc]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (= :sync (:mode edn)) "default mode is the sync consequence")
+                     (is (true? (:db-changed? edn)))
+                     (is (= [[:counter]] (:changed-paths edn)))
+                     (is (= [:db] (:effects-fired edn)))
+                     (is (false? (:no-op? edn)))
+                     (is (= [:counter/inc] (:resolved edn))
+                         "the resolved event is echoed back (rf2-3bu3d.3)"))
+                   (done)))))))
+
+(deftest no-op-is-visible
+  ;; The headline rf2-3bu3d.2 fix: a dispatch that changed no app-db path
+  ;; and fired no effect returns :db-changed? false :effects-fired []
+  ;; :no-op? true — NOT a fake {:mode :sync} ack.
+  (async done
+    (let [runtime-result {:ok? true :epoch-id 8
+                          :db-changed? false :changed-paths []
+                          :effects-fired [] :no-op? true
+                          :resolved [:noop/event]}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn) #js {:event "[:noop/event]"})))
+          (.then (fn [r]
+                   (is (not (err? r)) "a no-op is still a successful dispatch, just visible")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:db-changed? edn))
+                         "no-op VISIBLY reports :db-changed? false")
+                     (is (= [] (:effects-fired edn))
+                         "no-op VISIBLY reports :effects-fired []")
+                     (is (true? (:no-op? edn))))
+                   (done)))))))
+
+(deftest unknown-event-id-validated-not-dispatched
+  ;; rf2-3bu3d.3 — the runtime dispatch-consequence! short-circuits on a
+  ;; validation miss, returning :reason :unknown-id with :nearest matches.
+  ;; The tool surfaces it as an :isError envelope (no silent success).
+  (async done
+    (let [runtime-result {:ok? false :reason :unknown-id :kind :event
+                          :id :rf/xrayy :event [:rf/xrayy]
+                          :nearest [:rf/xray :rf/default]
+                          :resolved [:rf/xrayy] :dispatched? false
+                          :hint "unknown :event :rf/xrayy; did you mean :rf/xray, :rf/default?"}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn) #js {:event "[:rf/xrayy]"})))
+          (.then (fn [r]
+                   (is (err? r) "unknown id ⇒ :isError, never a silent success")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :unknown-id (:reason edn)))
+                     (is (= [:rf/xray :rf/default] (:nearest edn))
+                         "nearest matches carried for a corrective retry")
+                     (is (= [:rf/xrayy] (:resolved edn))
+                         "the resolved (parsed) event is echoed even on the miss")
+                     (is (not (contains? edn :mode))
+                         "no :mode slot — the dispatch did NOT land"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -266,7 +351,7 @@
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)
                          opts   (nth parsed 2)]
-                     (is (= 're-frame2-pair.runtime/pair-dispatch-sync! (first parsed)))
+                     (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
                      (is (= [:rf.xray/focus-cascade 85] (second parsed)))
                      (is (= :rf/xray (:frame opts))
                          "frame routes to the well-formed :rf/xray keyword")
@@ -371,25 +456,32 @@
                    (done)))))))
 
 (deftest cascade-summary-pending-passes-through-on-queued-mode
-  ;; Queued dispatch may return BEFORE the cascade drains. The runtime
-  ;; reports `:cascade-summary-pending? true` and `:before-epoch-id`
-  ;; in that case; the tool surfaces them verbatim so callers can poll
-  ;; watch-epochs from the recorded pre-dispatch head.
+  ;; Queued dispatch (`:queued true`, rf2-3bu3d.2) may return BEFORE the
+  ;; cascade drains. The runtime reports `:cascade-summary-pending? true`
+  ;; and `:before-epoch-id`; the tool surfaces them verbatim PLUS
+  ;; `:settled? false` so callers poll watch-epochs from the recorded
+  ;; pre-dispatch head.
   (async done
-    (let [runtime-result {:ok? true :queued? true
+    (let [captured (atom nil)
+          runtime-result {:ok? true :queued? true
                           :frame :rf/default
                           :cascade-summary-pending? true
                           :before-epoch-id 12
                           :hint "..."}]
-      (-> (with-captured-eval! (atom nil) runtime-result
+      (-> (with-captured-eval! captured runtime-result
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:cart/checkout]"})))
+                                      #js {:event "[:cart/checkout]" :queued true})))
           (.then (fn [r]
                    (is (not (err? r)))
+                   ;; `:queued true` routes to `pair-dispatch!`.
+                   (is (re-find #"pair-dispatch!" @captured)
+                       ":queued routes to the async pair-dispatch!")
                    (let [edn (read-result-text r)]
                      (is (true? (:ok? edn)))
                      (is (= :queued (:mode edn)))
+                     (is (false? (:settled? edn))
+                         "an undrained queued dispatch reports :settled? false")
                      (is (true? (:cascade-summary-pending? edn)))
                      (is (= 12 (:before-epoch-id edn))))
                    (done)))))))
@@ -492,8 +584,9 @@
                      (is (not (str/includes? form "setTimeout"))
                          "no sleep — deterministic settle, not a timer")
                      ;; await-render forces sync dispatch (cascade must
-                     ;; commit before the render can settle).
-                     (is (str/includes? form "pair-dispatch-sync!")
+                     ;; commit before the render can settle) — routed
+                     ;; through the consequence surface (rf2-3bu3d.2).
+                     (is (str/includes? form "dispatch-consequence!")
                          "await-render forces synchronous dispatch")
                      (is (str/includes? form ":settled? true")
                          "settle form merges :settled? true into the result"))

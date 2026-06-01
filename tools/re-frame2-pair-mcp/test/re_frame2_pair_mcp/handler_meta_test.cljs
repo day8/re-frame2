@@ -19,6 +19,7 @@
     4. Error envelopes — missing / invalid kind / id arguments surface
        structured `:reason` slots an agent can read."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            [clojure.string :as str]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -268,22 +269,32 @@
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
-(deftest handler-meta-defensive-reparse-of-stringified-map
-  (testing "if a runtime emits a stringified map, the tool still recovers :ok? true"
-    ;; This pins the MCP-side defensive re-parse — should a future
-    ;; runtime slip emit `#object[...]` again, the tool tries one more
-    ;; EDN read of the raw string before falling to :unexpected-shape.
+(deftest handler-meta-unserializable-surfaces-structured
+  (testing "rf2-qobqy: a runtime meta map that can't round-trip as EDN now rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
+    ;; The pre-rf2-qobqy path defensively re-parsed a stringified map.
+    ;; The typed result codec (rf2-qobqy) makes that obsolete: the
+    ;; RUNTIME classifies an unserializable meta map (a `#object`
+    ;; Function slot, a `#js {…}`) into a tagged `:rf.mcp/result
+    ;; :unserializable` envelope with a `:preview`. The tool surfaces
+    ;; the STRUCTURED error stamped with the requested kind/id — never
+    ;; the meta-map-as-string the old :unexpected-shape path carried.
     (async done
-      (let [stringified-map "{:ns testdeck.counter, :line 99, :handler-fn-hash 42}"]
-        (-> (with-canned-eval! stringified-map
+      (let [tagged {:rf.mcp/result :unserializable
+                    :type "object"
+                    :preview "{:ns testdeck.counter :handler-fn #object[Function]}"}]
+        (-> (with-canned-eval! tagged
               (fn []
                 (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
-                               (is (true? (:ok? edn))
-                                   "defensive re-parse: stringified map recovered as :ok? true")
-                               (is (= 99 (:line edn))
-                                   "the recovered map's keys must be top-level"))
+                               (is (is-error? result)
+                                   "an unserializable meta map is an :isError envelope")
+                               (is (false? (:ok? edn)))
+                               (is (= :rf.error/unserializable (:reason edn)))
+                               (is (= :event (:kind edn)) "kind stamped on the error")
+                               (is (= :counter/inc (:id edn)) "id stamped on the error")
+                               (is (str/includes? (:preview edn) "#object")
+                                   "the preview shows WHAT couldn't serialize"))
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 

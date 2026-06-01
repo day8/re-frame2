@@ -383,6 +383,52 @@
     {:isError? false
      :edn-submap {:ok? true :value 3 :build :app}}}
 
+   ;; rf2-qobqy — the typed result envelope distinguishes a GENUINE nil,
+   ;; an eval-error, and an unserializable value where the old path
+   ;; collapsed all three to a bare null. The runtime classifies the
+   ;; result into a tagged `:rf.mcp/result` map; the server projects it.
+   {:fixture/id    :eval-cljs/typed-nil
+    :fixture/doc   "eval-cljs of a form that genuinely returns nil rides back as :ok? true :value nil — a tagged :rf.mcp/result :nil, NOT a collapsed null (rf2-qobqy)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(get {} :missing)" :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["(get {} :missing)"         {:rf.mcp/result :nil}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :value nil :build :app}}}
+
+   {:fixture/id    :eval-cljs/typed-eval-error
+    :fixture/doc   "eval-cljs of a form that throws (e.g. an unresolved symbol) surfaces a structured :rf.error/eval-cljs-threw, NOT a silent nil (rf2-qobqy)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(undefined-symbol)" :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["(undefined-symbol)"        {:rf.mcp/result :eval-error
+                                   :reason :rf.error/eval-cljs-threw
+                                   :ex "#error {:message \"undefined-symbol is not defined\"}"
+                                   :message "undefined-symbol is not defined"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :rf.error/eval-cljs-threw :build :app}}}
+
+   {:fixture/id    :eval-cljs/typed-unserializable
+    :fixture/doc   "eval-cljs of a form returning a #object/#js/Function surfaces :rf.error/unserializable with a :preview, NOT a collapsed null (rf2-qobqy)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "js/console" :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["js/console"                {:rf.mcp/result :unserializable
+                                   :type "object"
+                                   :preview "#object[Object [object console]]"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :rf.error/unserializable
+                  :type "object" :build :app}}}
+
    {:fixture/id    :eval-cljs/no-runtime-for-build
     :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3)."
     :fixture/tool  "eval-cljs"
@@ -486,17 +532,86 @@
                   :build :app}}}
 
    ;; ---------- dispatch ---------------------------------------------------
+   ;; rf2-3bu3d.2 — the DEFAULT dispatch now returns the CONSEQUENCE via
+   ;; `dispatch-consequence!`: `:db-changed? :changed-paths :effects-fired
+   ;; :no-op?` so a no-op is VISIBLE, plus `:resolved` echoing the parsed
+   ;; event (rf2-3bu3d.3). The runtime fn is `dispatch-consequence!`, not
+   ;; the old `pair-dispatch!` transport ack.
    {:fixture/id    :dispatch/happy
-    :fixture/doc   "dispatch wraps the runtime's pair-dispatch! return in {:mode :queued ...}."
+    :fixture/doc   "default dispatch returns the consequence via dispatch-consequence! (rf2-3bu3d.2 / rf2-3bu3d.3)."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["pair-dispatch!"            {:queued? true}]
+     ["dispatch-consequence!"     {:ok? true :epoch-id 7
+                                   :db-changed? true :changed-paths [[:counter]]
+                                   :effects-fired [:db] :no-op? false
+                                   :resolved [:counter/inc]}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["dispatch-consequence!"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:mode :sync :ok? true :db-changed? true :no-op? false
+                  :resolved [:counter/inc]}}}
+
+   ;; rf2-3bu3d.2 — a genuine NO-OP is now VISIBLE: `:db-changed? false
+   ;; :effects-fired [] :no-op? true` instead of a fake success ack.
+   {:fixture/id    :dispatch/no-op-visible
+    :fixture/doc   "a no-op dispatch returns :db-changed? false :effects-fired [] :no-op? true (rf2-3bu3d.2)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:noop/event]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["dispatch-consequence!"     {:ok? true :epoch-id 8
+                                   :db-changed? false :changed-paths []
+                                   :effects-fired [] :no-op? true
+                                   :resolved [:noop/event]}]
      [:default                    nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:mode :queued :queued? true}}}
+     :edn-submap {:mode :sync :ok? true :db-changed? false
+                  :effects-fired [] :no-op? true}}}
+
+   ;; rf2-3bu3d.3 — an unknown event-id is VALIDATED at the wire boundary
+   ;; and returns a structured :unknown-id error with :nearest matches,
+   ;; WITHOUT dispatching (the runtime `dispatch-consequence!` short-
+   ;; circuits on the validation miss). No silent no-op success.
+   {:fixture/id    :dispatch/unknown-id-validated
+    :fixture/doc   "dispatch of an unregistered event-id surfaces :reason :unknown-id + :nearest, never a silent success (rf2-3bu3d.3)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:rf/xrayy]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["dispatch-consequence!"     {:ok? false :reason :unknown-id :kind :event
+                                   :id :rf/xrayy :event [:rf/xrayy]
+                                   :nearest [:rf/xray :rf/default]
+                                   :resolved [:rf/xrayy] :dispatched? false
+                                   :hint "unknown :event :rf/xrayy; did you mean :rf/xray, :rf/default?"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :unknown-id :id :rf/xrayy
+                  :nearest [:rf/xray :rf/default] :resolved [:rf/xrayy]}}}
+
+   ;; rf2-3bu3d.2 — `:queued true` opts into the async transport-ack: the
+   ;; runtime `pair-dispatch!` return rides back with `:mode :queued` and
+   ;; `:settled? false` when the cascade hasn't drained.
+   {:fixture/id    :dispatch/queued-settled-false
+    :fixture/doc   "dispatch :queued true returns the async ack (:mode :queued :settled? false) (rf2-3bu3d.2)."
+    :fixture/tool  "dispatch"
+    :fixture/args  {:event "[:counter/inc]" :queued true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["pair-dispatch!"            {:ok? true :queued? true
+                                   :cascade-summary-pending? true
+                                   :before-epoch-id 12}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["pair-dispatch!"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:mode :queued :settled? false :cascade-summary-pending? true}}}
 
    {:fixture/id    :dispatch/missing-event
     :fixture/doc   "dispatch without :event surfaces :missing-event."
@@ -525,15 +640,16 @@
    ;; malformed `::rf/xray` (namespace ":rf") that raw `(keyword ...)`
    ;; produced — the silent-no-op the bead targets.
    {:fixture/id    :dispatch/frame-targeted-routes
-    :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx)."
+    :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx). Routes through dispatch-consequence! (rf2-3bu3d.2)."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["pair-dispatch-sync!"       {:ok? true :epoch-id 7 :frame :rf/xray}]
+     ["dispatch-consequence!"     {:ok? true :epoch-id 7 :frame :rf/xray
+                                   :resolved [:rf.xray/focus-cascade 85]}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["pair-dispatch-sync!" ":frame :rf/xray"]
+    ["dispatch-consequence!" ":frame :rf/xray"]
     :fixture/eval-form-must-not-contain
     ["::rf/xray"]
     :fixture/expect
@@ -552,9 +668,10 @@
     :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["pair-dispatch-sync!"       {:ok? false :reason :no-new-epoch
+     ["dispatch-consequence!"     {:ok? false :reason :no-new-epoch
                                    :event [:rf.xray/focus-cascade 85]
                                    :frame :rf/xray
+                                   :resolved [:rf.xray/focus-cascade 85]
                                    :hint "dispatch-sync returned, but epoch-history head did not advance."}]
      [:default                    nil]]
     :fixture/expect
@@ -590,7 +707,7 @@
     :fixture/eval-form-must-contain
     ["re-frame.interop/after-render"
      "requestAnimationFrame"
-     "pair-dispatch-sync!"
+     "dispatch-consequence!"
      ":settled? true"]
     :fixture/eval-form-must-not-contain
     ["reagent" "setTimeout"]

@@ -226,6 +226,93 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
+;; Typed result envelope (rf2-qobqy) — the default (non-await) path wraps
+;; the form so a genuine nil, an eval-error, and an unserializable value
+;; are DISTINCT outcomes instead of collapsing to a bare null. The stub
+;; returns the TAGGED `:rf.mcp/result` envelope the runtime would emit;
+;; the server projects it.
+;; ---------------------------------------------------------------------------
+
+(deftest typed-genuine-nil-is-ok-true-value-nil
+  ;; A form that genuinely returns nil → :ok? true :value nil. Distinct
+  ;; from the no-runtime fail-loud path (which never reaches the eval).
+  (async done
+    (-> (with-stubbed-runtime! {:running-vec [:app] :runtime? true
+                                :eval-value {:rf.mcp/result :nil}}
+          (fn []
+            (eval-cljs/eval-cljs-tool (fresh-conn)
+                                      #js {:form "(get {} :missing)" :build "app"})))
+        (.then (fn [r]
+                 (is (not (err? r)) "a genuine nil is a SUCCESS")
+                 (let [edn (read-edn r)]
+                   (is (true? (:ok? edn)))
+                   (is (nil? (:value edn)) "genuine nil rides back as :value nil")
+                   (is (= :app (:build edn))))
+                 (done))))))
+
+(deftest typed-eval-error-surfaces-structured
+  ;; A form that throws (e.g. an unresolved symbol) → :ok? false
+  ;; :reason :rf.error/eval-cljs-threw — NOT a silent nil.
+  (async done
+    (-> (with-stubbed-runtime!
+          {:running-vec [:app] :runtime? true
+           :eval-value {:rf.mcp/result :eval-error
+                        :reason :rf.error/eval-cljs-threw
+                        :ex "#error {:message \"x is not defined\"}"
+                        :message "x is not defined"}}
+          (fn []
+            (eval-cljs/eval-cljs-tool (fresh-conn)
+                                      #js {:form "(x)" :build "app"})))
+        (.then (fn [r]
+                 (is (err? r) "an eval-error is an :isError envelope")
+                 (let [edn (read-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :rf.error/eval-cljs-threw (:reason edn)))
+                   (is (= "x is not defined" (:message edn)))
+                   (is (= :app (:build edn)) "build echoed on the error too"))
+                 (done))))))
+
+(deftest typed-unserializable-surfaces-with-preview
+  ;; A form returning a #object / #js / Function → :ok? false
+  ;; :reason :rf.error/unserializable with a :preview — NOT a null.
+  (async done
+    (-> (with-stubbed-runtime!
+          {:running-vec [:app] :runtime? true
+           :eval-value {:rf.mcp/result :unserializable
+                        :type "object"
+                        :preview "#object[Object [object console]]"}}
+          (fn []
+            (eval-cljs/eval-cljs-tool (fresh-conn)
+                                      #js {:form "js/console" :build "app"})))
+        (.then (fn [r]
+                 (is (err? r))
+                 (let [edn (read-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :rf.error/unserializable (:reason edn)))
+                   (is (= "object" (:type edn)))
+                   (is (str/includes? (:preview edn) "#object")
+                       "the preview shows WHAT the value was")
+                   (is (string? (:hint edn)) "a corrective hint is offered"))
+                 (done))))))
+
+(deftest typed-value-rides-back-under-value
+  ;; The happy path through the codec: a serializable value → :ok? true
+  ;; :value v. Same shape callers always saw — additive, not a flip.
+  (async done
+    (-> (with-stubbed-runtime!
+          {:running-vec [:app] :runtime? true
+           :eval-value {:rf.mcp/result :value :value {:a 1 :b [2 3]}}}
+          (fn []
+            (eval-cljs/eval-cljs-tool (fresh-conn)
+                                      #js {:form "{:a 1 :b [2 3]}" :build "app"})))
+        (.then (fn [r]
+                 (is (not (err? r)))
+                 (let [edn (read-edn r)]
+                   (is (true? (:ok? edn)))
+                   (is (= {:a 1 :b [2 3]} (:value edn))))
+                 (done))))))
+
+;; ---------------------------------------------------------------------------
 ;; Await mode (rf2-xn4f9) — the opt-in `:await true` arg awaits a
 ;; Promise-returning form's resolved value, surfaces rejections as
 ;; `:rf.error/eval-cljs-rejected`, surfaces unbounded waits as
@@ -606,4 +693,32 @@
                           surfaces appear in the same emitted form"))
                    (set! nrepl/cljs-eval-value orig-cljs)
                    (set! nrepl/jvm-eval orig-jvm)
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Typed envelope — default path wraps the form (rf2-qobqy). Lives down
+;; here because it reuses `with-form-recorder!` (defined above in the
+;; frame-targeting section).
+;; ---------------------------------------------------------------------------
+
+(deftest typed-default-path-wraps-the-form
+  ;; The default (non-await) path MUST wrap the user form in the result
+  ;; codec so the runtime classifies the outcome. Pin that the wrapped
+  ;; form routes through read-string (the serializability probe) and
+  ;; still carries the user form.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-form-recorder! {:runtime? true
+                                :eval-value {:rf.mcp/result :value :value 5}
+                                :forms-atom forms}
+            (fn []
+              (eval-cljs/eval-cljs-tool (fresh-conn)
+                                        #js {:form "(+ 2 3)" :build "app"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [non-probe (->> @forms (remove sentinel-probe?))]
+                     (is (some #(str/includes? % "cljs.reader/read-string") non-probe)
+                         "the wrap round-trip-probes serializability")
+                     (is (some #(str/includes? % "(+ 2 3)") non-probe)
+                         "the user form rides inside the wrap"))
                    (done)))))))

@@ -322,13 +322,22 @@
 
 (def dispatch
   {:name "dispatch"
-   :description (str "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. "
-                     "Set `sync` for dispatch-sync, `trace` for synchronous dispatch returning the "
-                     "assembled :rf/epoch-record. The `event` arg is parsed as EDN server-side (rf2-vflrg) — "
-                     "MUST be a vector (e.g. `[:cart/checkout {:reason :user}]`). Non-vector EDN returns "
-                     "`:reason :not-an-event-vector`; unreadable input returns `:reason :invalid-event-edn`. "
-                     "Host-form source (e.g. `(println :x)`) is rejected — use `eval-cljs` for arbitrary "
-                     "evaluation. "
+   :description (str "Fire a re-frame2 event tagged with :origin :pair. "
+                     "DEFAULT mode returns the re-frame2 CONSEQUENCE (rf2-3bu3d.2): a synchronous dispatch "
+                     "whose result carries `:epoch-id`, `:db-changed?`, `:changed-paths`, `:effects-fired`, "
+                     "and `:no-op?` — so a no-op VISIBLY returns `:db-changed? false :effects-fired [] "
+                     ":no-op? true` instead of a fake `{:mode :sync}` ack. `dispatch -> verify` is one call. "
+                     "Set `queued` for the async transport-ack shape (`:settled? false` when the cascade "
+                     "hasn't drained — poll `watch-epochs` for the settlement). Set `trace` for the full "
+                     "assembled :rf/epoch-record. "
+                     "The `event` arg is parsed as EDN ONCE server-side (rf2-vflrg / rf2-3bu3d.3), ECHOed "
+                     "back under `:resolved`, and the event-id is VALIDATED against the live :event registrar: "
+                     "an unknown id returns `:reason :unknown-id` with `:nearest` matches (e.g. \"unknown "
+                     ":event :rf/xrayy; did you mean :rf/xray?\") and does NOT dispatch — never a silent no-op. "
+                     "The `event` MUST be a vector (e.g. `[:cart/checkout {:reason :user}]`). Non-vector EDN "
+                     "returns `:reason :not-an-event-vector`; unreadable input returns `:reason "
+                     ":invalid-event-edn`. Host-form source (e.g. `(println :x)`) is rejected — use "
+                     "`eval-cljs` for arbitrary evaluation. "
                      "Cascade summary (rf2-6yqdl): every successful dispatch surfaces a `:cascade-summary` "
                      "slot projecting the resulting :rf/epoch-record — `:epoch-id`, `:event-id`, "
                      "`:event-vector`, `:frame`, `:outcome` (:ok / :blocked / :error), `:db-diff` "
@@ -347,16 +356,19 @@
                      "settle) and merges `:settled? true` into the result. A settle that doesn't complete within "
                      "`timeout-ms` (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`. "
                      "Examples: "
-                     "1. Fire-and-forget (drained synchronously): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :queued :epoch-id 7 :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
-                     "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
-                     "3. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
-                     "4. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
+                     "1. Default (consequence): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :sync :epoch-id 7 :resolved [:cart/checkout] :db-changed? true :changed-paths [[:cart]] :effects-fired [:dispatch] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
+                     "2. No-op made visible: {:event \"[:noop/event]\"} -> {:ok? true :mode :sync :epoch-id 8 :db-changed? false :changed-paths [] :effects-fired [] :no-op? true}. "
+                     "3. Unknown id (validated, NOT dispatched): {:event \"[:rf/xrayy]\"} -> {:ok? false :reason :unknown-id :kind :event :id :rf/xrayy :resolved [:rf/xrayy] :nearest [:rf/xray :rf/default] :hint \"unknown :event :rf/xrayy; did you mean :rf/xray, :rf/default?\"}. "
+                     "4. Trace mode (full epoch): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
+                     "5. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :db-changed? true :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
+                     "6. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
-                              :sync  {:type "boolean"}
+                 :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected. Parsed once, echoed under :resolved, and the event-id validated against the live :event registrar (unknown -> :reason :unknown-id + :nearest, NOT dispatched)."}
+                              :sync  {:type "boolean" :description "Force synchronous dispatch returning the consequence. Default mode already returns the consequence synchronously; this is the explicit form."}
+                              :queued {:type "boolean" :description "Opt into the async transport-ack shape instead of the default consequence: returns :settled? false when the cascade hasn't drained, so the agent polls watch-epochs for the settlement (rf2-3bu3d.2)."}
                               :trace {:type "boolean"}
                               :await-render {:type "boolean"
                                              :description (str "Render-settle (rf2-gfu33): when true, resolve only AFTER the "

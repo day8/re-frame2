@@ -129,13 +129,29 @@
   Contract:
     - runtime `:ok? false`  ⇒ `err-text` (`:isError true`), NO `:mode`
       slot. The failure rides through verbatim so the caller sees the
-      structured `:reason`/`:hint`.
-    - otherwise (success / queued / non-map degraded runtime) ⇒
+      structured `:reason`/`:hint`. This covers the rf2-3bu3d.3
+      `:reason :unknown-id` validation miss too — an unknown event-id
+      surfaces as an error envelope carrying `:nearest` matches, NEVER
+      a silent success.
+    - queued mode whose cascade hasn't drained yet
+      (`:cascade-summary-pending? true`) ⇒ `ok-text` with `:settled?
+      false` merged in (rf2-3bu3d.2) so the agent knows to
+      `watch-epochs` the eventual settlement.
+    - otherwise (success / settled queued / non-map degraded runtime) ⇒
       `ok-text` with `{:mode <m>}` merged in."
   [mode v]
   (if (and (map? v) (false? (:ok? v)))
     (wire/err-text v)
-    (wire/ok-text (merge {:mode mode} (when (map? v) v)))))
+    (let [base (merge {:mode mode} (when (map? v) v))
+          ;; rf2-3bu3d.2 — async/queued that hasn't settled rides back
+          ;; with `:settled? false` so the consequence-vs-ack distinction
+          ;; is explicit (the default sync path carries the consequence).
+          base (cond-> base
+                 (and (= :queued mode)
+                      (map? v)
+                      (:cascade-summary-pending? v))
+                 (assoc :settled? false))]
+      (wire/ok-text base))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render-settle — `:await-render` (rf2-gfu33).
@@ -218,6 +234,13 @@
         ;; caller asked for the assembled epoch); otherwise sync.
         sync?        (boolean (or (wire/arg args :sync) await-render?))
         trace?       (boolean (wire/arg args :trace))
+        ;; rf2-3bu3d.2 — `:queued true` opts INTO the async transport-ack
+        ;; shape (`{:settled? false}`). Without it the default is the
+        ;; SYNC CONSEQUENCE (`dispatch-consequence!`) so a no-op is
+        ;; VISIBLE (`:db-changed? false :effects-fired []`) instead of a
+        ;; fake ack. `:trace` / `:sync` / `:await-render` still win.
+        queued?      (boolean (and (wire/arg args :queued)
+                                   (not trace?) (not sync?)))
         ;; rf2-ldfnx — coerce `frame` via the colon-tolerant
         ;; `->frame-keyword` (the shared `fresh-keyword` path), NOT the
         ;; raw `(keyword ...)` of `wire/arg-keyword`. The documented
@@ -245,10 +268,22 @@
             ;; through `rt-call`'s normal arg-emit path so it is `pr-str`'d
             ;; as an EDN literal — the runtime fn receives data, not host
             ;; source. NO `rt-raw` splice on this surface.
-            fn-sym     (cond trace? 'dispatch-and-collect
-                             sync?  'pair-dispatch-sync!
-                             :else  'pair-dispatch!)
-            mode (cond trace? :trace sync? :sync :else :queued)]
+            ;;
+            ;; rf2-3bu3d.2 / rf2-3bu3d.3 — the DEFAULT (and explicit
+            ;; `:sync` / `:await-render`) routes through
+            ;; `dispatch-consequence!`, which (a) VALIDATES the event-id
+            ;; against the live `:event` registrar and returns a
+            ;; structured `:unknown-id` error WITHOUT dispatching on a
+            ;; miss (no silent no-op), (b) ECHOes the resolved event
+            ;; under `:resolved`, and (c) returns the CONSEQUENCE
+            ;; (`:db-changed? :changed-paths :effects-fired :no-op?`) so
+            ;; a genuine no-op is visible. `:queued` opts into the async
+            ;; settled?-false transport ack; `:trace` returns the full
+            ;; assembled epoch.
+            fn-sym     (cond trace?  'dispatch-and-collect
+                             queued? 'pair-dispatch!
+                             :else   'dispatch-consequence!)
+            mode (cond trace? :trace queued? :queued :else :sync)]
         (if await-render?
           ;; rf2-gfu33 — render-settle path. The form's synchronous
           ;; return is a Promise; await it through the shared mailbox so
