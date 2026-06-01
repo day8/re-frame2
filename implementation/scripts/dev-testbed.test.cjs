@@ -39,6 +39,7 @@ it('a group name expands to its build-ids', () => {
     ':examples/standard-epochs',
     ':examples/routes-epochs',
     ':examples/machine-epochs',
+    ':examples/edn-inspector',
     ':examples/two-frame-isolation',
     ':testbeds/panel-gallery',
   ]);
