@@ -9,8 +9,9 @@
   (observable as `:rf.machine/destroyed` trace).
 
   Concerns covered:
-    - `:spawn` spawns child on entry and destroys it on exit; on-spawn
-      callback records the deterministic actor id into parent's `:data`.
+    - `:spawn` spawns child on entry and destroys it on exit; the
+      deterministic actor id is tracked in the runtime spawn-registry slot
+      (the on-spawn callback is advisory — its return is dropped).
     - `:spawn :data` fn-form materialised at spawn (rf2-h131): the spawned
       child receives the result map, not the fn; fn sees the post-action
       snapshot.
@@ -20,9 +21,10 @@
     - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
       with `:rf.error/spawn-timeout-ms-removed` (rf2-3y3y).
 
-  The on-spawn callback fires inline during `apply-transition-once` so the
-  child id can be recorded into the parent machine's `:data` — we assert via
-  the snapshot's `:pending` key.
+  The on-spawn callback fires inline during `apply-transition-once` (advisory
+  — its return is dropped); the deterministic child id is read back from the
+  runtime spawn-registry slot at
+  `[:rf/runtime :machines :spawned <parent> <invoke-id>]`.
 
   Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -48,11 +50,13 @@
            :data    {:credentials {:user "alice" :pass "secret"}}
            :on-spawn-actions
            ;; Per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr):
-           ;; on-spawn callback takes a single context-map and returns the
-           ;; new data. The callback is advisory — the runtime tracks the
-           ;; spawned id at [:rf/runtime :machines :spawned <parent> <invoke-id>] regardless.
-           {:auth/record-actor (fn [{data :data id :id}]
-                                 (assoc data :pending id))}
+           ;; on-spawn callback takes a single context-map. The callback is
+           ;; advisory — its return is DROPPED and the runtime tracks the
+           ;; spawned id at [:rf/runtime :machines :spawned <parent> <invoke-id>]
+           ;; regardless. Returns nil (observational; rf2-dtth6 warns on a
+           ;; non-nil dropped return).
+           {:auth/record-actor (fn [{:keys [id]}]
+                                 (js/console.debug "spawned" id) nil)}
            :states
            {:idle
             {:on {:submit :authenticating}}
@@ -165,7 +169,8 @@
           parent {:initial :idle
                   :data    {}
                   :on-spawn-actions
-                  {:record (fn [{data :data id :id}] (assoc data :pending id))}
+                  ;; Advisory observation hook — returns nil (rf2-dtth6).
+                  {:record (fn [{:keys [id]}] (js/console.debug "spawned" id) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating

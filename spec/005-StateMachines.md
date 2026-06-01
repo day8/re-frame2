@@ -489,7 +489,7 @@ Not separate top-level keys. The machine handler walks `:fx` left-to-right and r
 {:fx [[:raise              [:event-1]]                                          ;; back into THIS machine, atomic, pre-commit
       [:raise              [:event-2]]
       [:rf.machine/spawn   {:machine-id :request/protocol
-                            :on-spawn   (fn [{data :data id :id}] (assoc data :child id)) ;; how the parent records the new id
+                            :system-id  :child   ;; address the child by name (its id is NOT recordable via :on-spawn — return dropped)
                             :start      [:begin]}]                              ;; child actor (see §Spawning)
       [:rf.machine/destroy actor-id]                                            ;; tear down a spawned actor
       [:dispatch           [:other-machine [:notify]]]                          ;; standard re-frame :dispatch
@@ -595,7 +595,7 @@ Reference resolution:
 - `:guard (fn [...] ...)` → inline fn, called directly.
 - `:action :clear-error` → `(get-in spec [:actions :clear-error])`.
 - `:action (fn [...] ...)` → inline fn, called directly.
-- `:on-spawn :record-pending` (when `:on-spawn` appears as a keyword reference, e.g. inside a `:spawn` slot) → resolved against an optional `:on-spawn-actions` map at the spec root if present, then falling back to `:actions`. Inline fns work as for `:action`. The `:on-spawn-actions` map is intended for spawn-callbacks whose role is the parent's id-recording side, distinct from transition-time `:actions`; declaring it is optional and the fallback to `:actions` keeps single-map machines simple.
+- `:on-spawn :observe-spawn` (when `:on-spawn` appears as a keyword reference, e.g. inside a `:spawn` slot) → resolved against an optional `:on-spawn-actions` map at the spec root if present, then falling back to `:actions`. Inline fns work as for `:action`. The `:on-spawn-actions` map is intended for advisory spawn-observation callbacks (logging / instrumentation), distinct from transition-time `:actions` — their return is dropped, so they are NOT the parent's id-recording mechanism (use `:system-id` / the registry slot / `:rf.machine/update-snapshot` per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)); declaring the map is optional and the fallback to `:actions` keeps single-map machines simple.
 
 `make-machine-handler` walks the transition table at construction time and verifies every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) resolves to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
@@ -837,7 +837,7 @@ An action returns `{:data ... :fx [...]}`. The two keys are independent:
 - **`:data`** — a single map; merged into the current data map (last write wins on key collision).
 - **`:fx`** — a vector of `[fx-id args]` pairs; processed **in vector order**. The machine handler's effect-map composer walks `:fx` and routes by fx-id:
   - `[:raise <event-vec>]` → appended to the local pre-commit raise-queue.
-  - `[:rf.machine/spawn <spawn-spec>]` → registers a new handler immediately (each spawn happens before the next `:fx` entry is processed; the spawned id is fed through the spec's `:on-spawn` callback to update `:data`; if `:start` is present, an event is queued to the new actor).
+  - `[:rf.machine/spawn <spawn-spec>]` → registers a new handler immediately (each spawn happens before the next `:fx` entry is processed; the spawned id is tracked at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` and the spec's `:on-spawn` advisory callback fires for observation — its return is dropped; if `:start` is present, an event is queued to the new actor).
   - any other `[fx-id args]` → forwarded to the standard `do-fx` for runtime processing.
 
 The relative order of `:raise` entries in `:fx` is the order they enter the local raise-queue. The relative order of non-raise fx entries is the order they reach `do-fx`.
@@ -1855,7 +1855,7 @@ The spawn surface is composite: `:on-spawn`, `:rf.machine/spawn`, the synthetic 
 
 Two distinct "spawn" surfaces, easy to conflate:
 
-- **`:on-spawn` — advisory action on the parent's `:data`.** Declared inside the parent's `:spawn` / `:spawn-all` spec (or on a hand-emitted `:rf.machine/spawn`). Runs **inside the transition reducer at allocate-time** against the parent's `:data` with the freshly-allocated spawned-id — `(fn [parent-data spawned-id] new-parent-data)`. NOT a child-side event. advisory only: the runtime tracks the id in the spawn-registry at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` regardless.
+- **`:on-spawn` — advisory observation hook.** Declared inside the parent's `:spawn` / `:spawn-all` spec (or on a hand-emitted `:rf.machine/spawn`). Runs **inside the transition reducer at allocate-time**, invoked with `{:data <parent's :data> :id <freshly-allocated spawned-id>}` — the unified context-map (per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies)). NOT a child-side event. **Its return value is DROPPED** — the runtime does not patch it back into the snapshot. It exists for side-channel observation (logging, mirroring the id into instrumentation); the runtime tracks the id in the spawn-registry at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` regardless of whether `:on-spawn` is declared. To address the child user-side, use one of the three working mechanisms in [§Recording the spawned id user-side](#recording-the-spawned-id-user-side).
 - **`[:rf.machine/spawned]` — synthetic event dispatched into the new child.** Emitted by the `:rf.machine/spawn` fx handler **only when the spawn args omit `:start`**, so generic child machines have a kick-off event to handle. Reaches the child as its first event, ahead of the initial-`:entry` cascade only in resolution order — see step 6 below. Per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn).
 
 #### Ordering — singleton parent invoking a child
@@ -1863,7 +1863,7 @@ Two distinct "spawn" surfaces, easy to conflate:
 For a parent state with `:spawn {:machine-id :child …}` (or for a hand-emitted `:rf.machine/spawn` from an action), the runtime fires the following steps in order. Steps 1–4 happen inside the **parent's** drain; steps 5–8 happen inside the **child's** drain (a separate event-handler boundary).
 
 1. **Parent enters the `:spawn`-bearing state.** The transition's entry cascade reaches the state-node; the desugared `:rf.spawn/spawn-<state>` action (per [§Desugaring rules](#desugaring-rules)) is appended to the cascade's action queue.
-2. **`:on-spawn` runs against the parent's `:data`.** The pure spawn-id allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent's snapshot root; the `:on-spawn` callback (when declared) folds the new id into `:data` via `(fn [parent-data id] new-parent-data)`. This step is **purely a `:data` update** — no fx is emitted by `:on-spawn` itself.
+2. **`:on-spawn` advisory hook fires.** The pure spawn-id allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent's snapshot root, then writes the spawn-registry slot `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` (the authoritative user-readable home of the id). The `:on-spawn` callback (when declared) is then invoked with `{:data <parent's :data> :id <id>}` for side-channel observation; **its return value is dropped** and no fx is emitted by `:on-spawn` itself.
 3. **`:rf.machine/spawn` fx is emitted** into the parent transition's `:fx` vector with the allocated spawned-id, the resolved child `:data`, and (for declarative `:spawn`) the stamped `:rf/parent-id` / `:rf/spawn-id` keys.
 4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf/runtime :machines :snapshots <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist as an event handler.
 5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data)), and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/runtime :machines :snapshots <spawned-id>]`; the child's event handler is registered at the spawned-id. The runtime spawn-registry slot at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` is written for the declarative-`:spawn` case.
@@ -1880,7 +1880,8 @@ The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join vi
 {:authenticating
  {:spawn {:machine-id :auth-flow
            :data       (fn [{snap :snapshot}] {:credentials (-> snap :data :form)})
-           :on-spawn   (fn [{d :data id :id}] (assoc d :auth-actor id))}
+           :system-id  :auth-actor                              ;; address the child by name (working)
+           :on-spawn   (fn [{id :id}] (println "spawned auth flow" id))} ;; observation only — return dropped
   :on     {:auth/succeeded :authenticated
            :auth/failed    :idle}}}
 
@@ -1897,7 +1898,7 @@ The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join vi
 Trace of a `[:submit]` event landing on the parent in `:idle`:
 
 1. Parent transitions `:idle → :authenticating`. Entry cascade reaches `:authenticating`.
-2. Allocator picks `:auth-flow#0`; `:on-spawn` writes `{:auth-actor :auth-flow#0}` into the parent's `:data`.
+2. Allocator picks `:auth-flow#0` and writes the spawn-registry slot `[:rf/runtime :machines :spawned :login [:authenticating]]` ⇒ `:auth-flow#0`; the `:system-id :auth-actor` binding resolves to it via `(rf/machine-by-system-id :auth-actor)`. The `:on-spawn` hook then fires for observation (its return is dropped).
 3. Parent's `:fx` accumulates `[:rf.machine/spawn {:machine-id :auth-flow :rf/parent-id :login :rf/spawn-id [:authenticating] …}]`.
 4. Parent commits — `[:rf/runtime :machines :snapshots :login]` updated; the spawn fx drains.
 5. Spawn fx synthesises `:auth-flow#0`'s initial snapshot at `[:rf/runtime :machines :snapshots :auth-flow#0]` with `:state :running`, `:data {:rf/self-id :auth-flow#0 :rf/parent-id :login :rf/spawn-id [:authenticating] :credentials …}`, `:rf/bootstrap-pending? true`; the spawn-registry slot at `[:rf/runtime :machines :spawned :login [:authenticating]]` is written to `:auth-flow#0`.
@@ -1932,11 +1933,11 @@ The ordering is what lets two patterns compose without surprises:
           {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                                     :id-prefix  :request/protocol
                                     :data       {:url url}
-                                    :on-spawn   (fn [{data :data id :id}] (assoc data :pending-request id))
+                                    :system-id  :pending-request   ;; address the child by name
                                     :start      [:begin]}]]})
 ```
 
-After this action, `(:pending-request data)` *is* the actor's id. Subsequent transitions can `[:fx [[:dispatch [(:pending-request data) [:retry]]]]]`.
+After this action the actor is reachable by its `:system-id`. Subsequent transitions can `[:fx [[:dispatch-to-system :pending-request [:retry]]]]` (or `[:dispatch [(rf/machine-by-system-id :pending-request) [:retry]]]`). The `:on-spawn` callback is **not** the place to capture the id — its return is dropped (see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 
 ### Spawn-spec keys
 
@@ -1959,6 +1960,8 @@ Spawn-id allocation is **pure** (no global counter atom, no `gensym`), and the i
 |---|---|---|
 | Declarative `:spawn` / `:spawn-all` from a parent state | inside the parent machine's snapshot at `[:rf/spawn-counter <id-prefix>]` — i.e. **snapshot-local** to the parent | a frame revert that restores the parent's snapshot also restores the parent's counter; re-running the same cascade allocates the same ids |
 | Hand-emitted `:rf.machine/spawn` fx (from an event handler's `:fx`, no parent machine) | inside the framework's reserved root at `[:rf/runtime :machines :spawn-counter <id-prefix>]` — i.e. **frame-app-db-local** under the single `:rf/runtime` container | a frame revert that restores app-db restores the counter; re-running the same drain allocates the same ids |
+
+> **Two spawn-counters, one rule.** The two rows above are two *locations*, not two *policies* — read them as a single invariant: **the spawn-id counter lives in whatever state reverts atomically with the thing that allocated the id.** A declarative `:spawn` is allocated inside a parent's transition reducer, so its counter rides the parent's snapshot; a hand-emitted `:rf.machine/spawn` is allocated inside a top-level drain, so its counter rides frame-app-db. Both choices serve the same goal (re-running a reverted cascade/drain re-allocates the *same* ids); neither is a special case to memorise.
 
 The two-tier split is not implementation discretion. It falls out of the requirement that **revertibility round-trips through the same allocation site that produced the ids in the first place** — declarative spawns are part of a parent's transition reducer (so their counter belongs to the parent's snapshot, which is what reverts atomically with the cascade), whereas hand-emitted spawns are part of a top-level drain (so their counter belongs to frame-app-db, which is what reverts atomically with the drain). Putting either counter outside the snapshot it composes with — e.g. a global counter, or an out-of-band atom — would break the round-trip: a revert would restore the snapshot but leave the counter at its post-revert value, and the next spawn would allocate a **different** id than the original, drifting the trace stream and the spawn-registry slot.
 
@@ -2018,7 +2021,7 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
            {:definition request-protocol           ;; or :machine-id if reusing a registered definition
             :id-prefix  :request/protocol           ;; → :request/protocol#42
             :data       {:url url :attempt 0}
-            :on-spawn   (fn [{data :data id :id}] (assoc data :request-id id))}]]}))
+            :system-id  :request-id}]]}))            ;; address it later by name (an :on-spawn return would be dropped)
 
 (rf/dispatch-sync [:app/spawn-request-protocol "/foo"])
 
@@ -2060,20 +2063,21 @@ Observability is unchanged: the **original** `:rf.machine/destroyed` (with `:rea
 
 ### Spawning multiple, dynamic counts
 
-Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently; each runs its `:on-spawn` against the current data (post-previous-spawn). For dynamic-count spawning, build the `:fx` vector with `mapv`:
+Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently; each fires its (advisory) `:on-spawn` hook with the freshly-allocated id. For dynamic-count spawning, build the `:fx` vector with `mapv`:
 
 ```clojure
 :action (fn [{[_ jobs] :event}]
           {:fx (mapv (fn [job]
                        [:rf.machine/spawn {:machine-id :worker
-                                           :data       job
-                                           :on-spawn   (fn [{data :data id :id}]
-                                                         (update data :workers (fnil conj []) id))}])
+                                           :data       job}])
                      jobs)})
-;; → after action: (:workers data) is [<id-0> <id-1> <id-2> ...]
+;; → each worker's id is reachable from the spawn-registry; to collect them
+;;   into the parent's :data, emit one :rf.machine/update-snapshot after the
+;;   spawns drain (the ids live at [:rf/runtime :machines :spawn-counter ...]
+;;   deterministically), or address each worker by a per-job :system-id.
 ```
 
-The `:on-spawn` shape is general enough to subsume binding-as-key (`(assoc d :k id)`), append-to-vector (`(update d :ks conj id)`), assoc-into-map (`(assoc-in d [:by-key k] id)`), and any custom shape. One primitive; user picks the merge.
+To record the ids in the parent's `:data`, do NOT reach for `:on-spawn` — its return is dropped. Use [`:rf.machine/update-snapshot`](#path-conventions-in-machine-bodies) from a regular `:action`'s `:fx`, or give each spawn a distinct `:system-id` and resolve by name. See [§Recording the spawned id user-side](#recording-the-spawned-id-user-side).
 
 ### What spawning gives for free
 
@@ -2094,15 +2098,13 @@ A spawn whose `:system-id` key is supplied **also** binds a name in the per-fram
           {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                                     :system-id  :primary-request    ;; bind the name
                                     :data       {:url "/api/foo"}
-                                    :on-spawn   (fn [{d :data id :id}] (assoc d :pending id))
                                     :start      [:begin]}]]})
 
 ;; The same :system-id key works on declarative :spawn:
 {:loading
  {:spawn {:machine-id :request/protocol
            :system-id  :primary-request
-           :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})
-           :on-spawn   (fn [{d :data id :id}] (assoc d :pending id))}}}
+           :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})}}}
 
 ;; Anywhere in the same frame:
 (rf/machine-by-system-id :primary-request)
@@ -2155,13 +2157,13 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
 {:loading
  {:spawn {:machine-id :request/protocol
            :data       {:url "/api/foo"}
-           :on-spawn   (fn [{data :data id :id}] (assoc data :pending id))
+           :system-id  :loader              ;; address the child by name (its id is dropped from :on-spawn)
            :start      [:begin]}
   :on     {:succeeded {:target :loaded}
            :failed    {:target :error}}}}
 ```
 
-While in `:loading`, an actor of `:request/protocol` exists at `[:rf/runtime :machines :snapshots <gensym'd-id>]`, addressable through the id the user's `:on-spawn` recorded in `(:pending data)` AND through the runtime-owned registry at `[:rf/runtime :machines :spawned <parent-machine-id> [:loading]]`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, no longer requires the user to have written the id under any specific `:data` key.
+While in `:loading`, an actor of `:request/protocol` exists at `[:rf/runtime :machines :snapshots <gensym'd-id>]`, addressable through the runtime-owned registry at `[:rf/runtime :machines :spawned <parent-machine-id> [:loading]]` and, with the `:system-id :loader` binding above, by name via `(rf/machine-by-system-id :loader)`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, never requiring the user to have written the id under any specific `:data` key (an `:on-spawn` callback could not do so anyway — its return is dropped).
 
 ### Spec-spec keys
 
@@ -2184,13 +2186,21 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 > **Wall-clock timeouts: use the parent state's `:after` slot.** Earlier drafts of this spec carried a `:timeout-ms` slot on `:spawn` / `:spawn-all` for "the whole spawned actor must terminate within N ms (spanning retries)." That slot is **dropped** in favour of the canonical `:after` primitive on the parent state — `:after` is one mechanism, not two. Per [§Whichever fires first wins](#whichever-fires-first-wins), an `:after` firing on the parent state exits the state and the standard exit cascade destroys the in-flight `:spawn`d child. The migration recipe is mechanical: lift the `:timeout-ms` value into the `:spawn`-bearing state's `:after` map, with a transition that exits the state to a "timeout" target. See [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).
 
-**Path convention.** The `:on-spawn` callback receives the snapshot's `:data` directly and returns a new `:data` map. The runtime patches the result back into the snapshot. Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), this is uniform with `:guard` and `:action`: the body operates on `:data`, never on the wrapping snapshot. A typical body is `(assoc data :pending id)` or `(update data :workers (fnil conj) id)` — *not* `(assoc-in snap [:data :pending] id)`.
+**Path convention.** The `:on-spawn` callback receives the unified context-map `{:data <parent's :data> :id <spawned-id>}` — it reads the parent's `:data` but, unlike `:guard` / `:action`, **its return value is dropped**: `:on-spawn` cannot write the parent's `:data`. The runtime does NOT patch any result back into the snapshot. Use `:on-spawn` for side-channel observation only (logging, mirroring the id into instrumentation). To record the id in the parent's `:data`, see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side).
 
-**`:on-spawn` is purely advisory — a side-channel observation hook.** Per (Option A revised), the runtime tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/runtime :machines :spawned <parent-machine-id> <invoke-id>]` (where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state node) **regardless of whether `:on-spawn` is declared**. The `:on-spawn` callback runs because most apps want a user-side handle on the id (so other transitions can address the child by name in their own bookkeeping) — but the runtime no longer depends on it for the destroy-side resolution. Apps can omit `:on-spawn` entirely when no user-side bookkeeping is needed; the parent's `:exit` cascade still tears down the spawned child via the runtime registry.
+**`:on-spawn` is purely advisory — a side-channel observation hook.** Per (Option A revised), the runtime tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/runtime :machines :spawned <parent-machine-id> <invoke-id>]` (where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state node) **regardless of whether `:on-spawn` is declared**. The `:on-spawn` callback runs only so apps can observe the spawn (logging, instrumentation) — it does NOT record the id anywhere itself (its return is dropped), and the runtime never depends on it for destroy-side resolution. Apps can omit `:on-spawn` entirely; the parent's `:exit` cascade still tears down the spawned child via the runtime registry.
 
-> **Use `:on-spawn` ONLY for side-channel observation.** Per audit-of-audits state-machines #7 — the callback is the canonical place to log spawn events, mirror the new id into instrumentation, or fold the id into the parent's `:data` for user-side addressing. It is NOT load-bearing for destroy-side lifecycle, which the runtime owns via the `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` registry. Treat `:on-spawn` as the convenient observer hook for "the spawn just happened, here's the id" — not as a step the framework needs you to perform for correctness.
+> **Use `:on-spawn` ONLY for side-channel observation.** Per audit-of-audits state-machines #7 — the callback is the canonical place to log spawn events or mirror the new id into instrumentation. It is NOT load-bearing for destroy-side lifecycle, which the runtime owns via the `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` registry. Treat `:on-spawn` as the convenient observer hook for "the spawn just happened, here's the id" — not as a step the framework needs you to perform for correctness, and **not** as a way to write the parent's `:data` (its return is dropped — see below).
 
-`:on-spawn` is **purely advisory**: the runtime invokes the callback with `{:data ... :id <spawned-id>}` (per the unified context-map contract) and DROPS the return value entirely. The parent's `:data` cannot be mutated by `:on-spawn`. The runtime owns destroy-side resolution via the `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` registry. Authors that need the id user-side either (a) read it from the runtime-tracked `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot, or (b) capture it via a sidechannel atom.
+`:on-spawn` is **purely advisory**: the runtime invokes the callback with `{:data ... :id <spawned-id>}` (per the unified context-map contract) and DROPS the return value entirely. The parent's `:data` cannot be mutated by `:on-spawn`. The runtime owns destroy-side resolution via the `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` registry.
+
+#### Recording the spawned id user-side
+
+`:on-spawn`'s return is dropped, so a callback like `(assoc data :pending id)` is a no-op — `(:pending data)` stays `nil` forever, and in a dev build the runtime emits `:rf.warning/on-spawn-return-ignored` to flag the dropped value (per rf2-dtth6). There are **three** working mechanisms for getting a user-side handle on the spawned id; pick one:
+
+1. **`:system-id` (recommended).** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; resolve anywhere in the frame with `(rf/machine-by-system-id :my-name)` or dispatch with `[:dispatch-to-system :my-name [...]]`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
+2. **Read the runtime registry slot.** The id is always at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` (`<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state) — read it directly when you have the parent-id and state path.
+3. **`:rf.machine/update-snapshot`.** From a regular `:action`'s `:fx` vector, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` to write the id (read from the registry slot) into the parent's `:data` atomically. See the snapshot-level escape hatch in [§Path conventions in machine bodies](#path-conventions-in-machine-bodies).
 
 ### Desugaring rules
 
@@ -2209,7 +2219,7 @@ Before / after:
 {:loading
  {:spawn {:machine-id :request/protocol
            :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})
-           :on-spawn   (fn [{data :data id :id}] (assoc data :pending id))
+           :system-id  :loader
            :start      [:begin]}
   :on     {:succeeded :loaded
            :failed    :error}}}
@@ -2220,7 +2230,7 @@ Before / after:
            {:fx [[:rf.machine/spawn {:machine-id   :request/protocol
                                      :id-prefix    :request/protocol
                                      :data         {:url (:endpoint data)}
-                                     :on-spawn     (fn [{d :data id :id}] (assoc d :pending id))
+                                     :system-id    :loader
                                      :start        [:begin]
                                      ;; Stamped by the runtime — addresses the
                                      ;; runtime-owned spawn registry slot at
@@ -2238,7 +2248,7 @@ Before / after:
           :failed    :error}}}
 ```
 
-From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — except that the runtime no longer requires the user's `:on-spawn` callback to write the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/runtime :machines :spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
+From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — and the runtime never requires the user to record the spawned id under any particular `:data` slot (it could not be recorded from `:on-spawn` anyway — that return is dropped). The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/runtime :machines :spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
 
 > **Spec-as-data caveat for `:spawn` / `:spawn-all`.** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record sees the desugared form, not the literal `:spawn` map. The two surfaces are deliberately split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is intentionally not part of the public contract and may evolve. Per audit Finding 3.
 
@@ -2249,7 +2259,7 @@ A state may declare both `:spawn` AND user-supplied `:entry` / `:exit`. The user
 - **On enter:** the user's `:entry` action runs, then the auto-spawn fx is emitted.
 - **On exit:** the user's `:exit` action runs, then the auto-destroy fx is emitted.
 
-Rationale: the user's `:entry` is for setup work that must happen before the child starts (e.g., normalising data, recording a start timestamp). The spawn happens after that setup completes, so the child sees the post-setup snapshot. On exit, the user's `:exit` action gets to read the actor's final snapshot before the auto-destroy clears it — useful for capturing the child's last reported value. Address the child either through whatever id the user's `:on-spawn` recorded in `:data`, or via the runtime registry: `(get-in db [:rf/runtime :machines :spawned <parent-machine-id> <invoke-id>])` resolves to the gensym'd id, and `(get-in db [:rf/runtime :machines :snapshots <id>])` reads the snapshot from there.
+Rationale: the user's `:entry` is for setup work that must happen before the child starts (e.g., normalising data, recording a start timestamp). The spawn happens after that setup completes, so the child sees the post-setup snapshot. On exit, the user's `:exit` action gets to read the actor's final snapshot before the auto-destroy clears it — useful for capturing the child's last reported value. Address the child via the runtime registry — `(get-in db [:rf/runtime :machines :spawned <parent-machine-id> <invoke-id>])` resolves to the gensym'd id and `(get-in db [:rf/runtime :machines :snapshots <id>])` reads the snapshot from there — or by `:system-id` name (per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 
 The composition is **wire-level concatenation, not nesting** — the action ordering is `[user-entry, auto-spawn]` for entry and `[user-exit, auto-destroy]` for exit. Each runs as a normal action, returning its own `{:data :fx}` effect map; the runtime drains them in order per [§Drain semantics — Level 2](#level-2--across-the-action-slots-in-one-transition).
 
@@ -2300,7 +2310,7 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
             :data       (fn [{snap :snapshot}]
                           {:url  "/api/login"
                            :body (-> snap :data :credentials)})
-            :on-spawn   (fn [{data :data id :id}] (assoc data :auth-actor id))}
+            :system-id  :auth-actor}    ;; address the child by name
    :on     {:auth/succeeded :authenticated
             :auth/failed    :idle}}
 
@@ -2310,10 +2320,10 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
 The walk-through:
 
 1. User submits → state moves `:idle` → `:authenticating`.
-2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf/runtime :machines :spawned :login [:authenticating]]` in the frame's app-db, and the `:on-spawn` fn (advisory;) records the id under `:auth-actor` so other transitions in the parent can address the child by name.
+2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf/runtime :machines :spawned :login [:authenticating]]` in the frame's app-db and registers the `:system-id :auth-actor` name, so other transitions in the parent can address the child via `(rf/machine-by-system-id :auth-actor)`.
 3. The HTTP child runs; on success, it dispatches `[:login [:auth/succeeded ...]]` (where `:login` is the parent machine's id).
 4. The login machine handles `:auth/succeeded`; transitions to `:authenticated`.
-5. Leaving `:authenticating` triggers the desugared exit: the runtime reads the actor id back from `[:rf/runtime :machines :spawned :login [:authenticating]]`, destroys it, clears the slot. The HTTP child's snapshot is removed from `[:rf/runtime :machines :snapshots]` automatically. (The `:auth-actor` value left in the parent's `:data` is now stale; user code may clear it in a subsequent action if it cares — the runtime does not.)
+5. Leaving `:authenticating` triggers the desugared exit: the runtime reads the actor id back from `[:rf/runtime :machines :spawned :login [:authenticating]]`, destroys it, clears the slot, and releases the `:auth-actor` `:system-id` binding. The HTTP child's snapshot is removed from `[:rf/runtime :machines :snapshots]` automatically — no stale id lingers in the parent's `:data`.
 6. If the user abandons mid-flight (a different transition fires `:authenticating` → `:idle`), the exit cascade still runs; the in-flight HTTP child is destroyed; no actor leaks.
 
 The key property: the parent does not have to *remember* to destroy the child. The lifecycle binding is declared once at the state level, and the exit cascade enforces it on every code path out of the state — including ones the author hasn't yet thought of.
@@ -2434,8 +2444,7 @@ An earlier draft of this spec carried a `:timeout-ms` slot on `:spawn` / `:spawn
 
 ```clojure
 {:authenticating
- {:spawn {:machine-id :auth-flow
-           :on-spawn   :record-auth}
+ {:spawn {:machine-id :auth-flow}
   :after  {30000 :auth-failed}                 ;; wall-clock guard — spans retries inside the child
   :on     {:auth/succeeded :authenticated}}}
 ```
@@ -2552,10 +2561,10 @@ The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all`
 ```clojure
 {:hydrating
  {:spawn-all
-  {:children         [{:id :cfg  :machine-id :load-config       :on-spawn :record-cfg}
-                      {:id :flag :machine-id :load-feature-flags :on-spawn :record-flag}
-                      {:id :user :machine-id :load-user-profile  :on-spawn :record-user}
-                      {:id :dash :machine-id :load-dashboards    :on-spawn :record-dash}]
+  {:children         [{:id :cfg  :machine-id :load-config}
+                      {:id :flag :machine-id :load-feature-flags}
+                      {:id :user :machine-id :load-user-profile}
+                      {:id :dash :machine-id :load-dashboards}]
    :join             :all                      ;; or :any, {:n N}, or {:fn pred}
    :on-child-done    :child/done               ;; child → parent event keyword for success
    :on-child-error   :child/error              ;; child → parent event keyword for failure

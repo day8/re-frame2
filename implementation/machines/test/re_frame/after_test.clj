@@ -428,7 +428,9 @@
           parent {:initial :idle
                   :data    {}
                   :on-spawn-actions
-                  {:rec (fn [{:keys [data id]}] (assoc data :pending id))}
+                  ;; Advisory observation hook — returns nil (rf2-dtth6
+                  ;; warns on a non-nil dropped return).
+                  {:rec (fn [{:keys [id]}] (tap> [::spawned id]) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
