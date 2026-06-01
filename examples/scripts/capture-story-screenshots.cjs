@@ -33,8 +33,11 @@
  *   STORY_BASE=http://127.0.0.1:9876 \
  *     node examples/scripts/capture-story-screenshots.cjs [shotName...]
  *
- * A no-arg run captures every declared shot; an argument filters to the
- * named shots (e.g. `index-overview` `mode-tabs-strip`).
+ * Once SHOTS is re-populated: a no-arg run captures every declared shot;
+ * an argument filters to the named shots (e.g. `index-overview`
+ * `mode-tabs-strip`). With SHOTS currently empty BOTH forms select zero
+ * shots and `main()` exits non-zero ("No shots selected."); see the
+ * empty-SHOTS note above.
  */
 
 'use strict';
