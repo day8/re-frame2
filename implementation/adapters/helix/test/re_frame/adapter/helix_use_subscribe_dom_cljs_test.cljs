@@ -113,7 +113,11 @@
 (def ^:private cfg
   {:adapter               helix-adapter/adapter
    :name                  "Helix"
-   :frame-provider        helix-adapter/frame-provider
+   ;; rf2-z7hfp — mount the NATIVE frame-provider component via Helix's
+   ;; `$` (the documented shape), not a direct CLJS-fn invocation.
+   :frame-provider-mount-element
+   (fn [frame-kw child-el]
+     ($ helix-adapter/frame-provider {:frame frame-kw :children [child-el]}))
    ;; tracks-app-db
    :probe-element         (fn [] ($ Probe))
    :probe-observed        probe-observed
@@ -170,20 +174,25 @@
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :helix :name "Helix"}))
 
-;; ---- regression: frame-provider under the documented `$` shape (rf2-9ok1s) -
+;; ---- regression: frame-provider under the documented `$` shape (rf2-9ok1s / rf2-z7hfp) -
 ;;
-;; The shared-suite `assert-use-subscribe-frame-provider-resolution`
-;; invokes `frame-provider` DIRECTLY as a CLJS fn (with a real CLJS map)
-;; — see its comment "invoke it directly rather than via the substrate's
-;; `$`". That path NEVER exercises Helix's `$`, which routes props through
-;; `helix.impl.props/-props` and hands the component a *raw JS object*
-;; (string keys "frame"/"children"). The bare spine re-export read `nil`
-;; for both keys under that shape: `:frame` silently resolved to
-;; `:rf/default` and the subtree rendered nothing. This test mounts the
-;; provider via the EXACT documented `($ frame-provider {...})` shape and
-;; asserts the descendant `use-subscribe` reads the WRAPPED frame's value
-;; (proving the frame propagated). Fails before the helix.cljs prop-
-;; normalisation wrapper; passes after.
+;; Pins the moved-up seam (rf2-z7hfp). HISTORY: `frame-provider` used to
+;; be a plain re-exported spine CLJS fn (not a `defnc`), so Helix's `$`
+;; routed props through `helix.impl.props/-props` and handed the fn a
+;; *raw JS object* with string keys "frame"/"children" — the fn read
+;; `nil` for both, `:frame` silently resolved to `:rf/default`, and the
+;; subtree rendered nothing. A bespoke `gobj/get` un-mangling wrapper
+;; patched it per-adapter.
+;;
+;; rf2-z7hfp MOVED THE SEAM UP: `frame-provider` is now a NATIVE Helix
+;; `defnc` component. `$` therefore routes its props through
+;; `extract-cljs-props`, which beans the JS object back into a CLJS map
+;; with keyword keys (and Helix preserves keyword VALUES) — so `:frame`
+;; destructures cleanly by construction, with no per-adapter patch. This
+;; test mounts the provider via the EXACT documented `($ frame-provider
+;; {...})` shape and asserts the descendant `use-subscribe` reads the
+;; WRAPPED frame's value — the structural guarantee that the prop-mangling
+;; class cannot reopen.
 
 (defn- browser? []
   (and (exists? js/document)

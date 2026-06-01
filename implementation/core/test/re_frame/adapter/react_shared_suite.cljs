@@ -102,6 +102,7 @@
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.react-test-support :as react-test-support]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.spine :as spine]
             [re-frame.trace.tooling :as trace-tooling])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame frame-bound-fn]]))
 
@@ -532,24 +533,38 @@
           (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
 
 ;; ===========================================================================
-;; frame-provider branches (rf2-7kjz8) — folded from UIx's
+;; frame-provider CORE branches (rf2-7kjz8 / rf2-z7hfp) — folded from UIx's
 ;; uix_frame_provider_branches_cljs_test.cljs and Helix's
-;; helix_frame_provider_children_cljs_test.cljs. Same spine code path
-;; (`re-frame.substrate.spine/frame-provider`) is exposed through each
-;; adapter's public `frame-provider` re-export. Naming follows the
-;; UIx-direction per rf2-uqlce: `provider-element-frame-kw` /
-;; `provider-element-children` describe what the slot SEMANTICALLY
-;; MEANS (the frame-kw the Context.Provider hands down vs the children
-;; prop) — Helix's prior `props-value` / `props-children` were
-;; React-level and lost domain meaning.
+;; helix_frame_provider_children_cljs_test.cljs.
 ;;
-;; cfg key required: `:frame-provider` — the adapter's frame-provider
-;; fn, accepting a `{:frame :children}` props map.
+;; rf2-z7hfp — MOVE THE SEAM UP. These assertions pin the substrate-
+;; agnostic frame-resolution + children-coercion logic, which now lives
+;; in `re-frame.substrate.spine/build-frame-provider-element` (the shared
+;; CORE the native per-substrate `frame-provider` component delegates to).
+;; Previously they invoked each adapter's public `frame-provider` DIRECTLY
+;; as a CLJS fn (the cfg `:frame-provider` slot) because that surface WAS a
+;; plain re-exported spine fn. With the seam moved up the public surface is
+;; a NATIVE substrate component (`defui` / `defnc`) that is NOT directly
+;; CLJS-invocable (UIx's `glue-args` would read nil; Helix's
+;; `extract-cljs-props` throws in dev on a map). So the shape assertions
+;; target the core builder directly — and the END-TO-END `$`-shape
+;; propagation (the formerly-bespoke-patched class) is pinned by each
+;; adapter's `frame-provider-dollar-shape-propagates-frame` DOM regression
+;; test (rf2-9ok1s / rf2-8svnm). Both halves are substrate-shared: the core
+;; logic here, the native-shell-under-`$` behaviour in the DOM twins.
+;;
+;; Naming follows the UIx-direction per rf2-uqlce: `provider-element-
+;; frame-kw` / `provider-element-children` describe what the slot
+;; SEMANTICALLY MEANS (the frame-kw the Context.Provider hands down vs the
+;; children prop).
+;;
+;; Substrate-agnostic: no cfg `:frame-provider` needed — `name` only, for
+;; the assertion message.
 ;; ===========================================================================
 
 (defn- provider-element-frame-kw
-  "Pull the `:value` prop off a React element returned by
-  `frame-provider` — this is the frame keyword the surrounding
+  "Pull the `:value` prop off the React element returned by
+  `build-frame-provider-element` — the frame keyword the surrounding
   Context.Provider will hand down to `use-context` consumers."
   [el]
   (when (and el (.-props el))
@@ -557,56 +572,54 @@
 
 (defn- provider-element-children
   "Pull the `children` prop off the React element returned by
-  `frame-provider`. React normalises a single-element children to
-  the element directly; multi-element children come through as a
-  JS array."
+  `build-frame-provider-element`. React normalises a single-element
+  children to the element directly; multi-element children come through
+  as a JS array."
   [el]
   (when (and el (.-props el))
     (aget (.-props el) "children")))
 
 (defn assert-frame-provider-missing-frame-falls-through-to-default
-  "(frame-provider {:children [...]}) — no :frame at all — falls through
-  to :rf/default per rf2-sixo. The provider-element's `:value` slot
-  carries :rf/default."
-  [{:keys [frame-provider name]}]
-  (testing (str name " — frame-provider: missing :frame falls through to :rf/default")
-    (let [el (frame-provider {:children [:fake-child-a :fake-child-b]})]
-      (is (some? el) "frame-provider returned a React element")
+  "(build-frame-provider-element nil [...]) — no frame at all — falls
+  through to :rf/default per rf2-sixo. The provider-element's `:value`
+  slot carries :rf/default."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: missing frame falls through to :rf/default")
+    (let [el (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b])]
+      (is (some? el) "build-frame-provider-element returned a React element")
       (is (= :rf/default (provider-element-frame-kw el))
-          "missing :frame defaulted to :rf/default"))))
+          "missing frame defaulted to :rf/default"))))
 
 (defn assert-frame-provider-nil-frame-falls-through-to-default
-  "(frame-provider {:frame nil :children [...]}) — explicit nil :frame
-  — falls through to :rf/default. The `(or frame :rf/default)` clause
-  covers both the missing-key and nil-value cases."
-  [{:keys [frame-provider name]}]
-  (testing (str name " — frame-provider: nil :frame falls through to :rf/default")
-    (let [el (frame-provider {:frame nil :children [:fake-child]})]
+  "(build-frame-provider-element nil [...]) — explicit nil frame — falls
+  through to :rf/default. The `(or frame-kw :rf/default)` clause covers
+  both the missing and nil cases."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: nil frame falls through to :rf/default")
+    (let [el (spine/build-frame-provider-element nil [:fake-child])]
       (is (some? el))
       (is (= :rf/default (provider-element-frame-kw el))
-          "nil :frame defaulted to :rf/default"))))
+          "nil frame defaulted to :rf/default"))))
 
 (defn assert-frame-provider-named-frame-preserved
-  "A supplied :frame keyword is preserved on the provider element's
-  value slot. Sanity-check counterpart to the default-fallback
-  assertions."
-  [{:keys [frame-provider name]}]
-  (testing (str name " — frame-provider: named :frame keyword preserved")
-    (let [el (frame-provider {:frame :tenant-a :children [:fake-child]})]
+  "A supplied frame keyword is preserved on the provider element's value
+  slot. Sanity-check counterpart to the default-fallback assertions."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: named frame keyword preserved")
+    (let [el (spine/build-frame-provider-element :tenant-a [:fake-child])]
       (is (= :tenant-a (provider-element-frame-kw el))
-          ":frame :tenant-a flows through to the provider's value slot"))))
+          "frame :tenant-a flows through to the provider's value slot"))))
 
 (defn assert-frame-provider-single-child-coerced-to-vector
-  "(frame-provider {:frame :session :children child-a}) — a single child
-  (NOT a vector) — does not throw and is coerced to a one-element
-  children sequence by the `(if (sequential? children) children
-  [children])` branch. Pins the spine's frame-provider single-vs-
-  sequential coercion."
-  [{:keys [frame-provider name]}]
-  (testing (str name " — frame-provider: single :children coerced to vector")
+  "(build-frame-provider-element :session child-a) — a single child (NOT
+  a vector) — does not throw and is coerced to a one-element children
+  sequence by the `(if (sequential? children) children [children])`
+  branch. Pins the core's single-vs-sequential coercion."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: single child coerced to vector")
     (let [single-child :fake-single-child-marker
-          el (frame-provider {:frame :session :children single-child})]
-      (is (some? el) "frame-provider didn't throw on a non-sequential :children")
+          el (spine/build-frame-provider-element :session single-child)]
+      (is (some? el) "build-frame-provider-element didn't throw on a non-sequential child")
       (is (= :session (provider-element-frame-kw el)))
       ;; React normalises single-element children to the element value;
       ;; the marker survives the coercion regardless of normalisation.
@@ -615,23 +628,23 @@
                 (and (some? kids)
                      (or (not (.-length kids))
                          (= 1 (.-length kids)))))
-            "single :children produced a one-element children slot")))))
+            "single child produced a one-element children slot")))))
 
 (defn assert-frame-provider-sequential-children-preserved
-  "A sequential :children vector flows through the spine's coercion
-  branch unchanged — multiple children are handed to the Provider as
-  separate args."
-  [{:keys [frame-provider name]}]
-  (testing (str name " — frame-provider: sequential :children preserved")
+  "A sequential children vector flows through the core's coercion branch
+  unchanged — multiple children are handed to the Provider as separate
+  args."
+  [{:keys [name]}]
+  (testing (str name " — frame-provider core: sequential children preserved")
     (let [a :child-a
           b :child-b
-          el (frame-provider {:frame :session :children [a b]})]
+          el (spine/build-frame-provider-element :session [a b])]
       (is (some? el))
       (is (= :session (provider-element-frame-kw el)))
       (let [kids (provider-element-children el)]
         (is (some? kids))
         (is (= 2 (.-length kids))
-            "sequential :children produced a two-element children slot")))))
+            "sequential children produced a two-element children slot")))))
 
 ;; ===========================================================================
 ;; warn-once fires-once (Spec 006 §Documented exemption) — G5
@@ -2173,8 +2186,22 @@
   "rf2-518sp: use-subscribe 1-arg form resolves through the surrounding
   frame-provider.
 
+  rf2-z7hfp — MOVE THE SEAM UP. The adapter's `frame-provider` is now a
+  NATIVE substrate component (`defui` / `defnc`), NOT a plain CLJS fn, so
+  it is mounted via the substrate's OWN `$` (the documented call shape)
+  rather than invoked directly. The entry file supplies a
+  `:frame-provider-mount-element` thunk `(fn [frame-kw child-el] ...)`
+  that builds `($ frame-provider {:frame frame-kw :children [child-el]})`
+  in the substrate's idiom — exercising the native shell through `$`, the
+  exact surface the old per-substrate prop-mangling defect (rf2-9ok1s /
+  rf2-8svnm) hid under. This makes the 1-arg-resolution contract a
+  full end-to-end check of the moved-up seam.
+
   cfg keys:
-    :frame-provider                 the adapter's frame-provider fn
+    :frame-provider-mount-element   thunk (fn [frame-kw child-el]) →
+                                    the substrate `($ frame-provider …)`
+                                    element with `child-el` as its only
+                                    child
     :probe-frame-provider-element   thunk → the 1-arg-form
                                     ProbeFrameProvider element
     :probe-frame-provider-observed  atom the ProbeFrameProvider pushes
@@ -2182,9 +2209,9 @@
     :frame-provider-frame           frame-id keyword for the wrapped frame
     :frame-provider-query           query-v keyword ProbeFrameProvider
                                     subscribes to"
-  [{:keys [name frame-provider probe-frame-provider-element probe-frame-provider-observed
-           frame-provider-frame frame-provider-query]}]
-  (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp)")
+  [{:keys [name frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed frame-provider-frame frame-provider-query]}]
+  (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp / rf2-z7hfp)")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-frame-provider-observed [])
@@ -2197,12 +2224,11 @@
         (try
           (act-fn
             (fn []
-              ;; frame-provider is a plain CLJS fn returning a React
-              ;; element (NOT a React-component head), so invoke it
-              ;; directly rather than via the substrate's `$`.
+              ;; The NATIVE frame-provider component mounted via the
+              ;; substrate's documented `$` shape (rf2-z7hfp).
               (.render root
-                (frame-provider
-                  {:frame frame-provider-frame :children [(probe-frame-provider-element)]}))))
+                (frame-provider-mount-element
+                  frame-provider-frame (probe-frame-provider-element)))))
           (is (some #{:wrapped} @probe-frame-provider-observed)
               "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
           (finally

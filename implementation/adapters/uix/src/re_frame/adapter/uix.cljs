@@ -11,8 +11,7 @@
   configuration: gensym prefixes, substrate name (used in warn-once
   text), and the runtime hook fns from `uix.hooks.alpha` (the
   `uix.core` macros expand to these)."
-  (:require [goog.object       :as gobj]
-            [uix.core          :as uix]
+  (:require [uix.core          :as uix :refer-macros [defui]]
             [uix.hooks.alpha   :as uix-hooks]
             [re-frame.substrate.spine   :as spine]))
 
@@ -49,28 +48,10 @@
   that chain. Per rf2-84myk."
   (:use-current-frame spine-fns))
 
-(def ^:private spine-frame-provider
-  "The shared-spine `frame-provider` fn. Destructures a CLJS-map props
-  argument (`{:keys [frame children]}`). The public `frame-provider`
-  below wraps it so the documented `($ frame-provider {...})` call shape
-  works (see that var's docstring)."
-  (:frame-provider spine-fns))
-
-(defn- glue-uix-props
-  "Reconstruct the CLJS props map from the JS object UIx's `$` hands a
-  component down the lossless `uix-component-element` path. Mirrors
-  `uix.core/glue-args`: the original CLJS props map is stashed under
-  `argv`, and any `$`-trailing children React appended sit under
-  `children`. Reading `argv` (rather than the React-level string keys)
-  preserves keyword *values* losslessly — see `frame-provider`'s
-  docstring for why that matters."
-  [^js props]
-  (cond-> (gobj/get props "argv")
-    (gobj/get props "children") (assoc :children (gobj/get props "children"))))
-
-(defn frame-provider
+(defui frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider. UIx call shape:
+  children in the shared frame Context Provider. UIx call shape (exactly
+  as documented in Spec 002 / Spec 006):
 
       ($ frame-provider {:frame :session
                          :children [($ header) ($ main)]})
@@ -80,42 +61,26 @@
   Decision 2) so a subtree under any frame-provider sees the right
   frame regardless of which substrate rendered the provider.
 
-  Prop normalisation (rf2-8svnm — the UIx twin of the Helix rf2-9ok1s
-  defect, with a UIx-specific twist). The shared-spine `frame-provider`
-  is a plain CLJS fn that destructures a CLJS-map props argument. A bare
-  re-export breaks under the documented `($ frame-provider {...})` shape:
-  because the re-exported fn carries no `.-uix-component?` marker, UIx's
-  `$` routes it through `uix.compiler.alpha/react-component-element` →
-  `interpret-attrs`, which (a) hands the component a *raw JS object* with
-  string keys, and — the UIx-specific twist Helix's `$` does NOT share —
-  (b) *stringifies keyword prop values to their bare name*, dropping the
-  namespace (`:my.ns/frame` → `\"frame\"`). So even reading the string key
-  yields a namespace-less string that no longer matches the registered
-  frame keyword: `:frame` effectively resolves to `:rf/default` and the
-  subtree renders nothing. No throw, no warning.
+  Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
+  C, MOVE THE SEAM UP). This is a NATIVE UIx `defui` component, NOT a
+  re-export of a shared-spine fn handed to `$`. Because it is a real
+  `defui`, UIx's `$` stamps it `.-uix-component?` and routes its props
+  through the LOSSLESS `uix-component-element` (`argv`) path — `glue-args`
+  reconstructs the original CLJS props map with keyword values intact
+  (namespace preserved). The body then reads `:frame` / `:children`
+  off that clean CLJS map and delegates to the substrate-agnostic spine
+  core `build-frame-provider-element` (frame-resolution + element-build).
 
-  Fix (UIx-local; does not touch the shared spine): mark `frame-provider`
-  with `.-uix-component?` so `$` routes it through the *lossless*
-  `uix-component-element` path instead. That path stashes the original
-  CLJS props map under the JS object's `argv` slot (the same channel a
-  real `defui` uses) — keyword values survive intact. The body then
-  reconstructs the CLJS map via `glue-uix-props` (mirroring
-  `uix.core/glue-args`) and delegates to the spine. When invoked directly
-  as a CLJS fn with a real map (the shape the shared test suite uses),
-  it passes through unchanged. Both call shapes reach the spine fn with
-  the same CLJS-map contract, keywords intact."
-  [props]
-  (if (map? props)
-    ;; Direct CLJS-fn invocation (e.g. shared test suite) — pass through.
-    (spine-frame-provider props)
-    ;; `$`-supplied JS object on the lossless uix-component path — the
-    ;; original CLJS map (keywords intact) lives under `argv`.
-    (spine-frame-provider (glue-uix-props props))))
-
-;; Route `$` through UIx's lossless `uix-component-element` (`argv`) path
-;; rather than the keyword-stringifying `react-component-element` path.
-;; See `frame-provider`'s docstring (rf2-8svnm).
-(set! (.-uix-component? frame-provider) true)
+  This replaces the former bespoke un-mangling wrapper (rf2-8svnm: a
+  plain re-export plus a manual `.-uix-component?` marker and a
+  `glue-uix-props` reconstruction branching on `(map? props)`). With the
+  seam moved ABOVE `$`, the prop-mangling class — UIx's
+  `react-component-element` → `interpret-attrs` stringifying keyword prop
+  values and dropping the namespace — is impossible by construction:
+  there is no plain fn under `$` for the element macro to mangle. No
+  per-substrate un-mangling patch remains to drift."
+  [{:keys [frame children]}]
+  (spine/build-frame-provider-element frame children))
 
 (def use-subscribe
   "UIx hook that reads a re-frame subscription. Returns the current
@@ -177,5 +142,13 @@
   chained installs (warn-once clear + SSR emitter) all live once in the
   spine — the UIx and Helix adapter wiring is byte-identical, so this
   single call replaces the former hand-copied block. The per-hook
-  rationale lives at `spine/make-react-adapter`."
-  (spine/make-react-adapter spine-fns :rf.adapter/uix))
+  rationale lives at `spine/make-react-adapter`.
+
+  The native `frame-provider` `defui` component (rf2-z7hfp) is passed in
+  as `:frame-provider` so the spine wires it into the
+  `:register-context-provider` substrate slot — the component shell lives
+  in this ns, above where UIx's `$` marshals props; the spine carries no
+  UIx element-macro dependency."
+  (spine/make-react-adapter spine-fns
+                            {:kind           :rf.adapter/uix
+                             :frame-provider frame-provider}))

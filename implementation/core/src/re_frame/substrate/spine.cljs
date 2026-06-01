@@ -641,35 +641,65 @@
                       {:reason      "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
                        :render-tree render-tree})))))
 
-;; ---- context provider -----------------------------------------------------
+;; ---- context provider — substrate-agnostic CORE ---------------------------
 ;;
 ;; Every React-shaped adapter shares the same React.createContext object
-;; (in re-frame.adapter.context). The provider component is identical
-;; across substrates — only `use-current-frame` (the read-side hook)
-;; varies, and only by which hook ns supplies `use-context`.
+;; (in re-frame.adapter.context). The substrate-agnostic CORE is the
+;; frame-resolution + element-build below; the user-facing COMPONENT
+;; SHELL is NATIVE to each substrate (UIx `defui`, Helix `defnc`,
+;; Reagent hiccup) and lives in the adapter ns.
+;;
+;; Seam placement (rf2-z7hfp). Earlier this ns shipped `frame-provider`
+;; as a plain CLJS fn that destructured `{:keys [frame children]}`, and
+;; each React-hook adapter RE-EXPORTED it as the component a user hands to
+;; `$`. That put the abstraction seam BELOW the layer where each
+;; substrate's element macro (`$` in Helix/UIx, hiccup in Reagent)
+;; marshals props: Helix's `$` handed the fn a raw JS object with string
+;; keys; UIx's `$` ALSO stringified keyword prop values (dropping the
+;; namespace), so `:frame` silently fell to `:rf/default`. Each adapter
+;; then carried a bespoke un-mangling wrapper to repair the props before
+;; they reached the shared fn (helix rf2-9ok1s, uix rf2-8svnm) — a
+;; standing per-substrate-patch hazard: a new substrate, or a new prop,
+;; reopens the same class of bug.
+;;
+;; Move the seam UP (Mike-ruled C, rf2-z7hfp). The spine now provides
+;; ONLY the substrate-agnostic core — `build-frame-provider-element`
+;; (frame-resolution + element-build, touching no substrate prop-
+;; marshalling). The COMPONENT SHELL sits ABOVE where `$` marshals: each
+;; React-hook adapter defines its `frame-provider` as a NATIVE
+;; substrate component (`defui` / `defnc`) that reads its props in that
+;; substrate's OWN lossless idiom (UIx's `argv` channel, Helix's
+;; `extract-cljs-props`), then hands a clean frame-kw + children to this
+;; core. The prop-mangling class is impossible by construction — there is
+;; no plain fn under `$` for the element macro to mangle, and no per-
+;; substrate un-mangling patch to drift.
 
-(defn frame-provider
-  "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider — inside the subtree,
-  `(rf/frame-handle)` / `reg-view`-registered descendants resolve to
-  the named frame. Per Spec 002 §What `frame-provider` is.
+(defn build-frame-provider-element
+  "Substrate-agnostic CORE of the frame-provider (rf2-z7hfp). Given a
+  resolved frame keyword (or nil/missing) and a children value, returns
+  the shared frame Context Provider React element scoping that frame to
+  its subtree — inside the subtree, `(rf/frame-handle)` /
+  `reg-view`-registered descendants resolve to the named frame. Per
+  Spec 002 §What `frame-provider` is.
 
-  Reads `:frame` from props. When missing or `nil`, falls through to
+  Frame-resolution: when `frame-kw` is missing or `nil`, falls through to
   `:rf/default` — defensive default that matches the no-provider
   behaviour and avoids breaking tooling-generated trees that elide the
-  prop."
-  [{:keys [frame children]}]
-  (let [frame-kw (or frame :rf/default)]
-    (apply adapter-context/provider-element frame-kw
-           (if (sequential? children) children [children]))))
+  frame. Children are normalised to a flat arg list (a single non-
+  sequential child is wrapped) before being handed to
+  `provider-element`.
 
-(defn register-context-provider
-  "Substrate `:register-context-provider` slot. Same shape across all
-  React-shaped adapters: returns the `frame-provider` fn unchanged.
-  The frame-keyword arg is ignored because the frame keyword lives in
-  the Provider's `:value` at render time, not in a build-time closure."
-  [_frame-keyword]
-  frame-provider)
+  This fn touches NO substrate prop-marshalling: the native component
+  shell in each adapter has already read its props in the substrate's
+  idiom and hands this core a clean CLJS frame-kw + children. That is the
+  whole point of the moved seam — the marshalling-sensitive surface
+  (`$`/hiccup → component) lives ABOVE this core, in substrate-native
+  code, so a keyword frame-id survives intact on every substrate by
+  construction."
+  [frame-kw children]
+  (apply adapter-context/provider-element
+         (or frame-kw :rf/default)
+         (if (sequential? children) children [children])))
 
 ;; ---- render flush for tests ----------------------------------------------
 ;;
@@ -1080,15 +1110,23 @@
        :make-derived-value         …
        :render                     …
        :render-to-string           …
-       :register-context-provider  …
        :dispose-adapter!           …
        :set-hiccup-emitter!        …
        :use-current-frame          …
        :use-subscribe              …
-       :frame-provider             …
        :flush-views!               …
        :wrap-view                  …
-       :clear-warned-non-dom-roots! …}"
+       :clear-warned-non-dom-roots! …}
+
+  Note (rf2-z7hfp): the spine no longer produces `:frame-provider` or
+  `:register-context-provider`. The user-facing frame-provider is a
+  NATIVE substrate component (`defui` / `defnc`) defined in the adapter
+  ns above where each substrate's element macro marshals props; the
+  adapter passes that component into `make-react-adapter` as
+  `:frame-provider`, and the spine wires it into the
+  `:register-context-provider` substrate slot. The shared substrate-
+  agnostic core is `build-frame-provider-element`, which the native
+  component shell calls with clean props."
   [{:keys [substrate-name
            gensym-prefix-sub
            gensym-prefix-derived
@@ -1259,13 +1297,11 @@
      :make-derived-value          make-derived
      :render                      render-fn
      :render-to-string            (make-render-to-string emitter-cell)
-     :register-context-provider   register-context-provider
      :dispose-adapter!            dispose-fn
      :set-hiccup-emitter!         (fn set-it! [f]
                                     (set-hiccup-emitter! emitter-cell f))
      :use-current-frame           use-current-frame
      :use-subscribe               use-subscribe
-     :frame-provider              frame-provider
      :flush-views!                flush-views!
      :wrap-view                   wrap-view-fn
      :clear-warned-non-dom-roots! clear-warned
@@ -1324,20 +1360,38 @@
 
 (defn make-react-adapter
   "Assemble a React-hook adapter (UIx / Helix) from a `make-react-spine`
-  result map plus the substrate's `:kind` discriminator keyword.
+  result map plus the substrate's config:
+
+      :kind           — the adapter's `:kind` discriminator keyword
+      :frame-provider — the substrate's NATIVE frame-provider component
+                        (`defui` for UIx, `defnc` for Helix), defined in
+                        the adapter ns ABOVE where that substrate's `$`
+                        marshals props (rf2-z7hfp — the moved seam). The
+                        component reads its props in the substrate's
+                        lossless idiom and delegates to the spine core
+                        `build-frame-provider-element`. Passed in (NOT
+                        spine-built) so the spine carries no substrate
+                        element-macro dependency, mirroring how
+                        `make-ratom-adapter` takes the Reagent-component
+                        `register-context-provider` in.
 
   Builds the 9-key substrate adapter map, routes the five React-hook
   late-bind hooks against it (`substrate-adapter/route-hook!`), and wires
-  the two chained installs (warn-once clear + SSR hiccup-emitter). Returns
-  the adapter map. SIDE-EFFECTING: the route-hook! / chain-fn! calls run
-  at call time (the adapter ns evaluates `(make-react-adapter spine-fns
-  :rf.adapter/uix)` at load), exactly as the hand-written wiring did.
+  the two chained installs (warn-once clear + SSR hiccup-emitter). The
+  `:register-context-provider` substrate slot returns the native
+  `frame-provider` component (the frame-keyword arg is ignored — the
+  keyword lives in the Provider's `:value` at render time, not in a
+  build-time closure). Returns the adapter map. SIDE-EFFECTING: the
+  route-hook! / chain-fn! calls run at call time (the adapter ns
+  evaluates `(make-react-adapter spine-fns {:kind :rf.adapter/uix
+  :frame-provider …})` at load), exactly as the hand-written wiring did.
 
   Single source of truth (rf2-ee38b.1): UIx and Helix call this with the
   same shape — the only inputs are their already-substrate-specific
-  `spine-fns` map and `:kind`. The former hand-copied route-hook block +
-  chained installs (byte-identical across the twins) now live once."
-  [spine-fns kind]
+  `spine-fns` map, `:kind`, and native `:frame-provider`. The former
+  hand-copied route-hook block + chained installs (byte-identical across
+  the twins) now live once."
+  [spine-fns {:keys [kind frame-provider]}]
   (let [adapter {:kind                      kind
                  :make-state-container      (:make-state-container      spine-fns)
                  :read-container            (:read-container            spine-fns)
@@ -1346,7 +1400,10 @@
                  :make-derived-value        (:make-derived-value        spine-fns)
                  :render                    (:render                    spine-fns)
                  :render-to-string          (:render-to-string          spine-fns)
-                 :register-context-provider (:register-context-provider spine-fns)
+                 ;; rf2-z7hfp: the native component IS the provider; the
+                 ;; frame-keyword arg is ignored (frame lives in the
+                 ;; Provider's `:value` at render time).
+                 :register-context-provider (fn [_frame-keyword] frame-provider)
                  :dispose-adapter!          (:dispose-adapter!          spine-fns)}]
     (substrate-adapter/route-hook! adapter :adapter/current-frame
       adapter-context/function-component-current-frame

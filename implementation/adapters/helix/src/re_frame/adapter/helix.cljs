@@ -13,7 +13,7 @@
   passes JS-array deps unconditionally). The React frame-context
   comes from `re-frame.adapter.context` so a mixed-substrate app's
   frame-provider chain composes across substrates."
-  (:require [goog.object         :as gobj]
+  (:require [helix.core          :refer-macros [defnc]]
             [helix.hooks         :as helix-hooks]
             [re-frame.substrate.spine   :as spine]))
 
@@ -51,16 +51,10 @@
   `spine/make-react-adapter`) covers that chain. Per rf2-84myk."
   (:use-current-frame spine-fns))
 
-(def ^:private spine-frame-provider
-  "The shared-spine `frame-provider` fn. Destructures a CLJS-map props
-  argument (`{:keys [frame children]}`). The public `frame-provider`
-  below wraps it so the documented `($ frame-provider {...})` call shape
-  works (see that var's docstring)."
-  (:frame-provider spine-fns))
-
-(defn frame-provider
+(defnc frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider. Helix call shape:
+  children in the shared frame Context Provider. Helix call shape
+  (exactly as documented in Spec 002 / Spec 006):
 
       ($ frame-provider {:frame :session
                          :children [($ header) ($ main)]})
@@ -70,33 +64,25 @@
   Decision 2) so a subtree under any frame-provider sees the right frame
   regardless of which substrate rendered the provider.
 
-  Prop normalisation (rf2-9ok1s): the shared-spine `frame-provider` is a
-  plain CLJS fn that destructures a CLJS-map props argument. Helix's `$`
-  routes props through `helix.impl.props/-props`, which hands the
-  component a *raw JS object* (string keys `\"frame\"` / `\"children\"`,
-  with a single child or a JS array under `\"children\"`) — not the CLJS
-  map the spine expects. A bare re-export of the spine fn therefore reads
-  `nil` for both keys under the documented `$` shape: `:frame` silently
-  resolves to `:rf/default` and the subtree renders nothing. This wrapper
-  reads the props via JS interop when React supplies a JS object, and
-  passes a CLJS map through unchanged when invoked directly (the shape
-  the shared test suite uses), so both call shapes reach the spine fn
-  with the same CLJS-map contract."
-  [props]
-  (if (map? props)
-    ;; Direct CLJS-fn invocation (e.g. shared test suite) — pass through.
-    (spine-frame-provider props)
-    ;; `$`-supplied raw JS object — read string keys, normalise children.
-    (let [frame    (gobj/get props "frame")
-          children (gobj/get props "children")]
-      (spine-frame-provider
-        {:frame    frame
-         :children (cond
-                     (nil? children)         []
-                     ;; `$` collapses multiple children into a JS array;
-                     ;; a lone child is passed through unwrapped.
-                     (array? children)       (vec children)
-                     :else                   [children])}))))
+  Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
+  C, MOVE THE SEAM UP). This is a NATIVE Helix `defnc` component, NOT a
+  re-export of a shared-spine fn handed to `$`. Because it is a real
+  `defnc`, Helix's `$` routes its props through `extract-cljs-props`,
+  which beans the JS object back into a CLJS map with KEYWORD keys (and
+  Helix's `-props` preserves keyword VALUES — only keys are stringified)
+  — so `:frame` / `:children` destructure cleanly with the namespace
+  intact. The body delegates to the substrate-agnostic spine core
+  `build-frame-provider-element` (frame-resolution + element-build).
+
+  This replaces the former bespoke un-mangling wrapper (rf2-9ok1s: a
+  plain re-export plus a `gobj/get` string-key read + children-array
+  normalise, branching on `(map? props)`). With the seam moved ABOVE
+  `$`, the prop-mangling class — Helix's `$` handing a plain fn a raw JS
+  object with string keys — is impossible by construction: there is no
+  plain fn under `$` for the element macro to mangle. No per-substrate
+  un-mangling patch remains to drift."
+  [{:keys [frame children]}]
+  (spine/build-frame-provider-element frame children))
 
 (def use-subscribe
   "Helix hook that reads a re-frame subscription. Returns the current
@@ -159,5 +145,13 @@
   spine — the Helix and UIx adapter wiring is byte-identical, so this
   single call replaces the former hand-copied block (which had drifted in
   prose against the UIx twin). The per-hook rationale lives at
-  `spine/make-react-adapter`."
-  (spine/make-react-adapter spine-fns :rf.adapter/helix))
+  `spine/make-react-adapter`.
+
+  The native `frame-provider` `defnc` component (rf2-z7hfp) is passed in
+  as `:frame-provider` so the spine wires it into the
+  `:register-context-provider` substrate slot — the component shell lives
+  in this ns, above where Helix's `$` marshals props; the spine carries
+  no Helix element-macro dependency."
+  (spine/make-react-adapter spine-fns
+                            {:kind           :rf.adapter/helix
+                             :frame-provider frame-provider}))
