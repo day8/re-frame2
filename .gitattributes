@@ -27,3 +27,10 @@ docs/tools/playground/src/playground.css text eol=lf
 # the committed file and trips a spurious manifest drift.
 spec/api-manifest.edn text eol=lf
 spec/api-manifest-metadata.edn text eol=lf
+
+# The generated MCP tool-descriptor manifests (rf2-sofwv). Each MCP server
+# generates its committed manifest from the live tool registry; CI drift-checks
+# it on Linux. Pin LF — same rationale as the api-manifest above — so a Windows
+# checkout never CRLF-rewrites the committed file and trips a spurious drift.
+tools/story-mcp/tool-descriptors.edn text eol=lf
+tools/re-frame2-pair-mcp/tool-descriptors.edn text eol=lf
