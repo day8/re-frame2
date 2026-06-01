@@ -64,12 +64,13 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 // Build-ids confirmed against implementation/shadow-cljs.edn :builds.
 // ---------------------------------------------------------------------------
 
-// The five Xray driving surfaces (the _epochs trio + the two-frame
-// isolation surface + the panel gallery).
+// The six Xray driving surfaces (the _epochs trio + the edn-inspector
+// widget driver + the two-frame isolation surface + the panel gallery).
 const XRAY_BUILDS = [
   ':examples/standard-epochs',
   ':examples/routes-epochs',
   ':examples/machine-epochs',
+  ':examples/edn-inspector',
   ':examples/two-frame-isolation',
   ':testbeds/panel-gallery',
 ];
@@ -107,6 +108,7 @@ const DEV_HTTP = {
   ':examples/standard-epochs': { port: 8031 },
   ':examples/routes-epochs': { port: 8032 },
   ':examples/machine-epochs': { port: 8033 },
+  ':examples/edn-inspector': { port: 8034 },
   ':testbeds/panel-gallery': { port: 8765 },
   ':examples/nine-states-with-stories': { port: 8040, story: true },
   ':examples/login-with-stories': { port: 8041, story: true },

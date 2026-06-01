@@ -275,6 +275,18 @@
             ;; 8032).
             8033 ["../tools/xray/testbeds/machine_epochs"
                   "out/examples/machine-epochs"]
+            ;; Single-frame edn-inspector testbed (rf2-74u2s) — the
+            ;; WIDGET sibling of standard-epochs. Same numbered-button
+            ;; shape (one frame · one rung per press), but each rung
+            ;; seeds a value-shape into the edn-inspector widget mounted
+            ;; below the column, driving the renderer DIRECTLY rather than
+            ;; the Xray panels. Same source-dir-first cascade as 8031-8033;
+            ;; compiled main.js falls through to out/examples/edn-inspector.
+            ;; Port 8034 is the next free testbed slot above the _epochs
+            ;; trio (standard-epochs 8031, routes-epochs 8032,
+            ;; machine-epochs 8033).
+            8034 ["../tools/xray/testbeds/edn_inspector"
+                  "out/examples/edn-inspector"]
             ;; --- Story showcases (rf2-xz4zn) -------------------------
             ;; The four Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
@@ -774,6 +786,43 @@
    :modules          {:main {:init-fn machine-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
+
+  ;; Single-frame edn-inspector testbed (rf2-74u2s) — the WIDGET sibling
+  ;; of standard-epochs. Same numbered-button shape (a tall column in ONE
+  ;; plainly-mounted frame, one rung per press), but each rung seeds a
+  ;; value-shape into the Xray edn-inspector widget
+  ;; (day8.re-frame2-xray.views.edn-inspector) mounted BELOW the column,
+  ;; driving the single CLJS-value RENDERER directly — the renderer behind
+  ;; every Xray panel — across a progressive 13-rung ladder (resting render
+  ;; → elision → nesting/collapse → the three diff ops → redaction +
+  ;; large-elided sentinels → zoom → popup affordance → tagged literals →
+  ;; card/header chrome). Extracted from the edn-inspector test that was
+  ;; mixed into standard_epochs (its old button 9). A TEST surface — no
+  ;; deliberate bugs (feedback_testbeds_are_test_surfaces).
+  ;;
+  ;; The value shapes are REUSED from the panel_gallery edn-inspector +
+  ;; diff-mode-3 fixtures; the ladder drives them live. Sources live under
+  ;; tools/xray/testbeds/edn_inspector/.
+  ;;
+  ;; NOTE the preload set differs from the _epochs trio above: this deck
+  ;; mounts the widget DIRECTLY (no Xray shell), so it does NOT wire
+  ;; day8.re-frame2-xray.preload (which auto-mounts the inline shell). The
+  ;; deck's own `run` registers Xray's handlers + installs the theme CSS
+  ;; vars for the bare widget mount (mirrors the panel_gallery boot). Only
+  ;; the pair runtime preload is wired (rf2-54jz4) so the pair-MCP can
+  ;; probe the live runtime.
+  ;; Served at http://localhost:8034 via the top-level `:dev-http` map.
+  :examples/edn-inspector
+  {:target           :browser
+   :output-dir       "out/examples/edn-inspector"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn edn-inspector.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime]}}
 
   ;; Xray panel-gallery testbed (rf2-1o7mp) — visual gallery of Xray
   ;; panels under varying state magnitude. Sources live under

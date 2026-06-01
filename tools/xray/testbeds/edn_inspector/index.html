@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: edn-inspector (widget driver)</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    /* The deck mounts the edn-inspector widget DIRECTLY below the button
+       column (no inline Xray shell host). A single `#app` root is all the
+       page needs. The widget paints with the Xray theme palette installed
+       on `:root` by `global-styles/install!` at boot. */
+    :root { --rf-xray-accent: #7C5CFF; }
+    #app { min-height: 100vh; padding: 0; }
+  </style>
+</head>
+<body>
+  <main id="app"></main>
+  <script src="main.js"></script>
+</body>
+</html>

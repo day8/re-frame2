@@ -32,31 +32,32 @@
               #2 adds a coeffect to the event detail, #4 a one-shot fx,
               #5 a cascade dispatch-id tree.
     App-db  — #1 scalar bump · #6 added key · #7 removed key · #8 changed
-              nested value (diff-mode-3) · #9 large collection · #5 flow
-              writes a derived slot.
+              nested value (diff-mode-3) · #5 flow writes a derived slot.
+              (The dedicated large-collection / edn-inspector case lives
+              in the sibling `edn_inspector` deck — rf2-74u2s.)
     Views   — two children make re-render CAUSES separable. Child A is
               SUBSCRIPTION-driven (an own L1→L2→L3 chain + the arg-keyed
               `[:standard-epochs/greater-than? N]` sub); Child B is
-              PROPS-driven (a prop, NO subs). #10 mount A (node + the
-              sub-cache entries appear) · #11 change the arg N (a NEW
-              [:gt? N] cache entry — cache keyed by arg) · #12 change a
+              PROPS-driven (a prop, NO subs). #9 mount A (node + the
+              sub-cache entries appear) · #10 change the arg N (a NEW
+              [:gt? N] cache entry — cache keyed by arg) · #11 change a
               chain input (L1→L2→L3 invalidation recompute; A re-renders
-              ← a SUB changed) · #13 unmount A (node gone, ALL of A's
-              subs disposed, the unmount recorded) · #14 mount B (props
-              view, NO subs created) · #15 change B's prop (B re-renders
-              ← PROPS changed — the foil to #12). The section lives on
+              ← a SUB changed) · #12 unmount A (node gone, ALL of A's
+              subs disposed, the unmount recorded) · #13 mount B (props
+              view, NO subs created) · #14 change B's prop (B re-renders
+              ← PROPS changed — the foil to #11). The section lives on
               its OWN slots (`:views/*`), so mount/unmount/sub state is
               exercised DIRECTLY — no start-at-button-1 sequencing, no
               :base/flow confound.
     Trace   — every button emits trace; #3 a managed fx, #4 a cascade,
-              #5 a flow recompute, #12 a sub-chain recompute.
-    Issues  — #16 handler exception (db rolls back) · #17 interceptor
-              :before exception (handler skipped) · #18 interceptor :after
-              exception (handler ran, threw on the way out) · #19 coeffect
-              exception · #20 effect exception (post-commit, best-effort) ·
-              #21 slow fx flagged · #22 event-args schema violation · #23
+              #5 a flow recompute, #11 a sub-chain recompute.
+    Issues  — #15 handler exception (db rolls back) · #16 interceptor
+              :before exception (handler skipped) · #17 interceptor :after
+              exception (handler ran, threw on the way out) · #18 coeffect
+              exception · #19 effect exception (post-commit, best-effort) ·
+              #20 slow fx flagged · #21 event-args schema violation · #22
               app-db schema violation (survives rollback).
-    Reactive— #24 diamond probe (c ← a,b ← root): the join sub's recompute
+    Reactive— #23 diamond probe (c ← a,b ← root): the join sub's recompute
               count surfaces whether the substrate double-computes an
               intermediate sub per single root change (rf2-kt5nx).
 
@@ -82,7 +83,7 @@
             ;; Schemas artefact — load-time hook so `reg-app-schema` and
             ;; the `:schema` event metadata resolve. The Malli adapter
             ;; publishes the validator so CLJS schema checks actually
-            ;; fire (without it they soft-pass and buttons #20/#21 would
+            ;; fire (without it they soft-pass and buttons #21/#22 would
             ;; produce no Issues row).
             [re-frame.schemas]
             [re-frame.schemas.malli]
@@ -115,9 +116,9 @@
 ;;   :threshold                 — N, the changeable arg to the dynamic
 ;;                                sub `[:standard-epochs/greater-than? N]`.
 ;;   :chain-input               — the root of Child A's own L1→L2→L3
-;;                                chain (button #12 perturbs it).
+;;                                chain (button #11 perturbs it).
 ;;   :b-prop                    — the prop fed to the props-driven
-;;                                Child B (button #15 changes it).
+;;                                Child B (button #14 changes it).
 
 (def initial-db
   {:baseline 0
@@ -147,10 +148,10 @@
 (defn- bump [db] (update db :baseline inc))
 
 ;; ============================================================================
-;; APP-DB SCHEMA (button #23)
+;; APP-DB SCHEMA (button #22)
 ;; ============================================================================
 ;;
-;; The only constraint: [:auth :token] must be a string. Button #23
+;; The only constraint: [:auth :token] must be a string. Button #22
 ;; writes an int there; the post-handler app-db validation (Spec 010
 ;; §Validation order) rejects it and rolls the :db effect back, while the
 ;; schema-violation issue survives in Xray's Issues lens.
@@ -172,7 +173,7 @@
   (fn cofx-now [ctx]
     (rf/assoc-coeffect ctx :standard-epochs/now (.getTime (js/Date.)))))
 
-;; A coeffect that throws on injection (button #19). A FEATURE being
+;; A coeffect that throws on injection (button #18). A FEATURE being
 ;; exercised — the supported way to light up the cofx error surface.
 (rf/reg-cofx :standard-epochs/throwing-cofx
   {:doc "Throws during coeffect injection so Xray's Issues lens surfaces
@@ -182,8 +183,8 @@
                     {:surface :coeffect-exception}))))
 
 ;; ============================================================================
-;; INTERCEPTORS that throw — one in :before (button #17), one in :after
-;; (button #18)
+;; INTERCEPTORS that throw — one in :before (button #16), one in :after
+;; (button #17)
 ;; ============================================================================
 ;;
 ;; Two throwing interceptors so the per-step placement work can tell the
@@ -193,7 +194,7 @@
 ;; makes the framework's per-step exception attribution (the :before-chain
 ;; vs interceptor-:after distinction) visible live in Xray.
 
-;; Throws in :before — aborts before the handler runs (button #17).
+;; Throws in :before — aborts before the handler runs (button #16).
 (def throwing-interceptor
   (rf/->interceptor
     :id     :standard-epochs/throwing-interceptor
@@ -202,7 +203,7 @@
                               {:surface :interceptor-exception :phase :before})))))
 
 ;; Throws in :after — the handler runs to completion first, THEN this
-;; throws on the way back out of the chain (button #18). The foil to the
+;; throws on the way back out of the chain (button #17). The foil to the
 ;; :before interceptor above: the failing step is the interceptor's :after,
 ;; not the handler, so the per-step placement renders the exception under
 ;; the interceptor's :after step (rf2-yz57h) and the framework attributes
@@ -226,7 +227,7 @@
   (fn fx-ping [_ctx args]
     (swap! ping-log conj args)))
 
-;; A managed slow fx (~600ms, button #21). Resolves later with a
+;; A managed slow fx (~600ms, button #20). Resolves later with a
 ;; follow-on dispatch back onto the originating frame. ~600ms exceeds
 ;; Spec 009's slow-effect threshold, so Xray's Issues lens flags it as a
 ;; (non-bug) slow effect; the status moves :loading -> :loaded.
@@ -237,7 +238,7 @@
       (fn [] (rf/dispatch [:standard-epochs/slow-done] {:frame frame}))
       SLOW-MS)))
 
-;; An fx whose body throws (button #20). The handler's :db commits first;
+;; An fx whose body throws (button #19). The handler's :db commits first;
 ;; the throw fires later, during the post-commit fx walk — best-effort
 ;; per the FX atomicity asymmetry — so Xray's Issues lens shows the fx
 ;; error while the baseline bump survives.
@@ -330,23 +331,16 @@
   (fn handler-change-value [db _ev]
     (-> db bump (update-in [:shapes :counter] (fnil inc 0)))))
 
-;; -- 9. write a large collection → edn-inspector collapse/expand + elision --
-(rf/reg-event-db :standard-epochs/write-large
-  {:doc "Button 9 — write a large collection. The edn-inspector
-         collapses / expands it and elides past its threshold."}
-  (fn handler-write-large [db _ev]
-    (-> db bump (assoc-in [:shapes :large] (vec (range 200))))))
-
-;; -- 10..15. Views / subscriptions — sub-driven Child A + props-driven Child B
+;; -- 9..14. Views / subscriptions — sub-driven Child A + props-driven Child B
 ;;
 ;; The whole section lives on the `:views` slots, decoupled from the
 ;; counter: a button MAY bump `:baseline`, but mount/unmount/sub state is
 ;; never linked to a counter VALUE. Two children separate the re-render
-;; CAUSE — Child A re-renders ← a SUB changed (#12); Child B re-renders ←
-;; PROPS changed (#15).
+;; CAUSE — Child A re-renders ← a SUB changed (#11); Child B re-renders ←
+;; PROPS changed (#14).
 
 (rf/reg-event-db :standard-epochs/mount-a
-  {:doc "Button 10 — mount the SUBSCRIPTION-driven Child A (sets
+  {:doc "Button 9 — mount the SUBSCRIPTION-driven Child A (sets
          :views/a-mounted? true). On mount A subscribes its own
          L1→L2→L3 chain (:chain-root → :chain-doubled → :chain-labelled)
          PLUS the arg-keyed `[:standard-epochs/greater-than? N]` sub — so
@@ -355,14 +349,14 @@
     (-> db bump (assoc-in [:views :a-mounted?] true))))
 
 (rf/reg-event-db :standard-epochs/set-threshold
-  {:doc "Button 11 — change the sub-arg N (5 → 10). `[:standard-epochs/
+  {:doc "Button 10 — change the sub-arg N (5 → 10). `[:standard-epochs/
          greater-than? N]` is keyed by its arg, so the new N is a NEW,
          distinct sub-cache entry alongside the old one."}
   (fn handler-set-threshold [db [_ n]]
     (-> db bump (assoc-in [:views :threshold] n))))
 
 (rf/reg-event-db :standard-epochs/perturb-chain
-  {:doc "Button 12 — perturb Child A's chain input (:views/chain-input).
+  {:doc "Button 11 — perturb Child A's chain input (:views/chain-input).
          With A mounted, Views shows the L1 (:chain-root) → L2
          (:chain-doubled) → L3 (:chain-labelled) invalidation recompute,
          and A re-renders BECAUSE A SUB CHANGED (← :standard-epochs/chain-
@@ -371,7 +365,7 @@
     (-> db bump (update-in [:views :chain-input] inc))))
 
 (rf/reg-event-db :standard-epochs/unmount-a
-  {:doc "Button 13 — unmount Child A (sets :views/a-mounted? false). The
+  {:doc "Button 12 — unmount Child A (sets :views/a-mounted? false). The
          node disappears and ALL of A's subs are disposed once the last
          reader is gone (the chain L1/L2/L3 + every [:gt? N] cache
          entry); the unmount is recorded."}
@@ -379,7 +373,7 @@
     (-> db bump (assoc-in [:views :a-mounted?] false))))
 
 (rf/reg-event-db :standard-epochs/mount-b
-  {:doc "Button 14 — mount the PROPS-driven Child B (sets
+  {:doc "Button 13 — mount the PROPS-driven Child B (sets
          :views/b-mounted? true). B receives a prop and subscribes
          NOTHING, so Views shows the node appear with NO new sub-cache
          entries."}
@@ -387,16 +381,16 @@
     (-> db bump (assoc-in [:views :b-mounted?] true))))
 
 (rf/reg-event-db :standard-epochs/set-b-prop
-  {:doc "Button 15 — change Child B's prop. B re-renders BECAUSE ITS
-         PROPS CHANGED (no sub cause) — the foil to button 12's
+  {:doc "Button 14 — change Child B's prop. B re-renders BECAUSE ITS
+         PROPS CHANGED (no sub cause) — the foil to button 11's
          sub-driven re-render."}
   (fn handler-set-b-prop [db _ev]
     (-> db bump (update-in [:views :b-prop]
                            {"alpha" "beta" "beta" "gamma" "gamma" "alpha"}))))
 
-;; -- 16. exception in the handler → Issues: handler-exception, db rolls back -
+;; -- 15. exception in the handler → Issues: handler-exception, db rolls back -
 (rf/reg-event-db :standard-epochs/throw-handler
-  {:doc "Button 16 — throw in the handler. The router catches it; the :db
+  {:doc "Button 15 — throw in the handler. The router catches it; the :db
          effect (the baseline bump) rolls back; Issues shows
          `:rf.error/handler-exception` with the source coord."}
   (fn handler-throw [db _ev]
@@ -404,34 +398,34 @@
     (throw (ex-info "standard-epochs / handler (intentional — exercises the handler error surface)"
                     {:surface :handler-exception}))))
 
-;; -- 17. exception in an interceptor :before → Issues: interceptor exc. ------
+;; -- 16. exception in an interceptor :before → Issues: interceptor exc. ------
 (rf/reg-event-db :standard-epochs/throw-interceptor
-  {:doc "Button 17 — an interceptor throws in :before. The chain aborts on
+  {:doc "Button 16 — an interceptor throws in :before. The chain aborts on
          the way IN; Issues shows the interceptor :before exception and the
          handler never runs."}
   [throwing-interceptor]
   (fn handler-after-throwing-interceptor [db _ev] (bump db)))
 
-;; -- 18. exception in an interceptor :after → Issues: interceptor exc. -------
+;; -- 17. exception in an interceptor :after → Issues: interceptor exc. -------
 (rf/reg-event-db :standard-epochs/throw-interceptor-after
-  {:doc "Button 18 — an interceptor throws in :after. The foil to button
-         17: the handler runs to completion (the :db is computed), THEN the
+  {:doc "Button 17 — an interceptor throws in :after. The foil to button
+         16: the handler runs to completion (the :db is computed), THEN the
          interceptor throws on the way OUT. Issues shows the interceptor
          :after exception; per-step placement renders it under the
          interceptor's :after step, distinct from a handler exception."}
   [throwing-interceptor-after]
   (fn handler-before-throwing-after-interceptor [db _ev] (bump db)))
 
-;; -- 19. exception in a coeffect handler → Issues: cofx error ----------------
+;; -- 18. exception in a coeffect handler → Issues: cofx error ----------------
 (rf/reg-event-fx :standard-epochs/throw-cofx
-  {:doc "Button 19 — a coeffect throws on injection. Issues shows the
+  {:doc "Button 18 — a coeffect throws on injection. Issues shows the
          cofx error; the handler never runs."}
   [(rf/inject-cofx :standard-epochs/throwing-cofx)]
   (fn handler-after-throwing-cofx [{:keys [db]} _ev] {:db (bump db)}))
 
-;; -- 20. exception in an effect handler (post-commit) → Issues: fx error -----
+;; -- 19. exception in an effect handler (post-commit) → Issues: fx error -----
 (rf/reg-event-fx :standard-epochs/throw-fx
-  {:doc "Button 20 — the :db commits (baseline bumps), then a post-commit
+  {:doc "Button 19 — the :db commits (baseline bumps), then a post-commit
          fx throws. Issues shows the fx error; post-commit fx are
          best-effort per the FX atomicity asymmetry, so the db delta
          survives."}
@@ -439,9 +433,9 @@
     {:db (bump db)
      :fx [[:standard-epochs/boom {}]]}))
 
-;; -- 21. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
+;; -- 20. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
 (rf/reg-event-fx :standard-epochs/slow
-  {:doc "Button 21 — issue a ~600ms managed fx. Status moves :loading;
+  {:doc "Button 20 — issue a ~600ms managed fx. Status moves :loading;
          Issues flags the slow fx; the reply lands :loaded ~600ms later."}
   (fn handler-slow [{:keys [db]} _ev]
     {:db (-> db bump (assoc :slow-status :loading))
@@ -453,26 +447,26 @@
   (fn handler-slow-done [db _ev]
     (assoc db :slow-status :loaded)))
 
-;; -- 22. schema violation, bad event args → Issues / Schema-timeline ---------
+;; -- 21. schema violation, bad event args → Issues / Schema-timeline ---------
 (rf/reg-event-db :standard-epochs/bad-event-args
-  {:doc "Button 22 — dispatched with a bad arg (a string where a pos-int
+  {:doc "Button 21 — dispatched with a bad arg (a string where a pos-int
          is required). The handler is skipped; Issues / Schema-timeline
          shows `:rf.error/schema-validation-failure :where :event`."
    :schema [:cat [:= :standard-epochs/bad-event-args] pos-int?]}
   (fn handler-bad-event-args [db _ev] (bump db)))
 
-;; -- 23. schema violation, app-db write → Issues: app-db schema failure ------
+;; -- 22. schema violation, app-db write → Issues: app-db schema failure ------
 (rf/reg-event-db :standard-epochs/bad-app-db-write
-  {:doc "Button 23 — write an int into [:auth :token] (the registered
+  {:doc "Button 22 — write an int into [:auth :token] (the registered
          app-schema requires a string). The post-handler app-db
          validation rolls the :db back; Issues shows the app-db schema
          failure, which survives the rollback."}
   (fn handler-bad-app-db-write [db _ev]
     (-> db bump (assoc-in [:auth :token] 42))))
 
-;; -- 24. diamond probe — bump the join-sub root once -------------------------
+;; -- 23. diamond probe — bump the join-sub root once -------------------------
 (rf/reg-event-db :standard-epochs/bump-diamond
-  {:doc "Button 24 — bump :views/diamond-root once. The join sub
+  {:doc "Button 23 — bump :views/diamond-root once. The join sub
          :standard-epochs/diamond-c (c ← a,b ← root) increments a recompute
          counter each time its compute fn runs. Press once: the counter should
          rise by 1 (clean); a rise of 2 means the diamond double-computes the
@@ -492,7 +486,7 @@
 (rf/reg-sub :standard-epochs/b-prop      (fn [db _] (get-in db [:views :b-prop])))
 
 ;; Child A's OWN L1 → L2 → L3 chain, rooted at :views/chain-input (NOT
-;; :base — that feeds button #5's flow). Button #12 perturbs the root;
+;; :base — that feeds button #5's flow). Button #11 perturbs the root;
 ;; with A mounted, Views shows the L1 → L2 → L3 invalidation recompute.
 (rf/reg-sub :standard-epochs/chain-root            ;; L1
   (fn [db _] (get-in db [:views :chain-input])))
@@ -509,7 +503,7 @@
 ;; vector: `[:standard-epochs/greater-than? n]`. It cascades from the chain
 ;; root (a section-owned value, so the sub's behaviour is NOT linked to
 ;; a counter value). A different n is a DISTINCT cache entry over the
-;; same registration — button #11 (5 → 10) creates a new [:gt? 10]
+;; same registration — button #10 (5 → 10) creates a new [:gt? 10]
 ;; entry alongside the original [:gt? 5].
 (rf/reg-sub :standard-epochs/greater-than?
   :<- [:standard-epochs/chain-root]
@@ -527,7 +521,7 @@
 ;;          \        /
 ;;        :diamond-c             (the JOINING sub :<- a,b)
 ;;
-;; Button #24 bumps the root ONCE. The join sub `:diamond-c` increments a
+;; Button #23 bumps the root ONCE. The join sub `:diamond-c` increments a
 ;; counter each time its compute fn RUNS. Press once: the counter should rise
 ;; by exactly 1; a rise of 2 means the substrate recomputes the intermediate
 ;; join sub TWICE per single root change (the push-based diamond redundant-
@@ -572,8 +566,8 @@
 ;; On mount A subscribes its own L1→L2→L3 chain AND the arg-keyed
 ;; `[:standard-epochs/greater-than? threshold]` sub — so the Views lens
 ;; shows the node + those sub-cache entries appear, the chain recompute
-;; (button #12), and a NEW [:gt? N] cache entry when the arg changes
-;; (button #11). `threshold` arrives as a PROP from the root (which
+;; (button #11), and a NEW [:gt? N] cache entry when the arg changes
+;; (button #10). `threshold` arrives as a PROP from the root (which
 ;; reads :views/threshold), so the arg-key is driven by app-db state
 ;; while the deref itself is A's own subscription.
 
@@ -593,7 +587,7 @@
 ;; --- Child B — props-driven ------------------------------------------------
 ;;
 ;; B receives a single prop and subscribes NOTHING. Mounting it (button
-;; #14) creates no sub-cache entries; changing the prop (button #15)
+;; #13) creates no sub-cache entries; changing the prop (button #14)
 ;; re-renders B because its PROPS changed — the foil to A's sub-driven
 ;; re-render.
 
@@ -630,7 +624,7 @@
      [:div "c recompute count: "
       [:strong {:data-testid "diamond-c-runs"} runs]
       [:span {:style {:color "#888" :font-size "11px" :margin-left "0.5em"}}
-       "(press #24 once → +1 clean, +2 double-compute)"]]]))
+       "(press #23 once → +1 clean, +2 double-compute)"]]]))
 
 ;; ============================================================================
 ;; THE BUTTON LADDER
@@ -650,47 +644,45 @@
     [:standard-epochs/increment-cascade]]
    [5  "Increment + flow"      "App-db: a reg-flow-derived slot recomputes; Trace shows it"
     [:standard-epochs/increment-flow]]
-   [:section "App-db shapes — diff modes / edn-inspector"]
+   [:section "App-db shapes — diff modes"]
    [6  "Add a nested key"      "App-db diff: added (assoc-in)"
     [:standard-epochs/add-key]]
    [7  "Remove a key"          "App-db diff: removed (dissoc)"
     [:standard-epochs/remove-key]]
    [8  "Change a nested value" "App-db diff: changed (update-in, diff-mode-3)"
     [:standard-epochs/change-value]]
-   [9  "Write a large collection" "edn-inspector: collapse / expand + elision"
-    [:standard-epochs/write-large]]
    [:section "Views / subscriptions — sub-driven A vs props-driven B"]
-   [10 "Mount Child A (sub-driven)"  "Views: node + A's sub-cache entries appear (chain L1/L2/L3 + [:gt? 5])"
+   [9  "Mount Child A (sub-driven)"  "Views: node + A's sub-cache entries appear (chain L1/L2/L3 + [:gt? 5])"
     [:standard-epochs/mount-a]]
-   [11 "Change the sub-arg N → 10"   "Views: a NEW cache entry [:gt? 10] (parameterized-sub cache keyed by arg)"
+   [10 "Change the sub-arg N → 10"   "Views: a NEW cache entry [:gt? 10] (parameterized-sub cache keyed by arg)"
     [:standard-epochs/set-threshold 10]]
-   [12 "Perturb A's chain input"     "Views: L1→L2→L3 invalidation recompute; A re-renders ← a SUB changed"
+   [11 "Perturb A's chain input"     "Views: L1→L2→L3 invalidation recompute; A re-renders ← a SUB changed"
     [:standard-epochs/perturb-chain]]
-   [13 "Unmount Child A"             "Views: node gone; ALL of A's subs disposed (last reader gone); unmount recorded"
+   [12 "Unmount Child A"             "Views: node gone; ALL of A's subs disposed (last reader gone); unmount recorded"
     [:standard-epochs/unmount-a]]
-   [14 "Mount Child B (props-driven)" "Views: node appears with NO subs created"
+   [13 "Mount Child B (props-driven)" "Views: node appears with NO subs created"
     [:standard-epochs/mount-b]]
-   [15 "Change B's prop"             "Views: B re-renders ← PROPS changed (foil to #12's sub-driven re-render)"
+   [14 "Change B's prop"             "Views: B re-renders ← PROPS changed (foil to #11's sub-driven re-render)"
     [:standard-epochs/set-b-prop]]
    [:section "Errors / Issues — each a real feature, not a buggy demo"]
-   [16 "Exception in the handler"     "Issues: handler-exception + source coord; db rolls back"
+   [15 "Exception in the handler"     "Issues: handler-exception + source coord; db rolls back"
     [:standard-epochs/throw-handler]]
-   [17 "Exception in an interceptor :before" "Issues: interceptor :before exception; handler skipped"
+   [16 "Exception in an interceptor :before" "Issues: interceptor :before exception; handler skipped"
     [:standard-epochs/throw-interceptor]]
-   [18 "Exception in an interceptor :after"  "Issues: interceptor :after exception; handler ran, threw on the way out (foil to #17)"
+   [17 "Exception in an interceptor :after"  "Issues: interceptor :after exception; handler ran, threw on the way out (foil to #16)"
     [:standard-epochs/throw-interceptor-after]]
-   [19 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
+   [18 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
     [:standard-epochs/throw-cofx]]
-   [20 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
+   [19 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
     [:standard-epochs/throw-fx]]
-   [21 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
+   [20 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
     [:standard-epochs/slow]]
-   [22 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
+   [21 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
     [:standard-epochs/bad-event-args "not-a-number"]]
-   [23 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
+   [22 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
     [:standard-epochs/bad-app-db-write]]
    [:section "Reactive substrate — diamond recompute probe"]
-   [24 "Bump diamond root"            "Diamond c ← a,b ← root: press once; c-recompute count should rise by 1 (clean), 2 = double-compute"
+   [23 "Bump diamond root"            "Diamond c ← a,b ← root: press once; c-recompute count should rise by 1 (clean), 2 = double-compute"
     [:standard-epochs/bump-diamond]]])
 
 (defn- testid-for [event]
@@ -757,7 +749,7 @@
    (when @(subscribe [:standard-epochs/b-mounted?])
      [child-b @(subscribe [:standard-epochs/b-prop])])
    ;; Diamond probe — always mounted so the c ← a,b ← root reaction is live;
-   ;; button #24 bumps the root and the display shows c's recompute count.
+   ;; button #23 bumps the root and the display shows c's recompute count.
    [diamond-display]])
 
 ;; ============================================================================

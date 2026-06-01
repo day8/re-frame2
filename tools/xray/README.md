@@ -268,7 +268,7 @@ reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/xray/testbeds/` —
 `two_frame_isolation`, `standard_epochs`, `routes_epochs`, `machine_epochs`,
-`feature_matrix`, `panel_gallery` — covering the canonical
+`edn_inspector`, `feature_matrix`, `panel_gallery` — covering the canonical
 multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
@@ -295,6 +295,18 @@ exercises its topology highlight · focused-transition lens · guards /
 actions · snapshot drill-in · transition history · parallel-region
 surfaces; owns its own `:door/main` + `:traffic/light` machines and does
 NOT touch the `deep_machine` gate substrate; served on port 8033), the
+WIDGET sibling (`edn_inspector`, rf2-74u2s: the same numbered-button
+shape — one frame · one rung per press — but each rung seeds a value
+shape into the edn-inspector WIDGET
+(`day8.re-frame2-xray.views.edn-inspector`) mounted below the column,
+driving the single CLJS-value RENDERER behind every panel directly
+across a progressive 13-rung ladder — resting render · elision · nesting
++ collapse/expand · the three diff ops (added / removed-to-empty /
+changed) · redaction + large-elided sentinels · zoom · the popup
+affordance · tagged literals · card/header chrome; reuses the
+`panel_gallery` edn-inspector + diff-mode-3 fixtures as its value shapes;
+extracted from the edn-inspector test that was mixed into
+`standard_epochs` as its old button 9; served on port 8034), the
 deterministic
 feature-matrix sweep across panels + shell + launch modes + redaction
 + 20-event load, the Panel-view gallery, and the performance probe.
