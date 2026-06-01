@@ -153,7 +153,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 | `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
 | `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
 | `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
-| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session :children […]})` | v1 | 002, 006 |
+| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | 002, 006 |
 | `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
 | `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
 | `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | 006, 011 |
@@ -173,7 +173,7 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
 | `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
 | `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
 | `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
-| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session :children […]})` | v1 | 002, 006 |
+| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children (rf2-7kii2) | v1 | 002, 006 |
 | `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
 | `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
 | `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | 006, 011 |

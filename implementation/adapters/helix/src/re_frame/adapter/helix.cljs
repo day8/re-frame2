@@ -53,11 +53,19 @@
 
 (defnc frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider. Helix call shape
-  (exactly as documented in Spec 002 / Spec 006):
+  children in the shared frame Context Provider. Helix call shape — the
+  idiomatic `$` TRAILING-CHILDREN form, identical to every other Helix
+  component and mirroring Reagent's trailing-hiccup mental model
+  (rf2-7kii2):
 
-      ($ frame-provider {:frame :session
-                         :children [($ header) ($ main)]})
+      ($ frame-provider {:frame :session}
+         ($ header)
+         ($ main))
+
+  Children ride the native `$` trailing-args channel; there is no
+  `:children` prop-map key to remember (forgetting it used to drop the
+  subtree silently — that footgun is gone by construction). A single
+  child works too: `($ frame-provider {:frame :session} ($ app))`.
 
   Per rf2-sixo: missing or `nil` `:frame` falls through to `:rf/default`.
   The three React-shaped adapters share one React Context (per rf2-2qit
@@ -70,9 +78,12 @@
   `defnc`, Helix's `$` routes its props through `extract-cljs-props`,
   which beans the JS object back into a CLJS map with KEYWORD keys (and
   Helix's `-props` preserves keyword VALUES — only keys are stringified)
-  — so `:frame` / `:children` destructure cleanly with the namespace
-  intact. The body delegates to the substrate-agnostic spine core
-  `build-frame-provider-element` (frame-resolution + element-build).
+  AND lifts the native trailing children onto the `:children` key
+  (Helix's `$`/`extract-cljs-props` contract: `($ Comp props c1 c2)`
+  arrives as `{... :children #js [c1 c2]}`). So `:frame` / `:children`
+  destructure cleanly with the namespace intact. The body delegates to
+  the substrate-agnostic spine core `build-frame-provider-element`
+  (frame-resolution + element-build).
 
   This replaces the former bespoke un-mangling wrapper (rf2-9ok1s: a
   plain re-export plus a `gobj/get` string-key read + children-array
