@@ -23,7 +23,8 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   application code. Events, subscriptions, effects, frames, state machines,
   schemas, stories, routing, and the canonical patterns (RemoteData, Forms,
   Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork,
-  StaleDetection). Scaffolding, leaf content under `reference/`,
+  StaleDetection, ReusableComponents, StatefulComponents, FormAction,
+  SSR-Loaders). Scaffolding, leaf content under `reference/`,
   `patterns/`, and `decision-trees/`, and the integration pass have all
   landed — the skill is alpha-ready.
 

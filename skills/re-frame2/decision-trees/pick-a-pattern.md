@@ -22,6 +22,10 @@ Read the prompt for **one** of the following shape-tells. They are mutually excl
 | "Fire-and-forget / log / analytics / telemetry / external side-effect with no observable reply" | AsyncEffect |
 | "CPU-bound / heavy / parses / hashes / pegs the main thread / chunked / yields / progress bar" | LongRunningWork |
 | "Cache / freshness / TTL / since / etag / `stale-after-ms` / async-result arrives after state moved on" | StaleDetection |
+| "Reusable / parameterised widget / customer-card / renders N of the same / works against any X / compare two side by side" | ReusableComponents |
+| "Wrap a JS library / D3 / Mapbox / CodeMirror / Three.js / ag-grid / chart / map / editor / `:ref` + lifecycle / `.setData`" | StatefulComponents |
+| "SSR form POST / progressive enhancement / works without JavaScript / server `action` / POST-redirect-GET / CSRF on submit" | FormAction |
+| "SSR parallel fetch / `Promise.all` server-side / fan-out N requests before render / per-page loader" | SSR-Loaders |
 
 If you see **two** shape-tells, the dominant one is the one the user names first or the one that owns the data. Pattern composition (e.g. "managed-HTTP retries inside a form submit") is normal — pick the primary, plan the secondary as a follow-up.
 
@@ -117,6 +121,10 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 | AsyncEffect | [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
 | LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/reagent/long_running_work/` |
 | StaleDetection | [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
+| ReusableComponents | [`patterns/reusable-components.md`](../patterns/reusable-components.md) | (inline mini-example) |
+| StatefulComponents | [`patterns/stateful-components.md`](../patterns/stateful-components.md) | (per-adapter README) |
+| FormAction | [`patterns/form-action.md`](../patterns/form-action.md) | (inline mini-example) |
+| SSR-Loaders | [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/reagent/boot/` |
 
 Load at most two pattern leaves at a time. If three or more seem necessary, the request probably spans features and should be broken up — author each pattern's leaf in its own pass.
 

@@ -5,7 +5,8 @@ description: >
   effects, flows, frames, state machines (reg-machine, parallel regions,
   tags, spawn), schemas, stories, routing, tests, and the canonical patterns
   (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
-  AsyncEffect, LongRunningWork, StaleDetection). Use whenever the user
+  AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents,
+  StatefulComponents, FormAction, SSR-Loaders). Use whenever the user
   mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx,
   reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
   reg-app-schema, dispatch, subscribe, app-db, flows, frames, regions,
@@ -84,6 +85,10 @@ Full skill-disambiguation matrix lives at [`skills/README.md` Â§Skill routing â€
 | Real-time bidirectional connection | `patterns/websocket.md` |
 | View rendering every legal lifecycle state | `patterns/nine-states.md` |
 | Cached resource with freshness checks | `patterns/stale-detection.md` |
+| Parameterised widget rendered N times (entity-id idiom) | `patterns/reusable-components.md` |
+| View wrapping a stateful JS library (chart / map / editor) | `patterns/stateful-components.md` |
+| SSR form POST handling (progressive enhancement) | `patterns/form-action.md` |
+| SSR parallel data fetch before render (fan-out) | `patterns/ssr-loaders.md` |
 
 Patterns compose; a screen can use Forms on submit, RemoteData for the request, and WebSocket for a push.
 

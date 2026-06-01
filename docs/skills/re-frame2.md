@@ -14,7 +14,7 @@ Load this skill when the prompt is about **writing or editing re-frame2 applicat
 
 - References to `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
 - Mentions of `dispatch`, `subscribe`, `app-db`, frames, regions, tags, the nine UI states.
-- Pattern names: RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection.
+- Pattern names: RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction, SSR-Loaders.
 - "Write a test for a re-frame2 handler / sub / machine."
 
 Do **not** use this skill for:
