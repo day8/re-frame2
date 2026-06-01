@@ -242,6 +242,84 @@
                 ":where :event locates the failure at pre-handler validation")
             (is (= :rf2-lo28u/bad-event-args (-> v :tags :failing-id)))))))))
 
+;; ---- rf2-lo28u — DIAGNOSTIC: app-schema present + dispatch-sync ----------
+;; Isolates the app-schema-registered variable (the live-wiring difference
+;; from the passing synthetic test) WITHOUT the async confound.
+(deftest diag-app-schema-present-sync-bad-event-args
+  (testing "DIAGNOSTIC — with an app-db schema registered for the frame
+            (live wiring), a dispatch-SYNC bad event arg"
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
+    (let [calls (atom 0)]
+      (rf/reg-event-db :rf2-lo28u/diag-bad-event-args
+        {:schema [:cat [:= :rf2-lo28u/diag-bad-event-args] pos-int?]}
+        (fn [db _ev] (swap! calls inc) db))
+      (let [traces (atom [])]
+        (trace-tooling/register-listener! ::lo28u-diag (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf2-lo28u/diag-bad-event-args "not-a-number"])
+        (trace-tooling/unregister-listener! ::lo28u-diag)
+        (let [event-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                             (= :event (-> % :tags :where)))
+                                       @traces)]
+          (is (= 0 @calls) "DIAG: handler skipped?")
+          (is (= 1 (count event-violations)) "DIAG: :where :event fired?"))))))
+
+;; ---- rf2-lo28u — FAITHFUL LIVE-WIRING repro (async dispatch) -------------
+;;
+;; The two tests above use `dispatch-sync`. The standard_epochs testbed's
+;; button 18 uses the ASYNC `(rf/dispatch event)` form, AND the testbed has
+;; an app-db schema registered for the frame (button 19's `[:auth]`). Mike's
+;; live check: pressing button 18 fires NO `:where :event` violation in any
+;; epoch — the handler runs and the bad string passes straight through.
+;;
+;; The faithful difference is the ASYNC enqueue path. To exercise an
+;; async-enqueued event through a REAL router drain (not dispatch-sync's
+;; front-seed bypass) WITHOUT the cljs.test/async + `:each`-fixture teardown
+;; race (the fixture's `finally` wipes `frame/frames` before a `nextTick`
+;; drain fires, so a pure `poll-until` repro is a fixture artefact, not the
+;; bug), we (a) `rf/dispatch` the bad event so it lands at the BACK of the
+;; queue exactly as a live button-click would, then (b) drive the drain to
+;; fixed point synchronously by seeding a no-op via `dispatch-sync`. The
+;; sync drain dequeues the already-queued bad event through the identical
+;; `process-event! -> run-handler-cascade!` path the async nextTick drain
+;; uses — so this faithfully reproduces "a queued (async-dispatched) event
+;; drains" while staying deterministic in the node fixture.
+;;
+;; RED (pre-fix): no `:where :event` violation, handler ran (matches Mike).
+;; GREEN (post-fix): the violation fires and the handler is skipped.
+
+(deftest async-dispatch-bad-event-args-fires-where-event-live-wiring
+  (testing "an ASYNC-dispatched (back-of-queue) bad event arg under a frame
+            that ALSO has an app-db schema registered (the live
+            standard_epochs wiring) fires :rf.error/schema-validation-failure
+            :where :event and skips the handler when the queue drains"
+    ;; Mirror the live testbed: an app-db schema is registered for this
+    ;; frame (button 19). The bad-event-args event is registered with the
+    ;; inline `:schema` meta verbatim from button 18.
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
+    (let [calls (atom 0)]
+      (rf/reg-event-db :rf2-lo28u/async-bad-event-args
+        {:schema [:cat [:= :rf2-lo28u/async-bad-event-args] pos-int?]}
+        (fn [db _ev] (swap! calls inc) (assoc db :baseline 1)))
+      (rf/reg-event-db :rf2-lo28u/noop (fn [db _] db))
+      (let [traces (atom [])]
+        (trace-tooling/register-listener! ::lo28u-async (fn [ev] (swap! traces conj ev)))
+        ;; (a) ASYNC dispatch — lands at the BACK of the queue (live button path).
+        (rf/dispatch [:rf2-lo28u/async-bad-event-args "not-a-number"])
+        ;; (b) Drain to fixed point: the queued bad event is dequeued by the
+        ;; real drain through the same cascade the nextTick drain would use.
+        (rf/dispatch-sync [:rf2-lo28u/noop])
+        (trace-tooling/unregister-listener! ::lo28u-async)
+        (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %)) @traces)
+              event-violations (filter #(= :event (-> % :tags :where)) violations)]
+          (is (= 0 @calls)
+              "handler must be SKIPPED — the bad arg was rejected pre-handler
+               (RED here: handler ran)")
+          (is (= 1 (count event-violations))
+              "exactly one :where :event schema-validation-failure fired for
+               the async-queued event (RED here: zero)")
+          (when-let [v (first event-violations)]
+            (is (= :rf2-lo28u/async-bad-event-args (-> v :tags :failing-id)))))))))
+
 ;; ---- rf2-0z1z — app-schemas-digest under CLJS ----------------------------
 
 (deftest app-schemas-digest-cljs-smoke

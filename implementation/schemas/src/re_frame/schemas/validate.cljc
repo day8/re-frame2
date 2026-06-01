@@ -428,27 +428,45 @@
   validate the event vector against any :schema on the handler's
   metadata. Failures emit `:rf.error/schema-validation-failure :where
   :event`; the caller skips the handler (recovery: `:no-recovery`).
-  Returns true/false per the `run-validation` contract."
-  [event-id event handler-meta]
-  (if interop/debug-enabled?
-    (run-validation
-      handler-meta
-      event
-      false  ;; handler-meta `:sensitive?` removed; no per-slot walk for event vectors
-      false  ;; event vectors aren't `:map`-shaped — no per-slot walk
-      (fn [schema explanation]
-        {:where      :event
-         :event-id   event-id
-         :failing-id event-id
-         :schema-id  event-id
-         :received   event
-         :value      event
-         :explain    explanation
-         :reason     (reason-string "Event " event-id
-                                    " payload failed schema "
-                                    schema event)
-         :recovery   :no-recovery}))
-    true))
+  Returns true/false per the `run-validation` contract.
+
+  The optional 4-arity `frame` (rf2-lo28u) stamps a `:frame` tag onto
+  the failure trace. Without it the trace carries no `:frame`, so
+  `re-frame.epoch.capture/capture-event!` — which buffers a trace into
+  the in-flight cascade ONLY when the trace's tags carry the cascade's
+  `:frame` — silently DROPS the violation from the epoch's
+  `:trace-events`. The violation still reaches the global trace stream
+  (so `register-listener!` consumers see it) but never lands in the
+  per-frame epoch record, so the Xray Issues / Schema-timeline lens
+  (which reads off `:trace-events`) shows nothing. This is the
+  asymmetry against `validate-app-schema!`, which always tags `:frame`
+  and so is correctly captured. The router passes the in-flight frame
+  so the `:where :event` trace is captured in the same epoch as the
+  dispatch that triggered it, exactly like the `:where :app-db` trace.
+  The 3-arity stays for direct (non-router) callers (the elision probe,
+  unit tests) where there is no in-flight cascade to attribute to."
+  ([event-id event handler-meta] (validate-event! event-id event handler-meta nil))
+  ([event-id event handler-meta frame]
+   (if interop/debug-enabled?
+     (run-validation
+       handler-meta
+       event
+       false  ;; handler-meta `:sensitive?` removed; no per-slot walk for event vectors
+       false  ;; event vectors aren't `:map`-shaped — no per-slot walk
+       (fn [schema explanation]
+         (cond-> {:where      :event
+                  :event-id   event-id
+                  :failing-id event-id
+                  :schema-id  event-id
+                  :received   event
+                  :value      event
+                  :explain    explanation
+                  :reason     (reason-string "Event " event-id
+                                             " payload failed schema "
+                                             schema event)
+                  :recovery   :no-recovery}
+           frame (assoc :frame frame))))
+     true)))
 
 (defn validate-sub!
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
