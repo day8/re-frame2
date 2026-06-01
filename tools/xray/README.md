@@ -279,7 +279,11 @@ rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
 a shared baseline counter + exercising exactly one more feature, so
 clicking top-to-bottom completely exercises any one Xray panel —
 Epoch / App-db / Views / Trace / Issues; no tabs, no routing, no
-machines/SSR; supersedes the old `step_deck`), the routing sibling
+machines/SSR; supersedes the old `step_deck`. App-db coverage here is
+the scalar bump + a flow-derived slot; the rich App-db DIFF shapes
+— added / removed-to-empty / changed (diff-mode-3) — moved to the
+`edn_inspector` deck per rf2-jmcjm, where they drive the App-db panel
+directly), the routing sibling
 (`routes_epochs`, rf2-5crg4: the same numbered-button shape — one frame ·
 baseline-bump per press · one more ROUTING feature per rung — aimed
 squarely at the Routing panel, so clicking top-to-bottom completely
