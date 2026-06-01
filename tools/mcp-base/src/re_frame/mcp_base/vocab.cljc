@@ -114,6 +114,25 @@
   any future per-call arg-validation rejection."
   :rf.mcp/invalid-arg)
 
+(def result-key
+  "Top-level discriminator key for a wire-FIDELITY typed result envelope
+  (rf2-qobqy). Where the size markers above shrink an over-budget
+  payload, this one TYPES the outcome of an evaluation so a genuine
+  `nil`, a thrown eval-error, and an unserializable value
+  (`#object`/`#js`/Function) stop collapsing to a bare `null`. Shape:
+    `{:rf.mcp/result <tag> ...}` where `<tag>` is one of `:value`
+    (`:value <v>`), `:nil` (no extra slots), `:eval-error`
+    (`:reason :ex :message :ex-data`), or `:unserializable`
+    (`:type :preview`).
+
+  Emitted by the runtime-side classifier wrap in re-frame2-pair-mcp
+  (`tools/result_envelope.cljs`) for `eval-cljs` / `handler-meta`; the
+  server projects each tag onto the tool's `:ok?` vocabulary. Composes
+  with — never bypasses — the size machinery above: the codec tags the
+  outcome; the elision walker still runs over the `:value` payload it
+  carries. Per [Tool-Pair §Wire fidelity](../../../../spec/Tool-Pair.md)."
+  :rf.mcp/result)
+
 ;; ---------------------------------------------------------------------------
 ;; :rf.size/* — size-elision markers
 ;; ---------------------------------------------------------------------------

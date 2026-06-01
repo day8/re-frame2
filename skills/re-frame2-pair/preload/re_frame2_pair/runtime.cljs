@@ -351,6 +351,99 @@
   [kind]
   (-> (rf/registrations kind) keys sort vec))
 
+;; ---------------------------------------------------------------------------
+;; Call-time id validation (rf2-3bu3d.3)
+;; ---------------------------------------------------------------------------
+;;
+;; The MCP wire boundary parses an event-vec / sub-vec / frame-id once,
+;; ECHOes the resolved value, and VALIDATEs the id against the LIVE
+;; registry. An unknown id returns a STRUCTURED error carrying nearest
+;; matches — never a silent no-op success (the no-silent-swallow
+;; principle, spec/Conventions.md, applied to the wire). The validation
+;; is runtime-side because only the runtime holds the live registrar.
+;;
+;; Complements rf2-sofwv (which generates/validates tool DESCRIPTORS from
+;; the registries at attach time) — this is the CALL-TIME VALUE check.
+
+(defn- levenshtein
+  "Edit distance between two strings — the nearest-match ranking metric.
+   Small bounded DP; ids are short keyword names so the O(mn) cost is
+   negligible. Pure; no allocation beyond the rolling rows."
+  [a b]
+  (let [a (vec a) b (vec b)
+        m (count a) n (count b)]
+    (cond
+      (zero? m) n
+      (zero? n) m
+      :else
+      (loop [i 1
+             prev (vec (range (inc n)))]
+        (if (> i m)
+          (peek prev)
+          (let [cur (reduce
+                      (fn [row j]
+                        (let [cost (if (= (nth a (dec i)) (nth b (dec j))) 0 1)]
+                          (conj row (min (inc (peek row))           ; deletion
+                                         (inc (nth prev j))          ; insertion
+                                         (+ (nth prev (dec j)) cost))))) ; substitution
+                      [i]
+                      (range 1 (inc n)))]
+            (recur (inc i) cur)))))))
+
+(defn nearest-ids
+  "Up to `n` registered ids closest to `id` by edit distance over their
+   `pr-str` rendering, nearest first. `known` is the seq of registered
+   ids to rank against. Ties broken by `pr-str` for stable output. Used
+   to build the 'unknown X; did you mean …?' hint."
+  ([id known] (nearest-ids id known 3))
+  ([id known n]
+   (let [target (pr-str id)]
+     (->> known
+          (sort-by (juxt #(levenshtein target (pr-str %)) pr-str))
+          (take n)
+          vec))))
+
+(defn validate-registered
+  "Validate that `id` is registered under registrar `kind` against the
+   LIVE registry (rf2-3bu3d.3). Returns:
+
+     {:ok? true  :kind kind :id id}                         — registered
+     {:ok? false :reason :unknown-id :kind kind :id id
+      :nearest [...] :known-count N :hint \"...\"}            — not found
+
+   The `:nearest` vector carries up to three closest registered ids by
+   edit distance so the agent gets 'unknown :rf/xrayy; did you mean
+   :rf/xray?' instead of a silent no-op. Never throws — a registrar that
+   doesn't exist yields an empty known set, so an unknown id there still
+   reports structured-unknown with `:known-count 0`."
+  [kind id]
+  (let [known (try (keys (rf/registrations kind)) (catch :default _ nil))
+        known (vec (or known []))]
+    (if (some #(= id %) known)
+      {:ok? true :kind kind :id id}
+      (let [near (nearest-ids id known)]
+        {:ok?         false
+         :reason      :unknown-id
+         :kind        kind
+         :id          id
+         :nearest     near
+         :known-count (count known)
+         :hint        (if (seq near)
+                        (str "unknown " kind " " (pr-str id) "; did you mean "
+                             (clojure.string/join ", " (map pr-str near)) "?")
+                        (str "unknown " kind " " (pr-str id)
+                             "; nothing is registered under " kind "."))}))))
+
+(defn validate-event-id
+  "Validate the head of an event vector against the `:event` registrar
+   (rf2-3bu3d.3). `event-v` is the parsed event vector; the id is its
+   first element. Returns the `validate-registered` shape, plus echoes
+   the `:event` vector so the wire result carries the resolved value."
+  [event-v]
+  (let [id (when (sequential? event-v) (first event-v))
+        r  (validate-registered :event id)]
+    (assoc r :event event-v)))
+
 (defn- handler-fn-hash
   "Opaque hash for hot-reload probe comparisons. Function refs aren't
    reliably `=`, so hash a stringified form."
@@ -1684,6 +1777,86 @@
           :event event-v
           :frame frame-id
           :hint "dispatch-sync returned, but epoch-history head did not advance."})))))
+
+;; ---------------------------------------------------------------------------
+;; Dispatch CONSEQUENCE — the default sync result (rf2-3bu3d.2)
+;; ---------------------------------------------------------------------------
+;;
+;; Default sync dispatch previously returned a transport ACK
+;; (`{:mode :sync}`), so a no-op was indistinguishable from success — a
+;; malformed-frame dispatch (the `::rf/xray` colon-coercion, rf2-ldfnx)
+;; reported success-shaped while doing NOTHING; only a separate state
+;; read revealed the no-op.
+;;
+;; `dispatch-consequence!` returns the re-frame2 CONSEQUENCE by default:
+;;
+;;   {:ok? true :epoch-id <id> :db-changed? <bool> :changed-paths [...]
+;;    :effects-fired [...] :no-op? <bool> :event <vec> :frame <id>
+;;    :cascade-summary {...}}
+;;
+;; A no-op then VISIBLY returns `:db-changed? false :effects-fired []
+;; :no-op? true` instead of a fake success — and dispatch+verify
+;; collapses into one call. The data is already assembled (the epoch
+;; history the cascade-summary projects); full trace-collect
+;; (`dispatch-and-collect`, `:epoch`) stays opt-in for the whole async
+;; cascade.
+
+(defn- consequence-from-summary
+  "Project a `pair-dispatch-sync!` success envelope into the
+   dispatch-consequence shape (rf2-3bu3d.2). `result` carries
+   `:ok? true :epoch-id :cascade-summary`. The summary's `:db-diff`
+   (`{:changed-paths :added-paths :removed-paths}`) and `:fx-fired`
+   feed the consequence's `:changed-paths` / `:effects-fired`. A cascade
+   that changed NO app-db path AND fired NO effect is a visible no-op."
+  [result]
+  (let [{:keys [cascade-summary]} result
+        {:keys [db-diff fx-fired outcome]} cascade-summary
+        changed (vec (concat (:changed-paths db-diff)
+                             (:added-paths db-diff)
+                             (:removed-paths db-diff)))
+        effects (vec (or fx-fired []))
+        db-changed? (boolean (seq changed))
+        no-op? (and (not db-changed?) (empty? effects))]
+    (-> result
+        (assoc :db-changed?   db-changed?
+               :changed-paths changed
+               :effects-fired effects
+               :no-op?        no-op?)
+        (cond-> (= :error outcome) (assoc :outcome :error)))))
+
+(defn dispatch-consequence!
+  "Synchronous dispatch returning the re-frame2 CONSEQUENCE by default
+   (rf2-3bu3d.2). Validates the event-id against the live `:event`
+   registrar FIRST (rf2-3bu3d.3): an unknown id returns the structured
+   `validate-registered` error (`:reason :unknown-id` + `:nearest`)
+   WITHOUT dispatching — never a silent no-op success. On a known id,
+   dispatches synchronously and projects the consequence:
+
+     {:ok? true :epoch-id :db-changed? :changed-paths :effects-fired
+      :no-op? :event :frame :resolved :cascade-summary}
+
+   `:resolved` echoes the parsed event vector (rf2-3bu3d.3) so the wire
+   result carries the value the runtime actually saw. A genuine no-op
+   (handler ran, changed nothing, fired nothing) returns `:db-changed?
+   false :effects-fired [] :no-op? true` — VISIBLE, not a fake ack.
+
+   On a frame-untargetable / no-epoch failure, the
+   `pair-dispatch-sync!` `:ok? false` envelope rides through verbatim
+   (the rf2-ldfnx invariant — the tool surfaces it as an error)."
+  ([event-v] (dispatch-consequence! event-v {}))
+  ([event-v opts]
+   (let [v (validate-event-id event-v)]
+     (if-not (:ok? v)
+       ;; Unknown event-id — structured error, NO dispatch (no silent
+       ;; no-op). Echo the resolved value alongside the nearest matches.
+       (assoc v :resolved event-v :dispatched? false)
+       (let [result (pair-dispatch-sync! event-v opts)]
+         (if (:ok? result)
+           (-> (consequence-from-summary result)
+               (assoc :resolved event-v))
+           ;; Frame-untargetable / no-epoch — pass the structured failure
+           ;; through, still echoing the resolved value.
+           (assoc result :resolved event-v)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Effect stubs (per-call :fx-overrides)

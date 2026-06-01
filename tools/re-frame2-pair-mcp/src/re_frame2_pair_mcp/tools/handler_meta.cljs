@@ -55,9 +55,9 @@
   (\"where's X defined\", \"what's registered\") with a narrow surface
   the agent can rely on across runtimes and editor-config postures."
   (:require [clojure.string :as str]
-            [cljs.reader :as edn]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.result-envelope :as renv]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -182,49 +182,53 @@
                                      "For composite-key subs, pass the vector form.")}))
 
       :else
-      (let [form (if (= :machine kind)
-                   (machine-form id-val)
-                   (registrar-form kind id-val))]
+      ;; rf2-qobqy: wrap the runtime form in the typed result codec so
+      ;; an unserializable meta map (a `#object[Function]` slot that
+      ;; slips past the runtime's `dissoc :handler-fn`, a `#js {…}`
+      ;; literal) rides back as a STRUCTURED `:unserializable` envelope
+      ;; — never the stringly `:unexpected-shape` re-parse the prior
+      ;; shape carried, and never a meta map smuggled as a STRING in
+      ;; `:value`. `envelope->result`'s `on-value` receives the genuine
+      ;; PARSED meta map (or nil), so the three logical shapes (hit /
+      ;; miss / unserializable) each resolve cleanly.
+      (let [inner-form (if (= :machine kind)
+                         (machine-form id-val)
+                         (registrar-form kind id-val))
+            wrapped    (renv/wrap-form inner-form)]
         (probe/eval-after-runtime!
-          conn build-id form :handler-meta-failed
+          conn build-id wrapped :handler-meta-failed
           (fn [v]
-                     ;; Three envelope shapes resolve into one shape
-                     ;; agents can rely on:
-                     ;;   - hit (map with no :reason): merge :ok? true
-                     ;;     and the requested kind/id so agents don't
-                     ;;     have to remember what they asked for.
-                     ;;   - miss (`{:ok? false :reason :not-registered}`):
-                     ;;     pass through unchanged.
-                     ;;   - eval returned non-map: surface as
-                     ;;     :unexpected-shape — should never happen
-                     ;;     against a healthy runtime.
-                     ;;
-                     ;; rf2-l7vnd defensive re-parse: if `v` is a STRING
-                     ;; that looks like a stringified map (starts with
-                     ;; `{`), one more EDN read can recover the map.
-                     ;; This guards against a runtime that ships a value
-                     ;; with an unreadable token (`#object[Function ...]`,
-                     ;; `#js {...}`, …) — `read-edn-safe` in nrepl.cljs
-                     ;; would drop back to the raw string. The runtime
-                     ;; now strips :handler-fn before returning so the
-                     ;; primary path is clean; this re-parse is the
-                     ;; belt to the runtime's braces.
-                     (let [v* (if (and (string? v)
-                                       (str/starts-with? (str/trim v) "{"))
-                                (try (edn/read-string v)
-                                     (catch :default _ v))
-                                v)]
-                       (wire/ok-text
-                         (cond
-                           (not (map? v*))
-                           {:ok? false :reason :unexpected-shape
-                            :kind kind :id id-val :value v*}
+            (let [result
+                  (renv/envelope->result
+                    v
+                    (fn [meta-map]
+                      ;; Two hit/miss shapes resolve into one agents can
+                      ;; rely on:
+                      ;;   - hit (map with no :reason): merge :ok? true
+                      ;;     + the requested kind/id.
+                      ;;   - miss (`{:ok? false :reason :not-registered}`):
+                      ;;     pass through, stamped with kind/id.
+                      ;;   - genuine non-map (should not happen against a
+                      ;;     healthy runtime): surface :unexpected-shape.
+                      (cond
+                        (not (map? meta-map))
+                        {:ok? false :reason :unexpected-shape
+                         :kind kind :id id-val :value meta-map}
 
-                           (false? (:ok? v*))
-                           (assoc v* :kind kind :id id-val)
+                        (false? (:ok? meta-map))
+                        (assoc meta-map :kind kind :id id-val)
 
-                           :else
-                           (assoc v* :ok? true :kind kind :id id-val))))))))))
+                        :else
+                        (assoc meta-map :ok? true :kind kind :id id-val))))
+                  ;; An :unserializable / :eval-error envelope from the
+                  ;; codec carries no kind/id; stamp them so the agent
+                  ;; sees what it asked for.
+                  result (if (renv/error? result)
+                           (assoc result :kind kind :id id-val)
+                           result)]
+              (if (renv/error? result)
+                (wire/err-text result)
+                (wire/ok-text result)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool — list-handlers.
