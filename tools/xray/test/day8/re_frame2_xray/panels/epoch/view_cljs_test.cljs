@@ -2402,12 +2402,13 @@
           "rf2-wnvid — the redundant jump-to-source link is dropped"))))
 
 (deftest error-block-styling-is-token-driven-test
-  (testing "rf2-ynvv7 / rf2-ksl5m — the sophistication pass styles the
-            exception card from the design tokens (a very-light-red
-            `:error`-over-`:bg-2` fill, the solid `:error` left rail, an
-            `:error`-keyed elevation glow, and the `:error`-accent glyph),
-            NOT hardcoded hex. The card sits in the design system like the
-            surrounding step cards."
+  (testing "rf2-ynvv7 / rf2-ksl5m / rf2-iizhe — the sophistication pass
+            styles the exception card from the design tokens (a very-light-
+            red `:error`-over-`:bg-2` fill, the solid `:error` left rail,
+            and the `:error`-accent glyph), NOT hardcoded hex. The card
+            sits in the design system like the surrounding step cards, and
+            is FLAT (no `:box-shadow` elevation — rf2-iizhe) to match the
+            flat Xray UI."
     (let [error-var (:error tokens/tokens)        ; "var(--rf-xray-error)"
           bg-2-var  (:bg-2  tokens/tokens)         ; "var(--rf-xray-bg-2)"
           tree      (view/error-block :handler 0
@@ -2426,7 +2427,7 @@
                                  :style))]
       ;; The card root reads a VERY-LIGHT-RED fill (rf2-ksl5m — `:error`
       ;; mixed lightly over the raised `:bg-2` surface) + a token-keyed
-      ;; left rail + an `:error`-tinted elevation — all from tokens.
+      ;; left rail — all from tokens.
       (is (and (string/includes? (str (:background card)) error-var)
                (string/includes? (str (:background card)) bg-2-var))
           "card surface is a token-driven `:error`-over-`:bg-2` tint
@@ -2435,10 +2436,11 @@
           "the severity left rail is the `:error` token")
       (is (string/includes? (str (:border card)) error-var)
           "the hairline border is a `with-alpha` mix over the `:error` token")
-      (is (string/includes? (str (:box-shadow card)) error-var)
-          "the elevation glow is keyed to the `:error` token")
-      (is (some? (:box-shadow card))
-          "the card carries elevation (box-shadow) — not a flat box")
+      ;; rf2-iizhe — the card is FLAT: NO box-shadow elevation, matching
+      ;; every other (flat) Xray surface. The fill + hairline + left rail
+      ;; + glyph still carry the error severity without a lift.
+      (is (nil? (:box-shadow card))
+          "the card is FLAT — no box-shadow elevation (rf2-iizhe)")
       ;; No hardcoded hex anywhere in the card root style (token discipline).
       (is (not (re-find #"#[0-9A-Fa-f]{3,8}" (pr-str card)))
           "no hardcoded hex in the exception-card root style")
@@ -2645,14 +2647,14 @@
           "the throwing interceptor id renders")
       (is (string/includes?
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
-            "before")
-          "the :before phase chip renders")
+            "BEFORE")
+          "the :before phase badge renders UPPERCASE (rf2-rvxem grey badge)")
       ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb is DROPPED;
-      ;; the per-row id + the inline card carry the signal.
-      (is (not (string/includes?
-                 (or (text-of tree "rf-xray-epoch-interceptor-header-verb") "")
-                 "threw"))
-          "no redundant 'N interceptor threw' summary verb after the badge")
+      ;; the per-row id + the inline card carry the signal. rf2-rvxem —
+      ;; the INTERCEPTOR badge now leads the inline row itself (the
+      ;; step-level `step-header` is gone), so no summary verb can exist.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-interceptor-header-verb"))
+          "no redundant 'N interceptor threw' summary verb (rf2-rvxem: no step-header)")
       ;; the shared card under the interceptor row
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-interceptor-row-0-0-title")
@@ -2678,13 +2680,15 @@
                               :failing-id :app/auditor :phase :after}]}))]
       (is (string/includes?
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
-            "after"))))
+            "AFTER"))))
 
-  (testing "rf2-siheh — the INTERCEPTOR row mounts the shared
-            `coord-chip/coord-chip` go-to-source glyph when the row carries
-            a `:coord` (parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS).
-            The `->interceptor` macro captures the coord; the projection
-            lifts it onto the row."
+  (testing "rf2-siheh / rf2-rvxem — the INTERCEPTOR row's go-to-source glyph
+            rides the shared `coord-link` (`name ↗`, ONE glyph) when the row
+            carries a `:coord`: the id slot renders as a clickable
+            `<button>`. rf2-rvxem FIX 1 — the redundant standalone
+            `coord-chip` (a SECOND ↗) is GONE; `coord-link` already emits
+            the single glyph. The `->interceptor` macro captures the coord;
+            the projection lifts it onto the row."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (let [tree (rf/with-frame :rf/xray
@@ -2698,12 +2702,18 @@
                                     :line 42}}]
                     :errors [{:operation :rf.error/interceptor-exception
                               :message "before boom"
-                              :failing-id :app/auth :phase :before}]}))]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
-          "the go-to-source coord-chip glyph renders for a coord-bearing row")))
+                              :failing-id :app/auth :phase :before}]}))
+          id-node (th/find-by-testid tree "rf-xray-epoch-interceptor-id-0")]
+      (is (= :button (first id-node))
+          "a coord-bearing row renders the id as a clickable coord-link button")
+      (is (fn? (:on-click (second id-node)))
+          "the coord-link button carries the open-in-editor on-click")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
+          "rf2-rvxem FIX 1 — NO redundant standalone coord-chip (one glyph only)")))
 
-  (testing "rf2-siheh — NO coord on the row → NO glyph (the ->interceptor*
-            fn / framework-interceptor path; the chip drops out cleanly)"
+  (testing "rf2-siheh / rf2-rvxem — NO coord on the row → the id degrades to
+            a plain `<span>` (the ->interceptor* fn / framework-interceptor
+            path; no clickable affordance, no glyph)"
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (let [tree (rf/with-frame :rf/xray
@@ -2714,9 +2724,12 @@
                     :rows [{:interceptor-id :app/auth :phase :before}]
                     :errors [{:operation :rf.error/interceptor-exception
                               :message "before boom"
-                              :failing-id :app/auth :phase :before}]}))]
+                              :failing-id :app/auth :phase :before}]}))
+          id-node (th/find-by-testid tree "rf-xray-epoch-interceptor-id-0")]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-0"))
           "the interceptor row still renders")
+      (is (= :span (first id-node))
+          "no coord → the id is a plain span (no clickable go-to-source)")
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
           "no coord → no go-to-source glyph"))))
 

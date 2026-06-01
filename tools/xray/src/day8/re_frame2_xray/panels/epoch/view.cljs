@@ -1197,8 +1197,10 @@
 ;; verbatim).
 ;;
 ;; rf2-ynvv7 — the card no longer borrows the violation block's flat
-;; skeleton. It now sits in the design system the way the surrounding
-;; pipeline-step cards do, sophisticated rather than basic:
+;; skeleton. It sits in the design system the way the surrounding
+;; pipeline-step cards do, sophisticated rather than basic — and, per
+;; rf2-iizhe, FLAT (no elevation): every other Xray surface is flat, so
+;; the failure tone is carried by the fill + edge + glyph, NOT a lift:
 ;;
 ;;   - SURFACE — a VERY-LIGHT-RED fill (rf2-ksl5m): `:error` mixed ~7%
 ;;     over the raised `:bg-2` surface the other step cards read. Still
@@ -1210,9 +1212,6 @@
 ;;     `:error` LEFT RAIL — the same "accented left edge" language the
 ;;     panel header stripe (`accent-stripe-style`) + the diff stripes
 ;;     use, so the severity reads at the column-1 anchor.
-;;   - ELEVATION — a layered `box-shadow`: a soft neutral drop shadow
-;;     (the card lifts off the cascade) plus a faint error-tinted glow so
-;;     the lift is keyed to the failure tone without flooding the fill.
 ;;   - SPACING — padding from the 4px `spacing` scale (`:gap-2` /
 ;;     `:gap-3`), consistent with every other panel surface.
 ;;
@@ -1230,9 +1229,9 @@
    ;; raised `:bg-2` surface. The card still reads QUIET per rf2-ynvv7
    ;; (a subtle tint, NOT a saturated rose wash), but the failure tone
    ;; now joins the fill the same way it already keys the hairline, the
-   ;; left rail, the glow + the glyph. An OPAQUE 2-token `color-mix`
-   ;; (over `:bg-2`, not `transparent`) so it paints cleanly on both
-   ;; themes regardless of the surface the lifted card sits above.
+   ;; left rail + the glyph. An OPAQUE 2-token `color-mix` (over `:bg-2`,
+   ;; not `transparent`) so it paints cleanly on both themes regardless
+   ;; of the surface the card sits above.
    :background     (str "color-mix(in srgb, " error-colour " 7%, "
                         bg-2-colour ")")
    ;; Refined tinted hairline (not a shouty solid red box) + the solid
@@ -1240,10 +1239,12 @@
    :border         (str "1px solid " (with-alpha :error 38))
    :border-left    (str "3px solid " error-colour)
    :border-radius  "4px"
-   ;; Elevation — neutral drop shadow + a faint error-keyed glow so the
-   ;; lift reads as "failure" without flooding the surface.
-   :box-shadow     (str "0 1px 3px rgba(0,0,0,0.32), "
-                        "0 0 0 1px " (with-alpha :error 10))
+   ;; rf2-iizhe — FLAT, no `:box-shadow`. The rest of the Xray UI is flat,
+   ;; so the prior elevation (a neutral drop shadow + a faint error-tinted
+   ;; glow) read as off. The card stays fully error-keyed without the
+   ;; lift: the tinted hairline, the solid `:error` left rail, the
+   ;; very-light-red fill (rf2-ksl5m) + the ✗ glyph carry the severity,
+   ;; and the dropped `0 0 0 1px` ring was redundant with the `:border`.
    :font-family    mono-stack
    :font-size      (:mono-body type-scale)})
 
@@ -2104,10 +2105,14 @@
 ;;
 ;; CONDITIONAL — the projection emits the step only when an interceptor
 ;; threw this cascade (the substrate emits no per-interceptor "ran" trace,
-;; so a clean chain leaves nothing to show). One row per throwing
-;; interceptor: the interceptor id (click-to-source via `handler-meta`,
-;; degrading to plain text) + a `:before` / `:after` phase chip + the
-;; shared 'Exception Thrown' card (rf2-wnvid).
+;; so a clean chain leaves nothing to show; reversing this to always
+;; enumerate the chain is the open rf2-rvxem change-4 design call). One
+;; row per throwing interceptor, rendered as ONE inline line (rf2-rvxem):
+;; `[INTERCEPTOR badge] [grey BEFORE/AFTER phase badge] <interceptor id>
+;; <single go-to-source glyph>` — the id is click-to-source via the
+;; shared `coord-link` (`name ↗`, one glyph), degrading to plain text
+;; when no coord is captured — with the shared 'Exception Thrown' card
+;; (rf2-wnvid) attaching below the row.
 
 (def ^:private interceptor-row-style
   {:display     "flex"
@@ -2134,46 +2139,57 @@
 
 (defn- interceptor-phase-label
   "Render an interceptor exception row's `:phase` as a UI chip label
-  (rf2-yz57h). `:before` (threw on the way IN — handler skipped) /
-  `:after` (threw on the way OUT — handler ran first). nil → no chip."
+  (rf2-yz57h, UPPERCASED rf2-rvxem so it reads as a grey BADGE alongside
+  the INTERCEPTOR pill). `:before` (threw on the way IN — handler
+  skipped) / `:after` (threw on the way OUT — handler ran first). nil →
+  no chip."
   [phase]
   (case phase
-    :before "before"
-    :after  "after"
-    (when (keyword? phase) (name phase))))
+    :before "BEFORE"
+    :after  "AFTER"
+    (when (keyword? phase) (str/upper-case (name phase)))))
 
 (defn- interceptor-row-view
-  "Render one INTERCEPTOR-step row (rf2-yz57h) — the throwing interceptor's
-  id + a `:before` / `:after` phase chip + the shared inline 'Exception
-  Thrown' card.
+  "Render one INTERCEPTOR-step row (rf2-yz57h) — ONE inline line of
+  `[INTERCEPTOR badge] [phase badge] <name> <go-to-source glyph>`
+  (rf2-rvxem), with the shared inline 'Exception Thrown' card attaching
+  below.
+
+  Order (rf2-rvxem): the INTERCEPTOR badge pill leads, the grey
+  `BEFORE` / `AFTER` phase badge sits RIGHT AFTER it (before the name),
+  then the interceptor name + its single open-in-editor glyph.
 
   rf2-siheh — the jump-to-source coord rides the projection row's
   `:coord` slot (captured by the `->interceptor` macro from `(meta &form)`
-  and threaded onto the trace by the router). The label hyperlinks via
-  `coord-link` when a coord is present AND a shared `coord-chip` glyph
-  is appended (exact parity with the EVENT HANDLER / SUBSCRIPTIONS / VIEWS
-  rows); both drop out cleanly to plain text + no chip when the
-  interceptor was built via the `->interceptor*` fn, is a framework
-  interceptor, or the bundle elided the coord in production."
+  and threaded onto the trace by the router). The name hyperlinks via
+  `coord-link`, which ALREADY emits `name ↗` (one glyph) — the row no
+  longer appends a redundant standalone `coord-chip` (rf2-rvxem FIX 1:
+  the HANDLER / COEFFECTS rows use `coord-link` alone; only the plain-
+  label SUBS / VIEWS / SIDE-EFFECTS rows pair a label with `coord-chip`,
+  and the interceptor row conflated the two). `coord-link` drops cleanly
+  to plain text + no glyph when the interceptor was built via the
+  `->interceptor*` fn, is a framework interceptor, or the bundle elided
+  the coord in production."
   [idx {:keys [interceptor-id phase errors coord]}]
   (let [label (proj/ns-keyword interceptor-id)]
     [:div {:key (str "interceptor-row-" idx)
            :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
            :data-interceptor-phase (when phase (name phase))}
      [:div {:style interceptor-row-style}
-      (coord-link/coord-link coord label
-                             (str "rf-xray-epoch-interceptor-id-" idx)
-                             {:style       coeffect-verb-link-button-style
-                              :plain-style coeffect-verb-plain-style})
-      ;; rf2-siheh — shared open-in-editor glyph (parity with the
-      ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows). Drops out when
-      ;; `coord` is nil (no `:file`).
-      (coord-chip/coord-chip coord
-                             (str "rf-xray-epoch-interceptor-row-coord-" idx))
+      ;; rf2-rvxem — the INTERCEPTOR badge leads the inline row.
+      (badge-pill :INTERCEPTOR)
+      ;; rf2-rvxem — grey phase badge BEFORE the name (right after the
+      ;; INTERCEPTOR pill).
       (when-let [pl (interceptor-phase-label phase)]
         [:span {:data-testid (str "rf-xray-epoch-interceptor-phase-" idx)
                 :style interceptor-phase-chip-style}
-         pl])]
+         pl])
+      ;; rf2-siheh — the name hyperlinks via `coord-link` (`name ↗`, ONE
+      ;; glyph). Drops to plain text when `coord` is nil (no `:file`).
+      (coord-link/coord-link coord label
+                             (str "rf-xray-epoch-interceptor-id-" idx)
+                             {:style       coeffect-verb-link-button-style
+                              :plain-style coeffect-verb-plain-style})]
      ;; rf2-yz57h — the interceptor EXCEPTION attaches here as the shared
      ;; inline 'Exception Thrown' card (button-17 :before / button-18
      ;; :after), under the INTERCEPTOR step where it occurred.
@@ -2182,10 +2198,11 @@
 (defn render-interceptor-step
   "Render the INTERCEPTOR step (rf2-yz57h — present ONLY when a user
   interceptor threw this cascade). One row per throwing interceptor; each
-  carries the interceptor id (click-to-source) + a `:before` / `:after`
-  phase chip + the shared 'Exception Thrown' card. The step's `:errors`
-  slot (attached by `attach-exceptions`) is rendered per-row by matching
-  the exception's `:failing-id` to the row's `:interceptor-id`."
+  row is ONE inline line of `[INTERCEPTOR badge] [phase badge] <name>
+  <go-to-source glyph>` (rf2-rvxem) with the shared 'Exception Thrown'
+  card attaching below it. The step's `:errors` slot (attached by
+  `attach-exceptions`) is rendered per-row by matching the exception's
+  `:failing-id` to the row's `:interceptor-id`."
   [{:keys [rows step-number errors]}]
   ;; The step-level `:errors` (from `attach-exceptions`) carry the exception
   ;; records; thread each onto its matching row by `:failing-id`.
@@ -2194,21 +2211,20 @@
                              (filterv #(= (:interceptor-id row) (:failing-id %))
                                       errors)))
                     rows)]
+    ;; rf2-rvxem — the INTERCEPTOR badge now LEADS each inline row
+    ;; (`interceptor-row-view`) rather than riding a separate step-header
+    ;; above the rows. So the step-level `step-header` is gone (it would
+    ;; otherwise paint a SECOND, content-free INTERCEPTOR badge on its
+    ;; own line) and the rows sit directly at the content-column anchor
+    ;; next to the cascade numbered-circle — no `margin-top-5` offset.
+    ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb stays DROPPED:
+    ;; redundant with the per-row id + the inline 'Exception Thrown'
+    ;; card(s), which already carry which interceptor threw + on which
+    ;; phase.
     [:div {:data-testid "rf-xray-epoch-step-interceptor"
            :data-step-kw "interceptor"}
      (numbered-circle step-number :INTERCEPTOR)
-     ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb is DROPPED:
-     ;; redundant with the per-interceptor row(s) + the inline 'Exception
-     ;; Thrown' card(s) below, which already carry which interceptor threw
-     ;; and on which phase. The badge stands alone.
-     (step-header
-       {:step :interceptor
-        :badge :INTERCEPTOR
-        :expandable? false
-        :testid "rf-xray-epoch-interceptor"}
-       nil)
-     [:div {:style margin-top-5-style}
-      (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]]))
+     (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]))
 
 ;; ---- HANDLER step --------------------------------------------------------
 
