@@ -879,9 +879,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:feature    :keyword]
    [:substitute {:optional true} :string]])
 
-(def MachineUnhandledEventTags
+;; The benign unhandled-event no-op (rf2-ugdas — xstate-v5 parity). Op-type
+;; `:rf.machine`, operation `:rf.machine.event/unhandled-no-op`; NOT an error.
+;; Retires the former `:rf.error/machine-unhandled-event` (`MachineUnhandledEventTags`).
+(def MachineUnhandledNoOpTags
   [:map
-   [:category   :keyword]
    [:machine-id :keyword]
    [:event      [:vector :any]]
    [:state      :any]])
