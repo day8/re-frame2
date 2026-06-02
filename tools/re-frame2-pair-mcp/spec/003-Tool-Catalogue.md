@@ -749,15 +749,36 @@ marker so consumers can branch.
 | `:event-id`           | keyword                           | The triggering event-id. Absent on synthetic / halted-trigger-less paths. |
 | `:event-vector`       | vector                            | The original dispatch vector. Absent on synthetic paths. |
 | `:frame`              | keyword                           | The frame-id the cascade settled in. |
-| `:outcome`            | `:ok` / `:blocked` / `:error`     | The consumer-facing tier per `outcome->consumer-facing`. |
+| `:outcome`            | `:ok` / `:blocked` / `:error`     | The consumer-facing tier per `outcome->consumer-facing`. Forced `:error` when the cascade contained a thrown handler / machine action — see §Contained throws below. |
 | `:db-diff`            | `{:changed-paths [...] :added-paths [...] :removed-paths [...]}` | Depth-1 path summary of the db delta. Each path is a one-key vector (e.g. `[:cart]`); drill in via `get-path`. |
 | `:fx-fired`           | vector of fx-ids                  | Distinct fx-ids fired this cascade. Duplicates collapsed. |
+| `:errors`             | vector of `{:operation :message? :machine-id? :action-id?}` | Present only when the cascade contained a thrown handler / machine action (rf2-hhkbb). One compact descriptor per `:rf.error/*` trace op; `:message` carries the exception's `.getMessage` when stamped, `:machine-id` / `:action-id` the machine attribution of a machine-action throw. Drill into the full exception (stack / ex-data) via the epoch's `:trace-events` or the Xray Epoch panel. See §Contained throws below. |
 | `:subs-recomputed`    | integer                           | Count of unique sub-runs in this cascade. |
 | `:renders`            | integer                           | Count of render emits in this cascade. |
 | `:machine-transitions`| vector of `{:machine-id :from :to :phase}` | Absent when no machine activity. |
 | `:elapsed-ms`         | number                            | Wall-clock elapsed-ms from `:rf.event/run-start` to `:rf.event/run-end`. |
 | `:sensitive?`         | `true`                            | Present only when the epoch's `:rf.epoch/sensitive?` rollup is true. Consumers branch on absent-slot patterns in `:db-diff`. |
 | `:restore?`           | `true`                            | Present only on `restore-epoch` responses. Signals the summary projects the TARGET epoch, with `:db-diff` computed from the pre-restore live db. |
+
+### Contained throws (rf2-hhkbb)
+
+A thrown handler or machine action does **not** halt the cascade: the
+interceptor error-capture seam contains the throw, the epoch settles
+`:outcome :ok`, and the exception rides the trace stream under a
+`:rf.error/*` op (e.g. a `:*` wildcard machine action throwing
+`:rf.error/machine-action-exception`, the xstate-v5 "fail loudly on
+unknown" idiom). Because the aborted action commits no `:db` and fires no
+fx, a naïve summary would read the epoch as `:outcome :ok` + a clean
+no-op — a silent-green-on-error trap for any non-visual consumer.
+
+The cascade-summary closes that gap: when `:trace-events` carries a
+contained cascade exception it surfaces the throws under `:errors`,
+forces `:outcome :error`, and `dispatch`'s `dispatch-consequence!`
+projection reports `:no-op? false` (a throw is never a no-op). The set of
+`:rf.error/*` ops that count mirrors Xray's `cascade-exception-ops` so the
+structured summary and the human Epoch panel (rf2-4yrr6 pink card) agree
+on what a throw is. A genuine unhandled-event no-op (no exception trace)
+keeps `:outcome :ok` + `:no-op? true`; a clean cascade stays `:ok`.
 
 ### `:unreplayable-effects` (restore-epoch only)
 
