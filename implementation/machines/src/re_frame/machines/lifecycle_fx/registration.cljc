@@ -23,6 +23,7 @@
             [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
@@ -470,3 +471,59 @@
                  {:machine-id machine-id
                   :initial    (:initial machine)})
     machine-id))
+
+(defn handler-meta-for
+  "Build the registrar-shaped handler-meta map for a machine `spec`
+  WITHOUT registering it — the surface the lazy-actor-handler resolver
+  (rf2-a2sn1) drives a spawned actor's cascade through. Equivalent in
+  shape to what `reg-machine*` installs under the machine-id, but
+  materialised on demand from the actor's (revertible) app-db snapshot
+  rather than held in a per-instance registrar entry.
+
+  The region-machine cache is installed (mirroring `reg-machine*`) so
+  parallel-region transitions resolve, then `make-machine-handler` builds
+  the handler-fn and `events/event-handler-meta` wraps it into the same
+  `{:rf/machine? true :rf/machine <spec> :event/kind :fx :handler-fn …
+  :interceptors […]}` shape the registrar holds for a registered
+  machine. `process-event*` runs the returned meta unchanged — the
+  handler reads the actor's own snapshot keyed on the dispatched event's
+  first element, so a single materialised handler serves every instance
+  of the type."
+  [spec]
+  (let [machine    (parallel/install-region-cache spec)
+        handler-fn (make-machine-handler machine)]
+    (events/event-handler-meta {:rf/machine? true :rf/machine machine}
+                               []
+                               handler-fn)))
+
+(defn resolve-actor-handler-meta
+  "Lazy-resolver hook body (late-bound at
+  `:machines/resolve-actor-handler-meta`, consulted by core's
+  `re-frame.router.diagnostics/handle-no-handler!` BEFORE it surfaces
+  `:rf.error/no-such-handler`). Given an `event` whose first element is
+  an unresolved actor-id and the target `frame-id`, return a handler-meta
+  map the router can drive the cascade with — or nil to let core surface
+  the genuine `:rf.error/no-such-handler`.
+
+  Resolution is purely app-db-derived (rf2-a2sn1): read the actor's live
+  snapshot from the frame's app-db, resolve its TYPE spec via
+  `resolver/spec-from-snapshot`, and materialise the handler-meta from
+  the spec. No live snapshot (or no resolvable type) → nil: the actor
+  isn't alive in this frame value, which is the correct
+  `:no-such-handler` — and exactly the property `restore-epoch` reverts.
+
+  The materialised handler-meta is shape-identical to a registered
+  machine's, so the rest of `process-event*` is unchanged — it runs the
+  handler against the actor's own snapshot (the machine handler reads
+  `[:rf/runtime :machines :snapshots <actor-id>]` keyed on the dispatched
+  event's first element). The handler-fn is built fresh per unresolved
+  dispatch; this is the COLD path (a spawned actor whose per-instance
+  handler is — by design — never registered), so the allocation is
+  bounded by actual spawned-actor traffic, not by every dispatch."
+  [event frame-id]
+  (let [actor-id (first event)
+        db       (frame/frame-app-db-value (or frame-id :rf/default))
+        snapshot (when db (get-in db (paths/snapshot-path actor-id)))
+        spec     (when snapshot (resolver/spec-from-snapshot snapshot))]
+    (when spec
+      (handler-meta-for spec))))

@@ -22,7 +22,6 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
@@ -66,11 +65,11 @@
                   (str (name machine-id) "#" n))]))
 
 (defn- resolve-spawn-machine
-  "Resolve the machine spec to register for a spawn. `:machine-id`
-  references a registered machine — read its spec back from the
-  registrar via the `:rf/machine` metadata. `:definition` carries an
-  inline spec map. Returns the spec map or nil if neither resolves.
-  Per Spec 005 §Spawn-spec keys."
+  "Resolve the machine spec for a spawn. `:machine-id` references a
+  registered machine — read its spec back from the registrar via the
+  `:rf/machine` metadata. `:definition` carries an inline spec map.
+  Returns the spec map or nil if neither resolves. Per Spec 005
+  §Spawn-spec keys."
   [args]
   (let [machine-id (:machine-id args)
         defn       (:definition args)]
@@ -79,6 +78,20 @@
       machine-id  (let [m (registrar/lookup :event machine-id)]
                     (when (:rf/machine? m)
                       (:rf/machine m))))))
+
+(defn- machine-type-ref
+  "Per rf2-a2sn1 — the revertible TYPE reference stamped onto a spawned
+  actor's snapshot root under `:rf/machine-type`, so the lazy resolver
+  (`lifecycle-fx.resolver`) can re-materialise the actor's handler purely
+  from app-db. A `:machine-id` spawn stores the registered TYPE keyword
+  (the type outlives every instance — registered like a singleton). An
+  inline `:definition` spawn stores the spec map verbatim (there is no
+  registered type; the snapshot is the only source of truth, and it is
+  fully revertible). Returns nil when the spawn names neither — a
+  spec-less spawn installs no snapshot, so there is nothing to resolve."
+  [args]
+  (or (:machine-id args)
+      (:definition args)))
 
 (defn- stamp-framework-data
   "Per rf2-ijm7: stamp framework-reserved keys into the spawned actor's
@@ -121,16 +134,23 @@
               spawned-id spec initial-snap))))
 
 (defn- install-spawn!
-  "Atomically install the spawned actor's `initial-snap`, system-id
-  binding, and runtime-owned spawn registry slot into the frame's
-  app-db. Returns `:ok`. Emits the collision and system-id-bound traces
-  when applicable.
+  "Atomically install the spawned actor's `initial-snap` (with its
+  revertible `:rf/machine-type` TYPE reference stamped at the root — per
+  rf2-a2sn1), system-id binding, and runtime-owned spawn registry slot
+  into the frame's app-db. Returns `:ok`. Emits the collision and
+  system-id-bound traces when applicable.
+
+  Per rf2-a2sn1 there is NO per-instance handler registration — the
+  actor's liveness IS the presence of this snapshot in the (revertible)
+  frame value, and the snapshot's `:rf/machine-type` lets the lazy
+  resolver re-materialise the handler on dispatch. Spawn is therefore a
+  pure app-db write.
 
   Per rf2-f3kp7 schema-rejection is decided by the caller (`spawn-fx`)
-  via `spawn-rejected?` BEFORE this fn — and BEFORE the handler
-  registration — runs, so by the time `install-spawn!` is reached the
-  spawn is known-accepted and `initial-snap` (built once by the caller)
-  is threaded in rather than re-built here.
+  via `spawn-rejected?` BEFORE this fn runs, so by the time
+  `install-spawn!` is reached the spawn is known-accepted and
+  `initial-snap` (built once by the caller) is threaded in rather than
+  re-built here.
 
   `db-after-alloc` is the post-id-allocation db computed by the caller
   (see `spawn-fx`); `swap-frame-db!`'s fn arg is discarded — the merge
@@ -138,8 +158,14 @@
   survives. Under Spec 002's single-drainer invariant the discarded
   re-read is value-equal to the snapshot the caller already had."
   [frame-id db-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id track?] invoke-id :spawn-id}]
-  (let [existing (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))]
+   {:keys [system-id parent-id track? type-ref] invoke-id :spawn-id}]
+  (let [existing (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))
+        ;; Per rf2-a2sn1 — stamp the revertible TYPE reference onto the
+        ;; snapshot root so the lazy resolver can re-materialise the
+        ;; handler from app-db alone. Only when a spec landed (a
+        ;; spec-less spawn installs no snapshot).
+        initial-snap (cond-> initial-snap
+                       (and spec type-ref) (assoc :rf/machine-type type-ref))]
     (when (and system-id existing (not= existing spawned-id))
       (trace/emit-error! :rf.error/system-id-collision
                          {:frame             frame-id
@@ -169,33 +195,42 @@
 
 (defn spawn-fx
   "fx handler for `:rf.machine/spawn`. Per Spec 005 §Spawning, the spawned
-  actor is itself an event handler at `<spawned-id>`; its snapshot lives
-  at `[:rf/runtime :machines :snapshots <spawned-id>]` in the spawning frame's app-db.
+  actor's snapshot lives at `[:rf/runtime :machines :snapshots
+  <spawned-id>]` in the spawning frame's app-db, and its liveness IS that
+  snapshot's presence in the (revertible) frame value — per rf2-a2sn1
+  there is NO per-instance event-handler registration.
 
   Lifecycle wired here:
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
       OR an inline `:definition`).
-   2. Register the live event handler under the spawned id via
-      `make-machine-handler` / `reg-event-fx`. Re-spawn under the
-      same id replaces — last-write-wins, matching standard
-      re-registration.
-   3. Initialise the actor's snapshot at `[:rf/runtime :machines :snapshots <spawned-id>]`
-      using the spec's `:initial` / `:data` (overridden by the spawn
-      args' `:data`). Per rf2-ijm7 the runtime stamps `:rf/self-id`
+   2. Initialise the actor's snapshot at `[:rf/runtime :machines
+      :snapshots <spawned-id>]` using the spec's `:initial` / `:data`
+      (overridden by the spawn args' `:data`), stamping the revertible
+      TYPE reference at `:rf/machine-type` (the `:machine-id` keyword, or
+      the inline `:definition` map) so the lazy resolver
+      (`lifecycle-fx.resolver`) can re-materialise the actor's handler
+      from app-db alone. Per rf2-ijm7 the runtime stamps `:rf/self-id`
       (the spawned actor's own address) and, when applicable,
-      `:rf/parent-id` + `:rf/spawn-id` into the actor's initial
-      `:data` under the framework-reserved `:rf/*` namespace.
-   4. If `:system-id` present, bind it in the per-frame
+      `:rf/parent-id` + `:rf/spawn-id` into the actor's initial `:data`.
+      Re-spawn under the same id replaces — last-write-wins.
+   3. If `:system-id` present, bind it in the per-frame
       `[:rf/runtime :machines :system-ids]` reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins).
-   5. If `:rf/parent-id` + `:rf/spawn-id` present (declarative `:spawn`
+   4. If `:rf/parent-id` + `:rf/spawn-id` present (declarative `:spawn`
       desugar — rf2-t07u Option A revised), bind the spawned id at
       `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`.
-   6. If `:start` event-vector present, dispatch
+   5. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent (per rf2-ijm7),
       the runtime dispatches a synthetic `[<spawned-id>
       [:rf.machine.spawn/spawned]]` so generic child machines may declare a
-      leaf-level `:on :rf.machine.spawn/spawned :target ...` transition."
+      leaf-level `:on :rf.machine.spawn/spawned :target ...` transition.
+      The first dispatch lazy-resolves the just-installed snapshot into a
+      live handler (no registration step).
+
+  Per rf2-a2sn1 — eliminating the per-instance registration is what
+  closes the Goal-2 revertibility leak: spawn writes only app-db, destroy
+  removes only app-db, so `restore-epoch` (app-db-only) reverts an
+  actor's liveness perfectly with ZERO registrar drift."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
@@ -209,6 +244,9 @@
         spec'      (if (and spec (contains? args :data))
                      (assoc spec :data (:data args))
                      spec)
+        ;; Per rf2-a2sn1 — the revertible TYPE reference the lazy
+        ;; resolver reads back off the installed snapshot.
+        type-ref   (machine-type-ref args)
         system-id  (:system-id args)
         ;; Per rf2-t07u (Option A revised): the runtime tracks each
         ;; declarative-:spawn spawn at [:rf/runtime :machines :spawned <parent-id>
@@ -239,18 +277,18 @@
         initial-snap (when spec''
                        (parallel/build-initial-snapshot
                          spec'' {:bootstrap-pending? true}))
-        ;; Per rf2-f3kp7: decide schema rejection BEFORE the trace, the
-        ;; handler registration, and the install. The prior code emitted
-        ;; the `:rf.machine.spawn/spawned` trace and called `reg-machine*`
-        ;; unconditionally, so a `:schema`-rejected spawn leaked a
-        ;; registered event handler + a phantom `(rf/machines)` entry
-        ;; (the install was correctly skipped, but the registration ran
-        ;; out of step). Gating all three on `(not rejected?)` makes a
-        ;; rejected spawn FULLY atomic — it registers nothing, installs
-        ;; nothing, records no spawn-order entry, dispatches no `:start`,
-        ;; and announces no `:rf.machine.spawn/spawned` (only the
+        ;; Per rf2-f3kp7: decide schema rejection BEFORE the trace and the
+        ;; install. Gating both on `(not rejected?)` makes a rejected spawn
+        ;; FULLY atomic — it installs no snapshot, records no spawn-order
+        ;; entry, dispatches no `:start`, and announces no
+        ;; `:rf.machine.spawn/spawned` (only the
         ;; `:rf.error/schema-validation-failure :phase :spawn` that
-        ;; `validate-spawn-data!` already emitted).
+        ;; `validate-spawn-data!` already emitted). Per rf2-a2sn1 there is
+        ;; no longer any per-instance handler registration to gate — a
+        ;; rejected spawn simply writes nothing to app-db, so no liveness
+        ;; exists for the rejected actor (the strongest form of atomicity:
+        ;; an actor's liveness IS its snapshot, and the snapshot was never
+        ;; installed).
         rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
     (when-not rejected?
       (trace/emit! :rf.machine :rf.machine.spawn/spawned
@@ -263,9 +301,13 @@
                     :system-id  system-id
                     :parent-id  parent-id
                     :spawn-id  invoke-id})
-      (when spec''
-        (registration/reg-machine* spawned-id spec''))
-      ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
+      ;; Per rf2-a2sn1 — NO per-instance handler registration. The actor's
+      ;; liveness IS its snapshot's presence in the (revertible) frame
+      ;; value; the snapshot's `:rf/machine-type` (stamped by
+      ;; `install-spawn!`) lets the lazy resolver re-materialise the
+      ;; handler on dispatch. Spawn is a pure app-db write.
+      ;;
+      ;; (2) Initialise the snapshot + (3) bind :system-id + (4) bind the
       ;; runtime-owned spawn registry (atomically under one app-db swap so
       ;; observers see consistent state). When the spawned id was allocated
       ;; from the frame's app-db (the hand-emitted-spawn fallback path),
@@ -276,7 +318,8 @@
                         {:system-id system-id
                          :parent-id parent-id
                          :spawn-id invoke-id
-                         :track?    track?})
+                         :track?    track?
+                         :type-ref  type-ref})
         ;; Per rf2-vsigt — record the spawned actor in the frame's
         ;; spawn-order channel so frame-destroy can walk in reverse-
         ;; creation order per Spec 005 §Cross-Spec Interactions §1.

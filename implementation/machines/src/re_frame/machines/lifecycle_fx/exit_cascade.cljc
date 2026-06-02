@@ -20,7 +20,10 @@
   flat/compound to `re-frame.machines.transition`, and parallel to the
   per-region reduce). This file is the side-effect wrapper that:
     1. resolves the actor's snapshot from the frame's app-db,
-    2. resolves the actor's machine spec from the registrar,
+    2. resolves the actor's machine spec — a spawned actor's TYPE rides
+       its snapshot under `:rf/machine-type` (per rf2-a2sn1, spawned
+       actors carry no per-instance registrar entry); a singleton's spec
+       comes from its registered handler,
     3. runs the pure cascade,
     4. writes the post-cascade snapshot back to app-db so any caller
        reading the snapshot AFTER `:exit` (e.g. `finalize-machine`'s
@@ -39,6 +42,7 @@
   proceeds as before)."
   (:require [re-frame.fx :as fx]
             [re-frame.frame :as frame]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
@@ -48,20 +52,24 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn- resolve-machine-spec
-  "Look up `actor-id`'s machine spec via the registrar's `:rf/machine`
-  metadata (per `re-frame.machines/machine-meta`). Returns
-  nil if no machine is registered under `actor-id` — the actor was
-  already torn down, or the destroy targets a non-machine event id."
-  [actor-id]
-  (when actor-id
-    (let [m (registrar/lookup :event actor-id)]
-      (when (:rf/machine? m)
-        (:rf/machine m)))))
+  "Resolve `actor-id`'s machine spec for the `:exit` cascade. Prefer the
+  `snapshot`'s `:rf/machine-type` TYPE reference (the home for spawned
+  actors, which carry no per-instance registrar entry per rf2-a2sn1);
+  fall back to a registered handler under `actor-id` itself (the
+  singleton case — a `reg-machine`'d machine reaching `:final?`). Returns
+  nil when neither resolves — the actor was already torn down, or the
+  destroy targets a non-machine event id."
+  [actor-id snapshot]
+  (or (resolver/spec-from-snapshot snapshot)
+      (when actor-id
+        (let [m (registrar/lookup :event actor-id)]
+          (when (:rf/machine? m)
+            (:rf/machine m))))))
 
 (defn run-child-exit!
   "Run the destroy-time `:exit` cascade for the actor identified by
   `actor-id` in frame `frame-id`. No-op when the actor has no live
-  snapshot at `[:rf/runtime :machines :snapshots actor-id]` or no registered machine spec.
+  snapshot at `[:rf/runtime :machines :snapshots actor-id]` or no resolvable machine spec.
 
   On a successful cascade: writes the post-cascade snapshot back to
   app-db (so callers reading the snapshot between `:exit` and the
@@ -79,7 +87,7 @@
   (when actor-id
     (let [db       (frame/frame-app-db-value frame-id)
           snapshot (when db (get-in db (paths/snapshot-path actor-id)))
-          machine  (resolve-machine-spec actor-id)]
+          machine  (resolve-machine-spec actor-id snapshot)]
       (when (and snapshot machine)
         (let [r (parallel/run-active-exit-cascade machine snapshot)]
           (if (result/fail? r)

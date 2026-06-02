@@ -35,6 +35,7 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
@@ -176,10 +177,16 @@
         invoke-id   (:rf/spawn-id child-data)
         ;; (1) Find parent's `:on-done`, if this is a `:spawn`-spawned
         ;; actor. The parent's spec carries the `:spawn` map at
-        ;; `invoke-id`.
+        ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
+        ;; registrar (a singleton parent) OR, for a NESTED spawn whose
+        ;; parent is itself a spawned actor (no per-instance registration),
+        ;; from the parent's own snapshot `:rf/machine-type`.
         parent-meta (when parent-id
                       (let [m (registrar/lookup :event parent-id)]
-                        (when (:rf/machine? m) (:rf/machine m))))
+                        (cond
+                          (:rf/machine? m) (:rf/machine m)
+                          :else            (resolver/spec-from-snapshot
+                                             (get-in db (paths/snapshot-path parent-id))))))
         spawn-spec  (when (and parent-meta invoke-id)
                       (find-spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)

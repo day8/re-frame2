@@ -238,6 +238,41 @@
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
 
+(defn- resolve-unhandled
+  "Per rf2-a2sn1 — the pluggable unresolved-handler resolver seam.
+
+  When `resolve-handler` finds no registrar entry for `event-id`,
+  `process-event*` consults this before erroring. It is the late-bound
+  extension point an optional artefact registers a resolver under to
+  MATERIALISE a handler-meta for an otherwise-unregistered event-id. The
+  motivating registrant is `re-frame.machines`
+  (`:machines/resolve-actor-handler-meta`): a dynamically-spawned actor
+  has no per-instance registration — its liveness is derived from its
+  (revertible) app-db snapshot — so the resolver rebuilds the actor's
+  handler-meta from the snapshot's `:rf/machine-type` on demand. This is
+  how an actor's liveness becomes a pure function of app-db: spawn/destroy
+  write only the snapshot, and `restore-epoch` reverts liveness with zero
+  registrar drift.
+
+  Returns a registrar-shaped handler-meta map (which `process-event*`
+  drives the cascade with, identical to a registered handler) or nil. Nil
+  — when the hook is unregistered (machines artefact absent) OR the
+  resolver itself declines (no live snapshot for the event-id) — falls
+  through to the genuine `:rf.error/no-such-handler` path. The hook
+  lookup uses `get-fn-cached`: the machines artefact publishes it once at
+  boot and never withdraws it, so the cache hits after the first miss; on
+  a machines-free build the cached miss falls straight through.
+
+  Sticky-resolver try/catch (mirrors `validate-event!` /
+  `run-post-commit-validation!`): a throw from the resolver must not abort
+  the drain — it degrades to nil (the genuine no-such-handler), never
+  propagates."
+  [event frame]
+  (when-let [resolve! (late-bind/get-fn-cached :machines/resolve-actor-handler-meta)]
+    (try
+      (resolve! event frame)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 ;; Fallthrough-to-default + cross-frame dispatch-sync warnings + the
 ;; no-handler error path live in `re-frame.router.diagnostics`. Every
 ;; one of those fns runs on a cold/error path or sits behind
@@ -1357,7 +1392,27 @@
       (handle-frame-destroyed! event frame)
 
       :else
-      (let [handler-meta (resolve-handler event-id)]
+      (let [handler-meta (or (resolve-handler event-id)
+                             ;; Per rf2-a2sn1 — the lazy actor-handler
+                             ;; resolver seam. A dynamically-spawned
+                             ;; machine actor carries NO per-instance
+                             ;; registrar entry; its liveness is derived
+                             ;; from its (revertible) app-db snapshot. On
+                             ;; a no-registrar-handler miss, consult the
+                             ;; machines-registered
+                             ;; `:machines/resolve-actor-handler-meta`
+                             ;; hook, which materialises the actor's
+                             ;; handler-meta from its snapshot's
+                             ;; `:rf/machine-type` — returning nil when no
+                             ;; live snapshot exists (genuine
+                             ;; `:no-such-handler`). Late-bound so core
+                             ;; carries NO static dependency on the
+                             ;; optional machines artefact; the hook is
+                             ;; absent (nil) when machines isn't loaded,
+                             ;; and resolution falls straight through to
+                             ;; the error path below — same shape as the
+                             ;; flows / schemas / epoch artefact seams.
+                             (resolve-unhandled event frame))]
         (if (nil? handler-meta)
           (diag/handle-no-handler! envelope event-id event frame)
           (run-handler-cascade! envelope event-id event frame

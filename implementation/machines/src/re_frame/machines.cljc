@@ -48,6 +48,7 @@
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
             [re-frame.machines.lifecycle-fx.update-snapshot :as update-snapshot]
             [re-frame.machines.lifecycle-fx.validation :as validation]
@@ -278,6 +279,20 @@
                    spawn-order/reset-all!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
+;; Per rf2-a2sn1 — the lazy actor-handler resolver. Core's dispatch
+;; consults this hook on `:rf.error/no-such-handler` BEFORE erroring:
+;; given an unresolved event-id (a spawned actor-id with no per-instance
+;; registration), the resolver materialises the actor's handler-meta from
+;; its (revertible) app-db snapshot, so `restore-epoch` reverts actor
+;; liveness with ZERO registrar drift. Returns nil when no live snapshot
+;; exists → core surfaces the genuine `:no-such-handler` (correct: the
+;; actor is not alive in this frame value). The companion
+;; `:machines/actor-resolvable?` lets the epoch restore precondition
+;; treat a spawned-actor snapshot whose TYPE still resolves as a VALID
+;; restore target (not a `:rf.epoch/restore-missing-handler`).
+(late-bind/set-fn! :machines/resolve-actor-handler-meta
+                   registration/resolve-actor-handler-meta)
+(late-bind/set-fn! :machines/actor-resolvable?      resolver/resolvable?)
 ;; Per rf2-jbbp7 — the post-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec

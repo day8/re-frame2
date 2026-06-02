@@ -263,6 +263,31 @@
           (let [event (interceptor/get-coeffect ctx :event)]
             (commit ctx event (invoke handler-fn ctx event))))))))
 
+(defn event-handler-meta
+  "Build the registrar-shaped handler-meta map for an `:fx`-kind event
+  handler from a raw `handler-fn`, WITHOUT registering it. Returns the
+  same shape `register-event!` installs: `meta` merged with
+  `:event/kind :fx`, `:handler-fn`, and the `:interceptors` vector
+  carrying the handler-wrapping interceptor at its tail.
+
+  Per rf2-a2sn1 — the single source of truth for the handler-meta shape,
+  shared by `register-event!` (the registration path) AND the machines
+  lazy-actor-handler resolver (which materialises a spawned actor's
+  handler-meta on demand from its app-db snapshot rather than from a
+  per-instance registrar entry). Factoring the shape here keeps the two
+  paths from drifting — the cascade in `re-frame.router/process-event*`
+  drives whatever this returns, registered or lazily-resolved.
+
+  `meta` is the registration metadata map (for a machine:
+  `{:rf/machine? true :rf/machine <spec>}`); `interceptors` is the
+  positional interceptor prefix (empty for machines)."
+  ([handler-fn] (event-handler-meta {} [] handler-fn))
+  ([meta interceptors handler-fn]
+   (assoc meta
+          :event/kind   :fx
+          :handler-fn   handler-fn
+          :interceptors (-> [] (into interceptors) (conj (wrap-event-handler :fx handler-fn))))))
+
 ;; ---- registration ---------------------------------------------------------
 
 (defn- normalise-args

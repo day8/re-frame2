@@ -71,6 +71,7 @@ Beyond the user-facing `{:state :data :tags? :meta?}` shape above, the runtime s
 | Reserved key | Location | Value | When written / cleared |
 |---|---|---|---|
 | `:rf/spawn-counter` | snapshot root | `{<id-prefix> <int>}` per-prefix integer-counter map | Bumped by the pure spawn-id allocator on every `:spawn` / `:spawn-all` / hand-emitted `:rf.machine/spawn` so id sequencing is deterministic from the snapshot. Stamped as `{}` at snapshot synthesis; persists across `pr-str` / `read-string`. |
+| `:rf/machine-type` | snapshot root | `<machine-id>` keyword OR an inline-`:definition` spec map | Stamped by the spawn-fx onto a SPAWNED actor's snapshot (absent on singleton snapshots) so the actor's TYPE — and therefore its handler — is recoverable purely from the (revertible) snapshot. A `:machine-id` spawn stores the registered TYPE keyword (the type outlives instances); an inline `:definition` spawn stores the spec map directly. The lazy resolver reads it on dispatch to re-materialise the actor's handler; the epoch restore precondition reads it to admit a spawned-actor snapshot as a valid restore target. This is what makes a spawned actor's LIVENESS a pure function of `app-db` (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)). Persists across `pr-str` / `read-string` and through SSR hydration / epoch replay. Per (rf2-a2sn1). |
 | `:rf/bootstrap-pending?` | snapshot root | `true` (else absent) | Stamped at snapshot synthesis (singletons) and by the spawn-fx (spawned actors). The first event addressed to the machine runs the initial-entry cascade, then clears the slot via `dissoc`. NEVER `true` on a snapshot that has already processed an event. The slot survives `pr-str` round-trip so a snapshot persisted mid-bootstrap (the SSR boundary case) resumes correctly. Per [§Initial-state `:entry` fires on machine bootstrap](#initial-state-entry-fires-on-machine-bootstrap). |
 | `:rf/finished?` | snapshot root | `true` (else absent) | **Transient.** Set by the lifecycle-handler boundary (NOT by `apply-transition-once`) when the post-transition snapshot's active leaf declares `:final? true` — or, for parallel-region machines, when every region's active leaf is `:final?`. The lifecycle handler reads it to fire `:on-done` + auto-destroy, then the snapshot is dissoc'd from `[:rf/runtime :machines :snapshots <id>]`. Pure `machine-transition` calls (conformance corpus, JVM pure-fn tests) see snapshots free of this flag. Per [§Final states](#final-states-final--on-done--output-key) and. |
 | `:rf/after-epoch` | inside `:data` | `{<decl-path-vector> <non-negative int>}` | The wall-clock `:after`-timer epoch map for flat / compound machines, keyed **per scheduling node** (its declaring state path), per [§Delayed `:after` transitions](#delayed-after-transitions) §Hierarchy interaction. `commit-snapshot` bumps ONLY the entries for nodes the transition exits or enters; a still-active parent above the LCA keeps its entry — and thus its in-flight `:after` timer — across a child-only sibling transition. The synthetic `:rf.machine.timer/after-elapsed` event carries `[delay-key epoch decl-path]`; the runtime fires the transition iff the scheduling node is still on the active path AND the carried epoch equals that node's current per-path entry. (Per-node, not a single scalar — a single scalar could not keep a parent's timer live across a child transition that itself bumps the counter; per Spec 005 §Hierarchy interaction the per-level tracking is normative.) |
@@ -164,7 +165,7 @@ Because every machine's snapshot lives in `app-db` at `[:rf/runtime :machines :s
 - **Conformance fixtures.** A fixture's `:fixture/expect :final-app-db` covers machine state without needing a machine-specific assertion.
 - **Schema validation.** `(rf/reg-app-schema [:rf/runtime :machines :snapshots] ...)` validates the whole machine map; per-machine `:schema` slots refine it against each machine's `:data` shape at the `:where :machine-data` boundary (per [§Schema validation](#schema-validation), shipped under ; row 7 of [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery)).
 - **Trace replay.** Tool-Pair epochs replay events against `:db-before` to reproduce a session; machine transitions replay along with everything else because their state is in the db.
-- **Snapshot-and-restore.** The epoch surface (`epoch/restore-epoch` + `epoch/reset-frame-db!`) captures `app-db` and reapplies it; machines come back with the rest of state.
+- **Snapshot-and-restore.** The epoch surface (`epoch/restore-epoch` + `epoch/reset-frame-db!`) captures `app-db` and reapplies it; machines come back with the rest of state. This holds for SPAWNED actors too, not just singletons: a spawned actor's liveness is its snapshot's presence in the (revertible) frame value (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)), so rewinding past a spawn removes the actor and rewinding past a destroy re-materialises a working handler — with zero registrar drift.
 
 The argument: **the Single Store invariant pays off again.** Every `app-db` capability re-frame already ships extends to machines without a single line of machine-specific implementation. This is why machine snapshots live in the db rather than in a parallel substrate. The undo / redo, time-travel, persistence, and snapshot-restore items above are not coincidences — they are the concrete consequences of the named [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) when machine state lives inside the frame's persistent value.
 
@@ -499,8 +500,8 @@ Not separate top-level keys. The machine handler walks `:fx` left-to-right and r
 Routing rules (per [§Drain semantics](#drain-semantics)):
 
 - `[:raise <event-vec>]` — appended to the machine's local pre-commit raise-queue.
-- `[:rf.machine/spawn <spawn-spec>]` — registers a new handler immediately; the runtime invokes the spec's `:on-spawn` advisory callback (per — return is dropped); the spawned id is tracked at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` in app-db; if `:start` is present, an event is queued to the new actor.
-- `[:rf.machine/destroy <actor-id>]` — runs the actor's `:exit` action, dissociates its snapshot at `[:rf/runtime :machines :snapshots <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Used directly by user actions and emitted by the desugaring of `:spawn` on state exit.
+- `[:rf.machine/spawn <spawn-spec>]` — a **pure `app-db` write**: installs the spawned actor's snapshot at `[:rf/runtime :machines :snapshots <spawned-id>]` (stamping its TYPE under `:rf/machine-type`) and tracks the id at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`. It registers NO per-instance handler — the actor's liveness IS its snapshot (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)). The runtime invokes the spec's `:on-spawn` advisory callback (return is dropped); if `:start` is present, an event is queued to the new actor (which lazy-resolves its just-installed snapshot on first dispatch).
+- `[:rf.machine/destroy <actor-id>]` — runs the actor's `:exit` action, then a **pure `app-db` write** dissociating its snapshot at `[:rf/runtime :machines :snapshots <actor-id>]` and its spawn-registry slot. It clears no registrar entry (a spawned actor has none). Symmetric counterpart to `:rf.machine/spawn`. Used directly by user actions and emitted by the desugaring of `:spawn` on state exit.
 - Any other `[fx-id args]` — forwarded to the standard `do-fx` for runtime processing.
 
 `:raise` is machine-internal and unqualified, matching re-frame's existing reserved unqualified fx names (`:dispatch`, `:dispatch-later`). `:rf.machine/spawn` and `:rf.machine/destroy` are namespaced under the framework's `:rf.<feature>/...` convention so user code can register them globally as canonical actor-lifecycle fxs (per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)). They are listed in [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids).
@@ -887,7 +888,7 @@ An action returns `{:data ... :fx [...]}`. The two keys are independent:
 - **`:data`** — a single map; merged into the current data map (last write wins on key collision).
 - **`:fx`** — a vector of `[fx-id args]` pairs; processed **in vector order**. The machine handler's effect-map composer walks `:fx` and routes by fx-id:
   - `[:raise <event-vec>]` → appended to the local pre-commit raise-queue.
-  - `[:rf.machine/spawn <spawn-spec>]` → registers a new handler immediately (each spawn happens before the next `:fx` entry is processed; the spawned id is tracked at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` and the spec's `:on-spawn` advisory callback fires for observation — its return is dropped; if `:start` is present, an event is queued to the new actor).
+  - `[:rf.machine/spawn <spawn-spec>]` → installs the new actor's snapshot immediately (a pure `app-db` write — no per-instance handler registration; the actor's liveness IS its snapshot, per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)). Each spawn happens before the next `:fx` entry is processed; the spawned id is tracked at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` and the spec's `:on-spawn` advisory callback fires for observation — its return is dropped; if `:start` is present, an event is queued to the new actor (which lazy-resolves its snapshot on first dispatch).
   - any other `[fx-id args]` → forwarded to the standard `do-fx` for runtime processing.
 
 The relative order of `:raise` entries in `:fx` is the order they enter the local raise-queue. The relative order of non-raise fx entries is the order they reach `do-fx`.
@@ -1884,22 +1885,31 @@ External observers see one machine event per externally-visible transition; the 
 
 ## Spawning — dynamic actors
 
-If machines are event handlers and actors are machines, then **each spawned actor gets a dynamically-registered event handler whose id is the actor's address.** The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
+If machines are event handlers and actors are machines, then **a spawned actor is addressable as an event handler whose id is the actor's address** — but, per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db), that handler is NOT a per-instance registrar entry. It is *resolved on demand* from the actor's snapshot. The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
 > **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`.
 
-> **Frame-local registration is load-bearing.** A spawn registers its handler in the **frame-local** tier of the two-tier registry, not in the central boot-time tier. This is what makes spawning compatible with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): when a frame's value is reverted to a prior point, every actor spawned since that point disappears with it (its frame-local handler entry rolls back along with its `[:rf/runtime :machines :snapshots <id>]` snapshot). If spawn instead added entries to the central registry, undo would leave dangling handlers behind, and the AI / undo / time-travel guarantees in [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) would not hold.
->
-> **v1 status — partial.** The snapshot side of the contract holds: a frame revert restores `[:rf/runtime :machines :snapshots <id>]` atomically with the rest of `app-db`. The handler-registration side currently relaxes to the **global registrar** in the v1 CLJS reference (a frame revert does not yet clear the actor's event-handler entry); a separate tracking bead covers the migration to the frame-local tier. Reads of the spec that conclude "frame revert wipes spawned actor handlers entirely" should treat that as the post-v1 target shape, not the v1 behaviour. Snapshot-side revert is unaffected.
+### Liveness is derived from app-db
+
+A spawned actor's **liveness IS the presence of its snapshot** at `[:rf/runtime :machines :snapshots <actor-id>]` in the frame's (revertible) value — nothing else. Spawn and destroy are **pure `app-db` writes**: spawn installs the snapshot (stamping the revertible TYPE reference under `:rf/machine-type`, per [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)) and the spawn-registry slot; destroy removes them. There is **no per-instance event-handler registration** — the spawn does NOT add an entry to any registrar, and the destroy clears none.
+
+When a dispatch targets an `<actor-id>` for which no handler is registered, the runtime **lazily resolves** the actor's handler from `app-db`: it reads the live snapshot, recovers the actor's TYPE (the `:machine-id` keyword names a registered machine — the TYPE is registered like a singleton and outlives every instance — or, for an inline `:definition` spawn, the spec rides the snapshot directly), and routes the event to that TYPE's handler with the `<actor-id>` context. The address form is `[<actor-id> <event>]`, exactly as for a singleton. If no live snapshot exists for the actor-id, the dispatch is a genuine `:rf.error/no-such-handler` — correct, because the actor is not alive in this frame value.
+
+**Why this is load-bearing — it closes the [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) leak.** Because liveness is a pure function of `app-db`, a frame revert (`restore-epoch` / undo / SSR hydration) reverts it perfectly and atomically with the rest of the state:
+
+- **Rewind past a spawn** → the snapshot vanishes with the rest of `app-db`; there is no orphaned handler left behind, because none was ever registered. A dispatch to the gone actor is a clean `:rf.error/no-such-handler`.
+- **Rewind past a destroy** → the snapshot comes back with the rest of `app-db`, and a dispatch to the actor *resolves again* through the lazy resolver — its liveness reverted with its snapshot, with **zero registrar drift**.
+
+This is the design finally keeping its own promise. [§Where snapshots live](#where-snapshots-live) warns that "a parallel ActorRef registry … would put machine state outside the frame's value and break the goal." A per-instance handler registration IS exactly such a parallel registry — it would hold an actor's liveness outside the frame value. Earlier drafts of this section relaxed to a per-instance registrar entry as a v1 expedient (the warned-against anti-pattern, one level up, for liveness); the lazy-resolver eliminates it entirely. Liveness now lives where state lives — inside the revertible frame value.
 
 Symmetry between singleton and spawned:
 
-| | id form | snapshot location | handler |
+| | id form | snapshot location | liveness |
 |---|---|---|---|
-| Singleton | `:drawer/editor` (explicit) | `[:rf/runtime :machines :snapshots :drawer/editor]` | registered at boot via `reg-event-fx` |
-| Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf/runtime :machines :snapshots :request/protocol#42]` | registered dynamically by `[:rf.machine/spawn ...]` fx |
+| Singleton | `:drawer/editor` (explicit) | `[:rf/runtime :machines :snapshots :drawer/editor]` | a registrar entry registered at boot via `reg-event-fx`; outlives any one frame's value |
+| Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf/runtime :machines :snapshots :request/protocol#42]` | the SNAPSHOT's presence — no per-instance registrar entry; resolved on dispatch from the snapshot's `:rf/machine-type`; reverts with the frame value |
 
-Both are event handlers. Both addressable by `dispatch`. Both visible to `(registrations :event)`. Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`.
+Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf/runtime :machines :snapshots]` instead, per [§Querying machines](#querying-machines).
 
 ### Spawn lifecycle — ordering
 
@@ -1917,8 +1927,8 @@ For a parent state with `:spawn {:machine-id :child …}` (or for a hand-emitted
 1. **Parent enters the `:spawn`-bearing state.** The transition's entry cascade reaches the state-node; the desugared `:rf.spawn/spawn-<state>` action (per [§Desugaring rules](#desugaring-rules)) is appended to the cascade's action queue.
 2. **`:on-spawn` advisory hook fires.** The pure spawn-id allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent's snapshot root, then writes the spawn-registry slot `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` (the authoritative user-readable home of the id). The `:on-spawn` callback (when declared) is then invoked with `{:data <parent's :data> :id <id>}` for side-channel observation; **its return value is dropped** and no fx is emitted by `:on-spawn` itself.
 3. **`:rf.machine/spawn` fx is emitted** into the parent transition's `:fx` vector with the allocated spawned-id, the resolved child `:data`, and (for declarative `:spawn`) the stamped `:rf/parent-id` / `:rf/spawn-id` keys.
-4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf/runtime :machines :snapshots <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist as an event handler.
-5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data)), and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/runtime :machines :snapshots <spawned-id>]`; the child's event handler is registered at the spawned-id. The runtime spawn-registry slot at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` is written for the declarative-`:spawn` case.
+4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf/runtime :machines :snapshots <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist.
+5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data)), the TYPE reference `:rf/machine-type`, and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/runtime :machines :snapshots <spawned-id>]`. This is a **pure `app-db` write** — NO per-instance handler is registered (the actor's liveness IS the snapshot; per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)). The runtime spawn-registry slot at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` is written for the declarative-`:spawn` case.
 6. **Child's first event is dispatched** — `[<spawned-id> <:start arg>]` when the spawn args carried `:start`, otherwise the synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]`. The two paths are mutually exclusive; the child receives exactly one of the two as its first event, never both.
 7. **Child's initial-entry cascade fires** (per [§Initial-state `:entry` fires on machine bootstrap](#initial-state-entry-fires-on-machine-bootstrap)). For a flat child the single initial state's `:entry` runs; for a compound child every `:entry` along the initial chain runs shallowest-first. This cascade runs **before** the first event's `:on` lookup, so `:entry`-emitted `:fx` is concatenated ahead of the first event's transition fx. `:rf/bootstrap-pending?` is cleared by the same drain.
 8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine.spawn/spawned]` path with no matching handler the snapshot is unchanged — and because the kick-off id lives in the reserved `:rf/*` namespace it is **exempt** from the unhandled-no-op: no `:rf.machine.event/unhandled-no-op` trace fires (the reserved-`:rf/*` lifecycle carve-out per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). The kick-off is framework init dispatched into every generic child, not an unknown user event the author forgot to handle; severity is benign either way (nothing throws), this is purely about not mislabelling framework lifecycle traffic as a missed user event.
@@ -2824,9 +2834,17 @@ The framework therefore ships two thin lookup fns — **derived views over the e
 
 ```clojure
 (rf/machines)
-;; → seq of machine-ids
+;; → seq of registered machine TYPE-ids (singletons + spawnable types)
 ;; Implementation: every event handler whose registration metadata
 ;; carries :rf/machine? true.
+;;
+;; NOTE (rf2-a2sn1): this enumerates registered TYPES — singleton
+;; machines and the types a `:spawn` names — NOT live spawned INSTANCES.
+;; A spawned actor carries no per-instance registrar entry (its liveness
+;; is its snapshot; per §Liveness is derived from app-db), so it does not
+;; appear here. Enumerate live instances from the snapshots map:
+;;   (keys (get-in (rf/app-db-value frame-id)
+;;                 [:rf/runtime :machines :snapshots]))
 
 (rf/machine-meta :drawer/editor)
 ;; → registration-metadata map (transition table, doc, schemas, ...)
@@ -2855,13 +2873,21 @@ User-facing call sites:
 
 ```clojure
 (rf/machines)
-;; → (:auth.login/flow :checkout/flow :request/protocol#42 ...)
+;; → (:auth.login/flow :checkout/flow :request/protocol ...)
+;;   registered TYPES (incl. spawnable types like :request/protocol),
+;;   NOT live instances like :request/protocol#42 (rf2-a2sn1).
 
 (for [id (rf/machines)]
   [id (-> (rf/machine-meta id) :doc)])
 ;; → ([:auth.login/flow "Login flow: idle → submitting → ..."]
 ;;    [:checkout/flow "Checkout wizard."]
 ;;    ...)
+
+;; Live spawned INSTANCES — read the snapshots map (their liveness is
+;; their snapshot, per §Liveness is derived from app-db):
+(keys (get-in (rf/app-db-value :rf/default)
+              [:rf/runtime :machines :snapshots]))
+;; → (:auth.login/flow :request/protocol#42 :request/protocol#43 ...)
 ```
 
 See also [API.md §Machines](API.md#machines).

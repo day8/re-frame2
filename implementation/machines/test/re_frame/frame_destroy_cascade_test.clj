@@ -266,14 +266,31 @@
       ;; Each frame has its own spawn-order vector.
       (is (= [:iso/child-a#1] (spawn-order/frame-order :iso/frame-a)))
       (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b)))
-      ;; Destroy A; B's actor stays alive and its handler stays registered.
+      ;; Per rf2-a2sn1 — a spawned actor carries NO per-instance registrar
+      ;; entry; its liveness IS its snapshot's presence in the frame's
+      ;; (revertible) app-db. Cross-frame isolation is therefore asserted
+      ;; on the snapshots, not the registrar.
+      (is (some? (get-in (rf/app-db-value :iso/frame-a)
+                         [:rf/runtime :machines :snapshots :iso/child-a#1]))
+          "frame A's spawned actor is live (snapshot present) before destroy")
+      (is (some? (get-in (rf/app-db-value :iso/frame-b)
+                         [:rf/runtime :machines :snapshots :iso/child-b#1]))
+          "frame B's spawned actor is live (snapshot present) before destroy")
+      ;; Spawned actors never register a per-instance handler (rf2-a2sn1).
+      (is (nil? (registrar/lookup :event :iso/child-a#1))
+          "frame A's spawned actor has no per-instance registrar entry")
+      (is (nil? (registrar/lookup :event :iso/child-b#1))
+          "frame B's spawned actor has no per-instance registrar entry")
+      ;; Destroy A; B's actor stays alive (its snapshot survives).
       (rf/destroy-frame! :iso/frame-a)
       (is (= [:iso/child-a#1] @exit-log)
           "only frame A's spawned actor ran its :exit")
-      (is (nil? (registrar/lookup :event :iso/child-a#1))
-          "frame A's spawned handler is unregistered")
-      (is (some? (registrar/lookup :event :iso/child-b#1))
-          "frame B's spawned handler stays registered after A's destroy")
+      (is (some? (registrar/lookup :event :iso/child-b)
+                 )
+          "frame B's TYPE machine stays globally registered after A's destroy")
+      (is (some? (get-in (rf/app-db-value :iso/frame-b)
+                         [:rf/runtime :machines :snapshots :iso/child-b#1]))
+          "frame B's spawned actor stays alive (snapshot present) after A's destroy")
       (is (= [] (spawn-order/frame-order :iso/frame-a))
           "frame A's spawn-order slot is cleared")
       (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b))
