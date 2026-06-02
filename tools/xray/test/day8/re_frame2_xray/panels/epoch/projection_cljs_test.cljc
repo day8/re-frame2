@@ -460,6 +460,75 @@
       (is (= 1 (count (:timers m))))
       (is (= :on-exit (-> m :timers first :reason))))))
 
+(deftest handler-row-machine-transition-no-action-test
+  (testing "rf2-eue07 — a real macrostep that fires NO `:rf.machine/action-ran`
+            (an entry-cascade-only / pure-state-move transition — the
+            framework does NOT emit `action-ran` for `:entry` actions, see
+            rf2-n9f4z) is STILL a machine cascade. The substrate's
+            `:rf.machine/transition` summary rides the macrostep
+            UNCONDITIONALLY (commit-or-finalize · lifecycle_fx ·
+            registration.cljc), so `:rf.machine/transition` is the
+            authoritative macrostep marker. It MUST classify `:reg-machine`
+            (render the machine section), NOT `:reg-event-fx` / `:reg-event-db`
+            (the raw `:db` diff of the snapshot write).
+
+  RED before the fix: handler-flavour saw only the do-fx (the machine handler
+  always rides one) → fell through to `:reg-event-fx`; `:machine` slot absent."
+    (let [snap-before {:state [:off]      :data {}}
+          snap-after  {:state [:running]  :data {}}
+          ;; A machine handler ALWAYS rides a `:rf.fx/do-fx` (the snapshot
+          ;; write). The pre-fix classifier let that do-fx win → :reg-event-fx.
+          evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:running]}}}})
+               (machine-transition-ev :hvac/controller snap-before snap-after
+                                       [:hvac/power-cycle] 2)
+               (db-changed-ev [[[:hvac/controller] {} {} :modified]])]
+          r   (proj/handler-row evs :hvac/power-cycle)
+          m   (:machine r)]
+      (is (= :reg-machine (:flavour r))
+          "a transition with NO action-ran still classifies :reg-machine")
+      (is (some? m)
+          "the machine section is populated, not the raw :db diff")
+      (is (= :hvac/controller (-> m :transition :machine-id))
+          "the transition row threads through into the machine block"))))
+
+(deftest handler-row-bootstrap-initial-entry-transition-test
+  (testing "rf2-eue07 — the post-carve-out bootstrap macrostep (rf2-t4582:
+            bootstrap runs `:initial-entry`, never a no-op) emits a
+            `:rf.machine/transition` summary. Even were its `:initial-entry`
+            actions untraced, the transition marks it a machine cascade →
+            `:reg-machine`, so the EVENT HANDLER renders the machine section
+            (the `[INITIAL]` bootstrap), not a raw `:db` diff."
+    (let [snap-before {:state nil          :data {}}
+          snap-after  {:state [:off]       :data {}}
+          evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:off]}}}})
+               (machine-transition-ev :hvac/controller snap-before snap-after
+                                       [:rf.machine/bootstrap] 1)]
+          r   (proj/handler-row evs :hvac/controller)]
+      (is (= :reg-machine (:flavour r))
+          "the bootstrap transition classifies :reg-machine, not :reg-event-fx")
+      (is (some? (:machine r))
+          "the bootstrap renders the machine section"))))
+
+(deftest handler-flavour-negative-guards-test
+  (testing "rf2-eue07 NEGATIVE GUARD — a genuine reg-event-fx (a do-fx with
+            NO machine trace at all) STILL classifies :reg-event-fx; the new
+            transition predicate must not over-claim"
+    (let [evs [(do-fx-ev {:db {} :navigate "/x"})
+               (db-changed-ev [])]
+          r   (proj/handler-row evs :navigate-to)]
+      (is (= :reg-event-fx (:flavour r))
+          "no machine trace → plain reg-event-fx, unchanged")
+      (is (nil? (:machine r))
+          "no machine section on a plain fx handler")))
+
+  (testing "rf2-eue07 NEGATIVE GUARD — a genuine reg-event-db (no fx, no
+            machine trace) STILL classifies :reg-event-db"
+    (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
+                              :counter-inc)]
+      (is (= :reg-event-db (:flavour r))
+          "no fx, no machine trace → reg-event-db, unchanged")
+      (is (nil? (:machine r))))))
+
 (deftest machine-transition-row-hoists-data-snapshots-test
   (testing "rf2-9c27r — `machine-transition-row` exposes `:data-before /
             :data-after` from the `:before / :after` snapshots, plus the
