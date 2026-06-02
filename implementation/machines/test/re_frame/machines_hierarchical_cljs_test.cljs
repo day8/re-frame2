@@ -177,3 +177,117 @@
       (rf/dispatch-sync [:rf2-fhb9/parent-walk [:unknown]])
       (is (= [:parent-wildcard] @log)
           "no explicit anywhere — parent's :* fires"))))
+
+;; ---- external vs internal self-transitions (rf2-46ban) -------------------
+;; Per Spec 005 §Self-transitions + §Entry/exit cascading: an EXTERNAL
+;; self-transition (`:target :same-state`, or a `:target` naming the
+;; declaring state's own keyword) re-enters the state — `:exit` then the
+;; transition's `:action` then `:entry` all fire, the configuration
+;; unchanged. An INTERNAL self-transition (omit `:target`) fires the action
+;; ONLY, no exit/entry. On a COMPOUND state the external self-transition
+;; also re-runs the `:initial`-child entry cascade. This ns exercises the
+;; live runtime; the pure-engine ordering is pinned in the SCXML conformance
+;; corpus (`scxml-external-self-transition-*`).
+(deftest machine-self-transition-cljs
+  (testing "external self-transition (:target :same-state) on a flat leaf —
+            exit → action → entry, state unchanged"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :idle
+           :data    {}
+           :actions {:enter-idle (tag :enter-idle)
+                     :exit-idle  (tag :exit-idle)
+                     :poke       (tag :poke)}
+           :states
+           {:idle {:entry :enter-idle
+                   :exit  :exit-idle
+                   :on    {:refresh {:target :same-state :action :poke}}}}}]
+      (rf/reg-machine :self/flat-same-state machine)
+      ;; Prime: the first dispatch fires the bootstrap initial-cascade
+      ;; entry (per rf2-0z73). A benign unhandled event drives that
+      ;; bootstrap without touching :idle, so the reset below leaves only
+      ;; the self-transition's own exit/action/entry in the log.
+      (rf/dispatch-sync [:self/flat-same-state [:rf2-46ban/prime]])
+      (reset! log [])
+      (rf/dispatch-sync [:self/flat-same-state [:refresh]])
+      (is (= :idle (:state (snapshot :self/flat-same-state)))
+          "external self-transition leaves the configuration at the source")
+      (is (= [:exit-idle :poke :enter-idle] @log)
+          "exit → action → entry — the state is re-entered (external semantics)")))
+
+  (testing "external self-transition naming the state's OWN keyword —
+            identical exit → action → entry as :same-state"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :idle
+           :data    {}
+           :actions {:enter-idle (tag :enter-idle)
+                     :exit-idle  (tag :exit-idle)
+                     :poke       (tag :poke)}
+           :states
+           {:idle {:entry :enter-idle
+                   :exit  :exit-idle
+                   :on    {:refresh {:target :idle :action :poke}}}}}]
+      (rf/reg-machine :self/flat-own-keyword machine)
+      (rf/dispatch-sync [:self/flat-own-keyword [:rf2-46ban/prime]])  ;; consume bootstrap entry
+      (reset! log [])
+      (rf/dispatch-sync [:self/flat-own-keyword [:refresh]])
+      (is (= :idle (:state (snapshot :self/flat-own-keyword)))
+          "a self-naming keyword target stays at the source state")
+      (is (= [:exit-idle :poke :enter-idle] @log)
+          "exit → action → entry — same as the :same-state sentinel")))
+
+  (testing "INTERNAL self-transition (omit :target) — action ONLY, no
+            exit/entry, state unchanged"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :idle
+           :data    {}
+           :actions {:enter-idle (tag :enter-idle)
+                     :exit-idle  (tag :exit-idle)
+                     :poke       (tag :poke)}
+           :states
+           {:idle {:entry :enter-idle
+                   :exit  :exit-idle
+                   :on    {:refresh {:action :poke}}}}}]    ;; no :target
+      (rf/reg-machine :self/flat-internal machine)
+      (rf/dispatch-sync [:self/flat-internal [:rf2-46ban/prime]])    ;; consume bootstrap entry
+      (reset! log [])
+      (rf/dispatch-sync [:self/flat-internal [:refresh]])
+      (is (= :idle (:state (snapshot :self/flat-internal)))
+          "internal self-transition leaves the configuration unchanged")
+      (is (= [:poke] @log)
+          "ONLY the action fired — no exit, no entry (internal semantics preserved)")))
+
+  (testing "external self-transition on a COMPOUND state — re-runs the
+            state's :entry AND its :initial-child entry cascade"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :session
+           :data    {}
+           :actions {:enter-session (tag :enter-session)
+                     :exit-session  (tag :exit-session)
+                     :enter-active  (tag :enter-active)
+                     :exit-active   (tag :exit-active)
+                     :renew         (tag :renew)}
+           :states
+           {:session
+            {:initial :active
+             :entry   :enter-session
+             :exit    :exit-session
+             ;; declared ON the compound — :same-state re-enters :session
+             :on      {:reauth {:target :same-state :action :renew}}
+             :states
+             {:active {:entry :enter-active :exit :exit-active}}}}}]
+      (rf/reg-machine :self/compound-same-state machine)
+      (rf/dispatch-sync [:self/compound-same-state [:rf2-46ban/prime]])  ;; consume bootstrap entries
+      (reset! log [])
+      (rf/dispatch-sync [:self/compound-same-state [:reauth]])
+      (is (= [:session :active] (:state (snapshot :self/compound-same-state)))
+          "compound external self-transition re-descends the :initial child")
+      (is (= [:exit-active :exit-session :renew :enter-session :enter-active] @log)
+          "exit cascade leaf→root → action → entry cascade root→leaf (re-runs :initial)"))))

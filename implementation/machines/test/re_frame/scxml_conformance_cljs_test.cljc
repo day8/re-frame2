@@ -100,21 +100,19 @@
       ever support history is a SEPARATE post-v1 decision, out of scope for
       this corpus.
 
-  ## Divergences found (reported for follow-up — see §Self-transitions)
+  ## Divergences found
 
-  This corpus PINS one genuine semantic divergence from the SCXML core:
-  **external self-transition semantics are not implemented**. Per Spec 005
-  §Self-transitions and Spec-Schemas TransitionTarget, `:target :same-state`
-  (and a `:target` naming the source state's own keyword) must fire BOTH
-  the source `:exit` and the re-entered `:entry`, leaving the state
-  unchanged. The engine today does neither correctly. The two tests in
-  §Self-transitions are split into the parts that PASS (internal omit-target
-  semantics; the action fires) and a DOCUMENTED-DIVERGENCE test
-  (`scxml-external-self-transition-DIVERGENCE`) that asserts the engine's
-  ACTUAL (non-conformant) behaviour so the gap is pinned and visible rather
-  than hidden behind a skipped assertion. The engine fix is out of this
-  bead's test-authoring scope; the divergence is reported in the PR for a
-  follow-up engine bead."
+  This corpus originally PINNED one semantic divergence from the SCXML
+  core: **external self-transition semantics were not implemented**. That
+  divergence is now RESOLVED by rf2-46ban. Per Spec 005 §Self-transitions
+  and Spec-Schemas TransitionTarget, `:target :same-state` (and a `:target`
+  naming the source state's own keyword) fire BOTH the source `:exit` and
+  the re-entered `:entry`, leaving the state unchanged. The §Self-transitions
+  tests assert the conformant ordering: the INTERNAL omit-target case fires
+  the action only (no exit/entry), and the two EXTERNAL cases
+  (`scxml-external-self-transition-same-state-sentinel` /
+  `…-own-keyword-target`) fire exit → action → entry and stay at the source.
+  No outstanding divergences remain in this corpus."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -638,16 +636,15 @@
 ;; transitions: `:target :same-state` (external) fires exit+entry; omit
 ;; `:target` (internal) fires neither.
 ;;
-;; FINDING — DIVERGENCE: the engine implements the INTERNAL (omit-target)
-;; case correctly, but does NOT implement EXTERNAL self-transition
-;; semantics. `:target :same-state` is treated as a literal sibling-keyword
-;; target named `:same-state` (no `:same-state` sentinel handling exists in
-;; `re-frame.machines.transition/target-path`), so it fires exit + action
-;; but NOT entry, and lands the snapshot in a bogus `:same-state`. A
-;; `:target` naming the source's own keyword computes LCA = full path, so
-;; neither exit nor entry fires (action only). Pinned below as a documented
-;; divergence; engine fix is out of this bead's scope (reported for a
-;; follow-up engine bead).
+;; RESOLVED BY rf2-46ban: the engine now implements EXTERNAL self-transition
+;; semantics. `re-frame.machines.transition/target-path` resolves the
+;; `:same-state` sentinel (and a `:target` naming the declaring state's own
+;; keyword) to the declaring state's own path, and `compute-cascade-paths`
+;; pulls the LCA up to that state's parent so the state lands in BOTH the
+;; exit and entry cascades — exit → action → entry fire, the configuration
+;; unchanged. The INTERNAL (omit-target) case is unchanged: action only, no
+;; exit/entry. The former DOCUMENTED-DIVERGENCE test below is flipped to
+;; assert the SCXML-conformant ordering + landing state.
 ;; ===========================================================================
 
 (deftest scxml-internal-self-transition-fires-action-only
@@ -667,34 +664,38 @@
       (is (= [:action] @log)
           "ONLY the action fired — no onexit, no onentry (internal semantics, SCXML-conformant)"))))
 
-(deftest ^{:doc "DOCUMENTED DIVERGENCE — see ns docstring §Divergences and §10 FINDING."}
-  scxml-external-self-transition-DIVERGENCE
+(deftest scxml-external-self-transition-same-state-sentinel
   (testing "SCXML §3.13 external self-transition (`:target :same-state`)
-            SHOULD fire onexit THEN onentry of the source, leaving the
-            configuration at the source state. Spec 005 §Self-transitions +
-            Spec-Schemas TransitionTarget (`:same-state` is a documented
-            literal sentinel).
-
-            DIVERGENCE: the engine has NO `:same-state` sentinel handling;
-            it treats `:same-state` as a literal sibling-keyword target.
-            This test asserts the engine's ACTUAL (non-conformant)
-            behaviour so the gap is PINNED and visible. When the engine is
-            fixed (follow-up bead), the SCXML-conformant expectation in the
-            comment below should replace these assertions."
+            fires onexit THEN the transition's action THEN onentry of the
+            source, leaving the configuration at the source state. Spec 005
+            §Self-transitions + Spec-Schemas TransitionTarget (`:same-state`
+            is the documented literal sentinel). Resolved by rf2-46ban."
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
              :states {:a {:entry (mk :entry) :exit (mk :exit)
                           :on {:self {:target :same-state :action (mk :action)}}}}}
           r (step m {:state :a :data {}} [:self])]
-      ;; SCXML-CONFORMANT expectation (what the engine SHOULD produce):
-      ;;   (is (= :a (:state r)) "external self-transition stays at the source")
-      ;;   (is (= [:exit :action :entry] @log) "onexit → action → onentry")
-      ;; ACTUAL (non-conformant) engine behaviour, pinned to make the
-      ;; divergence loud:
-      (is (= :same-state (:state r))
-          "DIVERGENCE: `:same-state` treated as a literal sibling-keyword target (no sentinel handling)")
-      (is (= [:exit :action] @log)
-          "DIVERGENCE: onexit + action fire, but onentry does NOT (target sibling does not resolve to a real node)"))))
+      (is (= :a (:state r))
+          "external self-transition stays at the source state")
+      (is (= [:exit :action :entry] @log)
+          "onexit → action → onentry (external self-transition re-enters the state)"))))
+
+(deftest scxml-external-self-transition-own-keyword-target
+  (testing "SCXML §3.13 / Spec 005 §Entry/exit cascading: a `:target`
+            naming the declaring state's OWN keyword is ALSO an external
+            self-transition (\"if `:target` names the same state as the
+            source, the transition is external — exit and entry fire\").
+            Same exit → action → entry ordering as `:same-state`.
+            Resolved by rf2-46ban."
+    (let [[log mk] (order-recorder)
+          m {:initial :a :data {}
+             :states {:a {:entry (mk :entry) :exit (mk :exit)
+                          :on {:self {:target :a :action (mk :action)}}}}}
+          r (step m {:state :a :data {}} [:self])]
+      (is (= :a (:state r))
+          "a self-naming keyword target stays at the source state")
+      (is (= [:exit :action :entry] @log)
+          "onexit → action → onentry — identical to the `:same-state` sentinel"))))
 
 ;; ===========================================================================
 ;; §11. :after — delayed transitions (SEMANTIC CORE: fire + stale)

@@ -636,7 +636,19 @@
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
+   - `:same-state` sentinel → the declaring state's OWN path (`decl-path`).
+     Marks an EXTERNAL self-transition: the state is exited and re-entered
+     (`:exit` then `:entry` both fire), the configuration unchanged. The
+     self-re-entry geometry — pulling the LCA up to the declaring state's
+     parent so the state appears in both the exit and entry cascades — is
+     `compute-cascade-paths`' job; here `:same-state` simply names the
+     declaring state as the target. Per Spec 005 §Self-transitions +
+     Spec-Schemas TransitionTarget (rf2-46ban).
    - keyword target → sibling at decl-path's level (replace last element).
+     A keyword that names the declaring state's OWN key resolves to
+     `decl-path` too, so it is the same external self-transition as
+     `:same-state` (Spec 005 §Entry/exit cascading — \"if `:target` names
+     the same state as the source, the transition is external\").
    - vector target → absolute path from root.
    - nil target (internal transition) → nil; the caller wraps the call
      in `some->>` so the nil short-circuits the initial-cascade descent.
@@ -646,7 +658,8 @@
   nil, which is the documented internal-transition contract."
   [decl-path target]
   (cond
-    (vector? target)     target
+    (= :same-state target) (vec decl-path)
+    (vector? target)       target
     (keyword? target)
     (let [parent (vec (drop-last decl-path))]
       (conj parent target))))
@@ -1227,12 +1240,30 @@
   (let [src-path      (state-path (:state snapshot))
         decl-path     (:decl-path transition (vec (take 1 src-path)))
         raw-target    (:target transition)
-        target-leaf   (some->> (target-path decl-path raw-target)
-                               (initial-cascade machine))
         internal?     (nil? raw-target)
-        lca-len       (if internal?
-                        (count src-path)
-                        (common-prefix-length src-path target-leaf))
+        ;; The target BEFORE initial-cascade re-descent. Needed to detect
+        ;; the external self-transition: a `:target` (the `:same-state`
+        ;; sentinel, or a keyword naming the declaring state's own key)
+        ;; that resolves to the declaring state itself.
+        target-base   (target-path decl-path raw-target)
+        target-leaf   (some->> target-base (initial-cascade machine))
+        ;; Per Spec 005 §Self-transitions + §Entry/exit cascading: an
+        ;; EXTERNAL self-transition re-enters the declaring state — `:exit`
+        ;; then transition `:action` then `:entry` all fire, the
+        ;; configuration unchanged. The LCA-driven cascade fires `:exit` /
+        ;; `:entry` only on states BELOW the LCA, so a self-target's plain
+        ;; common-prefix LCA (= the full declaring path) would fire neither.
+        ;; Pull the LCA up to the declaring state's PARENT so the declaring
+        ;; state lands in both the exit and entry cascades. A self-target on
+        ;; a compound state re-enters it AND re-runs its `:initial` child
+        ;; cascade (`target-leaf` re-descended above). An INTERNAL
+        ;; self-transition (no `:target`) is untouched — it never reaches
+        ;; here (`internal?` short-circuits exit/entry below). rf2-46ban.
+        self-transition? (and (not internal?) (= target-base decl-path))
+        lca-len       (cond
+                        internal?        (count src-path)
+                        self-transition? (dec (count target-base))
+                        :else            (common-prefix-length src-path target-leaf))
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (per audit §T6 #2 — eliminate the double
