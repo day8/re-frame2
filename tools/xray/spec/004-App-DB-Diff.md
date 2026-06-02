@@ -182,7 +182,12 @@ taken only for sets.
 > set-valued app-db key, a sub result — reading as "the key vanished"
 > rather than "one member swapped." Surfaced live on the machine-epochs
 > deck (`[:rf/runtime :machines :snapshots :door/main :tags]`, rf2-l0us2,
-> related rf2-iwy0c). This is the FULL+DIFF family's set-keyed counterpart
+> related rf2-iwy0c). The deck's canonical HARD machine (`:hvac/controller`,
+> rf2-k08ay) drives the richer case: a `:hvac/mode-toggle` swaps
+> `:climate/heating` for `:climate/cooling` in the `:tags` set, and the
+> rendering-fidelity test (`panels.epoch.hard-machine-fidelity-cljs-test`)
+> pins that exactly one member joined + one left at member level (no
+> wholly-replaced blob). This is the FULL+DIFF family's set-keyed counterpart
 > to the rf2-bufw2 empty-collection and rf2-9d4j8 root-container honesty
 > fixes: all three close gaps where the wholly-changed uniformity walk
 > disagreed with the per-leaf op classification.

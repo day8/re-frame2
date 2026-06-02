@@ -2941,6 +2941,8 @@ async function readMachineStrip(page) {
       stripText: (strip.textContent || '').replace(/\s+/g, ' ').trim(),
       doorState: text('machine-epochs-door-state'),
       trafficState: text('machine-epochs-traffic-state'),
+      hvacState: text('machine-epochs-hvac-state'),
+      hvacTrail: text('machine-epochs-hvac-trail'),
     };
   });
 }
@@ -3054,6 +3056,73 @@ async function runMachineEpochs(page, state) {
     { timeoutMs: 10000, description: '#10 reset door + tick traffic → door :locked + vehicle :red (two machines, one cascade)' },
   );
 
+  // ---- rf2-k08ay — the HARD machine (:hvac/controller) rungs #12–#15.
+  //      Each rung's render fact is asserted off the deck's own snapshot
+  //      mirror (the status strip reads `[:rf/machine :hvac/controller]`).
+  //      The deep RENDERING-FIDELITY assertions (cascade order, exit/entry
+  //      vs action-only, no spurious no-op row, member-level set diff) live
+  //      in the CLJS unit test `panels.epoch.hard-machine-fidelity-cljs-test`
+  //      per the Causa/Story-as-CLJS rule; here we confirm the hard
+  //      machine's key rungs land the expected configuration WITHOUT
+  //      contradiction (the browser-side legibility sanity check).
+
+  // ---- #12 parallel broadcast — ONE :hvac/power-cycle moves BOTH regions:
+  //      :climate :idle ──► [:running :conditioning :heating] (deep initial
+  //      cascade) AND :fan :off ──► :on. The snapshot's :state is a region
+  //      map carrying both.
+  await clickMachineRung(page, 12);
+  const afterHvacPower = await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:climate \[:running :conditioning :heating\]/.test(t) &&
+             /:fan :on/.test(t);
+    },
+    { timeoutMs: 10000, description: '#12 power-cycle → BOTH regions moved (climate deep leaf + fan :on)' },
+  );
+
+  // ---- #13 multi-level LCA cascade — :heating ──► :cooling crossing the
+  //      LCA :conditioning. The trail records the cascade ORDER:
+  //      exit :heating → :swap-mode @ LCA → entry :cooling.
+  await clickMachineRung(page, 13);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:climate \[:running :conditioning :cooling\]/.test(t) &&
+             /:exit:heating :action:swap-mode :entry:cooling/.test(t);
+    },
+    { timeoutMs: 10000, description: '#13 mode-toggle → :cooling + trail shows LCA cascade order (exit→action→entry)' },
+  );
+
+  // ---- #14 EXTERNAL self-transition (:hvac/nudge, :target :same-state):
+  //      :fan :on re-enters itself — exit → action → entry all fire; the
+  //      configuration stays :on (rf2-46ban / #2843).
+  await clickMachineRung(page, 14);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:fan :on/.test(t) &&
+             /:exit:fan-on :action:nudge :entry:fan-on/.test(t);
+    },
+    { timeoutMs: 10000, description: '#14 nudge → external self-transition: trail shows exit→action→entry, fan STAYS :on' },
+  );
+
+  // ---- #15 INTERNAL self-transition (:hvac/tweak, omit :target): action
+  //      ONLY — no exit/entry; the foil to #14. The trail gains exactly
+  //      :action:tweak and nothing else; the configuration stays :on.
+  await clickMachineRung(page, 15);
+  const afterHvacTweak = await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => {
+      const t = snap.stripText || '';
+      return /:fan :on/.test(t) &&
+             /:action:nudge :entry:fan-on :action:tweak/.test(t);
+    },
+    { timeoutMs: 10000, description: '#15 tweak → internal self-transition: trail gains :action:tweak ONLY (no exit/entry), fan STAYS :on' },
+  );
+
   // ---- Xray Machine Inspector handoff. Open Xray, fire one more machine
   //      transition so the spine has a focused machine event, switch to
   //      the Machines tab, and confirm the inspector mounts + machine
@@ -3119,6 +3188,9 @@ async function runMachineEpochs(page, state) {
     blocked: { doorState: afterBlocked.doorState },
     parallel: { trafficState: afterParallel.trafficState },
     multi: { doorState: afterMulti.doorState, trafficState: afterMulti.trafficState },
+    // rf2-k08ay — the hard machine's landed configuration after the
+    // power-cycle (#12) and the internal self-transition (#15).
+    hard: { powerState: afterHvacPower.hvacState, tweakTrail: afterHvacTweak.hvacTrail },
     inspectorMounted: true,
   };
 }
@@ -3309,7 +3381,7 @@ const SCENARIOS = [
     // reaches the trace bus. Real Machine-Inspector coverage for the deck
     // the `Machines` matrix row names (the chart-render shim-survival probe
     // stays owned by the `deep machine inspector substrate` scenario).
-    name: 'machine-epochs machine ladder (start, transitions, guards allowed/blocked, entry/exit, effect, ignored, parallel, multiple machines)',
+    name: 'machine-epochs machine ladder (start, transitions, guards allowed/blocked, entry/exit, effect, ignored, parallel, multiple machines, + the HARD machine: deep compound, LCA cascade, internal/external self-transitions)',
     url: '/testbeds/machine-epochs/',
     panels: ['machines'],
     coveredRows: ['Machines'],
