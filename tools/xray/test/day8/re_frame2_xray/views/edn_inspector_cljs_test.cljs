@@ -1626,6 +1626,50 @@
     (is (re-find #"← was 2" s)
         "modified leaf still carries the change annotation")))
 
+(deftest l0us2-set-member-swap-renders-member-level-not-whole-key
+  ;; rf2-l0us2 — the bead repro: the door machine's `:tags` went
+  ;; `#{:door/locked}` → `#{:door/closed}`. The renderer must show
+  ;; `-:door/locked +:door/closed` with the `:tags` KEY INTACT, NOT a
+  ;; struck-through whole `:tags` entry (the 'sea of red'). With the
+  ;; engine fix `:tags` classifies `:children` (intact) and the set's
+  ;; member union carries per-member -/+ chrome.
+  (let [before {:tags #{:door/locked}}
+        after  {:tags #{:door/closed}}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    ;; Precondition (engine): :tags intact, members diffed.
+    (is (= :children (engine/op-at proj [:tags]))
+        "precondition: :tags key is intact (:children), not wholly removed")
+    (is (= :removed (engine/op-at proj [:tags :door/locked])))
+    (is (= :added (engine/op-at proj [:tags :door/closed])))
+    ;; Renderer: both members visible, member-level chrome present.
+    (is (re-find #":door/locked" all)
+        "the removed member :door/locked still renders")
+    (is (re-find #":door/closed" all)
+        "the added member :door/closed renders")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "a row carries the removed diff-op marker (the gone member)")
+    (is (re-find #"data-rf-diff-op.*added" s)
+        "a row carries the added diff-op marker (the new member)")
+    (is (re-find #"line-through" s)
+        "the removed member is struck through, not the whole key")
+    ;; The :tags key itself must NOT be inside a removed-ghost wrapper —
+    ;; that would be the 'sea of red' whole-key removal. The
+    ;; `data-rf-removed-ghost` attr is present on every container header
+    ;; but carries the value "1" ONLY for an actual removed ghost; with
+    ;; the fix :tags classifies :children so the marker stays unset.
+    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
+        "the :tags set is not rendered as a removed ghost (no whole-key strike)")))
+
 ;; =========================================================================
 ;; rf2-e28r3 — single render path: value (always) + before (optional)
 ;; =========================================================================

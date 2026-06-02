@@ -139,6 +139,54 @@ testbed epoch-2 `:rf/runtime` allocation (`:messages []` +
 > the FULL+DIFF family alongside rf2-9d4j8 root-container and
 > rf2-fyd8u scalar-sub-cache cases).
 
+### A changed set diffs member-by-member, key intact (rf2-l0us2)
+
+A **set** whose membership changes is a *member-level* diff — the key
+stays intact and each member carries its own `:added` / `:removed`
+chrome (`#{:door/locked}` → `#{:door/closed}` reads as `-:door/locked
++:door/closed`, not a struck-through whole `:tags` entry). Members match
+**by value** — sets are unordered, so there is no positional or key
+identity, only membership: a member present only in `before` is
+`:removed`, present only in `after` is `:added`, present in both is
+`:same`.
+
+Two engine rules make this hold:
+
+- **The wholly-changed uniformity walk takes the UNION of both sides'
+  set members.** Editscript keys set members by *value*, so a swap puts
+  each side's members at **disjoint** paths (`#{:a} → #{:b}` ⇒ `[[:a] :-]
+  [[:b] :+]`). A one-sided uniformity walk would then see the before-set
+  as "all members removed" and the after-set as "all members added" and
+  *both* falsely promote the set — and every ancestor map/vector of it —
+  to a wholly-changed root, which the renderer paints as a whole-key
+  removal (the "sea of red"). Collecting the union of members means a
+  swapped set contributes both a `:removed` and an `:added` leaf, so the
+  uniformity test correctly fails **at the set and at every ancestor**.
+- **An empty↔populated set replace expands per-member.** When one side is
+  the *empty* set Editscript falls back to a whole-value `:r` (the same
+  pathology as the empty map, rf2-9d4j8); the projection pre-expands it
+  into per-member `:+` / `:-` edits so `#{} → #{:a}` and `#{:a} → #{}`
+  classify member-level rather than as a single opaque `:modified`.
+
+A set is therefore only a **wholly-changed root** when the opposite side
+is empty or absent (a genuine cold-boot `#{} → #{…}` or clear `#{…} →
+#{}`, where there is no surviving member to anchor a member-level diff).
+While the opposite side still holds members, the membership delta *is*
+the diff and the per-member chrome shows with the key intact. Maps and
+vectors are unaffected — their slots are keyed by a shared key/index, so
+the one-sided uniformity walk was always correct for them; the union is
+taken only for sets.
+
+> **Why this is a contract, not an edge case.** The misrender hit ANY
+> set whose membership changed — `:tags` on a machine snapshot, a
+> set-valued app-db key, a sub result — reading as "the key vanished"
+> rather than "one member swapped." Surfaced live on the machine-epochs
+> deck (`[:rf/runtime :machines :snapshots :door/main :tags]`, rf2-l0us2,
+> related rf2-iwy0c). This is the FULL+DIFF family's set-keyed counterpart
+> to the rf2-bufw2 empty-collection and rf2-9d4j8 root-container honesty
+> fixes: all three close gaps where the wholly-changed uniformity walk
+> disagreed with the per-leaf op classification.
+
 ### Removed slots render in place; the absence marker never escapes (rf2-8pfkk)
 
 The diff renders the **union of `before ∪ after`** — a slot present in

@@ -450,3 +450,206 @@
                 [:flow :phases :foo]]
                (mapv :path sorted)))))))
 
+;; ---- rf2-l0us2 — member-level set diffs --------------------------------
+;;
+;; A changed SET must project as a member-level diff (KEY INTACT, per-
+;; member `:removed` / `:added`), NOT as a whole-key removal. The bug:
+;; Editscript keys set members by VALUE, so a member-swap puts each
+;; side's members at DISJOINT paths. The before-side wholly-changed
+;; uniformity walk then saw the set (and every ancestor) as 'all members
+;; removed' and the after-side walk as 'all members added' — BOTH falsely
+;; promoting the container to wholly-changed `:removed` / `:added`, which
+;; the renderer paints as a struck-through whole key (the bead's 'sea of
+;; red'). The engine's `path-ops` were already member-level; the fix is
+;; the uniformity walk (`mark-wholly-changed` now collects the UNION of
+;; both sides' set members so a swap fails uniformity at the set AND every
+;; ancestor) plus per-member expansion of the empty↔populated `:r` set
+;; replace (`expand-empty-collection-replacement`).
+
+(deftest l0us2-set-member-swap-is-member-level-not-whole-key
+  (testing "rf2-l0us2 — RED repro: `#{:a} → #{:b}` member swap projects
+            as member-level `-:a +:b`, NOT a wholly-changed whole-set.
+            (Before the fix the set container was promoted to wholly-
+            changed-removed AND -added — the 'sea of red'.)"
+    (let [p (engine/project #{:a} #{:b})]
+      ;; Member-level ops at the value-keyed member paths.
+      (is (= :removed (engine/op-at p [:a])))
+      (is (= :added   (engine/op-at p [:b])))
+      ;; The set is NOT wholly-changed — root `[]` is the set itself,
+      ;; excluded from promotion regardless, but the key invariant is
+      ;; that no wholly-changed root is logged for a member swap.
+      (is (= #{} (:wholly-changed-roots p))))))
+
+(deftest l0us2-nested-set-swap-keeps-key-intact
+  (testing "rf2-l0us2 — the live repro path: a set nested under a map key
+            (`{:tags #{:a}} → {:tags #{:b}}`) keeps `:tags` INTACT
+            (`:children`, NOT `:removed`) and diffs at the member level."
+    (let [p (engine/project {:tags #{:a}} {:tags #{:b}})]
+      ;; The :tags KEY is intact — :children, never :removed/:added.
+      (is (= :children (engine/op-at p [:tags])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags])))
+      ;; Member-level diff under the intact key.
+      (is (= :removed (engine/op-at p [:tags :a])))
+      (is (= :added   (engine/op-at p [:tags :b]))))))
+
+(deftest l0us2-door-machine-tags-repro
+  (testing "rf2-l0us2 — the exact bead repro: the door machine's `:tags`
+            went `#{:door/locked}` → `#{:door/closed}`. The :tags key
+            must read as `-:door/locked +:door/closed`, not 'tags went
+            away'."
+    (let [p (engine/project {:tags #{:door/locked}}
+                            {:tags #{:door/closed}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (= :removed (engine/op-at p [:tags :door/locked])))
+      (is (= :added   (engine/op-at p [:tags :door/closed])))
+      (is (= :door/locked (:before (engine/entry-at p [:tags :door/locked]))))
+      (is (= :door/closed (:after  (engine/entry-at p [:tags :door/closed])))))))
+
+(deftest l0us2-set-add-only
+  (testing "rf2-l0us2 — add-only `#{:a} → #{:a :b}`: only `:b` is added,
+            `:a` is :same, key intact."
+    (let [p (engine/project {:tags #{:a}} {:tags #{:a :b}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (= :added (engine/op-at p [:tags :b])))
+      ;; The surviving member carries no op (returns :same).
+      (is (= :same (engine/op-at p [:tags :a])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
+
+(deftest l0us2-set-remove-only
+  (testing "rf2-l0us2 — remove-only `#{:a :b} → #{:a}`: only `:b` is
+            removed, `:a` is :same, key intact."
+    (let [p (engine/project {:tags #{:a :b}} {:tags #{:a}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (= :removed (engine/op-at p [:tags :b])))
+      (is (= :same (engine/op-at p [:tags :a])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
+
+(deftest l0us2-set-partial-swap-keeps-shared-member
+  (testing "rf2-l0us2 — partial swap `#{:a :b} → #{:a :c}`: `:a` survives
+            (:same), `:b` removed, `:c` added — NOT wholly-changed."
+    (let [p (engine/project {:tags #{:a :b}} {:tags #{:a :c}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (= :removed (engine/op-at p [:tags :b])))
+      (is (= :added (engine/op-at p [:tags :c])))
+      (is (= :same (engine/op-at p [:tags :a])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
+
+(deftest l0us2-empty-to-nonempty-set-expands-member-level
+  (testing "rf2-l0us2 — `{:tags #{}} → {:tags #{:a}}` (the empty↔populated
+            edge Editscript emits as a whole-value `:r`): expands to a
+            per-member `:added`, with the set legitimately wholly-changed
+            (no surviving member to anchor against). Mirrors the empty-map
+            expansion (rf2-9d4j8)."
+    (let [p (engine/project {:tags #{}} {:tags #{:a}})]
+      (is (= :added (engine/op-at p [:tags :a])))
+      ;; Genuine cold-boot of the set → wholly-changed-added, key intact.
+      (is (= :added (engine/op-at p [:tags])))
+      (is (contains? (:wholly-changed-roots p) [:tags])))))
+
+(deftest l0us2-nonempty-to-empty-set-expands-member-level
+  (testing "rf2-l0us2 — symmetric clear `{:tags #{:a}} → {:tags #{}}`
+            expands to a per-member `:removed`, wholly-changed-removed."
+    (let [p (engine/project {:tags #{:a}} {:tags #{}})]
+      (is (= :removed (engine/op-at p [:tags :a])))
+      (is (= :removed (engine/op-at p [:tags])))
+      (is (contains? (:wholly-changed-roots p) [:tags])))))
+
+(deftest l0us2-wholly-new-set-promotes
+  (testing "rf2-l0us2 — a set that appears wholesale under a NEW key
+            (`{} → {:tags #{:a :b}}`) is still wholly-changed-added
+            (opposite side absent → no surviving member)."
+    (let [p (engine/project {} {:tags #{:a :b}})]
+      (is (= :added (engine/op-at p [:tags])))
+      (is (contains? (:wholly-changed-roots p) [:tags]))
+      (is (= :added (engine/op-at p [:tags :a])))
+      (is (= :added (engine/op-at p [:tags :b]))))))
+
+(deftest l0us2-set-swap-does-not-promote-ancestor-map
+  (testing "rf2-l0us2 — a swapped set must not falsely promote an ANCESTOR
+            map. `{:m {:tags #{:a}}} → {:m {:tags #{:b}}}` keeps BOTH `:m`
+            and `:m :tags` intact (the deeper trap a set-only gate missed:
+            the ancestor map's only changed descendant is the swapped
+            set)."
+    (let [p (engine/project {:m {:tags #{:a}}} {:m {:tags #{:b}}})]
+      (is (= :children (engine/op-at p [:m])))
+      (is (= :children (engine/op-at p [:m :tags])))
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :removed (engine/op-at p [:m :tags :a])))
+      (is (= :added (engine/op-at p [:m :tags :b]))))))
+
+(deftest l0us2-set-swap-does-not-promote-ancestor-vector
+  (testing "rf2-l0us2 — a swapped set inside a VECTOR must not promote the
+            vector. `{:v [#{:a}]} → {:v [#{:b}]}` keeps `:v` and `:v 0`
+            intact (the index-aligned opposite-side walk for vectors)."
+    (let [p (engine/project {:v [#{:a}]} {:v [#{:b}]})]
+      (is (= :children (engine/op-at p [:v])))
+      (is (= :children (engine/op-at p [:v 0])))
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :removed (engine/op-at p [:v 0 :a])))
+      (is (= :added (engine/op-at p [:v 0 :b]))))))
+
+(deftest l0us2-set-of-non-keyword-members
+  (testing "rf2-l0us2 — members match BY VALUE regardless of type. A set
+            of strings + a set of numbers diff member-level just like
+            keywords."
+    (let [ps (engine/project {:t #{"a"}} {:t #{"b"}})]
+      (is (= :children (engine/op-at ps [:t])))
+      (is (= :removed (engine/op-at ps [:t "a"])))
+      (is (= :added (engine/op-at ps [:t "b"]))))
+    (let [pn (engine/project {:t #{1 2}} {:t #{2 3}})]
+      (is (= :children (engine/op-at pn [:t])))
+      (is (= :removed (engine/op-at pn [:t 1])))
+      (is (= :added (engine/op-at pn [:t 3])))
+      (is (= :same (engine/op-at pn [:t 2]))))))
+
+(deftest l0us2-set-of-maps-recurses
+  (testing "rf2-l0us2 — a set of MAPS (members value-keyed by their whole
+            map) recurses into per-member structure sensibly: a swapped
+            element-map surfaces as a removed old-map + added new-map,
+            key intact."
+    (let [p (engine/project {:items #{{:id 1}}} {:items #{{:id 2}}})]
+      ;; The :items key stays intact.
+      (is (= :children (engine/op-at p [:items])))
+      (is (not (contains? (:wholly-changed-roots p) [:items])))
+      ;; Each element-map is keyed by its whole value; the removed map
+      ;; and added map appear at distinct member paths.
+      (is (= :removed (engine/op-at p [:items {:id 1} :id])))
+      (is (= :added (engine/op-at p [:items {:id 2} :id]))))))
+
+(deftest l0us2-set-diff-feeds-flat-rows
+  (testing "rf2-l0us2 — the member-level set diff also surfaces on the
+            `:diff` (pure-list) flat-rows lens, not just FULL+DIFF."
+    (let [p (engine/project {:tags #{:door/locked}}
+                            {:tags #{:door/closed}})
+          rows (:flat-rows p)
+          paths (set (map :path rows))
+          op-at-path (fn [path]
+                       (some (fn [r] (when (= path (:path r)) (:op r))) rows))]
+      (is (contains? paths [:tags :door/locked]))
+      (is (contains? paths [:tags :door/closed]))
+      (is (= :removed (op-at-path [:tags :door/locked])))
+      (is (= :added (op-at-path [:tags :door/closed])))
+      ;; The :tags key itself is NOT a flat-row (it's intact :children).
+      (is (not (contains? paths [:tags]))))))
+
+(deftest l0us2-map-and-vector-diffs-unchanged
+  (testing "rf2-l0us2 — regression guard: the set-aware union walk must
+            leave MAP + VECTOR wholly-changed promotion untouched."
+    ;; Wholly-new map subtree still promotes (R5).
+    (let [p (engine/project {:a 1} {:a 1 :flash {:level :ok :text "hi"}})]
+      (is (contains? (:wholly-changed-roots p) [:flash]))
+      (is (= :added (engine/op-at p [:flash]))))
+    ;; Wholly-removed map subtree still promotes.
+    (let [p (engine/project {:user {:id 7}} {})]
+      (is (contains? (:wholly-changed-roots p) [:user]))
+      (is (= :removed (engine/op-at p [:user]))))
+    ;; Mixed map subtree still does NOT promote.
+    (let [p (engine/project {:user {:id 7 :name "Ada"}}
+                            {:user {:id 7 :name "Ada Lovelace"}})]
+      (is (not (contains? (:wholly-changed-roots p) [:user])))
+      (is (= :modified (engine/op-at p [:user :name]))))
+    ;; Vector insert shift (R6) still works.
+    (let [p (engine/project [:a :b :c :d] [:a :NEW :b :c :d])]
+      (is (= :added (engine/op-at p [1])))
+      (is (= :same-shifted (engine/op-at p [2]))))))
+
