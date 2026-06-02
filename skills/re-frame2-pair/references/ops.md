@@ -12,6 +12,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 - [Trace](#trace) — trace stream + epoch history
 - [DOM source bridge](#dom-source-bridge)
 - [Live watch (push-mode)](#live-watch-push-mode)
+- [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)
 - [Time-travel (epoch restore)](#time-travel-epoch-restore)
 - [Bash-shim appendix (not reachable from this skill)](#bash-shim-appendix-not-reachable-from-this-skill)
@@ -33,7 +34,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 | `subs/sample` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/subs-sample [:cart/total])"}` | One-shot value via `rf/compute-sub` (no cache mutation) or `@(rf/subscribe ...)`. Unvalidated + un-elided — prefer `subs/read` above. |
 | `machines/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machines-list)"}` | Machine ids (`rf/machines`) |
 | `machines/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-describe :auth)"}` | The registered spec map (`rf/machine-meta`) |
-| `machines/state` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-state :auth)"}` | Current snapshot from `(rf/snapshot-of [:rf/runtime :machines :snapshots :auth])` |
+| `machines/state` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-state :auth)"}` | Current `:rf/machine-snapshot` from `(rf/snapshot-of [:rf/runtime :machines :snapshots :auth])`. The snapshot shape is `{:state :data :tags? :meta?}` (Spec 005 §Snapshot shape): `:state` is the FSM-keyword / compound-path / parallel-region map; `:data` the machine's private memory; `:tags` the runtime-projected union of active states' `:tags` (optional); `:meta` carries `:rf/snapshot-version` (Spec-Schemas §`:rf/machine-snapshot`). The runtime also stamps closed `:rf/*` slots (e.g. `:rf/spawn-counter` at the root) — framework-owned, read-only. |
 
 ## Frames
 
@@ -55,8 +56,9 @@ To target one op at a non-operating frame without pinning the session, pass the 
 
 | Op | Invocation | Notes |
 |---|---|---|
-| `dispatch` | `mcp__re-frame2-pair__dispatch {event: "[:cart/apply-coupon \"SPRING25\"]"}` | Queued by default; pass `sync: true` to force `dispatch-sync`. Skill-issued dispatches carry `:origin :pair` (Spec 002 §Dispatch origin tagging) so `:rf.event/dispatched` traces can be filtered by who fired them. |
+| `dispatch` | `mcp__re-frame2-pair__dispatch {event: "[:cart/apply-coupon \"SPRING25\"]"}` | **Returns the consequence by default** (rf2-3bu3d.2): `{:epoch-id :db-changed? :changed-paths :effects-fired :no-op? :cascade-summary}` — `dispatch → verify` in one call; a no-op visibly returns `:db-changed? false :no-op? true`. The event-id is **validated** against the `:event` registrar (unknown → `:reason :unknown-id` + `:nearest`, NOT dispatched — never a silent no-op). Skill-issued dispatches carry `:origin :pair` (Spec 002 §Dispatch origin tagging). Modes: `sync: true` (force `dispatch-sync`), `queued: true` (async transport-ack), `trace: true` (full epoch), `await-render: true` (resolve after the substrate flushed + next paint scheduled), `settle: true` (the most complete shape — synchronously flush renders + return the full epoch incl. `:render-events`). |
 | `dispatch --frame` | `mcp__re-frame2-pair__dispatch {event: "[:foo]", frame: ":stories"}` | Targets a specific frame via the `:frame` opt on `rf/dispatch`. |
+| `dispatch-dry-run` | `mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}` | **Simulate a cascade WITHOUT committing** (rf2-17hvp) — "experiment without consequences". Full reducer + interceptor + schema validation + machine transitions + sub-runs + renders all run; **NO fx execute** (each registered fx is redirected to a recording stub) and the framework rolls back the app-db via `restore-epoch`. Returns the same `:cascade-summary` shape as `dispatch` plus `:rolled-back? true` and `:would-fire-effects [{:fx-id :args}...]` enumerating every fx that WOULD have fired (with args) so you reason about real-world impact without paying it. Composes with `:fx-overrides` (user overrides win, e.g. a canned http stub) without losing the rollback guarantee. **NOT** `--allow-writes`-gated — its contract IS "no observable effect". |
 | `reg-event` / `reg-sub` / `reg-fx` | `mcp__re-frame2-pair__eval-cljs {form: "<full reg-* form>"}` | Re-registration replaces; emits `:rf.registry/handler-replaced` trace (Spec 001 §Hot-reload semantics). Ephemeral. |
 | `app-db/reset` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-reset! ...)"}` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |
 | `repl/eval` | `mcp__re-frame2-pair__eval-cljs {form: "<arbitrary form>"}` | Escape hatch. Prefer structured ops first. Takes the same `frame: ":foo"` arg as every other op (rf2-ntuzf — see *Frame-scoping an eval form* below): the server wraps the form in `(re-frame.core/with-frame :foo <form>)` so `(rf/subscribe ...)` / `(rf/dispatch ...)` inside it resolve against `:foo` rather than the ambient `:rf/default`. |
@@ -123,6 +125,18 @@ Pass **exactly one** entry point (precedence `view-id` > `point` > `selector`). 
 
 The accepted args (`:additionalProperties false`): `view-id`, `point`, `selector`, `max-text` (per-node char cap, default 2000), `frame`, `build`. Failure modes: `:no-target-arg` (no entry point), `:no-element` (entry point matched nothing), `:rf.error/ui-read-bad-selector` (malformed CSS). A portal / fragment leaf with no tagged view ancestor still returns `:content`, with `:entity {:view-id nil :reason :no-tagged-view-root}`.
 
+### `read-dom` — rendered content by explicit CSS selector (rf2-nfjil)
+
+`read-ui` is the typed view read (it rides the view-id↔DOM map and returns the producing entity). `read-dom` is the **content-only** read by an explicit CSS selector — the answer to *"did the UI update?"* / *"what does the rendered node SAY?"* when you already have a selector and don't need the entity provenance. The data-plane reads (`snapshot` / `get-path` / `read-sub` / `trace-window`) tell you what's in `app-db` and the trace; `read-dom` tells you what the app actually **put on screen**. Read-only by construction (only `querySelectorAll` + `textContent` / attribute strings). Pairs with `dispatch :await-render` / `:settle` for a deterministic *dispatch → settle → read-dom* observe.
+
+| Op | Invocation | Returns |
+|---|---|---|
+| `read-dom` | `mcp__re-frame2-pair__read-dom {selector: "#app .counter"}` | `{:ok? true :selector … :count N :truncated? bool :nodes [{:tag "div" :text "Count: 3" :attrs {"class" "counter" "data-count" "3"}}]}` — `:count` is the full pre-`:limit` tally |
+| `read-dom` scoped | `mcp__re-frame2-pair__read-dom {selector: ".card", sub-selector: ".title"}` | `:sub-selector` runs RELATIVE to each matched node to narrow a coarse match (a card) to its inner parts |
+| `read-dom` specific attrs | `mcp__re-frame2-pair__read-dom {selector: "input[name=email]", attrs: ["value", "data-valid"]}` | Omit `:attrs` and a curated default set rides PLUS a `data-*` / `aria-*` sweep (the re-frame2 view-plane idiom for surfacing rendered state) |
+
+Caps are applied **at the source** (browser-side) so only bounded EDN crosses the wire: `:max-text` (per-node text cap, default 2000 — over-cap → `{:rf.size/large-elided {:type :dom-text :chars N :preview "…"}}`) and `:limit` (matched-node cap, default 50; `:truncated? true` when more matched than returned). Failure modes: `:rf.error/read-dom-bad-selector` (malformed CSS); a no-match returns `{:ok? true :count 0 :nodes []}`.
+
 ## Live watch (push-mode)
 
 Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same underlying assembled-epoch / trace stream.
@@ -149,6 +163,29 @@ The tool's accepted args (`:additionalProperties false` — anything else is rej
 Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:app|:pair|:story|:test`), `frame`.
 
 Each call tracks the last seen `:epoch-id` in the operating frame's history via `since-id` and returns everything matching since. See `docs/initial-spec.md` §4.4.
+
+## Signal recording + blocking waits
+
+The push/poll watch ops above stream *epochs* — the cascade unit. The `record` / `read-recording` / `watch-until` family (rf2-zo4b9) observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across a window of **real human interaction**. The canonical move for catching intermittent / human-in-the-loop bugs (render-timing races reproducible only under real mouse input) — the runtime solves the rAF-sampling / dedup / teardown footguns once. All three are **read-only**: never dispatch, never mutate app-db, never write the DOM.
+
+**SIGNAL shapes** (each a map naming one observable, shared by `record` + `watch-until`):
+
+| Signal | Reads |
+|---|---|
+| `{:app-db [path]}` | `(get-in app-db path)` |
+| `{:sub [query-v]}` | a subscription deref |
+| `{:dom "sel"}` / `{:dom "sel" :attr "name"}` | a node's `textContent` or attribute string |
+| `{:focus true}` | a stable descriptor of `document.activeElement` (the focus slot) |
+
+**PRED shapes** (a DATA predicate map over the positional sample map `{<signal-index> <value>}` — compiled to a pure value-comparison fn, no host source crosses the wire): `{:signal 0 :equals <v>}` / `{:signal 0 :changed true}` / `{:signal 0 :path [...] :equals <v>}` / `{:signal 0 :contains <substr>}` / `{:signal 0}` (any non-nil).
+
+| Op | Invocation | Behaviour |
+|---|---|---|
+| `record` | `mcp__re-frame2-pair__record {signals: "[{:focus true} {:dom \"#count\"}]", stop: {:ms 15000}}` | Returns IMMEDIATELY with a `:recording-id`; the recording runs in the background, samples each signal once per animation frame, records each CHANGE (with a `:t` wall-clock ms + `:frame` rAF-counter), dedups (a steady signal → ONE baseline entry), and tears down at the STOP condition. STOP (first to trip wins; defaults to `{:ms 30000}`): `{:ms N}` / `{:changes N}` / `{:pred {...}}`. |
+| `read-recording` | `mcp__re-frame2-pair__read-recording {recording-id: "rec-abc"}` | Read the change-log: `{:ok? true :recording-id :status :recording\|:stopped :stopped-reason :frames-sampled :count :entries [{:i :signal :value :t :frame}...]}`. Pass `drain: true` for the live-watch idiom (consume buffered entries, recording keeps running) or `stop: true` to read-and-close. Unknown id → `:reason :no-such-recording`. |
+| `watch-until` | `mcp__re-frame2-pair__watch-until {signals: "[{:app-db [:upload :status]}]", pred: {:signal 0 :equals :done}}` | **Blocks** until the predicate holds — the synchronous counterpart to `record`. Like `tail-build`, the server polls a cheap runtime read (~100ms cadence) until the condition trips or `timeout-ms` (default 30000) elapses. `{:ok? true :held? true :elapsed-ms :sample :t}` on success; `{:ok? false :reason :watch-timeout :timed-out? true :last-sample {...}}` on timeout (`:last-sample` shows how close it got). Missing `:pred` → `:reason :missing-pred`. |
+
+Use `record` + `read-recording` when you want to **capture** what happened across an open-ended interaction window (then read it back); use `watch-until` when you want to **block** until a specific condition lands before the next op (e.g. "wait until focus moves into the dialog, then read-dom it").
 
 ## Hot-reload coordination
 
@@ -192,7 +229,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Unknown epoch | `:rf.epoch/restore-unknown-epoch` | `epoch-id` not in current history (aged out or never recorded) |
 | Schema mismatch | `:rf.epoch/restore-schema-mismatch` | `:db-after` no longer validates against currently-registered schemas (a schema was tightened since the snapshot) |
 | Missing handler | `:rf.epoch/restore-missing-handler` | DB references a registration id no longer in the registrar (e.g. a machine snapshot whose machine was unregistered) |
-| Version mismatch | `:rf.epoch/restore-version-mismatch` | Recorded `:rf/snapshot-version` of an active machine is incompatible with the currently-loaded definition (hot-reload bumped it) |
+| Version mismatch | `:rf.epoch/restore-version-mismatch` | Recorded `:meta :rf/snapshot-version` of an active machine is incompatible with the currently-loaded definition (hot-reload bumped it) |
 | Concurrent drain | `:rf.epoch/restore-during-drain` | Called while the frame's run-to-completion drain is in flight |
 
 When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.

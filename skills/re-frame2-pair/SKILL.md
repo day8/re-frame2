@@ -196,7 +196,11 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 
 | Task shape | Reference |
 |---|---|
-| Pick a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
+| Pick a structured op (read, validated sub-read, write, dry-run, trace, DOM/UI read, signal recording, blocking wait, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
+| Orient on an unfamiliar app in one call, or read a single sub's validated value | `orient` / `read-sub` — see [references/ops.md §Read](references/ops.md#read) (and the MCP arg shapes in [references/mcp-transport.md §Orientation + discovery](references/mcp-transport.md#orientation--discovery)) |
+| Read what's actually on screen (rendered content + producing view entity) | `read-ui` / `read-dom` — see [references/ops.md §View → rendered content](references/ops.md#view--rendered-content--producing-entity-uiread) |
+| Simulate an event's consequence WITHOUT committing it (no fx fire) | `dispatch-dry-run` — see [references/recipes.md §"What would this event do?"](references/recipes.md#what-would-this-event-do-dry-run) |
+| Record signals while the human interacts, or block until a condition lands | `record` / `read-recording` / `watch-until` — see [references/ops.md §Signal recording](references/ops.md#signal-recording--blocking-waits) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
 | Drive a Story variant from a re-frame2-pair session — the variant *is* a frame; variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
 | Open a push-mode subscription on the trace or epoch bus (topics, filters, termination) | [references/streaming-subscriptions.md](references/streaming-subscriptions.md) |
