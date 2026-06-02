@@ -164,32 +164,45 @@
 ;; raw Editscript edit-script walker
 ;; =========================================================================
 
-(defn- expand-empty-map-replacement
-  "Expand a single Editscript edit that replaces an EMPTY MAP with a
-  populated map (or vice versa) into per-key `:+` / `:-` edits.
+(defn- expand-empty-collection-replacement
+  "Expand a single Editscript edit that replaces an EMPTY MAP / SET with
+  a populated one (or vice versa) into per-member `:+` / `:-` edits.
 
   Editscript's A* emits a single `[[path] :r new-value]` edit for the
   pathological `{} → {populated}` (and `{populated} → {}`) cases — the
-  whole map replacement is one step in the edit script. Downstream
+  whole collection replacement is one step in the edit script. Downstream
   classification then tags `path` as `:modified` and leaves every
-  PER-KEY path returning `:same` from `op-at`, which the renderer reads
-  as 'no per-key change' — wrong for an absent→present transition
+  PER-MEMBER path returning `:same` from `op-at`, which the renderer reads
+  as 'no per-member change' — wrong for an absent→present transition
   (rf2-9d4j8; related precedent rf2-5j7ch which patched only the
   `:flat-rows` lens).
 
+  ## Sets share the empty-replace pathology (rf2-l0us2)
+
+  For NON-empty sets Editscript already emits member-level `:+` / `:-`
+  edits (members are value-keyed: `#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`),
+  so they need no expansion. But when ONE side is the EMPTY set Editscript
+  falls back to the same whole-value `:r` it uses for empty maps
+  (`#{} → #{:a}` ⇒ `[[] :r #{:a}]`). Left alone that classifies as a single
+  `:modified` op at the set's path and the renderer's per-member walk sees
+  every member as `:same`. The set members are keyed by VALUE, mirroring
+  Editscript's own set-edit path scheme, so the per-member expansion uses
+  the member itself as the trailing path segment.
+
   This expansion runs over the raw edit script BEFORE classification so
   every downstream artefact (`:path-ops`, `:container-ops`,
-  `:flat-rows`, `:wholly-changed-roots`) sees per-key granularity.
+  `:flat-rows`, `:wholly-changed-roots`) sees per-member granularity.
 
-  Rule: a `:r` edit at `path` substitutes into per-key edits ONLY when
-  the before-side value at `path` is `{}` AND the after-side value at
-  `path` is a non-empty map (or symmetrically populated→empty). Type
-  changes (nil↔map, scalar↔map, map↔vector) are LEFT ALONE so R7's
-  `:rf.xray.diff/type-change?` branch still fires on them.
+  Rule: a `:r` edit at `path` substitutes into per-member edits ONLY when
+  one side at `path` is an EMPTY collection and the other is a NON-EMPTY
+  collection of the SAME KIND (empty-map↔populated-map or
+  empty-set↔populated-set). Type changes (nil↔map, scalar↔map,
+  map↔vector, set↔map) are LEFT ALONE so R7's `:rf.xray.diff/type-change?`
+  branch still fires on them.
 
   Pure; non-matching edits pass through unchanged."
   [edit before after]
-  (let [[path op value] edit]
+  (let [[path op _value] edit]
     (if (not= op :r)
       [edit]
       (let [before-at (value-at before path)
@@ -205,13 +218,24 @@
                (map? after-at)  (empty? after-at))
           (mapv (fn [[k _v]] [(conj (vec path) k) :-]) before-at)
 
+          ;; #{} → populated set: per-member :+ (member is the path seg)
+          (and (set? before-at) (empty? before-at)
+               (set? after-at)  (seq after-at))
+          (mapv (fn [el] [(conj (vec path) el) :+ el]) after-at)
+
+          ;; populated set → #{}: per-member :-
+          (and (set? before-at) (seq before-at)
+               (set? after-at)  (empty? after-at))
+          (mapv (fn [el] [(conj (vec path) el) :-]) before-at)
+
           :else
           [edit])))))
 
 (defn- raw-edits
   "Return Editscript A* edits for `(before, after)` as a vector of
-  3-tuples `[path op value?]`, with empty↔populated map replacements
-  pre-expanded into per-key `:+` / `:-` edits (rf2-9d4j8). Pure."
+  3-tuples `[path op value?]`, with empty↔populated map/set replacements
+  pre-expanded into per-member `:+` / `:-` edits (rf2-9d4j8, rf2-l0us2).
+  Pure."
   [before after]
   (let [raw (try
               (ee/get-edits (es/diff before after {:algo :a-star}))
@@ -223,7 +247,7 @@
                 ;; reproduces the operator-visible signal ("everything
                 ;; changed") without false sub-tree precision.
                 [[[] :r after]]))]
-    (into [] (mapcat (fn [edit] (expand-empty-map-replacement edit before after))) raw)))
+    (into [] (mapcat (fn [edit] (expand-empty-collection-replacement edit before after))) raw)))
 
 ;; =========================================================================
 ;; per-path op classification (leaves)
@@ -446,10 +470,49 @@
   single root-level reclassification, which contradicts the operator's
   read on a cold-boot diff: each top-level key is a discrete addition
   and wants its own gutter chrome. Nested containers can still qualify
-  as wholly-changed (e.g. `{} → {:user {:id 7}}` marks `[:user]`)."
+  as wholly-changed (e.g. `{} → {:user {:id 7}}` marks `[:user]`).
+
+  ## Sets are member-keyed — a swap is NOT wholly-changed (rf2-l0us2)
+
+  Editscript keys SET members by VALUE, not by a positional/key slot
+  shared across both sides (`#{:a} → #{:b}` emits `[[:a] :-] [[:b] :+]`).
+  So a set whose membership SWAPPED has every BEFORE-member at a
+  `:removed` leaf and every AFTER-member at an `:added` leaf — two
+  DISJOINT path-sets. The before-side uniformity walk then sees the set
+  as 'all members removed' and the after-side walk sees it as 'all
+  members added', and BOTH falsely promote the set container to wholly-
+  changed. The renderer paints that as a struck-through whole key (the
+  'sea of red' from the bead repro: `:tags #{:door/locked}` →
+  `#{:door/closed}` rendered as `:tags` removed, not `-:door/locked
+  +:door/closed` with `:tags` intact).
+
+  Concretely: a set is wholly-changed ONLY when the OPPOSITE side is
+  empty or absent — a genuine `#{} → #{…}` cold-boot or `#{…} → #{}`
+  clear, where there is no surviving member to anchor a member-level
+  diff. When the opposite side still holds members, the membership delta
+  IS the diff and the per-member `:added` / `:removed` chrome (which the
+  renderer's `children-of-pair` set union already emits) must show with
+  the key intact.
+
+  Implementation: `collect-leaves` (the walker that feeds the uniformity
+  test) takes the OPPOSITE side too. When it reaches a SET, it collects
+  the UNION of both sides' members. A member-swapped set then contributes
+  BOTH a `:removed` leaf (the gone member) AND an `:added` leaf (the new
+  member), so the uniformity test fails AT THE SET and at every ANCESTOR
+  of it — no false promotion anywhere up the tree (an ancestor MAP whose
+  only changed descendant is a swapped set was the deeper trap a set-only
+  gate missed). When the opposite set is empty/absent the union equals
+  the present side's members (all one op), so cold-boot / clear sets still
+  promote correctly. Maps and vectors are unchanged: their slots are keyed
+  by a shared key/index, so the one-sided walk was always correct for
+  them — the union is taken only for sets."
   [before after path-ops]
   (let [collect-leaves
-        (fn collect-leaves [data path]
+        ;; `opposite` is the value at the SAME path on the other side of
+        ;; the diff (`missing-sentinel` when absent). Only sets consult it
+        ;; (member-keyed → disjoint paths across sides); maps/vectors walk
+        ;; `data` alone exactly as before.
+        (fn collect-leaves [data opposite path]
           (cond
             ;; rf2-bufw2 — an empty container is a terminal leaf (it has
             ;; no descendant slots), exactly as `expand-leaf-paths`
@@ -467,71 +530,99 @@
             [path]
 
             (map? data)
-            (mapcat (fn [[k cv]] (collect-leaves cv (conj (vec path) k))) data)
+            (mapcat (fn [[k cv]]
+                      (collect-leaves cv
+                                      (if (map? opposite)
+                                        (get opposite k missing-sentinel)
+                                        missing-sentinel)
+                                      (conj (vec path) k)))
+                    data)
 
+            ;; rf2-l0us2 — sets are member-keyed, so a swap puts each
+            ;; side's members at DISJOINT paths. Collect the UNION of both
+            ;; sides' members so a swapped set contributes both a removed
+            ;; and an added leaf, breaking the false uniformity at the set
+            ;; AND every ancestor.
             (set? data)
-            (mapcat (fn [el] (collect-leaves el (conj (vec path) el))) data)
+            (let [opposite-set (when (set? opposite) opposite)
+                  members      (into data (or opposite-set #{}))]
+              (mapcat (fn [el]
+                        (collect-leaves el missing-sentinel
+                                        (conj (vec path) el)))
+                      members))
 
             (or (vector? data) (sequential? data))
-            (mapcat (fn [[i cv]] (collect-leaves cv (conj (vec path) i)))
-                    (map-indexed vector data))
+            (let [opp-vec (when (or (vector? opposite) (sequential? opposite))
+                            (vec opposite))]
+              (mapcat (fn [[i cv]]
+                        (collect-leaves cv
+                                        (if (and opp-vec (< i (count opp-vec)))
+                                          (nth opp-vec i)
+                                          missing-sentinel)
+                                        (conj (vec path) i)))
+                      (map-indexed vector data)))
 
             :else
             [path]))
         check-uniform
-        (fn [data root-path target-op]
-          (let [leaves (collect-leaves data root-path)]
+        (fn [data opposite root-path target-op]
+          (let [leaves (collect-leaves data opposite root-path)]
             (and (seq leaves)
                  (every? (fn [lp]
                            (= target-op (:op (get path-ops lp))))
                          leaves))))
+        ;; `opposite-root` is the OTHER side's whole value — the after-
+        ;; side walk (`:added`) threads `before`, the before-side walk
+        ;; (`:removed`) threads `after` — so `check-uniform` can resolve
+        ;; the counterpart at any path via `value-at`.
         walk-containers
-        (fn walk-containers [data path target-op acc]
-          (cond
-            (not (container? data))
-            acc
-
-            ;; Root path `[]` never qualifies as a wholly-changed root —
-            ;; recurse into children instead so nested containers can
-            ;; still be marked (rf2-9d4j8).
-            (and (= [] path) (check-uniform data path target-op))
+        (fn walk-containers [data path target-op opposite-root acc]
+          (let [opposite (value-at opposite-root path)]
             (cond
+              (not (container? data))
+              acc
+
+              ;; Root path `[]` never qualifies as a wholly-changed root —
+              ;; recurse into children instead so nested containers can
+              ;; still be marked (rf2-9d4j8).
+              (and (= [] path) (check-uniform data opposite path target-op))
+              (cond
+                (map? data)
+                (reduce-kv (fn [acc k cv]
+                             (walk-containers cv (conj (vec path) k)
+                                              target-op opposite-root acc))
+                           acc data)
+
+                (or (vector? data) (sequential? data))
+                (reduce (fn [acc [i cv]]
+                          (walk-containers cv (conj (vec path) i)
+                                           target-op opposite-root acc))
+                        acc (map-indexed vector data))
+
+                :else acc)
+
+              (check-uniform data opposite path target-op)
+              (conj acc path)
+
               (map? data)
               (reduce-kv (fn [acc k cv]
                            (walk-containers cv (conj (vec path) k)
-                                            target-op acc))
+                                            target-op opposite-root acc))
                          acc data)
 
               (or (vector? data) (sequential? data))
               (reduce (fn [acc [i cv]]
                         (walk-containers cv (conj (vec path) i)
-                                         target-op acc))
+                                         target-op opposite-root acc))
                       acc (map-indexed vector data))
 
-              :else acc)
-
-            (check-uniform data path target-op)
-            (conj acc path)
-
-            (map? data)
-            (reduce-kv (fn [acc k cv]
-                         (walk-containers cv (conj (vec path) k)
-                                          target-op acc))
-                       acc data)
-
-            (or (vector? data) (sequential? data))
-            (reduce (fn [acc [i cv]]
-                      (walk-containers cv (conj (vec path) i)
-                                       target-op acc))
-                    acc (map-indexed vector data))
-
-            :else acc))
+              :else acc)))
         added-roots
         (when (container? after)
-          (walk-containers after [] :added #{}))
+          (walk-containers after [] :added before #{}))
         removed-roots
         (when (container? before)
-          (walk-containers before [] :removed #{}))
+          (walk-containers before [] :removed after #{}))
         all-roots (into (or added-roots #{}) (or removed-roots #{}))
         ;; Elide deeper roots — when a path is wholly-changed AND its
         ;; ancestor is also wholly-changed, drop the deeper one (the
