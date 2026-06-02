@@ -92,6 +92,9 @@
   #?(:clj (config/set-global-args! {}))
   (reset! legacy-play/stepper-state {})
   (reset! re/run-state {})
+  ;; rf2-vkdam — reset the per-dispatch-step settle boundaries so a test
+  ;; observes only its own run's boundaries, not a prior test's accumulation.
+  (reset! re/step-boundaries {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (frame/reg-frame bridge-frame {:doc "outcome-matching bridge test frame"})
@@ -614,6 +617,45 @@
          (is (= :pass (:status final)))
          (is (= 4 (count (:results final))))
          (is (= [0 1 2 3] (mapv :idx (:results final))))))))
+
+;; ---- rf2-vkdam: the public driver OWNS the boundary reset ----------------
+;;
+;; `record-settle-boundary!` APPENDS a per-dispatch-step settle boundary onto
+;; the process-global `step-boundaries` atom (keyed by frame-id). Previously
+;; only the orchestrator (`runtime/run-phase-4!`) cleared, so a non-orchestrator
+;; re-run via the public `run!` (interactive Re-run / replay-in-place) kept
+;; accumulating boundaries until teardown — a latent hazard for any future
+;; consumer reading `settle-boundaries` after such a run (stale offsets →
+;; mis-attributed narrative). `run!` now resets the frame's boundaries at the
+;; SAME entry that writes them, so two consecutive public `run!`s leave exactly
+;; ONE run's worth — not the doubled accumulation.
+
+#?(:clj
+   (deftest run-resets-step-boundaries-public-driver
+     (testing "two consecutive public `run!`s of the same play leave the
+              frame's settle-boundaries reset to THIS run's worth — `run!`
+              owns the reset, so the count does not accumulate (rf2-vkdam)"
+       (rf/reg-event-db :vk/touch
+         (fn [db _] (update db :touches (fnil inc 0))))
+       (story/reg-variant :story.vkdam/rerun
+         {:events []
+          :play-script {:auto-run? false
+                        :script [[:dispatch-sync [:vk/touch]]
+                                 [:dispatch-sync [:vk/touch]]
+                                 [:dispatch-sync [:vk/touch]]]}})
+       ;; Allocate the frame so `run!` has a live frame to dispatch into.
+       (async/deref-blocking (story/run-variant :story.vkdam/rerun) 5000)
+       ;; First public run via `run!` (NOT the orchestrator).
+       (run-blocking :story.vkdam/rerun)
+       (let [after-first (count (re/settle-boundaries :story.vkdam/rerun))]
+         (is (= 3 after-first)
+             "three dispatch steps record three boundaries")
+         ;; Second public run — an interactive Re-run. WITHOUT the reset this
+         ;; would accumulate to six; WITH it, `run!` clears at start so the
+         ;; frame again holds exactly THIS run's three boundaries.
+         (run-blocking :story.vkdam/rerun)
+         (is (= 3 (count (re/settle-boundaries :story.vkdam/rerun)))
+             "the public driver reset its boundaries — no stale accumulation")))))
 
 #?(:clj
    (deftest bare-vector-with-unknown-event-still-dispatches

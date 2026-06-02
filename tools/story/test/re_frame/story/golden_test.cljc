@@ -240,6 +240,54 @@
       (is (= #{:app-db} (:facets (:diff r)))))))
 
 ;; ===========================================================================
+;; PURE: rf2-ursej — the frozen :slice-keys DRIVE compare (drift-detection)
+;; ===========================================================================
+
+(deftest slice-keys-current-predicate
+  (testing "a freshly-captured golden's :slice-keys are current; a golden whose
+            frozen surface differs from run-hash-input-keys is stale; a legacy
+            golden with NO :slice-keys is treated as current"
+    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
+      (is (true? (golden/slice-keys-current? g))
+          "the surface a golden was captured over matches the current keys")
+      (is (false? (golden/slice-keys-current?
+                    (assoc g :slice-keys (conj fingerprint/run-hash-input-keys
+                                               :some-new-slot))))
+          "a frozen surface that drifted from the current keys is stale")
+      (is (true? (golden/slice-keys-current? (dissoc g :slice-keys)))
+          "a golden captured before :slice-keys existed is not flagged stale"))))
+
+(deftest compare-golden-stale-slice-keys-distinct-verdict
+  (testing "when a golden's frozen :slice-keys no longer match the current
+            run-hash-input-keys, compare-golden returns a DISTINCT
+            :stale-slice-keys verdict (NOT a fake regression diff) — the stored
+            slice-keys now DRIVE the compare, fulfilling the make-golden promise"
+    (let [run    (run-result {:app-db {:n 1}})
+          ;; Simulate a future slice-surface change: the frozen golden was
+          ;; captured over a DIFFERENT key set than the current one.
+          stale  (assoc (golden/make-golden run {:keep-run-result true})
+                        :slice-keys (conj fingerprint/run-hash-input-keys
+                                          :some-future-slot))
+          r      (golden/compare-golden stale run)]
+      (is (false? (:match? r)) "a slice-surface drift is never a match")
+      (is (true? (:stale-slice-keys r)) "surfaced as the distinct verdict")
+      (is (not (contains? r :diff))
+          "no diff/diff-runs is taken — diffing across surfaces would mislocalise")
+      (is (= (conj fingerprint/run-hash-input-keys :some-future-slot)
+             (:golden-slice-keys r)))
+      (is (= fingerprint/run-hash-input-keys (:current-slice-keys r)))))
+
+  (testing "golden-match? also returns false on a stale slice surface — the
+            three-stage matches? gates slice-keys before canonical equality"
+    (let [run   (run-result {:app-db {:n 1}})
+          stale (assoc (golden/make-golden run)
+                       :slice-keys (conj fingerprint/run-hash-input-keys
+                                         :some-future-slot))]
+      (is (false? (golden/golden-match? stale run))
+          "even the very run the golden was captured from is NOT a match once
+           the frozen surface drifts from the current keys"))))
+
+;; ===========================================================================
 ;; PURE: rf2-9fd9c — golden-match? + compare-golden share ONE authority
 ;; ===========================================================================
 
@@ -247,8 +295,11 @@
   (testing "golden-match? and compare-golden's :match? agree for EVERY run —
             they route through the one shared GREEN/RED predicate, so the
             verdict can never drift between the boolean and the report"
-    (let [g     (golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]})
-                                    {:keep-run-result true})
+    (let [g      (golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]})
+                                     {:keep-run-result true})
+          ;; A stale-slice-surface golden: both paths must report a non-match.
+          stale  (assoc g :slice-keys (conj fingerprint/run-hash-input-keys
+                                            :some-future-slot))
           runs  [;; equivalent ⇒ both GREEN
                  (run-result {:app-db {:n 1} :ops [:a :b]})
                  ;; key-order-only ⇒ both GREEN (canonical)
@@ -262,7 +313,11 @@
       (doseq [run runs]
         (is (= (golden/golden-match? g run)
                (:match? (golden/compare-golden g run)))
-            (str "golden-match? and compare-golden disagree for " (pr-str run)))))))
+            (str "golden-match? and compare-golden disagree for " (pr-str run)))
+        (is (= (golden/golden-match? stale run)
+               (:match? (golden/compare-golden stale run)))
+            (str "stale-slice golden: golden-match? and compare-golden disagree for "
+                 (pr-str run)))))))
 
 (deftest compare-golden-run-hash-matches-fingerprint
   (testing "the :run-hash compare-golden reports is the canonical

@@ -1364,7 +1364,11 @@ and the inverse on the read side.
 (= machine-spec (-> machine-spec scxml/spec->scxml scxml/scxml->spec))
 ```
 
-holds for the supported subset.
+holds for the supported subset. It is **not** exact for the shapes
+listed under [Not supported](#not-supported-lossy-or-omitted) below —
+notably a machine-level (top-level) `:on` fallback, which W3C SCXML
+cannot host as a root `<transition>`, so it is exported as a
+documenting comment and does **not** survive the parse back.
 
 ### Supported grammar subset
 
@@ -1386,6 +1390,11 @@ holds for the supported subset.
 
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
+- Machine-level (top-level) `:on` fallback transitions — W3C SCXML
+  has no clean root-fallback slot (`<scxml>` does not host
+  `<transition>` children per the schema, and the import side drops
+  root-level transitions), so these are exported as a documenting XML
+  comment and do **not** round-trip back through `scxml->spec`.
 - `:tags` — re-frame2-specific; not part of W3C SCXML.
 - `:action`s and guard FN bodies — only the *names* survive
   (SCXML `cond="name"` for guards; entry/exit `<script>` would

@@ -375,6 +375,13 @@
   (when config/enabled?
     (swap! pending-exceptions assoc frame-id [])
     (install-trace-listener! frame-id)
+    ;; rf2-vkdam — reset the per-dispatch-step settle boundaries at the START
+    ;; of a fresh stepping session (the stepper analogue of `run!`'s reset),
+    ;; so `step-once!`'s per-step appends window onto THIS session's epoch tape
+    ;; rather than accumulating onto a previous run's boundaries. Fetched via
+    ;; the late-bind seam because `play` cannot `:require` `runner-events`.
+    (when-let [clear! (late-bind/get-fn :clear-step-boundaries)]
+      (clear! frame-id))
     (swap! stepper-state assoc frame-id
            {:remaining (variant-play-steps frame-id)
             :ran       []
