@@ -584,3 +584,53 @@
           "the registered handler appears in the projection")
       (is (= :rf/redacted (get-in rec [:meta :auth :password]))
           ":meta routes through egress-value — the sensitive slot is redacted"))))
+
+;; ---------------------------------------------------------------------------
+;; (14) get-source-coord routes :source-coord through egress-value — the
+;;      LAST direct-read accessor that bypassed the egress invariant
+;;      (rf2-j8b0u). Source-coord is structurally {:ns :file :line :column}
+;;      today, but Spec 009's user-supplied `:rf.handler/source` override
+;;      lets a code-gen pipeline stamp arbitrary values into the slot, so
+;;      the accessor egresses unconditionally rather than judging per-read.
+;; ---------------------------------------------------------------------------
+
+(defn- register-handler-with-sourcey-coord!
+  "Register an event whose registration metadata carries a `:source-coord`
+  whose value sits at the schema-declared sensitive path. We use the
+  registrar directly (not `reg-event-db`, whose macro emits its own
+  metadata) so the `:source-coord` slot we plant survives to
+  `rf/handler-meta` verbatim. `egress-value` walks the source-coord value
+  from its root and substitutes :rf/redacted for the sensitive path."
+  []
+  (registrar/register! :event :test/coord-with-secret
+                       {:handler-fn   (fn [db _] db)
+                        :source-coord {:auth {:password "leak-me"}}}))
+
+(deftest get-source-coord-redacts-sensitive-on-the-safe-default-path
+  (testing "`get-source-coord` routes the projected :source-coord through
+            egress-value (rf2-j8b0u) — a sensitive-declared slot in the
+            source-coord redacts on the bare (default, opt-out) call,
+            holding the every-read-routes-through-wire-elision invariant
+            with no exceptions"
+    (seed-sensitive-schema!)
+    (register-handler-with-sourcey-coord!)
+    (let [result (runtime/get-source-coord {:kind :event
+                                            :id   :test/coord-with-secret})]
+      (is (true? (:ok? result))
+          "the source-coord resolves for the registered handler")
+      (is (= :rf/redacted (get-in result [:source-coord :auth :password]))
+          ":source-coord routes through egress-value — the sensitive slot is redacted"))))
+
+(deftest get-source-coord-opts-back-in-to-sensitive
+  (testing "`get-source-coord` with `{:include-sensitive? true}` plumbs the
+            trust-boundary opt-in to the walker — the raw source-coord value
+            passes through (negative/opt-in coverage for rf2-j8b0u)"
+    (seed-sensitive-schema!)
+    (register-handler-with-sourcey-coord!)
+    (let [result (runtime/get-source-coord {:kind               :event
+                                            :id                 :test/coord-with-secret
+                                            :include-sensitive? true})]
+      (is (true? (:ok? result))
+          "the source-coord resolves for the registered handler")
+      (is (= "leak-me" (get-in result [:source-coord :auth :password]))
+          ":include-sensitive? true ⇒ the raw value passes through"))))

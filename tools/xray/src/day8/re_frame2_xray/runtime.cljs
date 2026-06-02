@@ -591,9 +591,20 @@
   view, machine state, sub) — projects the `:source-coord` slot off
   the handler's metadata.
 
+  The projected `:source-coord` routes through `egress-value` before
+  the off-box boundary (rf2-j8b0u), holding the runtime's
+  every-read-routes-through-wire-elision invariant with NO exceptions —
+  the safe path is the short path. Source-coord is structurally
+  `{:ns :file :line :column}` today, but Spec 009's user-supplied
+  `:rf.handler/source` override lets a code-gen pipeline stamp arbitrary
+  values into the source slot, so the accessor egresses unconditionally
+  rather than judging per-read whether THIS value happens to be safe.
+  `:include-sensitive?` / `:include-large?` carry the same trust-boundary
+  opt-in the sibling accessors (`get-handlers`) expose.
+
   Returns `{:ok? true :kind <kw> :id <any> :source-coord <map>}` or
   `{:ok? false :reason :no-source-coord ...}`."
-  [{:keys [kind id] :as _opts}]
+  [{:keys [kind id include-sensitive? include-large?] :as _opts}]
   (cond
     (nil? kind) {:ok? false :reason :missing-kind
                  :hint "Pass :kind <registrar-kind>."}
@@ -610,7 +621,9 @@
         {:ok?          true
          :kind         kind
          :id           id
-         :source-coord coord}))))
+         :source-coord (egress-value coord
+                                     {:include-sensitive? include-sensitive?
+                                      :include-large?     include-large?})}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mutation band (3 accessors)
