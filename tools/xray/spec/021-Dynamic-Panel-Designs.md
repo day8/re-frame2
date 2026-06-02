@@ -1433,11 +1433,24 @@ exception card and NOT pink. Because its trace op-type is `:rf.machine`
 un-washed and the ribbon stays empty — the contrast with a `:*`
 wildcard-action throw (`:rf.error/machine-action-exception`, which DOES go
 pink + renders the EXCEPTION card) validates that the predicate correctly
-distinguishes a benign no-op from a real error. A cascade carries either a
-`:transition` OR a `:no-op`, never both. The no-op row also makes the
-cascade's handler-flavour `:reg-machine` even when no action ran, so the
-EVENT HANDLER machine section renders the notice rather than collapsing to
-a plain `reg-event-db` handler.
+distinguishes a benign no-op from a real error. A cascade renders either a
+`:transition` OR a `:no-op`, never both. This is ENFORCED at projection
+time (rf2-e6q97): on a no-op the machine substrate emits BOTH the
+`:rf.machine.event/unhandled-no-op` trace AND — from `commit-or-finalize`'s
+unconditional `:rf.machine/transition` emit — a contradictory `{X}→{X}`
+0-microstep transition trace (`:before` == `:after`). Rendered side-by-side
+those contradict: the no-op row says "no transition — ignored" while the
+transition row borrows external-self-transition vocabulary (`{X} → {X}`)
+implying the `:exit` / `:entry` firing that did NOT happen.
+`machine-cascade-rows` therefore drops every `:transition` row when the
+cascade also carries a `:no-op` row — the no-op row is the authoritative
+signal that no transition was selected. A genuine self-transition
+(`:target :same-state`, EXTERNAL — `:exit` + `:entry` fire; or INTERNAL —
+the action runs) has a real `match`, so the unhandled-no-op branch is never
+reached and NO `:no-op` row fires: its transition row is preserved. The
+no-op row also makes the cascade's handler-flavour `:reg-machine` even when
+no action ran, so the EVENT HANDLER machine section renders the notice
+rather than collapsing to a plain `reg-event-db` handler.
 
 **Per-row chrome.** Each row carries:
 

@@ -889,6 +889,48 @@
             (assoc :event-id (event-id-of (:event tx))))))
       rows next-tx)))
 
+(defn- drop-spurious-no-op-transition
+  "Suppress the spurious `{X}→{X}` 0-microstep `:transition` row that the
+  substrate emits beside a genuine no-op (rf2-e6q97).
+
+  WHY THE SUBSTRATE EMITS BOTH. When an event matches no transition at any
+  level, `machine-transition-single` (machines · `transition.cljc`) takes
+  its `:else` branch: it emits ONE benign `:rf.machine.event/unhandled-no-op`
+  trace (Spec 005 §Transition resolution, xstate-v5 parity — an unhandled
+  event is ignored, not an error) and returns the snapshot UNCHANGED. The
+  macrostep then runs `commit-or-finalize` (machines · lifecycle_fx ·
+  `registration.cljc`), which fires `:rf.machine/transition` UNCONDITIONALLY
+  — even when `:before` == `:after` and zero microsteps ran. So a no-op
+  cascade carries BOTH a `:no-op` row AND a `{X}→{X}` 0-microstep
+  `:transition` row. Rendered side-by-side these CONTRADICT: the no-op row
+  says 'no transition — ignored', while the transition row borrows
+  external-self-transition vocabulary (`{X} → {X}`) implying the `:exit` /
+  `:entry` firing that did NOT happen.
+
+  THE DISCRIMINATOR. The presence of a `:no-op` row is the AUTHORITATIVE
+  signal that no transition was selected — `unhandled-no-op` fires from
+  exactly the same `:else` branch (flat machines), and from the
+  every-region-declined aggregate (parallel machines · `parallel.cljc`).
+  A genuine self-transition (`:target :same-state`, EXTERNAL) has a real
+  `match`, so the no-op branch is NEVER reached → no `:no-op` row → its
+  `:transition` row survives untouched (Spec 005 L291-296, L916 — an
+  external self-transition fires `:exit` + `:entry` and IS a real
+  transition). An internal self-transition (omit `:target`) likewise has a
+  `match` and runs its action — also no `:no-op` row.
+
+  So: drop every `:transition` row IFF the cascade also carries a `:no-op`
+  row. We do NOT inspect `:microsteps` / `:from-state` == `:to-state` — the
+  no-op row IS the precise signal, and gating on state-equality would risk
+  suppressing a legitimate self-transition that happens to land on the same
+  state. The `:no-op` row alone remains to tell the story.
+
+  Pure-data; operates on the trace-ordered rows BEFORE the canonical sort
+  so the result is order-independent."
+  [rows]
+  (if (some #(= :no-op (:kind %)) rows)
+    (filterv #(not= :transition (:kind %)) rows)
+    rows))
+
 (defn machine-cascade-rows
   "Project the focused epoch's machine-related trace events into a
   single time-ordered cascade row vector (rf2-u69j7). Each row carries
@@ -916,7 +958,13 @@
      `:target-state` / `:event-id` from the surrounding `:transition`
      emit. This MUST run on the trace-ordered rows (the
      surrounding-transition resolution is emit-order-sensitive).
-  3. Stable-sort by canonical rank, then re-number `:step` 1..N over the
+  3. `drop-spurious-no-op-transition` (rf2-e6q97) — when the cascade
+     carries a `:no-op` row, the substrate's UNCONDITIONAL
+     `:rf.machine/transition` emit produced a contradictory `{X}→{X}`
+     0-microstep transition row beside it; drop it. Genuine self-
+     transitions never carry a `:no-op` row, so their transition row
+     survives (see that fn's docstring).
+  4. Stable-sort by canonical rank, then re-number `:step` 1..N over the
      sorted order so the view's left-rail ordinal reflects the rendered
      order.
 
@@ -938,9 +986,15 @@
                            (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
                                    events))))
         enriched (enrich-cascade-rows base)
+        ;; rf2-e6q97 — a no-op cascade carries both the `:no-op` row AND the
+        ;; substrate's unconditional `{X}→{X}` 0-microstep `:transition` row;
+        ;; the two contradict. Drop the spurious transition row (the `:no-op`
+        ;; row is the authoritative signal that no transition was selected).
+        ;; Order-independent — runs on the trace-ordered rows before the sort.
+        deduped  (drop-spurious-no-op-transition enriched)
         ;; Stable canonical sort: rank first, emit-order (:trace-index)
         ;; as tiebreaker so intra-phase run order is preserved.
-        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) enriched))]
+        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) deduped))]
     ;; Re-number :step over the FINAL (canonical) order so the left-rail
     ;; ordinal reads top-to-bottom as rendered.
     (vec (map-indexed (fn [i row] (assoc row :step (inc i))) sorted))))

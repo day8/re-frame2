@@ -670,6 +670,99 @@
       (is (some? (:machine r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))))))
 
+;; ---- rf2-e6q97 — a no-op suppresses the spurious {X}→{X} transition row ---
+
+(deftest no-op-bootstrap-suppresses-spurious-transition-row-test
+  (testing "rf2-e6q97 — on a no-op bootstrap the substrate emits BOTH the
+            benign :rf.machine.event/unhandled-no-op AND its unconditional
+            :rf.machine/transition summary ({X}→{X}, 0 microsteps). Rendered
+            side-by-side those CONTRADICT. The cascade must show the :no-op
+            row ALONE — the spurious transition row is dropped."
+    (let [state {:vehicle :red :pedestrian :walk}
+          ;; Live repro: machine-epochs deck, epoch 3 —
+          ;; [:traffic/light [:rf.machine/bootstrap]] in a stable state.
+          ;; The substrate emit shape: unhandled-no-op (the event matched no
+          ;; transition) FOLLOWED BY the unconditional commit transition with
+          ;; :before == :after and :microsteps 0.
+          no-op (machine-unhandled-no-op-ev :traffic/light
+                                            [:rf.machine/bootstrap] state)
+          tx    (machine-transition-ev :traffic/light
+                                       {:state state :data {}}
+                                       {:state state :data {}}
+                                       [:rf.machine/bootstrap] 0)
+          rows  (proj/machine-cascade-rows [no-op tx])]
+      ;; RED before the fix: rows == [:no-op :transition] (the contradiction).
+      ;; GREEN after: the :transition row is gone.
+      (is (= [:no-op] (mapv :kind rows))
+          "only the :no-op row survives — no spurious {X}→{X} transition row")
+      (is (= 1 (count rows)))
+      (is (not-any? #(= :transition (:kind %)) rows)
+          "the spurious 0-microstep no-change transition row is suppressed")
+      (is (= 1 (:step (first rows)))
+          ":step renumbered 1..N over the deduped cascade")))
+
+  (testing "rf2-e6q97 — emit-order is irrelevant: even if the transition emit
+            precedes the no-op emit, the transition row is still dropped"
+    (let [state :stable
+          tx    (machine-transition-ev :traffic/light
+                                       {:state state} {:state state}
+                                       [:rf.machine/bootstrap] 0)
+          no-op (machine-unhandled-no-op-ev :traffic/light
+                                            [:rf.machine/bootstrap] state)
+          rows  (proj/machine-cascade-rows [tx no-op])]
+      (is (= [:no-op] (mapv :kind rows)))))
+
+  (testing "rf2-e6q97 — the no-op suppression flows through handler-row into
+            the :machine :cascade slot the view renders (the live surface)"
+    (let [state {:vehicle :red :pedestrian :walk}
+          evs   [(machine-unhandled-no-op-ev :traffic/light
+                                             [:rf.machine/bootstrap] state)
+                 (machine-transition-ev :traffic/light
+                                        {:state state :data {}}
+                                        {:state state :data {}}
+                                        [:rf.machine/bootstrap] 0)]
+          r     (proj/handler-row evs :traffic/light)]
+      (is (= :reg-machine (:flavour r)))
+      (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))
+          "the view's :cascade carries the no-op row alone"))))
+
+(deftest genuine-self-transition-keeps-its-row-test
+  (testing "rf2-e6q97 NEGATIVE GUARD — a genuine EXTERNAL self-transition
+            (:target :same-state; :exit + :entry FIRE, microsteps > 0) is a
+            REAL transition (Spec 005 L291-296). It has a real `match`, so the
+            unhandled-no-op branch is never reached — NO :no-op row fires —
+            and the suppression MUST NOT touch its transition row."
+    (let [state [:active]
+          ;; exit + entry actions fired (the external self-transition
+          ;; semantics) and a microstep ran — a real transition, NO no-op.
+          evs   [(machine-action-ev :on-exit  :exit  :ok)
+                 (machine-action-ev :on-entry :entry :ok)
+                 (machine-transition-ev :traffic/light
+                                        {:state state} {:state state}
+                                        [:traffic/tick] 1)]
+          rows  (proj/machine-cascade-rows evs)]
+      (is (= #{:action :transition} (set (mapv :kind rows))))
+      (is (= 1 (count (filterv #(= :transition (:kind %)) rows)))
+          "the self-transition row is PRESERVED — no no-op row to trigger suppression")
+      (let [tx (first (filterv #(= :transition (:kind %)) rows))]
+        (is (= state (:from-state tx)))
+        (is (= state (:to-state tx)))
+        (is (= 1 (:microsteps tx))
+            "microsteps > 0 — a real transition, not a no-op"))))
+
+  (testing "rf2-e6q97 NEGATIVE GUARD — an INTERNAL self-transition (omit
+            :target; action runs, no exit/entry) likewise has a real match,
+            so no :no-op row — its transition row is preserved per semantics"
+    (let [state :idle
+          evs   [(machine-action-ev :tick-counter :transition :ok)
+                 (machine-transition-ev :traffic/light
+                                        {:state state} {:state state}
+                                        [:traffic/tick] 0)]
+          rows  (proj/machine-cascade-rows evs)]
+      (is (some #(= :transition (:kind %)) rows)
+          "internal self-transition row preserved (no no-op row present)")
+      (is (= 1 (count (filterv #(= :transition (:kind %)) rows)))))))
+
 (deftest unhandled-no-op-is-not-an-issue-test
   (testing "rf2-ugdas — the no-op trace's op-type is :rf.machine (NOT a
             severity), so issue-event? returns FALSE — NO pink wash, NO
