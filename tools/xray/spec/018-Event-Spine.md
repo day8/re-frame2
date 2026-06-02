@@ -1349,8 +1349,34 @@ reducer so the App-db diff renders the diff body for the picked frame
 on the next render-frame, and the Views panel's `:has-cascade?`
 guard does not flip to `false` between picks.
 
+**Cross-frame L2-row click re-seed (rf2-q8hvw).** With the picker
+**untouched** the view scope is nil, so the L2 list spans EVERY frame's
+cascades (`matcher/filter-cascades-by-view-scope` is a no-op on a nil
+scope). Clicking a row for a cascade that settled in a NON-head frame
+must therefore resolve its settling epoch against THAT frame's ring —
+but `:rf.xray/epoch-history` is keyed on `:rf.xray/target-frame`, which
+is re-seeded only by the PICKER (`set-frame`) and the
+`:rf.xray/epoch-recorded` listener (which appends only when the
+recording frame IS the current target). So the three focus handlers
+that resolve an epoch-id from the slot —
+`:rf.xray/focus-cascade`, `:rf.xray/focus-epoch`,
+`:rf.xray/preview-cascade` — first call
+`spine/reseed-epoch-history-for-frame`, which re-keys
+`:rf.xray/target-frame` + `:rf.xray/epoch-history` onto the clicked
+cascade's frame (resolved via `rf/epoch-history`) BEFORE the epoch-id
+lookup runs. The re-seed is a no-op when the clicked frame already
+equals `:target-frame` (a same-frame click), and a no-op when the
+frame is unknown (nil). This makes the line above — "click-on-row
+picker-less navigation also rebinds" — true for a cross-frame click,
+not just a same-frame one: pre-fix the clicked cascade's epoch
+resolved to nil and the epoch-keyed panels (App-DB diff, Views'
+focused-cascade-pair, Machine Inspector) rendered empty/stale.
+
 Test gates: `spine_cljs_test.cljs` pins the `:target-frame` +
-`:epoch-history` writes on both arities of the reducer; the
+`:epoch-history` writes on both arities of `set-frame-reducer`, the
+`reseed-epoch-history-for-frame` no-op / re-key cases, and the
+end-to-end cross-frame `:rf.xray/focus-cascade` / `:rf.xray/focus-epoch`
+resolution (multi-frame, picker untouched); the
 `app_db_diff_cljs_test.cljs` + `views_subs_cljs_test.cljs` regression
 suites pin the panel render bodies post-reseed.
 

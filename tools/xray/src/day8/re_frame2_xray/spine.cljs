@@ -54,6 +54,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -618,6 +619,63 @@
        (assoc :target-frame  frame-id
               :epoch-history (vec epoch-history-for-frame)))))
 
+(defn reseed-epoch-history-for-frame
+  "Pure reducer: re-key the Xray app-db's per-frame `:epoch-history`
+  slot (and the legacy `:target-frame` axis it is keyed on) onto
+  `frame-id`, supplying that frame's resolved ring contents as
+  `epoch-history-for-frame`.
+
+  ## rf2-q8hvw — cross-frame L2-row clicks must re-seed the slot
+
+  The `:epoch-history` slot is a SINGLE per-frame ring keyed on
+  `:target-frame`. It is seeded at mount from the boot head frame and
+  re-keyed only by the frame PICKER (`set-frame-reducer`) and the
+  `:rf.xray/epoch-recorded` listener (which appends only when the
+  recording frame IS the current `:target-frame`). With the picker
+  UNTOUCHED the L2 list shows cascades from EVERY frame (the cascades
+  sub is whole-buffer, frame-scoped only by the picker), so clicking a
+  row for a cascade that settled in a NON-head frame leaves the slot on
+  the boot frame's ring — `epoch-id-for-cascade` finds no match and the
+  clicked cascade's settling epoch resolves to nil. Every epoch-keyed
+  panel (App-DB diff, Views' focused-cascade-pair, Machine Inspector)
+  then renders empty/stale for a cascade that genuinely settled an
+  epoch. Sibling of the rf2-ug1r6 / rf2-thodq / rf2-lo28u
+  attribution-gap class.
+
+  The focus handlers (`:rf.xray/focus-cascade`, `:rf.xray/focus-epoch`,
+  `:rf.xray/preview-cascade`) call this BEFORE resolving the clicked
+  cascade's epoch-id so the resolution runs against the RIGHT frame's
+  ring. It only fires the write when `frame-id` differs from the
+  current `:target-frame` — a same-frame click is a no-op (the slot
+  already holds that frame's ring, kept fresh by `epoch-recorded`).
+  Unlike `set-frame-reducer` this DOES NOT touch the `:focus` slot:
+  the focus mutation (dispatch-id / mode / epoch-id) stays the
+  responsibility of `focus-cascade-reducer` et al.; this helper only
+  aligns the per-frame history axis the epoch resolver reads from.
+
+  The current target is the `:target-frame` slot, defaulting to
+  `defaults/default-target-frame` when absent — the same resolution
+  `:rf.xray/epoch-recorded` / `:rf.xray/set-target-frame` apply. This
+  matters because the `:epoch-history` slot can be seeded WITHOUT a
+  `:target-frame` write (the `:rf.xray/sync-epoch-history` panel-gallery
+  seed path): treating an absent slot as the default frame keeps a
+  same-default-frame click a no-op so it does NOT clobber a
+  directly-seeded history with an empty framework ring.
+
+  nil `frame-id` (the cascade's frame is unknown — e.g. the 3-arg
+  focus path) is a no-op: there is no frame to re-key onto, and
+  clobbering `:target-frame` to nil would orphan every per-frame sub.
+  The event handlers resolve `epoch-history-for-frame` via
+  `rf/epoch-history` at dispatch time, exactly as the picker path does."
+  [db frame-id epoch-history-for-frame]
+  (let [current-target (get db :target-frame defaults/default-target-frame)]
+    (if (or (nil? frame-id)
+            (= frame-id current-target))
+      db
+      (assoc db
+             :target-frame  frame-id
+             :epoch-history (vec epoch-history-for-frame)))))
+
 (defn preview-cascade-reducer
   "Pure reducer for `:rf.xray/preview-cascade <id>`. Sets `:previewing?
   true` and writes `:dispatch-id` transiently. nil `id` clears the
@@ -733,7 +791,14 @@
 
   (rf/reg-event-db :rf.xray/focus-cascade
     (fn [db [_ dispatch-id frame-id]]
-      (let [cascades       (db->cascades db)
+      ;; rf2-q8hvw — re-key `:epoch-history` onto the clicked cascade's
+      ;; frame BEFORE resolving its settling epoch. With the picker
+      ;; untouched the L2 list spans every frame, so a non-head-frame
+      ;; row's epoch lives outside the boot-frame slot; resolving against
+      ;; the stale slot yields nil. No-op when the frame is unchanged.
+      (let [db             (reseed-epoch-history-for-frame
+                             db frame-id (rf/epoch-history frame-id))
+            cascades       (db->cascades db)
             show-ungrouped? (db->show-ungrouped? db)
             head-id        (focusable-head-id cascades show-ungrouped?)
             epoch-id       (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
@@ -760,7 +825,18 @@
     ;; chip's click dispatches this event with the resolved
     ;; parent-epoch-id.
     (fn [db [_ epoch-id]]
-      (let [epoch-history   (db->epoch-history db)
+      ;; rf2-q8hvw — if the targeted epoch's record lives in a frame
+      ;; other than the slot's current `:target-frame`, re-key
+      ;; `:epoch-history` onto it BEFORE resolving the settling
+      ;; dispatch-id, so the resolution runs against the right frame's
+      ;; ring (the dispatch-id lookup walks `:epoch-history`). The frame
+      ;; is read off the record in the current slot; when the slot
+      ;; already holds that frame the re-seed is a no-op.
+      (let [record-frame    (:frame (some #(when (= epoch-id (:epoch-id %)) %)
+                                          (db->epoch-history db)))
+            db              (reseed-epoch-history-for-frame
+                             db record-frame (rf/epoch-history record-frame))
+            epoch-history   (db->epoch-history db)
             dispatch-id     (dispatch-id-for-epoch epoch-history epoch-id)
             cascades        (db->cascades db)
             show-ungrouped? (db->show-ungrouped? db)
@@ -808,7 +884,18 @@
       ;; preview (the App-DB before-image follows `:epoch-id`). nil
       ;; dispatch-id (preview-clear) resolves to nil and the reducer
       ;; leaves the committed epoch untouched.
-      (let [epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+      ;;
+      ;; rf2-q8hvw — preview carries only a dispatch-id, so resolve the
+      ;; previewed cascade's frame from the cascade list and re-key
+      ;; `:epoch-history` onto it BEFORE resolving the epoch-id. Same
+      ;; whole-buffer cross-frame hazard as `:rf.xray/focus-cascade`:
+      ;; hovering a non-head-frame row with the picker untouched would
+      ;; otherwise resolve the preview epoch against the wrong ring.
+      ;; No-op on preview-clear (nil dispatch-id → nil frame).
+      (let [frame-id (:frame (cascade-by-id (db->cascades db) dispatch-id))
+            db       (reseed-epoch-history-for-frame
+                       db frame-id (rf/epoch-history frame-id))
+            epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
         (preview-cascade-reducer db dispatch-id epoch-id))))
 
   nil)
