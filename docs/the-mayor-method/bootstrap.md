@@ -7,11 +7,12 @@ Orchestration, not implementation. Preserve your context. Dispatch bounded work
 to background workers in their own git worktrees; only edit directly for tiny
 fixes or emergency cleanup.
 
-**Beads is the spine.** Track all real work in `bd` — no TodoWrite, no markdown
-TODOs, no parallel trackers. Run `bd prime` for the canonical commands. Close
-beads only after merge or verifiable completion; record close reasons concretely
-with cross-refs to PRs. Decisions go in BOTH the bead notes AND the merging
-PR's body — the PR body is the durable git-history record.
+**One tracker is the spine.** Track all real work in the project's issue tracker
+(this repo uses `bd`/beads — `bd prime` for commands) — no TodoWrite, no markdown
+TODOs, no parallel trackers. Close items only after merge or verifiable
+completion; record close reasons concretely with cross-refs to PRs. Decisions go
+in BOTH the tracker AND the merging PR's body — the PR body is the durable
+git-history record.
 
 **Read the siblings, in order:** `dispatch-prompt-template.md` (canonical worker
 prompts; paste the worktree-boundary block verbatim into every editing
@@ -58,6 +59,35 @@ boilerplate-prone prose in the project's voice (CONTRIBUTING, SECURITY,
 CODE_OF_CONDUCT). Disjoint-surface "small-misc" clusters are valid at the tail
 of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 
+**Hard-won (the bits that bite — earned in the field, not obvious up front).**
+- *Local-green ≠ CI.* A worker's "all gates pass locally" usually means "the
+  subset I ran"; the red CI gate is one its local run skipped (integration/live,
+  a linter, a drift-check). Merge only on CI 0-fail AND 0-pending. A failing
+  *touched-surface* gate is never an `--admin` bypass — dispatch a fix-worker to
+  the SAME branch that runs the ACTUAL failing gate. (`--admin` is only for a
+  pending check that structurally cannot touch the diff, e.g. mergeable-recompute lag.)
+- *Reproduce the real failing path.* A worker's passing synthetic test can route
+  around the gap and explain away a symptom the operator reproduced. The
+  acceptance test must exercise the path that actually failed, not a proxy —
+  distrust a "works on my test / stale build" verdict that contradicts a live symptom.
+- *Never let a worker `git stash`.* Stashes are repo-global — they surface in
+  sibling worktrees and cross-contaminate. Put a no-stash line in every dispatch;
+  workers commit to their branch instead.
+- *The worktree guard can be fooled.* Edit-tool path resolution can land a
+  worker's write in the mayor checkout even after a guard "passed". The real
+  backstop is the worker re-verifying it is inside its assigned worktree
+  (`git -C <worktree> rev-parse --show-toplevel`) before every edit — mandatory,
+  not the guard script alone.
+- *A reviewer's "P1" can be out of scope.* An audit can flag something the
+  project's stance deliberately excludes (e.g. egress the threat model doesn't
+  cover). Hold it as an operator decision; surface, don't auto-fix. Don't gold-plate.
+- *Quiescent is a valid state.* At the tail of a drain, dispatch is
+  one-unblocks-the-next (gated on merges/decisions), not fan-out. Hold, keep the
+  dashboard honest, surface what needs the operator — don't manufacture work.
+- *Checkpoint tracker state on the heartbeat.* Many trackers auto-stage but never
+  commit; commit + push the tracker file each cycle so a long session's state
+  isn't stranded locally.
+
 **Set up loops.** If they don't exist already, create:
 - 60m — reread this file + siblings; reassert posture to operator
 - 60m — worktree hygiene (worker worktrees, origin orphan branches, stale tracking refs)
@@ -66,8 +96,8 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - 15m — bead dispatch pass (filter out decisions/EPICs/release-coupled/v1.x/hot-zone)
 - 10m — dashboard refresh
 
-The canonical loop bodies live in `dispatch-prompt-template.md` and prior
-session output; paste verbatim or adapt as needed.
+Codify the loop bodies as commands (this repo: `.claude/commands/mayor-*.md`)
+so each is a single invocation and one source of truth, rather than re-pasted prose.
 
 **Establish the stance (first session only).** Every project has a stance
 (pre-alpha, production-stable, refactor-only, greenfield, perf-critical,

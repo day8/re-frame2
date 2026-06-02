@@ -1,0 +1,4 @@
+---
+description: Mayor Loop — worktree hygiene (≈60m cadence). Prune merged worktrees/branches; never touch open-PR worktrees.
+---
+MAYOR LOOP (worktree hygiene). Run `git worktree list`, `git branch --list 'worker/*'`, `git branch -r --list 'origin/worker/*'`. For each worker worktree: verify its PR via `gh pr view <#> --json state` — only if state==MERGED, prune it (`git worktree remove <path>`; on Windows a shadow-cljs/Node JVM may hold a file lock and removal fails with "Device or resource busy" / "Permission denied" — that is harmless, leave it locked and note it). Delete merged local + origin worker branches (NEVER delete a branch whose PR is not verifiably MERGED). Then `git remote prune origin` for stale tracking refs and clear any stray stashes. NEVER touch a worktree whose PR is still open. Report what was pruned, what was left locked, and which (if any) needs a process-kill or reboot to clear.
