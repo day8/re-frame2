@@ -140,4 +140,4 @@ If the author is coming from re-frame v1 (re-frame's first version), three thing
 | `defn` views — re-frame v1 had no view registration | `reg-view` macro registers views in a per-app registry; auto-injects `dispatch` / `subscribe` |
 | Implicit single global `app-db` | One default frame; multi-frame apps are first-class via `frame-provider` |
 
-The full v1→v2 migration story lives in `MIGRATION.md` (linked from `SKILL-REDIRECT.md` at the repo root). This skill is greenfield-only; if the author has a v1 codebase, point them at migration instead.
+The full v1→v2 migration story lives under `migration/from-re-frame-v1/` (linked from `SKILL-REDIRECT.md` at the repo root). This skill is greenfield-only; if the author has a v1 codebase, point them at migration instead.
