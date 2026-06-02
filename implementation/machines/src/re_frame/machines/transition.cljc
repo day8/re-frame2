@@ -764,59 +764,132 @@
                         :exception  e}))))
     {}))
 
-(defn- collect-actions
-  "Walk `[phase action-ref]` pairs in order, calling each with
-  snap+event and threading the resulting :data updates forward (so
-  each action sees the previous one's data). Returns a `result/ok`
-  carrying `[final-snapshot fx-vec]`, or the `result/fail` Result the
-  first throwing action produced — per Spec 005 §Errors, the cascade
-  halts on the first throw and the snapshot does not commit.
+;; ---- structured cascade steps (rf2-n9f4z) ---------------------------------
+;;
+;; Per Spec 005 §Transition cascade instrumentation: each cascade phase the
+;; engine runs is recorded as one self-describing STEP map so tooling
+;; (Xray's epoch panel — rf2-52u5n) can explain HOW a transition reached
+;; its after-state without re-deriving the LCA geometry. A step carries:
+;;
+;;   {:kind   :exit | :action | :entry        ;; which cascade boundary
+;;    :state  <state-path-vector>              ;; the state exited/entered;
+;;                                             ;;   LCA-relative path for :action
+;;    :region <region-name-or-nil>             ;; parallel region (nil flat/compound)
+;;    :action <action-id-or-nil>               ;; the action that fired (nil = no
+;;                                             ;;   :exit/:entry/:action declared)
+;;    :data-delta {<k> <new-v>}}               ;; the :data keys THIS step's action
+;;                                             ;;   added/changed (empty when no
+;;                                             ;;   action, or the action wrote no
+;;                                             ;;   :data)
+;;
+;; The step vector is built in `compute-cascade-paths` (which owns the
+;; ordered prefix paths + action refs) and the per-step `:data-delta` is
+;; filled in by `collect-actions` as it threads `:data` forward — the SAME
+;; pass that runs the actions, so nothing is recomputed. `:microstep` steps
+;; are appended by the `:always` loop in `machine-transition-single`.
 
-  Per rf2-82a0u the input is a vec of `[phase action-ref]` pairs;
-  `phase` is the closed-set keyword stamped on each emit
-  (`:exit / :transition / :entry / :always / :after-action /
-  :initial-entry / :destroy-exit`). `action-ref` may be nil — the
-  iteration skips, matching the prior single-arg signature where a
-  bare nil ref was a no-op."
-  [machine snap event phased-refs]
-  (reduce
-    (fn [acc [phase aref]]
-      (if aref
-        (result/with-ok [snap fx] acc
-          (let [r (run-action machine snap aref event phase)]
-            (if (result/fail? r)
-              (reduced r)
-              (do
-                ;; Per Spec 005 §Hard-disallow `:db` (005:463): a machine
-                ;; action's effect map MUST NOT carry `:db`. When present,
-                ;; emit the structured error and DROP the `:db` key — the
-                ;; remaining `:data` / `:fx` effects flow through. Canonical
-                ;; id / op-type / tags / recovery per Spec 009 §Error event
-                ;; catalogue (Ownership.md:48): `:rf.error/machine-action-
-                ;; wrote-db`, op-type `:error`, tags `{:machine-id :action-id
-                ;; :state-path :offending-value}`, recovery
-                ;; `:logged-and-skipped`. The pre-existing read of only
-                ;; `:data` / `:fx` already dropped `:db` silently; this adds
-                ;; the missing diagnostic the spec requires.
-                (when (and (map? r) (contains? r :db))
-                  (trace/emit-error! :rf.error/machine-action-wrote-db
-                                     {:machine-id      (or (:rf/parent-id machine)
-                                                           (:id machine))
-                                      :action-id       aref
-                                      :state-path      (:state snap)
-                                      :offending-value (:db r)
-                                      ;; Per rf2-ko8jb: epoch-capture
-                                      ;; admission requires `:frame`.
-                                      :frame           (:rf/frame machine)
-                                      :recovery        :logged-and-skipped}))
-                (let [new-data (cond-> (:data snap)
-                                 (contains? r :data) (merge (:data r)))
-                      new-snap (assoc snap :data new-data)
-                      new-fx   (vec (concat fx (or (:fx r) [])))]
-                  (result/ok new-snap new-fx))))))
-        acc))
-    (result/ok snap [])
-    phased-refs))
+(defn- data-delta
+  "The map of keys whose value CHANGED (added or differs) from `before`
+  to `after`. Empty map when nothing changed. Used to record each cascade
+  step's `:data` contribution without carrying the whole (possibly large)
+  `:data` map per step — the step delta is the minimal explanation of what
+  the action did."
+  [before after]
+  (reduce-kv (fn [acc k v]
+               (if (= v (get before k)) acc (assoc acc k v)))
+             {}
+             after))
+
+(defn- collect-actions
+  "Walk `step` maps in order, calling each step's `:action` with snap+event
+  and threading the resulting :data updates forward (so each action sees
+  the previous one's data). Returns a `result/ok` carrying
+  `[final-snapshot fx-vec cascade-steps]` (the third slot rides the Result
+  via `result/with-cascade`), or the `result/fail` Result the first
+  throwing action produced — per Spec 005 §Errors, the cascade halts on
+  the first throw and the snapshot does not commit.
+
+  Per rf2-82a0u + rf2-n9f4z each input `step` is a map
+  `{:kind <structural> :phase <driver> :action <ref> :state <path>
+    :region <name>}`:
+   - `:kind` is the STRUCTURAL boundary recorded on the cascade step —
+     `:exit` / `:action` / `:entry` (the rf2-52u5n consumer contract); the
+     destroy path passes `:exit`.
+   - `:phase` is the DRIVER phase stamped on the `:rf.machine/action-ran`
+     emit (rf2-82a0u) — `:exit` / `:entry` for cascade boundaries, the
+     transition-phase (`:transition` / `:always` / `:after-action` /
+     `:initial-entry`) for the action step, `:destroy-exit` for the
+     destroy path. Defaults to `:kind` when absent.
+   - `:action` may be nil — the iteration still records a step (so a state
+     entered/exited WITHOUT an `:entry`/`:exit` action still shows in the
+     cascade), but runs no action and contributes an empty `:data-delta`.
+
+  Per rf2-n9f4z the `:data-delta` of each step is computed against the
+  snapshot's `:data` immediately before the step's action ran, so the
+  cascade explains the per-step `:data` contribution. The recorded step
+  carries the STRUCTURAL fields only (`:kind` / `:state` / `:region` /
+  `:action` / `:data-delta`) — the driver `:phase` is an input that routes
+  the emit, not part of the step shape the consumer reads. The accumulated
+  cascade-step vector rides the returned `:ok` Result via
+  `result/with-cascade`; a `:fail` (a throwing action) carries no cascade —
+  the snapshot does not commit, so the partial walk is not surfaced."
+  [machine snap event steps]
+  ;; Internal accumulator is a `[result cascade-steps]` tuple so the
+  ;; cascade threads alongside the Result without widening `result/ok`'s
+  ;; arity (which would churn every caller). `reduced` short-circuits on
+  ;; the first throwing action, carrying the bare `:fail` Result.
+  (let [acc (reduce
+              (fn [[acc-r cascade] {:keys [kind phase action state region]}]
+                (result/with-ok [snap fx] acc-r
+                  (let [before-data (:data snap)
+                        emit-phase  (or phase kind)
+                        base-step   {:kind   kind
+                                     :state  state
+                                     :region region
+                                     :action action}]
+                    (if action
+                      (let [r (run-action machine snap action event emit-phase)]
+                        (if (result/fail? r)
+                          (reduced [r cascade])
+                          (do
+                            ;; Per Spec 005 §Hard-disallow `:db` (005:463): a
+                            ;; machine action's effect map MUST NOT carry `:db`.
+                            ;; When present, emit the structured error and DROP
+                            ;; the `:db` key — the remaining `:data` / `:fx`
+                            ;; effects flow through. Canonical id / op-type /
+                            ;; tags / recovery per Spec 009 §Error event
+                            ;; catalogue (Ownership.md:48):
+                            ;; `:rf.error/machine-action-wrote-db`, op-type
+                            ;; `:error`, tags `{:machine-id :action-id
+                            ;; :state-path :offending-value}`, recovery
+                            ;; `:logged-and-skipped`.
+                            (when (and (map? r) (contains? r :db))
+                              (trace/emit-error! :rf.error/machine-action-wrote-db
+                                                 {:machine-id      (or (:rf/parent-id machine)
+                                                                       (:id machine))
+                                                  :action-id       action
+                                                  :state-path      (:state snap)
+                                                  :offending-value (:db r)
+                                                  ;; Per rf2-ko8jb: epoch-capture
+                                                  ;; admission requires `:frame`.
+                                                  :frame           (:rf/frame machine)
+                                                  :recovery        :logged-and-skipped}))
+                            (let [new-data (cond-> before-data
+                                             (contains? r :data) (merge (:data r)))
+                                  new-snap (assoc snap :data new-data)
+                                  new-fx   (vec (concat fx (or (:fx r) [])))
+                                  step     (assoc base-step
+                                                  :data-delta (data-delta before-data new-data))]
+                              [(result/ok new-snap new-fx) (conj cascade step)]))))
+                      ;; No action declared for this boundary — record the
+                      ;; state-entered/exited step anyway (empty delta) so the
+                      ;; cascade carries the full configuration walk, then
+                      ;; carry the snapshot + fx unchanged.
+                      [acc-r (conj cascade (assoc base-step :data-delta {}))]))))
+              [(result/ok snap []) []]
+              steps)
+        [final-r cascade] acc]
+    (result/with-cascade final-r cascade)))
 
 ;; ---- apply-transition-once helpers (extracted per rf2-g1s1) ---------------
 ;;
@@ -1219,9 +1292,27 @@
         ;; Per rf2-82a0u every action-ran emit carries `:phase`; destroy-
         ;; time exit cascades stamp `:destroy-exit` so the Xray Handler
         ;; section can attribute the action to the actor-teardown cause.
-        exit-refs   (keep (fn [[_ n]] (:exit n)) (reverse active-pairs))
-        phased      (mapv (fn [r] [:destroy-exit r]) exit-refs)]
-    (collect-actions machine snapshot [:rf.machine/destroy-exit] phased)))
+        ;; Per rf2-n9f4z `collect-actions` walks cascade STEP maps. The
+        ;; destroy-time exit cascade records one `:exit` step per active
+        ;; node carrying an `:exit` action (deepest-first), so an actor
+        ;; teardown surfaces the same structured cascade shape as a
+        ;; transition-driven exit. Nodes without an `:exit` action are
+        ;; skipped here (unlike the transition cascade, which records every
+        ;; configuration boundary) — destroy is a teardown, not a
+        ;; configuration walk a tool renders the geometry of.
+        region      (:rf/region machine)
+        steps       (->> (reverse active-pairs)
+                         (keep (fn [[prefix n]]
+                                 (when (:exit n)
+                                   ;; Structural `:kind :exit` (the cascade
+                                   ;; step's shape); driver `:phase
+                                   ;; :destroy-exit` (the `action-ran` emit
+                                   ;; phase, rf2-82a0u).
+                                   {:kind :exit :phase :destroy-exit
+                                    :state (vec prefix) :region region
+                                    :action (:exit n)})))
+                         vec)]
+    (collect-actions machine snapshot [:rf.machine/destroy-exit] steps)))
 
 ;; ---- apply-transition-once: cascade phases --------------------------------
 ;;
@@ -1253,17 +1344,25 @@
     :target-leaf    — initial-cascaded target path (nil for internal).
     :internal?      — true iff the transition has no `:target`.
     :lca-len        — common-prefix length of src and target.
-    :exit-refs      — `:exit` action-refs, leaf→LCA (reverse order).
-    :entry-refs     — `:entry` action-refs, LCA→leaf.
-    :action-refs    — single-element vec carrying the transition's `:action`.
-    :phased-refs    — vec of `[phase action-ref]` pairs in cascade order
-                      (`:exit` × N → caller-supplied transition-phase →
-                      `:entry` × N) — the input to `collect-actions`.
-                      Per rf2-82a0u every `action-ran` emit carries
-                      `:phase`; the caller (`apply-transition-once`)
-                      stamps the middle phase per cascade-driver
-                      (`:transition` / `:always` / `:after-action` /
-                      `:initial-entry`).
+    :cascade-steps  — per rf2-n9f4z, the vec of cascade STEP maps in
+                      execution order (`:exit` × N deepest-first → the
+                      transition `:action` @ LCA → `:entry` × N
+                      shallowest-first + initial-descent) — the input to
+                      `collect-actions`. Each step is
+                      `{:kind <phase> :state <path> :region <name-or-nil>
+                        :action <ref-or-nil>}`; `:kind` doubles as the
+                      `action-ran` `:phase` (rf2-82a0u) AND the structured
+                      cascade step's kind (rf2-52u5n consumer contract).
+                      The caller (`apply-transition-once`) supplies the
+                      transition-phase per cascade-driver (`:transition` /
+                      `:always` / `:after-action` / `:initial-entry`); a
+                      `:initial-entry` driver collapses entries to
+                      `:initial-entry`. A boundary with no declared
+                      `:exit`/`:entry` action still yields a step (`:action`
+                      nil) so the configuration walk is complete; the
+                      transition `:action` step appears only when an
+                      `:action` was declared. `collect-actions` fills each
+                      step's `:data-delta` as it threads `:data`.
     :exited-pairs   — `[[prefix node] ...]` for states being exited (in
                       cascade order — leaf→LCA reversed gives shallowest-
                       first; this slot is unreversed for spawn/destroy
@@ -1318,19 +1417,51 @@
         entered-pairs (when-not internal?
                         (let [pairs (nodes-along-path machine target-leaf)]
                           (subvec pairs (min lca-len (count pairs)))))
-        exit-refs     (when-not internal?
-                        (map (fn [[_ n]] (:exit n)) (reverse exited-pairs)))
-        entry-refs    (when-not internal?
-                        (map (fn [[_ n]] (:entry n)) entered-pairs))
-        action-refs   [(:action transition)]
         ;; Per rf2-82a0u: phase per cascade-slot per `transition-phase`.
         ;; Bootstrap entries collapse to `:initial-entry` — the bead's
         ;; closed set distinguishes "entry from the bootstrap cascade"
         ;; from "entry from a regular `:on`-driven transition".
         entry-phase   (if (= :initial-entry transition-phase) :initial-entry :entry)
-        phased-refs   (vec (concat (map (fn [r] [:exit r]) exit-refs)
-                                   (map (fn [r] [transition-phase r]) action-refs)
-                                   (map (fn [r] [entry-phase r]) entry-refs)))
+        ;; Per rf2-n9f4z: the cascade STEP maps `collect-actions` walks —
+        ;; one per boundary, in exit (deepest-first) → action @ LCA → entry
+        ;; (shallowest-first + initial-descent) order. Each carries the
+        ;; state path it fires at + the region (for parallel machines) so
+        ;; tooling can render the structured cascade (rf2-52u5n) without
+        ;; re-deriving the LCA geometry.
+        ;;
+        ;; Two ORTHOGONAL dimensions ride each step:
+        ;;   :kind  — the STRUCTURAL boundary: `:exit` / `:action` / `:entry`
+        ;;            (closed set; `:microstep` is appended by the `:always`
+        ;;            loop). This is the consumer (rf2-52u5n) contract.
+        ;;   :phase — the action-ran DRIVER phase (rf2-82a0u): `:exit` /
+        ;;            `:entry` for cascade boundaries, but the transition
+        ;;            `:action` carries the caller-supplied `transition-phase`
+        ;;            (`:transition` / `:always` / `:after-action` /
+        ;;            `:initial-entry`), and an `:initial-entry` driver
+        ;;            collapses entries to `:initial-entry`. `:phase` is what
+        ;;            `run-action` stamps on the `:rf.machine/action-ran`
+        ;;            emit; keeping it distinct from `:kind` means the
+        ;;            structural step shape doesn't smear the driver phase.
+        ;;
+        ;; A boundary with NO `:exit`/`:entry` action still yields a step
+        ;; (`:action` nil) so the configuration walk is complete; the
+        ;; transition `:action` step is recorded only when an `:action` was
+        ;; declared (a bare nil transition-action is not a cascade boundary).
+        region        (:rf/region machine)
+        exit-steps    (when-not internal?
+                        (mapv (fn [[prefix n]]
+                                {:kind :exit :phase :exit :state (vec prefix)
+                                 :region region :action (:exit n)})
+                              (reverse exited-pairs)))
+        action-steps  (when (:action transition)
+                        [{:kind :action :phase transition-phase :state (vec decl-path)
+                          :region region :action (:action transition)}])
+        entry-steps   (when-not internal?
+                        (mapv (fn [[prefix n]]
+                                {:kind :entry :phase entry-phase :state (vec prefix)
+                                 :region region :action (:entry n)})
+                              entered-pairs))
+        cascade-steps (vec (concat exit-steps action-steps entry-steps))
         ;; Per Spec 005 §Hierarchy interaction: bump the per-path epoch
         ;; ONLY for the `:after`-bearing nodes that are actually exited or
         ;; entered by this transition. A still-active parent above the LCA
@@ -1349,20 +1480,18 @@
      :lca-len       lca-len
      :exited-pairs  exited-pairs
      :entered-pairs entered-pairs
-     :exit-refs     exit-refs
-     :entry-refs    entry-refs
-     :action-refs   action-refs
-     :phased-refs   phased-refs
+     :cascade-steps cascade-steps
      :after-bump-paths after-bump-paths}))
 
 (defn- run-cascade
-  "Phase 2 — run the ordered cascade (`exit` shallowest-first → `action`
+  "Phase 2 — run the ordered cascade (`exit` deepest-first → `action`
   at LCA → `entry` shallowest-first) via `collect-actions`. Returns the
   Result from `collect-actions` — either `result/ok` with the post-cascade
-  snapshot + accumulated fx, or a `result/fail` carrying the throwing
-  action's diagnostic map."
+  snapshot + accumulated fx (and the structured `::cascade` step vector
+  via `result/with-cascade` — rf2-n9f4z), or a `result/fail` carrying the
+  throwing action's diagnostic map."
   [machine snapshot event cascade]
-  (collect-actions machine snapshot event (:phased-refs cascade)))
+  (collect-actions machine snapshot event (:cascade-steps cascade)))
 
 (defn- bump-after-epochs
   "Bump the per-path `:after` epoch for each decl-path in `bump-paths`
@@ -1485,7 +1614,13 @@
                                    :transition transition
                                    :state-path (:src-path cascade)})
       (result/with-ok [snap-after fx] cascade-r
-        (let [snap-final      (commit-snapshot machine snapshot snap-after cascade)
+        (let [;; Per rf2-n9f4z: the structured cascade steps `collect-actions`
+              ;; recorded ride `cascade-r` via `::cascade`; re-stamp them onto
+              ;; the final Result (the `result/ok` below builds a fresh Result
+              ;; that would otherwise drop them) so `machine-transition-single`
+              ;; can accumulate the macrostep's full step sequence.
+              cascade-steps   (result/cascade cascade-r)
+              snap-final      (commit-snapshot machine snapshot snap-after cascade)
               parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
               after-fx        (build-after-fx machine (:entered-pairs cascade)
                                               (:internal? cascade) snap-final)
@@ -1504,7 +1639,9 @@
                                         (or destroy-fx [])
                                         spawn-fx
                                         (or after-fx [])))]
-                (result/ok snap-after-spawns all-fx))))))))))
+                (result/with-cascade
+                  (result/ok snap-after-spawns all-fx)
+                  cascade-steps))))))))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
@@ -1776,7 +1913,14 @@
      (if (result/fail? result-after-event)
       result-after-event
       (result/with-ok [snap-after-event fx-after-event] result-after-event
-        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit raise-depth)]
+        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit raise-depth)
+              ;; Per rf2-n9f4z: seed the macrostep cascade with the
+              ;; event-driven transition's exit/action/entry steps; the
+              ;; `:always` loop appends one `:microstep` step per eventless
+              ;; iteration (carrying that microstep's own nested cascade).
+              ;; The accumulated vector is the structured explanation the
+              ;; outer `:rf.machine/transition` trace carries (rf2-52u5n).
+              base-cascade (result/cascade result-after-event)]
           (if (result/fail? raised)
             raised
             (result/with-ok [snap-after-raise fx-after-raise] raised
@@ -1786,7 +1930,8 @@
               (loop [snap    snap-after-raise
                      fx      fx-after-raise
                      depth   0
-                     visited [(:state snap-after-raise)]]
+                     visited [(:state snap-after-raise)]
+                     cascade base-cascade]
                 (cond
                   (>= depth always-limit)
                   (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
@@ -1802,6 +1947,8 @@
                                           ;; admission requires `:frame`.
                                           :frame      (:rf/frame machine)
                                           :recovery   :no-recovery})
+                      ;; Macrostep rolls back atomically — no cascade survives
+                      ;; the abort.
                       (result/ok snapshot []))
 
                   :else
@@ -1816,10 +1963,11 @@
                       ;; `:always` microsteps taken — stamped onto the Result
                       ;; via `::microsteps` (per Spec 005 §Trace events) so
                       ;; `commit-or-finalize` can carry `:microsteps` on the
-                      ;; outer `:rf.machine/transition` trace.
-                      (result/with-microsteps
-                        (result/ok (commit-tags machine snap) fx)
-                        depth)
+                      ;; outer `:rf.machine/transition` trace. Per rf2-n9f4z
+                      ;; the accumulated `cascade` rides via `::cascade`.
+                      (-> (result/ok (commit-tags machine snap) fx)
+                          (result/with-microsteps depth)
+                          (result/with-cascade cascade))
                       ;; Per rf2-82a0u: `:always` microstep's transition
                       ;; `:action` `action-ran` emit carries `:phase
                       ;; :always` so the Handler section can group
@@ -1853,17 +2001,31 @@
                                           ;; Per rf2-ko8jb: epoch-capture
                                           ;; admission requires `:frame`.
                                           :frame          (:rf/frame machine)})
-                            ;; Seed the per-`:always`-step drain with the
-                            ;; macrostep's inbound transitive `raise-depth`
-                            ;; (rf2-b88nm) so raises emitted by an `:always`
-                            ;; cascade reached via a raise chain keep counting
-                            ;; against the same `:raise-depth-limit`.
-                            (let [raised2 (drain-raises machine snap2 fx2 raise-limit raise-depth)]
-                              (if (result/fail? raised2)
-                                raised2
-                                (result/with-ok [snap3 fx3] raised2
-                                  (recur snap3
-                                         (vec (concat fx fx3))
-                                         (inc depth)
-                                         (conj visited (:state snap3))))))))))))))))))
+                            ;; Per rf2-n9f4z: append a `:microstep` cascade
+                            ;; step carrying the microstep's own nested
+                            ;; exit/action/entry `:steps` (from the eventless
+                            ;; transition's `apply-transition-once` cascade) so
+                            ;; the eventless cascade is explainable alongside
+                            ;; the headline transition rather than hidden
+                            ;; behind a bare count.
+                            (let [micro-step {:kind            :microstep
+                                              :region          (:rf/region machine)
+                                              :microstep-index depth
+                                              :from            (:state snap)
+                                              :to              (:state snap2)
+                                              :steps           (result/cascade step-result)}]
+                              ;; Seed the per-`:always`-step drain with the
+                              ;; macrostep's inbound transitive `raise-depth`
+                              ;; (rf2-b88nm) so raises emitted by an `:always`
+                              ;; cascade reached via a raise chain keep counting
+                              ;; against the same `:raise-depth-limit`.
+                              (let [raised2 (drain-raises machine snap2 fx2 raise-limit raise-depth)]
+                                (if (result/fail? raised2)
+                                  raised2
+                                  (result/with-ok [snap3 fx3] raised2
+                                    (recur snap3
+                                           (vec (concat fx fx3))
+                                           (inc depth)
+                                           (conj visited (:state snap3))
+                                           (conj cascade micro-step))))))))))))))))))
      handled?))))

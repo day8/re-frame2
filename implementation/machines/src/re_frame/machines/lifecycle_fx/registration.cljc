@@ -299,7 +299,12 @@
       (if (result/fail? r)
         r
         (result/with-ok [snap fx] r
-          (result/ok (dissoc snap :rf/bootstrap-pending?) fx))))
+          ;; Per rf2-n9f4z: preserve the bootstrap-entry `::cascade` so
+          ;; `commit-or-finalize` can prepend the initial-descent `:entry`
+          ;; steps when bootstrap and the user event land in the same call.
+          (result/with-cascade
+            (result/ok (dissoc snap :rf/bootstrap-pending?) fx)
+            (result/cascade r)))))
     (result/ok (:snapshot ctx) [])))
 
 (defn- run-step
@@ -322,10 +327,19 @@
   check `:final?`. For parallel-region machines, the parent is `:final?`
   only when every region's leaf is `:final?`. The pure-transition
   surface stays free of runtime-only metadata."
-  [ctx step-result boot-fx]
+  [ctx step-result boot-result]
   (result/with-ok [next-snapshot fx] step-result
     (let [{:keys [machine machine-id frame-id db path snapshot inner-event]} ctx
+          boot-fx   (result/fx boot-result)
           merged-fx (vec (concat boot-fx fx))
+          ;; Per rf2-n9f4z: when this handler call both bootstrapped the
+          ;; machine AND processed a user event, the `:before`/`:after`
+          ;; slots span both — so the cascade prepends the bootstrap entry
+          ;; cascade (the initial-descent `:entry` steps) ahead of the
+          ;; event-driven cascade, matching the macrostep the trace reports.
+          ;; A no-bootstrap call's `boot-result` carries an empty cascade.
+          cascade   (into (vec (result/cascade boot-result))
+                          (result/cascade step-result))
           finished? (or (and (not (parallel/parallel? machine))
                              (transition/final-on-leaf? machine (:state next-snapshot)))
                         (finalize/all-regions-final? machine (:state next-snapshot)))
@@ -341,13 +355,27 @@
       ;; the macrostep ran (0 when the event drove no `:always` cascade).
       ;; The per-microstep `:rf.machine.microstep/transition` stream is
       ;; emitted inside the engine; this is the macrostep-level rollup.
+      ;;
+      ;; Per rf2-n9f4z the trace ALSO carries `:cascade` — the structured,
+      ;; ordered step vector explaining HOW the transition reached its
+      ;; after-state: exit (deepest-first) → transition `:action` @ LCA →
+      ;; entry (shallowest-first + initial-descent), each step with its
+      ;; `:kind` / `:state` / `:region` / `:action` / `:data-delta`, plus a
+      ;; `:microstep` step (carrying nested `:steps`) per `:always`
+      ;; iteration, with per-region structure for parallel machines. This
+      ;; replaces the need for app-level `:data :trail` workarounds and is
+      ;; the contract Xray's epoch panel renders (rf2-52u5n). It rides under
+      ;; the same handler-scope `:sensitive?` stamp as `:before` / `:after`
+      ;; (per Spec 005 §Privacy), so a sensitive machine's cascade
+      ;; `:data-delta`s are scrubbed at egress alongside the snapshot slots.
       (trace/emit! :rf.machine :rf.machine/transition
                    {:frame      frame-id
                     :machine-id machine-id
                     :event      inner-event
                     :before     snapshot
                     :after      next-snapshot
-                    :microsteps (result/microsteps step-result)})
+                    :microsteps (result/microsteps step-result)
+                    :cascade    cascade})
       (when (not= snapshot next-snapshot)
         (trace/emit! :rf.machine :rf.machine/snapshot-updated
                      {:machine-id machine-id
@@ -420,14 +448,19 @@
                                      (:frame-id ctx)
                                      (result/info boot-result)
                                      "Machine initial-entry action threw.")
-              (result/with-ok [post-boot-snap boot-fx] boot-result
+              (result/with-ok [post-boot-snap _boot-fx] boot-result
                 (let [step-result (run-step ctx post-boot-snap)]
                   (if (result/fail? step-result)
                     (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
                                            (:frame-id ctx)
                                            (result/info step-result)
                                            "Machine action threw.")
-                    (commit-or-finalize ctx step-result boot-fx)))))))))))
+                    ;; Per rf2-n9f4z: pass the full `boot-result` (fx +
+                    ;; bootstrap-entry cascade), not just `boot-fx`, so a
+                    ;; same-call bootstrap's entry cascade prepends the
+                    ;; event-driven cascade on the `:rf.machine/transition`
+                    ;; trace.
+                    (commit-or-finalize ctx step-result boot-result)))))))))))
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 

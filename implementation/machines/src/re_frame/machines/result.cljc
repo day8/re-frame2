@@ -142,6 +142,29 @@
   [r]
   (get r ::microsteps 0))
 
+(defn with-cascade
+  "Stamp the optional `::cascade` step-vector onto an `:ok` Result. Per
+  Spec 005 §Transition cascade instrumentation (rf2-n9f4z): the ordered
+  exit → action → entry (+ initial-descent) + `:always`-microstep step
+  sequence the macrostep ran, so the lifecycle handler can carry it as
+  the `:cascade` field on the outer `:rf.machine/transition` trace. This
+  is the structured explanation of HOW the transition reached its
+  after-state — the contract Xray's epoch panel renders (rf2-52u5n).
+
+  Internal to the machines engine; the key is namespaced so it never
+  collides with snapshot / fx slots. `:fail` Results pass through
+  unchanged (a throwing action halts the cascade; the partial step
+  vector is not threaded)."
+  [r steps]
+  (if (ok? r) (assoc r ::cascade steps) r))
+
+(defn cascade
+  "Read the `::cascade` step-vector off a Result. Defaults to `[]` when
+  absent (e.g. an unhandled-event / stale-timer / depth-exceeded path,
+  or a `:fail` Result, ran no cascade steps)."
+  [r]
+  (get r ::cascade []))
+
 #?(:clj
    (defmacro with-ok
      "Pair-destructure an `:ok` Result's `::snap` and `::fx` slots into
