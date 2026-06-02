@@ -39,7 +39,8 @@
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.elision :as elision]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
 (defn- elide-call-src
   "CLJS source for `(elide-wire-value <value-sym> ...)` (or a verbatim
@@ -124,6 +125,9 @@
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
         paths     (args/parse-paths-arg (wire/arg raw-args :paths))
+        ;; rf2-qef58 — wholesale-read backstop (built once; consulted in
+        ;; the `cond` below). nil when the read is allowed.
+        refused   (guard/get-path-refusal frame path paths)
         ;; rf2-c2dtu — when the `--allow-sensitive-reads` boot gate is OFF,
         ;; the per-call `:elision false` arg is overridden so the walker
         ;; still fires. rf2-p1qli: single intention-naming predicate
@@ -179,6 +183,15 @@
                              {:elided elided})))))
               (.catch (fn [err] (probe/err->result :get-path-failed err)))))]
     (cond
+      ;; rf2-qef58 — server-side backstop: refuse a WHOLESALE root read
+      ;; (`path: []`, or a `[]` element in a batch `paths`) of a reserved
+      ;; `:rf/*` tool frame (esp. `:rf/xray`) BEFORE the eval round-trip.
+      ;; The skill steers (rf2-ihqpn) away from this; the guard enforces
+      ;; it so a stray full read can't blow the context window. A sliced
+      ;; read (any non-`[]` path) of a tool frame stays allowed.
+      (some? refused)
+      (js/Promise.resolve refused)
+
       ;; rf2-lbm21 — `:path` and `:paths` are mutually exclusive surfaces.
       (and (some? path) (some? paths))
       (js/Promise.resolve
