@@ -262,7 +262,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
    EventHandlerMeta
    [:map
     [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
-    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, also carries :rf.machine/source-coords (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions / :on-spawn-actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and the spec carries the reference-site :rf.machine/state-coords index (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
     ]])
 ```
 
@@ -271,7 +271,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
 | Lens | Returns | Implementation |
 |---|---|---|
 | `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
-| `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps, the initial `:data` map, and (when macro-stamped) the `:rf.machine/source-coords` coord index. | `(:rf/machine (handler-meta :event machine-id))` |
+| `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:rf.machine/state-coords` coord index. | `(:rf/machine (handler-meta :event machine-id))` |
 
 Visualisers walking the transition table consume `(machine-meta id)`; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines/lifecycle_fx.cljc`](../implementation/machines/src/re_frame/machines/lifecycle_fx.cljc) (`machines` / `machine-meta`).
 
@@ -1515,6 +1515,23 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; maps; there is no global :machine-guard / :machine-action registry. See
 ;; [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler)
 ;; and [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
+;;
+;; ELEMENT-ENTRY SHAPE (rf2-npvsx). Each :guards / :actions / :on-spawn-actions
+;; entry value is a MachineElementEntry — a co-located `{:fn <fn> :source-coords
+;; .. :source-code ..}` map where `:fn` is the callback the runtime invokes and
+;; `:source-coords` / `:source-code` are DEBUG-only (absent in production; the
+;; macro elides them). As-written user source and programmatic `reg-machine*`
+;; specs carry a bare `fn?` value instead; the runtime accepts both (and a
+;; `keyword?` indirection). The macro path co-locates source onto each entry —
+;; superseding the former `:rf.machine/source-coords` + `:rf.machine/handler-
+;; source` side-indexes (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+(def MachineElementEntry
+  [:or fn?                                                                   ;; as-written / programmatic: a bare guard/action fn
+       :keyword                                                              ;; keyword indirection ({:short-name :registered-id})
+       [:map                                                                 ;; macro-stamped co-located entry
+        [:fn fn?]                                                            ;; ALWAYS present — the callback the runtime invokes via (:fn entry)
+        [:source-coords {:optional true} [:ref :rf/source-coord-meta]]       ;; DEBUG-only — absent in production
+        [:source-code   {:optional true} :string]]])                        ;; DEBUG-only — the pr-str of the fn-form; absent in production
 (def StateNode
   [:schema {:registry {::state-node
                        [:map
@@ -1524,9 +1541,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                          [:map-of :keyword [:ref ::state-node]]]            ;; root-only — required iff `:type :parallel`. Each entry's value is a full state-node body (its own `:initial` + `:states`, optionally `:tags`, `:on`, etc.). Region names are keywords; region-name → state-tree. All regions are active simultaneously; the snapshot's `:state` is a map of region-name → keyword-or-vector-path.                         [:initial {:optional true} :keyword]                ;; required iff :states is present (compound state); points to the cascade entry-point
                         [:states  {:optional true} [:map-of :keyword [:ref ::state-node]]]
                         [:data    {:optional true} :map]                    ;; root-only — initial extended-state data map; ignored on non-root nodes. §9.4 (Shared `:data`): parallel-region machines share one `:data` blob across every region. There is no per-region `:data` slot — apps that need per-region encapsulation register N independent machines (see [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)).
-                        [:guards  {:optional true} [:map-of :keyword fn?]]  ;; root-only — machine-local guard implementations; keys are referenced from :guard slots
-                        [:actions {:optional true} [:map-of :keyword fn?]]  ;; root-only — machine-local action implementations; keys are referenced from :action / :entry / :exit slots
-                        [:on-spawn-actions {:optional true} [:map-of :keyword fn?]] ;; root-only — optional map of named spawn-callbacks; consulted before :actions when an :on-spawn slot uses a keyword reference. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
+                        [:guards  {:optional true} [:map-of :keyword MachineElementEntry]]  ;; root-only — machine-local guard implementations; keys are referenced from :guard slots. Values are MachineElementEntry (bare fn as-written; co-located `{:fn .. :source-coords .. :source-code ..}` after macro stamping, rf2-npvsx)
+                        [:actions {:optional true} [:map-of :keyword MachineElementEntry]]  ;; root-only — machine-local action implementations; keys are referenced from :action / :entry / :exit slots
+                        [:on-spawn-actions {:optional true} [:map-of :keyword MachineElementEntry]] ;; root-only — optional map of named spawn-callbacks; consulted before :actions when an :on-spawn slot uses a keyword reference. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
                         [:entry   {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:exit    {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:spawn  {:optional true} InvokeSpec]              ;; declarative spawn-on-entry / destroy-on-exit; at most one per state; see :rf/state-node §:spawn and [005 §Declarative :spawn](005-StateMachines.md#declarative-spawn)

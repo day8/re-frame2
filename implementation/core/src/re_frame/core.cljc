@@ -296,11 +296,13 @@
 #?(:clj
    (defmacro reg-machine
      "Register a machine as an event handler. Captures source-coords
-     (Spec 001) at this call site plus a per-element coord index under
-     `:rf.machine/source-coords` (Spec 005 §Source-coord stamping;
-     dev-only — DCE'd under `goog.DEBUG=false`). Implementation ships
-     in `day8/re-frame2-machines` (rf2-xbtj). For runtime registration
-     use `reg-machine*`."
+     (Spec 001) at this call site plus co-located per-element source on
+     each `:guards` / `:actions` / `:on-spawn-action` entry (`{:fn ..
+     :source-coords .. :source-code ..}`) and a reference-site
+     `:rf.machine/state-coords` index (Spec 005 §Source-coord stamping;
+     the `:source-*` slots + state-coords are dev-only — DCE'd under
+     `goog.DEBUG=false`). Implementation ships in `day8/re-frame2-machines`
+     (rf2-xbtj / rf2-npvsx). For runtime registration use `reg-machine*`."
      [machine-id machine]
      (rm/expand-reg-machine (meta &form)
                             (symbol (str (ns-name *ns*)))
@@ -314,10 +316,11 @@
 ;; door-machine)` — `reg-machine` sees only the `door-machine` symbol, so its
 ;; compile-time literal-walk captures nothing (the spec form is not a map
 ;; literal). `defmachine` is the `def`-replacement that walks the inline
-;; literal AT THE DEFINITION SITE and stamps `:rf.machine/source-coords` +
-;; `:rf.machine/handler-source` onto the def'd value, so the per-element
-;; source travels WITH the value into `reg-machine`. Per Spec 005
-;; §Source-coord stamping (value-registered machines).
+;; literal AT THE DEFINITION SITE and co-locates per-element source onto each
+;; `:guards` / `:actions` / `:on-spawn-action` entry (plus the reference-site
+;; `:rf.machine/state-coords` index), so the per-element source travels WITH
+;; the value into `reg-machine`. Per Spec 005 §Source-coord stamping
+;; (value-registered machines; rf2-npvsx).
 
 #?(:clj
    (defmacro defmachine
@@ -333,16 +336,16 @@
 
          (reg-machine :door/main door-machine)
 
-     Walks the literal spec at expansion time and `assoc`s the
-     per-element source-coord index (`:rf.machine/source-coords`, keyed
-     `[:guards id]` / `[:actions id]` / spec-path tuples; rf2-8bp3) and
-     the per-id guard / action fn-form source strings
-     (`:rf.machine/handler-source`; rf2-ypu5i) onto the def'd value. When
-     that value is later passed to `reg-machine`, the stamps are already
-     present, so the `:machine-guard` / `:machine-action` registrar
-     handler-metas (and the Epoch machine-cascade source rendering) light
-     up for value-registered machines exactly as for inline ones
-     (rf2-gwj8l). Both stamps DCE under `:advanced + goog.DEBUG=false`.
+     Walks the literal spec at expansion time and co-locates per-element
+     source — `{:fn .. :source-coords .. :source-code ..}` — onto each
+     `:guards` / `:actions` / `:on-spawn-actions` entry, plus the
+     reference-site `:rf.machine/state-coords` index (spec-path tuples;
+     rf2-npvsx) onto the def'd value. When that value is later passed to
+     `reg-machine`, the source is already present, so the `:machine-guard`
+     / `:machine-action` registrar handler-metas (and the Epoch
+     machine-cascade source rendering) light up for value-registered
+     machines exactly as for inline ones (rf2-gwj8l). The dev-only
+     `:source-*` slots + state-coords DCE under `:advanced + goog.DEBUG=false`.
 
      Use `defmachine` for the `def`-then-register shape; use the
      `reg-machine` macro directly when registering an inline literal."

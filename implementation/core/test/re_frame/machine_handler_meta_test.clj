@@ -19,11 +19,11 @@
   function), and `:ns` / `:line` / (`:column`) / `:file` from the
   per-element coord walker.
 
-  Production-elision: the whole capture-and-write path is gated on
-  `re-frame.interop/debug-enabled?`; under `:advanced` +
-  `goog.DEBUG=false` the macro emission elides the
-  `:rf.machine/handler-source` stamp AND the runtime's registrar
-  writes no-op."
+  Production-elision (rf2-npvsx): the whole capture-and-write path is
+  gated on `re-frame.interop/debug-enabled?`; under `:advanced` +
+  `goog.DEBUG=false` the macro emits co-located `:guards` / `:actions`
+  entries with NO `:source-code` slot, so the runtime's registrar writes
+  no-op."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -206,8 +206,8 @@
        :actions {:noop! (fn [_] nil)}
        :states  {:idle {:on {:e {:target :idle :guard :any? :action :noop!}}}}})
     ;; The runtime side that writes per-(machine-id, id) entries only fires
-    ;; when the macro stamp `:rf.machine/handler-source` is present. The
-    ;; plain-fn surface carries opaque spec data with no stamp, so no
+    ;; for co-located entries carrying `:source-code`. The plain-fn surface
+    ;; carries opaque spec data (bare fns, no co-location), so no
     ;; registrar entries are written. Tools fall back to call-site
     ;; coords on the top-level handler-meta (which is the existing
     ;; reg-machine* contract per Spec 005 §reg-machine vs reg-machine*).
@@ -226,15 +226,15 @@
   asserted by `npm run test:elision`"
     (with-redefs [interop/debug-enabled? false]
       ;; `reg-machine*` skips the macro stamp entirely; call it directly
-      ;; with a pre-stamped spec (simulating the macro emission under
-      ;; dev) to isolate the runtime gate.
+      ;; with a pre-stamped (co-located) spec simulating the macro emission
+      ;; under dev to isolate the runtime gate. Under `debug-enabled? false`
+      ;; the runtime path must no-op even though the spec DOES carry
+      ;; `:source-code` on its entries (the production CLJS bundle never
+      ;; ships those — that absence is asserted by `npm run test:elision`).
       (core-machines/reg-machine* :rf2-ypu5i/elided
         {:initial :idle
-         :guards  {:g? (fn [_] true)}
-         :actions {:a! (fn [_] nil)}
-         :rf.machine/handler-source
-         {:guards  {:g? "(fn [_] true)"}
-          :actions {:a! "(fn [_] nil)"}}
+         :guards  {:g? {:fn (fn [_] true) :source-code "(fn [_] true)"}}
+         :actions {:a! {:fn (fn [_] nil)  :source-code "(fn [_] nil)"}}
          :states  {:idle {:on {:e {:target :idle :guard :g? :action :a!}}}}}))
     ;; Under prod elision the runtime writes nothing.
     (is (nil? (rf/handler-meta :machine-guard  [:rf2-ypu5i/elided :g?]))

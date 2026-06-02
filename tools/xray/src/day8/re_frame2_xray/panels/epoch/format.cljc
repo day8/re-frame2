@@ -129,9 +129,16 @@
 
 (defn cascade-row-source-key
   "Spec-path tuple used to look up a cascade row's source-coord on the
-  registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
-  Pure-data; the view layer reuses this for the coord lookup so the
-  source-link affordance reads off ONE authoritative key.
+  registered machine spec. Pure-data; the view layer reuses this for the
+  coord lookup so the source-link affordance reads off ONE authoritative
+  key.
+
+  Per rf2-npvsx the lookup target differs by tuple shape:
+  - Named `[:guards <id>]` / `[:actions <id>]` keys resolve to the
+    co-located element entry's `:source-coords` / `:source-code`.
+  - Reference-site `[:states ...]` keys resolve through the spec's
+    `:rf.machine/state-coords` index.
+  The view's `named-element-key` discriminator routes between the two.
 
   Dispatch (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions):
 

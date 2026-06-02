@@ -1782,14 +1782,15 @@
 
 (defn- machine-state-path-coord
   "Resolve a `{:file :line}` coord for a machine state-path via the
-  registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
+  registered machine's `:rf.machine/state-coords` reference-site index
+  (rf2-npvsx, supersedes rf2-8bp3's `:rf.machine/source-coords`).
 
   `machine-id` is the machine event-id; `state-path` is a vector like
   `[:active :authenticating]`. We look up the index under
   `[:states :active :states :authenticating]` first (the spec-path
-  shape produced by `state-spec-path-prefix`); the source-coords map
-  may or may not have a coord for this specific state, so the lookup
-  degrades gracefully.
+  shape produced by `state-spec-path-prefix`); the index may or may
+  not have a coord for this specific state, so the lookup degrades
+  gracefully.
 
   Returns nil when no coord was captured (production builds, fn-form
   machines, unregistered machine-id)."
@@ -1798,13 +1799,9 @@
     ;; rf2-dcsw1 (iwy0c-followup) — read the registration meta under the
     ;; `:event` kind, NOT the non-existent `:machine` kind. A machine is
     ;; registered as a `reg-event-fx` carrying `:rf/machine? true` + the
-    ;; stamped spec (with `:rf.machine/source-coords`, rf2-8bp3) under
+    ;; stamped spec (with `:rf.machine/state-coords`, rf2-npvsx) under
     ;; `:rf/machine` (rf2-ge6uj ISSUE 2 / rf2-iwy0c part C — `machine-block`
-    ;; and `handler-source-block` already read `:event`). The prior
-    ;; `:machine` lookup resolved nil, so the `:rf.machine/source-coords`
-    ;; index was never found and the `:after`-timer state-path rendered a
-    ;; dead (non-clickable) source link. Reading under `:event` +
-    ;; `machine-spec-value`'s `:rf/machine` resolution surfaces the index.
+    ;; and `handler-source-block` already read `:event`).
     (let [machine-meta (try (rf/handler-meta :event machine-id)
                             (catch :default _ nil))
           ;; Resolve the machine spec the same way `machine-spec-value`
@@ -1815,8 +1812,8 @@
                            (:machine-spec machine-meta)
                            (:spec machine-meta)
                            (:rf.machine/spec machine-meta))
-          idx          (or (:rf.machine/source-coords spec)
-                           (:rf.machine/source-coords machine-meta))
+          idx          (or (:rf.machine/state-coords spec)
+                           (:rf.machine/state-coords machine-meta))
           spec-path    (proj/state-spec-path-prefix state-path)
           c            (or (get idx spec-path)
                            ;; Fallback: lookup by the raw state-path tuple
@@ -1879,7 +1876,7 @@
       from :after timer · 250ms on [:active :authenticating]
 
   The state-path is a click-to-source affordance via the machine's
-  `:rf.machine/source-coords` index (rf2-8bp3) when a coord was
+  `:rf.machine/state-coords` index (rf2-npvsx) when a coord was
   captured; plain accent-coloured monospace span otherwise."
   [{:keys [machine-id delay-ms source-state-path]}]
   (let [path-str (pr-str source-state-path)
@@ -2329,20 +2326,6 @@
 ;;     (per-action fx attribution + data-write delta for actions;
 ;;     before→after snapshot for the transition).
 
-(defn- cascade-row-coord
-  "Lift a `{:file :line}` source-coord from the registered machine's
-  `:rf.machine/source-coords` index (rf2-8bp3) for a cascade row. The
-  index key is `[:actions <id>]` / `[:guards <id>]` per rf2-8bp3.
-  Returns nil when no coord was captured (production builds, fixture
-  fn-form machines)."
-  [machine-meta row]
-  (when-let [k (fmt/cascade-row-source-key row)]
-    (let [idx (or (get-in machine-meta [:rf/machine :rf.machine/source-coords])
-                  (:rf.machine/source-coords machine-meta))
-          c   (get idx k)]
-      (when (and (map? c) (string? (:file c)) (seq (:file c)))
-        {:file (:file c) :line (:line c)}))))
-
 (defn- machine-spec-from-meta
   "Lift the machine spec map from a `handler-meta` lookup return. The
   registrar stores the spec under `:rf/machine` (the wrapper shape); the
@@ -2354,15 +2337,47 @@
       (:rf.machine/spec machine-meta)
       machine-meta))
 
-(defn- cascade-row-source-form
-  "Lift the source form for a cascade row from the registered machine
-  spec (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions). The form
-  resolves at `cascade-row-source-key`'s spec-path tuple:
+(defn- named-element-key
+  "Decompose a `cascade-row-source-key` tuple `k` into `[slot id]` when it
+  names a co-located guard / action / on-spawn-action element (`[:guards
+  <id>]` / `[:actions <id>]` / `[:on-spawn-actions <id>]`), else nil. Per
+  rf2-npvsx the source-coords + source-code for these live ON the element
+  entry (`{:fn .. :source-coords .. :source-code ..}`); reference-site
+  `[:states ...]` keys resolve through the `:rf.machine/state-coords`
+  index instead."
+  [k]
+  (when (and (vector? k) (= 2 (count k))
+             (contains? #{:guards :actions :on-spawn-actions} (first k)))
+    k))
 
-  - Named guard/action rows: `[:guards <id>]` / `[:actions <id>]`.
-    Prefer the captured PR-STR source string under
-    `:rf.machine/handler-source` (rf2-ypu5i; macro stamps source strings
-    at compile time). Falls back to the runtime value at the spec path
+(defn- cascade-row-coord
+  "Lift a `{:file :line}` source-coord for a cascade row from the
+  registered machine spec (rf2-npvsx, supersedes rf2-8bp3). ONE lookup:
+
+  - Named guard/action key `[:guards <id>]` / `[:actions <id>]`: read the
+    co-located `:source-coords` off the element entry.
+  - Reference-site `[:states ...]` key: read the `:rf.machine/state-coords`
+    index (inline-fn slots + transition / state-node coords).
+
+  Returns nil when no coord was captured (production builds, fixture
+  fn-form machines)."
+  [machine-meta row]
+  (when-let [k (fmt/cascade-row-source-key row)]
+    (let [spec (machine-spec-from-meta machine-meta)
+          c    (if (named-element-key k)
+                 (get-in spec (conj k :source-coords))
+                 (get-in spec [:rf.machine/state-coords k]))]
+      (when (and (map? c) (string? (:file c)) (seq (:file c)))
+        {:file (:file c) :line (:line c)}))))
+
+(defn- cascade-row-source-form
+  "Lift the source form for a cascade row from the registered machine spec
+  (rf2-npvsx, supersedes rf2-u69j7 / rf2-ypu5i / rf2-wwc3j). ONE lookup at
+  `cascade-row-source-key`'s spec-path tuple:
+
+  - Named guard/action rows `[:guards <id>]` / `[:actions <id>]`: prefer
+    the captured `:source-code` PR-STR off the co-located element entry
+    (the macro stamps it at compile time). Falls back to the entry's `:fn`
     (a compiled fn object) when no source-string was captured (production
     builds, fixture fn-form machines).
   - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: the spec
@@ -2379,16 +2394,17 @@
   derived — e.g. transition rows with no `:event-id`)."
   [machine-meta row]
   (when-let [k (fmt/cascade-row-source-key row)]
-    (let [spec        (machine-spec-from-meta machine-meta)
-          ;; rf2-ypu5i — named-handler source-string preferred for
-          ;; `[:actions <id>]` / `[:guards <id>]`. The macro stamps
-          ;; pr-str strings under `:rf.machine/handler-source` so the
-          ;; render is real source text, not a fn-object pr-str.
-          named-src   (case (and (= 2 (count k)) (first k))
-                        :actions (get-in spec [:rf.machine/handler-source :actions (second k)])
-                        :guards  (get-in spec [:rf.machine/handler-source :guards  (second k)])
-                        nil)]
-      (or named-src (get-in spec k)))))
+    (let [spec (machine-spec-from-meta machine-meta)]
+      (if (named-element-key k)
+        ;; Co-located element entry: prefer the captured source string,
+        ;; fall back to the bare fn (prod / fixture fn-form machines).
+        (let [entry (get-in spec k)]
+          (or (:source-code entry)
+              (:fn entry)
+              ;; A pre-rf2-npvsx fixture might still carry a bare fn under
+              ;; the slot; tolerate it for unit-test ergonomics.
+              entry))
+        (get-in spec k)))))
 
 (defn- cascade-outcome-chip
   "Render the outcome chip for a cascade row (rf2-u69j7). Pulls glyph
@@ -2852,8 +2868,9 @@
   ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
   ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
   ;; as a `reg-event-fx` carrying `:rf/machine? true` + the stamped spec
-  ;; under `:rf/machine` (with `:rf.machine/handler-source` +
-  ;; `:rf.machine/source-coords`, rf2-ypu5i / rf2-8bp3). The prior
+  ;; under `:rf/machine` (with co-located `:guards` / `:actions` entries
+  ;; carrying `:source-coords` / `:source-code`, plus the reference-site
+  ;; `:rf.machine/state-coords` index, rf2-npvsx). The prior
   ;; `:machine` lookup resolved nil, so `cascade-row-source-form` /
   ;; `cascade-row-coord` saw no spec → every exit / entry action + guard
   ;; row rendered the `<source not yet captured>` placeholder. Reading

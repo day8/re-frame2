@@ -345,12 +345,16 @@
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
 
 (defn ^:export touch-machines! []
-  ;; Per Spec 005 §Source-coord stamping (rf2-8bp3) the reg-machine macro
-  ;; walks the literal spec form at expansion time and emits a stamping
-  ;; branch wrapped in `(if interop/debug-enabled? ...)`. Under :advanced
-  ;; + goog.DEBUG=false the closure compiler folds the gate to false and
-  ;; DCEs the entire `:rf.machine/source-coords` literal — every spec-
-  ;; element string fragment must elide.
+  ;; Per Spec 005 §Source-coord stamping (rf2-npvsx, supersedes rf2-8bp3)
+  ;; the reg-machine macro walks the literal spec form at expansion time
+  ;; and emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The
+  ;; DEV arm co-locates per-element source (`{:fn .. :source-coords ..
+  ;; :source-code ..}`) onto each `:guards` / `:actions` entry and assocs
+  ;; the reference-site `:rf.machine/state-coords` index; the PROD arm
+  ;; collapses each entry to `{:fn <fn>}`. Under :advanced +
+  ;; goog.DEBUG=false the closure compiler folds the gate to false and
+  ;; DCEs the entire dev arm — every co-located `:source-code` string,
+  ;; coord literal, and the `:rf.machine/state-coords` keyword must elide.
   ;;
   ;; Per rf2-jbbp7 the `:schema` key on `reg-machine` adds a second
   ;; gated surface: the `re-frame.machines.data-validation` ns's
@@ -363,20 +367,23 @@
   ;;      hook registration, the :rf/machine sub, the spawn / destroy
   ;;      fx handlers, the data-validation emit body — into the bundle);
   ;;   2. registering a machine via `rf/reg-machine` so the macro's
-  ;;      gated source-coord-stamping branch is in reachable code, not
-  ;;      just declared-but-dead.
+  ;;      gated co-location dev arm is in reachable code, not just
+  ;;      declared-but-dead.
   ;;   3. registering a machine WITH `:schema` and forcing a violation
   ;;      so the emit-failure! call site is reached in the control build
   ;;      (DEBUG=true) and its sentinel string lands in the bundle.
   ;;
-  ;; The sentinel strings are `:rf.machine/source-coords` (macro-time
-  ;; source-coord stamp) and " :data failed schema at boundary
-  ;; :where :machine-data " (data-validation emit body). Both must NOT
-  ;; appear in the production bundle.
+  ;; The sentinel strings are `:rf.machine/state-coords` (the reference-
+  ;; site coord index keyword), the distinctive co-located `:source-code`
+  ;; fn-body fragments (`(fn probe-never-guard`, `(fn probe-noop-action`),
+  ;; and " :data failed schema at boundary :where :machine-data "
+  ;; (data-validation emit body). All must elide under :advanced +
+  ;; goog.DEBUG=false. The fn bodies carry distinctive named-fn symbols so
+  ;; the `pr-str` source string is unambiguous under a global grep.
   (rf/reg-machine :rf.probe/machine
     {:initial :idle
-     :guards  {:never? (fn [_] false)}
-     :actions {:noop   (fn [_] {})}
+     :guards  {:never? (fn probe-never-guard [_] false)}
+     :actions {:noop   (fn probe-noop-action [_] {})}
      :states  {:idle {:on {:tick {:target :idle :guard :never? :action :noop}}}}})
   ;; Force a `:where :machine-data` failure to root the data-validation
   ;; emit body for the elision control. The validator never installs

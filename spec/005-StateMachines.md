@@ -452,13 +452,13 @@ The `reg-machine` macro walks the literal spec form at expansion time and writes
 ;;     :ns :line :file [:column]}
 ```
 
-The ids are 2-vectors `[<machine-id> <id>]` so a guard's id is naturally scoped to its declaring machine. `:rf/guard-id` and `:rf/action-id` are reserved markers (parallel to `:rf/cofx-id` per #2097) that let tools enumerating `(rf/registrations :machine-guard)` pivot on the marker rather than re-parsing the 2-vector id. `:rf.handler/source` carries the macro-time `pr-str` of the literal fn-form (parallel to the `reg-event-*` form-source capture per [Spec 009 §`:rf.handler/source`](009-Instrumentation.md)). The per-element source coordinates merge in from the existing `:rf.machine/source-coords` walker, so jump-to-source on a guard/action chip leads straight to the fn literal in the user's source file.
+The ids are 2-vectors `[<machine-id> <id>]` so a guard's id is naturally scoped to its declaring machine. `:rf/guard-id` and `:rf/action-id` are reserved markers (parallel to `:rf/cofx-id` per #2097) that let tools enumerating `(rf/registrations :machine-guard)` pivot on the marker rather than re-parsing the 2-vector id. `:rf.handler/source` carries the macro-time `pr-str` of the literal fn-form (parallel to the `reg-event-*` form-source capture per [Spec 009 §`:rf.handler/source`](009-Instrumentation.md)). The source coordinates and source string both ride the **co-located** element entry (`:guards {<id> {:fn .. :source-coords .. :source-code ..}}` — see [§Source-coord stamping](#source-coord-stamping)), so jump-to-source on a guard/action chip leads straight to the fn literal in the user's source file.
 
-Production-elision per [Spec 009 §Production builds](009-Instrumentation.md): the macro emission gates the `:rf.machine/handler-source` stamp on `re-frame.interop/debug-enabled?` and the runtime registrar writes no-op when the gate is false, so under `:advanced` + `goog.DEBUG=false` neither the `pr-str` fn-body bytes nor the `:rf.handler/source` keyword reach the production bundle (verified by the elision-probe `rf.machine/handler-source` sentinel — see [009 §Production builds](009-Instrumentation.md)).
+Production-elision per [Spec 009 §Production builds](009-Instrumentation.md): the macro emission omits the co-located `:source-coords` / `:source-code` slots under `:advanced` + `goog.DEBUG=false` (the dev arm of the `interop/debug-enabled?` gate DCEs), and the runtime registrar writes no-op when the gate is false, so neither the `pr-str` fn-body bytes nor the `:rf.handler/source` keyword reach the production bundle (verified by the elision-probe co-located `:source-code` sentinels — see [009 §Production builds](009-Instrumentation.md)).
 
-The `reg-machine*` plain-fn surface (per [§reg-machine vs reg-machine*](#reg-machine-vs-reg-machine)) bypasses the macro walker — programmatic registrations carry no fn-source under these kinds. Tools fall back to the call-site coords on the top-level `(rf/handler-meta :event <machine-id>)`, identical to the existing source-coord stamping fallback.
+The `reg-machine*` plain-fn surface (per [§reg-machine vs reg-machine*](#reg-machine-vs-reg-machine)) bypasses the macro walker — programmatic registrations carry no co-located source under these kinds. Tools fall back to the call-site coords on the top-level `(rf/handler-meta :event <machine-id>)`, identical to the existing source-coord stamping fallback.
 
-The runtime semantics — guard resolution + action invocation — are unchanged. The `:guards` / `:actions` maps inside the machine spec remain the source of truth the runtime resolves through; the registrar kinds carry observability metadata only.
+The runtime semantics — guard resolution + action invocation — are unchanged. The `:guards` / `:actions` maps inside the machine spec remain the source of truth the runtime resolves through; co-locating `:source-coords` / `:source-code` alongside the `:fn` carries observability metadata only, and the runtime engine reads each entry's `:fn` (bare-fn and keyword-reference entries are also accepted, per [§Source-coord stamping](#source-coord-stamping)).
 
 Consumers: Xray's [Machine Inspector §Focused-transition lens](../tools/xray/spec/003-Machine-Inspector.md) renders guard / action fn-source inline under their declared id; re-frame-pair MCP surfaces source-jump for the same ids; future agents that inspect machine bodies read the form-strings from these surfaces.
 
@@ -686,7 +686,7 @@ Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Regi
 
 **Surface signature.** Two arities of two forms:
 
-- `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and stamps a per-element source-coord index onto the spec's `:rf.machine/source-coords` key (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
+- `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site coord index under the spec's `:rf.machine/state-coords` key (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
 - `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (make-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
 - `(rf/defmachine name [doc] spec)` — **macro** (`def`-shape). Defines a Var holding the spec value with per-element source stamped at the definition site, for the `def`-then-register shape `(defmachine m {…})` / `(reg-machine :id m)`. Does not register. See [§Value-registered machines](#value-registered-machines--defmachine).
 
@@ -697,7 +697,7 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
 - `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
-- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source coords, the `:rf.machine/source-coords` index lives inside this spec map.
+- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` / `:on-spawn-actions` entry carries its co-located `:source-coords` / `:source-code`, and the reference-site `:rf.machine/state-coords` index lives inside this spec map.
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping) for the per-element index.
 
@@ -709,80 +709,94 @@ The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn
 
 | Form | Shape | Source-coord stamping | Use case |
 |---|---|---|---|
-| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes when `machine-spec` is an inline literal — call-site coords on the registry slot, AND per-element coord index walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)). When `machine-spec` is a symbol / non-literal, only the call-site coords are stamped (per-element source comes from `defmachine` instead). | Standard form. Inline literal → full capture; value-registered (symbol) → pair with `defmachine` ([§Value-registered machines](#value-registered-machines--defmachine)). |
+| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes when `machine-spec` is an inline literal — call-site coords on the registry slot, AND co-located per-element source on each guard / action / on-spawn-action entry + reference-site `:rf.machine/state-coords` index walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)). When `machine-spec` is a symbol / non-literal, only the call-site coords are stamped (per-element source comes from `defmachine` instead). | Standard form. Inline literal → full capture; value-registered (symbol) → pair with `defmachine` ([§Value-registered machines](#value-registered-machines--defmachine)). |
 | `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the call-site predates the registration; the spec is opaque data | Code-gen pipelines that produce specs at runtime, REPL exploration, conformance harnesses that synthesise machines from EDN fixtures. |
-| `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and stamps the per-element source-coord index + per-id fn-form source onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
+| `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and co-locates per-element source + the `:rf.machine/state-coords` index onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
 
 The `reg-machine` / `defmachine` macros live at the `re-frame.core` boundary; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is exposed publicly under `re-frame.core/reg-machine*` for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
 
 ### Source-coord stamping
 
-When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and attaches a flat coord index under the spec's `:rf.machine/source-coords` key. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read the index back via `(:rf.machine/source-coords (rf/machine-meta machine-id))`.
+When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site coord index under the spec's `:rf.machine/state-coords` key. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read one place per element — `(get-in (rf/machine-meta machine-id) [:guards <id> :source-coords])` for a named guard's coord, `(:rf.machine/state-coords (rf/machine-meta machine-id))` for a transition / inline-fn reference coord.
 
-#### What gets stamped
+> **rf2-npvsx (clean redesign).** Prior to this, each guard / action lived across THREE parallel hierarchies keyed by the same id — the `:fn` in the spec proper, the coord in a `:rf.machine/source-coords` side-index, and the `pr-str` source in a `:rf.machine/handler-source` side-index — forcing a consumer to cross-reference all three to assemble one element. The two side-indexes are GONE; their per-element payloads are co-located. The reference-site (`:states`-tree) coords, which describe spec-tree *locations* rather than per-element definitions, remain as a distinct index (`:rf.machine/state-coords`).
 
-The index is a flat map of **path-tuple → coord-map**:
+#### What gets stamped — co-located element entries
+
+Each `{<id> <fn>}` entry under `:guards` / `:actions` / `:on-spawn-actions` becomes ONE cohesive map:
 
 ```clojure
-{[:guards :form-valid?]
- {:ns sym :file "path/login.cljs" :line 47 :column 13}
+:guards  {:form-valid? {:fn            <compiled-fn>
+                        :source-coords {:ns sym :file "path/login.cljs" :line 47 :column 13}
+                        :source-code   "(fn [{data :data}] ...)"}}
+:actions {:commit      {:fn            <compiled-fn>
+                        :source-coords {:ns sym :file "path/login.cljs" :line 52 :column 13}
+                        :source-code   "(fn [{data :data}] {:fx ...})"}}
+```
 
- [:actions :commit]
- {:ns sym :file "path/login.cljs" :line 52 :column 13}
+- `:fn` is ALWAYS present — it's the function the transition engine invokes (the engine reads `(:fn entry)`; bare-fn and keyword-reference entries are also accepted for programmatic / indirection cases).
+- `:source-coords` / `:source-code` are **DEBUG-only** — present in dev, ABSENT in production (see [§Production elision](#production-elision)). In production each entry collapses to `{:fn <compiled-fn>}`.
 
- [:states :idle :on :submit]
+#### What gets stamped — reference-site `:states`-tree coords
+
+The `:rf.machine/state-coords` index is a flat map of **path-tuple → coord-map** covering each transition map / state-node / inline-fn slot inside `:states`:
+
+```clojure
+:rf.machine/state-coords
+{[:states :idle :on :submit]
  {:ns sym :file "path/login.cljs" :line 80 :column 23}
 
- [:states :idle :on :submit :guard]
+ [:states :idle :on :submit :action]
  {:ns sym :file "path/login.cljs" :line 80 :column 35}}    ; only when slot is an inline-fn literal
 ```
 
-Two axes are stamped:
-
-1. **Definition sites** — each fn literal under `:guards` / `:actions` / `:on-spawn-actions` is keyed by `[:guards <id>]` / `[:actions <id>]` / `[:on-spawn-actions <id>]`. This is the coord tools navigate to for "jump to definition."
-
-2. **Reference sites** — each transition map / state-node / inline-fn slot inside `:states` is keyed by its full spec-path tuple, e.g. `[:states :idle :on :submit]`. This is the coord tools navigate to for "jump to call site."
+This is the coord tools navigate to for "jump to call site" — where a transition / inline-fn lives in the spec tree, distinct from the per-element definition coord co-located above.
 
 #### Keyword reference rule (the exemption case)
 
-For a keyword reference like `:guard :form-valid?` inside a transition, the **definition-site is stamped, the reference-site slot is not**. Rationale: a keyword (`:form-valid?`) is a name, not a source form — it carries no reader metadata of its own. The closest meaningful coord is the **enclosing transition map's** coord, which IS stamped under the transition's path. Synthesising a duplicate slot entry at the same coord adds no information for tools — they walk the path tree to find the closest ancestor coord.
+For a keyword reference like `:guard :form-valid?` inside a transition, the **definition's co-located coord is captured, the reference-site slot is not**. Rationale: a keyword (`:form-valid?`) is a name, not a source form — it carries no reader metadata of its own. The closest meaningful coord is the **enclosing transition map's** coord, which IS stamped under the transition's path in `:rf.machine/state-coords`. Synthesising a duplicate slot entry at the same coord adds no information for tools — they walk the path tree to find the closest ancestor coord.
 
-For an **inline-fn reference** like `:guard (fn [_] ...)`, the fn-form carries its own reader meta, so the reference-site slot IS stamped at the full path with a distinct coord.
+For an **inline-fn reference** like `:guard (fn [_] ...)`, the fn-form carries its own reader meta, so the reference-site slot IS stamped at the full path with a distinct coord in `:rf.machine/state-coords`.
 
-Concretely for `{:on {:submit {:target :done :guard :form-valid? :action (fn [_] {})}}}`:
+Concretely for `{:guards {:form-valid? (fn …)} :states {:idle {:on {:submit {:target :done :guard :form-valid? :action (fn [_] {})}}}}}`:
 
-| Path | Stamped? | Why |
+| Where | Captured? | Why |
 |---|---|---|
-| `[:guards :form-valid?]` | ✓ (when defined) | fn literal carries reader meta |
-| `[:states :idle :on :submit]` | ✓ | transition map carries reader meta |
-| `[:states :idle :on :submit :guard]` | — | `:form-valid?` is a keyword — no meta |
-| `[:states :idle :on :submit :action]` | ✓ | inline-fn literal carries reader meta |
+| `:guards :form-valid?` entry's `:source-coords` | ✓ (when defined) | fn literal carries reader meta |
+| `:rf.machine/state-coords [:states :idle :on :submit]` | ✓ | transition map carries reader meta |
+| `:rf.machine/state-coords [:states :idle :on :submit :guard]` | — | `:form-valid?` is a keyword — no meta |
+| `:rf.machine/state-coords [:states :idle :on :submit :action]` | ✓ | inline-fn literal carries reader meta |
 
 Tools walking the index pick the deepest stamped path-tuple matching their UI gesture; for a "jump to call site" click on a state's `:guard`, they fall back to the enclosing transition's coord (which is the same source line).
 
-#### Reading the index back
+#### Reading it back
 
 ```clojure
-(:rf.machine/source-coords (rf/machine-meta :auth/login))
-;; {[:guards :form-valid?]                {:ns ... :line ... :column ... :file ...}
-;;  [:actions :commit]                    {...}
-;;  [:states :form :on :submit]           {...}
-;;  [:states :form :on :submit :action]   {...}}
+;; Per-element definition coord + source — ONE lookup per element:
+(get-in (rf/machine-meta :auth/login) [:guards :form-valid? :source-coords])
+;; => {:ns ... :line ... :column ... :file ...}
+(get-in (rf/machine-meta :auth/login) [:actions :commit :source-code])
+;; => "(fn [{data :data}] {:fx ...})"
+
+;; Reference-site (states-tree) coords:
+(:rf.machine/state-coords (rf/machine-meta :auth/login))
+;; => {[:states :form :on :submit]         {...}
+;;     [:states :form :on :submit :action] {...}}
 ```
 
-The top-level call-site coords (the position of the `(rf/reg-machine ...)` form itself) live on the registry slot as `:ns` / `:line` / `:column` / `:file`, queryable via `(rf/handler-meta :event machine-id)`. The two surfaces are independent: a tool that wants to highlight the `reg-machine` declaration uses `handler-meta`; a tool that wants to highlight a transition's source line uses `machine-meta`'s coord index.
+The top-level call-site coords (the position of the `(rf/reg-machine ...)` form itself) live on the registry slot as `:ns` / `:line` / `:column` / `:file`, queryable via `(rf/handler-meta :event machine-id)`. These surfaces are independent: a tool highlighting the `reg-machine` declaration uses `handler-meta`; a tool highlighting a guard's definition reads its co-located `:source-coords`; a tool highlighting a transition's source line reads `:rf.machine/state-coords`.
 
 #### Production elision
 
-The macro emits an `(if interop/debug-enabled? (assoc spec :rf.machine/source-coords {...}) spec)` branch. Under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to `false` and DCEs the entire literal coord index. The keyword `:rf.machine/source-coords` and every spec-element string fragment (the `:ns` symbol values, the `:file` strings) are absent from the production bundle. Verified by the `npm run test:elision` sentinel grep.
+The macro emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}` onto each element entry and `assoc`s `:rf.machine/state-coords`; the PROD arm collapses each element entry to `{:fn <fn>}` and `assoc`s nothing. Under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to `false` and DCEs the entire dev arm — every co-located `:source-code` string, every coord literal, and the `:rf.machine/state-coords` keyword are absent from the production bundle. The separable `:fn` is what lets the source bytes DCE while the live function ships. Verified by the `npm run test:elision` sentinel grep (the co-located `:source-code` fn-body fragments + the `rf.machine/state-coords` keyword).
 
 #### JVM caveat
 
-Clojure's `LispReader` only attaches `:line` / `:column` metadata to *list* forms (function calls, `(fn …)` bodies). Map and vector literals do NOT carry reader meta on JVM. So on JVM the walker stamps definition-site fn literals reliably (under `:guards` / `:actions` / `:on-spawn-actions`) but state-node and transition-map coords are unavailable — those need the CLJS reader (cljs.tools.reader, which DOES decorate maps/vectors). Per Goal 1 (CLJS reference) the tooling-facing path is CLJS-side; the JVM caveat affects only JVM-side tooling that walks the index directly.
+Clojure's `LispReader` only attaches `:line` / `:column` metadata to *list* forms (function calls, `(fn …)` bodies). Map and vector literals do NOT carry reader meta on JVM. So on JVM the walker captures co-located definition-site fn coords reliably (under `:guards` / `:actions` / `:on-spawn-actions`) but state-node and transition-map coords are unavailable — those need the CLJS reader (cljs.tools.reader, which DOES decorate maps/vectors). Per Goal 1 (CLJS reference) the tooling-facing path is CLJS-side; the JVM caveat affects only JVM-side tooling that walks the index directly.
 
 #### Programmatic registration
 
-`reg-machine*` (the plain-fn surface) and any `reg-machine` macro call where the spec arg is a non-literal (a symbol, a let-bound expression) skip the per-element walk: there's no literal tree to walk at expansion time. The registered spec carries no `:rf.machine/source-coords` key in those cases — tools fall back to the call-site coords on `handler-meta`.
+`reg-machine*` (the plain-fn surface) and any `reg-machine` macro call where the spec arg is a non-literal (a symbol, a let-bound expression) skip the per-element walk: there's no literal tree to walk at expansion time. The registered spec's `:guards` / `:actions` entries are bare fns (no co-located source) and it carries no `:rf.machine/state-coords` key in those cases — tools fall back to the call-site coords on `handler-meta`.
 
 #### Value-registered machines — `defmachine`
 
@@ -793,7 +807,7 @@ The common app shape defines the spec as a top-level value and registers it by s
 (rf/reg-machine :door/main door-machine)
 ```
 
-Here the `reg-machine` macro sees only the symbol `door-machine` at its call site — **not** the inline literal — so the per-element walk above captures nothing and the registered spec carries no `:rf.machine/source-coords` / `:rf.machine/handler-source`. The fix is `defmachine`, a `def`-replacement that walks the literal **at the definition site** and stamps the source onto the def'd value, so it travels into `reg-machine` with the value:
+Here the `reg-machine` macro sees only the symbol `door-machine` at its call site — **not** the inline literal — so the per-element walk above captures nothing and the registered spec's `:guards` / `:actions` entries are bare fns with no co-located source. The fix is `defmachine`, a `def`-replacement that walks the literal **at the definition site** and co-locates the source onto the def'd value, so it travels into `reg-machine` with the value:
 
 ```clojure
 (rf/defmachine door-machine
@@ -805,13 +819,13 @@ Here the `reg-machine` macro sees only the symbol `door-machine` at its call sit
    :states  {…}})
 
 (rf/reg-machine :door/main door-machine)
-;; (:rf.machine/source-coords (rf/machine-meta :door/main)) is now populated,
+;; (get-in (rf/machine-meta :door/main) [:actions :clear-hold :source-coords]) is now populated,
 ;; and (rf/handler-meta :machine-action [:door/main :clear-hold]) carries the fn source.
 ```
 
 Normative rules:
 
-- **`defmachine` performs exactly the same literal-spec walk as the inline `reg-machine` macro** — the same `:rf.machine/source-coords` path-tuple index ([§What gets stamped](#what-gets-stamped)) and the same `:rf.machine/handler-source` per-id fn-form source-string map — but `assoc`s them onto the def'd **value** rather than at a registration call site. Both stamps ride the same `interop/debug-enabled?` gate and DCE identically under `:advanced` + `goog.DEBUG=false`.
+- **`defmachine` performs exactly the same literal-spec walk as the inline `reg-machine` macro** — the same co-located per-element `:source-coords` / `:source-code` on each guard / action / on-spawn-action entry, and the same reference-site `:rf.machine/state-coords` index — but applies them to the def'd **value** rather than at a registration call site. The co-location rides the same `interop/debug-enabled?` gate and DCEs identically under `:advanced` + `goog.DEBUG=false`.
 - **`defmachine` is a drop-in for `def`**: `(defmachine name spec)` or `(defmachine name "doc" spec)`. It introduces a Var holding the (source-stamped) spec map. The optional docstring rides onto the Var's metadata.
 - **`defmachine` does NOT register the machine** — it only defines the stamped value. A subsequent `(reg-machine id name)` performs the registration; because the value already carries source, `reg-machine` (even seeing only the symbol) registers a spec that the runtime reads source off, writing the `:machine-guard` / `:machine-action` registrar handler-metas exactly as for an inline-registered machine.
 - **Use `defmachine` for the `def`-then-register shape; use the `reg-machine` macro directly for inline-literal registration.** Both yield identical per-element source; the choice is purely whether the spec value is named.
