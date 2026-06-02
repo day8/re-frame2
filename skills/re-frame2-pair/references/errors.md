@@ -13,6 +13,16 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 - `:ambiguous-frame` → multiple frames are registered and no session pin is set. Pin one with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
 - `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
 
+## A structured read came back blank
+
+A structured read (`read-dom`, `read-ui`, `read-sub`, `get-path`) that returns an empty / blank / `:*-blank-result` value — or an unexpected `nil` — is **usually a broken OP or eval form, NOT a stale connection.** Do **not** act on a "reload the tab / reconnect" hint on this signal alone (a misleading `read-dom` hint cost real debug time, rf2-5ffuv).
+
+The recovery is to **confirm the runtime is answering** before blaming the connection:
+
+1. Re-run the *equivalent query* as `eval-cljs` — the same selector via `(re-frame2-pair.runtime/dom-describe "sel")` for a blank `read-dom`, the same sub via `@(re-frame.core/subscribe [:foo])` for a blank `read-sub`, the same path via `(re-frame2-pair.runtime/app-db-at [...])` for a blank `get-path`.
+2. If the `eval-cljs` form **returns the value**, the runtime is live and the structured op is the suspect — report the op as broken (and consider filing a `bd` bead), don't reconnect.
+3. Only if `eval-cljs` *also* comes back blank/errored should you suspect liveness — then check `discover-app`'s `:freshness :liveness` (a `:stale-build` means RELOAD; `:no-runtime` means no tab is attached). See [§eval-cljs is the workhorse](recipes.md#eval-cljs-is-the-workhorse) for the broader recovery posture.
+
 ## Pointing the user at the offending handler
 
 Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}` — naming the handler that was executing when the error fired (event, sub, fx, cofx, view, interceptor, or late-bind hook). Report the `:source-coord` as `<file>:<line>` so the user can jump to source; the field is present in production traces too. The field is **absent** for dispatch-time errors where no handler is in scope yet (e.g. `:rf.error/no-such-event`); for those, the `:rf.error/data` is the only handle.
