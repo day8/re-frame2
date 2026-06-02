@@ -176,6 +176,35 @@
                           (merge {:fn v} (get source-data id)))))
                {} m)))))
 
+(defn collocate-state-source
+  "Dev-branch runtime co-location of reference-site `:source-coords` onto
+  each map node inside the registered machine spec's `:states` tree
+  (rf2-vqja2). `coords` is the `{<map-spec-path> <coord-map>}` index the
+  reg-machine macro built via [[walk-machine-spec]] at expansion time; this
+  fn splices each coord onto the map living at its spec-path, yielding e.g.
+
+      :states {:locked {:tags #{:door/locked}
+                        :on   {:door/insert-coin :closed}
+                        :source-coords {:ns .. :file .. :line N :column N}}}
+
+  Only paths whose live value is a map get a `:source-coords` (the walker
+  only emits map-valued paths; this fn defends with `(map? (get-in ...))`
+  so a spec whose runtime shape diverged from the literal — never, in
+  practice — degrades to a no-op rather than corrupting a non-map slot).
+
+  This is the dev arm of the reg-machine macro's `(if interop/debug-enabled?
+  <collocate> <identity>)` gate — the `coords` literal is referenced ONLY
+  here, so under `:advanced` + `goog.DEBUG=false` the whole co-location (and
+  its coord maps) DCEs and the registered state-nodes ship clean (just the
+  user's `{:tags :on …}`). Returns the updated spec."
+  [spec coords]
+  (reduce-kv
+    (fn [acc path coord]
+      (if (map? (get-in acc path))
+        (assoc-in acc (conj (vec path) :source-coords) coord)
+        acc))
+    spec coords))
+
 ;; ---- always-on error-coord registry (rf2-3un2g) --------------------------
 ;;
 ;; The parallel registry that retains source-coords in production builds.
@@ -429,34 +458,48 @@
           ~chosen-file       (assoc :file ~chosen-file)
           ~(:line form-meta) (assoc :line ~(:line form-meta))))))
 
-;; ---- reference-site (states-tree) coord stamping -------------------------
+;; ---- co-located reference-site (states-tree) coord stamping --------------
 ;;
 ;; Per Spec 005 §Source-coord stamping: the `reg-machine` macro walks its
-;; literal machine-spec form at expansion time and produces a REFERENCE-SITE
-;; coord index keyed by **path through the `:states` tree**, stamped onto the
-;; registered spec under `:rf.machine/state-coords`. Tools (pair, 10x, IDE
-;; jump-to-source) read it back via `(rf/handler-meta :event machine-id)` →
-;; `:rf/machine` → `:rf.machine/state-coords`.
+;; literal machine-spec form at expansion time and CO-LOCATES a REFERENCE-SITE
+;; `:source-coords` onto each map node inside the `:states` tree — directly on
+;; the state-node / transition map at its spec path, e.g.
+;;
+;;   :states {:locked {:tags #{:door/locked}
+;;                     :on   {:door/insert-coin :closed}
+;;                     :source-coords {:ns .. :file .. :line N :column N}}}
+;;
+;; Tools (pair, 10x, IDE jump-to-source) read the coord back by navigating
+;; from a snapshot state-path to the state-node and reading its `:source-
+;; coords` — `(rf/handler-meta :event machine-id)` → `:rf/machine` → `(get-in
+;; spec [:states ...])` → `:source-coords`. Per rf2-vqja2 this supersedes the
+;; flat, spec-path-keyed `:rf.machine/state-coords` side-index that paralleled
+;; the `:states` tree (the same parallel-side-index anti-pattern rf2-npvsx
+;; removed for guards/actions, now removed for STATES).
 ;;
 ;; The DEFINITION-site coords (where a guard / action / on-spawn-action fn
 ;; literal lives — the `:guards` / `:actions` / `:on-spawn-actions` map
-;; values) NO LONGER live here. Per rf2-npvsx they are co-located on each
-;; element entry instead (`:guards {<id> {:fn .. :source-coords .. :source-
-;; code ..}}`), so a consumer reads one place per element. See
-;; [[walk-element-source]] + [[collocate-element-source]].
+;; values) live on each element entry per rf2-npvsx (`:guards {<id> {:fn ..
+;; :source-coords .. :source-code ..}}`). See [[walk-element-source]] +
+;; [[collocate-element-source]].
 ;;
-;; What remains here is the reference-site index: each transition map / state
-;; node / inline-fn slot inside `:states`, keyed by its full spec path, e.g.
-;; `[:states :idle :on :submit :guard]`. Mike's rule (per the bead's
-;; exemption case): a keyword `:guard :form-valid?` is NOT stamped at the
-;; reference site (a keyword carries no reader metadata); only the enclosing
-;; transition map's coord is stamped. An inline-fn `:guard (fn [_] ...)`
-;; carries its own reader metadata, so its reference site IS stamped.
+;; What lives here is the reference-site co-location: each MAP node inside
+;; `:states` (state-node, `:spawn` map, transition map) carries its own
+;; `:source-coords`. Inline-fn slots (`:entry` / `:exit` / `:guard` /
+;; `:action` / `:on-spawn`) hold a fn or keyword VALUE — there is no map to
+;; hang a key on — so they are NOT stamped directly; a tool resolving an
+;; inline-fn slot reads the `:source-coords` off the nearest enclosing map
+;; (its state-node / transition map), which IS stamped. This mirrors Mike's
+;; keyword-reference rule: a keyword `:guard :form-valid?` carries no reader
+;; metadata, and the enclosing transition map's coord stands in for it.
 ;;
-;; Path tuples are vectors of keys mirroring the spec's `:states` structure.
-;; The walker runs at compile time on JVM only (the Clojure side of the
-;; macro) and emits a literal map into the macro expansion; the runtime sees
-;; ordinary data, and the whole literal DCEs under `goog.DEBUG=false`.
+;; Spec paths are vectors of keys mirroring the spec's `:states` structure
+;; (`[:states :idle :on :submit]` for the `:submit` transition map). The
+;; walker runs at compile time on JVM only (the Clojure side of the macro)
+;; and produces a `{<map-spec-path> <coord-form>}` index that
+;; [[collocate-state-source]] splices onto each map node at RUNTIME — but
+;; only in the dev arm of the macro's `interop/debug-enabled?` gate, so the
+;; whole co-location DCEs under `goog.DEBUG=false`.
 
 #?(:clj
    (do
@@ -483,13 +526,17 @@
         (:line form-meta)  (assoc :line (:line form-meta))
         (:column form-meta) (assoc :column (:column form-meta))))))
 
-(defmacro ^:private stamp!
+(defmacro ^:private stamp-map!
   "Compile-time helper for the machine-spec walker. Reads source coords off
-  `form` and, when any are present, stamps them into the transient
-  accumulator at `path`. Inlines to the equivalent
-  `(when-let [c (form-coords form ns-sym file)] (assoc! acc path c))` so
-  the imperative-mutation shape `walk-states-tree` relies on for
-  macro-expansion-time performance is preserved.
+  the MAP form `form` and, when any are present, stamps them into the
+  transient accumulator at `path`. Guards on `(map? form)` so only map
+  nodes (state-nodes, transition maps, `:spawn` / `:after` maps) get a
+  co-located coord — an inline-fn / keyword value at the same slot is
+  skipped (there is no map to hang `:source-coords` on; a tool reads the
+  enclosing map's coord). Inlines to the equivalent
+  `(when (and (map? form) ...) (assoc! acc path c))` so the imperative-
+  mutation shape `walk-states-tree` relies on for macro-expansion-time
+  performance is preserved.
 
   Lexical-capture contract: callers must have `acc` (a transient map),
   `ns-sym` (a symbol), and `file` (a string or nil) in scope. The macro
@@ -499,16 +546,23 @@
   Hides the repetitive shape behind a single two-arg call at every
   reference-site stamp."
   [path form]
-  `(when-let [c# (form-coords ~form ~'ns-sym ~'file)]
-     (assoc! ~'acc ~path c#)))
+  `(let [form# ~form]
+     (when (map? form#)
+       (when-let [c# (form-coords form# ~'ns-sym ~'file)]
+         (assoc! ~'acc ~path c#)))))
 
 (defn- walk-states-tree
   "Recursively walk the literal `:states` map. `path` accumulates the
-  spec-path from the spec's root. Adds entries into the mutable `acc`
-  transient for each captured reference site / state-node.
+  spec-path from the spec's root. Adds an entry into the mutable `acc`
+  transient for each MAP node (state-node, `:spawn` map, transition map)
+  that carries reader-position metadata — `{<map-spec-path> <coord-map>}`.
+  Inline-fn / keyword slots (`:entry` / `:exit` / `:guard` / `:action` /
+  `:on-spawn`) are NOT stamped: they hold a fn or keyword value, not a map,
+  so there is no node to co-locate `:source-coords` onto (a tool resolving
+  such a slot reads the enclosing map's coord). Per rf2-vqja2.
 
   Note on style: this walker is mutation-heavy (transient `acc` threaded
-  through nested `reduce-kv` / `doseq` with `assoc!` via the `stamp!`
+  through nested `reduce-kv` / `doseq` with `assoc!` via the `stamp-map!`
   macro) rather than the more functional shape of a visitor that returns
   collected entries. The imperative shape is deliberate — this code runs
   at macro-expansion time and gets called on every `reg-machine` form.
@@ -522,59 +576,43 @@
     (reduce-kv
       (fn [acc state-id node]
         (let [node-path (conj path state-id)]
-          (stamp! node-path node)
+          ;; The state-node map itself carries its co-located coord.
+          (stamp-map! node-path node)
           (when (map? node)
-            ;; :entry / :exit references
-            (when-let [e (:entry node)]
-              (stamp! (conj node-path :entry) e))
-            (when-let [e (:exit node)]
-              (stamp! (conj node-path :exit) e))
-            ;; :spawn {:on-spawn ...}
+            ;; :spawn map (its inline `:on-spawn` fn slot is not stamped).
             (when-let [inv (:spawn node)]
-              (stamp! (conj node-path :spawn) inv)
-              (when (map? inv)
-                (when-let [os (:on-spawn inv)]
-                  (stamp! (conj node-path :spawn :on-spawn) os))))
-            ;; :on transitions — map of event-id → transition-or-vector
+              (stamp-map! (conj node-path :spawn) inv))
+            ;; :on transitions — map of event-id → transition-or-vector.
+            ;; Each transition MAP carries its coord; inline `:guard` /
+            ;; `:action` fn slots inside it are not stamped (the
+            ;; transition map's coord stands in).
             (when-let [on-map (:on node)]
               (when (map? on-map)
                 (reduce-kv
                   (fn [_ ev-id t]
                     (let [tp (conj node-path :on ev-id)]
-                      (stamp! tp t)
                       (cond
                         (map? t)
-                        (do
-                          (when-let [g (:guard t)]  (stamp! (conj tp :guard) g))
-                          (when-let [a (:action t)] (stamp! (conj tp :action) a)))
+                        (stamp-map! tp t)
                         (vector? t)
                         (doseq [[i tx] (map-indexed vector t)
                                 :when (map? tx)]
-                          (let [tp' (conj tp i)]
-                            (stamp! tp' tx)
-                            (when-let [g (:guard tx)]  (stamp! (conj tp' :guard) g))
-                            (when-let [a (:action tx)] (stamp! (conj tp' :action) a)))))
+                          (stamp-map! (conj tp i) tx)))
                       nil))
                   nil on-map)))
-            ;; :always — vector of transition maps
+            ;; :always — vector of transition maps.
             (when-let [always (:always node)]
               (when (vector? always)
                 (doseq [[i tx] (map-indexed vector always)
                         :when (map? tx)]
-                  (let [tp (conj node-path :always i)]
-                    (stamp! tp tx)
-                    (when-let [g (:guard tx)]  (stamp! (conj tp :guard) g))
-                    (when-let [a (:action tx)] (stamp! (conj tp :action) a))))))
-            ;; :after — map of delay → target-or-transition
+                  (stamp-map! (conj node-path :always i) tx))))
+            ;; :after — map of delay → target-or-transition map.
             (when-let [after (:after node)]
               (when (map? after)
                 (reduce-kv
                   (fn [_ delay t]
-                    (let [tp (conj node-path :after delay)]
-                      (stamp! tp t)
-                      (when (map? t)
-                        (when-let [a (:action t)] (stamp! (conj tp :action) a)))
-                      nil))
+                    (stamp-map! (conj node-path :after delay) t)
+                    nil)
                   nil after)))
             ;; recurse into nested :states
             (walk-states-tree (:states node) (conj node-path :states) acc ns-sym file))
@@ -584,13 +622,23 @@
 (defn walk-machine-spec
   "Compile-time helper. Walk a literal machine-spec form's `:states` tree
   (a Clojure map literal as it appears in user code) and return a flat map
-  `{<path-tuple> {:ns :line :column :file}, ...}` capturing REFERENCE-SITE
-  source coordinates.
+  `{<map-spec-path> {:ns :line :column :file}, ...}` capturing the
+  REFERENCE-SITE source coordinate of each MAP node inside `:states`.
 
-  Reference sites: each inline-fn slot under `:entry` / `:exit` / `:guard`
-  / `:action` / `:on-spawn` (and the enclosing transition map / state node)
-  inside the `:states` tree is keyed by its full spec path, e.g.
-  `[:states :idle :on :submit :guard]`.
+  Reference-site MAP nodes: each state-node, `:spawn` map, and transition
+  map inside the `:states` tree is keyed by its full spec path, e.g.
+  `[:states :idle :on :submit]` for the `:submit` transition map and
+  `[:states :idle]` for the `:idle` state-node. Inline-fn / keyword slots
+  (`:entry` / `:exit` / `:guard` / `:action` / `:on-spawn`) are NOT keyed —
+  they hold a value, not a map, so there is no node to co-locate a coord
+  on; a tool reads the enclosing map's coord (per rf2-vqja2, mirroring the
+  keyword-reference rule).
+
+  The returned index is consumed by [[collocate-state-source]], which
+  splices each coord onto its map node at runtime (the dev arm of the
+  macro's `interop/debug-enabled?` gate), so the registered spec carries
+  `:source-coords` directly on each state-node / transition map rather than
+  in a flat side-index.
 
   Definition-site coords (each fn literal under `:guards` / `:actions` /
   `:on-spawn-actions`) are NOT produced here — per rf2-npvsx they are
@@ -603,13 +651,14 @@
   `ns-sym` and `file` come from the calling macro's compile environment.
 
   JVM-only — runs on the Clojure side of the macro. Returns a plain map
-  literal that the macro splices into the expansion; under `goog.DEBUG=false`
-  the closure compiler DCEs the entire literal."
+  literal that the macro feeds [[collocate-state-source]]; the splice runs
+  only in the dev arm, so the whole co-location DCEs under
+  `goog.DEBUG=false`."
   [spec-form ns-sym file]
   (if-not (map? spec-form)
     {}
     (let [acc (transient {})]
-      ;; Reference-site stamping under :states.
+      ;; Reference-site stamping of MAP nodes under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! acc))))
 

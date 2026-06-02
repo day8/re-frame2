@@ -438,10 +438,11 @@
   Per Spec 005 §reg-machine vs reg-machine*: the macro `reg-machine`
   walks the literal spec form at expansion time and co-locates per-element
   source onto each `:guards` / `:actions` entry plus a reference-site
-  `:rf.machine/state-coords` index (rf2-npvsx). This fn assumes no such
-  walking — it accepts whatever spec map the caller has already
-  constructed. Use this fn for runtime registration with computed ids,
-  fixture-synthesised specs, or REPL workflows.
+  `:source-coords` onto each `:states`-tree map node (rf2-npvsx /
+  rf2-vqja2). This fn assumes no such walking — it accepts whatever spec
+  map the caller has already constructed. Use this fn for runtime
+  registration with computed ids, fixture-synthesised specs, or REPL
+  workflows.
 
   Per Spec 005 §Querying machines, the registration metadata is stamped
   with `:rf/machine? true` and `:rf/machine` (the spec map).
