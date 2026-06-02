@@ -338,7 +338,7 @@
      The co-located source travels WITH the value, so when
      `reg-machine-impl` reads each entry's `:source-code` at registration
      time it is present, and the `:machine-guard` / `:machine-action`
-     registrar handler-metas get written."
+     registrar handler-metas get written.
 
      `ns-sym` / `file` are `*ns*` / `*file*` at expansion time. An
      optional leading `doc` string rides through to the emitted `def`
