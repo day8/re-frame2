@@ -146,6 +146,33 @@ event, so toggling it via `(xray-config/configure!
 {:rf.privacy/show-sensitive? true})` takes effect on the next trace
 event without re-registering the listener. The default is `false`.
 
+### Read-side gate on the snapshot (rf2-0ax6f)
+
+The listener-body gate above stops a sensitive event from entering
+Xray's *secondary* (frameless) ring and from triggering a mirror
+sync — but it CANNOT stop the framework's per-frame rings from
+retaining it. The framework's `push-to-ring!` retains every emitted
+event with no `:sensitive?` check (the ring is a faithful record of
+what the runtime emitted); the per-frame gate is a Xray-read concern,
+not a framework-ring concern. A sensitive **frame-bound** event is
+therefore retained in its frame's ring even though the listener body
+declined to push it, and a *later* non-sensitive event's mirror sync
+reads the ring back — pulling the retained sensitive event into the
+snapshot.
+
+So `snapshot-from-rings` (§Snapshot below) applies the SAME
+`suppress-sensitive?` gate on the read: while `:rf.privacy/show-
+sensitive?` is `false`, every retained-but-sensitive event is
+scrubbed from the snapshot regardless of frame-bound vs frameless
+origin. The two gates are genuinely symmetric — the listener gate
+keeps sensitive events out of the secondary ring + counter path; the
+read gate keeps retained-in-per-frame-ring sensitive events out of
+every downstream surface (`:trace-buffer`, L2, the trace panel, the
+app-db diff, the cascade export, and the MCP/snapshot surface). The
+read gate covers the steady-state read while the flag stays `false`;
+the [retroactive scrub](#retroactive-scrub-on-toggle-off) covers the
+true → false transition by clearing the rings wholesale.
+
 ### The suppressed-events counter
 
 The counter is keyed `frame-id → count` with a `:global` bucket for
@@ -206,6 +233,11 @@ frame's flat trace events (via `(re-frame.trace.tooling/trace-buffer
 fid {:flat true})`) and concatenates the frameless ring's contents,
 sorted by `:id`. The merged vector lands in Xray's app-db
 `:trace-buffer` slot via a `:rf.xray/sync-trace-buffer` dispatch.
+
+`snapshot-from-rings` applies the `suppress-sensitive?` read-side
+gate (see [§Read-side gate](#read-side-gate-on-the-snapshot-rf2-0ax6f))
+to the merged vector, so retained-but-sensitive events never reach
+`:trace-buffer` while `:rf.privacy/show-sensitive?` is `false`.
 
 ## Reactivity — microtask-coalesced mirror sync
 
