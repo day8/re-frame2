@@ -482,7 +482,28 @@
    :border-left  (str "2px solid " border-subtle-colour)
    :min-width    0})
 
-(def ^:private cascade-row-source-missing-style
+;; rf2-iwy0c — the source-not-captured fallback now LINKS to the machine
+;; definition (the reg-machine call-site coord) rather than rendering a
+;; dead `<source not yet captured>` literal. Reads the same `<label> + ↗`
+;; coord-link grammar the cascade verb-link + HANDLER verb-link use.
+(def ^:private cascade-source-machine-link-style
+  {:background            "transparent"
+   :border                "none"
+   :padding               0
+   :margin                0
+   :color                 accent-colour
+   :cursor                "pointer"
+   :font-family           mono-stack
+   :font-size             "11px"
+   :font-style            "italic"
+   :text-decoration       "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display               "inline-flex"
+   :align-items           "center"
+   :gap                   "4px"})
+
+(def ^:private cascade-source-machine-plain-style
   {:font-style  "italic"
    :font-family mono-stack
    :font-size   "11px"
@@ -2455,6 +2476,85 @@
     (string? source-form) source-form
     :else (pr-str source-form)))
 
+(defn- machine-call-site-coord
+  "Lift the reg-machine CALL-SITE `{:file :line}` off the registered
+  machine's `handler-meta` (rf2-iwy0c part B-i). A machine is registered
+  as an ordinary `:event` handler carrying `:rf/machine? true` + the
+  top-level call-site `:file` / `:line` (rf2-ge6uj). Returns nil when no
+  coord was captured (production builds with `goog.DEBUG=false`,
+  value-registered machines whose definition coord isn't stamped —
+  rf2-gwj8l)."
+  [machine-meta]
+  (when (and machine-meta
+             (string? (:file machine-meta))
+             (seq (:file machine-meta)))
+    {:file (:file machine-meta) :line (:line machine-meta)}))
+
+(defn- cascade-row-machine-def-link
+  "Render the source-not-captured FALLBACK for a cascade row (rf2-iwy0c
+  part B) — replaces the dead `<source not yet captured>` literal. Links
+  the machine id (e.g. `main`) to the machine DEFINITION:
+
+  - (i) the reg-machine CALL-SITE coord — captured TODAY off the
+    registered handler's `:file` / `:line` (rf2-ge6uj). Implemented now.
+  - (ii) the defmachine DEFINITION coord — RELATES to rf2-gwj8l (not yet
+    landed for value-registered machines). The link structure below
+    lights up automatically once gwj8l stamps a definition coord; until
+    then `machine-call-site-coord` resolves only the call-site, so the
+    link degrades GRACEFULLY to (i) alone (and to a plain non-clickable
+    label when even the call-site coord is absent — production elision).
+
+  The id renders through the shared `coord-link` so the `<id> ↗` +
+  open-in-editor grammar matches every other source affordance in the
+  panel."
+  [row machine-meta]
+  (let [coord    (machine-call-site-coord machine-meta)
+        ;; The machine id IS the registering event-id (Spec 005 — the
+        ;; machine is its own event handler). The projection stamps it
+        ;; on every cascade row as `:machine-id`.
+        id       (:machine-id row)
+        label    (if id (fmt/ns-keyword id) "machine")]
+    (coord-link/coord-link
+      coord label
+      (str "rf-xray-epoch-machine-cascade-source-missing-" (:step row))
+      {:style       cascade-source-machine-link-style
+       :plain-style cascade-source-machine-plain-style})))
+
+(defn- cascade-row-transition-delta
+  "Render a `:transition` row's LOGICAL-STATE DELTA box (rf2-iwy0c part
+  A) — REPLACES the prior transition-map source body (the rf2-wwc3j
+  'delight shape'). Shows the machine's `{:state :tags}` BEFORE → AFTER
+  through `ei/edn-inspector` in DIFF mode (the SAME widget + posture the
+  per-action DATA Δ uses, rf2-5hjb5), with the AFTER logical-state
+  rendered against the BEFORE so changed leaves carry inline `← was X`
+  annotations.
+
+  Scope = `{:state :tags}` ONLY (`projection/machine-logical-state`):
+  `:data` is the per-action DATA Δ's job (folding it in double-shows
+  it); the framework `:rf/*` snapshot slots (`:rf/spawn-counter`,
+  after-epoch counters — Spec 005 §Reserved snapshot-internal keys) are
+  not user state. For a PARALLEL machine the box shows the structured
+  region→state map + the tag-union shift in one object — exactly what
+  the single-region headline verb (`<from> → <to>`) cannot convey.
+
+  The headline verb stays the quick read; this box is the structured
+  before→after. ELIDED on a self / internal transition where neither
+  `:state` nor `:tags` changed (`machine-logical-state-changed?`) — the
+  box would otherwise show a no-op diff. Returns nil in that case so the
+  caller renders no source slot at all for the row."
+  [{:keys [step before after] :as _row}]
+  (when (proj/machine-logical-state-changed? before after)
+    (let [before-ls (proj/machine-logical-state before)
+          after-ls  (proj/machine-logical-state after)]
+      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-" step)
+             :style cascade-row-source-style}
+       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-delta-" step)}
+        [ei/edn-inspector after-ls
+         (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-transition-delta step]
+                  :card?                  false
+                  :default-expanded-depth 3}
+           (some? before-ls) (assoc :before before-ls))]]])))
+
 (defn- cascade-row-source-body
   "Render the source code body for a cascade row (rf2-u69j7 baseline +
   rf2-wwc3j inline-fn extensions). Always visible per the bead body's
@@ -2463,25 +2563,35 @@
 
   - `:action` / `:guard` rows: render the captured source form (named-
     handler pr-str string OR inline-fn slot value) through the
-    canonical `edn/code-block` widget.
-  - `:transition` rows (rf2-wwc3j): render the transition map literal
-    (renderable EDN). This is the bead's 'delight shape' for the
-    transition cascade — the operator reads the `{:target :guard
-    :action}` form inline.
+    canonical `edn/code-block` widget. When no source form is captured
+    (production builds with `goog.DEBUG=false`, value-registered
+    machines), FALL BACK to a click-to-source link to the machine
+    DEFINITION (rf2-iwy0c part B — `cascade-row-machine-def-link`)
+    rather than a dead placeholder.
+  - `:transition` rows (rf2-iwy0c part A): render the LOGICAL-STATE
+    DELTA box (`{:state :tags}` before → after, `cascade-row-
+    transition-delta`) — REVERSES the rf2-wwc3j transition-map 'delight
+    shape' (intentional per Mike: the map literal merely restated the
+    target state the headline verb already names; the delta box earns
+    its place by carrying `:tags` + the structured parallel/compound
+    state object). Elided when the logical state didn't change.
   - `:timer` rows: no body (the spec value at the parent state path is
     a verbose state-node map; the click-to-source chip on the verb is
     the primary affordance).
-  - When no source form is captured (production builds with
-    `goog.DEBUG=false`, fixture machines that pre-date the source-
-    coord stamping pass), render a muted placeholder so the operator
-    sees the slot consistently.
 
   rf2-66wis / rf2-93jp0 — `edn/code-block` paints clojure-syntax
   tokens with the same per-token palette as the Figma authority's
   `.syntax-*` classes, so the cascade code body matches the HANDLER
   step's source body."
-  [row source-form]
-  (when (contains? #{:action :guard :transition} (:kind row))
+  [machine-meta row source-form]
+  (cond
+    ;; rf2-iwy0c part A — transition rows show the logical-state delta,
+    ;; NOT the transition map literal. Self/internal transitions (no
+    ;; logical change) elide the box entirely.
+    (= :transition (:kind row))
+    (cascade-row-transition-delta row)
+
+    (contains? #{:action :guard} (:kind row))
     (let [src-str (source-form->string source-form)]
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-"
                                (:step row))
@@ -2492,10 +2602,9 @@
             :lang   :clojure
             :testid (str "rf-xray-epoch-machine-cascade-source-body-"
                          (:step row))})
-         [:span {:data-testid (str "rf-xray-epoch-machine-cascade-source-missing-"
-                                   (:step row))
-                 :style cascade-row-source-missing-style}
-          "<source not yet captured>"])])))
+         ;; rf2-iwy0c part B — no captured source → link to the machine
+         ;; definition instead of a dead placeholder.
+         (cascade-row-machine-def-link row machine-meta))])))
 
 (defn- cascade-row-action-data-diff
   "Render an `:action` row's `:data` DELTA through the edn-inspector in
@@ -2597,9 +2706,13 @@
 ;; re-stated the state change on a labelled `state <from> → <to>` line and
 ;; echoed the triggering `event [...]` underneath — both redundant (the
 ;; KIND pill already says TRANSITION; the DISPATCH step + cascade context
-;; already name the event). The transition MAP literal still renders as
-;; the row's source body (`cascade-row-source-body`, rf2-wwc3j) — the
-;; `{:target :guard :action}` delight shape — which is NOT repetitive.
+;; already name the event). rf2-iwy0c — the transition row's source body
+;; is now the LOGICAL-STATE DELTA box (`{:state :tags}` before → after via
+;; `cascade-row-transition-delta`), REVERSING the rf2-wwc3j transition-map
+;; 'delight shape': the map literal merely restated the target state the
+;; headline verb already names, whereas the delta box carries `:tags` + the
+;; structured parallel/compound state object the single-region verb cannot
+;; convey. The box elides on a self/internal transition (no logical change).
 
 (defn- cascade-row-view
   "Render one cascade row (rf2-u69j7). Layout:
@@ -2613,9 +2726,10 @@
   full layout (phase chip + source body + outcome details — incl. the
   rf2-5hjb5 inspector data DIFF); `:guard` rides a thinner layout
   (source body, no phase chip); `:transition` rides the prominent
-  state-change verb (`<before> → <after>`) + the transition-map source
-  body, with NO repetitive detail block (rf2-ge6uj ISSUE 3); `:timer`
-  rides a minimal layout (kind + state + reason, no source body)."
+  state-change verb (`<before> → <after>`) + the rf2-iwy0c logical-state
+  DELTA box (`{:state :tags}` before → after), with NO repetitive detail
+  block (rf2-ge6uj ISSUE 3); `:timer` rides a minimal layout (kind +
+  state + reason, no source body)."
   [machine-meta row]
   (let [{:keys [kind step phase duration-ms outcome threw?]} row
         coord       (cascade-row-coord machine-meta row)
@@ -2650,8 +2764,10 @@
          (when (or (= :transition kind) (and (= :guard kind) outcome-lbl))
            outcome-lbl))]]
      ;; Source code body (always visible per rf2-u69j7) — actions + guards
-     ;; + the transition MAP literal (the rf2-wwc3j delight shape).
-     (cascade-row-source-body row source-form)
+     ;; render their source (or the rf2-iwy0c machine-def link when none
+     ;; was captured); the `:transition` row renders the rf2-iwy0c
+     ;; logical-state DELTA box (`{:state :tags}` before → after).
+     (cascade-row-source-body machine-meta row source-form)
      ;; Per-row outcome details — kind-specific. rf2-ge6uj ISSUE 3 — the
      ;; `:transition` row carries NO extra detail body: the prominent
      ;; header verb (`<before> → <after>`) is the focal point and the
@@ -2744,8 +2860,10 @@
 ;; collapsing silently.
 ;;
 ;; For machine handlers the "source" is the machine spec — read via
-;; `rf/handler-meta :machine event-id`. The spec renders through the
-;; same `edn/inspect` widget every other top-level EDN map uses.
+;; `rf/handler-meta :event event-id` (the machine IS a `reg-event-fx`
+;; with the spec under `:rf/machine`; rf2-iwy0c part C — the prior
+;; `:machine` kind resolved nil). The spec renders through the same
+;; `edn/inspect` widget every other top-level EDN map uses.
 
 (defn- handler-source-string
   "Return the registered event-handler's source string from the
@@ -2758,12 +2876,16 @@
       s)))
 
 (defn- machine-spec-value
-  "Return the registered machine handler's spec data. Read off the
-  `:machine-spec` slot (the substrate stashes the original
-  `(reg-machine id spec ...)` argument here) so the panel can render
-  it via the canonical edn-inspector."
+  "Return the registered machine handler's spec data. A machine is
+  registered as a `reg-event-fx` carrying `:rf/machine? true` + the
+  stamped spec under `:rf/machine` (rf2-ge6uj / rf2-ypu5i); the legacy
+  `:machine-spec` / `:spec` / `:rf.machine/spec` slots are fixture-
+  shape fallbacks used by unit tests. Mirrors the cascade path's
+  `projection/machine-spec-from-meta` resolution so the HANDLER step's
+  machine SPEC reads the SAME spec the cascade source rows read."
   [meta]
-  (or (:machine-spec meta)
+  (or (:rf/machine meta)
+      (:machine-spec meta)
       (:spec meta)
       (:rf.machine/spec meta)))
 
@@ -2850,9 +2972,18 @@
   click-to-source affordance now (see `handler-verb-link`). This
   fn renders only the code body."
   [flavour event-id]
+  ;; rf2-iwy0c part C — read the registration meta under the `:event`
+  ;; kind for BOTH flavours. A machine is registered as a `reg-event-fx`
+  ;; carrying `:rf/machine? true` + the spec under `:rf/machine` (rf2-ge6uj
+  ;; ISSUE 2 fixed this in the cascade path; `machine-block` reads `:event`
+  ;; too). The prior `(if machine? :machine :event)` lookup resolved nil for
+  ;; the machine spec — there is NO `:machine` registrar kind — so the
+  ;; HANDLER step's machine SPEC rendered the `<source not yet captured>`
+  ;; placeholder. Reading under `:event` + `machine-spec-value`'s `:rf/machine`
+  ;; resolution surfaces the spec.
   (let [machine? (= :reg-machine flavour)
         meta     (when (some? event-id)
-                   (try (rf/handler-meta (if machine? :machine :event) event-id)
+                   (try (rf/handler-meta :event event-id)
                         (catch :default _ nil)))
         spec     (when machine? (machine-spec-value meta))
         src      (when-not machine? (handler-source-string meta))]

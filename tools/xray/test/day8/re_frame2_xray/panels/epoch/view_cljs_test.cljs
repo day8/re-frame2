@@ -1385,12 +1385,21 @@
           (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
               "inline-guard source slot is present"))))))
 
-(deftest cascade-transition-row-renders-source-body-test
-  (testing "rf2-wwc3j — a `:transition` row renders the transition map
-            literal as a source body (the bead's `:delight shape` for
-            transitions: render the EDN form inline)."
+(deftest cascade-row-source-not-captured-links-to-machine-def-test
+  (testing "rf2-iwy0c part B — a cascade row whose source form could
+            NOT be resolved (no captured source string + no spec value
+            at the source-key) renders a click-to-source LINK to the
+            machine DEFINITION (the reg-machine CALL-SITE coord,
+            part B-i) instead of the dead `<source not yet captured>`
+            literal. The link carries the machine id as its label.
+
+            Reg-event-* macros stamp the call-site `:file`/`:line` at
+            expansion time, so a machine registered here resolves the
+            call-site coord under `:event` (part B-i implemented now);
+            the defmachine-definition coord (part B-ii) DEGRADES to the
+            call-site until rf2-gwj8l stamps it."
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :rf2-wwc3j.view/transition-row
+      (rf/reg-event-fx :rf2-iwy0c.view/no-source-machine
                        {:rf/machine? true
                         :rf/machine {:initial :idle
                                      :states  {:idle {:on {:go {:target :done}}}
@@ -1398,22 +1407,148 @@
                        (fn [_ _] {}))
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine
-                  :event-id :rf2-wwc3j.view/transition-row
+                  :event-id :rf2-iwy0c.view/no-source-machine
                   :fx []
-                  :machine {:cascade [{:kind :transition :step 1
-                                       :machine-id :rf2-wwc3j.view/transition-row
-                                       :from-state :idle
-                                       :to-state   :done
-                                       :event [:go]
+                  ;; A guard row whose `:guard-id` keyword has no captured
+                  ;; source-string and no spec value at the source-key →
+                  ;; `cascade-row-source-form` resolves nil → the machine-
+                  ;; def link fallback fires.
+                  :machine {:cascade [{:kind :guard :step 1
+                                       :machine-id :rf2-iwy0c.view/no-source-machine
+                                       :guard-id :never-captured?
+                                       :outcome :pass
                                        :source-state :idle
-                                       :target-state :done
-                                       :event-id :go
-                                       :microsteps 1}]
+                                       :event-id :go}]
                             :transition nil :guards [] :lifecycle [] :timers []}}
-            tree (view/render-handler-step step)]
-        (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
-        (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
-            "transition source slot is present (renders the transition map)")))))
+            tree (view/render-handler-step step)
+            link (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-missing-1")]
+        (is (some? link)
+            "the source-missing slot renders the machine-def link")
+        ;; coord present (macro-stamped call-site) → clickable <button>,
+        ;; NOT a dead <span> placeholder.
+        (is (= :button (first link))
+            "the link is a clickable button (call-site coord resolved — part B-i)")
+        (is (some? (:on-click (th/attrs link)))
+            "clicking dispatches open-in-editor")))))
+
+(deftest cascade-row-source-not-captured-degrades-without-coord-test
+  (testing "rf2-iwy0c part B — when even the call-site coord is absent
+            (production elision / unregistered machine), the machine-def
+            link DEGRADES GRACEFULLY to a plain non-clickable label
+            rather than a dead button — the link STRUCTURE lights up
+            once a coord (call-site today, defmachine via rf2-gwj8l
+            later) is available."
+    (rf/with-frame :rf/default
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-machine
+                  ;; never-registered → no handler-meta → no coord.
+                  :event-id :rf2-iwy0c.view/unregistered-machine
+                  :fx []
+                  :machine {:cascade [{:kind :guard :step 1
+                                       :machine-id :rf2-iwy0c.view/unregistered-machine
+                                       :guard-id :never-captured?
+                                       :outcome :pass
+                                       :source-state :idle
+                                       :event-id :go}]
+                            :transition nil :guards [] :lifecycle [] :timers []}}
+            tree (view/render-handler-step step)
+            link (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-missing-1")]
+        (is (some? link)
+            "the source-missing slot still renders the (degraded) label")
+        (is (= :span (first link))
+            "no coord → plain non-clickable span (graceful degrade)")))))
+
+(deftest cascade-transition-row-renders-logical-state-delta-test
+  (testing "rf2-iwy0c part A — a `:transition` row renders the
+            LOGICAL-STATE DELTA box (`{:state :tags}` before → after)
+            as its source body, REPLACING the rf2-wwc3j transition-map
+            literal. The box reads the row's `:before` / `:after`
+            snapshots (the substrate emits the full snapshot on either
+            side of the `:rf.machine/transition` trace)."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine
+                :event-id :door/main
+                :fx []
+                :machine {:cascade [{:kind :transition :step 1
+                                     :machine-id :door/main
+                                     :before {:state :locked
+                                              :data {:tries 0}
+                                              :tags #{:locked}
+                                              :rf/spawn-counter {}}
+                                     :after  {:state :open
+                                              :data {:tries 1}
+                                              :tags #{:open}
+                                              :rf/spawn-counter {}}
+                                     :from-state :locked
+                                     :to-state   :open
+                                     :event [:door/open]
+                                     :microsteps 1}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+          "transition source slot is present (the logical-state delta box)")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-delta-1"))
+          "the logical-state delta box renders for a state-changing transition"))))
+
+(deftest cascade-transition-row-elides-delta-on-self-transition-test
+  (testing "rf2-iwy0c part A — a SELF / internal transition where
+            neither `:state` nor `:tags` changed (only `:data` or
+            `:rf/*` bookkeeping moved) ELIDES the delta box entirely —
+            the box would otherwise show a no-op logical diff."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine
+                :event-id :door/main
+                :fx []
+                :machine {:cascade [{:kind :transition :step 1
+                                     :machine-id :door/main
+                                     ;; :state + :tags identical; only :data
+                                     ;; + :rf/spawn-counter differ.
+                                     :before {:state :open :tags #{:open}
+                                              :data {:tries 1}
+                                              :rf/spawn-counter {}}
+                                     :after  {:state :open :tags #{:open}
+                                              :data {:tries 2}
+                                              :rf/spawn-counter {:foo 1}}
+                                     :from-state :open
+                                     :to-state   :open
+                                     :event [:door/poke]
+                                     :microsteps 0}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+          "the transition row still renders (verb headline present)")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+          "the delta box is elided — no logical-state change")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-delta-1"))
+          "no delta box on a self/internal transition"))))
+
+(deftest cascade-transition-row-renders-parallel-state-delta-test
+  (testing "rf2-iwy0c part A — a PARALLEL machine's transition renders
+            the structured region→state map + the tag-union shift in
+            the delta box (the single-region headline verb cannot
+            convey which region moved). The box scope stays `{:state
+            :tags}` — `:data` is excluded."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine
+                :event-id :crossing/light
+                :fx []
+                :machine {:cascade [{:kind :transition :step 1
+                                     :machine-id :crossing/light
+                                     :before {:state {:vehicle :red :pedestrian :dont-walk}
+                                              :tags #{:vehicle-stop :ped-stop}
+                                              :data {:cycles 0}}
+                                     :after  {:state {:vehicle :green :pedestrian :dont-walk}
+                                              :tags #{:vehicle-go :ped-stop}
+                                              :data {:cycles 1}}
+                                     :from-state {:vehicle :red :pedestrian :dont-walk}
+                                     :to-state   {:vehicle :green :pedestrian :dont-walk}
+                                     :event [:crossing/tick]
+                                     :microsteps 1}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-delta-1"))
+          "the delta box renders the structured parallel-state diff"))))
 
 (deftest cascade-timer-row-elides-source-body-test
   (testing "rf2-wwc3j — `:timer` rows render the click-to-source coord

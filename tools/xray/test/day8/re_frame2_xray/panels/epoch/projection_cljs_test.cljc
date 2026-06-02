@@ -649,6 +649,48 @@
                 [{:kind :guard} {:kind :action}]))
         "no row carries a duration → nil")))
 
+(deftest machine-logical-state-test
+  (testing "rf2-iwy0c — `machine-logical-state` projects a snapshot to
+            `{:state :tags}` ONLY, excluding `:data`, `:meta`, and the
+            framework `:rf/*` bookkeeping slots."
+    (is (= {:state :locked :tags #{:locked}}
+           (proj/machine-logical-state
+             {:state :locked
+              :tags #{:locked}
+              :data {:tries 0}
+              :meta {:created 1}
+              :rf/spawn-counter {}}))
+        "select-keys [:state :tags] drops :data / :meta / :rf/* by construction")
+    (testing "parallel machine — the region→state map + tag-union survive verbatim"
+      (is (= {:state {:vehicle :red :pedestrian :dont-walk}
+              :tags #{:vehicle-stop :ped-stop}}
+             (proj/machine-logical-state
+               {:state {:vehicle :red :pedestrian :dont-walk}
+                :tags #{:vehicle-stop :ped-stop}
+                :data {:cycles 0}}))))
+    (testing "a snapshot with no :tags projects just :state"
+      (is (= {:state :idle}
+             (proj/machine-logical-state {:state :idle :data {}}))))
+    (is (nil? (proj/machine-logical-state nil))
+        "nil snapshot → nil (caller elides)")))
+
+(deftest machine-logical-state-changed?-test
+  (testing "rf2-iwy0c — `machine-logical-state-changed?` keys the delta-box
+            elision: true iff `{:state :tags}` differs across before/after."
+    (is (true? (proj/machine-logical-state-changed?
+                 {:state :locked :tags #{:locked} :data {:n 0}}
+                 {:state :open   :tags #{:open}   :data {:n 0}}))
+        ":state changed → changed")
+    (is (true? (proj/machine-logical-state-changed?
+                 {:state :open :tags #{:open}}
+                 {:state :open :tags #{:open :held}}))
+        ":tags changed (same :state) → changed")
+    (testing "self/internal transition — :state + :tags unchanged, only
+              :data + :rf/* moved → NOT changed (delta box elides)"
+      (is (false? (proj/machine-logical-state-changed?
+                    {:state :open :tags #{:open} :data {:n 1} :rf/spawn-counter {}}
+                    {:state :open :tags #{:open} :data {:n 2} :rf/spawn-counter {:a 1}}))))))
+
 (deftest project-machine-populates-cascade-slot-test
   (testing "rf2-u69j7 / rf2-tjqd8 — `(handler-row …)` populates `:machine
             :cascade` with the CANONICALLY-ORDERED cascade the view

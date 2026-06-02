@@ -1486,17 +1486,34 @@ macrostep — intermediate-state inline-fns fall back to the
 headline state; source-key resolution degrades to the macrostep's
 source/target.
 
-For `:transition` rows, the body renders the transition map literal
-(EDN). For `:timer` rows, the body is elided (the parent state-node
+For `:transition` rows, the body renders the **logical-state DELTA
+box** (rf2-iwy0c — see "Transition row" below), NOT a source form;
+the `[:states <source-state>... :on <event>]` source-key in the table
+above still resolves the transition's click-to-source coord for the
+verb-link, but the body itself is the `{:state :tags}` before→after
+diff. For `:timer` rows, the body is elided (the parent state-node
 is too verbose to render verbatim); the click-to-source chip on the
 verb is the primary affordance, opening the operator on the state
 that owns the `:after` slot.
 
 Always visible by default per the bead body's "interleaved source
 code" requirement — the operator reads what ran AND its code at the
-same vertical position without expand/collapse gestures. Source-
-missing fallback renders a muted `<source not yet captured>`
-placeholder so the slot is consistently present.
+same vertical position without expand/collapse gestures. **Source-
+missing fallback (rf2-iwy0c part B).** When no source form is captured
+for an `:action` / `:guard` row (production `goog.DEBUG=false` builds,
+value-registered machines), the body renders the **machine id as a
+click-to-source LINK to the machine definition** — NOT a dead `<source
+not yet captured>` literal. The link (shared `coord-link`, `<id> ↗`
+grammar) targets, per Mike's ruling, BOTH the reg-machine CALL-SITE and
+the defmachine DEFINITION:
+
+- **(i) reg-machine call-site** — the `:file` / `:line` captured TODAY
+  on `(rf/handler-meta :event event-id)` (rf2-ge6uj). Implemented now.
+- **(ii) defmachine definition** — RELATES to rf2-gwj8l (definition
+  coord not yet stamped for value-registered machines). The link
+  STRUCTURE lights up automatically once gwj8l stamps the coord; until
+  then it DEGRADES GRACEFULLY to (i) alone, and to a plain
+  non-clickable label when even the call-site coord is absent.
 
 **Per-row outcome detail.** Action rows surface inline:
 
@@ -1520,20 +1537,51 @@ placeholder so the slot is consistently present.
 - **`✗ threw`** — when the action threw, an error chip + exception
   message.
 
-**Transition row — one prominent collapsed row (rf2-ge6uj).** The
-transition zone is a SINGLE prominent row: the header carries `[#step]
-[TRANSITION badge] <before-state → after-state>`, where the verb IS the
-state change (rendered larger / bolder / magenta — the focal point of
-the collapsed zone) and doubles as the click-to-source affordance onto
-the transition map. The redundant leading "transition" word (the KIND
-pill already says TRANSITION), the machine-name echo (already the
-cascade context), and the prior repetitive lower-line `state {:from} →
-{:to}` + `event [...]` detail block are all REMOVED. The transition MAP
-literal still renders as the row's source body (the `{:target :guard
-:action}` rf2-wwc3j delight shape) — that is the source, not a
-repetition. Timer rows surface only the header + click-to-source chip
-(no inline body — cancellations are housekeeping; the chip routes to
-the `:after`-bearing state node).
+**Transition row — prominent header verb + logical-state DELTA box
+(rf2-ge6uj header · rf2-iwy0c body).** The transition zone is a SINGLE
+prominent row: the header carries `[#step] [TRANSITION badge]
+<before-state → after-state>`, where the verb IS the state change
+(rendered larger / bolder / magenta — the focal point of the collapsed
+zone) and doubles as the click-to-source affordance. The redundant
+leading "transition" word (the KIND pill already says TRANSITION), the
+machine-name echo (already the cascade context), and the prior
+repetitive lower-line `state {:from} → {:to}` + `event [...]` detail
+block are all REMOVED.
+
+The row's BODY is the **logical-state DELTA box** (rf2-iwy0c part A) —
+an `ei/edn-inspector` DIFF (the SAME widget + `{:before <prior>}`
+posture the per-action `↳ data Δ` uses, rf2-5hjb5) showing the
+machine's `{:state :tags}` BEFORE → AFTER. This **REVERSES the
+rf2-wwc3j transition-map "delight shape"** (intentional, per Mike): the
+map literal merely restated the target state the headline verb already
+names, whereas the delta box earns its place by carrying `:tags` + the
+structured before→after state object.
+
+- **Scope = `{:state :tags}` ONLY** (`projection/machine-logical-
+  state`). `:data` is EXCLUDED — the per-action `↳ data Δ` already
+  carries it (folding it in double-shows it); the framework-owned
+  `:rf/*` snapshot slots (`:rf/spawn-counter`, after-epoch counters —
+  Spec 005 §Reserved snapshot-internal keys) are EXCLUDED (not user
+  state — a raw snapshot-diff would dump them). `select-keys [:state
+  :tags]` filters everything else by construction.
+- **Data source** — the transition row's `:before` / `:after` snapshots
+  (hoisted off the `:rf.machine/transition` trace's `:before` / `:after`
+  tags, which carry the full machine snapshot on either side per Spec
+  005 §Trace events). Equivalently the epoch record's `:db-before` /
+  `:db-after` at `[:rf/runtime :machines :snapshots <machine-id>]`.
+- **Parallel machines** — `:state` may be a region→state map; the box
+  shows the structured map + the tag-union shift in one object (e.g.
+  `{:vehicle :red :pedestrian :dont-walk}` / `#{:vehicle-stop
+  :ped-stop}`), exactly what the single-region headline verb cannot
+  convey.
+- **Elision** — on a SELF / internal transition where neither `:state`
+  nor `:tags` changed (`projection/machine-logical-state-changed?`
+  false — only `:data` or `:rf/*` bookkeeping moved), the box is elided
+  entirely; the headline verb stays.
+
+Timer rows surface only the header + click-to-source chip (no inline
+body — cancellations are housekeeping; the chip routes to the
+`:after`-bearing state node).
 
 **Empty-state correctness** (acceptance #4 — rf2-u69j7). A vanilla
 `reg-event-db` cascade (or any non-`:reg-machine` flavour) renders
@@ -1555,9 +1603,9 @@ Epoch infrastructure:
 **The legacy category-grouped sub-sections are REPLACED, not
 augmented** (per Mike, pre-alpha posture). The full state-change
 story is now told inline by the cascade: transitions render their
-`from → to` snapshots; actions render their data-write + fx
-attribution + source body; no separate DATA REDUCTION / SNAPSHOT
-DIFF block lands. The FX section's per-action `:attributed-to`
+`from → to` headline verb + the `{:state :tags}` logical-state delta
+box (rf2-iwy0c); actions render their data-write + fx attribution +
+source body; no separate DATA REDUCTION / SNAPSHOT DIFF block lands. The FX section's per-action `:attributed-to`
 chip stays in place (the FX step is the post-commit lens; the
 cascade row is the action-attribution lens — same data, two
 surfaces).
