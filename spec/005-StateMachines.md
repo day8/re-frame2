@@ -433,6 +433,46 @@ Every user-declared guard evaluation and every user-declared action invocation e
 
 Both traces flow through the standard trace bus, so `*handler-scope*` auto-stamps `:dispatch-id` into `:tags`. Downstream cascade-correlation (Xray's `:rf.xray/machine-transitions-for-focused-event` sub, devtools epoch buffers, conformance fixtures) groups guard/action traces with the originating event without any explicit threading. The payload schemas are pinned in [Spec-Schemas §`MachineGuardEvaluatedTags` and §`MachineActionRanTags`](Spec-Schemas.md). The `:sensitive?` inheritance contract per [§Privacy — `:sensitive?` inheritance on machine trace events](#privacy--sensitive-inheritance-on-machine-trace-events) applies to both — handler-scope metadata stamps the whole cascade, so `:input :data` and `:input :event` are scrubbed at the boundary alongside the surrounding `:rf.machine/transition` payload.
 
+#### The structured transition cascade — `:cascade` on `:rf.machine/transition`
+
+The per-action `:rf.machine/action-ran` stream above lets a tool *reconstruct* what ran, but only by re-walking the LCA geometry to know which state each action belonged to and in what cascade order. The macrostep's headline `:rf.machine/transition` trace therefore **also carries a structured `:cascade` field** — the engine emits, in a single trace, the ordered step sequence that explains *how* the transition reached its after-state (rf2-n9f4z). One trace, one place for tooling to read; this is the contract Xray's epoch panel renders (rf2-52u5n), and it **removes the need for app-level `:data :trail` workarounds** that previously made the cascade observable by hand.
+
+`:cascade` is a **vector of self-describing step maps in execution order**, following the ordering [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) already defines — **exit deepest-first → transition `:action` at the LCA → entry shallowest-first + initial-descent**, then one step per `:always`/eventless microstep:
+
+```clojure
+;; one cascade step (the structural shape the consumer reads)
+{:kind   :exit | :action | :entry | :microstep   ;; the structural boundary
+ :state  [:running :conditioning :heating]        ;; state-path exited/entered;
+                                                   ;;   the transition's decl-path for :action
+ :region :climate | nil                            ;; parallel region (nil for flat/compound)
+ :action :enter-heating | nil                      ;; the action id that fired
+                                                   ;;   (nil ⇒ this boundary declared no
+                                                   ;;    :exit/:entry action — still recorded
+                                                   ;;    so the configuration walk is complete)
+ :data-delta {:trail [...]}}                       ;; the :data keys THIS step's action
+                                                   ;;   added/changed (empty {} when no action,
+                                                   ;;   or the action wrote no :data)
+
+;; a :microstep step additionally carries the eventless step's own nested cascade
+{:kind            :microstep
+ :region          :climate | nil
+ :microstep-index 0
+ :from            :asking
+ :to              :winner
+ :steps           [ …exit/action/entry step maps for the eventless transition… ]}
+```
+
+Key properties:
+
+- **Complete configuration walk.** Every state exited and entered is recorded — *including* boundaries with no declared `:exit`/`:entry` action (`:action nil`, empty `:data-delta`) — so the geometry is explainable without the spec. (An app-level `:data :trail` only captured *action-bearing* boundaries; the cascade is a superset.)
+- **`:kind` is structural, not the action driver phase.** It is the closed set `:exit / :action / :entry / :microstep`. The orthogonal driver phase (`:transition` / `:always` / `:after-action` / `:initial-entry` / `:destroy-exit`) is what the per-action `:rf.machine/action-ran` emit stamps under `:phase`; the two dimensions never smear (see the `action-ran` `:phase` set above).
+- **`:data-delta` is the minimal per-step contribution** — only the `:data` keys that step's action *changed*, never the whole (possibly large) `:data` map. This keeps the cascade small and side-steps a large-payload leak.
+- **Per-region structure for parallel machines.** Each step carries its `:region`; the cascade is the per-region step sequences concatenated in region declaration order, so a consumer can group by `:region` (rf2-52u5n wants per-region detail). Flat / compound machines carry `:region nil`.
+- **`:always` microsteps are explainable.** Each eventless macrostep iteration appends a `:microstep` step carrying its own nested `:steps` — so "all the steps" = the entry/exit cascade **plus** the microstep stream, rather than a bare count. This composes with the per-microstep `:rf.machine.microstep/transition` stream (the latter stays the per-microstep marker; `:cascade` is the macrostep-level structured rollup).
+- **Bootstrap composition.** When one handler call both bootstraps the machine *and* processes a user event (the same call the `:before`/`:after` slots span), the initial-entry cascade's `:entry` steps prepend the event-driven steps, matching the macrostep the trace reports.
+
+The privacy story is the same handler-scope stamp as `:before` / `:after` (see [§Privacy — `:sensitive?` inheritance on machine trace events](#privacy--sensitive-inheritance-on-machine-trace-events)): a sensitive machine's whole `:rf.machine/transition` event — `:cascade` `:data-delta`s included — is stamped `:sensitive?` for the consumer to scrub at egress. The field is observability via `trace/emit!` (production-elided through the standard `interop/debug-enabled?` gate), never production app-db, so it adds no new elision concern beyond the existing trace payload.
+
 ### `:machine-guard` / `:machine-action` handler-meta surfaces
 
 The `reg-machine` macro walks the literal spec form at expansion time and writes per-(machine-id, id) entries into the registrar under the **`:machine-guard`** and **`:machine-action`** registry kinds — sibling to the closed `:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:frame` / `:route` / `:head` / `:error-projector` / `:flow` kinds, per [001 §Registry model](001-Registration.md). Each entry carries:

@@ -276,7 +276,8 @@
            new-states   state-map
            acc-fx       []
            any-handled? false
-           micro-total  0]
+           micro-total  0
+           cascade      []]
       (if (empty? pending)
         (let [merged (cond-> (-> snapshot
                                  (assoc :state new-states)
@@ -287,10 +288,17 @@
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
           ;; only when EVERY region declined. Per §Trace events the
-          ;; macrostep `:microsteps` count is the sum across regions.
+          ;; macrostep `:microsteps` count is the sum across regions. Per
+          ;; rf2-n9f4z the structured `::cascade` is the per-region step
+          ;; sequences concatenated in declaration order — each step
+          ;; already carries `:region` (stamped by the single-machine
+          ;; engine from the synthetic region-spec's `:rf/region`), so the
+          ;; flat concatenation stays per-region addressable for the
+          ;; consumer (rf2-52u5n).
           (-> (result/ok (commit-tags-parallel parent-machine merged) acc-fx)
               (result/with-handled any-handled?)
-              (result/with-microsteps micro-total)))
+              (result/with-microsteps micro-total)
+              (result/with-cascade cascade)))
         (let [rn          (first pending)
               region-spec (region-machine parent-machine rn)
               region-snap (cond-> {:state (get state-map rn)
@@ -301,7 +309,8 @@
           (if (result/fail? step-result)
             step-result
             (let [region-handled? (result/handled? step-result)
-                  region-micro    (result/microsteps step-result)]
+                  region-micro    (result/microsteps step-result)
+                  region-cascade  (result/cascade step-result)]
               (result/with-ok [reg-snap reg-fx] step-result
                 ;; Per rf2-3h1pf: accumulate fx via `into` so the region
                 ;; loop doesn't rebuild the accumulator as a fresh vector
@@ -319,7 +328,8 @@
                              (map (partial prefix-region-spawn-id rn))
                              reg-fx)
                        (or any-handled? region-handled?)
-                       (long (+ micro-total region-micro)))))))))))
+                       (long (+ micro-total region-micro))
+                       (into cascade region-cascade))))))))))
 
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
