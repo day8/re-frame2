@@ -340,6 +340,34 @@
           ;; A no-bootstrap call's `boot-result` carries an empty cascade.
           cascade   (into (vec (result/cascade boot-result))
                           (result/cascade step-result))
+          ;; Per rf2-coozg: a genuine no-op macrostep emits NO
+          ;; `:rf.machine/transition`. An unhandled / guard-blocked event
+          ;; already signals the benign `:rf.machine.event/unhandled-no-op`
+          ;; (the engine's `:else` branch + the parallel aggregate); a
+          ;; redundant `[:rf.machine/bootstrap]` on an already-booted
+          ;; machine is the reserved-`:rf/*` carve-out (rf2-t4582) that
+          ;; emits nothing at all. In BOTH cases the macrostep changed
+          ;; nothing — `:before` == `:after`, the combined (boot + step)
+          ;; cascade is empty, and zero `:always` microsteps ran — so a
+          ;; no-change transition trace (before = after, `:microsteps 0`,
+          ;; `:cascade []`) adds no information and CONTRADICTS the no-op
+          ;; signal (it borrows external-self-transition `{X}→{X}`
+          ;; vocabulary that implies the `:exit`/`:entry` firing that did
+          ;; NOT happen — rf2-e6q97). Suppressing it makes the no-op
+          ;; SINGLE-signalled + consistent across unhandled / blocked /
+          ;; redundant-bootstrap, and lets the Xray projection's
+          ;; `drop-spurious-no-op-transition` band-aid wither (nothing to
+          ;; drop once the row is never emitted).
+          ;;
+          ;; The legitimate FIRST bootstrap (`:initial-entry`) is NOT a
+          ;; no-op: it installs the initial state via a non-empty
+          ;; initial-descent `:cascade`, so the empty-cascade guard keeps
+          ;; its transition trace. An internal self-transition (action
+          ;; runs, no `:target`, `:before` == `:after`) likewise carries an
+          ;; `:action` cascade step, so it is never classified a no-op.
+          no-op?    (and (= snapshot next-snapshot)
+                         (empty? cascade)
+                         (zero? (result/microsteps step-result)))
           finished? (or (and (not (parallel/parallel? machine))
                              (transition/final-on-leaf? machine (:state next-snapshot)))
                         (finalize/all-regions-final? machine (:state next-snapshot)))
@@ -368,14 +396,15 @@
       ;; the same handler-scope `:sensitive?` stamp as `:before` / `:after`
       ;; (per Spec 005 §Privacy), so a sensitive machine's cascade
       ;; `:data-delta`s are scrubbed at egress alongside the snapshot slots.
-      (trace/emit! :rf.machine :rf.machine/transition
-                   {:frame      frame-id
-                    :machine-id machine-id
-                    :event      inner-event
-                    :before     snapshot
-                    :after      next-snapshot
-                    :microsteps (result/microsteps step-result)
-                    :cascade    cascade})
+      (when-not no-op?
+        (trace/emit! :rf.machine :rf.machine/transition
+                     {:frame      frame-id
+                      :machine-id machine-id
+                      :event      inner-event
+                      :before     snapshot
+                      :after      next-snapshot
+                      :microsteps (result/microsteps step-result)
+                      :cascade    cascade}))
       (when (not= snapshot next-snapshot)
         (trace/emit! :rf.machine :rf.machine/snapshot-updated
                      {:machine-id machine-id
