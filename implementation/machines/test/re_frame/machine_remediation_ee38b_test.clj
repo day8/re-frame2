@@ -7,10 +7,15 @@
       (Spec 005 §Transition resolution steps 6-7) — keyword + vector
       targets, `:*` wildcard, deepest-wins override, guard gating.
     - P2 the benign `:rf.machine.event/unhandled-no-op` is emitted when no
-      level matches (rf2-ugdas — xstate-v5 parity; op-type :rf.machine,
-      NOT an error). The former `:rf.error/machine-unhandled-event`
-      advisory + its `:rf.machine.spawn/spawned` reserved-namespace
-      carve-out are retired — every unhandled event is now a benign no-op.
+      level matches an unknown USER event (rf2-ugdas — xstate-v5 parity;
+      op-type :rf.machine, NOT an error). The former
+      `:rf.error/machine-unhandled-event` advisory is retired. Per
+      rf2-t4582 reserved-`:rf/*` framework lifecycle traffic (bootstrap,
+      `:rf.machine.spawn/spawned`, stories pings) does NOT emit the no-op —
+      it is framework init, not an unknown user event; the
+      reserved-namespace carve-out is restored (severity stays benign).
+      The case pinned below uses a DOMAIN event (`[:nope]`), so it still
+      emits the no-op.
     - P2 `:always` microstep traces — per-microstep
       `:rf.machine.microstep/transition` + the outer
       `:rf.machine/transition` carrying `:microsteps <count>`
