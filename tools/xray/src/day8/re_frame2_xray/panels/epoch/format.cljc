@@ -106,7 +106,7 @@
   "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
   view's per-row header. Pure-data; the view never reaches into a
   row's slots to compute its label."
-  [{:keys [kind action-id guard-id from-state to-state state reason]}]
+  [{:keys [kind action-id guard-id from-state to-state state reason event machine-id]}]
   (case kind
     :guard       (str "guard " (ns-keyword guard-id))
     ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
@@ -125,6 +125,15 @@
                       (if to-state (pr-str to-state) "?"))
     :timer       (str "timer " (when state (pr-str state))
                       (when reason (str " · " (name reason))))
+    ;; rf2-ugdas — the benign unhandled-event no-op. The verb names the
+    ;; machine + the unhandled event + the state it arrived in, e.g.
+    ;; "no-op — :door/main received [:door/insert-coin] in :alarming, no
+    ;; transition". Benign notice, not an error.
+    :no-op       (str "no-op — "
+                      (when machine-id (str (ns-keyword machine-id) " received "))
+                      (when event (pr-str event))
+                      (when state (str " in " (pr-str state)))
+                      ", no transition")
     (str (when kind (name kind)))))
 
 (defn cascade-row-source-key
@@ -238,6 +247,8 @@
                        (when (not= 1 microsteps) "s")))
     :timer      (str "cancelled"
                      (when reason (str " (" (name reason) ")")))
+    ;; rf2-ugdas — the benign no-op: the event was ignored (no transition).
+    :no-op      "ignored"
     nil))
 
 (defn handler-flavour-label

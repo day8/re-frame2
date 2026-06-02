@@ -213,7 +213,10 @@
   {:guard       :text-tertiary
    :action      :accent
    :transition  :magenta
-   :timer       :warning})
+   :timer       :warning
+   ;; rf2-ugdas — the benign unhandled-event no-op. Muted/tertiary tone:
+   ;; benign, low-signal — explicitly NOT an error/warning hue.
+   :no-op       :text-tertiary})
 
 (def ^:private cascade-kind->label
   "Map from machine-cascade row `:kind` keyword → uppercase label
@@ -221,7 +224,8 @@
   {:guard       "GUARD"
    :action      "ACTION"
    :transition  "TRANSITION"
-   :timer       "TIMER"})
+   :timer       "TIMER"
+   :no-op       "NO-OP"})
 
 (defn cascade-kind-token-key
   "Theme-token keyword for a cascade row's `:kind` (rf2-u69j7). Falls
@@ -249,7 +253,7 @@
   "Closed set of cascade row kinds the view paints chrome for
   (rf2-u69j7). New kinds extend the projection's
   `machine-cascade-trace-ops` AND this set in lockstep."
-  #{:guard :action :transition :timer})
+  #{:guard :action :transition :timer :no-op})
 
 (defn cascade-kind?
   "Predicate — `kind` keyword is a member of `cascade-kind-set`."
@@ -322,6 +326,9 @@
     :fail      :warning
     :threw     :error
     :cancelled :text-tertiary
+    ;; rf2-ugdas — the benign unhandled-event no-op: ignored, muted tone
+    ;; (NOT error/warning).
+    :ignored   :text-tertiary
     :text-tertiary))
 
 (defn cascade-outcome-glyph
@@ -341,6 +348,7 @@
     :fail      "▲"
     :threw     "✗"
     :cancelled "·"
+    :ignored   "·"
     "·"))
 
 ;; rf2-9wq0v retired the per-STAGE status glyph primitive that used to
