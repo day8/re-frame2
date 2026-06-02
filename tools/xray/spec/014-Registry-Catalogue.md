@@ -11,16 +11,33 @@ the registry's surface from this catalogue alone, without reading
 > deleted `mcp-server`, `hydration-debugger`, `performance`, `routes`,
 > `schema-violation-timeline`, `effects`, `flows`, and `time-travel`
 > from the source tree. Their per-panel sections below (and several
-> cross-panel entries that lived inside those panels' install! fns —
-> e.g. the entire Time-travel scrubber subsection) are now stale. The
-> registry's authoritative shape lives in `registry.cljs` +
-> `tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs`'s
+> cross-panel entries that lived inside those panels' install! fns) are
+> now stale. The registry's authoritative shape lives in `registry.cljs`
+> + `tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs`'s
 > `all-sub-names` / `all-event-names` / `all-fx-names` enumerations,
 > which the test suite asserts every registration matches exactly.
 > Rewriting this catalogue against the surviving surface is tracked
-> separately; until then, treat any §Time-travel / §MCP server /
-> §Routes / §Schemas / §Hydration / §Effects / §Flows / §Performance
-> subsection as historical reference, not normative spec.
+> separately; until then, treat any §MCP server / §Routes / §Schemas /
+> §Hydration / §Effects / §Flows / §Performance subsection as historical
+> reference, not normative spec.
+>
+> **rf2-yhl5v follow-up (2026-06-02).** The §Time-travel scrubber
+> subsection has been reconciled to the surviving live surface: the
+> panel-private pin store, label-input, and confirmed-rewind-failure
+> rows that died with the deleted panel (`:rf.xray/last-restore-failure`,
+> `:rf.xray/restore-epoch-tick`, `:rf.xray/pin-store`,
+> `:rf.xray/pinned-snapshots`, `:rf.xray/time-travel-label-input`,
+> `:rf.xray/clear-selected-epoch`, `:rf.xray/pin-current`,
+> `:rf.xray/unpin`, `:rf.xray/rename-pin`,
+> `:rf.xray/dismiss-pin-overflow-toast`, `:rf.xray/bump-restore-epoch-tick`,
+> `:rf.xray/reset-to-pinned`, `:rf.xray/time-travel-set-label-input`, and
+> the `:rf.xray.fx/reset-frame-db!` effect) were removed. The
+> cross-cutting epoch primitives that outlived the panel
+> (`:rf.xray/select-epoch`, `:rf.xray/reset-to-epoch`,
+> `:rf.xray/set-target-frame`, `:rf.xray/sync-epoch-history`,
+> `:rf.xray/selected-epoch-record`, `:rf.xray.fx/restore-epoch`) remain,
+> matched against `registry_cljs_test`'s enumerations. The subsection is
+> now normative again.
 >
 > **rf2-ee38b.2 follow-up (2026-05-23).** The dead `:rf.xray/selected-
 > dispatch-id` / `:rf.xray/selected-dispatch-frame` shim subs were
@@ -145,35 +162,22 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | Sub | Returns | Notes |
 |---|---|---|
 | `:rf.xray/selected-epoch-record` | `:rf/epoch-record` or `nil`. | Resolved from history + the spine focus epoch (`:rf.xray/focus-epoch-id`). |
-| `:rf.xray/last-restore-failure` | `{:frame-id :epoch-id}` or `nil`. | Most recent failed confirmed rewind, captured by `:rf.xray.fx/restore-epoch`; exists so the scrubber can render an inline notice without scanning trace events. |
-| `:rf.xray/restore-epoch-tick` | Integer tick, default `0`. | Reactivity anchor for `:rf.xray/last-restore-failure`; bumped after each restore attempt because the fx writes the result to a module-scope atom outside app-db. |
-| `:rf.xray/pin-store` | `{frame-id [<pin> ...]}` map. | Lock 4 session-scoped per §Pinned snapshots — never persisted to disk. |
-| `:rf.xray/pinned-snapshots` | Vector of pins for current target-frame. | Decoupled from pin-store so unrelated frames' pins don't re-render the view. |
-| `:rf.xray/time-travel-label-input` | Current pin-label input string (defaults to `""`). | Drives the scrubber's pin-label entry without flooding the trace bus on each keystroke (the matching event is `:rf.trace/no-emit? true`). |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray/select-epoch` | `[_ epoch-id]` | Passive scrub — does NOT call `restore-epoch`. |
-| `:rf.xray/clear-selected-epoch` | `[_]` | Drops view selection. |
-| `:rf.xray/pin-current` | `[_ {:eid epoch-id :label label}]` | Map payload per Conventions §multi-value events. Eager-copies `:db-after` off the live history record. Enforces the 32-pin cap; surfaces `:pin-overflow-toast` when reached. |
-| `:rf.xray/unpin` | `[_ epoch-id]` | Drops a pin. |
-| `:rf.xray/rename-pin` | `[_ epoch-id new-label]` | Rewrites a pin's `:label`; other 4-tuple slots are immutable. |
-| `:rf.xray/dismiss-pin-overflow-toast` | `[_]` | Dismisses the cap-reached toast. |
-| `:rf.xray/bump-restore-epoch-tick` | `[_]` | Internal no-trace event dispatched by the restore fx after each restore attempt; increments `:restore-epoch-tick` so the failure sub recomputes. |
-| `:rf.xray/reset-to-epoch` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/restore-epoch {:frame-id ... :epoch-id ...}]]}`. The confirmed-rewind branch (per spec §rewind = explicit). |
-| `:rf.xray/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/reset-frame-db! {:frame-id ... :app-db-value ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
+| `:rf.xray/select-epoch` | `[_ epoch-id]` | Passive scrub — does NOT call `restore-epoch`. Spine shim (rf2-adve5): stamps the spine `[:focus :epoch-id]` slot surfaced by `:rf.xray/focus-epoch-id`; a `nil` epoch-id clears the focus. |
+| `:rf.xray/reset-to-epoch` | `[_ frame epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}`. The confirmed-rewind affordance (rf2-hga49); a nil frame / epoch-id is a guarded no-op. |
+| `:rf.xray/reset-flash-failed` | `[_]` | `:rf.trace/no-emit? true`. Sets the inline `:reset-flash` failure notice; dispatched from `:rf.xray.fx/restore-epoch` when `rf/restore-epoch` returns false. |
 | `:rf.xray/set-target-frame` | `[_ frame-id]` | Sets the active target frame for the scrubber and refreshes `:epoch-history` from `(rf/epoch-history target)`. `nil` resets to the default target. Mirrored by `core/set-target-frame!` from the public CLJS API. |
 | `:rf.xray/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector AND focuses the LATEST seeded epoch — stamps the spine `[:focus :epoch-id]` (surfaced by `compose-focus` when no live cascade head is present) to `(:epoch-id (peek history))`; an empty `history` clears it. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read, and from history-only seeds (the panel-gallery Story variants) where no trace buffer exists for the trace-driven auto-follow to act on — without the head-focus the focus-keyed Dynamic panels (App-db, Epoch, …) would render their "nothing focused" empty-state (rf2-mdpfz). When a live trace buffer IS also seeded, `compose-focus`'s LIVE auto-follow re-derives `:epoch-id` from the head cascade; this stamp is authoritative only for history-only seeds. |
-| `:rf.xray/time-travel-set-label-input` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:label-input` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
 
 ### Effects
 
 | Fx | Args | Behaviour |
 |---|---|---|
 | `:rf.xray.fx/restore-epoch` | `{:frame :epoch-id}` | Calls `rf/restore-epoch`; on failure dispatches `:rf.xray/reset-flash-failed` so the inline tab-ribbon flash surfaces the failed confirmed rewind (the framework also emits a structured `:rf.epoch/*` trace row the Trace panel shows). The fx indirection lets test fixtures stub the framework call. |
-| `:rf.xray.fx/reset-frame-db!` | `{:frame-id :app-db-value}` | Thin delegation to `rf/reset-frame-db!`. |
 
 ## App-DB Diff panel
 
