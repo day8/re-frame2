@@ -894,6 +894,52 @@
     (when (seq nums)
       (reduce + 0 nums))))
 
+;; ---- machine LOGICAL-STATE delta (rf2-iwy0c) ----------------------------
+;;
+;; The `:transition` cascade row carries the machine's FULL before / after
+;; snapshot maps (`:before` / `:after`, hoisted off the
+;; `:rf.machine/transition` trace's `:before` / `:after` tags — the
+;; substrate emits the literal snapshot on either side, per Spec 005
+;; §Trace events). A snapshot is `{:state :data :tags? :meta?}` PLUS the
+;; closed set of framework-owned `:rf/*` slots (`:rf/spawn-counter`,
+;; after-epoch counters — Spec 005 §Reserved snapshot-internal keys).
+;;
+;; The transition-row DELTA box (rf2-iwy0c part A) shows the LOGICAL state
+;; change — `{:state :tags}` ONLY. `:data` is EXCLUDED (the per-action
+;; DATA Δ already carries it — folding it in here double-shows it); the
+;; `:rf/*` bookkeeping slots are EXCLUDED (not user state — a raw
+;; snapshot-diff would dump them). Projecting to exactly `{:state :tags}`
+;; with `select-keys` filters everything else by construction.
+
+(defn machine-logical-state
+  "Project a machine snapshot map down to its LOGICAL state — `{:state
+  :tags}` ONLY (rf2-iwy0c). Excludes `:data` (surfaced by the per-action
+  DATA Δ), `:meta`, and the framework-owned `:rf/*` snapshot slots
+  (`:rf/spawn-counter` etc. — Spec 005 §Reserved snapshot-internal keys).
+
+  `:state` may be a keyword / path-vector (single + compound machines) OR
+  a region→state map (parallel machines); `:tags` is the union tag-set.
+  The select-keys projection preserves whichever shape the snapshot
+  carries — the parallel/compound structure renders verbatim in the
+  delta box.
+
+  Returns nil for a nil snapshot so callers can elide cleanly."
+  [snapshot]
+  (when (map? snapshot)
+    (select-keys snapshot [:state :tags])))
+
+(defn machine-logical-state-changed?
+  "True iff the LOGICAL state (`{:state :tags}`) differs between the
+  before + after snapshots (rf2-iwy0c). A self / internal transition
+  whose `:state` AND `:tags` are both unchanged returns false — the
+  delta box is elided in that case (only `:data` or `:rf/*` bookkeeping
+  moved, which the box does not show). nil snapshots compare as their
+  projected `{}` so a missing side reads as 'changed' only when the
+  other side carries logical state."
+  [before after]
+  (not= (machine-logical-state before)
+        (machine-logical-state after)))
+
 (defn- run-end-tags
   "Tags off the `:rf.event/run-end` trace — carries the handler's
   finalised duration + flavour-discriminating slots. Empty map when no
