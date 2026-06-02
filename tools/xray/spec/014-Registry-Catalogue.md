@@ -144,14 +144,12 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 
 | Sub | Returns | Notes |
 |---|---|---|
-| `:rf.xray/selected-epoch-id` | Epoch-id or `nil` (= newest, no scrub in flight). | Per §The passive-scrubbing rule — scrubbing rebases panels; rewind is opt-in. |
-| `:rf.xray/selected-epoch-record` | `:rf/epoch-record` or `nil`. | Resolved from history + selected-id. |
+| `:rf.xray/selected-epoch-record` | `:rf/epoch-record` or `nil`. | Resolved from history + the spine focus epoch (`:rf.xray/focus-epoch-id`). |
 | `:rf.xray/last-restore-failure` | `{:frame-id :epoch-id}` or `nil`. | Most recent failed confirmed rewind, captured by `:rf.xray.fx/restore-epoch`; exists so the scrubber can render an inline notice without scanning trace events. |
 | `:rf.xray/restore-epoch-tick` | Integer tick, default `0`. | Reactivity anchor for `:rf.xray/last-restore-failure`; bumped after each restore attempt because the fx writes the result to a module-scope atom outside app-db. |
 | `:rf.xray/pin-store` | `{frame-id [<pin> ...]}` map. | Lock 4 session-scoped per §Pinned snapshots — never persisted to disk. |
 | `:rf.xray/pinned-snapshots` | Vector of pins for current target-frame. | Decoupled from pin-store so unrelated frames' pins don't re-render the view. |
 | `:rf.xray/time-travel-label-input` | Current pin-label input string (defaults to `""`). | Drives the scrubber's pin-label entry without flooding the trace bus on each keystroke (the matching event is `:rf.trace/no-emit? true`). |
-| `:rf.xray/time-travel` | Composite — `{:target-frame :history :selected-epoch-id :selected-record :selected-index :pins :chip-states :cap-reached?}`. | Mirrors the per-panel composite pattern. `chip-states` runs chip-state projection over each pin against current history. |
 
 ### Events
 
@@ -167,14 +165,14 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | `:rf.xray/reset-to-epoch` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/restore-epoch {:frame-id ... :epoch-id ...}]]}`. The confirmed-rewind branch (per spec §rewind = explicit). |
 | `:rf.xray/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/reset-frame-db! {:frame-id ... :app-db-value ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
 | `:rf.xray/set-target-frame` | `[_ frame-id]` | Sets the active target frame for the scrubber and refreshes `:epoch-history` from `(rf/epoch-history target)`. `nil` resets to the default target. Mirrored by `core/set-target-frame!` from the public CLJS API. |
-| `:rf.xray/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector AND focuses the LATEST seeded epoch — stamps the spine `[:focus :epoch-id]` (surfaced by `compose-focus` when no live cascade head is present) plus the `:selected-epoch-id` shim to `(:epoch-id (peek history))`; an empty `history` clears both. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read, and from history-only seeds (the panel-gallery Story variants) where no trace buffer exists for the trace-driven auto-follow to act on — without the head-focus the focus-keyed Dynamic panels (App-db, Epoch, …) would render their "nothing focused" empty-state (rf2-mdpfz). When a live trace buffer IS also seeded, `compose-focus`'s LIVE auto-follow re-derives `:epoch-id` from the head cascade; this stamp is authoritative only for history-only seeds. |
+| `:rf.xray/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector AND focuses the LATEST seeded epoch — stamps the spine `[:focus :epoch-id]` (surfaced by `compose-focus` when no live cascade head is present) to `(:epoch-id (peek history))`; an empty `history` clears it. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read, and from history-only seeds (the panel-gallery Story variants) where no trace buffer exists for the trace-driven auto-follow to act on — without the head-focus the focus-keyed Dynamic panels (App-db, Epoch, …) would render their "nothing focused" empty-state (rf2-mdpfz). When a live trace buffer IS also seeded, `compose-focus`'s LIVE auto-follow re-derives `:epoch-id` from the head cascade; this stamp is authoritative only for history-only seeds. |
 | `:rf.xray/time-travel-set-label-input` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:label-input` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
 
 ### Effects
 
 | Fx | Args | Behaviour |
 |---|---|---|
-| `:rf.xray.fx/restore-epoch` | `{:frame-id :epoch-id}` | Calls `rf/restore-epoch`, writes `{:ok? :frame-id :epoch-id}` to the module-scope restore result atom, dispatches `:rf.xray/bump-restore-epoch-tick`, and clears `:rf.xray/selected-epoch-id` on failure. The indirection lets test fixtures stub the write and lets Xray surface failed confirmed rewinds inline. |
+| `:rf.xray.fx/restore-epoch` | `{:frame :epoch-id}` | Calls `rf/restore-epoch`; on failure dispatches `:rf.xray/reset-flash-failed` so the inline tab-ribbon flash surfaces the failed confirmed rewind (the framework also emits a structured `:rf.epoch/*` trace row the Trace panel shows). The fx indirection lets test fixtures stub the framework call. |
 | `:rf.xray.fx/reset-frame-db!` | `{:frame-id :app-db-value}` | Thin delegation to `rf/reset-frame-db!`. |
 
 ## App-DB Diff panel

@@ -187,9 +187,9 @@
    :rf.xray/hidden-by-filters
    :rf.xray/focus
    ;; rf2-70tkv — App-DB diff subs pivot off the spine's focus
-   ;; `:epoch-id` (which auto-tracks head in LIVE mode) instead of
-   ;; the legacy `:selected-epoch-id` slot (which only updates on
-   ;; explicit user clicks). This sub is the thin projection seam.
+   ;; `:epoch-id` (which auto-tracks head in LIVE mode). This sub is
+   ;; the thin projection seam. (rf2-uy7nz retired the legacy
+   ;; `:selected-epoch-id` mirror slot that this superseded.)
    :rf.xray/focus-epoch-id
    :rf.xray/focus-slot
    ;; rf2-iwwou — hardened L1 frame-switcher slot. Public contract
@@ -296,7 +296,6 @@
    ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
    ;; lens + redacted-modified-count surface for the App-DB diff panel.
    :rf.xray/selected-epoch-flow-writes
-   :rf.xray/selected-epoch-id
    :rf.xray/selected-epoch-record
    :rf.xray/selected-epoch-redacted-modified-count
    :rf.xray/selected-machine-id
@@ -1246,16 +1245,18 @@
       (is (nil? (:dispatch-id @(rf/subscribe [:rf.xray/focus])))))))
 
 (deftest event-select-epoch-passive-scrub
-  (testing ":rf.xray/select-epoch sets selected-epoch-id (passive scrub)"
+  (testing ":rf.xray/select-epoch pins the spine focus epoch (passive
+            scrub) — rf2-uy7nz: the single source of truth is
+            `[:focus :epoch-id]`, surfaced by `:rf.xray/focus-epoch-id`"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-epoch :e-7])
-      (is (= :e-7 @(rf/subscribe [:rf.xray/selected-epoch-id])))
-      ;; nil resets the slot — equivalent to the dropped explicit
+      (is (= :e-7 @(rf/subscribe [:rf.xray/focus-epoch-id])))
+      ;; nil resets the focus epoch — equivalent to the dropped explicit
       ;; `:rf.xray/clear-selected-epoch` event (deleted with rf2-qy0nu
       ;; alongside the Time Travel panel).
       (rf/dispatch-sync [:rf.xray/select-epoch nil])
-      (is (nil? @(rf/subscribe [:rf.xray/selected-epoch-id]))))))
+      (is (nil? @(rf/subscribe [:rf.xray/focus-epoch-id]))))))
 
 ;; rf2-ad7zx.9 — `event-toggle-issues-severity-roundtrip` and
 ;; `event-clear-issues-filters` were removed with the Issues panel's
@@ -1440,12 +1441,13 @@
       (is (= :event (:selected-tab xray-db)))
       ;; rf2-ee38b.2 — :rf.xray/select-dispatch-id writes focus to the
       ;; spine `:focus` slot (the dead :selected-dispatch-id mirror is
-      ;; gone); :select-epoch writes the surviving :selected-epoch-id shim.
+      ;; gone); rf2-uy7nz — :select-epoch writes the spine `[:focus
+      ;; :epoch-id]` (the :selected-epoch-id mirror is retired too).
       (is (= 1 (get-in xray-db [:focus :dispatch-id])))
-      (is (= :e (:selected-epoch-id xray-db)))
+      (is (= :e (get-in xray-db [:focus :epoch-id])))
       (is (nil? (:selected-tab default-db)))
       (is (nil? (get-in default-db [:focus :dispatch-id])))
-      (is (nil? (:selected-epoch-id default-db))))))
+      (is (nil? (get-in default-db [:focus :epoch-id]))))))
 
 ;; ---- (9) edge cases over a dormant frame --------------------------------
 

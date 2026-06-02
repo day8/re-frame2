@@ -12,10 +12,11 @@
      re-frame machinery needed.
   2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
      correctly across LIVE / RETRO / paused / evicted-cascade states.
-  3. The `:selected-epoch-id` shim — `:rf.xray/select-dispatch-id` and
-     `:rf.xray/focus-cascade` write `:focus` AND mirror the epoch into
-     `:selected-epoch-id` (the slot App-DB-diff / Views follow). Spine
-     consumers read `:rf.xray/focus`.
+  3. Focus is the single source of truth (rf2-uy7nz) —
+     `:rf.xray/select-dispatch-id` and `:rf.xray/focus-cascade` write
+     the spine `:focus` slot (carrying `:epoch-id`); App-DB-diff / Views
+     follow it through `:rf.xray/focus` → `:rf.xray/focus-epoch-id`.
+     There is no mirror slot.
   4. The registered sub composes the slot + cascades via the standard
      re-frame reactive path."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -261,7 +262,7 @@
           "global head wins when picker is unset"))))
 
 ;; -------------------------------------------------------------------------
-;; (3) focus-cascade-reducer — writes :focus + legacy shim
+;; (3) focus-cascade-reducer — writes :focus (single source of truth)
 ;; -------------------------------------------------------------------------
 
 (deftest focus-cascade-reducer-writes-focus-slot
@@ -271,13 +272,16 @@
     (is (= :retro (get-in r [:focus :mode])))
     (is (= :rf/default (get-in r [:focus :frame])))))
 
-(deftest focus-cascade-reducer-writes-epoch-shim
-  (testing "rf2-ee38b.2 — the only surviving shim slot is
-            :selected-epoch-id (App-DB-diff / Views follow it). The dead
-            :selected-dispatch-id / :selected-dispatch mirror slots are
-            gone — the Event panel reads focus off the spine composite."
+(deftest focus-cascade-reducer-writes-epoch-into-focus
+  (testing "rf2-uy7nz — the reducer stamps the settling epoch into the
+            spine `[:focus :epoch-id]` slot (the single source of truth
+            App-DB-diff / Views follow via :rf.xray/focus-epoch-id). No
+            mirror slot is written — the dead :selected-epoch-id /
+            :selected-dispatch-id / :selected-dispatch slots are gone."
     (let [r (spine/focus-cascade-reducer {} :c2 :rf/default 77)]
-      (is (= 77 (:selected-epoch-id r)) ":selected-epoch-id mirrors :focus epoch")
+      (is (= 77 (get-in r [:focus :epoch-id])) ":focus :epoch-id carries the epoch")
+      (is (not (contains? r :selected-epoch-id))
+          "dead :selected-epoch-id mirror slot is no longer written")
       (is (not (contains? r :selected-dispatch-id))
           "dead :selected-dispatch-id slot is no longer written")
       (is (not (contains? r :selected-dispatch))
@@ -325,15 +329,14 @@
 ;; -------------------------------------------------------------------------
 
 (deftest follow-head-reducer-snaps-to-live
-  (let [db {:focus {:dispatch-id :c1 :mode :retro :paused? true}
-            :selected-epoch-id 5}
+  (let [db {:focus {:dispatch-id :c1 :epoch-id 5 :mode :retro :paused? true}}
         r  (spine/follow-head-reducer db)]
     (is (nil? (get-in r [:focus :dispatch-id]))
         "follow-head clears :dispatch-id so compose-focus snaps to head")
     (is (= :live (get-in r [:focus :mode])))
     (is (false? (get-in r [:focus :paused?])))
-    (is (nil? (:selected-epoch-id r))
-        ":selected-epoch-id shim cleared in lockstep")))
+    (is (nil? (get-in r [:focus :epoch-id]))
+        ":focus :epoch-id cleared in lockstep")))
 
 ;; -------------------------------------------------------------------------
 ;; (6) toggle-live-pause-reducer
@@ -733,8 +736,8 @@
 ;; "compute `:epoch-id` from cascades". The reducer takes a resolved
 ;; epoch-id (the event handler in `install!` resolves it from the
 ;; Xray `:epoch-history` slot via `epoch-id-for-cascade`), then
-;; stamps both the `:focus :epoch-id` slot and the legacy
-;; `:selected-epoch-id` shim slot the App-db diff panel reads.
+;; stamps the `:focus :epoch-id` slot — the single source of truth the
+;; App-db diff panel reads via :rf.xray/focus-epoch-id (rf2-uy7nz).
 ;; -------------------------------------------------------------------------
 
 (defn- epoch
@@ -813,9 +816,9 @@
 ;; wrote :focus :epoch-id (any click on an L2 row, scrubbing in Time
 ;; Travel, the :rf.xray/select-epoch chip in the diff), every panel
 ;; pivoting on focus :epoch-id (Views' focused-cascade-pair, Machine
-;; Inspector's focused-event lens, App-DB Diff via the
-;; :selected-epoch-id shim slot) stayed wired to the stale epoch
-;; while :dispatch-id correctly tracked head.
+;; Inspector's focused-event lens, App-DB Diff via [:focus :epoch-id])
+;; stayed wired to the stale epoch while :dispatch-id correctly tracked
+;; head.
 ;;
 ;; Fix: a 4-arity `compose-focus` accepts `epoch-history` and re-
 ;; derives :epoch-id from the head cascade in LIVE+unpaused mode,
@@ -914,13 +917,13 @@
            any stale stored id"))))
 
 (deftest focus-cascade-reducer-4-arg-writes-epoch-id
-  (testing "the 4-arg reducer writes :epoch-id into the :focus slot AND
-            the :selected-epoch-id shim slot — App-db pivots
-            from L2-list clicks once this lands (rf2-ak3ty)"
+  (testing "the 4-arg reducer writes :epoch-id into the :focus slot —
+            App-db pivots from L2-list clicks via :rf.xray/focus-epoch-id
+            once this lands (rf2-ak3ty); rf2-uy7nz: no mirror slot"
     (let [r (spine/focus-cascade-reducer {} :c2 :rf/default :e2)]
       (is (= :e2 (get-in r [:focus :epoch-id])))
-      (is (= :e2 (:selected-epoch-id r))
-          "the slot the App-db panel reads pivots in lockstep")
+      (is (not (contains? r :selected-epoch-id))
+          "no :selected-epoch-id mirror slot is written")
       (is (= :c2 (get-in r [:focus :dispatch-id]))))))
 
 (deftest focus-cascade-reducer-3-arg-leaves-epoch-id-nil
@@ -929,7 +932,7 @@
             surfaces won't pivot until a 4-arg call lands"
     (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
       (is (nil? (get-in r [:focus :epoch-id])))
-      (is (nil? (:selected-epoch-id r))))))
+      (is (not (contains? r :selected-epoch-id))))))
 
 (deftest focus-cascade-event-resolves-epoch-id-from-history
   (testing "the registered :rf.xray/focus-cascade event resolves
@@ -949,42 +952,42 @@
            load-bearing prereq for rf2-w15el (Views) and the
            App-db pivot fix"))))
 
-(deftest focus-cascade-event-writes-selected-epoch-id-legacy-slot
-  (testing "App-db's :rf.xray/selected-epoch-id sub pivots on L2-list
-            click — proves the spine writes through the legacy shim
-            so App-db (and Time-Travel highlight) rebind from a row
-            click without any per-panel change"
+(deftest focus-cascade-event-pivots-focus-epoch-id
+  (testing "App-db's :rf.xray/focus-epoch-id sub pivots on L2-list
+            click — proves the spine writes the focused epoch into
+            `[:focus :epoch-id]` so App-db rebinds from a row click
+            without any per-panel change (rf2-uy7nz: single source of
+            truth, no mirror slot)"
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/sync-epoch-history
                          [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
       (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
-    (let [legacy (rf/with-frame :rf/xray
-                   @(rf/subscribe [:rf.xray/selected-epoch-id]))]
-      (is (= :e1 legacy)
-          "App-db's :selected-epoch-id sub rebinds to the focused
+    (let [focus-epoch (rf/with-frame :rf/xray
+                        @(rf/subscribe [:rf.xray/focus-epoch-id]))]
+      (is (= :e1 focus-epoch)
+          "App-db's :rf.xray/focus-epoch-id sub rebinds to the focused
            cascade's epoch — pivot now works from L2 list clicks"))))
 
 (deftest focus-step-reducer-4-arg-writes-epoch-id
-  (testing "step events resolve :epoch-id for the new dispatch-id"
+  (testing "step events resolve :epoch-id for the new dispatch-id into
+            the spine `[:focus :epoch-id]` slot (rf2-uy7nz: no mirror)"
     (let [db       {:focus {:dispatch-id :c3 :mode :live}}
           history  [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
           r        (spine/focus-step-reducer db fixture-cascades history -1)]
       (is (= :c2 (get-in r [:focus :dispatch-id])))
       (is (= :e2 (get-in r [:focus :epoch-id])))
-      (is (= :e2 (:selected-epoch-id r))))))
+      (is (not (contains? r :selected-epoch-id))))))
 
-(deftest follow-head-reducer-clears-selected-epoch-id
-  (testing "follow-head clears the App-db legacy slot in lockstep with
-            the dispatch-id slot — the panel returns to its landing
-            view"
-    (let [db {:focus             {:dispatch-id :c1 :epoch-id :e1
-                                  :mode :retro}
-              :selected-epoch-id :e1}
+(deftest follow-head-reducer-clears-focus-epoch-id
+  (testing "follow-head clears the focus epoch in lockstep with the
+            dispatch-id slot — the App-db panel returns to its landing
+            view (rf2-uy7nz: single source of truth at [:focus :epoch-id])"
+    (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :retro}}
           r  (spine/follow-head-reducer db)]
       (is (nil? (get-in r [:focus :epoch-id])))
-      (is (nil? (:selected-epoch-id r))))))
+      (is (not (contains? r :selected-epoch-id))))))
 
 ;; -------------------------------------------------------------------------
 ;; (11) rf2-fzbrw — no aggregate-all-events state
@@ -1311,9 +1314,9 @@
 ;; untouched (slot keyed on the boot head frame), then dispatches the
 ;; real `:rf.xray/focus-cascade` event for a non-head-frame row and
 ;; asserts the clicked cascade's epoch resolves end-to-end — through the
-;; spine focus sub, the App-DB-diff `:selected-epoch-id` shim, and the
-;; `find-epoch-record` lookup the App-DB diff panel runs against the
-;; re-seeded `:epoch-history` slot.
+;; spine focus sub, the App-DB-diff `:rf.xray/focus-epoch-id` projection,
+;; and the `find-epoch-record` lookup the App-DB diff panel runs against
+;; the re-seeded `:epoch-history` slot.
 ;; -------------------------------------------------------------------------
 
 (defn- seed-framework-epoch-ring!
@@ -1389,11 +1392,11 @@
       (is (= [:cart-e9] (mapv :epoch-id history))
           ":epoch-history is the clicked frame's ring contents"))
     ;; End-to-end App-DB-diff facing surfaces resolve the clicked epoch.
-    (let [selected (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/selected-epoch-id]))
+    (let [selected (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/focus-epoch-id]))
           history  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
       (is (= :cart-e9 selected)
-          "App-DB diff's :selected-epoch-id shim pivots to the clicked
-           cascade's epoch")
+          "App-DB diff's :rf.xray/focus-epoch-id projection pivots to the
+           clicked cascade's epoch")
       (is (= :cart-e9 (:epoch-id (focus-resolver/find-epoch-record selected history)))
           "the App-DB diff's find-epoch-record lookup finds the clicked
            epoch's record in the re-seeded slot — the panel renders the

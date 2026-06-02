@@ -8,9 +8,10 @@
   event focused.'.
 
   The fix makes `:rf.xray/sync-epoch-history` ALSO focus the LATEST
-  seeded epoch (stamping `[:focus :epoch-id]` + the `:selected-epoch-id`
-  shim). This test reproduces the gallery scenario exactly — a
-  history-only seed with NO trace buffer — and asserts:
+  seeded epoch (stamping `[:focus :epoch-id]` — the single source of
+  truth; rf2-uy7nz retired the former `:selected-epoch-id` mirror).
+  This test reproduces the gallery scenario exactly — a history-only
+  seed with NO trace buffer — and asserts:
 
     1. the spine `:rf.xray/focus` carries the latest seeded epoch-id;
     2. the App-db panel's `:rf.xray/app-db-current+diff` resolves the

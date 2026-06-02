@@ -472,13 +472,11 @@
     ;; select event above (rf2-5gl5r).
     (rf/reg-event-db :rf.xray/clear-selected-dispatch-id
       (fn [db _event]
-        (-> db
-            (dissoc :selected-epoch-id)
-            (update :focus (fnil assoc {})
-                    :dispatch-id nil
-                    :epoch-id    nil
-                    :mode        :live
-                    :previewing? false))))
+        (update db :focus (fnil assoc {})
+                :dispatch-id nil
+                :epoch-id    nil
+                :mode        :live
+                :previewing? false)))
 
     ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
     ;;
@@ -779,10 +777,10 @@
     ;; Cross-cutting epoch primitives (rf2-qy0nu — extracted from the
     ;; deleted Time Travel panel). MUST install before app-db-diff +
     ;; views + machine-inspector — their composites :<- onto
-    ;; `:rf.xray/epoch-history` / `:rf.xray/target-frame` /
-    ;; `:rf.xray/selected-epoch-id`. Registration order is cosmetic
-    ;; (re-frame resolves :<- lazily), but the top-down dependency read
-    ;; is clearer.
+    ;; `:rf.xray/epoch-history` / `:rf.xray/target-frame` (and pivot on
+    ;; the spine focus epoch via `:rf.xray/focus-epoch-id`). Registration
+    ;; order is cosmetic (re-frame resolves :<- lazily), but the top-down
+    ;; dependency read is clearer.
     (epoch/install!)
     (open-in-editor/install!)
     (palette/install!)
