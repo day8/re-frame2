@@ -19,6 +19,7 @@
   stays effect-free so it can be loaded and exercised on the JVM by
   the conformance fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
+            [clojure.string :as str]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -623,16 +624,56 @@
         (when-let [hit (match-on-clause machine machine event-id event snapshot)]
           {:transition hit :decl-path []})))))
 
-;; rf2-ugdas — `unhandled-event-warnable?` is RETIRED. It existed to
-;; suppress the old `:rf.error/machine-unhandled-event` advisory for
-;; reserved-`:rf/*` framework lifecycle traffic (the spawn kick-off, the
-;; stories runtime's lifecycle pings) so they didn't read as "an unhandled
-;; user event." Now that an unhandled event is a BENIGN no-op (xstate-v5
-;; parity — no error, no warning), there is nothing to suppress: every
-;; unhandled event — domain or reserved-namespace alike — emits the same
-;; benign `:rf.machine.event/unhandled-no-op`. The reserved-namespace
-;; carve-out (and the predicate) is gone; the spawn case stops being
-;; special. Strictly LESS machinery.
+(defn unhandled-event-no-op?
+  "True iff a nil `pick-transition` result for `event` should emit the
+  benign `:rf.machine.event/unhandled-no-op` trace. Per Spec 005
+  §Transition resolution the no-op marks an UNKNOWN USER event a machine
+  declined (xstate-v5 parity — ignored, never thrown).
+
+  Carve-out (rf2-t4582 — a conscious refinement of rf2-ugdas): the no-op
+  classifies an unknown USER / domain event, NOT framework lifecycle
+  traffic. Per [Conventions.md §The single-root reserved set] the
+  framework reserves the `:rf/*` root namespace for every framework-owned
+  id, *machine lifecycle events included*; the stories library's
+  lifecycle / assertion events ride the same reserved root
+  (`:rf.story.lifecycle/*`, `:rf.assert/*`). A reserved-`:rf/*` event that
+  resolves to no transition is benign framework init, not an event the
+  machine author forgot to handle:
+
+   - the synthetic bootstrap `[:rf.machine/bootstrap]` (Spec 005:1101) is
+     a placeholder threaded into the initial-entry actions so they carry
+     an `:event` key — the bootstrap RAN the entry cascade and INSTALLED
+     the state; it is the machine's BIRTH, not a no-op;
+   - the spawn kick-off `[:rf.machine.spawn/spawned]` (Spec 005 §spawn
+     kick-off) is dispatched into every spawned actor so generic children
+     may declare a first transition — an actor that declines it simply
+     has no such clause, which is not a missed user event;
+   - domain machines that optimistically broadcast reserved-namespace
+     lifecycle pings (the stories runtime firing
+     `:rf.story.lifecycle/events-complete` at a machine already resting in
+     `:ready`) ride the same root.
+
+  This re-SEPARATES the spawn-kickoff exemption rf2-ugdas folded into the
+  general rule, and ALIGNS with xstate: xstate's own init (`xstate.init`)
+  runs the initial-entry and is NOT reported as an unhandled event — only
+  unknown user events are silently ignored. Distinguishing re-frame2's
+  bootstrap / spawn-kickoff makes us MORE like xstate, not a v5-parity
+  violation. SEVERITY is unchanged from rf2-ugdas (benign — nothing
+  throws); only the SEMANTIC classification is restored, so reserved-
+  `:rf/*` framework init does not read as an unknown-user-event no-op.
+
+  (`:rf.machine.timer/after-elapsed` is special-cased in `pick-transition`
+  and `:rf.machine/bootstrap` is `:entry`-only, so neither typically
+  reaches the no-op site — but both are reserved-namespace, so the rule
+  subsumes them.)
+
+  Public so the parallel-region aggregate path
+  (`parallel/parallel-machine-transition`) shares the single source of
+  truth."
+  [event]
+  (let [event-id (first event)
+        ns       (when (keyword? event-id) (namespace event-id))]
+    (not (and ns (or (= ns "rf") (str/starts-with? ns "rf."))))))
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
@@ -1703,11 +1744,17 @@
             ;; classify it as an issue — no pink wash, no ribbon entry, for
             ;; free. (rf2-ugdas; retires `:rf.error/machine-unhandled-event`.)
             ;;
-            ;; The synthetic spawn kick-off `[:rf.machine.spawn/spawned]` no
-            ;; longer needs a carve-out: since an unhandled event is benign,
-            ;; the kick-off resolving to a no-op is simply one instance of
-            ;; the general rule (the old `unhandled-event-warnable?` reserved-
-            ;; namespace suppression is retired with the error advisory).
+            ;; rf2-t4582 — reserved-`:rf/*` lifecycle carve-out (a conscious
+            ;; refinement of rf2-ugdas). The no-op classifies an unknown
+            ;; USER event; framework lifecycle traffic — the synthetic
+            ;; bootstrap `[:rf.machine/bootstrap]`, the spawn kick-off
+            ;; `[:rf.machine.spawn/spawned]`, the stories-runtime lifecycle
+            ;; pings — is NOT an unknown user event, so `unhandled-event-
+            ;; no-op?` gates the emit. Severity is unchanged (nothing
+            ;; throws); only the SEMANTIC classification is restored, so
+            ;; the machine's BIRTH renders its `:initial-entry` cascade,
+            ;; not a no-op. This matches xstate (its own `xstate.init` runs
+            ;; the initial-entry and is not reported as unhandled).
             ;;
             ;; A region of a parallel-region machine carries `:rf/region`;
             ;; per Spec 005 §Transition broadcast a single declining region
@@ -1715,7 +1762,8 @@
             ;; machine emit once. That aggregate emission lives in
             ;; `parallel-machine-transition`, so suppress the per-region
             ;; emission here.
-            (when (nil? (:rf/region machine))
+            (when (and (nil? (:rf/region machine))
+                       (unhandled-event-no-op? event))
               (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
                            {:machine-id (or (:rf/parent-id machine) (:id machine))
                             :event      event

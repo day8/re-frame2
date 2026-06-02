@@ -369,11 +369,15 @@
     ;; Spec 009 §`:op-type` vocabulary). If any region handled the event no
     ;; trace fires. Mirrors the flat-machine emission in
     ;; `transition/machine-transition-single` so the single- and parallel-
-    ;; machine paths stay in lockstep. (rf2-ugdas — the prior reserved-`:rf/*`
-    ;; warnable carve-out is retired with the error advisory: every unhandled
-    ;; event is now a benign no-op, domain or reserved-namespace alike.)
+    ;; machine paths stay in lockstep. (rf2-ugdas — benign no-op, no error /
+    ;; warning; rf2-t4582 — gated by `transition/unhandled-event-no-op?` so
+    ;; reserved-`:rf/*` framework lifecycle traffic — the synthetic bootstrap,
+    ;; the spawn kick-off, the stories-runtime pings — is NOT classified as an
+    ;; unknown-user-event no-op. Severity is unchanged; the semantic carve-out
+    ;; is restored, matching xstate's `xstate.init`.)
     (when (and (result/ok? result)
-               (not (result/handled? result)))
+               (not (result/handled? result))
+               (transition/unhandled-event-no-op? event))
       (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
                    {:machine-id (or (:rf/parent-id machine) (:id machine))
                     :event      event

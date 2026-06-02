@@ -8,12 +8,18 @@
   this file returned ZERO direct matches for these contracts:
 
     - the BENIGN unhandled-event no-op (rf2-ugdas — xstate-v5 parity). An
-      unhandled event is no longer an error: it emits the benign
+      unknown USER event is no longer an error: it emits the benign
       `:rf.machine.event/unhandled-no-op` trace (op-type `:rf.machine`,
-      NOT `:error` / `:warning`) and leaves the snapshot unchanged. This
-      holds uniformly for domain AND reserved-`:rf/*` events alike — the
-      former reserved-namespace `unhandled-event-warnable?` carve-out is
-      retired with the error advisory.
+      NOT `:error` / `:warning`) and leaves the snapshot unchanged.
+      rf2-t4582 refines this: reserved-`:rf/*` framework lifecycle traffic
+      (the synthetic bootstrap `[:rf.machine/bootstrap]`, the spawn
+      kick-off `[:rf.machine.spawn/spawned]`, the stories-runtime
+      lifecycle pings) is NOT classified as an unknown-user-event no-op —
+      `transition/unhandled-event-no-op?` gates the emit. Severity is
+      unchanged (benign, nothing throws); only the SEMANTIC carve-out is
+      restored, so the machine's BIRTH renders its `:initial-entry`
+      cascade rather than a no-op. Domain (non-`:rf/*`) events still emit
+      the benign no-op (the rf2-ugdas behaviour, preserved).
 
     - `:rf.error/machine-bad-state-form` — `state-path` throws on a
       `:state` that is neither keyword nor vector (transition.cljc:232).
@@ -44,17 +50,22 @@
   construction (the determinism canon)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as machines]
+            [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ugdas — the BENIGN unhandled-event no-op (xstate-v5 parity). Through
-;; the pure macrostep, an unhandled event — domain OR reserved-:rf/* — emits
-;; the benign `:rf.machine.event/unhandled-no-op` trace (op-type :rf.machine,
-;; NOT :error / :warning) and leaves the snapshot unchanged. NO
+;; rf2-ugdas + rf2-t4582 — the BENIGN unhandled-event no-op (xstate-v5
+;; parity) WITH the reserved-:rf/* lifecycle carve-out. Through the pure
+;; macrostep, an unknown USER event emits the benign
+;; `:rf.machine.event/unhandled-no-op` trace (op-type :rf.machine, NOT
+;; :error / :warning) and leaves the snapshot unchanged; NO
 ;; :rf.error/machine-unhandled-event is ever emitted (the advisory is
-;; retired). Pins the engine's actual emission decision (transition.cljc).
+;; retired). A reserved-:rf/* framework lifecycle event (bootstrap, spawn
+;; kick-off, stories pings) does NOT emit the no-op — it is framework init,
+;; not an unknown user event. Pins the engine's actual emission decision
+;; (transition.cljc `unhandled-event-no-op?` + the emit-site gate).
 ;; ---------------------------------------------------------------------------
 
 (defn- capture-events!
@@ -106,28 +117,85 @@
                               no-handler-spec {:state :a :data {}} [:nope])]
       (is (= :a (:state s)) "state unchanged"))))
 
-(deftest reserved-rf-unhandled-event-also-emits-the-benign-no-op
-  (testing "the spawn case stops being special — a reserved-:rf/* unhandled
-   event emits the SAME benign no-op as a domain event (the old reserved-
-   namespace carve-out is retired with the error advisory)"
+(deftest reserved-rf-unhandled-event-does-not-emit-the-no-op
+  (testing "rf2-t4582 — a reserved-:rf/* lifecycle event that resolves to no
+   transition does NOT emit the unhandled-no-op (it is framework init, not an
+   unknown USER event). Covers the spawn kick-off, a stories lifecycle ping,
+   and the bare reserved root"
     (doseq [ev [[:rf.machine.spawn/spawned]
                 [:rf.story.lifecycle/events-complete]
                 [:rf/anything]]]
       (let [evs       (capture-events! no-handler-spec {:state :a :data {}} ev)
             ops       (mapv :operation evs)
             no-op-evs (filter #(= :rf.machine.event/unhandled-no-op (:operation %)) evs)]
-        (is (= 1 (count no-op-evs))
-            (str "exactly one benign no-op for reserved-namespace event " ev))
-        (is (= :rf.machine (:op-type (first no-op-evs)))
-            (str "op-type :rf.machine for " ev))
+        (is (zero? (count no-op-evs))
+            (str "NO unhandled-no-op for reserved-namespace event " ev))
         (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
-            (str "no retired error advisory for " ev)))))
+            (str "no retired error advisory for " ev " (severity unchanged)")))))
 
-  (testing "the reserved-namespace no-op still returns an unchanged snapshot"
+  (testing "the reserved-namespace ping still returns an unchanged snapshot
+   (no transition, no churn — benign, just unlabelled)"
     (let [{s ::result/snap} (machines/machine-transition
                              no-handler-spec {:state :a :data {}}
                              [:rf.story.lifecycle/events-complete])]
-      (is (= :a (:state s)) "state unchanged for the benign reserved ping"))))
+      (is (= :a (:state s)) "state unchanged for the benign reserved ping")))
+
+  (testing "the negative guard — `unhandled-event-no-op?` is TRUE for a
+   domain event (still a no-op) and FALSE for any reserved-:rf/* event"
+    (is (transition/unhandled-event-no-op? [:nope])
+        "a domain event is classified as an unknown-user-event no-op")
+    (is (not (transition/unhandled-event-no-op? [:rf.machine/bootstrap]))
+        "the synthetic bootstrap is framework init, not a no-op")
+    (is (not (transition/unhandled-event-no-op? [:rf.machine.spawn/spawned]))
+        "the spawn kick-off is framework init, not a no-op")
+    (is (not (transition/unhandled-event-no-op? [:rf.story.lifecycle/events-complete]))
+        "a stories lifecycle ping rides the reserved root")
+    (is (not (transition/unhandled-event-no-op? [:rf/anything]))
+        "the bare reserved root is exempt")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-t4582 — the machine's BIRTH renders as :initial-entry, not a no-op.
+;; The bootstrap threads the synthetic `[:rf.machine/bootstrap]` event into
+;; the initial-entry cascade (Spec 005:1101). Because `:rf.machine/bootstrap`
+;; is reserved-:rf/*, the bootstrap NEVER trips the unhandled-no-op even when
+;; the initial state declares no `:on`; instead it runs the entry cascade and
+;; the entry action emits `:rf.machine/action-ran` with `:phase :initial-entry`.
+;; ---------------------------------------------------------------------------
+
+(def ^:private boot-entry-spec
+  "A flat machine whose initial state `:a` declares an `:entry` action and
+  handles only `:known`. At bootstrap it runs the entry cascade; a later
+  unknown user event no-ops."
+  {:id      :probe/boot
+   :initial :a
+   :data    {}
+   :actions {:on-enter (fn [_] {})}
+   :states  {:a {:entry :on-enter
+                 :on    {:known {:target :a}}}}})
+
+(deftest bootstrap-renders-initial-entry-not-a-no-op
+  (testing "the bootstrap cascade emits the :initial-entry-phase action-ran
+   and installs the initial state — NOT an unhandled-no-op for
+   [:rf.machine/bootstrap]"
+    (let [seen (atom [])
+          _    (trace/register-listener! ::boot (fn [ev] (swap! seen conj ev)))
+          r    (try (parallel/apply-initial-entry-cascade
+                      boot-entry-spec {:state :a :data {}})
+                    (finally (trace/unregister-listener! ::boot)))
+          evs  @seen
+          ops  (mapv :operation evs)
+          no-op-evs (filter #(= :rf.machine.event/unhandled-no-op %) ops)
+          entry-evs (filter #(and (= :rf.machine/action-ran (:operation %))
+                                  (= :initial-entry (:phase (:tags %))))
+                            evs)]
+      (is (result/ok? r) "the bootstrap cascade succeeds")
+      (is (= :a (:state (::result/snap r))) "the initial state is installed")
+      (is (zero? (count no-op-evs))
+          "the bootstrap does NOT emit an unhandled-no-op (it is the machine's
+           BIRTH, not an ignored event)")
+      (is (pos? (count entry-evs))
+          "the entry action ran with :phase :initial-entry — the :initial-entry
+           cascade rendered"))))
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.error/machine-bad-state-form — state-path throws on a malformed
