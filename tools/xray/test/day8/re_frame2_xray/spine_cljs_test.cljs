@@ -1443,3 +1443,67 @@
           "the settling dispatch-id resolves from the re-seeded ring")
       (is (= :cart-frame target)
           ":target-frame re-keyed onto the epoch's frame"))))
+
+(deftest select-dispatch-id-cross-frame-reseeds-epoch-history-rf2-o1c3r
+  (testing "rf2-o1c3r — :rf.xray/select-dispatch-id (the legacy
+            machine-inspector / trace / mcp-server entry point) for a
+            cascade that settled in a NON-head frame re-seeds
+            `:epoch-history` onto that frame BEFORE resolving the
+            settling epoch, exactly as the sibling :rf.xray/focus-cascade
+            handler does (rf2-q8hvw). Drives the ACTUAL failing path —
+            picker untouched, slot keyed on the boot head frame — and
+            asserts the clicked dispatch's epoch resolves (not nil)."
+    (mount-multi-frame-picker-untouched!)
+    ;; RED baseline: with the picker untouched the slot holds the HEAD
+    ;; frame's ring, and the cart cascade's epoch is absent from it — the
+    ;; pre-fix `(get db :epoch-history [])` read resolved nil here.
+    (let [boot-history (rf/with-frame :rf/xray
+                         @(rf/subscribe [:rf.xray/epoch-history]))]
+      (is (= :rf/default (rf/with-frame :rf/xray
+                           @(rf/subscribe [:rf.xray/target-frame])))
+          "boot :target-frame is the head frame (picker untouched)")
+      (is (nil? (spine/epoch-id-for-cascade boot-history :cart-c9))
+          "RED baseline: the cart cascade's epoch is NOT in the boot
+           head-frame ring — resolving against the un-reseeded slot
+           yields nil (the o1c3r bug)"))
+    ;; The actual failing path: dispatch the real :rf.xray/select-dispatch-id
+    ;; event for the non-head-frame cascade.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id :cart-c9 :cart-frame]))
+    ;; GREEN: the spine focus now carries the clicked dispatch's epoch.
+    (let [r (focus-sub)]
+      (is (= :cart-c9 (:dispatch-id r)))
+      (is (= :cart-e9 (:epoch-id r))
+          "the clicked cross-frame dispatch's settling epoch resolves —
+           the spine focus sub carries it (was nil pre-fix)"))
+    ;; The slot itself is re-keyed onto the clicked cascade's frame, and
+    ;; the App-DB-diff-facing projection follows.
+    (let [target      (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
+          history     (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))
+          focus-epoch (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/focus-epoch-id]))]
+      (is (= :cart-frame target)
+          ":target-frame re-keyed onto the clicked cascade's frame")
+      (is (= [:cart-e9] (mapv :epoch-id history))
+          ":epoch-history is the clicked frame's ring contents")
+      (is (= :cart-e9 focus-epoch)
+          "App-DB diff's :rf.xray/focus-epoch-id projection pivots to the
+           clicked dispatch's epoch — the panel renders the right epoch's
+           diff rather than an empty/stale state"))))
+
+(deftest select-dispatch-id-same-frame-leaves-slot-untouched-rf2-o1c3r
+  (testing "rf2-o1c3r — selecting a dispatch-id in the CURRENT target
+            frame is a no-op for the slot (the re-seed only fires on a
+            frame change); the head frame's epoch resolves as before"
+    (mount-multi-frame-picker-untouched!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id :c2 :rf/default]))
+    (let [r       (focus-sub)
+          target  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
+          history (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
+      (is (= :c2 (:dispatch-id r)))
+      (is (= :e2 (:epoch-id r))
+          "same-frame select resolves the head frame's epoch unchanged")
+      (is (= :rf/default target)
+          ":target-frame stays on the head frame — no spurious re-key")
+      (is (= [:e1 :e2 :e3] (mapv :epoch-id history))
+          ":epoch-history is still the head frame's full ring"))))

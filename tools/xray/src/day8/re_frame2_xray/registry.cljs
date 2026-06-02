@@ -459,9 +459,21 @@
     ;; It writes through the spine via the same reducer the spec-018
     ;; `:rf.xray/focus-cascade` event uses. Relocated from the retired
     ;; event-detail panel — multi-panel consumer, lives here.
+    ;;
+    ;; rf2-o1c3r — re-key `:epoch-history` onto the selected cascade's
+    ;; frame BEFORE resolving its settling epoch, exactly as the sibling
+    ;; `:rf.xray/focus-cascade` handler does (rf2-q8hvw). With the picker
+    ;; untouched the `:epoch-history` slot is keyed on the boot head
+    ;; frame, so selecting a dispatch-id in a NON-head frame would
+    ;; otherwise resolve its epoch against the wrong frame's ring →
+    ;; epoch-id nil → the epoch-keyed panels strand on an empty/stale
+    ;; state. The cross-frame ring is resolved via `rf/epoch-history` at
+    ;; dispatch time; the re-seed is a no-op when the frame is unchanged.
     (rf/reg-event-db :rf.xray/select-dispatch-id
       (fn [db [_ dispatch-id frame-id]]
-        (let [history  (get db :epoch-history [])
+        (let [db       (spine/reseed-epoch-history-for-frame
+                         db frame-id (rf/epoch-history frame-id))
+              history  (get db :epoch-history [])
               epoch-id (spine/epoch-id-for-cascade history dispatch-id)
               head-id  (spine/focusable-head-id (spine/db->cascades db))]
           (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
