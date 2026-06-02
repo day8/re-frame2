@@ -312,7 +312,17 @@
   (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
   default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
   removing the pair-debug friction of re-passing the build on every call.
-  Same reconnect-invalidation lifecycle as `:probed-builds`."
+  Same reconnect-invalidation lifecycle as `:probed-builds`.
+
+  `:build-alias` is the forgiving-resolution cache (rf2-qda59):
+  `{requested-keyword canonical-keyword}`. A `:build` arg that names a
+  running build by a unique SUFFIX (`:machine-epochs` ⇒
+  `:examples/machine-epochs`) resolves to the canonical running id the
+  first time it's seen, and the alias is remembered so every later
+  `arg-build` read returns the same canonical id without re-fetching
+  `active-builds`. Same reconnect-invalidation lifecycle as
+  `:probed-builds` — a page reload / build restart could change the
+  running set, so a stale alias must not survive it."
   [port host]
   (atom {:port              port
          :host              (or host "127.0.0.1")
@@ -322,7 +332,8 @@
          :closed?           true
          :session           nil
          :probed-builds     #{}
-         :resolved-build-id nil}))
+         :resolved-build-id nil
+         :build-alias       {}}))
 
 (defn attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket.
@@ -395,7 +406,8 @@
                 ;; reconnects; a stale cache would silently mis-route.
                 (swap! conn-atom assoc :socket sock :closed? false
                        :buf (js/Buffer.alloc 0)
-                       :probed-builds #{} :resolved-build-id nil)
+                       :probed-builds #{} :resolved-build-id nil
+                       :build-alias {})
                 (attach-handlers! conn-atom sock)
                 (resolve conn-atom)))
             (j/call sock :once "error"
@@ -407,13 +419,14 @@
   "Close the persistent socket. Idempotent. Drops the per-socket probe
   cache (`:probed-builds`) so a fresh connect re-probes the preload.
   Also drops `:resolved-build-id` (rf2-l9ixp) — the cached default for
-  tool calls without an explicit `:build` arg — so a reconnect doesn't
-  carry a stale build-id from the previous session."
+  tool calls without an explicit `:build` arg — and `:build-alias`
+  (rf2-qda59), the forgiving suffix→canonical resolution cache — so a
+  reconnect doesn't carry a stale build-id from the previous session."
   [conn-atom]
   (when-let [^js sock (:socket @conn-atom)]
     (try (.end sock) (catch :default _ nil)))
   (swap! conn-atom assoc :socket nil :closed? true :pending {}
-         :probed-builds #{} :resolved-build-id nil))
+         :probed-builds #{} :resolved-build-id nil :build-alias {}))
 
 ;; ---------------------------------------------------------------------------
 ;; Op send / receive — multiplex by request id.

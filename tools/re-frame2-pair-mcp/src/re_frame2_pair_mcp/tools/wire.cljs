@@ -177,6 +177,20 @@
   (when (and (some? conn) (satisfies? IDeref conn))
     (:resolved-build-id @conn)))
 
+(defn- canonicalize-via-alias
+  "Map `build-id` through the conn's `:build-alias` forgiving-resolution
+  cache (rf2-qda59). When the requested id has a recorded
+  suffix→canonical alias (populated by `probe/canonicalize-build!` at the
+  pipeline's first step), return the canonical running id; otherwise
+  return `build-id` unchanged. Defensive against a nil / non-atom conn
+  (test stubs carry no cache) and a nil `build-id`."
+  [conn build-id]
+  (if (and (some? build-id)
+           (some? conn)
+           (satisfies? IDeref conn))
+    (get (:build-alias @conn {}) build-id build-id)
+    build-id))
+
 (defn arg-build
   "Resolve the build-id for this tool call. Precedence (highest first):
 
@@ -208,6 +222,14 @@
   runtime-bounded read path resolving against shadow's finite running-
   build registry, so the per-id intern cost is capped.
 
+  The resolved id is finally mapped through the conn's `:build-alias`
+  forgiving-resolution cache (rf2-qda59): when the requested id named a
+  running build by a unique SUFFIX (`:machine-epochs` ⇒
+  `:examples/machine-epochs`), the pipeline's first step recorded the
+  canonical alias, so every op — explicit-arg or sticky-default —
+  resolves to the SAME canonical running id. An un-aliased id passes
+  through unchanged (so a typo still reaches the diagnostic ladder).
+
   1-arity (`(arg-build args)`) is the legacy entry — used by call sites
   that have no `conn` in scope (notably `args.cljs`'s frame/build
   parsing). It SKIPS the conn cache and falls straight through to the
@@ -215,9 +237,22 @@
   2-arity."
   ([args] (arg-build nil args))
   ([conn args]
-   (or (base-args/fresh-keyword (arg args :build))
-       (conn-resolved-build-id conn)
-       (default-build-id))))
+   (->> (or (base-args/fresh-keyword (arg args :build))
+            (conn-resolved-build-id conn)
+            (default-build-id))
+        (canonicalize-via-alias conn))))
+
+(defn requested-build
+  "The build-id this call would resolve to BEFORE the forgiving
+  suffix→canonical alias is applied (rf2-qda59). Mirrors `arg-build`'s
+  precedence (explicit `:build` arg → sticky `:resolved-build-id` →
+  env/`:app` default) but does NOT route through the alias cache — it is
+  the INPUT to `probe/canonicalize-build!`, which the pipeline's first
+  step runs to populate the alias. Returns a keyword."
+  [conn args]
+  (or (base-args/fresh-keyword (arg args :build))
+      (conn-resolved-build-id conn)
+      (default-build-id)))
 
 (defn stick-build!
   "Session-sticky operating build (rf2-lbm21). When `args` carries an

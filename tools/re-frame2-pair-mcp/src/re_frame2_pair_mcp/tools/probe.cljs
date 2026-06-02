@@ -104,6 +104,25 @@
        "MCP server holding a stale socket). Restart `shadow-cljs watch` "
        "and retry; the MCP server reconnects on the next tool call."))
 
+(defn build-arg-form
+  "Render a build-id keyword in EXACTLY the string form the `:build` MCP
+  arg accepts back (rf2-qda59). The arg coercer (`fresh-keyword`) is
+  colon-tolerant, so the canonical round-trippable form is the keyword's
+  own `pr-str` (`:examples/machine-epochs`) — copy-pasting it from an
+  error into `:build` resolves to the same build. Used to keep the
+  `:running-builds` guidance round-trippable: the error names the valid
+  set in a form the operator can paste straight back."
+  [build-id]
+  (pr-str build-id))
+
+(defn running-build-arg-forms
+  "Map the `running` build-id keywords to their round-trippable `:build`
+  arg forms (rf2-qda59) — the copy-paste-ready list for an error's
+  guidance. `[:examples/machine-epochs :panel-gallery]` ⇒
+  `[\":examples/machine-epochs\" \":panel-gallery\"]`."
+  [running]
+  (mapv build-arg-form running))
+
 (defn- build-not-running-hint [build-id running]
   (cond
     (empty? running)
@@ -111,10 +130,12 @@
          "build (`shadow-cljs watch <build>`) before retrying.")
 
     :else
-    (str "shadow-cljs is running " (vec running) " but not "
-         build-id ". Pass --build=" (first running)
+    ;; Render every running id in its round-trippable `:build` arg form
+    ;; (rf2-qda59) so the guidance can be copy-pasted straight back.
+    (str "shadow-cljs is running " (running-build-arg-forms running) " but not "
+         (build-arg-form build-id) ". Pass --build=" (build-arg-form (first running))
          " (or set SHADOW_CLJS_BUILD_ID) — or restart the watch worker "
-         "for " build-id " if you really mean to target it.")))
+         "for " (build-arg-form build-id) " if you really mean to target it.")))
 
 (defn- no-runtime-connected-hint [build-id]
   (str "build " build-id " is running but no CLJS runtime is currently "
@@ -213,10 +234,16 @@
                   (fn [running]
                     (if-not (some #(= build-id %) running)
                       (js/Promise.resolve
-                        {:reason         :build-not-running
-                         :build          build-id
-                         :running-builds running
-                         :hint           (build-not-running-hint build-id running)})
+                        {:reason                  :build-not-running
+                         :build                   build-id
+                         :running-builds          running
+                         ;; rf2-qda59 — the round-trippable copy-paste list:
+                         ;; each running build in EXACTLY the `:build` arg
+                         ;; form. `:running-builds` keeps the keyword vector
+                         ;; (still round-trippable via colon-tolerance); this
+                         ;; sibling makes the paste-ready strings explicit.
+                         :running-builds-arg-forms (running-build-arg-forms running)
+                         :hint                    (build-not-running-hint build-id running)})
                       ;; Build IS running — distinguish "no runtime
                       ;; connected" (cljs-eval returns blank/nil) from
                       ;; "runtime present but marker absent" (cljs-eval
@@ -394,6 +421,88 @@
                      (when (keyword? v) v))))
           (.catch (fn [_] nil))))))
 
+;; ---------------------------------------------------------------------------
+;; Forgiving suffix→canonical build resolution (rf2-qda59).
+;;
+;; shadow-cljs build ids are namespaced keywords (`:examples/machine-epochs`).
+;; An operator reading the app at a glance — or copying a name out of an
+;; error / chat — naturally reaches for the short tail (`machine-epochs`).
+;; Before this, `discover-app` happened to normalise (it auto-selects a
+;; single build or resolves by port), but the read/action ops compared the
+;; requested id against `active-builds` by EXACT `=`, so a suffix form was
+;; rejected with `:build-not-running` even though the build it named was
+;; right there in the error's own `:running-builds` list. One shared
+;; forgiving resolver closes the asymmetry across every op.
+;;
+;; Match rule (deterministic, no most-recent / fuzzy heuristics — those
+;; are the silent-wrong-build footguns Mike rejected for `auto-select`):
+;;
+;;   1. EXACT keyword match            ⇒ that build (the common case).
+;;   2. UNIQUE name-suffix match       ⇒ that build. The requested
+;;      keyword's `name` equals the `name` of EXACTLY ONE running build
+;;      (`:machine-epochs` ⇒ `:examples/machine-epochs`). The requested
+;;      id is itself bare (no namespace) so it can only be a tail.
+;;   3. no / ambiguous match           ⇒ the requested id UNCHANGED, so
+;;      the existing diagnostic ladder fires `:build-not-running` with
+;;      the round-trippable running list. Two builds sharing a tail stays
+;;      ambiguous — never silently pick one.
+;; ---------------------------------------------------------------------------
+
+(defn match-running-build
+  "Resolve `requested` (a build-id keyword) against the `running` vector of
+  build-id keywords by exact-or-unique-suffix match (rf2-qda59). Returns
+  the canonical running keyword on a hit, else `requested` unchanged (so a
+  no/ambiguous match falls through to the diagnostic ladder). Pure."
+  [requested running]
+  (cond
+    (nil? requested) requested
+    (some #(= requested %) running) requested
+    :else
+    (let [tail     (name requested)
+          suffixed (filterv #(= tail (name %)) running)]
+      (if (= 1 (count suffixed))
+        (first suffixed)
+        requested))))
+
+(defn canonicalize-build!
+  "Forgiving suffix→canonical build resolution (rf2-qda59). Resolves a
+  Promise of the canonical running build-id for `requested`:
+
+    - `requested` already in this socket's confirmed `:probed-builds`
+      ⇒ resolve it verbatim with NO round-trip (it's exactly running).
+    - a cached alias on the conn ⇒ resolve the cached canonical id, again
+      with no round-trip.
+    - otherwise fetch `active-builds` once and `match-running-build`;
+      record the resolution (identity included) in `:build-alias` so a
+      later read for the same requested id is round-trip-free.
+
+  A nil `requested` resolves to nil. Defensive against a non-atom `conn`
+  (test stubs) — those have no caches, so it always falls through to the
+  `running-builds` fetch (which itself degrades to `[]` on a stub).
+
+  The resolution is NOT a probe: it only maps the NAME to the canonical
+  running id. The runtime-sentinel check (`runtime-preloaded?`) still runs
+  afterwards, so a name that suffix-resolves to a build with no live
+  runtime still surfaces the real `:no-runtime-connected` diagnostic."
+  [conn requested]
+  (if (nil? requested)
+    (js/Promise.resolve nil)
+    (let [atom?    (and (some? conn) (satisfies? IDeref conn))
+          snap     (when atom? @conn)
+          probed   (:probed-builds snap #{})
+          alias    (:build-alias snap {})]
+      (cond
+        (contains? probed requested) (js/Promise.resolve requested)
+        (contains? alias requested)  (js/Promise.resolve (get alias requested))
+        :else
+        (-> (running-builds conn)
+            (.then (fn [running]
+                     (let [canonical (match-running-build requested running)]
+                       (when atom?
+                         (swap! conn assoc-in [:build-alias requested] canonical))
+                       canonical)))
+            (.catch (fn [_] requested)))))))
+
 (defn auto-select-single-build
   "Resolve a build-id when EXACTLY ONE shadow-cljs build is running, else
   nil (rf2-v70kv). Returns a Promise resolving to `[build-id true]` when
@@ -425,10 +534,11 @@
     (= 1 (count running))
     ;; Shouldn't reach here (a single running build is auto-selected),
     ;; but keep the branch explicit.
-    (str "pass --build=" (first running) " or set SHADOW_CLJS_BUILD_ID.")
+    (str "pass --build=" (build-arg-form (first running)) " or set SHADOW_CLJS_BUILD_ID.")
 
     :else
-    (str "multiple shadow-cljs builds are running " (vec running)
+    ;; Round-trippable copy-paste forms (rf2-qda59).
+    (str "multiple shadow-cljs builds are running " (running-build-arg-forms running)
          "; pass --build=<one-of-them> or set SHADOW_CLJS_BUILD_ID.")))
 
 (defn resolve-build!
@@ -461,12 +571,13 @@
               :else
               (js/Promise.reject
                 (ex-info "cannot auto-detect a single running build"
-                         {:reason         :no-runtime-for-build
-                          :build          (when explicit? build)
-                          :running-builds running
-                          :hint           (str (auto-detect-hint running)
-                                               " The default 'app' build is "
-                                               "not running.")}))))))))
+                         {:reason                   :no-runtime-for-build
+                          :build                    (when explicit? build)
+                          :running-builds           running
+                          :running-builds-arg-forms (running-build-arg-forms running)
+                          :hint                     (str (auto-detect-hint running)
+                                                         " The default 'app' build is "
+                                                         "not running.")}))))))))
 
 (defn resolve-and-preflight!
   "The shared eval-path guard (rf2-ivlb3). Resolves the build then
@@ -502,9 +613,10 @@
                           (fn [running]
                             (js/Promise.reject
                               (ex-info "no re-frame2-pair runtime for build"
-                                       {:reason         :no-runtime-for-build
-                                        :build          build-id
-                                        :running-builds running
+                                       {:reason                   :no-runtime-for-build
+                                        :build                    build-id
+                                        :running-builds           running
+                                        :running-builds-arg-forms (running-build-arg-forms running)
                                         :hint
                                         (str "build " build-id " has no live "
                                              "re-frame2-pair runtime. "
