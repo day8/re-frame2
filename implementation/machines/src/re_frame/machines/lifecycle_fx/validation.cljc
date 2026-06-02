@@ -376,10 +376,12 @@
 
 (defn- always-self-loop?
   "True iff an `:always` entry's `:target` resolves to its own declaring
-  state at `path` (a self-loop). A keyword target names a sibling at the
-  declaring level — it self-targets when it equals the declaring state's
-  own key (the last element of `path`). A vector target is an absolute
-  path — it self-targets when it equals `path`.
+  state at `path` (a self-loop). The `:same-state` sentinel is an explicit
+  external self-target (it re-enters the declaring state — see Spec 005
+  §Self-transitions, rf2-46ban), so it is always a self-loop. A keyword
+  target names a sibling at the declaring level — it self-targets when it
+  equals the declaring state's own key (the last element of `path`). A
+  vector target is an absolute path — it self-targets when it equals `path`.
 
   An `:always` entry with NO `:target` is an *internal* eventless
   transition (it runs its `:action` without changing state) — the
@@ -392,9 +394,10 @@
   [path entry]
   (let [target (:target entry)]
     (cond
-      (nil? target)     false
-      (keyword? target) (= target (peek path))
-      (vector? target)  (= target path))))
+      (nil? target)          false
+      (= :same-state target) true
+      (keyword? target)      (= target (peek path))
+      (vector? target)       (= target path))))
 
 (defn- validate-always-self-loop!
   "Per Spec 005 §Self-loop forbidden at registration: a state whose
