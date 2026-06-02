@@ -178,6 +178,79 @@
             ":active")
           "the state-path chip shows the path the timer fired from"))))
 
+(deftest dispatch-source-after-timer-state-path-resolves-coord-test
+  (testing "rf2-dcsw1 (iwy0c-followup) — when the `:after-timer` source
+            machine is registered with an `:rf.machine/source-coords`
+            index carrying a coord for the state-path, the state-path
+            chip resolves the coord and renders as a CLICKABLE button
+            (open-in-editor link), NOT the dead plain-span placeholder.
+
+            `machine-state-path-coord` previously read the NON-EXISTENT
+            `:machine` registrar kind → resolved nil → every machine
+            state-path link was dead (same latent-nil class rf2-iwy0c
+            part C fixed in `handler-source-block` / `machine-block`,
+            which read `:event` + the `:rf/machine` spec). This pins the
+            fixed path: read `:event` + the spec's
+            `:rf.machine/source-coords`."
+    (rf/with-frame :rf/default
+      ;; A machine is registered as a `reg-event-fx` carrying
+      ;; `:rf/machine? true` + the stamped spec (with
+      ;; `:rf.machine/source-coords`, rf2-8bp3) under `:rf/machine`. The
+      ;; source-coords index keys by the spec-path shape that
+      ;; `projection/state-spec-path-prefix` produces for the state-path:
+      ;; `[:active :authenticating]` → `[:states :active :states
+      ;; :authenticating]`.
+      (rf/reg-event-fx :rf2-dcsw1.view/timer-machine
+                       {:rf/machine? true
+                        :rf/machine {:initial :active
+                                     :rf.machine/source-coords
+                                     {[:states :active :states :authenticating]
+                                      {:file "src/app/auth.cljs" :line 42}}
+                                     :states {:active {}}}}
+                       (fn [_ _] {}))
+      (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:rf2-dcsw1.view/timer-machine
+                          [:rf.machine.timer/after-elapsed
+                           250 7 [:active :authenticating]]]
+                  :source :after-timer
+                  :coord nil
+                  :source-enrichment {:machine-id        :rf2-dcsw1.view/timer-machine
+                                      :delay-ms          250
+                                      :source-state-path [:active :authenticating]}}
+            tree (view/render-dispatch-step step)
+            chip (th/find-by-testid
+                   tree "rf-xray-epoch-dispatch-after-timer-state-path")]
+        (is (some? chip) "the state-path chip slot renders")
+        (is (= :button (first chip))
+            "coord resolved (read off :event + :rf/machine source-coords) →
+             the state-path is a CLICKABLE open-in-editor button, not a
+             dead plain span")
+        (is (some? (:on-click (th/attrs chip)))
+            "the resolved chip carries the open-in-editor click handler")))))
+
+(deftest dispatch-source-after-timer-state-path-degrades-without-coord-test
+  (testing "rf2-dcsw1 — when no machine is registered for the source
+            machine-id (production elision / unregistered), the
+            state-path chip DEGRADES GRACEFULLY to a plain non-clickable
+            span — the link STRUCTURE lights up only once a coord is
+            available. Negative control for the resolution test above."
+    (rf/with-frame :rf/default
+      (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:rf2-dcsw1.view/unregistered
+                          [:rf.machine.timer/after-elapsed
+                           250 7 [:active :authenticating]]]
+                  :source :after-timer
+                  :coord nil
+                  :source-enrichment {:machine-id        :rf2-dcsw1.view/unregistered
+                                      :delay-ms          250
+                                      :source-state-path [:active :authenticating]}}
+            tree (view/render-dispatch-step step)
+            chip (th/find-by-testid
+                   tree "rf-xray-epoch-dispatch-after-timer-state-path")]
+        (is (some? chip) "the state-path chip slot still renders")
+        (is (= :span (first chip))
+            "no coord → plain non-clickable span (graceful degrade)")))))
+
 (deftest dispatch-source-machine-spawn-renders-rich-label-test
   (testing "rf2-5qp4g — `:source :machine-spawn` renders the kind label
             and the spawned actor-id"
