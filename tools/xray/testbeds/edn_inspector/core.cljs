@@ -44,6 +44,12 @@
        removal, NOT a `:added ::missing` leak.
     5  Diff: CHANGED in place (diff-mode-3). Bump a nested scalar
        `[:metrics :counter]` — the value-side `~` glyph + `← was N`.
+    5b Diff: SET-MEMBER REMOVED (rf2-l0us2). Remove one member from the
+       set at `[:metrics :tags]` (`#{:a :b :c}` → `#{:a :c}` → … → `#{}`,
+       re-seeding when empty). The removed member renders member-level
+       `−:b` with the set's KEY INTACT — NOT a struck-through whole-key
+       'sea of red'. The last-member → `#{}` press exercises the
+       empty-collection-replacement expansion of the same fix.
     6  Sensitive → :rf/redacted. Write the `:rf/redacted` sentinel three
        levels deep at `[:session-secure :user :password]` — the inspector
        renders a `redacted` chip, never the raw value.
@@ -112,7 +118,8 @@
 
 (def initial-db
   {:baseline      0
-   :metrics       {:counter 5}
+   :metrics       {:counter 5
+                   :tags    #{:a :b :c}}
    :tenant        {}
    :session       {:only-key {:label "removed" :n 42}}
    :session-secure {:user {:id 7}}
@@ -194,6 +201,23 @@
         bump
         (update-in [:metrics :counter] (fnil inc 0)))))
 
+;; -- 5b. diff: SET-MEMBER REMOVED (rf2-l0us2) --------------------------------
+(rf/reg-event-db :edn-inspector/diff-set-member-removed
+  {:doc "Button 5b — remove ONE member from the set at `[:metrics :tags]`
+         (`#{:a :b :c}` → `#{:a :c}` → … → `#{}`), re-seeding the full set
+         once it has been emptied so there is always a member to remove. The
+         App-db diff renders the removed member member-level (`−:b`) with the
+         set's KEY INTACT — NOT a struck-through whole-key removal (the
+         `mark-wholly-changed` 'sea of red' rf2-l0us2 fixed). The
+         last-member → `#{}` press exercises the same fix's
+         empty-collection-replacement expansion."}
+  (fn handler-diff-set-member-removed [db _ev]
+    (let [db   (bump db)
+          tags (get-in db [:metrics :tags])]
+      (if (seq tags)
+        (assoc-in db [:metrics :tags] (disj tags (first (sort tags))))
+        (assoc-in db [:metrics :tags] #{:a :b :c})))))
+
 ;; -- 6. sensitive → :rf/redacted ---------------------------------------------
 (rf/reg-event-db :edn-inspector/redacted
   {:doc "Button 6 — write the `:rf/redacted` sentinel three levels deep at
@@ -268,6 +292,9 @@
    [5 "Diff: CHANGED in place"
     "Increment [:metrics :counter] — see value-side `~` glyph + `← was N`"
     [:edn-inspector/diff-changed]]
+   ["5b" "Remove set member"
+    "Drop one member from the set [:metrics :tags] — removed member renders `−:b`, key intact (not a whole-key strike); last press empties the set"
+    [:edn-inspector/diff-set-member-removed]]
 
    [:section "Sentinels — redaction / size-elision"]
    [6 "Sensitive → :rf/redacted"
