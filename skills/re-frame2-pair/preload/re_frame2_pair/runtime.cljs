@@ -1807,7 +1807,18 @@
 ;;                          same paths as :event-id)
 ;;   :frame               — the frame-id the cascade settled in
 ;;   :outcome             — the consumer-facing tier (`:ok` / `:blocked`
-;;                          / `:error`, per `outcome->consumer-facing`)
+;;                          / `:error`, per `outcome->consumer-facing`).
+;;                          rf2-hhkbb — forced `:error` when the cascade
+;;                          contained a thrown handler / machine action
+;;                          (a `:rf.error/*` op in `:trace-events`), even
+;;                          though the epoch itself settled `:outcome :ok`
+;;                          (the interceptor seam contained the throw).
+;;   :errors              — vector of compact `{:operation :message?
+;;                          :machine-id? :action-id?}` descriptors, one per
+;;                          contained cascade exception (rf2-hhkbb). Absent
+;;                          when the cascade threw nothing. Present ⇒
+;;                          `:outcome :error` and the downstream
+;;                          `dispatch-consequence!` reports `:no-op? false`.
 ;;   :db-diff             — {:changed-paths [...] :added-paths [...]
 ;;                           :removed-paths [...]} — top-level depth-1
 ;;                          summary computed from `:db-before` /
@@ -1892,6 +1903,70 @@
     :halted-handler-exception :error
     :ok))
 
+;; ---- contained cascade errors (rf2-hhkbb) ---------------------------------
+;;
+;; A handler / machine-action throw does NOT halt the drain: the
+;; interceptor error-capture seam contains it, the epoch settles
+;; `:outcome :ok`, and the throw rides the trace stream under a
+;; `:rf.error/*` op (Spec-Schemas §`:rf/epoch-record` §Outcomes; the
+;; reference runtime never emits `:halted-handler-exception`). So
+;; `outcome-tier` alone reads such an epoch as `:ok` — and because the
+;; aborted action committed no `:db` and fired no fx, the downstream
+;; `:no-op?` heuristic (no db-change AND no fx) also misfires. The result
+;; is a silent-green-on-error trap for any NON-visual consumer triaging
+;; on `:outcome` / `:no-op?` (the human pink-card path, rf2-4yrr6, is
+;; unaffected — it reads the trace directly).
+;;
+;; The structured summary closes the gap by scanning `:trace-events` for
+;; a contained cascade exception and, when one is present, projecting
+;; `:outcome :error` + surfacing the errors under an `:errors` slot
+;; (`:no-op?` exclusion lives downstream in `consequence-from-summary`).
+;;
+;; `cascade-error-ops` MIRRORS the Xray Epoch panel's `cascade-exception-
+;; ops` (`tools/xray/.../panels/epoch/projection.cljc`, rf2-ahhgn /
+;; rf2-mszrz / rf2-e7yhv) — the structured summary and the human panel
+;; agree on exactly which `:rf.error/*` ops count as a cascade-level
+;; throw. Schema-VALIDATION failures (`:rf.error/schema-validation-
+;; failure`) are deliberately NOT here: a rejected-but-rolled-back
+;; cascade is not a thrown action, and its outcome is governed elsewhere.
+
+(def ^:private cascade-error-ops
+  "Closed set of cascade-level `:rf.error/*` trace ops that mark an epoch
+  whose cascade contained a thrown handler / machine action (rf2-hhkbb).
+  Mirrors Xray's `cascade-exception-ops` so the structured summary and the
+  human Epoch panel agree on what counts as a throw."
+  #{:rf.error/coeffect-exception
+    :rf.error/interceptor-exception
+    :rf.error/handler-exception
+    :rf.error/fx-handler-exception
+    :rf.error/no-such-fx
+    :rf.error/flow-eval-exception
+    :rf.error/machine-action-exception})
+
+(defn- cascade-errors
+  "Project the contained cascade-exception trace events out of an epoch's
+  `:trace-events` into a vector of compact descriptors, or nil when the
+  cascade carried no contained throw (rf2-hhkbb).
+
+  Each descriptor carries `:operation` (the `:rf.error/*` op) plus, when
+  the trace event stamped them, `:message` (the exception's `.getMessage`
+  via `:exception-message`) and the machine attribution
+  (`:machine-id` / `:action-id`) a machine-action throw rides. The shape
+  is intentionally compact — an operator who wants the full exception
+  (stack / ex-data) reads the epoch's `:trace-events` directly or opens
+  the Xray Epoch panel."
+  [trace-events]
+  (let [picks (->> trace-events
+                   (filter (fn [ev] (contains? cascade-error-ops (:operation ev))))
+                   (mapv (fn [ev]
+                           (let [t (:tags ev)]
+                             (cond-> {:operation (:operation ev)}
+                               (string? (:exception-message t))
+                               (assoc :message (:exception-message t))
+                               (:machine-id t) (assoc :machine-id (:machine-id t))
+                               (:action-id t)  (assoc :action-id (:action-id t)))))))]
+    (when (seq picks) picks)))
+
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
   surfaced by dispatch / reset-frame-db / restore-epoch / dispatch-dry-
@@ -1909,10 +1984,15 @@
           fx-fired   (->> effects (map :fx-id) distinct vec)
           transitions (machine-transitions-summary trace-events)
           elapsed    (epoch-elapsed-ms record)
-          sensitive? (:rf.epoch/sensitive? record)]
+          sensitive? (:rf.epoch/sensitive? record)
+          ;; rf2-hhkbb — a contained throw (handler / machine action) rode
+          ;; the trace stream while the epoch settled `:outcome :ok`. When
+          ;; present it OVERRIDES the outcome tier to `:error` and surfaces
+          ;; under `:errors` so a non-visual consumer detects the failure.
+          errors     (cascade-errors trace-events)]
       (cond-> {:epoch-id        epoch-id
                :frame           frame
-               :outcome         (outcome-tier outcome)
+               :outcome         (if errors :error (outcome-tier outcome))
                :db-diff         diff
                :fx-fired        fx-fired
                :subs-recomputed (count (or sub-runs []))
@@ -1921,6 +2001,7 @@
         trigger-event (assoc :event-vector trigger-event)
         transitions   (assoc :machine-transitions transitions)
         elapsed       (assoc :elapsed-ms elapsed)
+        errors        (assoc :errors errors)
         sensitive?    (assoc :sensitive? true)))))
 
 (defn- attach-cascade
@@ -2057,13 +2138,21 @@
    that changed NO app-db path AND fired NO effect is a visible no-op."
   [result]
   (let [{:keys [cascade-summary]} result
-        {:keys [db-diff fx-fired outcome]} cascade-summary
+        {:keys [db-diff fx-fired outcome errors]} cascade-summary
         changed (vec (concat (:changed-paths db-diff)
                              (:added-paths db-diff)
                              (:removed-paths db-diff)))
         effects (vec (or fx-fired []))
         db-changed? (boolean (seq changed))
-        no-op? (and (not db-changed?) (empty? effects))]
+        ;; rf2-hhkbb — a contained throw (handler / machine action) is NOT
+        ;; a no-op even though it committed no db-change and fired no fx:
+        ;; the cascade did nothing PRECISELY BECAUSE the action aborted.
+        ;; The `:errors` slot (set by `cascade-summary` when the trace
+        ;; carried a `:rf.error/*` exception) excludes the epoch from the
+        ;; quiescence heuristic so a non-visual consumer reads the throw,
+        ;; not a clean no-op.
+        threw?  (boolean (seq errors))
+        no-op?  (and (not threw?) (not db-changed?) (empty? effects))]
     (-> result
         (assoc :db-changed?   db-changed?
                :changed-paths changed
