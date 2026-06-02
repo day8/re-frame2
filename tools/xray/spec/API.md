@@ -711,7 +711,7 @@ framework's `:rf.size/*` namespaced opt keys.
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |
 | `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to issue-tier op-types (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`). |
 | `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of `:event :sub :fx :cofx :machine :flow :reg-machine :frame :view`. |
-| `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`. |
+| `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`, routed through `egress-value` (rf2-j8b0u — Spec 009's user-supplied `:rf.handler/source` override can stamp arbitrary values into the slot, so the accessor egresses unconditionally rather than judging per-read; `:include-sensitive?` / `:include-large?` opt back in). |
 
 ### Mutation band (3 accessors — write)
 
