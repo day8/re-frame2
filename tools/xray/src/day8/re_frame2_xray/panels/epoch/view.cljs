@@ -548,18 +548,11 @@
   {:color        accent-colour
    :margin-right "6px"})
 
-(def ^:private cascade-detail-threw-row-style
-  {:display     "flex"
-   :gap         "6px"
-   :align-items "flex-start"
-   :color       error-colour})
-
-(def ^:private cascade-threw-glyph-style {:font-weight 700})
-(def ^:private cascade-threw-label-style {:font-weight 600})
-
-(def ^:private cascade-threw-message-style
-  {:color      text-secondary-colour
-   :font-style "italic"})
+;; rf2-4yrr6 — `cascade-detail-threw-row-style` / `cascade-threw-glyph-style`
+;; / `cascade-threw-label-style` / `cascade-threw-message-style` RETIRED with
+;; the per-action "✗ threw — <message>" detail line (the duplicate threw
+;; signal). The pink 'Exception Thrown' card + the row pink-wash are the
+;; single threw signal now.
 
 ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb (`<before> → <after>`,
 ;; now the focal point) renders VISUALLY PRIMARY: larger + bolder than
@@ -641,8 +634,8 @@
   {:margin-top "8px"
    :min-width  "0"})
 
-(def ^:private handler-source-spec-style
-  {:padding-left "16px"})
+;; rf2-4yrr6 — `handler-source-spec-style` retired with the machine SPEC
+;; dump (the `(edn/inspect spec)` branch of `handler-source-block`).
 
 (def ^:private handler-source-placeholder-style
   {:font-style   "italic"
@@ -1804,10 +1797,9 @@
     ;; and `handler-source-block` already read `:event`).
     (let [machine-meta (try (rf/handler-meta :event machine-id)
                             (catch :default _ nil))
-          ;; Resolve the machine spec the same way `machine-spec-value`
-          ;; (defined later in this ns) does: the stamped spec lives under
-          ;; `:rf/machine`, with fixture-shape fallbacks for unit tests.
-          ;; Inlined here because the var is declared below this fn.
+          ;; Resolve the machine spec: the stamped spec lives under
+          ;; `:rf/machine`, with fixture-shape fallbacks for unit tests
+          ;; (mirrors the cascade path's `projection/machine-spec-from-meta`).
           spec         (or (:rf/machine machine-meta)
                            (:machine-spec machine-meta)
                            (:spec machine-meta)
@@ -2670,7 +2662,7 @@
 
 (defn- cascade-row-action-outcome-details
   "Render the per-action outcome details for an `:action` cascade row
-  (rf2-u69j7). Three slots ride below the row's source body:
+  (rf2-u69j7). Two slots ride below the row's source body:
 
   - DATA Δ — when the action returned a `:data` write, surface the
     delta the action contributed as an edn-inspector DIFF (rf2-5hjb5 —
@@ -2679,14 +2671,19 @@
   - FX — when the action returned a `:fx` list, surface each emitted
     fx-id (per-action attribution; same data as the FX step's
     `:attributed-to` chip, now visible IN the action's row).
-  - EXCEPTION — when the action threw, surface the exception message
-    (the cascade halts on the first throw — Spec 005 §Errors).
+
+  rf2-4yrr6 — the EXCEPTION slot (the `✗ threw — <message>` line) is
+  REMOVED. A threw action row already carries the pink 'Exception Thrown'
+  card + the row's pink-wash (the `issue-event?` predicate); the duplicate
+  threw line here (and the duplicate `:threw` outcome chip in
+  `cascade-row-view`) were redundant — one signal is enough. The verbatim
+  message rides the card.
 
   Each slot elides cleanly when the underlying data is absent so the
   row stays minimal for actions that ran without side-effects."
   [row]
-  (let [{:keys [data-write fx threw? exception]} row]
-    (when (or (some? data-write) (seq fx) threw?)
+  (let [{:keys [data-write fx]} row]
+    (when (or (some? data-write) (seq fx))
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
                                (:step row))
              :style cascade-outcome-details-style}
@@ -2714,22 +2711,7 @@
             [:span {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
                                       (:step row) "-" j)
                     :style cascade-detail-fx-chip-style}
-             (fmt/ns-keyword fx-id)])])
-       ;; Threw path — the action halted the cascade. Surface a
-       ;; compact error chip so the operator can pivot to the
-       ;; exception body via the Issues panel.
-       (when threw?
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-threw-"
-                                  (:step row))
-                :style cascade-detail-threw-row-style}
-          [:span {:style cascade-threw-glyph-style} "✗"]
-          [:span {:style cascade-threw-label-style} "threw"]
-          (when exception
-            [:span {:style cascade-threw-message-style}
-             (str " — "
-                  (or (when (some? exception)
-                        (.-message ^js exception))
-                      (str exception)))])])])))
+             (fmt/ns-keyword fx-id)])])])))
 
 ;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
 ;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
@@ -2791,7 +2773,13 @@
        (cascade-outcome-chip
          (cond
            (= :guard kind)      outcome
-           (and (= :action kind) threw?)  :threw
+           ;; rf2-4yrr6 — a threw ACTION row carries NO outcome chip. The
+           ;; pink 'Exception Thrown' card + the row's pink-wash (the
+           ;; `issue-event?` predicate) already say it threw — one signal is
+           ;; enough (the duplicate `:threw` chip + the `cascade-row-action-
+           ;; outcome-details` "✗ threw —" line were both removed). A
+           ;; successful action keeps its `:ok` chip.
+           (and (= :action kind) threw?)  nil
            (= :action kind)     :ok
            (= :timer kind)      :cancelled
            ;; rf2-ugdas — the benign no-op reads "ignored" (event matched
@@ -2915,19 +2903,11 @@
     (when (and (string? s) (seq s))
       s)))
 
-(defn- machine-spec-value
-  "Return the registered machine handler's spec data. A machine is
-  registered as a `reg-event-fx` carrying `:rf/machine? true` + the
-  stamped spec under `:rf/machine` (rf2-ge6uj / rf2-ypu5i); the legacy
-  `:machine-spec` / `:spec` / `:rf.machine/spec` slots are fixture-
-  shape fallbacks used by unit tests. Mirrors the cascade path's
-  `projection/machine-spec-from-meta` resolution so the HANDLER step's
-  machine SPEC reads the SAME spec the cascade source rows read."
-  [meta]
-  (or (:rf/machine meta)
-      (:machine-spec meta)
-      (:spec meta)
-      (:rf.machine/spec meta)))
+;; rf2-4yrr6 — `machine-spec-value` retired. Its sole caller was
+;; `handler-source-block`'s machine branch (the `(edn/inspect spec)` SPEC
+;; dump), which is gone: machine handlers render NO source block now (the
+;; machine CASCADE is the content). `machine-state-path-coord` resolves the
+;; spec inline (it pre-dated this var anyway, being declared above it).
 
 (defn- coord-from-handler-meta
   "Lift a `{:file :line}` source-coord off a registered handler's meta
@@ -2996,55 +2976,43 @@
                             :plain-style handler-verb-plain-style})))
 
 (defn- handler-source-block
-  "Render the source-code block under the HANDLER header. Three
-  cases:
+  "Render the source-code block under the HANDLER header for an EVENT
+  handler. Two cases:
 
-    1. Machine handler — render the machine spec via the canonical
-       `edn/inspect` widget.
-    2. Event handler with a captured source string — render via
+    1. Event handler with a captured source string — render via
        `edn/code-block` (clojure-syntax highlight).
-    3. Otherwise — render a clear `<source not yet captured>`
+    2. Otherwise — render a clear `<source not yet captured>`
        placeholder so the slot is always present (operator learns
        where to look + when the substrate didn't stamp).
 
-  rf2-ehd8v / pair-debug 2026-05-26 — the SOURCE / MACHINE SPEC
-  sub-header is gone; the verb in the HANDLER step header IS the
-  click-to-source affordance now (see `handler-verb-link`). This
-  fn renders only the code body."
+  rf2-4yrr6 — MACHINE handlers render NO source block (this fn returns
+  nil for them). Dumping the whole machine spec via `edn/inspect` under
+  the HANDLER step was noise: the machine CASCADE below (`machine-block`)
+  IS the content, and the defmachine / reg-machine value stays reachable
+  via source-links — the HANDLER verb link (rf2-ge6uj) and the per-element
+  machine-def links (rf2-iwy0c). Nothing is lost. The machine case returns
+  nil (NOT the `<source not yet captured>` placeholder — that slot is for
+  event handlers whose source the substrate didn't stamp).
+
+  rf2-ehd8v / pair-debug 2026-05-26 — the SOURCE sub-header is gone; the
+  verb in the HANDLER step header IS the click-to-source affordance now
+  (see `handler-verb-link`). This fn renders only the code body."
   [flavour event-id]
-  ;; rf2-iwy0c part C — read the registration meta under the `:event`
-  ;; kind for BOTH flavours. A machine is registered as a `reg-event-fx`
-  ;; carrying `:rf/machine? true` + the spec under `:rf/machine` (rf2-ge6uj
-  ;; ISSUE 2 fixed this in the cascade path; `machine-block` reads `:event`
-  ;; too). The prior `(if machine? :machine :event)` lookup resolved nil for
-  ;; the machine spec — there is NO `:machine` registrar kind — so the
-  ;; HANDLER step's machine SPEC rendered the `<source not yet captured>`
-  ;; placeholder. Reading under `:event` + `machine-spec-value`'s `:rf/machine`
-  ;; resolution surfaces the spec.
-  (let [machine? (= :reg-machine flavour)
-        meta     (when (some? event-id)
-                   (try (rf/handler-meta :event event-id)
-                        (catch :default _ nil)))
-        spec     (when machine? (machine-spec-value meta))
-        src      (when-not machine? (handler-source-string meta))]
-    [:div {:data-testid "rf-xray-epoch-handler-source"
-           :style handler-source-root-style}
-     (cond
-       (and machine? (some? spec))
-       [:div {:data-testid "rf-xray-epoch-handler-source-spec"
-              :style handler-source-spec-style}
-        (edn/inspect spec)]
-
-       src
-       (edn/code-block
-         {:source src
-          :lang   :clojure
-          :testid "rf-xray-epoch-handler-source-body"})
-
-       :else
-       [:span {:data-testid "rf-xray-epoch-handler-source-placeholder"
-               :style handler-source-placeholder-style}
-        "<source not yet captured>"])]))
+  (when-not (= :reg-machine flavour)
+    (let [meta (when (some? event-id)
+                 (try (rf/handler-meta :event event-id)
+                      (catch :default _ nil)))
+          src  (handler-source-string meta)]
+      [:div {:data-testid "rf-xray-epoch-handler-source"
+             :style handler-source-root-style}
+       (if src
+         (edn/code-block
+           {:source src
+            :lang   :clojure
+            :testid "rf-xray-epoch-handler-source-body"})
+         [:span {:data-testid "rf-xray-epoch-handler-source-placeholder"
+                 :style handler-source-placeholder-style}
+          "<source not yet captured>"])])))
 
 (defn- handler-db-diff-block
   "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
@@ -4668,24 +4636,23 @@
   step's blast radius right where the work happened — the inline half of
   rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
   [step-key idx {:keys [message recovery db-rolled-back? operation
-                        machine-id action-id event via-wildcard?] :as row}]
+                        action-id via-wildcard?] :as row}]
   (let [recovery-label (error-recovery-label recovery db-rolled-back?)
         testid-base    (str "rf-xray-epoch-error-"
                             (name (or step-key :unknown)) "-" idx)
-        ;; rf2-e7yhv — machine-action-exception attribution. Name WHAT
-        ;; threw (the action), in WHICH machine, on WHICH event, and whether
-        ;; it came from a `:*` WILDCARD action (the xstate-v5 fail-loudly
-        ;; idiom) vs a named transition — so the operator reads the cause,
-        ;; not just the message.
-        machine-attr   (when (= :rf.error/machine-action-exception operation)
-                         (str (when via-wildcard? "a :* wildcard action ")
-                              "in machine " (fmt/ns-keyword machine-id)
-                              (when action-id
-                                (str " (action " (fmt/ns-keyword action-id) ")"))
-                              (when event
-                                (str " threw on unhandled event " (pr-str event)))
-                              (when via-wildcard?
-                                " — fired by the :* wildcard, not a named transition")))]
+        ;; rf2-4yrr6 — machine-action-exception attribution. Name WHAT threw
+        ;; (the action) in one clean line: "action :blow-fuse threw an
+        ;; exception". The earlier wording (rf2-e7yhv) repeated ":* wildcard"
+        ;; / "unhandled" / "action" twice and re-stated the triggering event
+        ;; right above the verbatim ex-info message — a confusing run-on. The
+        ;; dropped detail is redundant: the machine is obvious from the
+        ;; cascade context, the triggering event + `:where` ride the ex-data
+        ;; (collapsible below), and the user's message renders verbatim. Reads
+        ;; cleanly for named-action throws too, not just the `:*` wildcard.
+        machine-attr   (when (and (= :rf.error/machine-action-exception operation)
+                                  action-id)
+                         (str "action " (fmt/ns-keyword action-id)
+                              " threw an exception"))]
     [:div {:key (str "error-" step-key "-" idx)
            :data-testid testid-base
            :data-error-op (when (:operation row) (name (:operation row)))
@@ -4708,8 +4675,10 @@
        [:div {:data-testid (str testid-base "-message")
               :style error-block-message-style}
         message])
-     ;; 2b. rf2-e7yhv — machine-action attribution line (machine + action +
-     ;; the unhandled event + whether a `:*` wildcard fired it).
+     ;; 2b. rf2-4yrr6 — machine-action attribution line: "action <id> threw
+     ;; an exception" (collapsed from rf2-e7yhv's run-on). `:data-via-wildcard`
+     ;; still rides the row for downstream consumers / tests that distinguish a
+     ;; `:*` wildcard throw from a named-transition throw.
      (when machine-attr
        [:div {:data-testid (str testid-base "-machine-attribution")
               :data-via-wildcard (str (boolean via-wildcard?))
