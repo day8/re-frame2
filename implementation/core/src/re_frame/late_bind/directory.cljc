@@ -331,6 +331,14 @@
    {:key         :machines/destroy-machine-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/destroy."}
+   {:key         :machines/resolve-actor-handler-meta
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-a2sn1"
+    :description "Lazy actor-handler resolver. Core's `re-frame.router.diagnostics/handle-no-handler!` consults this BEFORE surfacing `:rf.error/no-such-handler`: given an unresolved `[<actor-id> <event>]` dispatch, it materialises a spawned actor's handler-meta purely from its (revertible) app-db snapshot (`:rf/machine-type` → registered TYPE spec or inline `:definition`). Returns nil when no live snapshot exists, so core surfaces the genuine `:no-such-handler`. Eliminates the per-instance registrar registration so `restore-epoch` (app-db-only) reverts actor liveness with zero registrar drift — closes the Goal-2 dynamic-actor revertibility leak."}
+   {:key         :machines/actor-resolvable?
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-a2sn1"
+    :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore db resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.write/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
    {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
     :description "Effect handler seeding the :spawn-all join state during spawn."}

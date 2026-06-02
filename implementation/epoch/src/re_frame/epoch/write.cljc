@@ -141,15 +141,32 @@
   the internal `:head` registrar kind. The latter is unrelated to
   the public machine contract.
 
+  Per rf2-a2sn1: a DYNAMICALLY-SPAWNED actor carries no per-instance
+  registrar entry — its liveness is derived from its (revertible)
+  snapshot. Such a snapshot is a VALID restore target iff its TYPE still
+  resolves (registered TYPE keyword, or inline `:definition` carried on
+  the snapshot). The `:machines/actor-resolvable?` hook makes that
+  determination from app-db; consult it before flagging a snapshot whose
+  id is not directly registered. A SINGLETON whose registration was
+  cleared (a `reg-machine`'d machine, no `:rf/machine-type` on its
+  snapshot) still surfaces as missing — `actor-resolvable?` returns false
+  for it. Absent the machines artefact the hook is nil and the prior
+  registrar-only check stands.
+
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
   [db]
-  (let [;; Machines under [:rf/runtime :machines :snapshots]: registered
-        ;; as event handlers with :rf/machine? true (per Spec 005
-        ;; §Registration).
+  (let [actor-resolvable? (late-bind/get-fn :machines/actor-resolvable?)
+        ;; Machines under [:rf/runtime :machines :snapshots]: a singleton
+        ;; references a registered machine (`:rf/machine? true`, per Spec
+        ;; 005 §Registration); a spawned actor (rf2-a2sn1) has no
+        ;; per-instance registration but is restorable when its
+        ;; `:rf/machine-type` resolves through `actor-resolvable?`.
         missing-machines
         (for [[machine-id _snapshot] (get-in db [:rf/runtime :machines :snapshots])
-              :when (not (machine-registration machine-id))]
+              :when (and (not (machine-registration machine-id))
+                         (not (and actor-resolvable?
+                                   (actor-resolvable? db machine-id))))]
           {:kind :machine :id machine-id})
         ;; Active route
         missing-route

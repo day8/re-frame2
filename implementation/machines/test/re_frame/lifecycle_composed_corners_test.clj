@@ -311,7 +311,7 @@
 
 (deftest composed-timer-join-and-system-id-cleanup-on-frame-destroy
   (testing "destroy-frame! clears timer table + [:rf/runtime :machines :system-ids] + [:rf/runtime :machines :spawned]
-            + [:rf/runtime :machines :snapshots] + spawn-order + actor registrar in one cascade"
+            + [:rf/runtime :machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry — rf2-a2sn1)"
     (rf/reg-frame :corner.leak/scoped {:doc "leak-audit"})
 
     ;; --- (a) :after timer --------------------------------------------------
@@ -373,8 +373,11 @@
           "precondition: spawned actor snapshot is live"))
     (is (pos? (count (spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")
-    (is (some? (registrar/lookup :event :corner.leak/child#1))
-        "precondition: spawned actor handler is registered")
+    ;; Per rf2-a2sn1 — a spawned actor carries NO per-instance registrar
+    ;; entry; its liveness is its snapshot's presence in app-db (asserted
+    ;; live above). The registrar precondition is therefore inverted.
+    (is (nil? (registrar/lookup :event :corner.leak/child#1))
+        "precondition: spawned actor has no per-instance registrar entry (liveness lives in its app-db snapshot)")
 
     ;; --- destroy ----------------------------------------------------------
     (frame/destroy-frame! :corner.leak/scoped)
@@ -384,8 +387,9 @@
         "post: timer table no longer holds an entry for the destroyed frame")
     (is (nil? (frame/frame :corner.leak/scoped))
         "post: frame is dissoc'd from the frames atom")
-    (is (nil? (registrar/lookup :event :corner.leak/child#1))
-        "post: spawned actor handler is unregistered")
+    (is (nil? (get-in (rf/app-db-value :corner.leak/scoped)
+                      [:rf/runtime :machines :snapshots :corner.leak/child#1]))
+        "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared (rf2-a2sn1)")
     (is (= [] (spawn-order/frame-order :corner.leak/scoped))
         "post: spawn-order channel is empty for the destroyed frame")
     ;; The singletons (:corner.leak/timer, :corner.leak/boot, :corner.leak/
