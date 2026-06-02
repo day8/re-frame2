@@ -30,16 +30,24 @@
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection
-  like {:short-name :registered-id} where :registered-id resolves to a fn."
+  like {:short-name :registered-id} where :registered-id resolves to a fn.
+
+  Per rf2-npvsx every `:guards` / `:actions` / `:on-spawn-actions` entry
+  is the co-located `{:fn <fn> ...}` map (the `:source-*` slots are
+  dev-only). A registry VALUE may therefore be that entry map, a bare fn
+  (programmatic `reg-machine*` with raw fns, or a `(constantly …)`
+  fallback), or a keyword (indirection). Unwrap `:fn` from an entry map
+  before treating it as the resolved callback."
   [registry ref]
   (loop [r ref seen #{}]
     (cond
-      (fn? r)              r
-      (contains? seen r)   nil
-      (keyword? r)         (if-let [nxt (get registry r)]
-                             (recur nxt (conj seen r))
-                             nil)
-      :else                nil)))
+      (fn? r)                       r
+      (and (map? r) (:fn r))        (:fn r)
+      (contains? seen r)            nil
+      (keyword? r)                  (if-let [nxt (get registry r)]
+                                      (recur nxt (conj seen r))
+                                      nil)
+      :else                         nil)))
 
 (defn- resolve-guard
   "Look up a guard reference. If keyword, follow the chain in the machine's

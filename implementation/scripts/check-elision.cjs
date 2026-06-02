@@ -343,26 +343,34 @@ const DEV_ONLY_SENTINELS = [
   // literals under that namespace.
   { source: 're-frame.adapter.context (frame-context displayName)',
     sentinel: 'rf2-frame' },
-  // re-frame.core/reg-machine — per-element source-coord stamping
-  // (Spec 005 §Source-coord stamping, rf2-8bp3). The reg-machine macro
-  // emits an `(if interop/debug-enabled? (assoc spec :rf.machine/
-  // source-coords {...}) spec)` branch; under :advanced +
-  // goog.DEBUG=false the closure compiler constant-folds the gate to
-  // false and DCEs the entire literal coord index. The keyword's
-  // `rf.machine/handler-source` string fragment must NOT survive in
-  // `:advanced` + `goog.DEBUG=false` bundles. Per Spec 005 + rf2-ypu5i,
-  // the `reg-machine` macro walks the literal spec for guard/action
-  // fn-form `pr-str` source-strings and emits a stamp under
-  // `:rf.machine/handler-source` gated on `interop/debug-enabled?`. The
-  // sentinel is the keyword fragment itself — if it survives, the
-  // gated branch did not DCE and the per-(machine-id, id) source
-  // strings are still reachable from the prod bundle.
-  { source: 're-frame.core/reg-machine (rf.machine/handler-source stamping)',
-    sentinel: 'rf.machine/handler-source' },
-  // `rf.machine/source-coords` string fragment must NOT survive in
-  // production bundles.
-  { source: 're-frame.core/reg-machine (rf.machine/source-coords stamping)',
-    sentinel: 'rf.machine/source-coords' },
+  // re-frame.core/reg-machine — co-located per-element source stamping
+  // (Spec 005 §Source-coord stamping, rf2-npvsx, supersedes rf2-8bp3 /
+  // rf2-ypu5i). The reg-machine macro emits an `(if interop/debug-enabled?
+  // <dev> <prod>)` branch: the DEV arm co-locates `{:fn .. :source-coords
+  // .. :source-code ..}` onto each `:guards` / `:actions` entry and assocs
+  // the reference-site `:rf.machine/state-coords` index; the PROD arm
+  // collapses each entry to `{:fn <fn>}`. Under :advanced + goog.DEBUG=
+  // false the closure compiler constant-folds the gate to false and DCEs
+  // the entire dev arm — every co-located source literal and the
+  // `:rf.machine/state-coords` keyword must elide.
+  //
+  // Sentinel 1: the `rf.machine/state-coords` keyword fragment (the
+  // reference-site coord index). If it survives, the dev arm did not DCE.
+  { source: 're-frame.core/reg-machine (rf.machine/state-coords stamping)',
+    sentinel: 'rf.machine/state-coords' },
+  // Sentinel 2 + 3: the distinctive co-located `:source-code` fn-body
+  // strings the probe machine mints (`(rf/reg-machine :rf.probe/machine
+  // {:guards {:never? (fn probe-never-guard [_] false)} :actions {:noop
+  // (fn probe-noop-action [_] {})} ...})`). Under DEBUG=true the macro
+  // co-locates the `pr-str` of each fn-form as `:source-code`; under
+  // DEBUG=false the dev arm DCEs the source-string literal entirely. The
+  // named-fn symbols make the byte sequence unambiguous under a global
+  // grep. If either survives, the per-element source-code strings are
+  // still reachable from the prod bundle.
+  { source: 're-frame.core/reg-machine (:guards :source-code fn-body literal)',
+    sentinel: '(fn probe-never-guard [_] false)' },
+  { source: 're-frame.core/reg-machine (:actions :source-code fn-body literal)',
+    sentinel: '(fn probe-noop-action [_] {})' },
   // re-frame.core/{dispatch,dispatch-sync,subscribe,inject-cofx} —
   // call-site source-coord stamping (rf2-ts1a, Q3=B dev-only elision).
   // Each macro emits an `(if interop/debug-enabled? <stamp-branch>

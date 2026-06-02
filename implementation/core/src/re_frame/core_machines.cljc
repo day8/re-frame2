@@ -68,53 +68,39 @@
 ;; their own `:where` symbol on the missing-artefact ex-info so the trace
 ;; matches what the user wrote at the call site.
 
-(defn- coord-for
-  "Look up the per-element coord at `path` from a stamped machine spec.
-  Returns nil when the spec carries no `:rf.machine/source-coords` (a
-  programmatic / non-literal `reg-machine*` call) or no entry at
-  `path` (the fn-form was a let-bound symbol the walker skipped)."
-  [machine path]
-  (get-in machine [:rf.machine/source-coords path]))
-
 (defn- register-machine-handler-metas!
-  "Per rf2-ypu5i: write per-(machine-id, id) handler-meta entries into
-  the registrar under `:machine-guard` / `:machine-action` for every
-  literal fn-form found by the `reg-machine` macro's compile-time
-  walker. Reads `:rf.machine/handler-source` (a
-  `{:guards {id pr-str ...} :actions {id pr-str ...}}` map stamped
-  by `core-reg-macros/expand-reg-machine`) plus per-element coords
-  from `:rf.machine/source-coords`. No-op under `interop/debug-enabled?
-  false` so production CLJS bundles DCE the call (both stamps elide
-  upstream — the `cond->` returns the spec without them, leaving
-  nothing for this fn to register).
+  "Per rf2-npvsx (supersedes rf2-ypu5i / rf2-8bp3): write per-(machine-id,
+  id) handler-meta entries into the registrar under `:machine-guard` /
+  `:machine-action` for every co-located guard / action entry stamped by
+  the `reg-machine` macro. Reads the CO-LOCATED `:guards` / `:actions`
+  maps — each entry is `{:fn <fn> :source-coords {...} :source-code
+  \"...\"}` in dev (the `:source-*` slots absent in production). No-op
+  under `interop/debug-enabled? false` so production CLJS bundles DCE the
+  call (the macro emits no `:source-*` slots in prod, so there is nothing
+  to register beyond the bare `:fn`, and the gate skips the write).
 
-  Source carries `:rf.handler/source` for parity with the reg-event-*
-  `:rf.handler/source` surface (Spec 009). The marker `:rf/guard-id`
-  / `:rf/action-id` carries the id so tools enumerating
-  `(rf/registrations :machine-guard)` can pivot on the marker without
-  re-parsing the 2-vector id. `:rf/machine-id` mirrors the same scope."
+  Only entries carrying `:source-code` are registered — a keyword-
+  reference entry (`{<id> :other-id}`) and a bare `{:fn <fn>}` (prod, or a
+  let-bound fn the walker skipped) carry no source and need no handler-meta
+  slot. The registered meta carries `:rf.handler/source` (parity with the
+  reg-event-* surface, Spec 009), `:handler-fn` (the actual fn), the
+  `:rf/guard-id` / `:rf/action-id` marker (so tools enumerating
+  `(rf/registrations :machine-guard)` pivot without re-parsing the 2-vector
+  id), `:rf/machine-id` (the scope), and the merged source-coords."
   [machine-id machine]
   (when interop/debug-enabled?
-    (let [src      (:rf.machine/handler-source machine)
-          guards   (:guards src)
-          actions  (:actions src)
-          write!   (fn [kind marker-key id source-str]
-                     (let [coord (coord-for machine
-                                            (if (= kind :machine-guard)
-                                              [:guards id]
-                                              [:actions id]))
-                           meta  (cond-> {marker-key       id
-                                          :rf/machine-id   machine-id
-                                          :rf.handler/source source-str
-                                          :handler-fn      (get-in machine
-                                                                   [(case kind
-                                                                      :machine-guard  :guards
-                                                                      :machine-action :actions)
-                                                                    id])}
+    (let [write! (fn [kind marker-key slot-key]
+                   (doseq [[id entry] (get machine slot-key)
+                           :when (and (map? entry) (:source-code entry))]
+                     (let [coord (:source-coords entry)
+                           meta  (cond-> {marker-key         id
+                                          :rf/machine-id     machine-id
+                                          :rf.handler/source (:source-code entry)
+                                          :handler-fn        (:fn entry)}
                                    coord (merge coord))]
-                       (registrar/register! kind [machine-id id] meta)))]
-      (doseq [[id s] guards]  (write! :machine-guard  :rf/guard-id  id s))
-      (doseq [[id s] actions] (write! :machine-action :rf/action-id id s)))))
+                       (registrar/register! kind [machine-id id] meta))))]
+      (write! :machine-guard  :rf/guard-id  :guards)
+      (write! :machine-action :rf/action-id :actions))))
 
 (defn- clear-machine-handler-metas!
   "Drop every `:machine-guard` / `:machine-action` registrar entry
@@ -135,22 +121,23 @@
   missing-artefact error trace so `:where` matches what the user
   wrote at the call site.
 
-  Per rf2-ypu5i: writes per-(machine-id, guard-id) and per-(machine-id,
-  action-id) handler-meta entries into the registrar under
-  `:machine-guard` / `:machine-action` kinds so the xray
+  Per rf2-npvsx (supersedes rf2-ypu5i): writes per-(machine-id, guard-id)
+  and per-(machine-id, action-id) handler-meta entries into the registrar
+  under `:machine-guard` / `:machine-action` kinds so the xray
   focused-transition lens can render fn-source via `(rf/handler-meta
-  :machine-guard [machine-id guard-id])`. Stale entries from a prior
-  registration of the same `machine-id` are cleared first so a
-  hot-reload that renames a guard does not leave the old id around.
-  Production-elided via `interop/debug-enabled?`."
+  :machine-guard [machine-id guard-id])`. The source is read off the
+  co-located `:guards` / `:actions` entry maps (`{:fn .. :source-code ..}`).
+  Stale entries from a prior registration of the same `machine-id` are
+  cleared first so a hot-reload that renames a guard does not leave the
+  old id around. Production-elided via `interop/debug-enabled?`."
   [where-sym machine-id machine]
   ;; Run the handler-meta side-table churn around the canonical
   ;; registration. Clear-first preserves the slot-invariant under
   ;; hot reload (rename / remove a guard id and the stale slot
   ;; disappears). Both clear and register no-op under production
-  ;; elision (the macro path elides the `:rf.machine/handler-source`
-  ;; stamp, so there's nothing to register, and the unregister loop
-  ;; touches an empty map).
+  ;; elision (the macro emits co-located entries with no `:source-code`
+  ;; slot in prod, so there's nothing to register, and the unregister
+  ;; loop touches an empty map).
   (clear-machine-handler-metas! machine-id)
   (let [result ((late-bind/require-fn! :machines/reg-machine
                                        where-sym

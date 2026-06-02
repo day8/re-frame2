@@ -182,92 +182,124 @@
                               (symbol (str (ns-name ~'*ns*)))
                               (list* '~qualified args#)))))))
 
-;; ---- reg-machine expansion (per-element coord stamping) ------------------
+;; ---- reg-machine expansion (co-located per-element source) ---------------
 ;;
 ;; The bespoke reg-* form (Spec 005 §Source-coord stamping; rf2-xbtj) —
-;; doesn't fit the splice-through pattern because the spec form is
-;; walked at compile time and a per-element coord index is emitted
-;; under `:rf.machine/source-coords`. The walker drops to {} for non-
-;; literal spec forms (a runtime symbol) and tools fall back to the
+;; doesn't fit the splice-through pattern because the spec form is walked
+;; at compile time. Per rf2-npvsx the walk produces ONE cohesive map per
+;; guard / action / on-spawn-action — `:guards {<id> {:fn .. :source-coords
+;; .. :source-code ..}}` — plus a reference-site `:states`-tree coord index
+;; under `:rf.machine/state-coords`. The walker drops to the unchanged spec
+;; for non-literal forms (a runtime symbol) and tools fall back to the
 ;; top-level handler-meta call-site coords.
+
+#?(:clj
+   (def ^:private machine-element-slots
+     "The machine-spec slots whose `{<id> <fn>}` values are co-located into
+     `{<id> {:fn .. :source-coords .. :source-code ..}}` per rf2-npvsx."
+     [:guards :actions :on-spawn-actions]))
 
 #?(:clj
    (defn stamp-machine-spec-expr
      "Walk the literal machine-spec form `spec-form` at expansion time and
      return either the `value-expr` unchanged (when the spec is not a
-     literal map — a symbol / let-bound expr the walker can't see into,
-     so there's nothing to stamp) OR an `(if interop/debug-enabled? ...)`
-     expression that `assoc`s the per-element source-coord index
-     (`:rf.machine/source-coords`) and the per-id guard / action fn-form
-     source-string map (`:rf.machine/handler-source`) onto `value-expr`.
+     literal map — a symbol / let-bound expr the walker can't see into, so
+     there's nothing to stamp) OR an `(if interop/debug-enabled? <dev>
+     <prod>)` expression.
 
-     `value-expr` is the runtime expression that evaluates to the spec
-     map (the spec form itself for `reg-machine`; a gensym bound to it
-     for `defmachine`). `ns-sym` / `file` come from the calling macro's
-     compile environment.
+     Per rf2-npvsx the two arms CO-LOCATE per-element source onto each
+     `:guards` / `:actions` / `:on-spawn-actions` entry rather than building
+     the old `:rf.machine/source-coords` + `:rf.machine/handler-source`
+     side-indexes:
 
-     This is the SHARED stamping core behind both the `reg-machine`
-     macro (which stamps the spec it registers) and the `defmachine`
-     macro (which stamps the spec it `def`s, so a value-registered
-     machine — `(defmachine m …)` then `(reg-machine :id m)` — carries
-     per-element source even though `reg-machine` sees only the symbol;
-     rf2-gwj8l). Per rf2-ypu5i / rf2-8bp3 the stamps DCE under
-     `:advanced + goog.DEBUG=false`."
+     - DEV arm: `source-coords/collocate-element-source` merges the per-id
+       `{:source-coords {...} :source-code \"...\"}` data (built by the
+       compile-time `walk-element-source`) onto each entry, yielding
+       `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`. Plus
+       the reference-site `:states`-tree coord index is `assoc`d under
+       `:rf.machine/state-coords`.
+     - PROD arm: `source-coords/wrap-element-fns` collapses each entry to
+       `{<id> {:fn <fn>}}` — NO source literals, so Closure DCEs the dev arm
+       (with its coord maps + `pr-str` strings + state-coord index) under
+       `:advanced` + `goog.DEBUG=false`.
+
+     `value-expr` is the runtime expression that evaluates to the spec map
+     (the spec form itself for `reg-machine`; a gensym bound to it for
+     `defmachine`). `ns-sym` / `file` come from the calling macro's compile
+     environment.
+
+     This is the SHARED stamping core behind both the `reg-machine` macro
+     (which stamps the spec it registers) and the `defmachine` macro (which
+     stamps the spec it `def`s, so a value-registered machine —
+     `(defmachine m …)` then `(reg-machine :id m)` — carries per-element
+     source even though `reg-machine` sees only the symbol; rf2-gwj8l)."
      [spec-form ns-sym file value-expr]
-     (let [per-el-coords  (source-coords/walk-machine-spec spec-form ns-sym file)
-           ;; Symbols inside `:ns` need explicit quoting — otherwise the
-           ;; syntax-quote splice would namespace-resolve them at compile
-           ;; time (ClassNotFoundException for the consumer's ns).
-           per-el-form    (into {}
+     (if-not (map? spec-form)
+       value-expr
+       (let [;; Per-slot dev source data — {<id> {:source-coords <form>
+             ;; :source-code <pr-str>}}. Empty when the slot is absent.
+             slot->src    (into {}
+                                (map (fn [slot]
+                                       [slot (source-coords/walk-element-source
+                                               spec-form slot ns-sym file)]))
+                                machine-element-slots)
+             ;; Reference-site (states-tree) coords. Built syntax-quote-safe
+             ;; (`:ns` quoted) so the splice doesn't namespace-resolve the
+             ;; consumer's ns at compile time (ClassNotFoundException).
+             state-coords (into {}
                                 (map (fn [[path coords]]
                                        [path
                                         (cond-> {:ns (list 'quote (:ns coords))}
                                           (:file coords)   (assoc :file (:file coords))
                                           (:line coords)   (assoc :line (:line coords))
-                                          (:column coords) (assoc :column (:column coords)))])
-                                     per-el-coords))
-           ;; rf2-ypu5i — per-id guard/action fn-form source strings.
-           handler-source (source-coords/walk-machine-handler-source spec-form)
-           has-coords?    (boolean (seq per-el-coords))
-           has-source?    (boolean (seq handler-source))]
-       (if-not (or has-coords? has-source?)
-         value-expr
-         ;; rf2-ypu5i — the `has-coords?` / `has-source?` flags are baked
-         ;; into the emission as literal booleans (NOT spliced seqs).
-         ;; Splicing the raw `(seq m)` would expand to a `cond->` clause
-         ;; whose test-position is the LITERAL seq of map entries (which
-         ;; `cond->` then evaluates by attempting to call the first
-         ;; entry-vector as a fn — wrong shape). The boolean cast keeps
-         ;; the `cond->` clauses well-formed at expansion time while
-         ;; folding away unreachable branches.
-         `(if re-frame.interop/debug-enabled?
-            (cond-> ~value-expr
-              ~has-coords? (assoc :rf.machine/source-coords ~per-el-form)
-              ~has-source? (assoc :rf.machine/handler-source ~handler-source))
-            ~value-expr)))))
+                                          (:column coords) (assoc :column (:column coords)))]))
+                                (source-coords/walk-machine-spec spec-form ns-sym file))
+             ;; Only co-locate slots actually present on the spec; both
+             ;; helpers no-op on an absent slot, but emitting calls only for
+             ;; present slots keeps the expansion lean.
+             present-slots (filterv #(map? (get spec-form %)) machine-element-slots)
+             ;; The state-coords assoc is a single extra `->` step, gated on
+             ;; the coords being non-empty.
+             state-step   (when (seq state-coords)
+                            [`(assoc :rf.machine/state-coords ~state-coords)])
+             dev-form     `(-> ~value-expr
+                              ~@(map (fn [slot]
+                                       `(source-coords/collocate-element-source
+                                          ~slot ~(get slot->src slot)))
+                                     present-slots)
+                              ~@state-step)
+             prod-form    `(-> ~value-expr
+                              ~@(map (fn [slot]
+                                       `(source-coords/wrap-element-fns ~slot))
+                                     present-slots))]
+         (if (and (empty? present-slots) (empty? state-coords))
+           ;; Nothing debug-only to emit (no element slots, no states coords).
+           value-expr
+           `(if re-frame.interop/debug-enabled?
+              ~dev-form
+              ~prod-form))))))
 
 #?(:clj
    (defn expand-reg-machine
      "Build the expansion form for a `reg-machine` macro call. Per
-     Spec 005 §Source-coord stamping; rf2-xbtj. `form-meta` is `(meta
-     &form)`; `ns-sym` / `file` are `*ns*` / `*file*` at expansion time.
-     The per-element coord-index literal is gated on
-     `interop/debug-enabled?` so it DCEs under :advanced +
-     `goog.DEBUG=false`.
+     Spec 005 §Source-coord stamping; rf2-xbtj / rf2-npvsx. `form-meta`
+     is `(meta &form)`; `ns-sym` / `file` are `*ns*` / `*file*` at
+     expansion time. The per-element co-location + reference-site coord
+     index ride [[stamp-machine-spec-expr]]'s `interop/debug-enabled?`
+     gate so the dev-only source DCEs under :advanced + `goog.DEBUG=false`.
 
-     Per rf2-ypu5i: also walks the literal spec for guard / action
-     fn-form source-strings and emits a `:rf.machine/handler-source`
-     stamp `{:guards {id pr-str ...} :actions {id pr-str ...}}`. The
-     `core-machines/reg-machine-impl` runtime reads this stamp and
-     writes per-(machine-id, guard-id) / per-(machine-id, action-id)
-     entries into the registrar under `:machine-guard` / `:machine-
-     action` so tooling can read `(rf/handler-meta :machine-guard
-     [machine-id guard-id])`. Same DEBUG gate; the literal source
-     strings DCE alongside the coord index under `goog.DEBUG=false`.
+     The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}`
+     onto each `:guards` / `:actions` / `:on-spawn-actions` entry; the
+     `core-machines/reg-machine-impl` runtime reads each entry's
+     `:source-code` and writes per-(machine-id, guard-id) /
+     per-(machine-id, action-id) entries into the registrar under
+     `:machine-guard` / `:machine-action` so tooling can read
+     `(rf/handler-meta :machine-guard [machine-id guard-id])`. The PROD
+     arm collapses each entry to `{:fn <fn>}` (no source).
 
      When `machine` is NOT a literal map (a symbol bound by `def` /
      `defmachine`, a let-bound expr), [[stamp-machine-spec-expr]] returns
-     the spec expr unchanged — the per-element stamps live on the
+     the spec expr unchanged — the co-located source lives on the
      def'd value instead (via `defmachine`; rf2-gwj8l)."
      [form-meta ns-sym file machine-id machine]
      (let [machine-sym (gensym "machine__")
@@ -293,21 +325,20 @@
    (defn expand-defmachine
      "Build the expansion form for a `defmachine` macro call (rf2-gwj8l).
      `(defmachine name spec)` expands to a `(def name <stamped-spec>)`
-     where the literal spec is walked at expansion time and the
-     per-element source-coord index + guard / action fn-form source
-     strings are `assoc`d onto the def'd value (gated on
-     `interop/debug-enabled?` so the stamps DCE under `:advanced +
-     goog.DEBUG=false`).
+     where the literal spec is walked at expansion time and per-element
+     source is co-located onto each `:guards` / `:actions` /
+     `:on-spawn-actions` entry (plus the reference-site
+     `:rf.machine/state-coords` index), gated on `interop/debug-enabled?`
+     so the dev-only source DCEs under `:advanced + goog.DEBUG=false`.
 
      The whole point: a VALUE-registered machine —
      `(defmachine door-machine {…}) … (reg-machine :door/main
      door-machine)` — carries per-element source even though
      `reg-machine` sees only the `door-machine` symbol at its call site.
-     The stamps travel WITH the value, so when `reg-machine-impl` reads
-     `:rf.machine/handler-source` / `:rf.machine/source-coords` off the
-     spec at registration time they are present, and the
-     `:machine-guard` / `:machine-action` registrar handler-metas get
-     written.
+     The co-located source travels WITH the value, so when
+     `reg-machine-impl` reads each entry's `:source-code` at registration
+     time it is present, and the `:machine-guard` / `:machine-action`
+     registrar handler-metas get written."
 
      `ns-sym` / `file` are `*ns*` / `*file*` at expansion time. An
      optional leading `doc` string rides through to the emitted `def`

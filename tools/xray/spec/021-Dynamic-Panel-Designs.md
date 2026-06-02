@@ -1429,10 +1429,11 @@ The projection walks `:trace-events` and surfaces every member of
   set `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit`.
 - **Verb** — the action-id / guard-id / transition headline / timer
-  state, rendered as a click-to-source button when the machine spec's
-  `:rf.machine/source-coords` index (rf2-8bp3) carries a `{:file :line}`
-  for the row's spec-path. Falls back to a plain coloured span when
-  no coord was captured.
+  state, rendered as a click-to-source button when a `{:file :line}`
+  coord resolves for the row (a named guard/action reads its co-located
+  `:source-coords`; a reference-site `[:states ...]` key reads the spec's
+  `:rf.machine/state-coords` index — rf2-npvsx). Falls back to a plain
+  coloured span when no coord was captured.
 - **Duration chip** — right-aligned monospace; paints long-step
   warning chrome (`▲` + warning tone) when `:duration-ms` exceeds
   `projection/long-step-threshold-ms` (16ms — one 60Hz frame).
@@ -1450,30 +1451,32 @@ renders the source form pulled from the registered machine spec via
 source block uses).
 
 The machine spec is read off `(rf/handler-meta :event event-id)`'s
-`:rf/machine` slot (rf2-ge6uj ISSUE 2) — the stamped spec carrying
-`:rf.machine/handler-source` (named guard/action fn-form pr-str
-strings, rf2-ypu5i) and `:rf.machine/source-coords` (per-element
-`{:file :line}` index, rf2-8bp3). The prior code read `(rf/handler-meta
-:machine event-id)`, a NON-EXISTENT registrar kind that always resolved
-nil — so `machine-spec-from-meta` saw no spec and every exit / entry
-action + guard row rendered the `<source not yet captured>`
-placeholder. Reading under `:event` (where the machine handler is
-registered) surfaces the stamped spec so the interleaved source code
-resolves for named handlers; inline-fn / transition / timer rows
-resolve via the source-coord index. Source-key dispatch
-(`projection/cascade-row-source-key`) returns the spec-path tuple under
-which the macro stamped the per-element source-coord (rf2-8bp3):
+`:rf/machine` slot (rf2-ge6uj ISSUE 2) — the stamped spec whose
+`:guards` / `:actions` entries co-locate `:source-code` (named
+guard/action fn-form pr-str strings) + `:source-coords` (per-element
+`{:file :line}`), plus the reference-site `:rf.machine/state-coords`
+index (rf2-npvsx, supersedes rf2-ypu5i / rf2-8bp3). The prior code read
+`(rf/handler-meta :machine event-id)`, a NON-EXISTENT registrar kind
+that always resolved nil — so `machine-spec-from-meta` saw no spec and
+every exit / entry action + guard row rendered the `<source not yet
+captured>` placeholder. Reading under `:event` (where the machine
+handler is registered) surfaces the stamped spec so the interleaved
+source code resolves for named handlers (off the co-located entry);
+inline-fn / transition / timer rows resolve via `:rf.machine/state-
+coords`. Source-key dispatch (`projection/cascade-row-source-key`)
+returns the spec-path tuple the view's `named-element-key`
+discriminator routes between the two lookup targets:
 
-| Row kind | id flavour              | spec-path key                                         |
-|----------|-------------------------|-------------------------------------------------------|
-| `:action`| keyword `action-id`     | `[:actions <id>]` (definition-site stamp)             |
-| `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  |
-| `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   |
-| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     |
-| `:guard` | keyword `guard-id`      | `[:guards <id>]` (definition-site stamp)              |
-| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      |
-| `:transition` | —                  | `[:states <source-state>... :on <event>]`             |
-| `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  |
+| Row kind | id flavour              | spec-path key                                         | lookup target |
+|----------|-------------------------|-------------------------------------------------------|---------------|
+| `:action`| keyword `action-id`     | `[:actions <id>]`                                     | co-located entry `:source-coords` / `:source-code` |
+| `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  | `:rf.machine/state-coords` |
+| `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   | `:rf.machine/state-coords` |
+| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     | `:rf.machine/state-coords` |
+| `:guard` | keyword `guard-id`      | `[:guards <id>]`                                      | co-located entry `:source-coords` / `:source-code` |
+| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      | `:rf.machine/state-coords` |
+| `:transition` | —                  | `[:states <source-state>... :on <event>]`             | `:rf.machine/state-coords` |
+| `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  | `:rf.machine/state-coords` |
 
 The per-row `:source-state` / `:target-state` / `:event-id` slots are
 stamped by `machine-cascade-rows`'s `enrich-cascade-rows` pass —
@@ -2120,7 +2123,7 @@ rhythm without leaving the panel.
 
 | `:source`            | Rendered label                                                | Click affordance |
 |----------------------|---------------------------------------------------------------|------------------|
-| `:after-timer`       | `from :after timer · 250ms on [:active :authenticating]`      | the state-path is click-to-source on the machine spec's `:rf.machine/source-coords` index (rf2-8bp3); falls through to a plain monospace span when no coord captured |
+| `:after-timer`       | `from :after timer · 250ms on [:active :authenticating]`      | the state-path is click-to-source on the machine spec's `:rf.machine/state-coords` reference-site index (rf2-npvsx); falls through to a plain monospace span when no coord captured |
 | `:machine-spawn`     | `from machine spawn · :child-actor-id`                        | none (the actor-id is gensym'd; resolving its spec is a follow-on enrichment) |
 | `:fx-dispatch`       | `from fx :dispatch · parent epoch #142`                       | the parent-epoch chip is click-to-navigate via `:rf.xray/focus-epoch <epoch-id>` (registered in `spine.cljs`'s `install!` per rf2-5qp4g) |
 | `:fx-dispatch-later` | `from fx :dispatch-later · 500ms · parent epoch #142`         | same parent-epoch navigation; the `500ms` chip surfaces when the trace carries the optional `:rf.event/source-detail :ms` tag |
@@ -2237,7 +2240,7 @@ and silently rendered empty rows. The binding inventory:
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value`, `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v> :duration-ms <ms>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` duration | `:rf.event/run-end` `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). |
-| `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :machine id) → :rf/machine → :rf.machine/source-coords` (rf2-8bp3), keyed by `[:actions <id>] | [:guards <id>]`. |
+| `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :event id) → :rf/machine`, then the co-located entry `:source-coords` for a named `[:actions <id>] | [:guards <id>]` key, or the spec's `:rf.machine/state-coords` index for a reference-site `[:states ...]` key (rf2-npvsx). |
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these). **`inputs` column source (rf2-87c8a):** the column is NOT trace-sourced — the view resolves the sub's STATIC input topology via `(rf/handler-meta :sub <sub-id>) → :input-signals` keyed by the SUB-ID (first element of the query-v), so every parameterized instance `[:sub-id arg…]` shows its REAL input sub. `app-db` is the label only for a genuine Level-1 reader (`:input-signals` empty). The `:rf.sub/cause-sub` cascade attribution feeds the `caused by <event-id>` chrome (rf2-1cc03), not the `inputs` column — pre-rf2-87c8a the projection's `:inputs` slot sourced from `:rf.sub/cause-sub`, which was OMITTED outside an in-flight cascade and so mislabeled fresh-run derived/parameterized subs (`[:standard-epochs/greater-than? 5]`) as `app-db`. |

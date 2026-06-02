@@ -863,7 +863,8 @@
 
   The enrichment slots feed `cascade-row-source-key` so inline-fn
   `:entry` / `:exit` / `:guard` / transition / timer rows can resolve
-  their spec-path tuple under `:rf.machine/source-coords` (rf2-8bp3).
+  their spec-path tuple under the spec's `:rf.machine/state-coords`
+  reference-site index (rf2-npvsx).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
   reg-event-db / reg-event-fx cascades — the redesign is

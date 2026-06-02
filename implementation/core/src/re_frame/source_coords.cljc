@@ -110,6 +110,72 @@
         (merge coords (or user-meta {}))
         (or user-meta {})))))
 
+;; ---- co-located per-element machine source (rf2-npvsx) -------------------
+;;
+;; The registered machine spec carries ONE cohesive map per guard / action /
+;; on-spawn-action: `:guards {<id> {:fn <fn> :source-coords {...} :source-code
+;; "..."}}` (and likewise `:actions` / `:on-spawn-actions`). The `:fn` slot is
+;; ALWAYS present — it's the function the transition engine invokes. The
+;; `:source-coords` / `:source-code` slots are DEBUG-only: the reg-machine
+;; macro emits them via [[collocate-element-source]] under an
+;; `(if interop/debug-enabled? ...)` gate, so production CLJS builds run the
+;; `(else)` branch — [[wrap-element-fns]] — which collapses each entry to
+;; `{:fn <fn>}` with no source literals reachable. Keeping `:fn` separable is
+;; what lets Closure DCE the dev-only source bytes (rf2-npvsx supersedes the
+;; rf2-8bp3 `:rf.machine/source-coords` + rf2-ypu5i `:rf.machine/handler-
+;; source` side-indexes — consumers now read ONE place, one lookup).
+
+(defn wrap-element-fns
+  "Production-branch co-location: rewrite the `slot-key` map's
+  `{<id> <fn-or-ref>}` entries to `{<id> {:fn <fn-or-ref>}}`, dropping
+  every debug slot. A keyword-reference value (`{<id> :other-id}`) is
+  preserved verbatim — `:fn` would be a misnomer for an indirection, and
+  the transition engine's `chase-ref` follows the bare keyword. No-op
+  when the slot is absent or not a map. Returns the updated spec.
+
+  This is the `(else)` arm of the reg-machine macro's
+  `(if interop/debug-enabled? <collocate> <wrap>)` gate — it references
+  NO source literals, so under `:advanced` + `goog.DEBUG=false` the
+  whole dev arm (with its coord maps + `pr-str` source strings) DCEs and
+  only `{:fn <fn>}` entries ship."
+  [spec slot-key]
+  (let [m (get spec slot-key)]
+    (if-not (map? m)
+      spec
+      (assoc spec slot-key
+             (reduce-kv
+               (fn [acc id v]
+                 (assoc acc id (if (keyword? v) v {:fn v})))
+               {} m)))))
+
+(defn collocate-element-source
+  "Dev-branch co-location: rewrite the `slot-key` map's `{<id> <fn-or-ref>}`
+  entries to `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`,
+  merging the per-id `source-data` (a `{<id> {:source-coords {...}
+  :source-code \"...\"}}` map the reg-machine macro stamped at expansion
+  time). Entries with no matching `source-data` (e.g. a let-bound symbol
+  the walker couldn't `pr-str` meaningfully) still get a `{:fn <fn>}`
+  wrapper. Keyword-reference values are preserved verbatim (no `:fn`
+  wrapper — `chase-ref` follows the bare keyword). Returns the updated
+  spec.
+
+  This is the dev arm of the reg-machine macro's `(if interop/debug-
+  enabled? <collocate> <wrap>)` gate. The `source-data` literal is
+  referenced ONLY here, so it DCEs alongside this arm under `:advanced` +
+  `goog.DEBUG=false`."
+  [spec slot-key source-data]
+  (let [m (get spec slot-key)]
+    (if-not (map? m)
+      spec
+      (assoc spec slot-key
+             (reduce-kv
+               (fn [acc id v]
+                 (assoc acc id
+                        (if (keyword? v)
+                          v
+                          (merge {:fn v} (get source-data id)))))
+               {} m)))))
+
 ;; ---- always-on error-coord registry (rf2-3un2g) --------------------------
 ;;
 ;; The parallel registry that retains source-coords in production builds.
@@ -363,29 +429,34 @@
           ~chosen-file       (assoc :file ~chosen-file)
           ~(:line form-meta) (assoc :line ~(:line form-meta))))))
 
-;; ---- per-element spec stamping -------------------------------------------
+;; ---- reference-site (states-tree) coord stamping -------------------------
 ;;
-;; Per Spec 005 §Source-coord stamping: the `reg-machine` macro
-;; walks its literal machine-spec form at expansion time and produces a
-;; per-element coord index keyed by **path through the spec**. Tools (pair,
-;; 10x, IDE jump-to-source) read the index back via `(rf/handler-meta :event
-;; machine-id)` → `:rf/machine` → `:rf.machine/source-coords`.
+;; Per Spec 005 §Source-coord stamping: the `reg-machine` macro walks its
+;; literal machine-spec form at expansion time and produces a REFERENCE-SITE
+;; coord index keyed by **path through the `:states` tree**, stamped onto the
+;; registered spec under `:rf.machine/state-coords`. Tools (pair, 10x, IDE
+;; jump-to-source) read it back via `(rf/handler-meta :event machine-id)` →
+;; `:rf/machine` → `:rf.machine/state-coords`.
 ;;
-;; The index is a flat map `{<path-tuple> {:ns sym :line int :column int :file
-;; string}, ...}`. Stamping covers BOTH definition sites (where a fn literal
-;; lives — `:guards`/`:actions`/`:on-spawn-actions` map values) AND reference
-;; sites (where a keyword reference is mentioned — `:guard`/`:action`/`:entry`/
-;; `:exit`/`:on-spawn`/`:always` slots inside `:states`). Mike's rule (per the
-;; bead's exemption case): a keyword `:guard :form-valid?` is stamped at the
-;; reference site too, not just the definition. Tools wanting "where is the
-;; guard defined?" read `[:guards :form-valid?]`; tools wanting "where is the
-;; transition that calls it?" read `[:states :idle :on :submit :guard]`. Both
-;; coords elide together under `goog.DEBUG=false`.
+;; The DEFINITION-site coords (where a guard / action / on-spawn-action fn
+;; literal lives — the `:guards` / `:actions` / `:on-spawn-actions` map
+;; values) NO LONGER live here. Per rf2-npvsx they are co-located on each
+;; element entry instead (`:guards {<id> {:fn .. :source-coords .. :source-
+;; code ..}}`), so a consumer reads one place per element. See
+;; [[walk-element-source]] + [[collocate-element-source]].
 ;;
-;; Path tuples are vectors of keys mirroring the spec's tree structure. The
-;; walker runs at compile time on JVM only (the Clojure side of the macro)
-;; and emits a literal map into the macro expansion; the runtime sees
-;; ordinary data.
+;; What remains here is the reference-site index: each transition map / state
+;; node / inline-fn slot inside `:states`, keyed by its full spec path, e.g.
+;; `[:states :idle :on :submit :guard]`. Mike's rule (per the bead's
+;; exemption case): a keyword `:guard :form-valid?` is NOT stamped at the
+;; reference site (a keyword carries no reader metadata); only the enclosing
+;; transition map's coord is stamped. An inline-fn `:guard (fn [_] ...)`
+;; carries its own reader metadata, so its reference site IS stamped.
+;;
+;; Path tuples are vectors of keys mirroring the spec's `:states` structure.
+;; The walker runs at compile time on JVM only (the Clojure side of the
+;; macro) and emits a literal map into the macro expansion; the runtime sees
+;; ordinary data, and the whole literal DCEs under `goog.DEBUG=false`.
 
 #?(:clj
    (do
@@ -511,19 +582,19 @@
       acc states-form)))
 
 (defn walk-machine-spec
-  "Compile-time helper. Walk a literal machine-spec form (a Clojure map
-  literal as it appears in user code) and return a flat map
-  `{<path-tuple> {:ns :line :column :file}, ...}` capturing per-element
+  "Compile-time helper. Walk a literal machine-spec form's `:states` tree
+  (a Clojure map literal as it appears in user code) and return a flat map
+  `{<path-tuple> {:ns :line :column :file}, ...}` capturing REFERENCE-SITE
   source coordinates.
 
-  Definition sites: each fn literal under `:guards` / `:actions` /
-  `:on-spawn-actions` is keyed by `[:guards :id]` / `[:actions :id]` /
-  `[:on-spawn-actions :id]`.
-
-  Reference sites: each keyword reference under `:entry` / `:exit` /
-  `:guard` / `:action` / `:on-spawn` (and the enclosing transition map)
+  Reference sites: each inline-fn slot under `:entry` / `:exit` / `:guard`
+  / `:action` / `:on-spawn` (and the enclosing transition map / state node)
   inside the `:states` tree is keyed by its full spec path, e.g.
   `[:states :idle :on :submit :guard]`.
+
+  Definition-site coords (each fn literal under `:guards` / `:actions` /
+  `:on-spawn-actions`) are NOT produced here — per rf2-npvsx they are
+  co-located on each element entry via [[walk-element-source]].
 
   When the spec form is not a map literal (a symbol, a let-bound expr),
   returns `{}` — there's no literal tree to walk; tools fall back to the
@@ -538,79 +609,65 @@
   (if-not (map? spec-form)
     {}
     (let [acc (transient {})]
-      ;; Definition-site stamping for :guards / :actions / :on-spawn-actions.
-      (doseq [[def-key path-key] [[:guards            :guards]
-                                  [:actions           :actions]
-                                  [:on-spawn-actions  :on-spawn-actions]]]
-        (when-let [m (get spec-form def-key)]
-          (when (map? m)
-            (reduce-kv
-              (fn [_ id fn-form]
-                (stamp! [path-key id] fn-form)
-                nil)
-              nil m))))
       ;; Reference-site stamping under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! acc))))
 
-;; ---- machine guard / action form-source capture (rf2-ypu5i) --------------
+;; ---- co-located per-element source walk (rf2-npvsx) ----------------------
 ;;
-;; Mirrors `*pending-form-source*` for the reg-event-* path (rf2-xgfuy) but
-;; per-id under the `:guards` / `:actions` slots of a literal machine spec.
-;; The `reg-machine` macro walks the spec at expansion time, `pr-str`s each
-;; fn-form, and emits the per-id source-string map literal into the
-;; expansion under the spec's `:rf.machine/handler-source` key. The
-;; `core-machines/reg-machine-impl` runtime then reads this key and writes
-;; the per-(machine-id, id) `:rf.handler/source` slots into the registrar
-;; under the `:machine-guard` / `:machine-action` kinds, so tooling can
-;; read `(rf/handler-meta :machine-guard [<machine-id> <guard-id>])` and
-;; receive `{:rf/guard-id <guard-id> :rf.handler/source <pr-str-of-fn> ...}`.
+;; The reg-machine macro walks the literal `:guards` / `:actions` /
+;; `:on-spawn-actions` maps at expansion time and produces, per id, the
+;; definition-site source coords (the fn-form's reader position) AND the
+;; `pr-str` of the fn-form. These are merged onto each element entry's
+;; `{:fn .. :source-coords .. :source-code ..}` co-located map at registration
+;; runtime by [[collocate-element-source]] — but ONLY in the dev arm of the
+;; macro's `(if interop/debug-enabled? ...)` gate, so under `:advanced` +
+;; `goog.DEBUG=false` the source-coord maps + `pr-str` strings DCE and prod
+;; entries collapse to `{:fn <fn>}` ([[wrap-element-fns]]).
 ;;
-;; The :guards / :actions values may be plain fn-forms `(fn [ctx] …)`
-;; OR keyword references (a guard-id keyword shared between transitions
-;; that re-uses the same predicate). Only the fn-literal entries have
-;; source to capture; keyword references are skipped here — the
-;; reference-site coords already live in `walk-machine-spec`.
+;; A keyword-reference entry (`{<id> :other-id}`) carries no source — it is
+;; skipped here and preserved verbatim by the co-location helpers.
 
-(defn walk-machine-handler-source
-  "Compile-time helper. Walk a literal machine-spec form and return a
-  map of the form
+(defn walk-element-source
+  "Compile-time helper. Walk a literal machine-spec form's `slot-key` map
+  (`:guards` / `:actions` / `:on-spawn-actions`) and return per-id source
+  data:
 
-      {:guards  {<guard-id>  <pr-str-of-fn-form>, ...}
-       :actions {<action-id> <pr-str-of-fn-form>, ...}}
+      {<id> {:source-coords <coord-form>   ;; the fn-form's reader position
+             :source-code   <pr-str>}      ;; the fn-form as source text
+       ...}
 
-  Only `(fn ...)` / `(fn* ...)` literal entries under `:guards` and
-  `:actions` contribute — keyword-reference entries are skipped (their
-  definition lives under the referenced id). Returns `{}` when the spec
-  form is not a map literal (a symbol, a let-bound expr).
+  `<coord-form>` is the syntax-quote-safe coord map (`:ns` quoted) the
+  caller splices into the dev arm of the macro expansion; `<pr-str>` is the
+  literal source string. Keyword-reference entries are skipped (no source).
+  Returns `{}` when the slot is absent / not a map, or the spec form is not
+  a map literal (a symbol, a let-bound expr).
 
-  JVM-only — runs on the Clojure side of the `reg-machine` macro.
-  Returns a plain map literal the macro splices into its expansion;
-  under `goog.DEBUG=false` the closure compiler DCEs the entire literal
-  (every value is a `pr-str` of source text — a literal string
-  reachable only from the splice site)."
-  [spec-form]
+  JVM-only — runs on the Clojure side of the `reg-machine` macro. The whole
+  returned literal is referenced only from the dev arm, so it DCEs under
+  `:advanced` + `goog.DEBUG=false`."
+  [spec-form slot-key ns-sym file]
   (if-not (map? spec-form)
     {}
-    (let [walk-slot
-          (fn [slot-key]
-            (when-let [m (get spec-form slot-key)]
-              (when (map? m)
-                (reduce-kv
-                  (fn [acc id fn-form]
-                    ;; Skip keyword references — only literal fn-forms
-                    ;; carry source. Symbols / let-bound exprs that
-                    ;; aren't literal `(fn ...)` forms also contribute
-                    ;; the surface `pr-str` here (best-effort; tools
-                    ;; rendering source as code can still show "(fn-ref)").
-                    (if (keyword? fn-form)
-                      acc
-                      (assoc acc id (pr-str fn-form))))
-                  {} m))))
-          guards  (walk-slot :guards)
-          actions (walk-slot :actions)]
-      (cond-> {}
-        (seq guards)  (assoc :guards  guards)
-        (seq actions) (assoc :actions actions)))))
+    (let [m (get spec-form slot-key)]
+      (if-not (map? m)
+        {}
+        (reduce-kv
+          (fn [acc id fn-form]
+            (if (keyword? fn-form)
+              acc
+              (let [coords (form-coords fn-form ns-sym file)
+                    ;; Symbols inside `:ns` need explicit quoting — see the
+                    ;; rationale in stamp-machine-spec-expr (otherwise the
+                    ;; splice would namespace-resolve them at compile time).
+                    coord-form (when coords
+                                 (cond-> {:ns (list 'quote (:ns coords))}
+                                   (:file coords)   (assoc :file (:file coords))
+                                   (:line coords)   (assoc :line (:line coords))
+                                   (:column coords) (assoc :column (:column coords))))]
+                (assoc acc id
+                       (cond-> {:source-code (pr-str fn-form)}
+                         coord-form (assoc :source-coords coord-form))))))
+          {} m)))))
 
    )) ;; end #?(:clj (do ...))

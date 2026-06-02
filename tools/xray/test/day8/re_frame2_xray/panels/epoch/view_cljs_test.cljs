@@ -180,10 +180,11 @@
 
 (deftest dispatch-source-after-timer-state-path-resolves-coord-test
   (testing "rf2-dcsw1 (iwy0c-followup) — when the `:after-timer` source
-            machine is registered with an `:rf.machine/source-coords`
-            index carrying a coord for the state-path, the state-path
-            chip resolves the coord and renders as a CLICKABLE button
-            (open-in-editor link), NOT the dead plain-span placeholder.
+            machine is registered with an `:rf.machine/state-coords`
+            reference-site index carrying a coord for the state-path, the
+            state-path chip resolves the coord and renders as a CLICKABLE
+            button (open-in-editor link), NOT the dead plain-span
+            placeholder.
 
             `machine-state-path-coord` previously read the NON-EXISTENT
             `:machine` registrar kind → resolved nil → every machine
@@ -191,19 +192,19 @@
             part C fixed in `handler-source-block` / `machine-block`,
             which read `:event` + the `:rf/machine` spec). This pins the
             fixed path: read `:event` + the spec's
-            `:rf.machine/source-coords`."
+            `:rf.machine/state-coords` (rf2-npvsx)."
     (rf/with-frame :rf/default
       ;; A machine is registered as a `reg-event-fx` carrying
-      ;; `:rf/machine? true` + the stamped spec (with
-      ;; `:rf.machine/source-coords`, rf2-8bp3) under `:rf/machine`. The
-      ;; source-coords index keys by the spec-path shape that
+      ;; `:rf/machine? true` + the stamped spec (with the reference-site
+      ;; `:rf.machine/state-coords` index, rf2-npvsx) under `:rf/machine`.
+      ;; The index keys by the spec-path shape that
       ;; `projection/state-spec-path-prefix` produces for the state-path:
       ;; `[:active :authenticating]` → `[:states :active :states
       ;; :authenticating]`.
       (rf/reg-event-fx :rf2-dcsw1.view/timer-machine
                        {:rf/machine? true
                         :rf/machine {:initial :active
-                                     :rf.machine/source-coords
+                                     :rf.machine/state-coords
                                      {[:states :active :states :authenticating]
                                       {:file "src/app/auth.cljs" :line 42}}
                                      :states {:active {}}}}

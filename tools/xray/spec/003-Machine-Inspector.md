@@ -242,20 +242,20 @@ per-(machine-id, id) entries into the registrar under the new kinds:
 The lens renders `:rf.handler/source` inline beneath the guard /
 action id. Production-elided per Spec 009 §Production builds — under
 `:advanced` + `goog.DEBUG=false` the macro emission drops the
-source-string stamp and the runtime registrar writes no-op,
-keeping fn-body bytes out of prod bundles (verified by the
-elision-probe `rf.machine/handler-source` sentinel). The inline
-`reg-machine` macro is not the only capture site: a machine defined
-with `defmachine` (the `def`-replacement that walks the inline literal
-at the DEFINITION site, rf2-gwj8l) carries the same per-element
-`:rf.machine/source-coords` + `:rf.machine/handler-source` stamps on
-the def'd VALUE, so a value-registered machine — `(defmachine m …)`
-then `(reg-machine :id m)` — surfaces source in the inspector exactly
-as an inline `reg-machine` does. The `reg-machine*` plain-fn surface
-and a plain `(def m {…})` value bypass both walkers, so those
-registrations carry no fn-source — tools fall back to the call-site
-coords on the top-level `(rf/handler-meta :event <machine-id>)`, per
-the standard `reg-machine` / `reg-machine*` contract (Spec 005
+co-located `:source-coords` / `:source-code` slots (the dev arm DCEs)
+and the runtime registrar writes no-op, keeping fn-body bytes out of
+prod bundles (verified by the elision-probe co-located `:source-code`
+sentinels — rf2-npvsx). The inline `reg-machine` macro is not the only
+capture site: a machine defined with `defmachine` (the `def`-replacement
+that walks the inline literal at the DEFINITION site, rf2-gwj8l) carries
+the same co-located per-element source on the def'd VALUE, so a
+value-registered machine — `(defmachine m …)` then `(reg-machine :id m)`
+— surfaces source in the inspector exactly as an inline `reg-machine`
+does. The `reg-machine*` plain-fn surface and a plain `(def m {…})`
+value bypass both walkers, so those registrations carry no fn-source —
+tools fall back to the call-site coords on the top-level
+`(rf/handler-meta :event <machine-id>)`, per the standard
+`reg-machine` / `reg-machine*` contract (Spec 005
 §reg-machine vs reg-machine* and §Value-registered machines —
 defmachine).
 
@@ -951,10 +951,12 @@ Every clickable element on the chart jumps to source:
 
 | Element | Source surface |
 |---|---|
-| State node | `:rf.machine/source-coords {:state <prefix-path>}` — opens the state's registration in the editor. |
-| Edge | `:rf.machine/source-coords {:transition [<from> <event>]}` — opens the transition entry's source line. |
-| Guard | The guard function's `:rf.machine/source-coords {:guard <name>}` — opens its definition. |
-| Action | The action function's `:rf.machine/source-coords {:action <name>}`. |
+| State node | `:rf.machine/state-coords` at the state's `[:states <prefix-path>]` tuple — opens the state's registration in the editor. |
+| Edge | `:rf.machine/state-coords` at the transition's `[:states <from> :on <event>]` tuple — opens the transition entry's source line. |
+| Guard | The guard entry's co-located `:source-coords` — `(get-in spec [:guards <name> :source-coords])` — opens its definition. |
+| Action | The action entry's co-located `:source-coords` — `(get-in spec [:actions <name> :source-coords])`. |
+
+(Per rf2-npvsx the per-element guard/action coords are co-located on each `:guards` / `:actions` entry; the reference-site state-node / transition coords live in the spec's `:rf.machine/state-coords` index.)
 
 Source coords are surfaced as copyable `file:line` chips; clicking
 opens the file via the editor URL handler the user configured in
