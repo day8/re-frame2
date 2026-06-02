@@ -111,8 +111,9 @@
   "Stamp the optional `::handled?` flag onto an `:ok` Result. Per Spec 005
   §Transition resolution / §Parallel regions (005:1168-1171): a region of
   a parallel-region machine reports whether its inbound event resolved to
-  a transition so the parent can emit `:rf.error/machine-unhandled-event`
-  exactly once when EVERY region declines. The flag is internal to the
+  a transition so the parent can emit the benign
+  `:rf.machine.event/unhandled-no-op` trace exactly once when EVERY region
+  declines (rf2-ugdas — xstate-v5 parity; not an error). The flag is internal to the
   machines engine — `:fail` Results and non-region callers ignore it; the
   key is namespaced so it never collides with snapshot / fx slots."
   [r handled?]

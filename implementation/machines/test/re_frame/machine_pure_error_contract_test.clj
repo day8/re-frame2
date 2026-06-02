@@ -7,14 +7,13 @@
   running `validate-machine!`. A grep of the machines test tree before
   this file returned ZERO direct matches for these contracts:
 
-    - `transition/unhandled-event-warnable?` — the reserved-`:rf/*`
-      namespace carve-out (transition.cljc:607). Documented in the
-      remediation suite's docstring but never directly asserted. A
-      refactor of the `ns` / `str/starts-with?` predicate would
-      silently re-arm the unhandled-event advisory against benign
-      framework lifecycle traffic (the stories-library `:rf.story.*`
-      pings, the synthetic `:rf.machine.spawn/spawned` kick-off) and no test
-      would catch it.
+    - the BENIGN unhandled-event no-op (rf2-ugdas — xstate-v5 parity). An
+      unhandled event is no longer an error: it emits the benign
+      `:rf.machine.event/unhandled-no-op` trace (op-type `:rf.machine`,
+      NOT `:error` / `:warning`) and leaves the snapshot unchanged. This
+      holds uniformly for domain AND reserved-`:rf/*` events alike — the
+      former reserved-namespace `unhandled-event-warnable?` carve-out is
+      retired with the error advisory.
 
     - `:rf.error/machine-bad-state-form` — `state-path` throws on a
       `:state` that is neither keyword nor vector (transition.cljc:232).
@@ -50,66 +49,30 @@
             [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
-;; unhandled-event-warnable? — the reserved-:rf/* carve-out
-;; (transition.cljc:607). Public pure predicate; assert both arms directly.
+;; rf2-ugdas — the BENIGN unhandled-event no-op (xstate-v5 parity). Through
+;; the pure macrostep, an unhandled event — domain OR reserved-:rf/* — emits
+;; the benign `:rf.machine.event/unhandled-no-op` trace (op-type :rf.machine,
+;; NOT :error / :warning) and leaves the snapshot unchanged. NO
+;; :rf.error/machine-unhandled-event is ever emitted (the advisory is
+;; retired). Pins the engine's actual emission decision (transition.cljc).
 ;; ---------------------------------------------------------------------------
 
-(deftest unhandled-event-warnable?-flags-domain-events
-  (testing "an ordinary domain event (un-namespaced or app-namespaced)
-   IS warnable — a machine author forgot to handle it"
-    (is (true? (transition/unhandled-event-warnable? [:logout]))
-        "bare un-namespaced id is warnable")
-    (is (true? (transition/unhandled-event-warnable? [:auth/succeeded]))
-        "app-namespaced id is warnable")
-    (is (true? (transition/unhandled-event-warnable? [:my.app.feature/ping]))
-        "deeply-namespaced app id is warnable")))
-
-(deftest unhandled-event-warnable?-carves-out-reserved-rf-namespace
-  (testing "a reserved :rf-rooted framework lifecycle event is NOT warnable
-   — benign framework traffic resolving to a no-op (Conventions.md §The
-   single-root reserved set)"
-    (is (false? (transition/unhandled-event-warnable? [:rf/anything]))
-        "the bare :rf root is carved out")
-    (is (false? (transition/unhandled-event-warnable? [:rf.machine.spawn/spawned]))
-        "the synthetic spawn kick-off (005:1780) is carved out")
-    (is (false? (transition/unhandled-event-warnable? [:rf.story.lifecycle/events-complete]))
-        "the stories-library lifecycle ping is carved out")
-    (is (false? (transition/unhandled-event-warnable? [:rf.assert/passed]))
-        "the stories-library assertion event is carved out"))
-
-  (testing "the carve-out is keyed on the `rf` / `rf.` namespace head,
-   NOT a substring — an app namespace that merely CONTAINS `rf` stays
-   warnable (guards against a `clojure.string/includes?`-style regression)"
-    (is (true? (transition/unhandled-event-warnable? [:surf/wave]))
-        "`surf` is not the reserved root even though it contains `rf`")
-    (is (true? (transition/unhandled-event-warnable? [:my-rf-app/ev]))
-        "`my-rf-app` is not the reserved root")
-    (is (true? (transition/unhandled-event-warnable? [:rfx/ev]))
-        "`rfx` is a distinct namespace, not `rf` / `rf.`-prefixed"))
-
-  (testing "a non-keyword event id (no namespace) is warnable — the
-   carve-out only suppresses keyword ids in the reserved namespace"
-    (is (true? (transition/unhandled-event-warnable? ["string-event"]))
-        "a string event-id has no namespace ⇒ warnable")))
-
-;; ---------------------------------------------------------------------------
-;; End-to-end carve-out through the pure macrostep: a reserved-:rf/*
-;; unhandled event emits NO :rf.error/machine-unhandled-event, while a
-;; domain unhandled event DOES. Pins the warnable predicate to the engine's
-;; actual emission decision (single source of truth, transition.cljc:1654).
-;; ---------------------------------------------------------------------------
-
-(defn- capture-ops!
-  "Drive a pure `machine-transition` while a tooling listener records the
-  `:operation` of every emitted trace. Returns the vector of operations
+(defn- capture-events!
+  "Drive a pure `machine-transition` while a tooling listener records every
+  emitted trace event (full envelope). Returns the vector of events
   (deterministic — no wall-clock / random)."
   [definition snapshot event]
   (let [seen (atom [])]
-    (trace/register-listener! ::ops (fn [ev] (swap! seen conj (:operation ev))))
+    (trace/register-listener! ::ops (fn [ev] (swap! seen conj ev)))
     (try
       (machines/machine-transition definition snapshot event)
       (finally (trace/unregister-listener! ::ops)))
     @seen))
+
+(defn- capture-ops!
+  "As `capture-events!` but projects each event to its `:operation`."
+  [definition snapshot event]
+  (mapv :operation (capture-events! definition snapshot event)))
 
 (def ^:private no-handler-spec
   "A machine that handles only `:known`; everything else is unhandled."
@@ -118,25 +81,47 @@
    :data    {}
    :states  {:a {:on {:known {:target :a}}}}})
 
-(deftest domain-unhandled-event-emits-the-advisory
-  (testing "an unhandled DOMAIN event emits exactly one
-   :rf.error/machine-unhandled-event and leaves the snapshot unchanged"
-    (let [ops (capture-ops! no-handler-spec {:state :a :data {}} [:nope])]
-      (is (= 1 (count (filter #{:rf.error/machine-unhandled-event} ops)))
-          "exactly one unhandled-event advisory for a domain event")))
+(deftest domain-unhandled-event-emits-the-benign-no-op
+  (testing "an unhandled DOMAIN event emits exactly one benign
+   :rf.machine.event/unhandled-no-op and NO error advisory"
+    (let [evs       (capture-events! no-handler-spec {:state :a :data {}} [:nope])
+          ops       (mapv :operation evs)
+          no-op-evs (filter #(= :rf.machine.event/unhandled-no-op (:operation %)) evs)]
+      (is (= 1 (count no-op-evs))
+          "exactly one benign no-op trace for a domain event")
+      (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
+          "the retired error advisory is NEVER emitted")
+      (testing "the no-op is op-type :rf.machine (NOT :error / :warning) so it
+       is benign / not an issue"
+        (is (= :rf.machine (:op-type (first no-op-evs)))
+            "op-type is the machine-activity family, not a severity"))
+      (testing "the no-op carries {:machine-id :event :state} per Spec 009"
+        (let [{:keys [tags]} (first no-op-evs)]
+          (is (= :probe/unhandled (:machine-id tags)))
+          (is (= [:nope] (:event tags)))
+          (is (= :a (:state tags)))))))
 
   (testing "the snapshot is unchanged on an unhandled event (no state churn)"
     (let [{s ::result/snap} (machines/machine-transition
                               no-handler-spec {:state :a :data {}} [:nope])]
       (is (= :a (:state s)) "state unchanged"))))
 
-(deftest reserved-rf-unhandled-event-is-silent
-  (testing "an unhandled RESERVED-:rf/* event emits NO unhandled-event
-   advisory — the carve-out keeps framework lifecycle traffic quiet"
-    (let [ops (capture-ops! no-handler-spec {:state :a :data {}}
-                            [:rf.story.lifecycle/events-complete])]
-      (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
-          "no advisory for a reserved-namespace unhandled event")))
+(deftest reserved-rf-unhandled-event-also-emits-the-benign-no-op
+  (testing "the spawn case stops being special — a reserved-:rf/* unhandled
+   event emits the SAME benign no-op as a domain event (the old reserved-
+   namespace carve-out is retired with the error advisory)"
+    (doseq [ev [[:rf.machine.spawn/spawned]
+                [:rf.story.lifecycle/events-complete]
+                [:rf/anything]]]
+      (let [evs       (capture-events! no-handler-spec {:state :a :data {}} ev)
+            ops       (mapv :operation evs)
+            no-op-evs (filter #(= :rf.machine.event/unhandled-no-op (:operation %)) evs)]
+        (is (= 1 (count no-op-evs))
+            (str "exactly one benign no-op for reserved-namespace event " ev))
+        (is (= :rf.machine (:op-type (first no-op-evs)))
+            (str "op-type :rf.machine for " ev))
+        (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
+            (str "no retired error advisory for " ev)))))
 
   (testing "the reserved-namespace no-op still returns an unchanged snapshot"
     (let [{s ::result/snap} (machines/machine-transition

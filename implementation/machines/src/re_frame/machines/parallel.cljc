@@ -362,26 +362,23 @@
   (let [result (reduce-regions machine snapshot
                                (fn [region-spec region-snap]
                                  (machine-transition region-spec region-snap event)))]
-    ;; Per Spec 005 §Parallel regions (005:1168-1171): when EVERY region
-    ;; declines the event the machine as a whole emits a single
-    ;; `:rf.error/machine-unhandled-event` (canonical id / op-type / tags
-    ;; per Spec 009 §Error event catalogue, Ownership.md:48). The
-    ;; warnable carve-out — reserved `:rf*`-namespace framework lifecycle
-    ;; traffic (the spawned kick-off 005:1780, the bootstrap cascade
-    ;; 005:993, the stale `:after` timer broadcast 005:1180, and the
-    ;; stories-library lifecycle pings) resolving to a no-op is benign,
-    ;; NOT an unhandled user event — is the single source of truth in
-    ;; `transition/unhandled-event-warnable?`; share it so the single-
-    ;; and parallel-machine paths can never drift apart.
+    ;; Per Spec 005 §Transition broadcast: when EVERY region declines the
+    ;; event the machine as a whole emits a SINGLE benign
+    ;; `:rf.machine.event/unhandled-no-op` (op-type `:rf.machine`, info-grade,
+    ;; NOT an error — xstate-v5 parity; canonical id / op-type / tags per
+    ;; Spec 009 §`:op-type` vocabulary). If any region handled the event no
+    ;; trace fires. Mirrors the flat-machine emission in
+    ;; `transition/machine-transition-single` so the single- and parallel-
+    ;; machine paths stay in lockstep. (rf2-ugdas — the prior reserved-`:rf/*`
+    ;; warnable carve-out is retired with the error advisory: every unhandled
+    ;; event is now a benign no-op, domain or reserved-namespace alike.)
     (when (and (result/ok? result)
-               (not (result/handled? result))
-               (transition/unhandled-event-warnable? event))
-      (trace/emit-error! :rf.error/machine-unhandled-event
-                         {:machine-id (or (:rf/parent-id machine) (:id machine))
-                          :event      event
-                          :state      (:state snapshot)
-                          :frame      (:rf/frame machine)
-                          :recovery   :ignored}))
+               (not (result/handled? result)))
+      (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+                   {:machine-id (or (:rf/parent-id machine) (:id machine))
+                    :event      event
+                    :state      (:state snapshot)
+                    :frame      (:rf/frame machine)}))
     result))
 
 (defn machine-transition
