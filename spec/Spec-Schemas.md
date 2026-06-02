@@ -262,7 +262,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
    EventHandlerMeta
    [:map
     [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
-    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions / :on-spawn-actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and the spec carries the reference-site :rf.machine/state-coords index (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions / :on-spawn-actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and each :states-tree map node (state-node / transition map) co-locates its own reference-site :source-coords directly (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
     ]])
 ```
 
@@ -271,7 +271,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
 | Lens | Returns | Implementation |
 |---|---|---|
 | `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
-| `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:rf.machine/state-coords` coord index. | `(:rf/machine (handler-meta :event machine-id))` |
+| `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:source-coords` co-located on each `:states`-tree map node. | `(:rf/machine (handler-meta :event machine-id))` |
 
 Visualisers walking the transition table consume `(machine-meta id)`; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines/lifecycle_fx.cljc`](../implementation/machines/src/re_frame/machines/lifecycle_fx.cljc) (`machines` / `machine-meta`).
 
@@ -1527,6 +1527,16 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; `keyword?` indirection). The macro path co-locates source onto each entry —
 ;; superseding the former `:rf.machine/source-coords` + `:rf.machine/handler-
 ;; source` side-indexes (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+;;
+;; REFERENCE-SITE COORD (rf2-vqja2). Each :states-tree MAP node (a state-node,
+;; a transition map under :on / :always / :after, a :spawn map) additionally
+;; co-locates its OWN reference-site `:source-coords` directly on the node —
+;; DEBUG-only, absent in production (the macro elides it). This supersedes the
+;; former flat `:rf.machine/state-coords` side-index that paralleled :states.
+;; Inline-fn / keyword slots (:entry / :exit / :guard / :action / :on-spawn)
+;; hold a value, not a map, so they carry no coord of their own; a tool reads
+;; the nearest enclosing map node's `:source-coords`. The runtime ignores the
+;; key (it reads only :on / :states / :initial / :tags / … by name).
 (def MachineElementEntry
   [:or fn?                                                                   ;; as-written / programmatic: a bare guard/action fn
        :keyword                                                              ;; keyword indirection ({:short-name :registered-id})
@@ -1556,7 +1566,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                            [:guard  {:optional true} GuardRef]              ;; same shape as :on transition slot; resolves machine-locally against :guards map
                            [:target {:optional true} TransitionTarget]      ;; keyword (sibling of declaring state) or vector (absolute path); same-state same-guard self-loops rejected at registration
                            [:action {:optional true} ActionRef]
-                           [:meta   {:optional true} :map]]]]
+                           [:meta   {:optional true} :map]
+                           [:source-coords {:optional true} [:ref :rf/source-coord-meta]]]]]  ;; DEBUG-only — co-located reference-site coord of this :always transition map (rf2-vqja2)
                         [:after   {:optional true}                          ;; delayed transitions; <delay> → transition spec where <delay> is pos-int? OR a subscription vector ([sub-id & args] resolved through subscribe; re-resolves on subscription change) OR (fn [{:keys [snapshot]}] ms) computed at state entry (unified context-map); epoch-based stale detection; SSR no-ops scheduling; see [005 §Delayed :after transitions](005-StateMachines.md#delayed-after-transitions) and [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution).                          [:map-of
                           [:or pos-int?                                     ;; literal milliseconds (default form)
                                [:vector :any]                               ;; subscription vector — [sub-id & args]; re-resolves on sub change
@@ -1564,7 +1575,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                                [:vector Transition]]]]                       ;; guarded candidate-vector — first-guard-pass-wins at timer expiry, EXACTLY as an :on clause's multiple-candidate form (per [005 §Value shape](005-StateMachines.md#value-shape)). The `:after` VALUE grammar is identical to EventMap's value side — the runtime normalises both through one shared candidate-walk so the two slots can never drift.
                         [:on      {:optional true} EventMap]                ;; event → transition
                         [:tags    {:optional true} [:set :keyword]]         ;; runtime-projected onto snapshot's :tags — see [005 §State tags](005-StateMachines.md#state-tags); union of active-configuration tag sets is stamped at [:rf/runtime :machines :snapshots <id> :tags] on every transition commit. Reserved framework namespace (`:rf/*`, `:rf.*/*`) per Conventions.md §Reserved namespaces.                         [:final?  {:optional true} :boolean]                ;; leaf-only — entering this state terminates the machine. and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). A `:final?` state MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:spawn`, or `:spawn-all` (`:entry` / `:exit` are permitted). For a `:spawn`d child: the runtime invokes the parent's `:spawn :on-done` with the child's `:data` slot named by `:output-key` (or `nil`), then auto-destroys synchronously. For a singleton: auto-destroys synchronously (singleton symmetry, D7).
-                        [:output-key {:optional true} :keyword]             ;; designates which `:data` key is reported back via the parent's `:on-done`. Requires `:final? true` (registration rejects `:output-key` on non-final states with `:rf.error/machine-output-key-without-final`).                         [:meta    {:optional true} :map]]}}
+                        [:output-key {:optional true} :keyword]             ;; designates which `:data` key is reported back via the parent's `:on-done`. Requires `:final? true` (registration rejects `:output-key` on non-final states with `:rf.error/machine-output-key-without-final`).                         [:meta    {:optional true} :map]
+                        [:source-coords {:optional true} [:ref :rf/source-coord-meta]]]}}  ;; DEBUG-only — co-located reference-site coord of this state-node (rf2-vqja2; absent in production; the macro elides it)
    [:ref ::state-node]])
 
 ;; The :spawn spec on a state node. Per [005 §Declarative :spawn (sugar over spawn)]
@@ -1649,7 +1661,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
     [:target  {:optional true} TransitionTarget]                            ;; one of: keyword (relative to declaring state), [:vector :keyword] (absolute path from root), or :same-state (external self-transition); omit for internal
     [:guard   {:optional true} GuardRef]                                    ;; one fn or one registered id
     [:action  {:optional true} ActionRef]                                   ;; one fn or one registered id (singular — no :actions vector)
-    [:meta    {:optional true} :map]]])
+    [:meta    {:optional true} :map]
+    [:source-coords {:optional true} [:ref :rf/source-coord-meta]]]])       ;; DEBUG-only — co-located reference-site coord of this transition map (rf2-vqja2; absent in production)
 
 ;; A transition's :target admits both forms per [005 §Target resolution]
 ;; (005-StateMachines.md#target-resolution--vector-vs-keyword).

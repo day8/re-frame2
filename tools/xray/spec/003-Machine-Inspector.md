@@ -961,12 +961,12 @@ Every clickable element on the chart jumps to source:
 
 | Element | Source surface |
 |---|---|
-| State node | `:rf.machine/state-coords` at the state's `[:states <prefix-path>]` tuple — opens the state's registration in the editor. |
-| Edge | `:rf.machine/state-coords` at the transition's `[:states <from> :on <event>]` tuple — opens the transition entry's source line. |
+| State node | The state-node's co-located `:source-coords` — `(get-in spec [:states <prefix-path> :source-coords])` — opens the state's registration in the editor. |
+| Edge | The transition map's co-located `:source-coords` — `(get-in spec [:states <from> :on <event> :source-coords])` — opens the transition entry's source line. |
 | Guard | The guard entry's co-located `:source-coords` — `(get-in spec [:guards <name> :source-coords])` — opens its definition. |
 | Action | The action entry's co-located `:source-coords` — `(get-in spec [:actions <name> :source-coords])`. |
 
-(Per rf2-npvsx the per-element guard/action coords are co-located on each `:guards` / `:actions` entry; the reference-site state-node / transition coords live in the spec's `:rf.machine/state-coords` index.)
+(Per rf2-npvsx + rf2-vqja2 the per-element guard/action coords are co-located on each `:guards` / `:actions` entry; the reference-site state-node / transition coords are co-located directly on each `:states`-tree map node. An inline-fn / keyword slot resolves to the nearest enclosing map node's `:source-coords`.)
 
 Source coords are surfaced as copyable `file:line` chips; clicking
 opens the file via the editor URL handler the user configured in

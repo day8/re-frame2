@@ -326,25 +326,26 @@ With the annotation in place, a pair tool can take a click position, read the ne
 
 The DOM-attribute annotation above maps clicked DOM nodes to view registration call sites. A complementary surface maps state-machine spec elements (guards / actions / transitions / state-nodes) back to their source positions.
 
-Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), the `reg-machine` macro walks its literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site coord index under `:rf.machine/state-coords` keyed by spec-path tuples (rf2-npvsx):
+Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), the `reg-machine` macro walks its literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree (rf2-npvsx + rf2-vqja2):
 
 ```clojure
 ;; Per-element definition coord + source — co-located on the entry:
 (get-in (rf/machine-meta :auth/login) [:guards :form-valid?])
 ;; {:fn <fn> :source-coords {:ns ... :line ... :column ... :file ...} :source-code "(fn ...)"}
 
-;; Reference-site coords:
-(:rf.machine/state-coords (rf/machine-meta :auth/login))
-;; {[:states :form :on :submit]         {:ns ... :line ... :column ... :file ...}
-;;  [:states :form :on :submit :action] {...}}
+;; Reference-site coords — read directly off the map node:
+(get-in (rf/machine-meta :auth/login) [:states :form :source-coords])
+;; {:ns ... :line ... :column ... :file ...}
+(get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-coords])
+;; {:ns ... :line ... :column ... :file ...}
 ```
 
 Pair tools use these for two distinct UI gestures:
 
 - **Jump to definition.** A click on a guard/action name in the visualisation reads the co-located entry's `:source-coords` — `(get-in spec [:guards <id> :source-coords])` / `[:actions <id> :source-coords]` / `[:on-spawn-actions <id> :source-coords]` — to find where the fn is implemented.
-- **Jump to call site.** A click on a transition arrow or state node reads the deepest stamped path-tuple in `:rf.machine/state-coords` matching the node (e.g. `[:states :idle :on :submit]`); for keyword-named slots (`{:guard :form-valid?}`) the slot itself isn't stamped — the tool falls back to the enclosing transition's coord, which IS stamped.
+- **Jump to call site.** A click on a transition arrow or state node reads the `:source-coords` off that node (e.g. `(get-in spec [:states :idle :on :submit :source-coords])`); for an inline-fn / keyword slot (`{:guard :form-valid?}`) the slot itself holds a value rather than a map, so the tool walks UP to the nearest enclosing map node's `:source-coords`, which IS stamped.
 
-The framework commits to **the co-located entry shape, the `:rf.machine/state-coords` index shape, and the keyword-reference rule** (the keyword-ref reference-site slot is not stamped; inline-fn literals are). Pair tools ship their own UI affordance over them. Like `data-rf2-source-coord`, the dev-only source is gated on `interop/debug-enabled?` and elides under `:advanced` + `goog.DEBUG=false`.
+The framework commits to **the co-located entry shape, the per-node `:source-coords` shape, and the inline-fn / keyword rule** (inline-fn / keyword slots carry no node of their own; the nearest enclosing map node's coord stands in). Pair tools ship their own UI affordance over them. Like `data-rf2-source-coord`, the dev-only source is gated on `interop/debug-enabled?` and elides under `:advanced` + `goog.DEBUG=false`.
 
 ### Where the DOM-to-source helpers live (re-frame2 vs tool)
 
