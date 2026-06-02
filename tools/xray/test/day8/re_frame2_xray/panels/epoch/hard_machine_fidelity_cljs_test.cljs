@@ -56,12 +56,15 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as mih]
             [day8.re-frame2-xray.panels.machines.topology :as topo]
             [day8.re-frame2-xray.preload :as preload]
@@ -210,6 +213,13 @@
 (defn- rows-of-kind [rows kind]
   (filterv #(= kind (:kind %)) rows))
 
+;; rf2-52u5n — the STRUCTURED transition cascade now rides the LIVE
+;; `:rf.machine/transition` trace (rf2-n9f4z); the transition cascade row
+;; threads it through. These read it back off the projected row so the
+;; fidelity test pins what the EVENT HANDLER render shows.
+(defn- structured-cascade-of [record]
+  (-> (cascade record) (rows-of-kind :transition) first :cascade))
+
 ;; ============================================================================
 ;; CASE 2 — PARALLEL regions: one event, BOTH regions render
 ;; ============================================================================
@@ -271,6 +281,79 @@
       (is (= {:climate [:running :conditioning :heating] :fan :on}
              (:state (snapshot)))
           "the committed snapshot moved both regions in one macrostep"))))
+
+;; ============================================================================
+;; rf2-52u5n — the STRUCTURED entry/exit cascade renders legibly under
+;; EVENT HANDLER (the headline render this bead adds)
+;; ============================================================================
+
+(deftest power-cycle-renders-structured-cascade-not-just-summary
+  (testing "rf2-52u5n — the `[:hvac/power-cycle]` macrostep projects the
+            ORDERED structured cascade (exit/action/entry steps + per-region)
+            matching the engine's actual cascade — NOT just `{from}→{to} +
+            count`. This is the gap rf2-52u5n closes: pre-bead, the operator
+            saw one opaque row + '0 microsteps' with no sign of the 8-step
+            entry cascade. Pinned against the LIVE substrate (rf2-n9f4z emits
+            the `:cascade` tag; the projection threads it through)."
+    (setup!)
+    (let [record    (drive! [:hvac/power-cycle])
+          structured (structured-cascade-of record)
+          regions    (proj/cascade-regions structured)]
+      ;; The structured cascade is present + non-empty (RED before n9f4z +
+      ;; this bead: the transition row had only :before/:after/:microsteps).
+      (is (vector? structured) "the structured :cascade rides the transition row")
+      (is (seq structured) "the cascade is non-empty (not just a count)")
+      ;; It is a COMPLETE configuration walk — the action-free :idle / :off
+      ;; exits the per-EMIT stream cannot show (they declare no :exit action).
+      (is (proj/parallel-cascade? structured)
+          "the cascade carries both regions (parallel broadcast)")
+      (is (= [:climate :fan] (mapv :region regions))
+          "regions group in declaration order — climate before fan")
+      (let [climate (:steps (first regions))
+            fan     (:steps (second regions))]
+        (is (= [:exit :action :entry :entry :entry] (mapv :kind climate))
+            ":climate — action-free :idle exit → action @ LCA → 3-level descent")
+        (is (= [nil :enter-running :enter-running-level :enter-conditioning :enter-heating]
+               (mapv :action climate))
+            ":climate action-ids in cascade order (leading nil = action-free exit)")
+        (is (= [[:idle] [:idle] [:running] [:running :conditioning]
+                [:running :conditioning :heating]]
+               (mapv :state climate))
+            ":climate state paths render the deep-compound descent")
+        (is (= [:exit :action :entry] (mapv :kind fan))
+            ":fan — action-free :off exit → action → single entry")
+        (is (= [nil :fan-on :enter-fan-on] (mapv :action fan))
+            ":fan action-ids in cascade order"))
+      ;; The per-step :data delta is the minimal contribution (the trail key
+      ;; only) — proof the render shows what each step changed, not the whole
+      ;; :data map.
+      (let [enter-heating (->> (:steps (first regions))
+                               (filter #(= :enter-heating (:action %)))
+                               first)]
+        (is (contains? (:data-delta enter-heating) :trail)
+            "the entry step carries its :data delta (the trail key)"))
+      ;; And the VIEW renders it — the structured body + per-region groups.
+      ;; The transition body embeds edn-inspectors (the per-step :data delta),
+      ;; which subscribe against the surrounding frame — render under `:rf/xray`.
+      (frame/reg-frame :rf/xray {})
+      (let [rows   (cascade record)
+            tx-row (first (rows-of-kind rows :transition))
+            ;; the transition row's :step is renumbered over the full
+            ;; canonical cascade — the structured-body testids embed it.
+            sp     (str "rf-xray-epoch-machine-cascade-structured-" (:step tx-row))
+            tree   (rf/with-frame :rf/xray
+                     (view/render-handler-step
+                       {:step :handler :badge :HANDLER :step-number 3
+                        :flavour :reg-machine :event-id :hvac/controller
+                        :fx [] :machine {:cascade rows
+                                         :transition nil :guards []
+                                         :lifecycle [] :timers []}}))]
+        (is (some? (th/find-by-testid tree sp))
+            "the structured cascade body renders in the EVENT HANDLER view")
+        (is (some? (th/find-by-testid tree (str sp "-region-climate")))
+            ":climate region group renders")
+        (is (some? (th/find-by-testid tree (str sp "-region-fan")))
+            ":fan region group renders")))))
 
 ;; ============================================================================
 ;; CASE 1 + 3 — DEEP COMPOUND nesting + the multi-level LCA cascade ORDER

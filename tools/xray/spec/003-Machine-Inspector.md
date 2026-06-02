@@ -2,6 +2,18 @@
 
 > **See also**: [`021-Dynamic-Panel-Designs.md` §6](021-Dynamic-Panel-Designs.md#6-the-machines-panel-topology--overlay) for the canonical content design layered onto the topology view.
 
+> **The EVENT HANDLER machine cascade (rf2-52u5n) lives in the Epoch
+> panel, not here.** Spec 005 §The structured transition cascade names
+> "Xray's epoch panel" as the consumer of the `:cascade` tag on the
+> `:rf.machine/transition` trace (rf2-n9f4z); the step-by-step
+> entry/exit cascade render — the ordered exit/action/entry steps +
+> `:always` microsteps, grouped per-region for parallel machines —
+> is specified in
+> [`021-Dynamic-Panel-Designs.md` §Transition row — STRUCTURED entry/exit cascade](021-Dynamic-Panel-Designs.md#machine-cascade-rf2-u69j7).
+> This file (003) covers the Machines TAB's topology chart + focused-
+> transition lens; the Epoch panel's EVENT HANDLER section is the
+> cascade narration.
+
 > **2026-05-19 collapse note (rf2-y9xmf):** the Dynamic Machines panel
 > is now **event-driven only**. The panel is BLANK when the currently
 > focused event triggered no machine transitions; it renders one

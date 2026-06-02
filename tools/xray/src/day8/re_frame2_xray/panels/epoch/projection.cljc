@@ -465,7 +465,15 @@
   the full machine snapshot maps (`:state` + `:data` + …); the row
   hoists `:data-before` / `:data-after` for the rf2-9c27r DATA
   REDUCTION sub-section so the view layer doesn't re-walk the
-  snapshot map."
+  snapshot map.
+
+  rf2-52u5n — the row also carries the STRUCTURED `:cascade` (the
+  ordered exit/action/entry/microstep step vector the substrate
+  emits on the `:rf.machine/transition` trace per rf2-n9f4z) so the
+  view can render the step-by-step entry/exit cascade under EVENT
+  HANDLER rather than only `{from}→{to} + {n} microstep(s)`. Absent
+  (`nil`) for older traces / non-structured fixtures — the view
+  falls back to the summary in that case."
   [events]
   (when-let [ev (find-op events :rf.machine/transition)]
     (let [before (common/tag-of ev :before)
@@ -476,7 +484,8 @@
        :after        after
        :data-before  (when (map? before) (:data before))
        :data-after   (when (map? after)  (:data after))
-       :microsteps   (common/tag-of ev :microsteps)})))
+       :microsteps   (common/tag-of ev :microsteps)
+       :cascade      (common/tag-of ev :cascade)})))
 
 (defn- machine-guard-rows
   "Project the `:rf.machine/guard-evaluated` stream into rows. Each
@@ -685,7 +694,15 @@
   Per Spec 005 §Trace events the substrate fires ONE transition emit
   per macrostep — so the cascade carries at most one `:transition`
   row, and it lands AFTER the exit-phase actions + the transition-
-  phase actions (substrate emit order)."
+  phase actions (substrate emit order).
+
+  rf2-52u5n — the row threads the STRUCTURED `:cascade` (the ordered
+  exit/action/entry/microstep step vector the substrate emits on the
+  `:rf.machine/transition` trace per rf2-n9f4z) through to the view so
+  the transition row's body renders the step-by-step entry/exit
+  cascade — per-region grouped, with the `:always` microsteps
+  sectioned — rather than only `{from}→{to} + {n} microstep(s)`.
+  Absent (`nil`) for older traces / non-structured fixtures."
   [ev]
   (let [before (common/tag-of ev :before)
         after  (common/tag-of ev :after)]
@@ -699,6 +716,7 @@
      :data-before  (when (map? before) (:data before))
      :data-after   (when (map? after)  (:data after))
      :microsteps   (common/tag-of ev :microsteps)
+     :cascade      (common/tag-of ev :cascade)
      :duration-ms  (common/tag-of ev :duration-ms)}))
 
 (defn- timer-cascade-row
@@ -1048,6 +1066,103 @@
   (let [nums (keep :duration-ms cascade-rows)]
     (when (seq nums)
       (reduce + 0 nums))))
+
+;; ---- structured transition cascade (rf2-52u5n / rf2-n9f4z) --------------
+;;
+;; The `:rf.machine/transition` trace carries a STRUCTURED `:cascade` tag
+;; (rf2-n9f4z) — the ordered step sequence that explains HOW the macrostep
+;; reached its after-state. Each step is a self-describing map
+;;
+;;   {:kind   :exit | :action | :entry | :microstep
+;;    :state  <state-path-vector>          ;; LCA-relative for :action
+;;    :region <region-name-or-nil>          ;; parallel region; nil flat/compound
+;;    :action <action-id-or-nil>            ;; nil = boundary fired no action
+;;    :data-delta {<changed :data keys>}}
+;;
+;; in EXECUTION order — exit (deepest-first) → transition `:action` @ LCA →
+;; entry (shallowest-first + initial-descent), then one `:microstep` step
+;; per `:always` iteration (carrying its own nested exit/action/entry
+;; `:steps` + `:microstep-index` / `:from` / `:to`). Spec 005 §The
+;; structured transition cascade is the authoritative contract; the
+;; instrumentation test `re-frame.machine-cascade-instrumentation-test`
+;; pins the exact shape.
+;;
+;; This is the data rf2-52u5n renders under EVENT HANDLER. The pre-existing
+;; `machine-cascade-rows` (rf2-u69j7) is the per-EMIT stream (one row per
+;; `:rf.machine/action-ran` / guard / transition / timer trace) — it cannot
+;; show the ACTION-FREE boundaries (e.g. exiting `:idle` / `:off`, which
+;; declare no `:exit` action so emit no `:rf.machine/action-ran`), so it is
+;; NOT a complete configuration walk. The structured `:cascade` IS the
+;; complete walk; the projection below groups it for legible per-region
+;; rendering without the view re-walking the step vector.
+
+(defn- structural-cascade-step? [step]
+  (and (map? step)
+       (contains? #{:exit :action :entry} (:kind step))))
+
+(defn- microstep-cascade-step? [step]
+  (and (map? step) (= :microstep (:kind step))))
+
+(defn cascade-regions
+  "Group the LCA-cascade steps (`:exit` / `:action` / `:entry`) of a
+  structured `:cascade` step vector by `:region`, preserving FIRST-
+  ENCOUNTER region order (rf2-52u5n). The `:microstep` steps are NOT
+  included here (they ride the `cascade-microsteps` section).
+
+  Returns a vector of `{:region <name-or-nil> :steps [<step> …]}` groups,
+  each group's `:steps` in their original execution order. A flat /
+  compound machine carries one group keyed `nil` (every step's `:region`
+  is nil); a parallel machine carries one group per region in the order
+  the substrate concatenated them (region declaration order).
+
+  Returns `[]` for a nil / empty cascade — the caller's fallback to the
+  `{from}→{to}` summary keys off the empty result."
+  [cascade]
+  (let [steps (filterv structural-cascade-step? cascade)]
+    (->> steps
+         ;; group-by loses order; rebuild in first-encounter order so a
+         ;; parallel cascade reads region-by-region as the substrate
+         ;; concatenated it (climate before fan).
+         (reduce (fn [{:keys [groups] :as acc} step]
+                   (let [r (:region step)]
+                     (-> acc
+                         (update :order (fn [o] (if (contains? groups r) o (conj o r))))
+                         (update :groups update r (fnil conj []) step))))
+                 {:order [] :groups {}})
+         (#(mapv (fn [r] {:region r :steps (get (:groups %) r)}) (:order %))))))
+
+(defn cascade-microsteps
+  "Extract the `:microstep` steps of a structured `:cascade`, ordered by
+  `:microstep-index` (rf2-52u5n). Each retains its `:from` / `:to` /
+  `:microstep-index` / `:region` and its nested `:steps` (the eventless
+  transition's own exit/action/entry cascade) so the view sections them
+  per index. Returns `[]` when the cascade carries no microsteps (the
+  common non-`:always` macrostep)."
+  [cascade]
+  (->> cascade
+       (filterv microstep-cascade-step?)
+       (sort-by (fn [m] (or (:microstep-index m) 0)))
+       vec))
+
+(defn cascade-step-count
+  "Total structural step count across a structured `:cascade` — the
+  top-level exit/action/entry steps PLUS every microstep's own nested
+  steps (rf2-52u5n). Drives the section header's `N step(s)` chip. nil
+  for a nil / empty cascade so the view elides the chip."
+  [cascade]
+  (when (seq cascade)
+    (+ (count (filterv structural-cascade-step? cascade))
+       (reduce + 0 (map (fn [m] (count (filterv structural-cascade-step? (:steps m))))
+                        (cascade-microsteps cascade))))))
+
+(defn parallel-cascade?
+  "True iff the structured `:cascade` carries more than one distinct
+  `:region` (i.e. a parallel-machine broadcast) — the view groups
+  per-region only in that case (rf2-52u5n). A flat / compound machine's
+  steps all carry `:region nil`, so this is false and the view renders
+  one ungrouped column."
+  [cascade]
+  (< 1 (count (into #{} (keep :region) (filter structural-cascade-step? cascade)))))
 
 ;; ---- machine LOGICAL-STATE delta (rf2-iwy0c) ----------------------------
 ;;

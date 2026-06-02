@@ -1013,6 +1013,147 @@
       (is (= [:guard :transition :action] (mapv :kind c))
           "rf2-tjqd8 — canonical order: guard → TRANSITION → entry action"))))
 
+;; ---- rf2-52u5n — STRUCTURED transition cascade ------------------------
+;;
+;; The `:rf.machine/transition` trace carries a structured `:cascade` step
+;; vector (rf2-n9f4z) — the ordered exit/action/entry/microstep steps that
+;; explain HOW the macrostep reached its after-state. The projection threads
+;; it through the transition row + groups it per-region for the view.
+;;
+;; The HVAC `[:hvac/power-cycle]` cascade below is the contract shape the
+;; instrumentation test (`re-frame.machine-cascade-instrumentation-test`)
+;; pins: a parallel machine, climate region (deep compound, exits :idle →
+;; action @ LCA → 3-level entry descent) + fan region (exit :off → action →
+;; single entry).
+
+(def ^:private hvac-power-cycle-cascade
+  [{:kind :exit   :state [:idle]   :region :climate :action nil :data-delta {}}
+   {:kind :action :state [:idle]   :region :climate :action :enter-running       :data-delta {:trail [:action:power-on]}}
+   {:kind :entry  :state [:running] :region :climate :action :enter-running-level :data-delta {:trail [:action:power-on :entry:running]}}
+   {:kind :entry  :state [:running :conditioning] :region :climate :action :enter-conditioning :data-delta {:trail [:action:power-on :entry:running :entry:conditioning]}}
+   {:kind :entry  :state [:running :conditioning :heating] :region :climate :action :enter-heating :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating]}}
+   {:kind :exit   :state [:off]    :region :fan :action nil :data-delta {}}
+   {:kind :action :state [:off]    :region :fan :action :fan-on        :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on]}}
+   {:kind :entry  :state [:on]     :region :fan :action :enter-fan-on  :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on :entry:fan-on]}}])
+
+(def ^:private flat-go-cascade
+  [{:kind :exit   :state [:a] :region nil :action nil     :data-delta {}}
+   {:kind :action :state [:a] :region nil :action :go-act :data-delta {:went true}}
+   {:kind :entry  :state [:b] :region nil :action nil     :data-delta {}}])
+
+(def ^:private always-quiz-cascade
+  [{:kind :action :state [:asking] :region nil :action :count :data-delta {:correct 10}}
+   {:kind :microstep :region nil :microstep-index 0 :from :asking :to :winner
+    :steps [{:kind :exit   :state [:asking] :region nil :action nil  :data-delta {}}
+            {:kind :action :state [:asking] :region nil :action :win  :data-delta {:won true}}
+            {:kind :entry  :state [:winner] :region nil :action nil  :data-delta {}}]}])
+
+(deftest machine-transition-row-threads-structured-cascade-test
+  (testing "rf2-52u5n — `machine-transition-row` threads the structured
+            `:cascade` step vector off the `:rf.machine/transition` trace
+            so the view can render the step-by-step entry/exit cascade.
+            RED before this bead: the row had only `{:before :after
+            :microsteps :event}` — no `:cascade`."
+    (let [snap-before {:state {:climate :idle :fan :off} :data {}}
+          snap-after  {:state {:climate [:running :conditioning :heating] :fan :on} :data {}}
+          evs [(machine-transition-ev :hvac/controller snap-before snap-after
+                                       [:hvac/power-cycle] 0 hvac-power-cycle-cascade)
+               (machine-action-ev :enter-heating :entry :ok)]
+          r   (proj/handler-row evs :hvac/controller)
+          mt  (-> r :machine :transition)
+          tx  (first (filterv #(= :transition (:kind %)) (-> r :machine :cascade)))]
+      (is (= hvac-power-cycle-cascade (:cascade mt))
+          "the summary transition row carries the structured cascade")
+      (is (= hvac-power-cycle-cascade (:cascade tx))
+          "the transition CASCADE row threads the structured cascade for the view"))))
+
+(deftest cascade-regions-groups-parallel-per-region-test
+  (testing "rf2-52u5n — `cascade-regions` groups the LCA-cascade steps by
+            `:region`, preserving first-encounter (declaration) order, so
+            the view renders climate before fan. Microsteps are excluded."
+    (let [regions (proj/cascade-regions hvac-power-cycle-cascade)]
+      (is (= [:climate :fan] (mapv :region regions))
+          "regions in declaration order (climate first, then fan)")
+      (let [climate (:steps (first regions))
+            fan     (:steps (second regions))]
+        ;; climate: exit :idle (no action) → action @ LCA → 3-level entry
+        (is (= [:exit :action :entry :entry :entry] (mapv :kind climate))
+            "climate: action-free :idle exit → transition action → initial-descent")
+        (is (= [[:idle] [:idle] [:running] [:running :conditioning]
+                [:running :conditioning :heating]]
+               (mapv :state climate))
+            "climate state paths in cascade order (region-relative)")
+        (is (= [nil :enter-running :enter-running-level :enter-conditioning :enter-heating]
+               (mapv :action climate))
+            "climate action-ids (leading nil = action-free :idle exit)")
+        ;; fan: exit :off (no action) → action → single entry
+        (is (= [:exit :action :entry] (mapv :kind fan)))
+        (is (= [nil :fan-on :enter-fan-on] (mapv :action fan)))))))
+
+(deftest cascade-regions-flat-machine-single-nil-region-test
+  (testing "rf2-52u5n — a flat/compound machine's steps all carry `:region
+            nil`, so `cascade-regions` returns ONE group keyed nil (the view
+            renders one ungrouped column, no region label)."
+    (let [regions (proj/cascade-regions flat-go-cascade)]
+      (is (= 1 (count regions)))
+      (is (= [nil] (mapv :region regions)))
+      (is (= [:exit :action :entry] (mapv :kind (:steps (first regions))))
+          "minimal flat cascade: exit → action → entry")
+      (is (false? (proj/parallel-cascade? flat-go-cascade))
+          "a single-region cascade is not parallel"))))
+
+(deftest cascade-microsteps-extracts-and-orders-test
+  (testing "rf2-52u5n — `cascade-microsteps` extracts the `:always`
+            microstep steps, ordered by `:microstep-index`, each carrying
+            its nested `:steps`; structural steps are excluded."
+    (let [ms (proj/cascade-microsteps always-quiz-cascade)]
+      (is (= 1 (count ms)))
+      (is (= 0 (:microstep-index (first ms))))
+      (is (= :asking (:from (first ms))))
+      (is (= :winner (:to (first ms))))
+      (is (some #(= :win (:action %)) (:steps (first ms)))
+          "the eventless transition's :win action is explainable inside the microstep")
+      ;; the headline event-driven action stays out of the microstep stream.
+      (is (= [] (proj/cascade-microsteps flat-go-cascade))
+          "a non-:always cascade has no microsteps"))))
+
+(deftest parallel-cascade-and-step-count-test
+  (testing "rf2-52u5n — `parallel-cascade?` is true only for >1 region;
+            `cascade-step-count` totals structural steps incl. nested
+            microstep steps."
+    (is (true? (proj/parallel-cascade? hvac-power-cycle-cascade))
+        "two regions → parallel")
+    (is (= 8 (proj/cascade-step-count hvac-power-cycle-cascade))
+        "8 structural steps in the power-cycle cascade")
+    (is (= 4 (proj/cascade-step-count always-quiz-cascade))
+        "1 top-level action + 3 nested microstep steps")
+    (is (nil? (proj/cascade-step-count nil))
+        "nil cascade → nil count (view elides the chip)")
+    (is (nil? (proj/cascade-step-count []))
+        "empty cascade → nil count")))
+
+(deftest transition-row-without-cascade-falls-back-test
+  (testing "rf2-52u5n negative guard — a `:rf.machine/transition` trace with
+            NO structured `:cascade` (older trace / 5-arg fixture) leaves the
+            transition row's `:cascade` nil, so the view falls back to the
+            `{from}→{to}` summary. The cascade-grouping helpers degrade to
+            empty / nil."
+    (let [evs [(machine-transition-ev :ws/conn
+                                       {:state [:idle]   :data {}}
+                                       {:state [:active] :data {}}
+                                       [:ws/start] 1) ;; 5-arg: NO :cascade
+               (machine-action-ev :open-socket :entry :ok)]
+          r   (proj/handler-row evs :ws/start)
+          mt  (-> r :machine :transition)
+          tx  (first (filterv #(= :transition (:kind %)) (-> r :machine :cascade)))]
+      (is (nil? (:cascade mt))
+          "no structured cascade on the summary row → fall back to summary")
+      (is (nil? (:cascade tx))
+          "no structured cascade on the transition cascade row")
+      (is (= [] (proj/cascade-regions nil)))
+      (is (= [] (proj/cascade-microsteps nil)))
+      (is (false? (proj/parallel-cascade? nil))))))
+
 (deftest cascade-row-label-test
   (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
     (is (= "guard :ready?"
