@@ -6,9 +6,11 @@
     - P1 root (top-level) `:on` fallback is consulted at runtime
       (Spec 005 §Transition resolution steps 6-7) — keyword + vector
       targets, `:*` wildcard, deepest-wins override, guard gating.
-    - P2 `:rf.error/machine-unhandled-event` is emitted when no level
-      matches (Spec 005:1028 / Spec 009:1348 canonical id), with the
-      `:rf.machine.spawn/spawned` carve-out (005:1780).
+    - P2 the benign `:rf.machine.event/unhandled-no-op` is emitted when no
+      level matches (rf2-ugdas — xstate-v5 parity; op-type :rf.machine,
+      NOT an error). The former `:rf.error/machine-unhandled-event`
+      advisory + its `:rf.machine.spawn/spawned` reserved-namespace
+      carve-out are retired — every unhandled event is now a benign no-op.
     - P2 `:always` microstep traces — per-microstep
       `:rf.machine.microstep/transition` + the outer
       `:rf.machine/transition` carrying `:microsteps <count>`
@@ -105,28 +107,33 @@
     (rf/dispatch-sync [:rem/root-guard [:go]])
     (is (= :a (snap-of :rem/root-guard)) "guard false → unhandled, no transition")))
 
-;; ---- P2: :rf.error/machine-unhandled-event ---------------------------------
+;; ---- P2: :rf.machine.event/unhandled-no-op (rf2-ugdas — xstate-v5) ----------
 
-(deftest unhandled-event-emits-canonical-error
-  (testing "no level matches → :rf.error/machine-unhandled-event with
-   :machine-id / :event / :state"
+(deftest unhandled-event-emits-benign-no-op
+  (testing "no level matches → benign :rf.machine.event/unhandled-no-op with
+   :machine-id / :event / :state, op-type :rf.machine (NOT an error)"
     (rf/reg-machine :rem/unhandled
       {:initial :a :states {:a {:on {:known {:target :a}}}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rem/unhandled [:nope]])))
-          us  (ops evs :rf.error/machine-unhandled-event)]
-      (is (= 1 (count us)) "exactly one unhandled-event error")
-      (let [u (first us)]
+    (let [evs    (record-traces!
+                   (fn [] (rf/dispatch-sync [:rem/unhandled [:nope]])))
+          no-ops (ops evs :rf.machine.event/unhandled-no-op)]
+      (is (= 1 (count no-ops)) "exactly one benign no-op trace")
+      (is (empty? (ops evs :rf.error/machine-unhandled-event))
+          "the retired error advisory is NEVER emitted")
+      (let [u (first no-ops)]
+        (is (= :rf.machine (:op-type u))
+            "op-type is the machine-activity family, not a severity")
         (is (= :rem/unhandled (-> u :tags :machine-id)))
         (is (= [:nope] (-> u :tags :event)))
         (is (= :a (-> u :tags :state)))))))
 
-(deftest handled-event-emits-no-unhandled-error
-  (testing "a matched transition emits no unhandled-event error"
+(deftest handled-event-emits-no-unhandled-no-op
+  (testing "a matched transition emits no unhandled-no-op trace"
     (rf/reg-machine :rem/handled
       {:initial :a :states {:a {:on {:go {:target :b}}} :b {}}})
     (let [evs (record-traces!
                 (fn [] (rf/dispatch-sync [:rem/handled [:go]])))]
+      (is (empty? (ops evs :rf.machine.event/unhandled-no-op)))
       (is (empty? (ops evs :rf.error/machine-unhandled-event))))))
 
 ;; ---- P2: :always microstep traces ------------------------------------------

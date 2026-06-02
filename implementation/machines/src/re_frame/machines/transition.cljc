@@ -19,7 +19,6 @@
   stays effect-free so it can be loaded and exercised on the JVM by
   the conformance fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
-            [clojure.string :as str]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -570,13 +569,25 @@
   candidate transition for `event-id` (explicit then `:*` wildcard) whose
   guard passes, or nil. Per Spec 005 §Transition resolution — the
   per-level matching rule applied identically at every state-node and at
-  the machine root."
+  the machine root.
+
+  rf2-e7yhv — when the match came from the `:*` WILDCARD branch (no
+  explicit `event-id` entry, the wildcard matched), the returned
+  transition is stamped `:rf/via-wildcard? true`. This rides the
+  `:transition` slot through `apply-transition-once` into a
+  `:rf.error/machine-action-exception` trace (when the wildcard's action
+  throws — the xstate-v5 'fail loudly on unknown' idiom) so a consumer can
+  attribute the throw to a `:*` wildcard action rather than a named
+  transition."
   [machine node event-id event snapshot]
-  (let [cands (normalise-candidates
-                (or (get-in node [:on event-id])
-                    (get-in node [:on :*]))
-                :rf.error/machine-bad-on-clause)]
-    (select-passing-candidate machine cands snapshot event)))
+  (let [explicit (get-in node [:on event-id])
+        wildcard (when (nil? explicit) (get-in node [:on :*]))
+        cands    (normalise-candidates
+                   (or explicit wildcard)
+                   :rf.error/machine-bad-on-clause)
+        hit      (select-passing-candidate machine cands snapshot event)]
+    (cond-> hit
+      (and hit (some? wildcard)) (assoc :rf/via-wildcard? true))))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
@@ -612,33 +623,16 @@
         (when-let [hit (match-on-clause machine machine event-id event snapshot)]
           {:transition hit :decl-path []})))))
 
-(defn unhandled-event-warnable?
-  "True iff a nil `pick-transition` result for `event` should surface the
-  `:rf.error/machine-unhandled-event` advisory. Per Spec 005 §Transition
-  resolution (005:1028) the runtime emits it when no level matched.
-
-  Carve-out: the advisory exists to catch a **user / domain** event a
-  machine author forgot to handle — NOT framework lifecycle traffic. Per
-  [Conventions.md §The single-root reserved set] the framework reserves
-  the `:rf/*` root namespace for every framework-owned id, *machine
-  lifecycle events included*; the stories library's lifecycle / assertion
-  events ride the same reserved root (`:rf.story.lifecycle/*`,
-  `:rf.assert/*`). An event in the reserved `:rf*` namespace that resolves
-  to a no-op is benign framework traffic, exactly as Spec 005:1780 carves
-  out the synthetic `[:rf.machine.spawn/spawned]` kick-off. (`:rf.machine/bootstrap`
-  is `:entry`-only and `:rf.machine.timer/after-elapsed` is special-cased
-  in `pick-transition`, so neither reaches this path — but they are
-  reserved-namespace too, so the rule subsumes them.) Domain machines that
-  optimistically broadcast reserved-namespace lifecycle pings (the way the
-  stories runtime fires `:rf.story.lifecycle/events-complete` at a machine
-  already resting in `:ready`) therefore do not trip the advisory.
-
-  Public so the parallel-region aggregate path (`parallel/
-  parallel-machine-transition`) shares the single source of truth."
-  [event]
-  (let [event-id (first event)
-        ns       (when (keyword? event-id) (namespace event-id))]
-    (not (and ns (or (= ns "rf") (str/starts-with? ns "rf."))))))
+;; rf2-ugdas — `unhandled-event-warnable?` is RETIRED. It existed to
+;; suppress the old `:rf.error/machine-unhandled-event` advisory for
+;; reserved-`:rf/*` framework lifecycle traffic (the spawn kick-off, the
+;; stories runtime's lifecycle pings) so they didn't read as "an unhandled
+;; user event." Now that an unhandled event is a BENIGN no-op (xstate-v5
+;; parity — no error, no warning), there is nothing to suppress: every
+;; unhandled event — domain or reserved-namespace alike — emits the same
+;; benign `:rf.machine.event/unhandled-no-op`. The reserved-namespace
+;; carve-out (and the predicate) is gone; the spawn case stops being
+;; special. Strictly LESS machinery.
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
@@ -1663,30 +1657,41 @@
           :else
           (do
             ;; No transition matched at any level (including the root `:on`
-            ;; fallback). Per Spec 005 §Transition resolution (005:1028) the
-            ;; runtime emits the unhandled-event advisory and leaves the
-            ;; snapshot unchanged. The canonical id / op-type / tags are
-            ;; owned by Spec 009 §Error event catalogue (Ownership.md:48):
-            ;; `:rf.error/machine-unhandled-event`, op-type `:error`, tags
-            ;; `{:machine-id :event :state}`, recovery `:ignored`. (005's
-            ;; `:rf.warning/` spelling is the superseded older draft —
-            ;; 009:1348 states the `:rf.error/` form is canonical.)
+            ;; fallback / its `:*` wildcard). Per Spec 005 §Transition
+            ;; resolution the runtime emits the BENIGN no-op trace and
+            ;; leaves the snapshot unchanged — xstate-v5 parity: v5 removed
+            ;; the `strict` flag, so an unhandled event is ignored, not an
+            ;; error. The canonical id / op-type / tags are owned by Spec 009
+            ;; §`:op-type` vocabulary: `:rf.machine.event/unhandled-no-op`,
+            ;; op-type `:rf.machine` (machine-activity family, NOT `:error` /
+            ;; `:warning`), tags `{:machine-id :event :state}`. Benign is not
+            ;; invisible — xstate emits nothing here, but re-frame2 keeps an
+            ;; info-grade observability trace so a debugger can report it.
+            ;; Because the op-type is `:rf.machine` (not a severity
+            ;; discriminator), the Xray issue-projection predicate does not
+            ;; classify it as an issue — no pink wash, no ribbon entry, for
+            ;; free. (rf2-ugdas; retires `:rf.error/machine-unhandled-event`.)
+            ;;
+            ;; The synthetic spawn kick-off `[:rf.machine.spawn/spawned]` no
+            ;; longer needs a carve-out: since an unhandled event is benign,
+            ;; the kick-off resolving to a no-op is simply one instance of
+            ;; the general rule (the old `unhandled-event-warnable?` reserved-
+            ;; namespace suppression is retired with the error advisory).
             ;;
             ;; A region of a parallel-region machine carries `:rf/region`;
-            ;; per 005:1168-1171 a single declining region MUST NOT warn —
-            ;; only when EVERY region declines does the machine warn once.
-            ;; That aggregate emission lives in `parallel-machine-transition`,
-            ;; so suppress the per-region emission here.
-            (when (and (nil? (:rf/region machine))
-                       (unhandled-event-warnable? event))
-              (trace/emit-error! :rf.error/machine-unhandled-event
-                                 {:machine-id (or (:rf/parent-id machine) (:id machine))
-                                  :event      event
-                                  :state      (:state snapshot)
-                                  ;; Per rf2-ko8jb: epoch-capture admission
-                                  ;; requires `:frame`.
-                                  :frame      (:rf/frame machine)
-                                  :recovery   :ignored}))
+            ;; per Spec 005 §Transition broadcast a single declining region
+            ;; MUST NOT emit — only when EVERY region declines does the
+            ;; machine emit once. That aggregate emission lives in
+            ;; `parallel-machine-transition`, so suppress the per-region
+            ;; emission here.
+            (when (nil? (:rf/region machine))
+              (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+                           {:machine-id (or (:rf/parent-id machine) (:id machine))
+                            :event      event
+                            :state      (:state snapshot)
+                            ;; Per rf2-ko8jb: epoch-capture admission
+                            ;; requires `:frame`.
+                            :frame      (:rf/frame machine)}))
             (result/ok snapshot [])))]
     (result/with-handled
      (if (result/fail? result-after-event)
