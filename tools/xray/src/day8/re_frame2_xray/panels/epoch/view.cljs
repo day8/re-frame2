@@ -1795,9 +1795,27 @@
   machines, unregistered machine-id)."
   [machine-id state-path]
   (when (and (keyword? machine-id) (vector? state-path) (seq state-path))
-    (let [machine-meta (try (rf/handler-meta :machine machine-id)
+    ;; rf2-dcsw1 (iwy0c-followup) — read the registration meta under the
+    ;; `:event` kind, NOT the non-existent `:machine` kind. A machine is
+    ;; registered as a `reg-event-fx` carrying `:rf/machine? true` + the
+    ;; stamped spec (with `:rf.machine/source-coords`, rf2-8bp3) under
+    ;; `:rf/machine` (rf2-ge6uj ISSUE 2 / rf2-iwy0c part C — `machine-block`
+    ;; and `handler-source-block` already read `:event`). The prior
+    ;; `:machine` lookup resolved nil, so the `:rf.machine/source-coords`
+    ;; index was never found and the `:after`-timer state-path rendered a
+    ;; dead (non-clickable) source link. Reading under `:event` +
+    ;; `machine-spec-value`'s `:rf/machine` resolution surfaces the index.
+    (let [machine-meta (try (rf/handler-meta :event machine-id)
                             (catch :default _ nil))
-          idx          (or (get-in machine-meta [:rf/machine :rf.machine/source-coords])
+          ;; Resolve the machine spec the same way `machine-spec-value`
+          ;; (defined later in this ns) does: the stamped spec lives under
+          ;; `:rf/machine`, with fixture-shape fallbacks for unit tests.
+          ;; Inlined here because the var is declared below this fn.
+          spec         (or (:rf/machine machine-meta)
+                           (:machine-spec machine-meta)
+                           (:spec machine-meta)
+                           (:rf.machine/spec machine-meta))
+          idx          (or (:rf.machine/source-coords spec)
                            (:rf.machine/source-coords machine-meta))
           spec-path    (proj/state-spec-path-prefix state-path)
           c            (or (get idx spec-path)
