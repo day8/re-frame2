@@ -55,6 +55,35 @@
       (is (not (str/includes? form mutator))
           (str "read-dom form must be read-only — found mutator " mutator)))))
 
+(deftest form-uses-js-tolowercase-not-namespaced-alias
+  ;; rf2-5ffuv — REGRESSION GUARD. The inlined eval string is sent over
+  ;; nREPL and evaluated in the BROWSER cljs-eval context, which aliases
+  ;; NOTHING beyond cljs.core + JS interop (it is not a namespace that
+  ;; :requires anything). The original form lowered the tag with
+  ;; `(str/lower-case ...)` — `str` is unresolved there, so the whole form
+  ;; evaluated to nil (a compile-level unresolved-alias miss, NOT a caught
+  ;; error), and EVERY read-dom call came back :read-dom-blank-result. The
+  ;; tag must be lowered with the JS-native `.toLowerCase`, and the form
+  ;; must carry no bare `namespace/sym` alias at all.
+  (let [forms (for [attrs [nil ["id" "class"]]
+                    sub   [nil ".title"]]
+                (#'read-dom/read-dom-form "div" sub 10 100 attrs))]
+    (doseq [form forms]
+      (is (str/includes? form "(.toLowerCase")
+          "tag is lowered via JS .toLowerCase (no clojure.string alias needed)")
+      ;; Broader guard against the latent bug class: the inlined eval
+      ;; string must not lean on ANY require-only SYMBOL alias — those
+      ;; resolve in a namespace that :requires them, but NOT in the bare
+      ;; browser cljs-eval context (it aliases nothing beyond cljs.core +
+      ;; JS interop). Keyword namespaces (`:rf.error/…`, `:rf.size/…`) and
+      ;; JS interop (`js/document`) are legitimate; only a SYMBOL alias is
+      ;; the unresolved-symbol trap. The aliases this ns carries are the
+      ;; suspects worth pinning.
+      (doseq [alias ["str/" "wire/" "probe/" "j/"]]
+        (is (not (str/includes? form alias))
+            (str "the inlined eval form must depend only on cljs.core + JS "
+                 "interop — found require-only alias " alias))))))
+
 (deftest form-embeds-sub-selector-when-supplied
   (let [with-sub (#'read-dom/read-dom-form "div" ".title" 10 100 nil)
         no-sub   (#'read-dom/read-dom-form "div" nil 10 100 nil)]
