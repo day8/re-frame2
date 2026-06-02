@@ -98,6 +98,35 @@
                               issue-event? predicate distinguishes a thrown
                               `:*` action (error) from a benign no-op.
 
+  ## The HARD machine (rf2-k08ay) — rungs #12–#15
+
+  Where rungs #1–#11 each light up ONE Inspector surface, `:hvac/controller`
+  (a smart climate controller — MACHINE 4 below) is the CANONICAL HARD
+  machine: ONE coherent machine exercising every hard STRUCTURAL case so the
+  devtools have a rich, legible subject. It is the COMPLEMENT to the SCXML
+  semantic corpus (rf2-rkkag · #2842) — that proves SEMANTICS, this proves
+  the devtools RENDER them legibly (the gap the no-op render bug, rf2-e6q97
+  · #2841, exposed).
+
+    #12 power-cycle         — PARALLEL regions: ONE event (`:hvac/power-cycle`)
+                              handled by BOTH the `:climate` and `:fan` regions
+                              simultaneously; `:climate` :idle──►:running fans
+                              out a deep INITIAL CASCADE to the leaf
+                              `[:running :conditioning :heating]`.
+    #13 mode-toggle         — DEEP COMPOUND + LCA cascade: `:heating` ──►
+                              `:cooling` crosses the LCA two levels up
+                              (`:conditioning`). The action ORDER renders:
+                              exit deepest-first → action @ LCA → entry
+                              shallowest-first; the `:trail` is that order made
+                              visible.
+    #14 nudge fan           — EXTERNAL self-transition (`:target :same-state`,
+                              rf2-46ban · #2843): `:fan :on` re-enters itself —
+                              exit + action + entry all fire; NO spurious
+                              `{:on}→{:on}` no-op row (rf2-e6q97).
+    #15 tweak fan           — INTERNAL self-transition (omit `:target`): action
+                              ONLY, no exit/entry — the foil to #14. The
+                              devtools render the distinction.
+
   ## Test surface, not tutorial
 
   Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs as
@@ -316,6 +345,204 @@
 (rf/reg-machine :fuse/box fuse-machine)
 
 ;; ============================================================================
+;; MACHINE 4 — :hvac/controller  (the CANONICAL HARD machine — rf2-k08ay)
+;; ============================================================================
+;;
+;; The capstone of the machine-epochs deck. The first three machines each
+;; light up ONE Machine-Inspector surface; this one exercises every HARD
+;; structural case in ONE coherent domain — a smart climate controller — so
+;; the devtools have a rich, legible subject to render. It is the COMPLEMENT
+;; to the SCXML semantic corpus (rf2-rkkag · #2842): that proves the engine's
+;; SEMANTICS; this fixture + its fidelity assertions prove the devtools RENDER
+;; those semantics legibly. The recent no-op render bug (rf2-e6q97 · #2841)
+;; was a devtools-NARRATION miss — the engine was right, Xray drew it wrong —
+;; and this machine is built to keep that thin spot covered.
+;;
+;; ## The four hard cases it exercises (history-free; `:history` is deferred)
+;;
+;;   1. DEEP COMPOUND NESTING. The `:climate` region is four levels deep:
+;;        [:climate :running :conditioning :heating]
+;;      A transition from `:heating` up-and-over to `:cooling`
+;;      (`:hvac/mode-toggle`) crosses an LCA two levels up (`:conditioning`),
+;;      so the exit cascade + entry cascade each span multiple compound
+;;      levels — the multi-level case the cascade render must order correctly.
+;;
+;;   2. PARALLEL / ORTHOGONAL REGIONS. `:type :parallel` with two regions —
+;;      `:climate` (the deep compound) and `:fan` (a flatter independent
+;;      region). The `:hvac/power-cycle` event is handled by BOTH regions
+;;      SIMULTANEOUSLY (`:climate` swings active⇄idle; `:fan` swings on⇄off)
+;;      so the chart highlights leaves in both regions and the cascade shows
+;;      two transitions from one event.
+;;
+;;   3. ALL ACTION KINDS WITH OBSERVABLE LCA ORDERING. Per Spec 005 §Level 2
+;;      (Compound machines) the action group fires:
+;;        exit cascade (DEEPEST-first) → transition `:action` @ LCA →
+;;        entry cascade (SHALLOWEST-first) → initial cascade.
+;;      Every `:exit` / transition `:action` / `:entry` here APPENDS a labeled
+;;      tag onto a shared `:trail` vector in `:data`. So the post-macrostep
+;;      `:trail` is the cascade order made VISIBLE — the Epoch panel's per-
+;;      action rows (and the snapshot `:data` Δ) render that exact sequence,
+;;      and the fidelity test pins it. The labels carry their depth so the
+;;      deepest-first / shallowest-first directionality is unambiguous.
+;;
+;;   4. INTERNAL vs EXTERNAL SELF-TRANSITIONS — the case the wave just
+;;      debated + fixed (rf2-46ban · #2843). On the `:fan` region's `:on` leaf:
+;;        - `:hvac/nudge`  — EXTERNAL self-transition (`:target :same-state`):
+;;          per #2843 this now fires `:exit` THEN action THEN `:entry` (the
+;;          state re-enters itself), so the trail shows exit + entry tags.
+;;        - `:hvac/tweak`  — INTERNAL self-transition (omit `:target`):
+;;          action ONLY, no exit/entry — the trail shows just the action tag.
+;;      Both land on the SAME state; the devtools must render the DISTINCTION
+;;      (external = exit+entry cascade rows; internal = action-only row; and,
+;;      per #2841, NEITHER produces a spurious `{X}→{X}` no-op transition row).
+;;
+;; ## Why a `:trail` rather than a counter
+;;
+;; A bare counter would prove an action RAN; the ordered `:trail` proves the
+;; SEQUENCE — which is the whole point of the LCA cascade and the internal-vs-
+;; external distinction. The trail is the testable proxy for "the cascade
+;; renders legibly + in the right order". Each label is `<phase>:<state>` so a
+;; reader (human or test) sees both WHAT fired and WHERE without cross-
+;; referencing the spec.
+;;
+;; ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
+;;
+;; No deliberate bugs, no teaching layers. Every transition is a clean feature
+;; being driven; the trail is instrumentation, not an anti-pattern demo. The
+;; machine is a believable climate controller, not a grab-bag.
+
+;; A tiny action factory: returns a named action fn that appends one labeled
+;; tag to the shared `:trail` in `:data`. The `:name` metadata survives onto
+;; the fn so `defmachine` stamps per-element source AND the Inspector's
+;; ref-display-id surfaces a legible action id (rf2-ujra6).
+(defn- trail-action
+  "Build a named action that conj's `label` onto `[:data :trail]`. `label`
+  is `<phase>:<state>` (e.g. `:exit:heating`) so the rendered cascade /
+  snapshot-Δ reads as an ordered, self-describing sequence."
+  [nm label]
+  (with-meta
+    (fn [{data :data}]
+      {:data (update data :trail (fnil conj []) label)})
+    {:name nm}))
+
+(defmachine hvac-controller-machine
+  {:type :parallel
+
+   :data {:trail []}
+
+   :regions
+   {;; ---- :climate region — the DEEP COMPOUND (case 1) + the LCA cascade (case 3) ----
+    ;;
+    ;;   :idle
+    ;;   :running
+    ;;     :conditioning
+    ;;       :heating   ← deepest leaf; full path [:climate :running :conditioning :heating]
+    ;;       :cooling
+    ;;
+    ;; `:hvac/mode-toggle` on `:heating` targets `:cooling`. Their LCA is
+    ;; `:conditioning` (the common compound parent), so the cascade is:
+    ;;   exit :heating → (action at the :conditioning boundary) → entry :cooling
+    ;; Each step appends to `:trail`, deepest-exit-first then
+    ;; shallowest-entry-first. `:hvac/power-cycle` (case 2) swings the WHOLE
+    ;; region active⇄idle and is ALSO handled by the `:fan` region.
+    :climate
+    {:initial :idle
+     :states
+     {:idle
+      {:tags #{:climate/idle}
+       :on   {:hvac/power-cycle {:target :running :action :enter-running}}}
+
+      :running
+      ;; Compound level 1. Drops into :conditioning on entry; :conditioning
+      ;; drops into :heating. So `:hvac/power-cycle` from :idle lands the leaf
+      ;; at [:climate :running :conditioning :heating] via the initial cascade
+      ;; (case 3 — the entry + initial cascades both append to the trail).
+      {:tags    #{:climate/running}
+       :initial :conditioning
+       :entry   :enter-running-level
+       :exit    :exit-running-level
+       :on      {:hvac/power-cycle {:target :idle :action :back-to-idle}}
+       :states
+       {:conditioning
+        ;; Compound level 2 — the LCA for the :heating ⇄ :cooling toggle.
+        {:tags    #{:climate/conditioning}
+         :initial :heating
+         :entry   :enter-conditioning
+         :exit    :exit-conditioning
+         :states
+         {:heating
+          ;; Deepest leaf. `:hvac/mode-toggle` crosses the :conditioning LCA
+          ;; to :cooling — exit :heating (deepest-first) → transition action
+          ;; at the LCA → entry :cooling (shallowest-first). All three append
+          ;; to the trail so the order renders.
+          {:tags  #{:climate/heating}
+           :entry :enter-heating
+           :exit  :exit-heating
+           :on    {:hvac/mode-toggle {:target :cooling :action :swap-mode}}}
+
+          :cooling
+          {:tags  #{:climate/cooling}
+           :entry :enter-cooling
+           :exit  :exit-cooling
+           :on    {:hvac/mode-toggle {:target :heating :action :swap-mode}}}}}}}}}
+
+    ;; ---- :fan region — orthogonal (case 2) + the self-transitions (case 4) ----
+    ;;
+    ;; Independent of :climate. `:hvac/power-cycle` swings it off⇄on alongside
+    ;; the climate region (one event, BOTH regions — case 2). The `:on` leaf
+    ;; carries the EXTERNAL (`:hvac/nudge` · `:target :same-state`) and INTERNAL
+    ;; (`:hvac/tweak` · no `:target`) self-transitions side by side (case 4).
+    :fan
+    {:initial :off
+     :states
+     {:off
+      {:tags #{:fan/off}
+       :on   {:hvac/power-cycle {:target :on :action :fan-on}}}
+
+      :on
+      ;; Both self-transitions land HERE and stay HERE; the devtools render
+      ;; the distinction (external = exit+entry; internal = action-only).
+      {:tags  #{:fan/on}
+       :entry :enter-fan-on
+       :exit  :exit-fan-on
+       :on    {:hvac/power-cycle {:target :off :action :fan-off}
+               ;; EXTERNAL self-transition (rf2-46ban · #2843): exit + action
+               ;; + entry all fire; configuration unchanged.
+               :hvac/nudge {:target :same-state :action :nudge-fan}
+               ;; INTERNAL self-transition: action ONLY — no exit, no entry.
+               :hvac/tweak {:action :tweak-fan}}}}}}
+
+   ;; Named actions (inspectability bias, per the nine_states example): every
+   ;; slot is a NAMED entry so the focused-transition lens + the Epoch cascade
+   ;; render each action's id and source. The trail-appending bodies make the
+   ;; LCA cascade ordering observable.
+   :actions
+   {;; :climate entry/exit cascade (case 3) — labels carry depth so the
+    ;; deepest-first exit / shallowest-first entry directionality reads off
+    ;; the trail directly.
+    :enter-running         (trail-action 'enter-running         :action:power-on)
+    :enter-running-level   (trail-action 'enter-running-level   :entry:running)
+    :exit-running-level    (trail-action 'exit-running-level    :exit:running)
+    :back-to-idle          (trail-action 'back-to-idle          :action:power-off)
+    :enter-conditioning    (trail-action 'enter-conditioning    :entry:conditioning)
+    :exit-conditioning     (trail-action 'exit-conditioning     :exit:conditioning)
+    :enter-heating         (trail-action 'enter-heating         :entry:heating)
+    :exit-heating          (trail-action 'exit-heating          :exit:heating)
+    :enter-cooling         (trail-action 'enter-cooling         :entry:cooling)
+    :exit-cooling          (trail-action 'exit-cooling          :exit:cooling)
+    ;; the LCA-boundary transition action for :heating ⇄ :cooling (case 3)
+    :swap-mode             (trail-action 'swap-mode             :action:swap-mode)
+    ;; :fan region (case 2 + case 4)
+    :fan-on                (trail-action 'fan-on                :action:fan-on)
+    :fan-off               (trail-action 'fan-off               :action:fan-off)
+    :enter-fan-on          (trail-action 'enter-fan-on          :entry:fan-on)
+    :exit-fan-on           (trail-action 'exit-fan-on           :exit:fan-on)
+    :nudge-fan             (trail-action 'nudge-fan             :action:nudge)
+    :tweak-fan             (trail-action 'tweak-fan             :action:tweak)}})
+
+(rf/reg-machine :hvac/controller hvac-controller-machine)
+
+;; ============================================================================
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
@@ -408,6 +635,24 @@
   :<- [:rf/machine :traffic/light]
   (fn [snap _] (:tags snap)))
 
+;; ---- :hvac/controller — the hard machine's live read-out (rf2-k08ay) ----
+;;
+;; `:state` is a region→state map (parallel); `:tags` is the union tag-set
+;; across both active region leaves; `:trail` is the cascade-order record the
+;; LCA / self-transition buttons grow.
+
+(rf/reg-sub :machine-epochs/hvac-state
+  :<- [:rf/machine :hvac/controller]
+  (fn [snap _] (:state snap)))
+
+(rf/reg-sub :machine-epochs/hvac-tags
+  :<- [:rf/machine :hvac/controller]
+  (fn [snap _] (:tags snap)))
+
+(rf/reg-sub :machine-epochs/hvac-trail
+  :<- [:rf/machine :hvac/controller]
+  (fn [snap _] (get-in snap [:data :trail])))
+
 ;; ============================================================================
 ;; RESET
 ;; ============================================================================
@@ -431,7 +676,10 @@
   (fn handler-reset [_ _ev]
     {:db initial-db
      :fx [[:dispatch [:door/main [:rf.machine/bootstrap]]]
-          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]]}))
+          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]
+          ;; rf2-k08ay — the hard machine boots to its initial parallel
+          ;; configuration ({:climate :idle, :fan :off}) with an empty trail.
+          [:dispatch [:hvac/controller [:rf.machine/bootstrap]]]]}))
 
 ;; ============================================================================
 ;; THE BUTTON LADDER
@@ -477,7 +725,20 @@
    [:section "Fuse box — :* wildcard-action THROWS (xstate-v5 fail-loudly)"]
    [11 "Send unhandled event to :fuse/box — :* action THROWS"
     "Epoch: EXCEPTION card (message + ex-data + coord) attributing a :* WILDCARD action; event row IS pink — inverse of #7's benign no-op"
-    [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]]])
+    [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]]
+   [:section "HVAC controller — the HARD machine (deep compound · parallel · LCA cascade · self-transitions)"]
+   [12 "Power-cycle (parallel — BOTH regions, deep initial cascade)"
+    "Cascade: ONE event → :climate :idle──►:running (entry+initial cascade to [:running :conditioning :heating]) AND :fan :off──►:on; trail shows both regions' entries"
+    [:machine-epochs/send [[:hvac/controller [:hvac/power-cycle]]]]]
+   [13 "Mode-toggle (:heating ⇄ :cooling — multi-level LCA cascade)"
+    "Cascade ORDER: exit :heating (deepest-first) → :swap-mode @ LCA :conditioning → entry :cooling (shallowest-first); trail = [:exit:heating :action:swap-mode :entry:cooling]"
+    [:machine-epochs/send [[:hvac/controller [:hvac/mode-toggle]]]]]
+   [14 "Nudge fan — EXTERNAL self-transition (:target :same-state)"
+    "Cascade: :fan :on re-enters itself — exit :fan-on → :nudge-fan → entry :fan-on (per #2843); NO spurious {:on}→{:on} no-op row (per #2841)"
+    [:machine-epochs/send [[:hvac/controller [:hvac/nudge]]]]]
+   [15 "Tweak fan — INTERNAL self-transition (omit :target)"
+    "Cascade: ACTION ONLY (:tweak-fan) — no exit, no entry; the foil to #14; NO spurious no-op row — state stays :fan :on"
+    [:machine-epochs/send [[:hvac/controller [:hvac/tweak]]]]]])
 
 (reg-view ladder-button
   "One numbered ladder row: a numbered button on the left, its caption on
@@ -517,7 +778,10 @@
         door-data     @(subscribe [:machine-epochs/door-data])
         door-tags     @(subscribe [:machine-epochs/door-tags])
         traffic-state @(subscribe [:machine-epochs/traffic-state])
-        traffic-tags  @(subscribe [:machine-epochs/traffic-tags])]
+        traffic-tags  @(subscribe [:machine-epochs/traffic-tags])
+        hvac-state    @(subscribe [:machine-epochs/hvac-state])
+        hvac-tags     @(subscribe [:machine-epochs/hvac-tags])
+        hvac-trail    @(subscribe [:machine-epochs/hvac-trail])]
     [:div {:data-testid "machine-epochs-status-strip"
            :style {:border "1px solid #d8d2ff" :border-radius "6px"
                    :padding "0.5em 0.75em" :margin "0.75em 0"
@@ -531,7 +795,12 @@
      [:div ":door/main tags: " [:strong (pr-str door-tags)]]
      [:div {:data-testid "machine-epochs-traffic-state"}
       ":traffic/light state: " [:strong (pr-str traffic-state)]]
-     [:div ":traffic/light tags: " [:strong (pr-str traffic-tags)]]]))
+     [:div ":traffic/light tags: " [:strong (pr-str traffic-tags)]]
+     [:div {:data-testid "machine-epochs-hvac-state"}
+      ":hvac/controller state: " [:strong (pr-str hvac-state)]]
+     [:div ":hvac/controller tags: " [:strong (pr-str hvac-tags)]]
+     [:div {:data-testid "machine-epochs-hvac-trail"}
+      ":hvac/controller trail (LCA cascade order): " [:strong (pr-str hvac-trail)]]]))
 
 (reg-view root []
   [:div {:data-testid "machine-epochs-root"
