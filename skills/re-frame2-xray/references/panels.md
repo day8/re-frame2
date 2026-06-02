@@ -366,6 +366,15 @@ keyframe (1.2s ease-in-out, interpolated through
 `--rf-xray-motion-scale` so reduced-motion collapses it; §021
 §17.4.5).
 
+The focused-epoch **transition row** is a single prominent row: a header
+verb `<before-state → after-state>` (larger / bolder / magenta, doubling
+as click-to-source) over a **logical-state DELTA box** — an
+`edn-inspector` before→after DIFF of the machine's `{:state :tags}` only
+(`:data` excluded — the per-action `↳ data Δ` carries it; `:rf/*` snapshot
+slots excluded). This reverses the older transition-map "delight shape":
+the delta box earns its place by carrying `:tags` + the structured
+before→after object (rf2-ge6uj header · rf2-iwy0c body; §021 §6).
+
 Per-canvas footer lists guards / actions / cancellation cascade chips
 inline (no modal, no popout). Empty state (machines registered, no
 activity this epoch) renders the topology with `current ●` annotation
