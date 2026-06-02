@@ -1676,6 +1676,60 @@ structured before→after state object.
   false — only `:data` or `:rf/*` bookkeeping moved), the box is elided
   entirely; the headline verb stays.
 
+**Transition row — STRUCTURED entry/exit cascade (rf2-52u5n).** Below
+the logical-state delta box, the transition row renders the **structured
+cascade** — the step-by-step explanation of HOW the macrostep reached
+its after-state, replacing the old "`{from}→{to}` + `{n} microstep(s)`"
+opacity. The data is the `:cascade` tag the substrate emits on the
+`:rf.machine/transition` trace (rf2-n9f4z; Spec 005 §The structured
+transition cascade) — a vector of self-describing step maps
+`{:kind <:exit|:action|:entry|:microstep> :state <path> :region
+<name-or-nil> :action <id-or-nil> :data-delta <changed-keys>}` in
+EXECUTION order (exit deepest-first → transition `:action` @ LCA → entry
+shallowest-first + initial-descent → one `:microstep` per `:always`
+iteration). The projection (`machine-transition-row` /
+`transition-cascade-row`) threads this onto the transition row's
+`:cascade` slot; `projection/cascade-regions` / `cascade-microsteps` /
+`parallel-cascade?` / `cascade-step-count` group it for the view.
+
+Rendered shape (`view/structured-cascade-body`):
+
+- **The ordered ENTRY/EXIT CASCADE.** One row per structural step:
+  `<kind-glyph> <state-path> <action-id | (no action)> <data Δ>`. The
+  glyph reads the boundary kind (`↑` exit / `•` action / `↓` entry); the
+  state-path is the LCA-relative path exited/entered (the action's
+  decl-path for `:action`); the action-id names the fired action, or an
+  explicit muted `(no action)` for an action-free boundary (so the
+  COMPLETE configuration walk is legible — the per-EMIT
+  `:rf.machine/action-ran` stream above can NOT show these, since an
+  action-free `:idle` / `:off` exit declares no action and emits no
+  trace). The `:data-delta` (changed `:data` keys only — never the whole
+  snapshot, so no large-payload leak) renders inline through the
+  edn-inspector when non-empty.
+- **Per-`:region` grouping (parallel machines).** When the cascade spans
+  more than one `:region` (`parallel-cascade?`), the steps render in
+  per-region columns (each headed `region <name>`) in declaration order
+  (climate before fan), so a parallel broadcast reads region-by-region
+  rather than as one opaque map diff. A flat / compound machine's steps
+  all carry `:region nil` → one ungrouped column, no region label.
+- **`:always` microsteps sectioned.** Each eventless microstep renders
+  as its OWN section headed `microstep N · <from> → <to>` over its
+  nested exit/action/entry `:steps`, so the `:always` stream is
+  EXPLAINABLE (not just a count). This composes with the per-microstep
+  `:rf.machine.microstep/transition` stream (that stays the per-microstep
+  marker; `:cascade` is the macrostep-level structured rollup).
+- **Fallback.** A `:rf.machine/transition` trace with NO structured
+  `:cascade` (older traces / non-structured fixtures) renders no
+  structured body — the `{from}→{to}` headline verb + the logical-state
+  delta box remain (graceful degradation). The grouping helpers degrade
+  to `[]` / `nil` on a nil cascade.
+
+This removes the need for the app-level `:data :trail` workaround the
+`machine_epochs` testbed previously used to make the cascade observable
+by hand (rf2-52u5n live finding, machine-epochs :8033). It is the
+consumer of the rf2-n9f4z instrumentation contract per
+[003-Machine-Inspector §The EVENT HANDLER machine cascade](003-Machine-Inspector.md).
+
 Timer rows surface only the header + click-to-source chip (no inline
 body — cancellations are housekeeping; the chip routes to the
 `:after`-bearing state node).

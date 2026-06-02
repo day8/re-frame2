@@ -306,7 +306,14 @@
   "`:rf.machine/transition` trace — drives the HANDLER step's
   machine TRANSITION sub-section + the DATA-REDUCTION /
   SNAPSHOT-DIFF projections (rf2-u69j7). `before` + `after` are full
-  machine snapshot maps (`:state` + `:data` + …)."
+  machine snapshot maps (`:state` + `:data` + …).
+
+  rf2-52u5n / rf2-n9f4z — the 6-arg form stamps the STRUCTURED
+  `:cascade` step vector (the ordered exit/action/entry/microstep
+  steps the substrate emits per rf2-n9f4z) so the EVENT HANDLER
+  machine-cascade render can be driven from a synth fixture. The
+  5-arg form OMITS `:cascade` (the negative-guard / older-trace
+  shape the view falls back to the summary on)."
   ([machine-id before after]
    (machine-transition-ev machine-id before after nil 0))
   ([machine-id before after event microsteps]
@@ -315,7 +322,15 @@
                 :before     before
                 :after      after}
          event      (assoc :event event)
-         microsteps (assoc :microsteps microsteps)))))
+         microsteps (assoc :microsteps microsteps))))
+  ([machine-id before after event microsteps cascade]
+   (ev :rf.machine :rf.machine/transition
+       (cond-> {:machine-id machine-id
+                :before     before
+                :after      after}
+         event       (assoc :event event)
+         microsteps  (assoc :microsteps microsteps)
+         (some? cascade) (assoc :cascade cascade)))))
 
 (defn machine-guard-ev
   "`:rf.machine/guard-evaluated` trace — drives the HANDLER step's

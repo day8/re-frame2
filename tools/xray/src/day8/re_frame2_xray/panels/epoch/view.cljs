@@ -548,6 +548,98 @@
   {:color        accent-colour
    :margin-right "6px"})
 
+;; ---- structured transition cascade (rf2-52u5n) --------------------------
+;;
+;; The transition row's body renders the STRUCTURED `:cascade` (the ordered
+;; exit/action/entry/microstep step vector off the `:rf.machine/transition`
+;; trace, rf2-n9f4z) under the `{from}→{to}` headline + the logical-state
+;; delta box — the step-by-step "how the machine got there" the operator
+;; previously had to reconstruct from a `:data :trail` workaround. The idiom
+;; mirrors the per-EMIT cascade rows (rf2-u69j7) — a thin left-rail kind
+;; chrome + monospace verb + inline `:data` delta — but rendered from the
+;; COMPLETE configuration walk (action-free boundaries included) and grouped
+;; PER REGION for parallel machines.
+
+(def ^:private structured-cascade-root-style
+  {:margin-top     "6px"
+   :display        "flex"
+   :flex-direction "column"
+   :gap            "6px"})
+
+(def ^:private structured-cascade-region-style
+  {:display        "flex"
+   :flex-direction "column"
+   :border-left    border-subtle-1px
+   :padding-left   "8px"})
+
+(def ^:private structured-cascade-region-label-style
+  {:font-family    mono-stack
+   :font-size      "10px"
+   :font-weight    700
+   :letter-spacing "0.04em"
+   :color          text-tertiary-colour
+   :margin-bottom  "2px"})
+
+(def ^:private structured-cascade-step-row-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :gap         "6px"
+   :padding     "2px 0"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+;; Per-step :kind glyph + tone — exit (leave), action (the change), entry
+;; (arrive). The exit/entry arrows give the cascade an at-a-glance up/down
+;; read; the action dot marks the LCA state-change boundary.
+(def ^:private structured-cascade-kind->glyph
+  {:exit "↑" :action "•" :entry "↓"})
+
+(def ^:private structured-cascade-kind->tone
+  {:exit  text-secondary-colour
+   :action (badge/cascade-kind-colour :transition)
+   :entry  success-colour})
+
+(def ^:private structured-cascade-kind-glyph-style
+  {:font-weight 700
+   :min-width   "10px"
+   :text-align  "center"})
+
+(def ^:private structured-cascade-state-style
+  {:color       text-primary-colour
+   :white-space "nowrap"})
+
+(def ^:private structured-cascade-action-chip-style
+  {:color        accent-colour
+   :margin-left  "4px"})
+
+(def ^:private structured-cascade-noaction-style
+  {:color       text-tertiary-colour
+   :font-style  "italic"
+   :margin-left "4px"})
+
+(def ^:private structured-cascade-delta-style
+  {:flex      1
+   :min-width 0})
+
+(def ^:private structured-cascade-microsteps-style
+  {:display        "flex"
+   :flex-direction "column"
+   :gap            "4px"
+   :margin-top     "2px"})
+
+(def ^:private structured-cascade-microstep-style
+  {:display        "flex"
+   :flex-direction "column"
+   :border-left    (str "2px solid " (badge/cascade-kind-colour :transition))
+   :padding-left   "8px"})
+
+(def ^:private structured-cascade-microstep-header-style
+  {:font-family mono-stack
+   :font-size   "10px"
+   :font-weight 700
+   :color       (badge/cascade-kind-colour :transition)
+   :margin-bottom "1px"})
+
 ;; rf2-4yrr6 — `cascade-detail-threw-row-style` / `cascade-threw-glyph-style`
 ;; / `cascade-threw-label-style` / `cascade-threw-message-style` RETIRED with
 ;; the per-action "✗ threw — <message>" detail line (the duplicate threw
@@ -2581,6 +2673,116 @@
                   :default-expanded-depth 3}
            (some? before-ls) (assoc :before before-ls))]]])))
 
+;; ---- structured transition cascade render (rf2-52u5n) -------------------
+
+(defn- structured-cascade-step-row
+  "Render ONE structural cascade step (`:exit` / `:action` / `:entry`)
+  off the structured `:cascade` (rf2-52u5n). Layout:
+
+      <glyph> <state-path>  <action-id | (no action)>   { :data Δ … }
+
+  - the glyph + tone read the boundary KIND (↑ exit / • action / ↓ entry);
+  - the state-path is the LCA-relative path the step exited/entered (the
+    transition action's decl-path for `:action`);
+  - the action-id chip names the fired action, or a muted '(no action)'
+    when the boundary declared none (the complete-walk action-free
+    boundaries — e.g. exiting `:idle`);
+  - the `:data-delta` (changed `:data` keys only) renders inline through
+    the edn-inspector when non-empty, so the operator sees exactly what
+    that step contributed without expanding the whole snapshot."
+  [testid-prefix idx {:keys [kind state action data-delta]}]
+  (let [glyph (get structured-cascade-kind->glyph kind "·")
+        tone  (get structured-cascade-kind->tone kind text-secondary-colour)]
+    [:div {:key         (str testid-prefix "-step-" idx)
+           :data-testid (str testid-prefix "-step-" idx)
+           :data-cascade-step-kind (when (keyword? kind) (name kind))
+           :style       structured-cascade-step-row-style}
+     [:span {:aria-hidden true
+             :style (assoc structured-cascade-kind-glyph-style :color tone)}
+      glyph]
+     [:span {:style structured-cascade-state-style}
+      (pr-str state)]
+     (if (some? action)
+       [:span {:data-testid (str testid-prefix "-step-" idx "-action")
+               :style structured-cascade-action-chip-style}
+        (fmt/ns-keyword action)]
+       [:span {:style structured-cascade-noaction-style} "(no action)"])
+     (when (seq data-delta)
+       [:span {:data-testid (str testid-prefix "-step-" idx "-delta")
+               :style structured-cascade-delta-style}
+        [ei/edn-inspector data-delta
+         {:site-id                [:rf.xray.epoch/structured-cascade-delta testid-prefix idx]
+          :card?                  false
+          :default-expanded-depth 2}]])]))
+
+(defn- structured-cascade-microstep
+  "Render ONE `:always` microstep section (rf2-52u5n) — a header naming the
+  eventless step (`microstep N · <from> → <to>`) over its OWN nested
+  exit/action/entry steps, so the `:always` stream is explainable
+  alongside the headline transition rather than a bare count."
+  [testid-prefix {:keys [microstep-index from to steps]}]
+  [:div {:key         (str testid-prefix "-microstep-" microstep-index)
+         :data-testid (str testid-prefix "-microstep-" microstep-index)
+         :style       structured-cascade-microstep-style}
+   [:div {:style structured-cascade-microstep-header-style}
+    (str "microstep " microstep-index
+         (when (or (some? from) (some? to))
+           (str " · " (pr-str from) " → " (pr-str to))))]
+   (into [:div]
+         (map-indexed
+           (fn [i step]
+             (structured-cascade-step-row
+               (str testid-prefix "-microstep-" microstep-index) i step))
+           (filterv #(contains? #{:exit :action :entry} (:kind %)) steps)))])
+
+(defn- structured-cascade-body
+  "Render the STRUCTURED transition cascade (rf2-52u5n) for a `:transition`
+  cascade row — the ordered exit/action/entry steps + the `:always`
+  microstep sections, grouped PER REGION for parallel machines.
+
+  This is the headline rf2-52u5n surface: under the `{from}→{to}` verb +
+  the logical-state delta box, the operator reads the step-by-step
+  ENTRY/EXIT CASCADE — states exited (deepest-first) and entered
+  (shallowest-first + initial-descent), each with its action id + that
+  step's `:data` delta — and the `:always` microsteps sectioned per index.
+
+  Falls back to nil (the caller renders only the summary) when the row
+  carries no structured `:cascade` (older traces / non-machine fixtures)."
+  [{:keys [step cascade] :as _row}]
+  (when (seq cascade)
+    (let [regions    (proj/cascade-regions cascade)
+          microsteps (proj/cascade-microsteps cascade)
+          parallel?  (proj/parallel-cascade? cascade)
+          prefix     (str "rf-xray-epoch-machine-cascade-structured-" step)]
+      [:div {:data-testid prefix
+             :data-cascade-parallel (str (boolean parallel?))
+             :data-cascade-step-count (str (or (proj/cascade-step-count cascade) 0))
+             :style structured-cascade-root-style}
+       ;; Per-region (parallel) or single ungrouped (flat/compound) columns.
+       (for [{:keys [region steps]} regions
+             :let [region-prefix (str prefix "-region-"
+                                      (if region (name region) "_"))]]
+         ^{:key region-prefix}
+         [:div {:data-testid region-prefix
+                :data-cascade-region (when region (name region))
+                :style (if parallel?
+                         structured-cascade-region-style
+                         {:display "flex" :flex-direction "column"})}
+          ;; Region label only for genuine parallel machines (a flat/compound
+          ;; machine's single nil region needs no header — noise otherwise).
+          (when (and parallel? region)
+            [:div {:data-testid (str region-prefix "-label")
+                   :style structured-cascade-region-label-style}
+             (str "region " (name region))])
+          (map-indexed
+            (fn [i s] (structured-cascade-step-row region-prefix i s))
+            steps)])
+       ;; The `:always` microstep sections (sectioned per :microstep-index).
+       (when (seq microsteps)
+         (into [:div {:data-testid (str prefix "-microsteps")
+                      :style structured-cascade-microsteps-style}]
+               (map #(structured-cascade-microstep prefix %) microsteps)))])))
+
 (defn- cascade-row-source-body
   "Render the source code body for a cascade row (rf2-u69j7 baseline +
   rf2-wwc3j inline-fn extensions). Always visible per the bead body's
@@ -2614,8 +2816,20 @@
     ;; rf2-iwy0c part A — transition rows show the logical-state delta,
     ;; NOT the transition map literal. Self/internal transitions (no
     ;; logical change) elide the box entirely.
+    ;; rf2-52u5n — under the delta box, render the STRUCTURED entry/exit
+    ;; cascade (the ordered exit/action/entry steps + the `:always`
+    ;; microsteps, per-region for parallel machines) so EVENT HANDLER
+    ;; explains HOW the macrostep reached its after-state — not just
+    ;; `{from}→{to} + {n} microstep(s)`. Falls back to the delta box
+    ;; alone when the trace carried no structured `:cascade`.
     (= :transition (:kind row))
-    (cascade-row-transition-delta row)
+    (let [delta      (cascade-row-transition-delta row)
+          structured (structured-cascade-body row)]
+      (when (or delta structured)
+        [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-body-"
+                                 (:step row))}
+         delta
+         structured]))
 
     (contains? #{:action :guard} (:kind row))
     (let [src-str (source-form->string source-form)]
