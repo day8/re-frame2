@@ -61,12 +61,17 @@
                               action returns `{:fx [[:dispatch ...]]}`; the
                               lens's ACTIONS RUN shows the `:fx` output and
                               the downstream `:dispatch` cascade child.
-    #7  ignored transition  — send `:door/insert-coin` to `:alarming`,
-                              which has no matching `:on` entry: a no-op /
-                              ignored event. The Inspector shows NO machine
-                              activity for this focused event (the verbatim
-                              'This event does not target a state machine'
-                              empty-state is the foil to every other rung).
+    #7  unhandled → no-op   — send `:door/insert-coin` to `:alarming`,
+                              which has no matching `:on` entry: an
+                              unhandled event resolves to a BENIGN no-op
+                              (xstate-v5 parity, rf2-ugdas). The Epoch
+                              panel's EVENT HANDLER machine cascade renders
+                              a muted `NO-OP` row naming machine + event +
+                              state (no-op, :door/main received
+                              [:door/insert-coin] in :alarming, no
+                              transition); the event row is NOT pink (the
+                              trace is op-type :rf.machine, benign) — the
+                              foil to rung #11's `:*`-action throw.
     #8  parallel regions    — a SECOND machine (`:traffic/light`,
                               `:type :parallel` with `:vehicle` + `:pedestrian`
                               regions): one event broadcasts to both
@@ -79,6 +84,19 @@
                               cascade; the Inspector's instance selection
                               picks the first transition in trace order and
                               the spine's prev/next walks between them.
+    #11 :* wildcard THROWS   — a THIRD machine (`:fuse/box`) whose `:*`
+                              wildcard action THROWS (the xstate-v5 idiomatic
+                              'fail loudly on unknown', rf2-e7yhv). Sending it
+                              an otherwise-unhandled event fires the `:*`
+                              action which throws -> a REAL
+                              `:rf.error/machine-action-exception`. The Epoch
+                              panel renders the EXCEPTION card (thrown message
+                              + ex-data + source coord) naming it came from a
+                              `:*` WILDCARD action; the event row IS pink —
+                              the inverse of rung #7's benign no-op. The
+                              contrast validates that the pink-wash /
+                              issue-event? predicate distinguishes a thrown
+                              `:*` action (error) from a benign no-op.
 
   ## Test surface, not tutorial
 
@@ -252,6 +270,52 @@
 (rf/reg-machine :traffic/light traffic-machine)
 
 ;; ============================================================================
+;; MACHINE 3 — :fuse/box  (a :* wildcard whose action THROWS — #11, rf2-e7yhv)
+;; ============================================================================
+;;
+;; The xstate-v5 idiomatic "fail loudly on unknown": v5 removed the v4
+;; `strict` flag, so an unhandled event is a benign no-op (#7). To opt INTO
+;; throwing on unknown, you add a `:*` wildcard whose action throws. That is
+;; a REAL `:rf.error/machine-action-exception` (recovery :no-recovery) — the
+;; CONTRAST with #7's benign no-op validates that Xray's pink-wash /
+;; `issue-event?` predicate distinguishes a thrown `:*` action (error, pink,
+;; EXCEPTION card) from a benign unhandled-event no-op (NOT pink).
+;;
+;; `:armed` handles `:fuse/inspect` (a plain self-internal action so the
+;; machine has at least one normal transition to read against), and its `:*`
+;; wildcard's action throws for ANY other event — so sending an
+;; otherwise-unhandled event (#11's button) fires `:*` and throws.
+
+(defmachine fuse-machine
+  {:initial :armed
+   :data    {}
+
+   :actions
+   {:note-inspect
+    ;; A benign named action so `:armed` has a normal transition to contrast
+    ;; the wildcard against (it does NOT throw).
+    (fn action-note-inspect [{data :data}]
+      {:data (update data :inspections (fnil inc 0))})
+
+    :blow-fuse
+    ;; #11 — the `:*` wildcard's action. Throws on ANY unhandled event,
+    ;; xstate-v5 'fail loudly on unknown'. The ex-info message + ex-data are
+    ;; surfaced by the Epoch EXCEPTION card.
+    (fn action-blow-fuse [{:keys [event]}]
+      (throw (ex-info "unhandled machine event"
+                      {:event event :where :fuse-wildcard})))}
+
+   :states
+   {:armed
+    {:tags #{:fuse/armed}
+     :on   {:fuse/inspect {:action :note-inspect}
+            ;; The xstate-v5 fail-loudly wildcard: any otherwise-unhandled
+            ;; event fires this action, which throws.
+            :*            {:action :blow-fuse}}}}})
+
+(rf/reg-machine :fuse/box fuse-machine)
+
+;; ============================================================================
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
@@ -354,7 +418,8 @@
   (fn handler-reset [_ _ev]
     {:db initial-db
      :fx [[:dispatch [:door/main [:rf.machine/bootstrap]]]
-          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]]}))
+          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]
+          [:dispatch [:fuse/box [:rf.machine/bootstrap]]]]}))
 
 ;; ============================================================================
 ;; THE BUTTON LADDER
@@ -396,7 +461,11 @@
     [:machine-epochs/send [[:traffic/light [:traffic/tick]]]]]
    [10 "Reset door + tick traffic (two machines, one cascade)"
     "Inspector: one event transitions BOTH machines; instance selection picks the first transition in trace order"
-    [:machine-epochs/send [[:door/main [:door/reset]] [:traffic/light [:traffic/tick]]]]]])
+    [:machine-epochs/send [[:door/main [:door/reset]] [:traffic/light [:traffic/tick]]]]]
+   [:section "Fuse box — :* wildcard-action THROWS (xstate-v5 fail-loudly)"]
+   [11 "Send unhandled event to :fuse/box — :* action THROWS"
+    "Epoch: EXCEPTION card (message + ex-data + coord) attributing a :* WILDCARD action; event row IS pink — inverse of #7's benign no-op"
+    [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]]])
 
 (reg-view ladder-button
   "One numbered ladder row: a numbered button on the left, its caption on
