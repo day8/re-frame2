@@ -172,6 +172,26 @@ If you want a refresher on the MCP surface before the first real op, optionally 
 
 ---
 
+## Orient before you drill
+
+**Your read order, every session: `discover-app` → `orient` → a targeted slice.**
+
+After `discover-app` connects, your **first read is always `orient`** (`mcp__re-frame2-pair__orient {}`) — never a `snapshot`. `orient` returns a compact, one-round-trip app-shape summary: liveness, the app frames (reserved `:rf/*` tool frames excluded), each app frame's **top-level app-db keys only**, registry **counts**, and the navigable event / sub / fx / machine ids. It is bounded by construction — it hands you the map without pulling any bulk, and it deliberately omits the `:rf/xray` tool frame's contents.
+
+Only **after** `orient` do you drill — and you drill into **slices**, never whole frames:
+
+| You want | Use |
+|---|---|
+| one sub's current value | `read-sub {sub: "[:cart/total]"}` |
+| one app-db path | `get-path {path: "[:cart :items]"}` |
+| a bounded sub-tree | `snapshot {path: "[:cart]"}` (the `snapshot` tool defaults to `:summary` — top-level shape only; a `path` narrows it further) |
+
+**Never read a whole frame to orient.** A `snapshot {path: "[]"}` (full, unsliced) or an `eval-cljs` form that derefs an entire frame's `app-db` can be enormous. This is **especially** true of the reserved `:rf/xray` **tool frame**: its app-db *is* Xray's entire working set — the epoch ring it displays (each epoch carrying `:db-before` / `:db-after`), the trace buffer, diff projections, panel state — and it grows without bound. A full read of it has overflowed past 100K tokens in a single call. You essentially **never read the `:rf/xray` frame at all** — you pair against the *app* frame (`:rf/default`).
+
+The mental model: **breadth-first shallow (`orient`) → depth-first narrow (`read-sub` / `get-path` / `snapshot {path}`)**. `snapshot` is a drill-in tool you hand a `path` — not the way you take in an app.
+
+---
+
 ## Multi-frame model — set the operating frame
 
 re-frame2 supports multiple, named frames (Spec 002). Most apps run with one app frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op resolves an operating frame through a four-tier cascade: explicit per-call `frame` arg (tier 1) → session pin (tier 2) → the sole registered **app frame** (tier 3) → nil/ambiguous (tier 4). On the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
@@ -218,7 +238,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ## Style guidance
 
-- **Read before you write.** Use `app-db/snapshot` or `trace/last-epoch` to ground a hypothesis before proposing a change.
+- **Read before you write — `orient` first, then drill into slices.** Your first read each session is `orient` (the bounded app-shape summary), *not* `snapshot`. To ground a hypothesis, drill into a *slice* — `read-sub` / `get-path` / `snapshot {path: ...}` / `trace/last-epoch` — never a whole-frame read, and **never** the `:rf/xray` tool frame wholesale (it is Xray's entire working set; it overflows). See [Orient before you drill](#orient-before-you-drill).
 - **Prefer structured ops over `repl/eval`.** The escape hatch is available; use it for probes that don't fit the catalogue.
 - **Keep it in re-frame2's vocabulary.** Dispatch, reg-event-fx, reg-sub, reg-machine, frame, epoch — speak the same language the app speaks. Avoid `reset!` of a frame's app-db except when surgically needed, and say so when you do.
 - **Experiment, don't speculate.** When an answer isn't obvious, probe at the REPL against live data.
