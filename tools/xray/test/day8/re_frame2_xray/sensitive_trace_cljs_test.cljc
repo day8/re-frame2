@@ -21,6 +21,8 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.config :as config]
+            #?(:cljs [re-frame.frame :as frame])
+            #?(:cljs [re-frame.trace :as trace])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -153,13 +155,18 @@
 
 ;; ---- (4) collect-trace! default-suppress + opt-in pass-through ----------
 
-;; Test envelopes deliberately omit `:frame` / `:tags :frame` so the
+;; These envelopes deliberately omit `:frame` / `:tags :frame` so the
 ;; collector routes them to the frameless secondary ring (per rf2-3g9nw
-;; D2=a). Frame-bound events would expect the framework's per-frame
-;; rings to retain them — but that path requires a real `emit!` to
-;; populate, which this unit test does not drive. For the sensitive-
-;; flag gate the frameless-vs-frame-bound distinction is irrelevant —
-;; the gate fires above the ring split.
+;; D2=a). For the LISTENER-path gate the frameless-vs-frame-bound
+;; distinction is irrelevant — `collect-trace!` drops the sensitive
+;; event above the ring split either way.
+;;
+;; The frame-bound path is the OTHER half of the matrix and lives in
+;; the §(7) tests below: a real `trace/emit!` populates the framework's
+;; per-frame ring (which retains EVERY event with no `:sensitive?`
+;; check), and the gate that matters there is the read-side scrub in
+;; `snapshot-from-rings` (rf2-0ax6f). Keeping both halves here pins the
+;; symmetry the `collect-trace!` docstring now claims.
 
 (defn- non-sensitive-event []
   {:op-type :rf.event :operation :rf.event/dispatched
@@ -333,3 +340,103 @@
        (config/set-show-sensitive! false) ; redundant; default is false
        (is (= 2 (count (trace-collector/buffer-for-test)))
            "redundant set-show-sensitive! false must not clear the buffer"))))
+
+;; ---- (7) frame-bound sensitive events — the snapshot-read gate (rf2-0ax6f)
+;;
+;; The §(4) tests drive FRAMELESS events through `collect-trace!` — that
+;; path is gated by the listener-side `suppress-sensitive?` check before
+;; the secondary ring. But a FRAME-BOUND sensitive event takes a
+;; different route: the framework's `trace/emit!` retains it in the
+;; per-frame cascade ring (`re-frame.trace.tooling/push-to-ring!`) with
+;; NO `:sensitive?` check — `collect-trace!` only declines to *push*
+;; it, it cannot un-retain it. `snapshot-from-rings` reads those rings
+;; back directly, so without a read-side gate a later non-sensitive
+;; event's mirror-sync would pull the retained sensitive event into the
+;; buffer (rf2-0ax6f leak). These tests drive a REAL emit → per-frame
+;; ring → `snapshot-from-rings` (`buffer-for-test`) and pin that the
+;; sensitive event is scrubbed on the read when the flag is false, and
+;; passes through only when opted in. This is the missing half of the
+;; matrix (mirrors the rf2-lo28u "green test routed around the gap"
+;; lesson — the assertion hits the ACTUAL failing path, the per-frame
+;; ring read, not the already-covered listener path).
+
+#?(:cljs
+   (def ^:private host-frame ::sensitive-host))
+
+#?(:cljs
+   (defn- emit-frame-bound!
+     "Drive a REAL `re-frame.trace/emit!` into `host-frame`'s per-frame
+     ring. A `:frame` + `:rf.trace/dispatch-id` in `tags` is what
+     `push-to-ring!` keys on to retain the event (frameless emits skip
+     the ring per the B3 ruling). `:sensitive?` in `tags` is hoisted to
+     a top-level `:sensitive? true` stamp by `build-event` — the same
+     stamp a schema-sensitive handler scope produces at runtime. The
+     `dispatch-id` keys the cascade slot; distinct ids = distinct
+     cascades so the count assertions are unambiguous."
+     [dispatch-id sensitive?]
+     (trace/emit! :rf.event :rf.event/run-end
+                  (cond-> {:frame host-frame
+                           :rf.trace/dispatch-id dispatch-id
+                           :rf.trace/event-id :user/login}
+                    sensitive? (assoc :sensitive? true)))))
+
+#?(:cljs
+   (defn- host-ring-buffer
+     "The snapshot every consumer sees, restricted to `host-frame`'s
+     events — `buffer-for-test` merges all frames + the frameless ring;
+     filter to the host frame so the assertions don't depend on
+     incidental cross-frame noise."
+     []
+     (filterv #(= host-frame (get-in % [:tags :frame]))
+              (trace-collector/buffer-for-test))))
+
+#?(:cljs
+   (defn- with-host-frame [test-fn]
+     ;; Register the host frame so `frame/frame-ids` (which
+     ;; `snapshot-from-rings` walks) includes it, run the body, then
+     ;; drop it so the next test starts clean. We `dissoc` from the
+     ;; registry directly rather than `destroy-frame!` — this suite has
+     ;; no installed substrate adapter, and destroy fires the dispatch /
+     ;; teardown machinery a bare frame doesn't need. `reset-for-test!`
+     ;; (in the outer fixture) already clears the per-frame rings.
+     (frame/reg-frame host-frame {})
+     (try (test-fn)
+          (finally (swap! frame/frames dissoc host-frame)))))
+
+#?(:cljs
+   (deftest snapshot-suppresses-sensitive-frame-bound-event-by-default
+     (with-host-frame
+       (fn []
+         (testing "a sensitive FRAME-BOUND event retained in the per-frame
+                   ring is scrubbed from the snapshot when the flag is false
+                   (rf2-0ax6f — the bug: it leaked through snapshot-from-rings)"
+           ;; A non-sensitive event lands first — the leak surfaces
+           ;; precisely when a *later* benign event's mirror-sync reads
+           ;; the ring back and drags the retained sensitive cascade along.
+           (emit-frame-bound! 1 false)
+           (emit-frame-bound! 2 true)   ; sensitive — retained in the ring
+           (let [buf (host-ring-buffer)]
+             (is (= 1 (count buf))
+                 "only the non-sensitive event reaches the snapshot — the
+                  sensitive frame-bound event MUST NOT leak through
+                  snapshot-from-rings while show-sensitive? is false")
+             (is (not-any? :sensitive? buf)
+                 "no sensitive event survives the read-side gate")
+             (is (every? #(= 1 (get-in % [:tags :rf.trace/dispatch-id])) buf)
+                 "the surviving event is the non-sensitive cascade #1")))))))
+
+#?(:cljs
+   (deftest snapshot-passes-sensitive-frame-bound-event-when-opted-in
+     (with-host-frame
+       (fn []
+         (testing "with :rf.privacy/show-sensitive? true the snapshot
+                   surfaces the retained sensitive frame-bound event"
+           (config/configure! {:rf.privacy/show-sensitive? true})
+           (emit-frame-bound! 1 false)
+           (emit-frame-bound! 2 true)
+           (let [buf (host-ring-buffer)]
+             (is (= 2 (count buf))
+                 "opted-in caller sees BOTH the non-sensitive and the
+                  sensitive frame-bound event in the snapshot")
+             (is (some :sensitive? buf)
+                 "the sensitive event passes through under the opt-in")))))))

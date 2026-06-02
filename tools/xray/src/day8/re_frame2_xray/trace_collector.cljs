@@ -181,6 +181,26 @@
   alpha posture: drop unconditionally; tool-frame introspection is a
   separate feature surface if needed (rf2-43koh consumer substrate).
 
+  ## Privacy gate (rf2-0ax6f)
+
+  The framework's per-frame rings RETAIN every emitted event with no
+  `:sensitive?` check (`re-frame.trace.tooling/push-to-ring!`) — the
+  ring is a faithful record of what the runtime emitted. Xray's
+  documented policy (Spec 009 §Privacy) is to SUPPRESS THE WHOLE EVENT
+  while `:rf.privacy/show-sensitive?` is false, because non-marked
+  envelope slots can structurally reveal a redacted value. So the read
+  side — not the ring — is where the gate must live for frame-bound
+  events: `collect-trace!` already drops sensitive events on the
+  listener path, but it cannot stop the per-frame ring from retaining
+  them, and a later non-sensitive event's mirror-sync would otherwise
+  pull the retained sensitive event back into the snapshot. We apply
+  `config/suppress-sensitive?` to BOTH the per-frame events and the
+  frameless ring here so the snapshot is scrubbed regardless of
+  frame-bound vs frameless origin — genuinely symmetric with the
+  listener gate. The retroactive scrub (toggle true → false) still
+  clears the rings wholesale; this gate covers the steady-state read
+  while the flag is false.
+
   Public so `mount.cljs` can drive the first-mount seed
   synchronously alongside the `:rf.xray/sync-trace-buffer` dispatch,
   bypassing the microtask coalescer (the seed must commit before the
@@ -198,8 +218,15 @@
         ;; :id only in pathological cases (host produced an envelope
         ;; without one); fall back to ##Inf so they sort to the tail.
         all         (into per-frame frameless)]
-    (into [] (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
-                       all))))
+    (into []
+          ;; Privacy gate (rf2-0ax6f): scrub retained-but-sensitive
+          ;; events on the read side so the snapshot never leaks an
+          ;; event the listener gate already suppressed. No-op when
+          ;; :rf.privacy/show-sensitive? is true (opt-in unmask) or the
+          ;; event is non-sensitive.
+          (remove config/suppress-sensitive?)
+          (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
+                   all))))
 
 (defn refresh-trace-rings!
   "Synchronously snapshot every per-frame ring + the frameless secondary
@@ -253,8 +280,11 @@
        `re-frame.trace/emit!` source-side gate covers most of these,
        but the listener belt-and-braces against any that slipped past.
     2. Apply the privacy gate — `:sensitive?` events bump the
-       suppressed counter without entering any ring; the framework's
-       own ring honours the gate symmetrically.
+       suppressed counter and skip the frameless secondary ring + the
+       mirror-sync request. The framework's per-frame ring does NOT
+       honour the gate (it retains every emitted event); the matching
+       read-side gate in `snapshot-from-rings` scrubs those retained
+       events so the two halves are genuinely symmetric (rf2-0ax6f).
     3. Frameless events feed the Xray-side secondary ring (per the
        rf2-3g9nw D2=a ruling).
     4. Frame-bound events: no Xray-side push needed — the framework's
