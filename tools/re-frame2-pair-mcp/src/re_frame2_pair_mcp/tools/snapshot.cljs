@@ -17,7 +17,8 @@
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.elision :as elision]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
 (defn snapshot-tool [conn raw-args]
   (let [build-id    (wire/arg-build conn raw-args)
@@ -122,10 +123,18 @@
                             (ef/emit (ef/rt-call 'snapshot-state opts))
                             " :elided-count 0"
                             " :tool-frames-excluded " tool-frames-form "}"))))]
-    (-> (probe/ensure-runtime! conn build-id)
-        (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [resp]
+    ;; rf2-qef58 — server-side backstop: refuse a WHOLESALE (`path: []`
+    ;; or `mode :full` + no path) read of a reserved `:rf/*` tool frame
+    ;; (esp. `:rf/xray`) BEFORE the eval round-trip. The skill steers
+    ;; (rf2-ihqpn) away from this; the guard enforces it so a stray full
+    ;; read can't blow the context window. Sliced reads + the default
+    ;; `:app` scope (reserved frames already excluded) pass through.
+    (if-let [refused (guard/snapshot-refusal frames path mode)]
+      (js/Promise.resolve refused)
+      (-> (probe/ensure-runtime! conn build-id)
+          (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
+          (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+          (.then (fn [resp]
                  ;; New eval-form shape (rf2-e35a5): `{:value <snap>
                  ;; :elided-count N}`. Defensively fall back to the
                  ;; bare-snap shape — a degraded runtime / stubbed
@@ -192,4 +201,4 @@
                                      path              (assoc :path path)
                                      (seq path-status) (assoc :path-not-found path-status))
                                    {:dropped dropped :elided elided})))))
-        (.catch (fn [err] (probe/err->result :snapshot-failed err))))))
+          (.catch (fn [err] (probe/err->result :snapshot-failed err)))))))
