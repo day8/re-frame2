@@ -142,11 +142,12 @@
   coord lookup so the source-link affordance reads off ONE authoritative
   key.
 
-  Per rf2-npvsx the lookup target differs by tuple shape:
+  Per rf2-npvsx / rf2-vqja2 the lookup target differs by tuple shape:
   - Named `[:guards <id>]` / `[:actions <id>]` keys resolve to the
     co-located element entry's `:source-coords` / `:source-code`.
-  - Reference-site `[:states ...]` keys resolve through the spec's
-    `:rf.machine/state-coords` index.
+  - Reference-site `[:states ...]` keys resolve to the `:source-coords`
+    co-located on the nearest enclosing `:states`-tree map node
+    (`projection/state-node-source-coords`).
   The view's `named-element-key` discriminator routes between the two.
 
   Dispatch (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions):

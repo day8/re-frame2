@@ -774,6 +774,34 @@
     (when (seq v)
       (vec (mapcat (fn [s] [:states s]) v)))))
 
+(defn state-node-source-coords
+  "Resolve the reference-site `:source-coords` for a `:states`-tree
+  spec-path on a co-located machine `spec` (rf2-vqja2, supersedes the flat
+  `:rf.machine/state-coords` index).
+
+  Per rf2-vqja2 each MAP node inside `:states` (state-node, transition map)
+  carries its own `:source-coords` directly; inline-fn slots (`[… :action]`
+  / `:guard` / `:entry` / `:exit`) hold a fn or keyword VALUE, not a map,
+  so they carry no coord of their own. This fn walks UP from `spec-path` to
+  the nearest enclosing map node carrying `:source-coords` — so an inline-fn
+  slot key resolves to its enclosing transition map / state-node coord (the
+  click-to-source lands the operator on that node's source line), mirroring
+  the keyword-reference fallback rule.
+
+  Returns the coord map (`{:ns :file :line :column}`) or nil when no node on
+  the path carries a coord (production builds, fn-form machines, a path that
+  doesn't resolve to a map)."
+  [spec spec-path]
+  (when (and (map? spec) (vector? spec-path) (seq spec-path))
+    (loop [path (vec spec-path)]
+      (when (seq path)
+        (let [node (get-in spec path)]
+          (if (and (map? node) (map? (:source-coords node)))
+            (:source-coords node)
+            ;; Walk up to the parent spec-path and retry — an inline-fn
+            ;; slot's enclosing transition map / state-node carries the coord.
+            (recur (pop path))))))))
+
 (defn- event-id-of
   "Lift the event-id (first element of the event vector) off a transition
   row or trace-derived event vector. Used as the `:on <event-id>` key in
@@ -894,8 +922,9 @@
 
   The enrichment slots feed `cascade-row-source-key` so inline-fn
   `:entry` / `:exit` / `:guard` / transition / timer rows can resolve
-  their spec-path tuple under the spec's `:rf.machine/state-coords`
-  reference-site index (rf2-npvsx).
+  their spec-path tuple to the `:source-coords` co-located on the nearest
+  enclosing `:states`-tree map node (`state-node-source-coords`; rf2-vqja2,
+  supersedes the flat `:rf.machine/state-coords` index of rf2-npvsx).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
   reg-event-db / reg-event-fx cascades — the redesign is
