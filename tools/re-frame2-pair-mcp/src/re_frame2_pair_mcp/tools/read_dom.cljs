@@ -191,7 +191,7 @@
       "                                      {:type :dom-text :chars tn"
       "                                       :preview (subs t 0 (min tn 120))}}"
       "                                     t)]"
-      "                          {:tag (str/lower-case (or (.-tagName el) \"\"))"
+      "                          {:tag (.toLowerCase (or (.-tagName el) \"\"))"
       "                           :text text"
       "                           :attrs (merge (named-attrs el) (prefix-attrs el))}))]"
       "        {:ok? true"
@@ -254,9 +254,16 @@
                  :reason   :rf.error/read-dom-blank-result
                  :build    build-id
                  :selector selector
-                 :hint     (str "read-dom's browser eval returned a blank "
-                                "value (no map envelope). The runtime "
-                                "likely did not answer the eval — reload "
-                                "the app tab so the re-frame2-pair runtime "
-                                "reconnects, then retry. Run discover-app "
-                                "to confirm :liveness :fresh.")}))))))))
+                 :hint     (str "read-dom's browser eval returned a blank / "
+                                "non-map value. This is almost always the "
+                                "FORM, not the connection: if the runtime were "
+                                "absent the eval would error rather than return "
+                                "blank, and the form's own no-document / "
+                                "bad-selector branches both return maps. A "
+                                "blank result means the form evaluated to nil — "
+                                "typically an unresolved symbol in the inlined "
+                                "eval string (the browser cljs-eval context "
+                                "aliases nothing beyond cljs.core + JS interop). "
+                                "Reloading the tab will NOT help. If you suspect "
+                                "the connection instead, run discover-app to "
+                                "confirm :liveness :fresh.")}))))))))
