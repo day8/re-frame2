@@ -106,7 +106,11 @@
   "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
   view's per-row header. Pure-data; the view never reaches into a
   row's slots to compute its label."
-  [{:keys [kind action-id guard-id from-state to-state state reason event machine-id]}]
+  ;; rf2-iu3no — `:event` is no longer destructured: the `:no-op` verb
+  ;; (the only case that read it) collapsed to "staying in {state}" and no
+  ;; longer echoes the event (the focused-epoch Event header names it).
+  [{:keys [kind action-id guard-id from-state to-state state reason
+           machine-id show-machine-name?]}]
   (case kind
     :guard       (str "guard " (ns-keyword guard-id))
     ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
@@ -125,15 +129,24 @@
                       (if to-state (pr-str to-state) "?"))
     :timer       (str "timer " (when state (pr-str state))
                       (when reason (str " · " (name reason))))
-    ;; rf2-ugdas — the benign unhandled-event no-op. The verb names the
-    ;; machine + the unhandled event + the state it arrived in, e.g.
-    ;; "no-op — :door/main received [:door/insert-coin] in :alarming, no
-    ;; transition". Benign notice, not an error.
-    :no-op       (str "no-op — "
-                      (when machine-id (str (ns-keyword machine-id) " received "))
-                      (when event (pr-str event))
-                      (when state (str " in " (pr-str state)))
-                      ", no transition")
+    ;; rf2-iu3no — the benign unhandled-user-event no-op. The verb is the
+    ;; CONSEQUENCE only: "staying in {state}" (the machine matched no
+    ;; transition, so its state is unchanged). The `[NO OP]` kind-pill is
+    ;; the sole marker; the focused-epoch Event header already names the
+    ;; event — so the rf2-ugdas "no-op — <machine> received <event> in
+    ;; <state>, no transition" sentence (badge + prefix + event echo +
+    ;; suffix, all saying the same thing) is collapsed away.
+    ;;
+    ;; The machine name is kept ONLY when >1 machine is in play this epoch
+    ;; (broadcast event / parallel regions) so the operator can tell WHICH
+    ;; machine stood pat — `machine-cascade-rows` stamps `:show-machine-name?`
+    ;; on the no-op row when the cascade spans multiple machine-ids. The
+    ;; single-machine case drops it (the EVENT HANDLER section names the
+    ;; machine above).
+    :no-op       (str (when (and show-machine-name? machine-id)
+                        (str (ns-keyword machine-id) " "))
+                      "staying in "
+                      (if state (pr-str state) "?"))
     (str (when kind (name kind)))))
 
 (defn cascade-row-source-key
@@ -248,8 +261,9 @@
                        (when (not= 1 microsteps) "s")))
     :timer      (str "cancelled"
                      (when reason (str " (" (name reason) ")")))
-    ;; rf2-ugdas — the benign no-op: the event was ignored (no transition).
-    :no-op      "ignored"
+    ;; rf2-iu3no — the benign no-op carries NO outcome chip. The "[NO OP]"
+    ;; kind-pill + the "staying in {state}" verb (`cascade-row-label`) are
+    ;; the whole story; the rf2-ugdas "ignored" chip was a third restatement.
     nil))
 
 (defn handler-flavour-label

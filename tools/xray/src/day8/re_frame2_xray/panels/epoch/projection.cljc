@@ -696,8 +696,10 @@
   event (rf2-ugdas). A machine received an event with no matching
   transition at any level; the snapshot is unchanged — a benign no-op
   (xstate-v5 parity), NOT an error. Carries the machine-id, the event
-  vector, and the pre-event state so the view can render the benign
-  notice 'no-op — <machine> received <event> in <state>, no transition'."
+  vector, and the pre-event state. rf2-iu3no — the view collapses this to
+  the CONSEQUENCE only ('[NO OP] staying in {state}'); the machine name is
+  surfaced only when >1 machine is in play (the `:show-machine-name?` flag
+  `machine-cascade-rows` stamps below)."
   [ev]
   {:kind       :no-op
    :machine-id (common/tag-of ev :machine-id)
@@ -994,10 +996,25 @@
         deduped  (drop-spurious-no-op-transition enriched)
         ;; Stable canonical sort: rank first, emit-order (:trace-index)
         ;; as tiebreaker so intra-phase run order is preserved.
-        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) deduped))]
+        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) deduped))
+        ;; rf2-iu3no — the benign no-op row renders "[NO OP] staying in
+        ;; {state}". The machine NAME is surfaced ONLY when the epoch has
+        ;; >1 machine in play (a broadcast event hitting parallel regions /
+        ;; multiple sibling machines), so the operator can tell WHICH
+        ;; machine stood pat. The single-machine case drops it (the EVENT
+        ;; HANDLER section already names the lone machine). "In play" =
+        ;; distinct `:machine-id` across the whole cascade.
+        multi-machine? (< 1 (count (into #{}
+                                         (keep :machine-id)
+                                         sorted)))]
     ;; Re-number :step over the FINAL (canonical) order so the left-rail
-    ;; ordinal reads top-to-bottom as rendered.
-    (vec (map-indexed (fn [i row] (assoc row :step (inc i))) sorted))))
+    ;; ordinal reads top-to-bottom as rendered, and stamp the no-op rows'
+    ;; machine-name visibility (rf2-iu3no).
+    (vec (map-indexed
+           (fn [i row]
+             (cond-> (assoc row :step (inc i))
+               (= :no-op (:kind row)) (assoc :show-machine-name? multi-machine?)))
+           sorted))))
 
 (defn machine-cascade-total-ms
   "Sum of every cascade row's `:duration-ms` (rf2-u69j7). nil when no

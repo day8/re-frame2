@@ -107,9 +107,11 @@
     (is (badge/cascade-kind? :no-op))
     (is (not (badge/cascade-kind? :NOT-A-KIND))))
 
-  (testing "rf2-ugdas — the :no-op kind resolves to a muted (not red) label
-            + colour, distinct from the error/warning hues"
-    (is (= "NO-OP" (badge/cascade-kind-label :no-op)))
+  (testing "rf2-ugdas / rf2-iu3no — the :no-op kind resolves to a muted (not
+            red) label + colour, distinct from the error/warning hues. The
+            label is `NO OP` (space, not hyphen — rf2-iu3no, the sole marker
+            on the collapsed `[NO OP] staying in {state}` cell)"
+    (is (= "NO OP" (badge/cascade-kind-label :no-op)))
     (is (string? (badge/cascade-kind-colour :no-op)))
     ;; The benign no-op uses the tertiary token (same as :guard / :timer's
     ;; muted family) — explicitly NOT the :error / :warning hue.

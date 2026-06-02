@@ -1423,11 +1423,32 @@ The projection walks `:trace-events` and surfaces every member of
 
 The `:no-op` row (rf2-ugdas) surfaces the benign unhandled-event no-op
 (xstate-v5 parity — an event that matched no transition is ignored, NOT an
-error). It ranks WITH the `:transition` slot (it stands in for "the state
-change that did not happen") and renders a muted (`:text-tertiary`) NO-OP
-kind pill, the verb `no-op — <machine> received <event> in <state>, no
-transition`, and an `ignored` outcome chip — explicitly NOT the red
-exception card and NOT pink. Because its trace op-type is `:rf.machine`
+error). It fires ONLY for a genuine unknown **user** event: framework
+lifecycle traffic (`:rf.machine/bootstrap`, `:rf.machine.spawn/spawned`,
+stories-runtime pings, bare reserved-`:rf/*`) is carved out at the
+substrate (rf2-t4582 — bootstrap runs its `:initial-entry` cascade and is
+NOT classified as an unhandled-user-event no-op), so this row never stands
+in for a machine's birth. It ranks WITH the `:transition` slot (it stands
+in for "the state change that did not happen") and renders, collapsed to
+the **CONSEQUENCE only** (rf2-iu3no): a muted (`:text-tertiary`) **`NO OP`**
+kind pill as the SOLE marker, plus the verb **`staying in {state}`** — the
+machine matched no transition, so its state is unchanged. The earlier
+rf2-ugdas sentence (`no-op — <machine> received <event> in <state>, no
+transition`) stacked the pill + a `no-op —` prefix + an event echo + a
+`, no transition` suffix — four restatements of one fact; it is collapsed
+away. The focused-epoch **Event header already names the event**, so the
+verb does not echo it; the cascade is a SINGLE muted row, so its `1..N`
+left-rail step ordinal is **suppressed** (it read as an unexplained
+leading "1"); and the row carries **NO outcome chip** (the prior `ignored`
+chip was a third restatement). The **machine name is kept ONLY when >1
+machine is in play this epoch** (a broadcast event hitting parallel regions
+/ sibling machines) so the operator can tell WHICH machine stood pat —
+`machine-cascade-rows` stamps `:show-machine-name?` on the no-op row when
+the cascade spans more than one distinct `:machine-id`; the single-machine
+case drops it (the EVENT HANDLER section names the lone machine above), so
+the multi-machine render reads `[NO OP] :hvac/controller staying in
+{state}`. This is explicitly NOT the red exception card and NOT pink.
+Because its trace op-type is `:rf.machine`
 (machine-activity, not a severity), the L2 pink-wash / issues-ribbon
 `issue-event?` predicate does not match it, so the event row stays
 un-washed and the ribbon stays empty — the contrast with a `:*`
@@ -1439,7 +1460,8 @@ time (rf2-e6q97): on a no-op the machine substrate emits BOTH the
 `:rf.machine.event/unhandled-no-op` trace AND — from `commit-or-finalize`'s
 unconditional `:rf.machine/transition` emit — a contradictory `{X}→{X}`
 0-microstep transition trace (`:before` == `:after`). Rendered side-by-side
-those contradict: the no-op row says "no transition — ignored" while the
+those contradict: the no-op row says the machine is "staying in {state}"
+(no transition) while the
 transition row borrows external-self-transition vocabulary (`{X} → {X}`)
 implying the `:exit` / `:entry` firing that did NOT happen.
 `machine-cascade-rows` therefore drops every `:transition` row when the
@@ -1455,8 +1477,11 @@ rather than collapsing to a plain `reg-event-db` handler.
 **Per-row chrome.** Each row carries:
 
 - **Step ordinal** (1..N) — left-rail compact monospace chip.
+  Suppressed for the single-row `:no-op` notice (rf2-iu3no — the lone
+  "1" was unexplained noise).
 - **Kind pill** — colour-coded (`:guard / :action / :transition /
-  :timer`) — see `badge.cljc` for the hue assignments.
+  :timer / :no-op`) — see `badge.cljc` for the hue assignments. The
+  `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no).
 - **Phase chip** (`:action` rows only) — one of the rf2-82a0u closed
   set `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit`.
@@ -1477,7 +1502,9 @@ rather than collapsing to a plain `reg-event-db` handler.
     threw signal)
   - `:transition` → `N microstep(s)` (the headline)
   - `:timer` → `· cancelled (<reason>)`
-  - `:no-op` → `· ignored` (the benign unhandled-event no-op — muted, not red)
+  - `:no-op` → NO outcome chip (rf2-iu3no — the `NO OP` pill + the
+    `staying in {state}` verb carry the whole notice; the rf2-ugdas
+    `ignored` chip was a third restatement of the same fact)
 
 **Per-row body — interleaved source code (always visible).** Every
 cascade row carries source visibility (rf2-wwc3j extends rf2-u69j7's

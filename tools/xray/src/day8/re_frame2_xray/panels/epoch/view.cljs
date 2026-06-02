@@ -2762,7 +2762,12 @@
            :style cascade-row-style}
      ;; Header row: ordinal + kind pill + phase chip + verb + duration + outcome
      [:div {:style cascade-row-header-style}
-      (cascade-row-ordinal step)
+      ;; rf2-iu3no — the `:no-op` row is a SINGLE muted notice (the cascade
+      ;; collapses to one row when nothing transitioned), so its 1..N
+      ;; left-rail ordinal was an unexplained leading "1" — pure noise. Drop
+      ;; it for the no-op; every other kind keeps its scannability ordinal.
+      (when-not (= :no-op kind)
+        (cascade-row-ordinal step))
       (cascade-kind-pill kind)
       (when (= :action kind)
         (cascade-phase-chip phase))
@@ -2782,12 +2787,12 @@
            (and (= :action kind) threw?)  nil
            (= :action kind)     :ok
            (= :timer kind)      :cancelled
-           ;; rf2-ugdas — the benign no-op reads "ignored" (event matched
-           ;; no transition). Benign tone, not error/warning.
-           (= :no-op kind)      :ignored
+           ;; rf2-iu3no — the benign no-op carries NO outcome chip. The
+           ;; "[NO OP]" kind-pill + the "staying in {state}" verb already
+           ;; tell the whole story; the prior "ignored" chip was a third
+           ;; restatement of the same fact.
            :else                nil)
          (when (or (= :transition kind)
-                   (= :no-op kind)
                    (and (= :guard kind) outcome-lbl))
            outcome-lbl))]]
      ;; Source code body (always visible per rf2-u69j7) — actions + guards
