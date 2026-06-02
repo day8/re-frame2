@@ -2794,8 +2794,13 @@
            (and (= :action kind) threw?)  :threw
            (= :action kind)     :ok
            (= :timer kind)      :cancelled
+           ;; rf2-ugdas — the benign no-op reads "ignored" (event matched
+           ;; no transition). Benign tone, not error/warning.
+           (= :no-op kind)      :ignored
            :else                nil)
-         (when (or (= :transition kind) (and (= :guard kind) outcome-lbl))
+         (when (or (= :transition kind)
+                   (= :no-op kind)
+                   (and (= :guard kind) outcome-lbl))
            outcome-lbl))]]
      ;; Source code body (always visible per rf2-u69j7) — actions + guards
      ;; render their source (or the rf2-iwy0c machine-def link when none
@@ -4662,10 +4667,25 @@
   `step-key` + `idx` give stable test ids. The card paints the failing
   step's blast radius right where the work happened — the inline half of
   rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
-  [step-key idx {:keys [message recovery db-rolled-back?] :as row}]
+  [step-key idx {:keys [message recovery db-rolled-back? operation
+                        machine-id action-id event via-wildcard?] :as row}]
   (let [recovery-label (error-recovery-label recovery db-rolled-back?)
         testid-base    (str "rf-xray-epoch-error-"
-                            (name (or step-key :unknown)) "-" idx)]
+                            (name (or step-key :unknown)) "-" idx)
+        ;; rf2-e7yhv — machine-action-exception attribution. Name WHAT
+        ;; threw (the action), in WHICH machine, on WHICH event, and whether
+        ;; it came from a `:*` WILDCARD action (the xstate-v5 fail-loudly
+        ;; idiom) vs a named transition — so the operator reads the cause,
+        ;; not just the message.
+        machine-attr   (when (= :rf.error/machine-action-exception operation)
+                         (str (when via-wildcard? "a :* wildcard action ")
+                              "in machine " (fmt/ns-keyword machine-id)
+                              (when action-id
+                                (str " (action " (fmt/ns-keyword action-id) ")"))
+                              (when event
+                                (str " threw on unhandled event " (pr-str event)))
+                              (when via-wildcard?
+                                " — fired by the :* wildcard, not a named transition")))]
     [:div {:key (str "error-" step-key "-" idx)
            :data-testid testid-base
            :data-error-op (when (:operation row) (name (:operation row)))
@@ -4688,6 +4708,13 @@
        [:div {:data-testid (str testid-base "-message")
               :style error-block-message-style}
         message])
+     ;; 2b. rf2-e7yhv — machine-action attribution line (machine + action +
+     ;; the unhandled event + whether a `:*` wildcard fired it).
+     (when machine-attr
+       [:div {:data-testid (str testid-base "-machine-attribution")
+              :data-via-wildcard (str (boolean via-wildcard?))
+              :style error-block-message-style}
+        machine-attr])
      ;; 3. Collapsible details — stack + ex-data behind a disclosure
      (error-block-details testid-base row)]))
 

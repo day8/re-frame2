@@ -1413,12 +1413,31 @@ emit-order-sensitive.
 The projection walks `:trace-events` and surfaces every member of
 `machine-cascade-trace-ops` as a row, then applies the canonical sort:
 
-  | Trace op                          | Row `:kind`     |
-  |-----------------------------------|------------------|
-  | `:rf.machine/guard-evaluated`     | `:guard`         |
-  | `:rf.machine/action-ran`          | `:action`        |
-  | `:rf.machine/transition`          | `:transition`    |
-  | `:rf.machine.timer/cancelled`     | `:timer`         |
+  | Trace op                            | Row `:kind`     |
+  |-------------------------------------|------------------|
+  | `:rf.machine/guard-evaluated`       | `:guard`         |
+  | `:rf.machine/action-ran`            | `:action`        |
+  | `:rf.machine/transition`            | `:transition`    |
+  | `:rf.machine.timer/cancelled`       | `:timer`         |
+  | `:rf.machine.event/unhandled-no-op` | `:no-op`         |
+
+The `:no-op` row (rf2-ugdas) surfaces the benign unhandled-event no-op
+(xstate-v5 parity — an event that matched no transition is ignored, NOT an
+error). It ranks WITH the `:transition` slot (it stands in for "the state
+change that did not happen") and renders a muted (`:text-tertiary`) NO-OP
+kind pill, the verb `no-op — <machine> received <event> in <state>, no
+transition`, and an `ignored` outcome chip — explicitly NOT the red
+exception card and NOT pink. Because its trace op-type is `:rf.machine`
+(machine-activity, not a severity), the L2 pink-wash / issues-ribbon
+`issue-event?` predicate does not match it, so the event row stays
+un-washed and the ribbon stays empty — the contrast with a `:*`
+wildcard-action throw (`:rf.error/machine-action-exception`, which DOES go
+pink + renders the EXCEPTION card) validates that the predicate correctly
+distinguishes a benign no-op from a real error. A cascade carries either a
+`:transition` OR a `:no-op`, never both. The no-op row also makes the
+cascade's handler-flavour `:reg-machine` even when no action ran, so the
+EVENT HANDLER machine section renders the notice rather than collapsing to
+a plain `reg-event-db` handler.
 
 **Per-row chrome.** Each row carries:
 
@@ -1442,6 +1461,7 @@ The projection walks `:trace-events` and surfaces every member of
   - `:action` → `✓ ok / ✗ threw`
   - `:transition` → `N microstep(s)` (the headline)
   - `:timer` → `· cancelled (<reason>)`
+  - `:no-op` → `· ignored` (the benign unhandled-event no-op — muted, not red)
 
 **Per-row body — interleaved source code (always visible).** Every
 cascade row carries source visibility (rf2-wwc3j extends rf2-u69j7's
@@ -2562,6 +2582,7 @@ mis-render):
 | `:rf.error/fx-handler-exception` | SIDE EFFECTS, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
 | `:rf.error/no-such-fx` | SIDE EFFECTS | step-level (fallback) |
 | `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
+| `:rf.error/machine-action-exception` (rf2-e7yhv) | HANDLER | step-level. A machine action threw during a transition; the machine handler IS an event handler so its cascade renders under HANDLER. The card adds a machine-attribution line — `[in machine <id> (action <id>) threw on unhandled event <ev>]` — and, when the throw fired from a `:*` WILDCARD action (the xstate-v5 fail-loudly idiom; `:rf/via-wildcard?` rides the trace's `:transition` slot, stamped by `transition/match-on-clause`), names it `a :* wildcard action … fired by the :* wildcard, not a named transition`. The event row goes pink (the trace is op-type `:error`), the inverse of the benign `:no-op` row above |
 
 The error MESSAGE rides `[:tags :exception-message]` ONLY (handler / fx
 throws — `re-frame.router/emit-handler-exception!` stamps the

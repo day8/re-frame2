@@ -348,6 +348,12 @@
   [events]
   (cond
     (some #(= :rf.machine/action-ran (op %)) events) :reg-machine
+    ;; rf2-ugdas — a cascade whose ONLY machine activity is the benign
+    ;; unhandled-event no-op (an event that matched no transition, so no
+    ;; action ran) is still a machine cascade: classify it :reg-machine so
+    ;; the EVENT HANDLER machine section renders the no-op notice rather
+    ;; than collapsing to a plain reg-event-db handler.
+    (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
     (some #(= :rf.fx/do-fx (op %)) events)           :reg-event-fx
     :else                                            :reg-event-db))
 
@@ -521,15 +527,21 @@
   #{:rf.machine/guard-evaluated
     :rf.machine/action-ran
     :rf.machine/transition
-    :rf.machine.timer/cancelled})
+    :rf.machine.timer/cancelled
+    ;; rf2-ugdas — the benign unhandled-event no-op. A machine received an
+    ;; event with no matching transition; the snapshot is unchanged. Op-type
+    ;; :rf.machine (NOT an error), so it surfaces in the EVENT HANDLER machine
+    ;; cascade as a benign notice — not the red exception card, not pink.
+    :rf.machine.event/unhandled-no-op})
 
 (def ^:private op->row-kind
   "Map a machine trace op → cascade-row `:kind` keyword (rf2-u69j7).
   The view's badge / chrome resolver keys off `:kind`."
-  {:rf.machine/guard-evaluated  :guard
-   :rf.machine/action-ran       :action
-   :rf.machine/transition       :transition
-   :rf.machine.timer/cancelled  :timer})
+  {:rf.machine/guard-evaluated      :guard
+   :rf.machine/action-ran           :action
+   :rf.machine/transition           :transition
+   :rf.machine.timer/cancelled      :timer
+   :rf.machine.event/unhandled-no-op :no-op})
 
 (def ^:private cascade-rank
   "Canonical (kind, phase) presentation rank for the machine cascade
@@ -553,6 +565,11 @@
    [:action :destroy-exit]   1
    ;; the state change itself — between exit and entry
    [:transition nil]         2
+   ;; the unhandled-event no-op — the event's resolution when nothing
+   ;; matched. Ranks WITH the transition slot (it stands in for "the
+   ;; state change that did not happen"); a cascade carries either a
+   ;; transition OR a no-op, never both (rf2-ugdas).
+   [:no-op nil]              2
    ;; transition-phase actions ride WITH the transition (between exit
    ;; and entry, by intent: they fire as part of the state change)
    [:action :transition]     2
@@ -674,6 +691,19 @@
    :reason      (common/tag-of ev :reason)
    :duration-ms (common/tag-of ev :duration-ms)})
 
+(defn- no-op-cascade-row
+  "Build a cascade row from a `:rf.machine.event/unhandled-no-op` trace
+  event (rf2-ugdas). A machine received an event with no matching
+  transition at any level; the snapshot is unchanged — a benign no-op
+  (xstate-v5 parity), NOT an error. Carries the machine-id, the event
+  vector, and the pre-event state so the view can render the benign
+  notice 'no-op — <machine> received <event> in <state>, no transition'."
+  [ev]
+  {:kind       :no-op
+   :machine-id (common/tag-of ev :machine-id)
+   :event      (common/tag-of ev :event)
+   :state      (common/tag-of ev :state)})
+
 (defn- ev->cascade-row
   "Dispatch one trace event to its cascade-row builder. Returns nil for
   events whose op is not in `machine-cascade-trace-ops` (the caller
@@ -681,10 +711,11 @@
   one-line table change)."
   [ev]
   (case (op ev)
-    :rf.machine/guard-evaluated  (guard-cascade-row ev)
-    :rf.machine/action-ran       (action-cascade-row ev)
-    :rf.machine/transition       (transition-cascade-row ev)
-    :rf.machine.timer/cancelled  (timer-cascade-row ev)
+    :rf.machine/guard-evaluated       (guard-cascade-row ev)
+    :rf.machine/action-ran            (action-cascade-row ev)
+    :rf.machine/transition            (transition-cascade-row ev)
+    :rf.machine.timer/cancelled       (timer-cascade-row ev)
+    :rf.machine.event/unhandled-no-op (no-op-cascade-row ev)
     nil))
 
 ;; ---- inline-fn source-path enrichment (rf2-wwc3j) ----------------------
@@ -2162,13 +2193,22 @@
     registered handler. Owns the SIDE EFFECTS step.
   - `:rf.error/flow-eval-exception` — a flow's compute fn threw (pre-commit
     abort). Owns the FLOW step (step-level; the throwing flow aborted the
-    cascade)."
+    cascade).
+  - `:rf.error/machine-action-exception` (rf2-e7yhv) — a machine action body
+    threw during a transition (the xstate-v5 'fail loudly on unknown' idiom
+    is a `:*` wildcard whose action throws). The machine handler IS an
+    event handler, so the throw owns the HANDLER step where its machine
+    cascade renders. Carries `:exception` / `:exception-message` /
+    `:exception-data` + `:transition` (whose `:rf/via-wildcard?` flag, per
+    rf2-e7yhv, lets the card attribute the throw to a wildcard action) +
+    `:state-path` + `:action-id`."
   #{:rf.error/coeffect-exception
     :rf.error/interceptor-exception
     :rf.error/handler-exception
     :rf.error/fx-handler-exception
     :rf.error/no-such-fx
-    :rf.error/flow-eval-exception})
+    :rf.error/flow-eval-exception
+    :rf.error/machine-action-exception})
 
 (def ^:private exception-op->step
   "Map a cascade-exception trace op → the `:step` keyword of the pipeline
@@ -2186,7 +2226,11 @@
    :rf.error/handler-exception    :handler
    :rf.error/fx-handler-exception :side-effects
    :rf.error/no-such-fx           :side-effects
-   :rf.error/flow-eval-exception  :flow})
+   :rf.error/flow-eval-exception  :flow
+   ;; rf2-e7yhv — a machine-action throw aborts the machine handler; its
+   ;; cascade renders under the HANDLER step, so the exception card lands
+   ;; there too.
+   :rf.error/machine-action-exception :handler})
 
 (defn- exception-message
   "Lift the REAL exception message off an exception trace event (rf2-ahhgn
@@ -2243,16 +2287,30 @@
   NOT merely when a `:db` committed — a post-commit fx throw leaves the
   `:db` committed yet nothing reverted (the FX atomicity asymmetry)."
   [ev]
-  {:operation  (op ev)
-   :message    (exception-message ev)
-   :coord      (exception-source-coord ev)
-   :failing-id (or (common/tag-of ev :rf.fx/id)
-                   (common/tag-of ev :failing-id)
-                   (common/tag-of ev :handler-id))
-   :phase      (common/tag-of ev :phase)
-   :recovery   (or (:recovery ev) (common/tag-of ev :recovery))
-   :exception  (common/tag-of ev :exception)
-   :raw        ev})
+  (let [machine-tx (common/tag-of ev :transition)]
+    (cond-> {:operation  (op ev)
+             :message    (exception-message ev)
+             :coord      (exception-source-coord ev)
+             :failing-id (or (common/tag-of ev :rf.fx/id)
+                             (common/tag-of ev :failing-id)
+                             (common/tag-of ev :handler-id))
+             :phase      (common/tag-of ev :phase)
+             :recovery   (or (:recovery ev) (common/tag-of ev :recovery))
+             :exception  (common/tag-of ev :exception)
+             :raw        ev}
+      ;; rf2-e7yhv — machine-action throws carry the machine attribution so
+      ;; the exception card can name WHAT threw (the action), in WHICH
+      ;; machine, on WHICH event, and — crucially — whether it came from a
+      ;; `:*` WILDCARD action (the xstate-v5 'fail loudly on unknown' idiom)
+      ;; vs a named transition. The `:rf/via-wildcard?` flag rides the
+      ;; transition map (stamped by `transition/match-on-clause`).
+      (= :rf.error/machine-action-exception (op ev))
+      (assoc :machine-id   (common/tag-of ev :machine-id)
+             :action-id    (common/tag-of ev :action-id)
+             :event        (common/tag-of ev :event)
+             :state-path   (common/tag-of ev :state-path)
+             :via-wildcard? (boolean (and (map? machine-tx)
+                                          (:rf/via-wildcard? machine-tx)))))))
 
 (defn exception-rows
   "Walk every cascade-exception trace event in `events` (the

@@ -420,6 +420,16 @@ empty-state pattern used by other Xray panels). Worker proposes
 this treatment from the Figma authority; if Figma has no settled
 empty-state pattern yet, this section is the normative reference.
 
+**Unhandled-event no-op is NOT this empty state (rf2-ugdas).** An event
+that DOES target a machine but matches no transition (xstate-v5 parity — a
+benign no-op, op-type `:rf.machine`, emitting `:rf.machine.event/unhandled-no-op`)
+still targets a machine, so the Machines tab renders the machine's topology
+(the "no activity this epoch" Case B shape, [§021 Dynamic-Panel-Designs](021-Dynamic-Panel-Designs.md)),
+not this "does not target a state machine" placeholder. The benign no-op is
+surfaced in the **Epoch panel's** EVENT HANDLER machine cascade as a muted
+`NO-OP` row — see [021 §machine-cascade-rows](021-Dynamic-Panel-Designs.md).
+This placeholder is reserved for events that target NO machine at all.
+
 This is the **state 2** branch in
 [§Post-collapse Dynamic panel shape](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k);
 the rf2-y9xmf prior text "No machine activity in the focused event."
