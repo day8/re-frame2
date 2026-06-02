@@ -345,16 +345,20 @@
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
 
 (defn ^:export touch-machines! []
-  ;; Per Spec 005 §Source-coord stamping (rf2-npvsx, supersedes rf2-8bp3)
-  ;; the reg-machine macro walks the literal spec form at expansion time
-  ;; and emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The
+  ;; Per Spec 005 §Source-coord stamping (rf2-npvsx + rf2-vqja2, supersedes
+  ;; rf2-8bp3) the reg-machine macro walks the literal spec form at expansion
+  ;; time and emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The
   ;; DEV arm co-locates per-element source (`{:fn .. :source-coords ..
-  ;; :source-code ..}`) onto each `:guards` / `:actions` entry and assocs
-  ;; the reference-site `:rf.machine/state-coords` index; the PROD arm
-  ;; collapses each entry to `{:fn <fn>}`. Under :advanced +
-  ;; goog.DEBUG=false the closure compiler folds the gate to false and
-  ;; DCEs the entire dev arm — every co-located `:source-code` string,
-  ;; coord literal, and the `:rf.machine/state-coords` keyword must elide.
+  ;; :source-code ..}`) onto each `:guards` / `:actions` entry AND co-locates
+  ;; a reference-site `:source-coords` onto each `:states`-tree map node
+  ;; (state-node / transition map; rf2-vqja2 dropped the old flat
+  ;; `:rf.machine/state-coords` side-index); the PROD arm collapses each
+  ;; element entry to `{:fn <fn>}` and runs NO state-source splice. Under
+  ;; :advanced + goog.DEBUG=false the closure compiler folds the gate to
+  ;; false and DCEs the ENTIRE dev arm — every co-located `:source-code`
+  ;; string and every coord literal (the per-element coords AND the
+  ;; state-node / transition-map `:source-coords`) must elide; the prod
+  ;; state-nodes ship clean (just the user's `{:on …}`).
   ;;
   ;; Per rf2-jbbp7 the `:schema` key on `reg-machine` adds a second
   ;; gated surface: the `re-frame.machines.data-validation` ns's
@@ -373,13 +377,18 @@
   ;;      so the emit-failure! call site is reached in the control build
   ;;      (DEBUG=true) and its sentinel string lands in the bundle.
   ;;
-  ;; The sentinel strings are `:rf.machine/state-coords` (the reference-
-  ;; site coord index keyword), the distinctive co-located `:source-code`
-  ;; fn-body fragments (`(fn probe-never-guard`, `(fn probe-noop-action`),
-  ;; and " :data failed schema at boundary :where :machine-data "
-  ;; (data-validation emit body). All must elide under :advanced +
-  ;; goog.DEBUG=false. The fn bodies carry distinctive named-fn symbols so
-  ;; the `pr-str` source string is unambiguous under a global grep.
+  ;; The sentinel strings are the distinctive co-located `:source-code`
+  ;; fn-body fragments (`(fn probe-never-guard`, `(fn probe-noop-action`) and
+  ;; " :data failed schema at boundary :where :machine-data " (data-
+  ;; validation emit body). All must elide under :advanced + goog.DEBUG=
+  ;; false. Because the state-node / transition-map `:source-coords`
+  ;; co-location (rf2-vqja2) rides the SAME dev arm, the fn-body sentinels
+  ;; transitively prove the state-source splice DCE'd: there is no
+  ;; state-specific sentinel keyword anymore (`:rf.machine/state-coords` is
+  ;; gone), and `:source-coords` is a shared keyword the guards/actions arm
+  ;; also uses, so the fn-body strings are the unambiguous load-bearing
+  ;; grep. The fn bodies carry distinctive named-fn symbols so the `pr-str`
+  ;; source string is unambiguous under a global grep.
   (rf/reg-machine :rf.probe/machine
     {:initial :idle
      :guards  {:never? (fn probe-never-guard [_] false)}

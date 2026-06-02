@@ -343,30 +343,36 @@ const DEV_ONLY_SENTINELS = [
   // literals under that namespace.
   { source: 're-frame.adapter.context (frame-context displayName)',
     sentinel: 'rf2-frame' },
-  // re-frame.core/reg-machine — co-located per-element source stamping
-  // (Spec 005 §Source-coord stamping, rf2-npvsx, supersedes rf2-8bp3 /
-  // rf2-ypu5i). The reg-machine macro emits an `(if interop/debug-enabled?
-  // <dev> <prod>)` branch: the DEV arm co-locates `{:fn .. :source-coords
-  // .. :source-code ..}` onto each `:guards` / `:actions` entry and assocs
-  // the reference-site `:rf.machine/state-coords` index; the PROD arm
-  // collapses each entry to `{:fn <fn>}`. Under :advanced + goog.DEBUG=
-  // false the closure compiler constant-folds the gate to false and DCEs
-  // the entire dev arm — every co-located source literal and the
-  // `:rf.machine/state-coords` keyword must elide.
+  // re-frame.core/reg-machine — co-located per-element + reference-site
+  // source stamping (Spec 005 §Source-coord stamping, rf2-npvsx + rf2-vqja2,
+  // supersedes rf2-8bp3 / rf2-ypu5i). The reg-machine macro emits an
+  // `(if interop/debug-enabled? <dev> <prod>)` branch: the DEV arm co-locates
+  // `{:fn .. :source-coords .. :source-code ..}` onto each `:guards` /
+  // `:actions` entry AND co-locates a reference-site `:source-coords` onto
+  // each `:states`-tree map node (state-node / transition map; rf2-vqja2
+  // dropped the old flat `:rf.machine/state-coords` side-index); the PROD arm
+  // collapses each element entry to `{:fn <fn>}` and runs NO state-source
+  // splice. Under :advanced + goog.DEBUG=false the closure compiler constant-
+  // folds the gate to false and DCEs the entire dev arm — every co-located
+  // source literal and every coord (per-element AND state-node /
+  // transition-map) must elide.
   //
-  // Sentinel 1: the `rf.machine/state-coords` keyword fragment (the
-  // reference-site coord index). If it survives, the dev arm did not DCE.
-  { source: 're-frame.core/reg-machine (rf.machine/state-coords stamping)',
-    sentinel: 'rf.machine/state-coords' },
-  // Sentinel 2 + 3: the distinctive co-located `:source-code` fn-body
-  // strings the probe machine mints (`(rf/reg-machine :rf.probe/machine
-  // {:guards {:never? (fn probe-never-guard [_] false)} :actions {:noop
-  // (fn probe-noop-action [_] {})} ...})`). Under DEBUG=true the macro
-  // co-locates the `pr-str` of each fn-form as `:source-code`; under
-  // DEBUG=false the dev arm DCEs the source-string literal entirely. The
-  // named-fn symbols make the byte sequence unambiguous under a global
-  // grep. If either survives, the per-element source-code strings are
-  // still reachable from the prod bundle.
+  // Sentinels: the distinctive co-located `:source-code` fn-body strings the
+  // probe machine mints (`(rf/reg-machine :rf.probe/machine {:guards {:never?
+  // (fn probe-never-guard [_] false)} :actions {:noop (fn probe-noop-action
+  // [_] {})} ...})`). Under DEBUG=true the macro co-locates the `pr-str` of
+  // each fn-form as `:source-code`; under DEBUG=false the dev arm DCEs the
+  // source-string literal entirely. The named-fn symbols make the byte
+  // sequence unambiguous under a global grep. If either survives, the
+  // per-element source-code strings are still reachable from the prod bundle.
+  //
+  // Note (rf2-vqja2): there is no state-specific sentinel keyword anymore —
+  // `:rf.machine/state-coords` is gone, and the state-node / transition-map
+  // `:source-coords` co-location rides the SAME dev arm as the guards/actions
+  // co-location. The fn-body sentinels below therefore transitively prove the
+  // state-source splice DCE'd (they share the one `interop/debug-enabled?`
+  // gate); `:source-coords` itself is a keyword shared with the guards/actions
+  // arm, so it is not a usable standalone sentinel.
   { source: 're-frame.core/reg-machine (:guards :source-code fn-body literal)',
     sentinel: '(fn probe-never-guard [_] false)' },
   { source: 're-frame.core/reg-machine (:actions :source-code fn-body literal)',

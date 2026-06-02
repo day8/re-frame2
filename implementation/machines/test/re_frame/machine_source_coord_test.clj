@@ -1,29 +1,24 @@
 (ns re-frame.machine-source-coord-test
   "Per-element source-coord stamping for machine specs. Per Spec 005
-  §Source-coord stamping (rf2-npvsx, supersedes rf2-8bp3) — the
+  §Source-coord stamping (rf2-npvsx + rf2-vqja2, supersedes rf2-8bp3) — the
   `reg-machine` macro walks the literal spec form at expansion time and
   CO-LOCATES per-element source onto each guard / action / on-spawn-action
   entry (`:guards {<id> {:fn .. :source-coords {...} :source-code \"..\"}}`),
-  plus a reference-site coord index under `:rf.machine/state-coords` keyed
-  by `:states`-tree spec paths.
+  and CO-LOCATES a reference-site `:source-coords` onto each MAP node inside
+  the `:states` tree (state-node / transition map) at its spec-path.
 
   Definition sites: each fn literal under `:guards` / `:actions` /
   `:on-spawn-actions` carries its `:source-coords` (and `:source-code`) ON
   its co-located entry — read at `(get-in spec [:guards <id> :source-coords])`.
 
-  Reference sites: each transition / state-node / inline-fn slot inside the
-  `:states` tree is keyed by its full spec path in `:rf.machine/state-coords`,
-  e.g. `[:states :idle :on :submit :guard]`.
-
-  Per the bead's exemption case (keyword reference vs definition for
-  `:guard :form-valid?`-style indirection): the rule is **co-located on the
-  element** for the definition, **reference-site (state-coords) only** for
-  inline-fn literals. A keyword (`:form-valid?`) is a name, not a source
-  form — it carries no reader metadata of its own, so it gets no
-  reference-site coord; the enclosing transition map's coord is already
-  stamped. Inline-fn references (`:guard (fn [_] ...)`) carry their own
-  reader metadata, so the reference site gets a distinct coord and IS
-  stamped.
+  Reference sites: each MAP node inside the `:states` tree (state-node,
+  transition map) carries its own `:source-coords` directly — read at
+  `(get-in spec [:states :idle :source-coords])` for the `:idle` state-node
+  and `(get-in spec [:states :idle :on :submit :source-coords])` for the
+  `:submit` transition map. Inline-fn / keyword slots (`:entry` / `:exit`
+  / `:guard` / `:action` / `:on-spawn`) hold a value, not a map, so they
+  carry no coord of their own; a tool reads the nearest enclosing map's
+  coord (per rf2-vqja2, mirroring the keyword-reference rule).
 
   This test runs on JVM only because the source-coord-walking macro is
   Clojure-side. CLJS tests in machine_source_coord_cljs_test.cljs cover
@@ -35,10 +30,10 @@
   not to map or vector literals. So on JVM, the walker captures
   definition-site fn literals (the co-located entries under `:guards` /
   `:actions` / `:on-spawn-actions`) reliably; state-node and transition-map
-  coords are not available on JVM because the source forms don't carry the
-  reader meta the walker reads. The CLJS reader (cljs.tools.reader)
-  enriches maps/vectors, so the CLJS counterpart test exercises the
-  full path-tuple surface."
+  `:source-coords` are not available on JVM because the source map forms
+  don't carry the reader meta the walker reads. The CLJS reader
+  (cljs.tools.reader) enriches maps/vectors, so the CLJS counterpart test
+  exercises the full co-located state-node / transition-map surface."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -53,10 +48,11 @@
 (defn- element-coords [machine-id slot id]
   (get-in (rf/machine-meta machine-id) [slot id :source-coords]))
 
-;; Helper: read the reference-site (states-tree) coord index.
-(defn- state-coords [machine-id]
-  (-> (rf/machine-meta machine-id)
-      :rf.machine/state-coords))
+;; Helper: read a co-located reference-site `:source-coords` off the MAP
+;; node (state-node / transition map) at `spec-path` inside the registered
+;; spec's `:states` tree (rf2-vqja2).
+(defn- node-coords [machine-id spec-path]
+  (get-in (rf/machine-meta machine-id) (conj (vec spec-path) :source-coords)))
 
 ;; ---- top-level call-site coords (smoke; covered also in core/source-coords-test) ----
 
@@ -141,12 +137,15 @@
         "definition site coord co-located for keyword references")
     (is (some? (element-coords :rf2-8bp3/on-refs :actions :do)))))
 
-(deftest reg-machine-stamps-inline-fn-references
-  (testing "an inline fn literal in :guard / :action / :entry slot DOES get
-  stamped at the reference site, since the fn-form is a list (which the
-  Clojure LispReader does decorate with line/column meta) — distinct from
-  any enclosing transition's coord. Inline-fn references work on JVM
-  even though their enclosing map literals don't."
+(deftest reg-machine-co-locates-on-map-nodes-only-not-inline-fn-slots
+  (testing "per rf2-vqja2 ONLY map nodes (state-node / transition map) get a
+  co-located `:source-coords`; inline-fn slots (`:entry` / `:guard` /
+  `:action`) hold a fn VALUE, not a map, so they carry no coord of their
+  own. On JVM the enclosing state-node / transition-map literals carry no
+  reader meta (LispReader decorates only list forms), so neither the
+  state-node nor the inline-fn-slot reference coords are present here — the
+  CLJS counterpart exercises the map-node co-location. The inline-fn VALUES
+  themselves still round-trip at their spec paths."
     (rf/reg-machine :rf2-8bp3/inline-refs
       {:initial :idle
        :data    {}
@@ -157,13 +156,14 @@
                           :guard (fn [_] true)
                           :action (fn [_] {})}}}
         :done {}}})
-    (let [idx (state-coords :rf2-8bp3/inline-refs)]
-      (is (some? (get idx [:states :idle :entry]))
-          "inline-fn :entry literal is stamped at the slot path")
-      (is (some? (get idx [:states :idle :on :submit :guard]))
-          "inline-fn :guard literal is stamped at the slot path")
-      (is (some? (get idx [:states :idle :on :submit :action]))
-          "inline-fn :action literal is stamped at the slot path"))))
+    (let [m (rf/machine-meta :rf2-8bp3/inline-refs)]
+      ;; No coord co-located on map nodes (JVM map literals carry no meta).
+      (is (nil? (node-coords :rf2-8bp3/inline-refs [:states :idle])))
+      (is (nil? (node-coords :rf2-8bp3/inline-refs [:states :idle :on :submit])))
+      ;; Inline-fn slots are never co-located (they hold a fn, not a map);
+      ;; the fn value itself round-trips at its slot.
+      (is (fn? (get-in m [:states :idle :entry])))
+      (is (fn? (get-in m [:states :idle :on :submit :action]))))))
 
 (deftest reg-machine-stamps-vector-of-transitions
   (testing "an :on entry whose value is a vector of guarded-transition maps:
@@ -235,11 +235,12 @@
     ;; Definition coord co-located.
     (is (some? (element-coords :rf2-8bp3/invoke-os :on-spawn-actions :cap)))))
 
-(deftest reg-machine-stamps-hierarchical-via-definition
+(deftest reg-machine-recurses-hierarchical-states
   (testing "nested :states recurse — on JVM, state-node maps carry no
-  reader meta so direct path-tuple lookups for state nodes are absent.
-  Definition coords for inline-fn references inside hierarchical states
-  ARE stamped, since fn-forms always carry meta."
+  reader meta so co-located node coords are absent here, but the recursion
+  must still WALK the nested tree without error and leave the nested
+  structure intact (the inline-fn values round-trip at their deep paths).
+  The CLJS counterpart asserts the co-located node coords land."
     (rf/reg-machine :rf2-8bp3/hier
       {:initial :outer
        :data    {}
@@ -249,10 +250,13 @@
                 {:inner   {:entry (fn [_] {})
                            :on    {:go {:target :sibling}}}
                  :sibling {}}}}})
-    (let [idx (state-coords :rf2-8bp3/hier)]
-      (is (some? (get idx [:states :outer :states :inner :entry]))
-          "deeply-nested inline-fn :entry literal is stamped at the
-          full path-tuple — recursion works on JVM for fn-forms"))))
+    (let [m (rf/machine-meta :rf2-8bp3/hier)]
+      ;; No coord on JVM (map literals carry no reader meta); structure intact.
+      (is (nil? (node-coords :rf2-8bp3/hier [:states :outer :states :inner])))
+      (is (fn? (get-in m [:states :outer :states :inner :entry]))
+          "deeply-nested inline-fn :entry value round-trips — recursion
+          walked the nested tree intact")
+      (is (= :sibling (get-in m [:states :outer :states :inner :on :go :target]))))))
 
 ;; ---- programmatic call (no literal walk possible) -------------------------
 
@@ -331,7 +335,10 @@
       ;; Bare-fn entries — no co-located source-coords / source-code.
       (is (fn? (get-in meta [:guards :may-close?]))
           "plain (def) machine carries bare fns, not co-located entry maps")
-      (is (not (contains? meta :rf.machine/state-coords)))
+      ;; No reference-site `:source-coords` co-located on any state-node
+      ;; (the macro saw only the symbol, so no literal walk; rf2-vqja2).
+      (is (not (contains? (get-in meta [:states :locked]) :source-coords)))
+      (is (not (contains? (get-in meta [:states :open]) :source-coords)))
       (is (nil? (rf/handler-meta :machine-action [:rf2-gwj8l/plain-door :clear-hold])))
       (is (nil? (rf/handler-meta :machine-guard [:rf2-gwj8l/plain-door :may-close?]))))))
 

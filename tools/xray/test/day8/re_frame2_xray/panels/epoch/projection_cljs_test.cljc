@@ -1036,6 +1036,46 @@
     (is (nil? (proj/state-spec-path-prefix []))
         "empty vector → nil")))
 
+(deftest state-node-source-coords-test
+  (testing "rf2-vqja2 — `state-node-source-coords` reads the co-located
+            `:source-coords` off the MAP node at a spec-path, and walks UP
+            to the nearest enclosing map for inline-fn slot keys (which
+            hold a value, not a map)"
+    (let [spec {:initial :active
+                :states  {:active {:source-coords {:file "a.cljs" :line 10}
+                                   :on {:go {:target :done
+                                             :action (fn [_] {})
+                                             :source-coords {:file "a.cljs" :line 12}}}
+                                   :states {:auth {:source-coords {:file "a.cljs" :line 20}}}}
+                          :done   {:source-coords {:file "a.cljs" :line 30}}}}]
+      ;; State-node: direct hit on its co-located coord.
+      (is (= {:file "a.cljs" :line 10}
+             (proj/state-node-source-coords spec [:states :active]))
+          "state-node coord read directly off the node")
+      ;; Nested state-node: direct hit at the recursive path.
+      (is (= {:file "a.cljs" :line 20}
+             (proj/state-node-source-coords spec [:states :active :states :auth]))
+          "nested state-node coord read at the recursive path")
+      ;; Transition map: direct hit on its co-located coord.
+      (is (= {:file "a.cljs" :line 12}
+             (proj/state-node-source-coords spec [:states :active :on :go]))
+          "transition map coord read directly off the transition map")
+      ;; Inline-fn slot key (`:action` holds a fn): walk UP to the
+      ;; enclosing transition map's coord.
+      (is (= {:file "a.cljs" :line 12}
+             (proj/state-node-source-coords spec [:states :active :on :go :action]))
+          "inline-fn :action slot resolves to its enclosing transition coord")
+      ;; A state-node with no coord (e.g. an inline-fn :entry slot directly
+      ;; on a node with no coord) walks up; here :done has its own coord.
+      (is (= {:file "a.cljs" :line 30}
+             (proj/state-node-source-coords spec [:states :done :entry]))
+          "inline slot on a coord-bearing state-node resolves to that node")
+      ;; No coord anywhere on the path → nil (graceful degrade).
+      (is (nil? (proj/state-node-source-coords {:states {:x {}}} [:states :x :entry]))
+          "no co-located coord on any path node → nil")
+      (is (nil? (proj/state-node-source-coords spec nil)) "nil path → nil")
+      (is (nil? (proj/state-node-source-coords nil [:states :active])) "nil spec → nil"))))
+
 (deftest cascade-outcome-label-test
   (testing "rf2-u69j7 — `cascade-outcome-label` renders kind-specific
             outcome strings"
