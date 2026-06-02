@@ -91,6 +91,24 @@ impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools
    before interning. A bare `keyword` on the colon form would mint the
    malformed `::examples/step-deck` and probe a build that doesn't
    exist; that footgun is closed.
+
+   The arg is also **suffix-forgiving** (rf2-qda59). shadow build ids are
+   namespaced keywords (`:examples/machine-epochs`); an operator reading
+   the app — or copying a name out of an error / chat — naturally reaches
+   for the short tail (`machine-epochs`). A `:build` arg that names a
+   running build by a **unique name-suffix** resolves to the canonical
+   running id, so the same forgiving resolution applies to **every** op,
+   not just `discover-app`. The match rule is deterministic — exact
+   keyword match first, then a unique tail match; **two builds sharing
+   the tail stay ambiguous** and a no-match id passes through unchanged so
+   the diagnostic ladder still fires (never a silent wrong-build pick).
+   Resolution runs once per session at the pipeline's first step
+   (`tools.cljs` `canonicalize-build-step`) and caches the
+   suffix→canonical alias on the conn-atom (`:build-alias`), so it costs
+   at most one `active-builds` round-trip per distinct build name and is
+   free for an already-exact / already-resolved id
+   (impl: [`src/.../tools/probe.cljs`](../src/re_frame2_pair_mcp/tools/probe.cljs)
+   `canonicalize-build!` / `match-running-build`).
 2. **Session-scoped `:resolved-build-id` cache on the conn-atom — the
    sticky operating build.** Populated two ways:
    - by `discover-app` after a successful preload probe
@@ -127,12 +145,13 @@ is the **keyword** (`:examples/step-deck`). `discover-app` echoes it
 under both `:build-id` and `:build` (the latter matching the *input arg
 name*), and the read-family ops (`orient`, `read-dom`, `read-ui`,
 `eval-cljs`) echo the resolved `:build` on their result. A value copied
-out of any of those slots works unchanged as a later `:build` arg — the
-only alias axis is colon-tolerance (source (1) above), which is
-deterministic: both the bare-qualified and colon-prefixed string forms
-read back to the same keyword. There is no fuzzy build-alias surface to
-disambiguate; the registry is the finite set of shadow-cljs running
-builds, addressed by exact keyword.
+out of any of those slots works unchanged as a later `:build` arg. The
+alias axes are both **deterministic** (source (1) above): colon-tolerance
+— bare-qualified and colon-prefixed string forms read back to the same
+keyword — and the unique-suffix match, which resolves a short tail to
+exactly one running build or stays ambiguous. The registry is the finite
+set of shadow-cljs running builds; there is no fuzzy / most-recent
+heuristic.
 
 **Per-session scope, never a process-global (rf2-fmho5).** The sticky
 `:resolved-build-id` lives on the **conn-atom**, which is created
@@ -146,6 +165,15 @@ a structured `:no-runtime-for-build` enumerating `:running-builds`, and
 the plain read path surfaces the same candidate list via the diagnostic
 ladder's `:build-not-running` rung — a clear ambiguous-target error
 listing candidates, never a silent wrong-build pick or a host failure.
+
+**Round-trippable candidate list (rf2-qda59).** Both error envelopes
+carry `:running-builds` (the keyword vector) **and** a sibling
+`:running-builds-arg-forms` — each running build rendered in exactly the
+string form the `:build` arg accepts back (`":examples/machine-epochs"`).
+Every hint string uses the same colon form. So an operator can copy a
+build straight out of the error into a `:build` arg and it resolves —
+the list names the valid set in a form that pastes back, closing the
+round-trip trap where the error printed names it then rejected.
 
 Distinct from the per-session **response** cache (rf2-3rt1f, see
 [`Principles.md`](./Principles.md) § Per-session response cache) —

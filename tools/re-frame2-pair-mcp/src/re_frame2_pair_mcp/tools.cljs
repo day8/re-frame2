@@ -76,6 +76,7 @@
             [re-frame2-pair-mcp.tools.boundary-step :as bs]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.cap :as cap]
+            [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.precheck :as precheck]
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]))
@@ -182,6 +183,40 @@
 ;; seam stay unchanged.
 ;; ---------------------------------------------------------------------------
 
+(defn- canonicalize-build-step
+  "Step -1 — forgiving suffix→canonical build resolution (rf2-qda59).
+  Runs BEFORE every other step so the conn's `:build-alias` cache is
+  populated before any per-tool body reads `wire/arg-build`. Resolves the
+  requested build (`wire/requested-build` — explicit `:build` arg, else
+  the sticky default) against shadow's running builds by exact-or-unique-
+  suffix match. The alias write happens inside `probe/canonicalize-build!`;
+  here we ALSO rewrite the sticky `:resolved-build-id` to the canonical id
+  so a no-`:build` follow-up call inherits the canonical form rather than
+  the suffix `stick-build!` just stored.
+
+  Pays one `active-builds` round-trip only the first time a not-yet-probed
+  build name is seen this session; an exact / already-aliased id resolves
+  with no round-trip. Pure-fail-safe: a stub conn (no caches) or a
+  `running-builds` hiccup degrades to the requested id unchanged, so the
+  diagnostic ladder still fires.
+
+  `discover-app` is INCLUDED here (unlike `stick-build!`): its explicit
+  `:build` should be just as forgiving as the read ops', and the alias
+  write is harmless — discover-app owns its own success-gated
+  `:resolved-build-id` lifecycle separately."
+  [{:keys [conn args] :as ctx}]
+  (let [requested (wire/requested-build conn args)]
+    (-> (probe/canonicalize-build! conn requested)
+        (.then (fn [canonical]
+                 ;; Keep the sticky default canonical too — only when a
+                 ;; build was already stuck (don't mint one for a no-build
+                 ;; call that fell through to the env default).
+                 (when (and (some? conn) (satisfies? IDeref conn)
+                            (some? (:resolved-build-id @conn)))
+                   (swap! conn assoc :resolved-build-id canonical))
+                 ctx))
+        (.catch (fn [_] ctx)))))
+
 (defn- precheck-step
   "Step 0 — rf2-36xod cheap-hash short-circuit. For precheck-eligible
   tools (cache enabled AND tool registers a precheck-target), fetches
@@ -229,11 +264,13 @@
        (boolean (j/get result-js :isError))))
 
 (def wire-boundary-pipeline
-  "The four-step wire-boundary pipeline. Order matters — see step
+  "The five-step wire-boundary pipeline. Order matters — see step
   docstrings for the per-step semantics.
 
-  | Step              | When the step is skipped (`:skip-when?`)            |
-  |-------------------|-----------------------------------------------------|
+  | Step                 | When the step is skipped (`:skip-when?`)         |
+  |----------------------|--------------------------------------------------|
+  | `:canonicalize-build`| never — populates the forgiving suffix→canonical |
+  |                      | build alias before any per-tool `arg-build` read |
   | `:precheck`       | never — runs unconditionally; produces a marker     |
   |                   | result ONLY for eligible cacheable tools            |
   | `:dispatch`       | a prior step already produced a `:result` (i.e.     |
@@ -252,7 +289,9 @@
   `:short-circuit?` per rf2-l0isf — the prior name read as
   halt-the-chain semantics; the actual semantics are skip-this-step
   and continue to the next step's own predicate)."
-  [{:name       :precheck
+  [{:name       :canonicalize-build
+    :run        canonicalize-build-step}
+   {:name       :precheck
     :run        precheck-step}
    {:name       :dispatch
     :run        dispatch-step

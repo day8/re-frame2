@@ -324,7 +324,14 @@ first every session.
 **Args**: `build` (string, optional) and `port` (integer, optional).
 `build` is colon-tolerant (rf2-8ohwv) — `"examples/step-deck"` and
 `":examples/step-deck"` resolve to the same build id; a doubled colon
-never reaches the resolver.
+never reaches the resolver. `build` is also **suffix-forgiving**
+(rf2-qda59): a short tail (`"machine-epochs"`) that uniquely names a
+running build resolves to its canonical namespaced id
+(`:examples/machine-epochs`) — and the same forgiving resolution applies
+to **every** op, not just discover-app, so a name that connected via
+discover-app works verbatim on the read/action ops. Two builds sharing
+the tail stay ambiguous; a no-match id falls through to the diagnostic
+ladder. See [`API.md` §Build-id resolution](./API.md#build-id-resolution).
 
 **URL/port → build (rf2-fyf0h).** A pair session naturally starts from
 the browser URL of the open tab (e.g. `http://localhost:8031/counter`),
@@ -391,14 +398,15 @@ the underlying cause rather than always blaming the preload:
 | `:reason` | Fires when | Hint shape |
 |---|---|---|
 | `:nrepl-unreachable` | JVM `jvm-eval` round-trip fails — the nREPL socket is dead even though the MCP server is up. Most often: the shadow-cljs JVM stopped, or restarted and left the MCP server holding a stale socket. (probe.cljs lines 207-210) | "Restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call." |
-| `:build-not-running` | nREPL is reachable but shadow's `active-builds` doesn't include the targeted build. Carries `:running-builds` enumerating what IS up. Almost always a `--build` typo or operator targeted the wrong dev build. (probe.cljs lines 215-219) | "shadow-cljs is running `[<other-build>]` but not `<target>`. Pass `--build=<other-build>` (or set `SHADOW_CLJS_BUILD_ID`)…" |
+| `:build-not-running` | nREPL is reachable but shadow's `active-builds` doesn't include the targeted build (after suffix resolution, rf2-qda59 — so a typo, never a mere short-tail). Carries `:running-builds` enumerating what IS up, plus `:running-builds-arg-forms` — each in the round-trippable `:build` arg form (rf2-qda59). (probe.cljs `diagnose-preload-failure!`) | "shadow-cljs is running `[":other-build"]` but not `:<target>`. Pass `--build=:other-build` (or set `SHADOW_CLJS_BUILD_ID`)…" |
 | `:no-runtime-connected` | Build IS running but the cljs-eval round-trip returns blank — no browser tab has connected, or the tab's WebSocket has dropped. Carries `:running-builds`. (probe.cljs lines 233-237) | "build `<id>` is running but no CLJS runtime is currently connected… Open the app in a browser tab — or if a tab IS open, reload the page so the runtime reconnects." |
 | `:runtime-loaded-but-preload-missing` | A CLJS runtime is alive but the `__re_frame2_pair_runtime` marker is absent. The original meaning of the legacy `:runtime-not-preloaded` reason — the preload entry IS what to add. (probe.cljs lines 242-245) | "re-frame2-pair.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn… See skills/re-frame2-pair/SKILL.md (§Setup)." |
 
 Each rung carries `:build` (the targeted id) plus a targeted
 `:hint`; `:build-not-running` and `:no-runtime-connected` also carry
-`:running-builds` so the operator's next move is one keystroke
-away.
+`:running-builds` (and `:build-not-running` a sibling
+`:running-builds-arg-forms` in the paste-ready `:build` arg form,
+rf2-qda59) so the operator's next move is one keystroke away.
 
 The ladder costs one extra JVM round-trip (active-builds
 enumeration) plus a CLJS-eval discriminator on the failure path —
