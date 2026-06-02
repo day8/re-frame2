@@ -7,7 +7,8 @@
   target-frame plumbing is consumed by live panels:
 
   - `panels.app-db-diff-subs` reads `:rf.xray/epoch-history`,
-    `:rf.xray/selected-epoch-id`, `:rf.xray/target-frame`.
+    `:rf.xray/target-frame`, and pivots on the spine focus epoch via
+    `:rf.xray/focus-epoch-id`.
   - `panels.machine-inspector` reads `:rf.xray/epoch-history`,
     `:rf.xray/target-frame`, `:rf.xray/target-frame-db`.
   - `panels.reactive-panel-subs` reads `:rf.xray/epoch-history` to
@@ -45,10 +46,6 @@
   (rf/reg-sub :rf.xray/epoch-history
     (fn [db _query]
       (get db :epoch-history [])))
-
-  (rf/reg-sub :rf.xray/selected-epoch-id
-    (fn [db _query]
-      (get db :selected-epoch-id)))
 
   ;; rf2-hga49 — transient `reset-to-event` failure flash. Holds a short
   ;; message string when a `rf/restore-epoch` rewind fails (epoch aged
@@ -145,14 +142,14 @@
   ;; deliberately fallback-free per rf2-yng0y), so seeding history is
   ;; not enough — focus MUST carry the epoch-id.
   ;;
-  ;; We stamp BOTH the spine `[:focus :epoch-id]` (what `compose-focus`
+  ;; We stamp the spine `[:focus :epoch-id]` (what `compose-focus`
   ;; surfaces as `:rf.xray/focus` `:epoch-id` when no cascade head is
-  ;; present — i.e. history-only seeds) AND the `:selected-epoch-id`
-  ;; shim slot, mirroring `:rf.xray/select-epoch`'s dual-write. The
-  ;; LATEST epoch is the HEAD of the oldest-first ring — `(peek hist)`
-  ;; — matching the natural "show the most recent unless the operator
-  ;; clicks an earlier row" debugging UX (the same head-bias the
-  ;; focus-resolver's rf2-h0120 head-fallback encodes). An empty
+  ;; present — i.e. history-only seeds), the single source of truth the
+  ;; focus-keyed panels follow (rf2-uy7nz retired the `:selected-epoch-
+  ;; id` mirror). The LATEST epoch is the HEAD of the oldest-first ring
+  ;; — `(peek hist)` — matching the natural "show the most recent unless
+  ;; the operator clicks an earlier row" debugging UX (the same head-bias
+  ;; the focus-resolver's rf2-h0120 head-fallback encodes). An empty
   ;; history clears focus so a no-epoch seed renders its empty-state.
   ;;
   ;; When a live trace buffer IS also seeded (the chrome story seeds
@@ -166,22 +163,19 @@
       (let [history    (vec history)
             latest-id  (:epoch-id (peek history))]
         (cond-> (assoc db :epoch-history history)
-          (some? latest-id) (-> (assoc-in [:focus :epoch-id] latest-id)
-                                (assoc :selected-epoch-id latest-id))
-          (nil? latest-id)  (-> (update :focus (fnil dissoc {}) :epoch-id)
-                                (dissoc :selected-epoch-id))))))
+          (some? latest-id) (assoc-in [:focus :epoch-id] latest-id)
+          (nil? latest-id)  (update :focus (fnil dissoc {}) :epoch-id)))))
 
-  ;; `:rf.xray/select-epoch` — spine shim (rf2-adve5). Owns the
-  ;; `:selected-epoch-id` slot that App-DB Diff's `selected-epoch-*`
-  ;; subs read, AND writes through the spine's `[:focus :epoch-id]`
-  ;; slot so the `:rf.xray/focus` sub the spec/018 surfaces consume
-  ;; rebinds when the user picks an epoch. Symmetric with
-  ;; `:rf.xray/select-dispatch-id` (in registry.cljs post rf2-5gl5r).
+  ;; `:rf.xray/select-epoch` — spine shim (rf2-adve5). Writes the
+  ;; spine's `[:focus :epoch-id]` slot — the single source of truth that
+  ;; the spec/018 `:rf.xray/focus` sub surfaces (and that App-DB Diff's
+  ;; `selected-epoch-*` subs rebind on via `:rf.xray/focus-epoch-id`)
+  ;; when the user picks an epoch (rf2-uy7nz retired the `:selected-
+  ;; epoch-id` mirror). Symmetric with `:rf.xray/select-dispatch-id` (in
+  ;; registry.cljs post rf2-5gl5r).
   (rf/reg-event-db :rf.xray/select-epoch
     (fn [db [_ epoch-id]]
-      (-> db
-          (assoc :selected-epoch-id epoch-id)
-          (assoc-in [:focus :epoch-id] epoch-id))))
+      (assoc-in db [:focus :epoch-id] epoch-id)))
 
   ;; `:rf.xray/reset-to-epoch` (rf2-hga49) — the UI rewind affordance.
   ;; The tab ribbon's `Reset` button dispatches this with the OBSERVED

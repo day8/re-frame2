@@ -389,7 +389,7 @@
     :<- [:rf.xray/selected-epoch-flow-writes]
     :<- [:rf.xray/focus-epoch-id]
     (fn [[target db diff-triples focused-path focused-hits
-          history redacted-modified-count flow-writes selected-epoch-id]
+          history redacted-modified-count flow-writes focus-epoch-id]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
                                      (or diff-triples []))]
@@ -409,7 +409,8 @@
          ;; header with `[fx :db]` / `[flow :flow-id]` / mixed.
          :flow-writes               (or flow-writes [])
          :diff-triples              (or diff-triples [])
-         ;; rf2-5kfxe.2 — surfaced so the renderer can key each
-         ;; section by epoch-id, forcing a React re-mount per cascade
-         ;; and replaying the diff-flash CSS animation.
-         :selected-epoch-id         selected-epoch-id}))))
+         ;; rf2-5kfxe.2 — the focused epoch-id (from the spine focus via
+         ;; `:rf.xray/focus-epoch-id`), surfaced so consumers can key
+         ;; each section by epoch-id, forcing a React re-mount per
+         ;; cascade and replaying the diff-flash CSS animation.
+         :focus-epoch-id            focus-epoch-id}))))

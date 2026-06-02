@@ -39,18 +39,19 @@
   `:dispatch-id` are always derived from the current cascade vector —
   never stale.
 
-  ## `:selected-epoch-id` shim slot
+  ## No mirror slots — focus is the single source of truth
 
-  Spec 018 §6 collapses per-panel selection into the spine. The one
-  surviving mirror is `:selected-epoch-id`: the spine reducers stamp it
-  alongside `:focus`'s `:epoch-id` so the App-DB-diff / Views panels can
-  follow the focused epoch through `epoch.cljs`'s `:selected-epoch-id`
-  sub → `app_db_diff_subs`. The cross-panel `:rf.xray/event-detail`
-  composite (relocated to `registry.cljs` post rf2-5gl5r — the retired
-  Event/Handler panel originally owned it) reads focus directly off
-  the spine, so the former `:selected-dispatch-id` / `:selected-
-  dispatch` mirror slots are gone — there is no longer a dual-write
-  for them."
+  Spec 018 §6 collapses per-panel selection into the spine. There are
+  no mirror slots: the App-DB-diff / Views panels follow the focused
+  epoch through `[:focus :epoch-id]` (surfaced by `:rf.xray/focus` →
+  `:rf.xray/focus-epoch-id` → `app_db_diff_subs`), and the cross-panel
+  `:rf.xray/event-detail` composite (relocated to `registry.cljs` post
+  rf2-5gl5r — the retired Event/Handler panel originally owned it)
+  reads focus directly off the spine. The former `:selected-dispatch-id`
+  / `:selected-dispatch` / `:selected-epoch-id` mirror slots are all
+  gone (the last, `:selected-epoch-id`, was retired by rf2-uy7nz once
+  every production consumer had migrated to the spine focus epoch via
+  rf2-70tkv) — there is no longer any dual-write."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
@@ -309,9 +310,9 @@
   scrubbing) stayed wired into the focus map even after the user
   resumed LIVE — every panel that pivots on focus `:epoch-id`
   (Views' focused-cascade-pair, Machine Inspector's focused-event
-  lens, App-DB diff's selected-epoch chain via the shimmed
-  `:selected-epoch-id` slot) stayed frozen on the old epoch while
-  `:dispatch-id` correctly tracked head. The 3-arity (legacy / pre-
+  lens, App-DB diff's selected-epoch chain via `[:focus :epoch-id]`)
+  stayed frozen on the old epoch while `:dispatch-id` correctly tracked
+  head. The 3-arity (legacy / pre-
   rf2-70tkv callers, test rigs that don't have the history handy)
   preserves the original behaviour: `:epoch-id` stays as stored. The
   reactive `:rf.xray/focus` sub in `install!` uses the 4-arity so
@@ -383,9 +384,9 @@
         ;; `:rf.xray/focus` sub path). Mirrors the `eff-id` auto-
         ;; track above so every panel that pivots on focus
         ;; `:epoch-id` (Views, Machine Inspector, App-DB diff via
-        ;; the `:selected-epoch-id` shim) lights up the head cascade
-        ;; on every new arrival instead of staying pinned to a stale
-        ;; stored value. Retro / LIVE-paused / unsupplied-history
+        ;; `[:focus :epoch-id]`) lights up the head cascade on every
+        ;; new arrival instead of staying pinned to a stale stored
+        ;; value. Retro / LIVE-paused / unsupplied-history
         ;; preserve the stored slot — those modes have explicit
         ;; pinning semantics.
         ;;
@@ -420,11 +421,10 @@
 
 (defn focus-cascade-reducer
   "Pure reducer for the `:rf.xray/focus-cascade <id>` event. Writes
-  `:dispatch-id` into the `:focus` slot, picks the spine `:mode`,
+  `:dispatch-id` into the `:focus` slot, picks the spine `:mode`, and
   stamps `:epoch-id` (the cascade's settling epoch primary key per
-  spec/018 §6 Spine events), and mirrors `:epoch-id` into the
-  `:selected-epoch-id` shim slot the App-DB-diff / Views panels follow
-  (epoch.cljs sub → app_db_diff_subs).
+  spec/018 §6 Spine events) — which the App-DB-diff / Views panels
+  follow through `:rf.xray/focus` → `:rf.xray/focus-epoch-id`.
 
   ## Mode selection (rf2-xzzih)
 
@@ -456,22 +456,14 @@
                           :epoch-id    epoch-id
                           :mode        mode
                           :previewing? false)
-       frame-id   (assoc-in [:focus :frame] frame-id)
-       ;; `:selected-epoch-id` is the live App-DB-diff shim slot
-       ;; (epoch.cljs sub → app_db_diff_subs) — App-DB / Views follow the
-       ;; spine's focused epoch through it. The dispatch-id slots are gone:
-       ;; downstream consumers read focus off the `:rf.xray/event-detail`
-       ;; composite (relocated to `registry.cljs` post rf2-5gl5r when
-       ;; the Event/Handler panel retired), not a mirrored db slot.
-       true       (assoc :selected-epoch-id epoch-id)))))
+       frame-id   (assoc-in [:focus :frame] frame-id)))))
 
 (defn focus-step-reducer
   "Pure reducer for `:rf.xray/focus-cascade-prev` / `-next`. Steps
   the `:dispatch-id` through the cascade vector by `delta` (-1 or
   +1), resolves the cascade's settling `:epoch-id` from
-  `epoch-history` (per spec/018 §6 Spine events), mirrors it into the
-  `:selected-epoch-id` shim slot, and flips mode based on the step's
-  outcome — stepping
+  `epoch-history` (per spec/018 §6 Spine events) into the `:focus`
+  slot, and flips mode based on the step's outcome — stepping
   back from head → :retro; stepping forward back to head → :live (the
   user has scrubbed home).
 
@@ -537,26 +529,20 @@
                             :mode new-mode
                             :previewing? false
                             :paused? false)
-           frame-id (assoc-in [:focus :frame] frame-id)
-           ;; `:selected-epoch-id` is the live App-DB-diff shim (see
-           ;; focus-cascade-reducer); the dispatch-id slots are gone.
-           true     (assoc :selected-epoch-id epoch-id)))))))
+           frame-id (assoc-in [:focus :frame] frame-id)))))))
 
 (defn follow-head-reducer
   "Pure reducer for `:rf.xray/follow-head`. Snaps the spine to LIVE,
-  clears the pinned id (`:dispatch-id nil` means 'track head'), and
-  clears `:paused?` so the LIVE buffer flow resumes. Also clears the
-  `:selected-epoch-id` shim slot so the App-DB / Views panels return to
-  their LIVE-tracking landing views."
+  clears the pinned id (`:dispatch-id nil` means 'track head'), clears
+  `:epoch-id` so the App-DB / Views panels return to their LIVE-tracking
+  landing views, and clears `:paused?` so the LIVE buffer flow resumes."
   [db]
-  (-> db
-      (update :focus (fnil assoc {})
-              :dispatch-id nil
-              :epoch-id    nil
-              :mode :live
-              :paused? false
-              :previewing? false)
-      (dissoc :selected-epoch-id)))
+  (update db :focus (fnil assoc {})
+          :dispatch-id nil
+          :epoch-id    nil
+          :mode :live
+          :paused? false
+          :previewing? false))
 
 (defn toggle-live-pause-reducer
   "Pure reducer for `:rf.xray/toggle-live-pause`. Toggles `:paused?`
@@ -770,8 +756,8 @@
   ;; `:epoch-id` stayed wired to the stored slot (last :rf.xray/
   ;; select-epoch / focus-cascade / focus-step write), and every
   ;; panel pivoting on focus `:epoch-id` (Views, Machine Inspector,
-  ;; App-DB diff via the `:selected-epoch-id` shim) stayed frozen
-  ;; on the old epoch while `:dispatch-id` correctly tracked head.
+  ;; App-DB diff via `[:focus :epoch-id]`) stayed frozen on the old
+  ;; epoch while `:dispatch-id` correctly tracked head.
   (rf/reg-sub :rf.xray/focus
     :<- [:rf.xray/focus-slot]
     :<- [:rf.xray/cascades]
@@ -856,8 +842,7 @@
                           :epoch-id   epoch-id
                           :mode       :retro
                           :previewing? false)
-            frame-id (assoc-in [:focus :frame] frame-id)
-            true     (assoc :selected-epoch-id epoch-id))))))
+            frame-id (assoc-in [:focus :frame] frame-id))))))
 
   (rf/reg-event-db :rf.xray/follow-head
     (fn [db _event]
