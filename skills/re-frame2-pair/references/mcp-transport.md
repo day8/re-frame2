@@ -63,23 +63,65 @@ edits.
 
 ## MCP tool reference (args)
 
+The server exposes **28 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest). 26 are reachable from this skill's `allowed-tools:`; the two write-authority tools (`restore-epoch`, `reset-frame-db`) are gated behind the server's default-OFF `--allow-writes` launch flag and reached via the eval forms in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) / [§Write](ops.md#write) — an operator who launches with `--allow-writes` can add the two MCP tools to a deployment's allow-list.
+
+### Orientation + discovery
+
 | MCP tool       | Args |
 |----------------|------|
-| `discover-app` | `{}` (optional `build`) |
-| `eval-cljs`    | `{form: "..."}` |
-| `dispatch`     | `{event: "...", sync: true, frame: ":foo"}` |
-| `trace-window` | `{ms: 1000}` |
-| `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
-| `tail-build`   | `{probe: "..."}` |
-| `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"], path: "[:cart :items]"}` — default `:app-db` mode is **`:summary`** (tree-summary marker, not the full value); pass `path` to slice. Root `path: "[]"` opts back into the full slice. See [`ops.md` §Read](ops.md#read). |
-| `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive. Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. |
-| `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — push-mode; emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
-| `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
-| `list-subscriptions` | `{}` (or `{frame: ":rf/default", include-values: true}`) — list the **live reactive sub-cache** for a frame (the answer to "what subscriptions are active?"), reading the same source as `snapshot :sub-cache`. Returns `{:ok? true :frame <id> :count n :subs [<query-v> ...]}`; reflects disposal. NOT the streaming taps — for those use `list-streams`. (rf2-qicji) |
-| `list-streams` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active **streaming-tap** subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". (The streaming diagnostic `list-subscriptions` formerly carried; rf2-qicji.) |
+| `discover-app` | `{}` (optional `build` / `port`) — connect + health probe. Carries a `:freshness` token (`:liveness :fresh\|:stale-build\|:no-runtime\|:unknown`) — check it before trusting reads. See §Connect-first in SKILL.md. |
+| `orient` | `{}` — **app-shape orientation summary in ONE round-trip** (rf2-3bu3d.8). Composes discover-app + snapshot-top-keys + list-handlers + list-subscriptions + machines for first contact on an unfamiliar app. Returns `:liveness` / `:frames {:all :app :operating}` / `:app-db-top-keys` / `:registry {:counts :events :subs :fx}` / `:machines`. Compact by design; reserved `:rf/*` tool frames excluded from `:app-db-top-keys`. Drill via the reads below. |
+| `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming semantics, wire pipeline). No nREPL round-trip. Optionally call at session start. |
 | `list-handlers` | `{kind: "event"}` — discovery: every id registered under one kind. `{:ok? true :kind :event :ids [...] :count n}`, ids sorted. Kinds: `event` / `sub` / `fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` / `error-projector` / `machine`. Prefer over a `registrar-list` eval. See [`ops.md` §Read](ops.md#read). |
 | `handler-meta` | `{kind: "event", id: ":user/login"}` — drill: registration metadata for one id (source-coord + `:doc` + `:tags` + an `:rf.source/uri` clickable jump-to-editor link). `{:ok? false :reason :not-registered ...}` on a miss. Composite sub ids pass as the vector-string form. Prefer over a `registrar-describe` eval. See [`ops.md` §Read](ops.md#read). |
-| `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming semantics, wire pipeline). No nREPL round-trip. Optionally call at session start to orient before the first real op. |
+
+### Read (data plane)
+
+| MCP tool       | Args |
+|----------------|------|
+| `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"], path: "[:cart :items]"}` — default `:app-db` mode is **`:summary`** (tree-summary marker, not the full value); pass `path` to slice. Root `path: "[]"` opts back into the full slice. See [`ops.md` §Read](ops.md#read). |
+| `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive. Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. Batch with `paths: "[[...] [...]]"` (rf2-lbm21). |
+| `read-sub`     | `{sub: "[:cart/total]", frame: ":rf/default"}` — **validated one-shot subscription read** (rf2-3bu3d.7), the #1 read on any app. PREFER over a raw `eval-cljs` `@(rf/subscribe ...)`: the `sub` arg is parsed as EDN once + MUST be a vector, the sub-id is validated against the live `:sub` registrar (unknown → `:reason :unknown-id` + `:nearest`, never a silent nil), the value is elided server-side. `{:ok? true :query-v [...] :frame <id> :value <v> :elision true}` on a hit. |
+| `list-subscriptions` | `{}` (or `{frame: ":rf/default", include-values: true}`) — list the **live reactive sub-cache** for a frame (the answer to "what subscriptions are active?"), reading the same source as `snapshot :sub-cache`. Returns `{:ok? true :frame <id> :count n :subs [<query-v> ...]}`; reflects disposal. NOT the streaming taps — for those use `list-streams`. (rf2-qicji) |
+| `eval-cljs`    | `{form: "...", frame: ":foo", await: true, timeout-ms: 5000}` — escape hatch; evaluates a CLJS form against the runtime. Frame-scopes via `with-frame` (rf2-ntuzf); `await` resolves Promises server-side (rf2-xn4f9). Enabled by default; operator opts out via `--no-eval`. |
+
+### View plane (the rendered DOM)
+
+| MCP tool       | Args |
+|----------------|------|
+| `read-ui`      | `{view-id: ":my.app/counter"}` / `{point: {x: N, y: N}}` / `{selector: "#save"}` — **typed `ui/read`** (rf2-3bu3d.1): rendered subtree as elided data PLUS the producing re-frame2 entity (view-id, source-coord, render-key, the frame's live `subs-read`), in one round-trip. Rides the `data-rf-view` map (Spec 006 §View tagging) — works on any app with ZERO testids. Pass EXACTLY ONE entry point (precedence `view-id` > `point` > `selector`). Read-only. See [`ops.md` §ui/read](ops.md#view--rendered-content--producing-entity-uiread). |
+| `read-dom`     | `{selector: "#app .counter", sub-selector: ".title", attrs: ["value"], max-text: 2000, limit: 50}` — **view-plane read by explicit CSS selector** (rf2-nfjil): matched count + per-node `{:tag :text :attrs}`. The "did the UI actually update / what does the rendered node say?" read. Capped at the source (per-node `:max-text`, matched-node `:limit`); over-cap text → `:rf.size/large-elided`. `:attrs` omitted ⇒ curated default set + a `data-*` / `aria-*` sweep. Read-only. Pairs with `dispatch :await-render`. |
+
+### Write (drive the runtime)
+
+| MCP tool       | Args |
+|----------------|------|
+| `dispatch`     | `{event: "[:foo ...]", sync: true, frame: ":foo", trace: true, await-render: true, settle: true, queued: true, fx-overrides: {...}}` — fire an event tagged `:origin :pair`. DEFAULT returns the **consequence** (`:epoch-id :db-changed? :changed-paths :effects-fired :no-op? :cascade-summary`) — `dispatch → verify` in one call. Event validated against the `:event` registrar (unknown → `:reason :unknown-id` + `:nearest`, NOT dispatched). `settle` flushes renders synchronously + returns the full epoch incl. `:render-events`. See [`ops.md` §Write](ops.md#write). |
+| `dispatch-dry-run` | `{event: "[:cart/checkout]", frame: ":foo", fx-overrides: {...}}` — **simulate a cascade WITHOUT committing** (rf2-17hvp). Full reducer + interceptor + schema + machine + sub/render run; NO fx execute (each redirected to a recording stub) and the framework rolls back via restore-epoch. Returns the same `:cascade-summary` shape as `dispatch` plus `:rolled-back? true` and `:would-fire-effects [{:fx-id :args}...]`. "Experiment without consequences" — NOT gated by `--allow-writes` (its contract IS no observable effect). |
+
+### Trace + epoch (read-only)
+
+| MCP tool       | Args |
+|----------------|------|
+| `trace-window` | `{ms: 1000, limit: 50, cursor: "<b64>"}` — the `:rf/epoch-records` added in the last N ms for the operating frame. Diff-encoded + deduped + cursor-paginated. |
+| `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}, since-id: "...", limit: 50, cursor: "..."}` — pull-mode poll: epochs matching `pred` that landed after `since-id`. Call repeatedly to live-watch. See [`ops.md` §Live watch](ops.md#live-watch-push-mode). |
+| `watch-until`  | `{signals: "[{:app-db [:upload :status]}]", pred: {:signal 0 :equals :done}, timeout-ms: 30000}` — **block until a predicate over a signal holds** (rf2-zo4b9), the blocking counterpart to `record`. Server polls a cheap runtime read (~100ms cadence) until the condition trips or `timeout-ms` elapses. `{:ok? true :held? true :elapsed-ms :sample :t}` or `{:ok? false :reason :watch-timeout :last-sample {...}}`. SIGNAL / PRED vocab shared with `record`. Read-only. |
+| `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error"\|"frameless", filter: {...}, max-events: 0, max-ms: 0}` — push-mode; emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
+| `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
+| `list-streams` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active **streaming-tap** subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". (The streaming diagnostic `list-subscriptions` formerly carried; rf2-qicji.) |
+| `record`       | `{signals: "[{:focus true} {:dom \"#count\"}]", stop: {:ms 15000}, max-entries: N}` — **first-class signal recorder** (rf2-zo4b9): install a READ-ONLY observer over one-or-more SIGNALS with a STOP condition, let the human interact, then read the change-log with `read-recording`. The canonical move for intermittent / human-in-the-loop bugs (render-timing races under real mouse input). Returns IMMEDIATELY with a `:recording-id`; samples once per animation frame, records each CHANGE, dedups, tears itself down at the stop condition. SIGNAL shapes: `{:app-db [path]}` / `{:sub [query-v]}` / `{:dom "sel" :attr "name"}` / `{:focus true}`. STOP: `{:ms N}` / `{:changes N}` / `{:pred {:signal i :equals v}}`. Read-only. |
+| `read-recording` | `{recording-id: "rec-abc", drain: true, stop: true}` — read back a recording's change-log: `{:ok? true :recording-id :status :stopped-reason :frames-sampled :count :entries [{:i :signal :value :t :frame}...]}`. Each entry is one CHANGE. `drain true` consumes buffered entries + keeps recording (live-watch idiom); `stop true` reads-and-closes. |
+
+### Hot-reload + frames
+
+| MCP tool       | Args |
+|----------------|------|
+| `tail-build`   | `{probe: "...", wait-ms: 5000}` — wait for a hot-reload to land by polling the probe until its value changes. Falls back to a 300ms soft timer (`:soft? true`) when `probe` is omitted. See [`ops.md` §Hot-reload](ops.md#hot-reload-coordination). |
+| `get-operating-frame` | `{}` — read the session's operating-frame triple `{:frames :selected :operating}`. `:operating nil` ⇒ ambiguous (two-plus app frames, no pin). |
+| `set-operating-frame` | `{frame: ":foo"}` — pin the session's operating frame; the escape from the tier-4 `:ambiguous-frame` refusal. Validates the frame is registered. |
+| `reset-operating-frame` | `{}` — clear the pin; ops fall back to tier 3 / 4. Idempotent. |
+
+The three operating-frame tools surface tier 2 of the frame-resolution cascade directly (no eval round-trip) — see SKILL.md §Multi-frame model.
 
 The `subscribe` / `unsubscribe` pair is the **push-mode** counterpart to `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; use `watch-epochs` (pull-mode, polled in a loop) when the agent host doesn't surface progress notifications to the model.
 
@@ -154,6 +196,54 @@ blank value indistinguishable from a genuine `nil`).
 
 The same resolution + preflight logic backs the legacy `scripts/`
 bash shim's `eval` op.
+
+## Build-id resolution (rf2-qda59 + rf2-lbm21 + rf2-8t3ct)
+
+shadow build ids are namespaced keywords (`:examples/machine-epochs`).
+The server resolves a `build` arg through a deterministic, **session-scoped**
+cascade so you rarely repeat it:
+
+1. **Suffix-forgiving match.** Colon-tolerant first (`"examples/step-deck"`
+   and `":examples/step-deck"` resolve identically — the bare `keyword`
+   footgun `::examples/...` is closed). Then **unique name-suffix**: a
+   `build` naming a running build by a unique tail (`"machine-epochs"`)
+   resolves to the canonical running id. The rule is exact-match-first,
+   then unique-tail; **two builds sharing the tail stay ambiguous** and a
+   no-match id passes through unchanged so the diagnostic ladder still
+   fires — never a silent wrong-build pick. Resolution runs once per
+   session and caches the suffix→canonical alias on the conn-atom.
+2. **Sticky per-session selection.** The first call that names a build —
+   `discover-app {build: "my-app"}` after a passing health probe, OR an
+   explicit `:build` on any later tool — sets the session-sticky default
+   (`:resolved-build-id` on the conn-atom). Every subsequent call may
+   omit `:build`. A later explicit `:build` both routes that call and
+   re-points the sticky default. The cache resets on reconnect (relaunch
+   shadow against a different build ⇒ fresh resolution). Per-session,
+   never process-global — each MCP client spawns its own server, so the
+   sticky target can't leak across clients.
+3. **`SHADOW_CLJS_BUILD_ID` env var** (defaulting to `:app`) — the final
+   fallback.
+
+**Round-trippable canonical ids.** The canonical id is the **keyword**.
+`discover-app` echoes it under both `:build-id` and `:build`; the
+read-family ops (`orient`, `read-dom`, `read-ui`, `eval-cljs`) echo the
+resolved `:build`. A value copied out of any of those slots works
+unchanged as a later `:build` arg.
+
+**`:build-not-running` vs `:no-runtime-connected` — distinct rungs.**
+The diagnostic ladder distinguishes two failure shapes the operator fixes
+differently:
+
+| Reason | Means | Fix |
+|---|---|---|
+| `:build-not-running` | shadow's `active-builds` doesn't include the targeted build (or the `:app` default isn't running while several builds are). | Pick a running build — the envelope carries `:running-builds` (keyword vector) **and** a sibling `:running-builds-arg-forms` (each rendered in the exact `":examples/machine-epochs"` string form the `:build` arg accepts back), so you can paste a build straight from the error into `:build`. |
+| `:no-runtime-connected` | the build **IS** running but no CLJS runtime answered the eval (cljs-eval returned blank — no browser tab connected, or its WebSocket dropped). | Open the app in a browser tab — or reload an already-open tab so the runtime reconnects. Also carries `:running-builds`. |
+
+The eval path surfaces the ambiguous-target case as
+`:no-runtime-for-build` (also enumerating `:running-builds`); the plain
+read path surfaces the same candidate list via `:build-not-running`.
+Either way the error names the valid set in a form that pastes back —
+never a silent wrong-build pick or a host failure.
 
 ## When the MCP server is degraded
 

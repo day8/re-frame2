@@ -19,10 +19,12 @@ Each recipe is expressed in **MCP-tool form** — the only transport this skill 
 - ["Inspect this machine"](#inspect-this-machine)
 - ["Dead code scan"](#dead-code-scan)
 - [Experiment loop](#experiment-loop)
+- ["What would this event do?" (dry-run)](#what-would-this-event-do-dry-run)
 - [Stub an effect for an experiment](#stub-an-effect-for-an-experiment)
 - ["Narrate the next N events"](#narrate-the-next-n-events)
 - ["Alert me on slow events"](#alert-me-on-slow-events)
 - ["Watch for X while I interact"](#watch-for-x-while-i-interact)
+- ["Record while I interact" / "Wait until X happens"](#record-while-i-interact--wait-until-x-happens)
 - ["Drive a Story variant from a re-frame2-pair session"](#drive-a-story-variant-from-a-re-frame2-pair-session)
 - ["Diff two variants of the same component"](#diff-two-variants-of-the-same-component)
 - ["Refine a variant interactively"](#refine-a-variant-interactively)
@@ -39,6 +41,7 @@ Each recipe is expressed in **MCP-tool form** — the only transport this skill 
 3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:rf.sub/run`).
 4. If the sub the view depends on isn't in `:sub-runs` for the cascade, the equality gate held; report the upstream sub whose return value was `=` to its previous value.
 5. If the sub did re-run but the view didn't re-render, check `:renders` — the projection lists every render in the cascade with its `:render-key` and `:triggered-by`.
+6. To confirm whether the DOM actually changed (vs. the projection saying it should have), do a deterministic *dispatch → settle → read* — `mcp__re-frame2-pair__dispatch {event: "...", settle: true}` then `mcp__re-frame2-pair__read-dom {selector: "<the view's node>"}` (or `read-ui {view-id: "..."}`). The data plane (`:sub-runs` / `:renders`) says what *should* have rendered; `read-dom` says what's actually on screen.
 
 ## "Explain this dispatch"
 
@@ -97,12 +100,20 @@ Call `dom/source-at` on the element (or on `:last-clicked`). Return `{:ns :line 
 
 ## "Understand this component" / "What is this thing?"
 
-When the user points at a UI element (CSS selector, *"the thing I last clicked"*, or a description), chain:
+When the user points at a UI element (CSS selector, *"the thing I last clicked"*, or a description), the one-call move is **`read-ui`** (rf2-3bu3d.1) — it returns the rendered content AND the producing re-frame2 entity (view-id, source-coord, render-key, the frame's live `subs-read`) in a single round-trip, riding the `data-rf-view` map so it works with zero testids:
 
-1. `dom/source-at` — resolve to `{:ns :line :file}`.
-2. `Read` the source file at that line, with ~30 lines of context.
-3. Narrate: what the component is, what props it takes, which event(s) its interactions dispatch, and (if you can see them nearby) which subscriptions it reads. Cross-check against `(rf/handler-meta :view <id>)` for registered views.
-4. If the source-coord lookup fails, fall back to `dom/describe` to report tag/class/listeners, and ask the user to point at the source instead.
+```
+mcp__re-frame2-pair__read-ui {selector: "#save"}       ;; or {view-id: ":my.app/toolbar"} or {point: {x, y}}
+```
+
+Then chain:
+
+1. `read-ui` (or, if you want only the source coord, `dom/source-at`) — resolve to `:entity {:view-id :source-coord {:ns :line :file} :subs-read [...]}` and `:content {:tag :text :attrs}`.
+2. `Read` the source file at `:source-coord` `:line`, with ~30 lines of context.
+3. Narrate: what the component is, what props it takes, which event(s) its interactions dispatch, and which subscriptions it reads (`:subs-read` already names them). Cross-check against `(rf/handler-meta :view <id>)` for registered views.
+4. If `read-ui` returns `:entity {:view-id nil :reason :no-tagged-view-root}` (a portal / fragment leaf), fall back to `dom/source-at` then `dom/describe` to report tag/class/listeners, and ask the user to point at the source instead.
+
+To read JUST the rendered content of a node you already have a selector for (no entity provenance needed), use `read-dom {selector: "..."}` — see [ops.md §read-dom](ops.md#read-dom--rendered-content-by-explicit-css-selector-rf2-nfjil).
 
 This is one of the most grounding moves you can make — it turns *"that button"* into *"`re-com/button` at `app/cart/view.cljs:84`, dispatching `[:cart/checkout]`"* in one step.
 
@@ -116,7 +127,7 @@ When the user mentions a state machine (Spec 005), chain:
 
 1. `machines/list` — confirm it's registered.
 2. `machines/describe :auth` — return the spec map (`:initial`, `:states`, `:guards`, `:actions`, source coords).
-3. `machines/state :auth` — current snapshot, including `:rf/snapshot-version`.
+3. `machines/state :auth` — current `:rf/machine-snapshot` (`{:state :data :tags? :meta?}`; `:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape).
 4. To watch transitions live: `watch/stream` and inspect each emitted epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the watch layer is not currently supported; combine `--event-id-prefix` (to narrow by trigger) with caller-side filtering of the streamed epochs.
 5. Subscribe to the canonical machine sub: `subs/sample [:rf/machine :auth]`.
 
@@ -144,6 +155,22 @@ Canonical procedure:
 6. `trace/dispatch-and-collect [:foo ...]` → observe the new behaviour.
 7. Compare the two epochs (`epoch-diff` between their `:db-after` values; cross-check `:sub-runs` and `:renders` projections). Repeat until satisfied.
 8. If the change was REPL-only and the user wants to keep it, *commit via source edit* — REPL changes are lost on full page reload.
+
+## "What would this event do?" (dry-run)
+
+**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the app-db back via `restore-epoch`. No fx execute; every fx that *would* have fired is enumerated with its args.
+
+```
+mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
+```
+
+Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabulary for both) plus:
+
+- `:rolled-back? true` — the app-db is unchanged after the simulation.
+- `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
+- `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
+
+Compose with `:fx-overrides` to simulate realistic conditions (a canned http response) without losing the rollback guarantee — user overrides win on conflict. Use this in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 
 ## Stub an effect for an experiment
 
@@ -185,6 +212,37 @@ Fallback: poll `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":c
 For the **live reactive sub-cache** — "what subscriptions are active in this frame?" — call `mcp__re-frame2-pair__list-subscriptions {frame: ":rf/default"}`. It reads the same source as `snapshot :sub-cache` and returns the cached query-vectors (reflecting disposal); pass `include-values: true` for current values + ref-counts (rf2-qicji).
 
 When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__list-streams {}` to confirm it's still registered and check its `:queue-depth` before assuming the bus is dry. Full return shape and filters: see [streaming-subscriptions.md §Diagnostics](streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered).
+
+## "Record while I interact" / "Wait until X happens"
+
+**When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `subscribe` / `watch-epochs` stream *epochs*; the `record` / `watch-until` family (rf2-zo4b9) observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
+
+**Capture across an interaction (record → read-recording).** When the user says *"watch what happens to focus and the count while I click around"*:
+
+1. Start the recorder — it returns immediately with a `:recording-id`, then runs in the background:
+   ```
+   mcp__re-frame2-pair__record {
+     signals: "[{:focus true} {:dom \"#count\"}]",
+     stop: {:ms 15000}
+   }
+   ```
+2. Tell the user to interact now. The runtime samples each signal once per animation frame, records each CHANGE (deduped — a steady signal yields one baseline entry), and tears down at the stop condition (`{:ms N}` / `{:changes N}` / `{:pred {...}}`).
+3. Read the change-log:
+   ```
+   mcp__re-frame2-pair__read-recording {recording-id: "rec-abc"}
+   ```
+   Each entry is `{:i <signal-index> :signal {...} :value <v> :t <ms> :frame <rAF-counter>}` — signals that changed on the same paint share a `:frame`. For a long-running session, poll with `drain: true` (consume buffered entries, keep recording) or close with `stop: true`.
+
+**Block until a condition lands (watch-until).** When the next op should only run *after* something happens — *"wait until the upload finishes, then snapshot"*:
+
+```
+mcp__re-frame2-pair__watch-until {
+  signals: "[{:app-db [:upload :status]}]",
+  pred: {:signal 0 :equals :done}
+}
+```
+
+Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :held? true :elapsed-ms ... :sample {0 :done}}` — or `timeout-ms` (default 30000) elapses, in which case `{:ok? false :reason :watch-timeout :last-sample {...}}` shows how close it got. Then proceed to the next read. PRED shapes are the same data-predicate maps `record`'s `:stop {:pred ...}` accepts.
 
 ## "Drive a Story variant from a re-frame2-pair session"
 
