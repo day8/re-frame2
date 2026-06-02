@@ -1,505 +1,144 @@
-# Dispatch Prompt Template
+# Worker dispatch — canonical prompt shapes
 
-Canonical worker-prompt shapes for safe delegation. Placeholders:
+Terse, copy-adaptable shapes for delegating bounded work to background workers.
+Assumes a capable agent. Placeholders:
 
-- `<MAYOR_CHECKOUT>` — absolute path of the mayor's primary checkout
-- `<WORKTREE_ROOT>` — root holding worker worktrees (sibling of the mayor checkout)
-- `<ASSIGNED_WORKTREE>` — the worktree this worker should edit (subdir of `<WORKTREE_ROOT>`)
-- `<BEAD_ID>` — the bead identifier
+- `<MAYOR_CHECKOUT>` — the mayor's primary checkout (absolute path)
+- `<WORKTREE_ROOT>` — sibling dir holding worker worktrees (derive via `git worktree list`; never hardcode a path)
+- `<ASSIGNED_WORKTREE>` — this worker's worktree (subdir of `<WORKTREE_ROOT>`)
+- `<BEAD_ID>` — the tracker id
 
-## Worktree boundary — mandatory in every editing dispatch
+> **Project-specifics live with the project, not here.** The stance, the hot-zone
+> file list, the surface→gate matrix, the pre-checkin command, and the worktree
+> root are facts about *one* repo — keep them in that repo's agent-instructions
+> (this repo: `CLAUDE.md` + `TESTING.md`). This file is the reusable, OS-neutral
+> method; pull the concrete values from there at dispatch time.
 
-**Why this block exists.** Shell commands use `workdir`, but `apply_patch` and
-some edit tools have no workdir, so relative patch paths can resolve against
-the mayor checkout instead of the assigned worktree. "Use your worktree" is
-not a strong enough prompt. Workers must verify before each edit and check
-both checkouts after the first one.
+## Worktree boundary — paste verbatim into every editing dispatch
 
-**The path-resolution leak failure mode.** Observed repeatedly in audit
-and PowerShell-tool dispatches: the worker
-correctly ran the worktree guard and got the right `WORKTREE_ROOT`, then a
-file `Write` (especially of a new `ai/findings/<name>.md` file) landed in the
-mayor checkout because the edit tool resolved a repo-relative path against
-the agent's session root instead of the worker's git root. Symptoms:
-
-- `git status` inside the worker worktree shows no new findings file.
-- `git status` inside the mayor checkout shows a new untracked file under
-  `ai/findings/` that the worker thinks it wrote to its worktree.
-- The findings file is gitignored so neither side commits it — the boundary
-  fails *silently*.
-
-**Defence:** any `Write` of a brand-new file (especially under `ai/findings/`)
-must be IMMEDIATELY followed by `Test-Path <ASSIGNED_WORKTREE>\<rel>` AND
-`Test-Path <MAYOR_CHECKOUT>\<rel>`. If the mayor-side Test-Path returns True,
-the worker has leaked and must stop without further edits.
-
-**Paste verbatim into every editing-worker prompt:**
+**The concept (hard-won).** A worker edits only its assigned worktree, never the
+mayor checkout. Shell `cwd` is not enough protection: some edit tools resolve a
+relative path against the agent's session root rather than the git root, so a
+write can land in the mayor checkout *even after a start-of-session guard
+"passed"* — the leak happens mid-session in one tool call. A guard script can be
+fooled by that cwd resolution; the real backstop is the worker re-verifying its
+git root before every edit. New-file leaks are the worst case: a brand-new
+gitignored file routed into the mayor checkout shows nothing in the worker's own
+`git status`, so it fails silently — check the mayor side explicitly.
 
 ```text
-WORKTREE BOUNDARY - MANDATORY
+WORKTREE BOUNDARY — MANDATORY
+Your worktree:  <ASSIGNED_WORKTREE>
+Mayor checkout: <MAYOR_CHECKOUT>   ← never edit this.
 
-Your assigned worktree is:
-<ASSIGNED_WORKTREE>
+Before EVERY edit, confirm you are in your worktree:
+  git -C <ASSIGNED_WORKTREE> rev-parse --show-toplevel   → must print <ASSIGNED_WORKTREE>
+Use ABSOLUTE paths under <ASSIGNED_WORKTREE> for every edit/write. A
+start-of-session guard is NOT sufficient — verify per edit.
 
-The mayor checkout is:
-<MAYOR_CHECKOUT>
+After your first edit, and after writing any NEW file, confirm it landed in your
+worktree and NOT the mayor checkout (check BOTH trees — a new gitignored file
+leaking into the mayor checkout is invisible in your own `git status`). If
+anything landed outside your worktree: STOP, report both paths, do not
+repair/commit/push — let the mayor decide.
 
-Never edit the mayor checkout.
-
-Shell workdir is not enough protection. apply_patch and Write tools have no
-workdir, so relative patch / write paths can land in the mayor checkout.
-This is the path-resolution leak failure mode — the
-worktree guard at session start does NOT catch it, because the leak happens
-mid-session in a single tool call.
-
-Before every file edit, run:
-
-Get-Location; git rev-parse --show-toplevel; git status --short --branch
-
-Only edit if git rev-parse --show-toplevel prints exactly:
-<ASSIGNED_WORKTREE>
-
-When using apply_patch, Write, or any edit tool, use ABSOLUTE file paths
-under <ASSIGNED_WORKTREE> wherever the tool accepts them. If the tool only
-accepts relative paths, use paths relative to the session root that
-explicitly target the worker worktree —
-<WORKTREE_ROOT>/<WORKTREE_NAME>/<repo-relative-path>. Never use bare
-repo-relative paths unless `git rev-parse --show-toplevel` for the agent
-session root is itself the assigned worktree.
-
-After the first edit, immediately run:
-
-git -C <ASSIGNED_WORKTREE> status --short --branch
-git -C <MAYOR_CHECKOUT> status --short --branch
-
-Continue only if the worker worktree is dirty and the mayor checkout did
-not receive code edits.
-
-NEW-FILE EXTRA CHECK (path-resolution leak).  When you Write
-a brand-new file (most-common offender: ai/findings/<name>.md from an
-audit), the path-resolution leak silently routes the write into the mayor
-checkout because the file did not previously exist in either tree. The
-worker-worktree `git status` then shows nothing new (the leak landed
-elsewhere) and the gitignored `/ai/` tree masks the symptom on both
-sides.  After every new-file Write, run BOTH:
-
-  Test-Path <ASSIGNED_WORKTREE>\<repo-relative-path>
-  Test-Path <MAYOR_CHECKOUT>\<repo-relative-path>
-
-Only the first should be True. If the mayor-side Test-Path returns True,
-STOP — you've leaked.  Do not retry the write, do not delete the leaked
-file, do not commit. Report the leak with both Test-Path results and let
-the mayor decide.
-
-If any edit lands outside <ASSIGNED_WORKTREE>, stop immediately and report
-it. Do not repair, restore, commit, or push until the mayor tells you what
-to do.
+Do NOT `git stash` — stashes are repo-global and surface in other workers'
+worktrees, cross-contaminating them. Commit to your branch instead.
 ```
 
-**Mayor checks after dispatch.** `git status --short --branch` in the mayor
-checkout, AND `Get-ChildItem <MAYOR_CHECKOUT>\ai\findings\ -ErrorAction
-SilentlyContinue` to spot leaked gitignored findings the worker meant to put
-in its own worktree. If the mayor checkout gains unexpected files (committed
-or gitignored), interrupt the worker, preserve the edits into the worker
-worktree, then restore the mayor checkout — only specific known files; never
-broad destructive resets.
-
-**Mayor-side commit guard (rf2-ydl2p).** A pre-commit hook installed in
-the mayor's `.git/hooks/pre-commit` refuses commits that touch
-worker-tracked surfaces (anything outside the small allow-list:
-`.beads/issues.jsonl` + root `MEMORY.md`). The hook is gated by a
-sentinel file at `<git-common-dir>/mayor-marker` so it activates ONLY
-in the mayor checkout — worker worktrees see a no-op because their
-per-worktree git dir has no marker. Install with
-`sh scripts/install-git-hooks.sh` or
-`pwsh -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1`. See
-[`scripts/git-hooks/README.md`](https://github.com/day8/re-frame2/blob/main/scripts/git-hooks/README.md) for
-the marker pattern, permitted/refused surfaces, and the
-`--no-verify`/disable escape hatches. This is a commit-time
-complement to the edit-time guard at
-`scripts/assert-worker-worktree.sh` (POSIX primary) / `.ps1` (Windows) —
-if a worker's edit guard is bypassed (e.g. PowerShell cwd leak), the
-commit guard catches the attempt from the other side.
-
-**TODO (leak-mitigation escalation).** If this strengthened reminder proves
-insufficient and the leak continues to happen, escalate to one of:
-
-- **Canary protocol (option A):** `scripts/assert-worker-worktree.ps1`
-  writes a sentinel under `<worktree>/.worker-canary.txt` with timestamp +
-  expected path; mayor-side post-dispatch reads it back and asserts the
-  canary landed in the worker worktree, not the mayor checkout.
-- **Mayor-side leak detector (option B):** new
-  `scripts/assert-mayor-clean.ps1` that runs `git status --short` plus an
-  `ai/findings/` untracked-file scan against the mayor checkout and warns
-  if new files appeared during the dispatch window.
-
-Both are larger investments than the documentation patch above; ship them
-only if the reminder + new-file Test-Path check don't close the gap.
+A project may add a **mayor-side commit guard** (a pre-commit hook in the mayor
+checkout that refuses commits touching worker-owned surfaces) so a bypassed
+edit-guard is caught from the other side. Install per the project's hook scripts.
 
 ## Common preamble (every dispatch)
 
-```
-You are implementing bead **<BEAD_ID>** in <project description>.
-
-<project stance, obtained from operator — pre-alpha, production-stable, etc.>
-
-NEVER link to ai/findings/* from committed files (spec/*, docs/*, tools/*/spec/*,
-skills/*, migration/*, README.md). The /ai/ tree is gitignored; mkdocs strict's
-link-validator catches it at CI time and blocks unrelated PRs in cascade.
-If you need to cite a finding, inline a 1-sentence summary in the committed
-prose. The pre-PR lint `python scripts/check_doc_slugs.py` flags violations
-under defect category AI_FINDINGS_LINK.
+```text
+You are implementing <BEAD_ID> in <project + one-line description>.
+<Project stance — from the operator; e.g. pre-alpha / production-stable / refactor-only.>
+Do NOT link gitignored working files (the ai/ tree, findings docs) from committed
+docs — the strict-docs link validator fails the build in cascade. Inline a
+one-sentence summary instead.
 ```
 
-## Canonical pre-checkin quality gates
+## Quality gates — the discipline
 
-Every editing dispatch MUST run the canonical pre-checkin spine before
-opening a PR:
+Every editing dispatch runs the project's pre-checkin gate spine before opening a
+PR, and lists what ran in a PR-body section headed **exactly** `## Quality gates`
+(a verbatim heading is a contract for automated PR audits) with pass/fail counts.
+Two hard-won rules:
 
-```bash
-bash scripts/test-fast-pr.sh
-```
+- **Gate the transitive surface, not just the file you changed.** A public-surface
+  change breaks its *consumers*, not itself — gate every artefact reachable from
+  the diff through `:require`/import edges. (The concrete surface→gate matrix and
+  how to discover consumers live in the project's `TESTING.md`/`CLAUDE.md`.)
+- **Local-green ≠ CI.** "Green locally" usually means the subset the worker ran;
+  the red gate is one it skipped (integration/live, a linter, a drift-check). The
+  merge decision is CI's, not the worker's hand-off.
 
-The spine bundles lockstep drift, skill/MCP drift, core JVM, JS harness
-helpers, CLJS node integration, AND — when the diff touches any `.md`
-file — the markdown link/anchor validators. **Markdown auto-detection
-runs `python scripts/check_readme_links.py` + `python
-scripts/check_doc_slugs.py` + `mkdocs build --strict` (mkdocs
-soft-skipped on Windows when not on PATH).**
+A skipped gate needs a one-line PR-body reason (e.g. "tool not installed locally;
+relying on CI"). A silent skip fails review.
 
-**If your diff touches any markdown file**, you MUST verify the
-markdown gates ran (they auto-trigger; pass `--with-docs` to force).
-Failure to do so is a recurring source of red CI — #2232 (`#trace-events-1`
-vs `#trace-events_1` slug-disambiguation underscore) and #2233
-(`#cljs-reference-helix-as-alternative-substrate` missing the
-`-rf2-2qit` suffix that the heading actually carries) both bit in one
-hour on 2026-05-27 because workers pushed without running the markdown
-gates locally. The `test-fast-pr.sh` spine now catches both.
+## Dispatch shapes
 
-Manual invocation if you want to run only the markdown gates:
+**Shape 1 — Solo.** One bead → one PR. Bead id + verbatim title; 2–4 paragraphs of
+context with `file:line` citations; numbered concrete steps; worktree
+`<WORKTREE_ROOT>/<desc>-<BEAD_ID>`, branch `worker/<desc>-<BEAD_ID>`; the boundary
+block; claim the bead; gates with exact commands; push + `gh pr create` titled
+`<scope>(<artefact>): <summary> (<BEAD_ID>)` with the `## Quality gates` section;
+report PR URL + per-step summary + test deltas. *A coverage/rigour pass must add
+≥1 adversarial/negative case per surface — assertion-count growth alone only
+exercises the happy path.*
 
-```bash
-python scripts/check_readme_links.py
-python scripts/check_doc_slugs.py
-mkdocs build --strict        # Linux/CI; on Windows mkdocs may not be installed
-```
+**Shape 2 — Cluster.** 3–12 beads on a shared surface → one PR. Order commits
+smallest-cleanup → biggest-correctness-fix (a failing P1 must not strand the small
+wins); claim each bead before its commit (history mirrors tracker state → a
+stalled cluster leaves a clean partial trail); gates after each commit + full
+regression after all. Disjoint-surface "small-misc" clusters are valid at the tail
+of a drain — the binding rule is hot-zone parallelism, not strict same-surface.
+Keep bundles to ~3–4 beads; larger ones tend to time out.
 
-If you skipped `mkdocs build --strict` locally because mkdocs isn't on
-PATH (common on Windows), call it out in the PR body so the mayor knows
-to watch CI.
+**Shape 3 — Audit (read-only).** A finding, not a fix. Goal + surface paths +
+prior findings to avoid re-discovering; boundary block; write the findings doc to
+the gitignored working tree FIRST (never commit it, never link it from committed
+files); file follow-on beads one at a time, appending each id to the audit bead's
+notes so progress survives a timeout; close with verdict + severity counts +
+cross-refs; no PR by default. The mayor may reorganize/reject findings — not every
+finding is actioned.
 
-## Standard gate menu by surface — mandatory
+**Shape 4 — Cluster reviewer (read-only, no dispatch).** Shapes the next wave. List
+in-flight workers + their surfaces (don't recommend touching those); enumerate
+recently-filed beads (`git log -p --since='35 minutes ago' -- <tracker-file>`) +
+the ready queue; per bead decide (A) add to an in-flight cluster / (B) new cluster
+(3+ beads, shared non-in-flight surface) / (C) solo (P0/P1 correctness, >250 LoC,
+decision-resolved, cross-cutting) / (D) defer; output the net next-dispatch shape
+in 2–3 sentences. Do NOT change tracker state.
 
-**Why this block exists.** The canonical pre-checkin spine
-(`test-fast-pr.sh`) is necessary but **not sufficient** for cross-artefact
-diffs. The rf2-uhd5d audit (window: 2026-05-28 09:04Z–13:53Z, 16 PRs)
-identified two recurring worker-gate gaps:
+**Shape 5 — Fix a PR's failing CI.** A red check that isn't structurally
+irrelevant. Failing-check name + log lines; 2–3 root-cause hypotheses; worktree off
+the EXISTING branch (not a new one); boundary block; **run the ACTUAL failing gate
+locally** (not a proxy that already passed); fix surgically (or file a follow-on if
+it's deeper than scope + the stance allows a safe-out); push to the existing branch
+(never main); update its `## Quality gates`. *Never `--admin` past a failing
+touched-surface gate.* Diagnosis often beats the failure log — test the hypothesis
+before fixing.
 
-- **#2338 (eguy4 phase B+C, 251 files)** burned **3 sequential CI red
-  iterations** (~45 min runner time) because the worker gated only the
-  artefacts whose `src/` changed, not the downstream artefacts that
-  `:require` the modified public surface. Iter 1 red: `tools/story`
-  consumers. Iter 2 red: CLJS `:node-test` (adapter-reagent test). Iter 3
-  red: `tools/story-mcp` consumer. The PR blocked four follow-on PRs
-  mid-merge across the three iterations.
-- **#2341 (`merge-route-slice` helper extraction in
-  `routing/events.cljc`)** is the latent form of the same gap: the worker
-  ran `cd implementation/routing && clojure -M:test` only. CI's surface
-  classifier carried the consumers (`schemas`, `machines`, `flows`,
-  `http`, `ssr`, `ssr-ring`, `epoch`). No CI failure this time only
-  because the extraction happened to preserve behaviour — but the worker
-  hand-off message read "all green locally" which is the wrong signal for
-  a public-surface diff.
+## Failure modes these shapes close
 
-**The rule.** Workers MUST gate every artefact reachable from the diff
-through `:require` edges, not just the artefact whose `src/` changed.
-Paste the relevant rows below verbatim into your PR-body `## Quality
-gates` section.
-
-### Standard gate menu — surface touched → MANDATORY worker-side gates
-
-Gate sets are additive: if your diff touches multiple rows, union the
-gates. Pre-alpha posture: this menu is **prescriptive**, not advisory.
-
-| Surface touched | Mandatory worker-side gates |
-|---|---|
-| Any `.md` under `spec/`, `docs/`, `migration/`, or `skills/` | `python -m mkdocs build --strict` (stage `docs/spec` + `docs/migration` first) + `python scripts/check_doc_slugs.py --verbose` + `python scripts/check_readme_links.py --ci` |
-| `implementation/<feat>/src/*` (any of: `schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `epoch`) | `cd implementation/<feat> && clojure -M:test` + `npm run test:cljs` from `implementation/` |
-| `implementation/core/src/*` | `cd implementation/core && clojure -M:test` + `npm run test:cljs` from `implementation/`. The per-feature + tool JVM matrix is CI-gated (`implementation_jvm` fires every per-feature JVM job on any `implementation/core/*` change) and need not be re-run locally unless the diff changes a cross-artefact contract — in which case treat it as the shared-protocol-surface row below and run the full matrix. |
-| Any public-surface namespace (e.g. `events.cljc`, `http_interceptors.cljc`, anything `:require`d from another artefact) | The artefact's own gate AND every `:require`r in the workspace. **MUST** discover them via: `git grep -lE "(:require \[.*re-frame\.<feat>\.)" implementation/ tools/` — gate each artefact in the resulting list. |
-| `implementation/adapters/*` (other than `reagent-slim`) | impl JVM matrix + `npm run test:cljs` + `npm run test:browser` (browser is the canonical adapter test surface — do NOT skip) |
-| `implementation/adapters/reagent-slim/*` | impl JVM matrix + reagent-slim bundle-isolation check |
-| `tools/<tool>/src/*` | `cd tools/<tool> && clojure -M:test` AND every dependent tool (see TESTING.md S11+S12+S13) AND `npm run test:cljs` if the tool has CLJS tests |
-| `tools/{story,xray}/spec/*.md` | `mkdocs build --strict` **only** (per the rf2-f79t8 spec-md guard — do NOT run the JVM/CLJS tool probes for spec-prose edits) |
-| `tools/template/*` | `cd tools/template && clojure -M:test` + emitted-app smoke |
-| `tools/mcp-conformance/*`, `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*`, `tools/story-mcp/*` | `cd implementation && npm run test:mcp-conformance` — single entry-point (rf2-gt4pf) chaining the six PR-time MCP gates: JVM story-mcp `clojure -M:test`, Node story-mcp stdio-roundtrip, Node re-frame2-pair-mcp `:server-test`, MCP conformance for both servers (via `tools/mcp-conformance/scripts/test-all.cjs`), and JVM wire-vocab `clojure -M:test`. Hermetic live-overflow stays out — operators who need it run `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-overflow-hermetic` directly. |
-| Shared protocol surface (`Tool-Pair`, `Spec-Schemas`, `Conventions`, `API`) | **THE FULL MATRIX.** `scripts/test-jvm-implementation.sh` + `scripts/test-jvm-tools.sh` + `npm run test:cljs` + `mkdocs build --strict`. |
-| **Security boundary** — any redaction / escaping / off-box-egress code: `implementation/ssr/.../html_helpers.cljc`, `implementation/schemas/.../walker.cljc` or `.../validate.cljc`, `implementation/core/.../privacy.cljc`, `tools/mcp-base/.../sensitive.cljc`, or the pull-mode epoch egress (`tools/re-frame2-pair-mcp/.../epoch_egress.cljs`, `trace_window`/`watch_epochs`) | `cd implementation && npm run test:security` (the rf2-3cfvt adversarial-property tier: SSR escaping / schema redaction / MCP egress) AND the owning artefact's own gate from the rows above. **Extend** the matching `security/test/re_frame/security/*_security_cljs_test.cljc` namespace with the new case, and **state the revert-to-RED check** in the PR (`temporarily revert the protection → tier goes RED → restore`). `test:security` is also ridden by always-on `test:cljs`, so this row is the *named* security gate, not an extra CI requirement over `test:cljs`. |
-| `spec/conformance/fixtures/*.edn` | impl JVM matrix (per-feature `_conformance_test.clj` consumes these) + `npm run test:cljs` |
-
-Skipping any gate requires a one-line PR-body note explaining why (e.g.
-"Windows file-lock prevents `npm run test:cljs` locally; running CI as
-canonical"). A skip without a stated reason fails the audit.
-
-**Evidence.** This menu is the concrete fix for the rf2-uhd5d audit
-findings §3.1 + §3.2; the failure modes it closes are #2338's
-3-iteration CI red loop and #2341's latent helper-extraction
-consumer-gate gap.
-
-## PR-body Quality gates section — mandatory
-
-Every editing dispatch's PR body MUST include a `## Quality gates`
-section listing the gates that were run with concrete pass/fail
-counts. The convention is de facto across the project (every real-source
-PR in the rf2-uspbd audit window had one); this codifies it.
-
-**Use the verbatim heading `## Quality gates`** — not `## Gates`, not
-`## Gates run`, not `## Tests run`. A canonical heading is a contract:
-it enables automated PR-body audits (e.g. rf2-uhd5d, which scanned 16
-PRs) and avoids the maintenance cost of tolerant greps. The rf2-uhd5d
-audit found 5 PRs in a single window using variant headings (#2333,
-#2343, #2345, #2346 used `## Gates`; #2337 used `## Gates run`) and 2
-PRs omitting the section entirely (#2334, #2335). The variant headings
-are semantic-equivalents but break any future automated scan that greps
-the canonical wording.
-
-**Spec-only / docs-only exception.** The section is still mandatory for
-spec-only or docs-only PRs (where no impl gates apply), but is permitted
-to be a one-line `no impl gates required (spec-only diff)` placeholder
-plus the docs gates (`mkdocs build --strict` + `check_doc_slugs` +
-`check_readme_links --ci`). Omitting the section entirely is NOT
-acceptable, even for spec-only diffs — see #2334 and #2335 from the
-rf2-uhd5d window for the failure mode.
-
-**Shape:** one short paragraph identifying which spine ran, then a
-bulleted list of named gates with test counts in the form
-`X tests, Y assertions, NF/ME`. Example:
-
-```markdown
-## Quality gates
-
-`bash scripts/test-fast-pr.sh` — all green.
-
-- `npm run test:cljs` — 312 tests, 1187 assertions, 0 failures, 0 errors
-- `npm run test:browser` (skipped — no view-layer changes)
-- `mkdocs build --strict` — passed (docs touched)
-- Touched workflow `.github/workflows/expensive-tests.yml` — manual
-  `gh workflow run` after merge (see rf2-b7sjp convention).
-```
-
-If a gate is skipped, say which gate and why in one line — "no
-view-layer changes" / "docs-only diff" / "windows: mkdocs not on PATH,
-relying on CI". Skipped gates with no reason fail the audit.
-
-The Quality gates section sits near the top of the PR body, after
-the bead-id + one-sentence summary; ahead of design / followups / etc.
-This is the section the mayor scans first to decide whether to
-fast-track the merge.
-
-## Worktree path convention
-
-Worker worktrees live under `<WORKTREE_ROOT>`. Not inside the mayor checkout
-(mixes worker edits into the mayor's working tree). Not `.claude/worktrees/`
-(forbidden — tool-path-resolution quirks leak edits to the mayor checkout).
-
-## Fresh-worktree setup — share the npm + Playwright caches (rf2-0kkxm)
-
-A fresh worker worktree runs its own `npm ci`, which re-resolves the
-`node_modules` tree and, on first use, makes Playwright download Chromium
-(~120 MB) and shadow-cljs pull its Maven/git deps. CI already shares these
-across runs with keyed caches (`.github/workflows/test.yml`: `~/.cache/ms-playwright`
-for the Playwright binary, `~/.m2` + `~/.gitlibs` for shadow-cljs deps). Locally,
-make every worktree reuse one shared cache instead of re-fetching per worktree.
-
-**Good news — most of this is already shared by default.** npm's package cache
-and Playwright's browser directory both default to **per-user** locations, not
-per-worktree, so a second worktree reuses the first download automatically:
-
-| Cache | Per-user default (Windows) | Per-user default (macOS) | Per-user default (Linux) |
-|---|---|---|---|
-| npm package cache | `%LocalAppData%\npm-cache` | `~/.npm` | `~/.npm` |
-| Playwright browsers | `%LocalAppData%\ms-playwright` | `~/Library/Caches/ms-playwright` | `~/.cache/ms-playwright` |
-| Maven / gitlibs (shadow-cljs deps) | `~/.m2`, `~/.gitlibs` | `~/.m2`, `~/.gitlibs` | `~/.m2`, `~/.gitlibs` |
-
-So per fresh worktree you pay the `npm ci` link/extract step and one
-`playwright install chromium` no-op check — **not** the multi-minute network
-re-download — provided you have NOT pinned any of these to a worktree-local
-path. The remaining wins are (a) pointing them at one explicit shared dir if
-your `node_modules` lives on a fast scratch disk, and (b) guaranteeing the
-Playwright binary is shared even if a tool sets `PLAYWRIGHT_BROWSERS_PATH=0`
-(which forces a worktree-local browser download).
-
-**Platform-neutral, do-it-once (preferred).** A user-level `npm config` setting
-persists across every worktree and every shell — no per-session env-var dance,
-identical on all three OSes:
-
-```bash
-# Run once, anywhere. Writes to your user-level ~/.npmrc.
-npm config set cache "<shared-npm-cache-dir>"   # e.g. a path on a fast disk
-```
-
-For the Playwright browsers, set a stable per-user `PLAYWRIGHT_BROWSERS_PATH`
-so it is identical regardless of which worktree triggered the first download.
-Point it at one shared dir and export it in your shell profile so every worker
-shell inherits it:
-
-```powershell
-# PowerShell (Windows) — persist for the current user across sessions:
-[Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', "$env:LOCALAPPDATA\ms-playwright", 'User')
-# (open a new shell to pick it up)
-```
-
-```sh
-# POSIX sh / bash / zsh (macOS, Linux) — add to ~/.profile or ~/.zshrc:
-export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-```
-
-**Per-session override (no profile edits).** If you'd rather not touch user
-config, set both as env vars in the worker shell before `npm ci`. npm reads
-`npm_config_cache`; Playwright reads `PLAYWRIGHT_BROWSERS_PATH`:
-
-```powershell
-# PowerShell (Windows)
-$env:npm_config_cache          = "$env:LOCALAPPDATA\npm-cache"
-$env:PLAYWRIGHT_BROWSERS_PATH  = "$env:LOCALAPPDATA\ms-playwright"
-```
-
-```sh
-# POSIX sh (macOS, Linux)
-export npm_config_cache="$HOME/.npm"
-export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-```
-
-Then the usual `cd <worktree>/implementation && npm ci` re-uses both shared
-caches. Use the per-user default paths above unless you have a reason to
-relocate; do not invent a path that only exists on one OS. The values shown
-are the per-OS defaults, so setting them is idempotent — it just makes the
-shared location explicit and stable across worktrees.
+- Back-compat shims by default → stance explicit in every preamble.
+- Same-file races between concurrent workers → enumerate in-flight surfaces.
+- Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
+- Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
+- "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
+- A passing synthetic test that routes around the real bug → reproduce the actual failing path.
+- Clusters split that should be one PR (or vice-versa) → cluster reviewer pre-validates shape.
+- Stalled workers losing analysis → findings-first + one-bead-at-a-time tracker creates.
+- Re-discovering known issues → name recent landings + prior findings.
+- Generic prompts → require `file:line` citations + concrete fix sketches.
 
 ---
 
-## Shape 1 — Solo bead implementation
-
-One bead, one PR. Standard shape. Sections: bead ID + verbatim title; 2–4
-paragraphs of context with `file:line` citations; numbered concrete steps;
-worktree at `<WORKTREE_ROOT>/<descriptive>-<BEAD_ID>` with branch
-`worker/<descriptive>-<BEAD_ID>`; include worktree-boundary block; `bd
-update <BEAD_ID> --claim` + `--status=in_progress`; quality gates with exact
-commands; push + `gh pr create` titled `<scope>(<artefact>): <summary>
-(<BEAD_ID>)` — PR body MUST include a `## Quality gates` section
-(see "PR-body Quality gates section" above); return PR URL + per-step
-summary + test deltas, under <N> words.
-
-### Rigour / coverage-pass variant — require an adversarial case per surface
-
-A "coverage & rigour pass" is a Shape 1 dispatch whose deliverable is added
-test assertions over an existing surface. Such a pass MUST require **at
-least one adversarial/negative case per public surface touched** — a
-hostile input, a boundary value, or an error path — not just
-assertion-count growth.
-
-**Why this requirement exists.** A coverage pass measures breadth
-(assertion count), not defect-finding power. In the rf2-bcams audit
-window, 25+ rigour-pass PRs added thousands of assertions while a
-concurrent correctness sweep (rf2-5t8mr) over the *same* slices found
-defects the rigour pass missed — the `schemas` and `ssr` artefacts both
-got rigour PRs yet shipped the rf2-g5auo leak / rf2-1uex4 XSS untouched,
-because every added assertion exercised the happy path. Requiring a
-hostile/boundary/error case per surface is cheap, durable, and closes the
-coverage-vs-correctness gap.
-
-State the adversarial cases explicitly in the PR-body `## Quality gates`
-section so the mayor can confirm the pass exercised more than the happy
-path.
-
-## Shape 2 — Cluster (multiple beads, single PR, sequenced commits)
-
-3–12 beads on a shared surface. Sections: cluster name + N beads + source
-findings; numbered bead list ordered **smallest cleanup → biggest correctness
-fix** (so a failing P1 fix doesn't strand the small cleanups); commit format
-`<scope>(<artefact>): <summary> (<BEAD_ID>)`; worktree at
-`<WORKTREE_ROOT>/<cluster-name>-<HEAD_BEAD_ID>`; pre-claim each bead BEFORE
-its commit (so bd state mirrors history one-to-one and a stalled cluster
-leaves a clean partial trail); quality gates after EACH commit + full
-regression after ALL; PR titled `<scope>(<artefact>): <cluster name> (N beads
-incl. <P1 highlights>)` — PR body MUST include a `## Quality gates`
-section listing the spine plus any per-bead extra gates (see "PR-body
-Quality gates section" above); return PR URL + per-bead one-liner +
-cross-bead unifications spotted. Disjoint-surface "small-misc" clusters
-are valid at the tail of a drain — the binding rule is hot-zone
-parallelism, not strict same-surface.
-
-## Shape 3 — Audit (read-only research)
-
-One bead asks for a finding, not a fix. Sections: goal (read `<surface>`
-end-to-end; identify correctness drifts, perf hotspots, API hygiene, testing
-gaps, cross-artefact coupling); reference (surface paths, relevant spec
-docs, recent landings that changed the surface, prior audit findings to
-avoid re-discovering); worktree + boundary block + `--status=in_progress`;
-**WRITE THE FINDINGS DOC FIRST** to `ai/findings/<surface>-audit-YYYY-MM-DD.md`
-(gitignored — never commit findings, and never link to them from committed
-files — see Common preamble policy + `check_doc_slugs.py` AI_FINDINGS_LINK);
-file follow-on beads ONE AT A TIME
-after the doc lands, appending each bead ID to the audit-bead's notes so
-partial progress is durable across a watchdog timeout; close audit-bead
-with verdict + cross-refs; no PR by default (trivial one-line obvious
-fixes can ride along in a small PR); return under 400 words with per-finding
-`file:line` citations + follow-on bead IDs + severity counts
-(HIGH/MED/LOW/DEFER) + verdict.
-
-## Shape 4 — Cluster reviewer (research + recommendation, no dispatch)
-
-Used between dispatch waves to shape the next round. Read-only — no
-worktree boundary block needed. Sections: cluster policy verbatim;
-in-flight workers + their surfaces (do NOT recommend changes that touch
-these); enumerate beads filed in the last ~30 min via
-`git log -p --since='35 minutes ago' -- .beads/issues.jsonl`; per-bead
-decide (A) add to in-flight cluster / (B) form new cluster (3+ beads on
-shared non-in-flight surface) / (C) solo (P0/P1 correctness, structural
->250 LoC, decision-resolved, cross-cutting) / (D) defer; structured
-output template; net recommendation in 2–3 sentences with specific
-timing + dispatch shape. **Do not change bd state.**
-
-## Shape 5 — Fix CI failure on a specific PR
-
-One PR has a failing check that isn't obviously irrelevant. Sections:
-the failing check name + log lines verbatim; 2–3 root-cause hypotheses;
-worktree at `<WORKTREE_ROOT>/<branch-name>-fix` checking out the existing
-branch (not a new one); boundary block; investigation steps; pick the
-fix (A) surgical / (B) medium / (C) skip + file follow-on bead
-(appropriate when stance allows a safe-out and the fix proves deeper
-than the bead's scope); verify locally; **push to the existing PR branch,
-not main**; update the existing PR body's `## Quality gates` section
-with the re-run gate results (or add the section if the original
-lacked one — see "PR-body Quality gates section" above); return under
-300 words with root cause + fix chosen + verification. Diagnosis often
-surfaces deeper insight than the failure log shows — test the
-hypothesis before applying the fix.
-
----
-
-## Common failure modes these patterns close
-
-- Agents adding back-compat shims by default → stance must be explicit in every preamble.
-- Same-file races between concurrent workers → enumerate in-flight workers + surfaces.
-- Workers leaking edits into the mayor checkout → worktree-boundary block.
-- Path-resolution leak on new-file Write (especially `ai/findings/*` from
-  an audit) routes the file into the mayor checkout silently → new-file
-  Test-Path double-check in the worktree-boundary block.
-- Stalled agents losing analysis → findings-first protocol; one-bead-at-a-time bd creates.
-- Clusters splitting when they should be one PR → cluster reviewer pre-validates shape.
-- Hot-zone merge conflicts → explicit hot-zone list in every prompt.
-- Re-discovering known issues → name recent landings + prior findings docs.
-- Generic prompts producing generic work → require `file:line` citations + concrete fix sketches.
-- Findings docs leaking into PRs → `ai/findings/` is gitignored; never commit one.
-- `--delete-branch` failing on Windows → covered by Mayor Merge Protocol in `bootstrap.md`.
-
-## Canonical examples
-
-Record once per project — three or four good examples teach a new mayor
-more than thirty mediocre ones:
-
-- **Solo done well**: `<bead-id>` — `<one-line on why exemplary>`
-- **Cluster done well**: `<name>` — `<bead-count>` beads + `<a surprise the cluster surfaced>`
-- **Audit done well**: `<bead-id>` — `<follow-on count>` + `<analytical move that made it valuable>`
-- **CI fix done well**: `<bead-id>` — `<diagnosis-vs-surface-log distinction>`
+*Record three or four exemplary dispatches per project (a solo, a cluster, an
+audit, a CI-fix) — a few good examples teach a new mayor more than thirty
+mediocre ones. The concrete gate matrix, hot-zone list, guard/install scripts,
+and cache-sharing setup are project-specifics; they live in the project's
+agent-instructions + TESTING docs, not in this method file.*

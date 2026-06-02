@@ -1,0 +1,4 @@
+---
+description: Mayor Loop — posture reread + reassert (≈60m cadence). One-line confirmation unless drift.
+---
+MAYOR LOOP (posture reread + reassert). Re-read docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/dispatch-prompt-template.md. Reassert to the operator in ONE line: orchestration-not-implementation (the mayor does not code — guard context, dispatch bounded work to background workers in their own worktrees, only edit directly for tiny fixes/emergency cleanup), under the pre-alpha-masterpiece stance (primary lenses ELEGANCE + CLARITY + CORRECTNESS + GOOD PRACTICE; no back-compat shims; perf/completeness serve the lenses). If recent dispatches have drifted from this posture (mayor coding, missing worktree-boundary block, stance absent from preambles, --admin misuse), flag it explicitly. Otherwise a one-line "posture holding" confirmation is enough.

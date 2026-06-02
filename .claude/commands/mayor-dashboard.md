@@ -1,0 +1,4 @@
+---
+description: Mayor Loop — refresh ai/dashboard.md (≈10m cadence). Local-only, never commit.
+---
+MAYOR LOOP (dashboard refresh). Refresh ai/dashboard.md only (local-only, NEVER commit; not in git status). First fetch the real timestamp `date "+%Y-%m-%d %H:%M:%S %Z"` and real HEAD `git rev-parse --short HEAD` — never type a timestamp from memory. Structure, in order: timestamp + one-line resume command; "What needs the operator now" FIRST (open decisions, blockers, files the operator is editing); in-flight workers; open PRs (PR# / bead / failing gate / touched surface); recent merges; ready backlog (ready count + dispatchable count); resolved-this-session; worktrees pending hygiene. Keep it 30-second-scannable. This is the catch-all sweep — if nothing changed since last refresh, just bump the timestamp.
