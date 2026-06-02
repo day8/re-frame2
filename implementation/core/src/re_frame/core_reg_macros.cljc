@@ -188,10 +188,13 @@
 ;; doesn't fit the splice-through pattern because the spec form is walked
 ;; at compile time. Per rf2-npvsx the walk produces ONE cohesive map per
 ;; guard / action / on-spawn-action — `:guards {<id> {:fn .. :source-coords
-;; .. :source-code ..}}` — plus a reference-site `:states`-tree coord index
-;; under `:rf.machine/state-coords`. The walker drops to the unchanged spec
-;; for non-literal forms (a runtime symbol) and tools fall back to the
-;; top-level handler-meta call-site coords.
+;; .. :source-code ..}}` — and per rf2-vqja2 it CO-LOCATES a reference-site
+;; `:source-coords` onto each MAP node inside the `:states` tree (state-node
+;; / transition map) at its spec path, rather than building a flat
+;; `:rf.machine/state-coords` side-index that paralleled `:states`. The
+;; walker drops to the unchanged spec for non-literal forms (a runtime
+;; symbol) and tools fall back to the top-level handler-meta call-site
+;; coords.
 
 #?(:clj
    (def ^:private machine-element-slots
@@ -208,20 +211,24 @@
      <prod>)` expression.
 
      Per rf2-npvsx the two arms CO-LOCATE per-element source onto each
-     `:guards` / `:actions` / `:on-spawn-actions` entry rather than building
-     the old `:rf.machine/source-coords` + `:rf.machine/handler-source`
-     side-indexes:
+     `:guards` / `:actions` / `:on-spawn-actions` entry, and per rf2-vqja2
+     they CO-LOCATE a reference-site `:source-coords` onto each MAP node
+     inside the `:states` tree — rather than building the old
+     `:rf.machine/source-coords` / `:rf.machine/handler-source` /
+     `:rf.machine/state-coords` side-indexes:
 
      - DEV arm: `source-coords/collocate-element-source` merges the per-id
        `{:source-coords {...} :source-code \"...\"}` data (built by the
        compile-time `walk-element-source`) onto each entry, yielding
        `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`. Plus
-       the reference-site `:states`-tree coord index is `assoc`d under
-       `:rf.machine/state-coords`.
+       `source-coords/collocate-state-source` splices the reference-site
+       `:source-coords` onto each `:states`-tree map node at its spec-path
+       (the `{<map-spec-path> <coord>}` index from `walk-machine-spec`).
      - PROD arm: `source-coords/wrap-element-fns` collapses each entry to
-       `{<id> {:fn <fn>}}` — NO source literals, so Closure DCEs the dev arm
-       (with its coord maps + `pr-str` strings + state-coord index) under
-       `:advanced` + `goog.DEBUG=false`.
+       `{<id> {:fn <fn>}}` and NO state-source splice runs — NO source
+       literals, so Closure DCEs the dev arm (with its coord maps + `pr-str`
+       strings + the state-coord index) under `:advanced` +
+       `goog.DEBUG=false`.
 
      `value-expr` is the runtime expression that evaluates to the spec map
      (the spec form itself for `reg-machine`; a gensym bound to it for
@@ -243,9 +250,13 @@
                                        [slot (source-coords/walk-element-source
                                                spec-form slot ns-sym file)]))
                                 machine-element-slots)
-             ;; Reference-site (states-tree) coords. Built syntax-quote-safe
-             ;; (`:ns` quoted) so the splice doesn't namespace-resolve the
-             ;; consumer's ns at compile time (ClassNotFoundException).
+             ;; Reference-site (states-tree) coords, keyed by each MAP node's
+             ;; spec-path. Built syntax-quote-safe (`:ns` quoted) so the
+             ;; splice doesn't namespace-resolve the consumer's ns at compile
+             ;; time (ClassNotFoundException). Per rf2-vqja2 these are
+             ;; co-located ONTO each state-node / transition map at runtime
+             ;; rather than assoc'd into a flat `:rf.machine/state-coords`
+             ;; side-index.
              state-coords (into {}
                                 (map (fn [[path coords]]
                                        [path
@@ -258,10 +269,10 @@
              ;; helpers no-op on an absent slot, but emitting calls only for
              ;; present slots keeps the expansion lean.
              present-slots (filterv #(map? (get spec-form %)) machine-element-slots)
-             ;; The state-coords assoc is a single extra `->` step, gated on
-             ;; the coords being non-empty.
+             ;; The state-source co-location is a single extra `->` step,
+             ;; gated on the coords being non-empty.
              state-step   (when (seq state-coords)
-                            [`(assoc :rf.machine/state-coords ~state-coords)])
+                            [`(source-coords/collocate-state-source ~state-coords)])
              dev-form     `(-> ~value-expr
                               ~@(map (fn [slot]
                                        `(source-coords/collocate-element-source
@@ -327,9 +338,10 @@
      `(defmachine name spec)` expands to a `(def name <stamped-spec>)`
      where the literal spec is walked at expansion time and per-element
      source is co-located onto each `:guards` / `:actions` /
-     `:on-spawn-actions` entry (plus the reference-site
-     `:rf.machine/state-coords` index), gated on `interop/debug-enabled?`
-     so the dev-only source DCEs under `:advanced + goog.DEBUG=false`.
+     `:on-spawn-actions` entry (plus a reference-site `:source-coords`
+     co-located onto each `:states`-tree map node per rf2-vqja2), gated on
+     `interop/debug-enabled?` so the dev-only source DCEs under
+     `:advanced + goog.DEBUG=false`.
 
      The whole point: a VALUE-registered machine —
      `(defmachine door-machine {…}) … (reg-machine :door/main
