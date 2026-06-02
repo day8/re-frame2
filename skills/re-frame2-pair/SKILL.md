@@ -239,7 +239,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 ## Style guidance
 
 - **Read before you write — `orient` first, then drill into slices.** Your first read each session is `orient` (the bounded app-shape summary), *not* `snapshot`. To ground a hypothesis, drill into a *slice* — `read-sub` / `get-path` / `snapshot {path: ...}` / `trace/last-epoch` — never a whole-frame read, and **never** the `:rf/xray` tool frame wholesale (it is Xray's entire working set; it overflows). See [Orient before you drill](#orient-before-you-drill).
-- **Prefer structured ops over `repl/eval`.** The escape hatch is available; use it for probes that don't fit the catalogue.
+- **Prefer a structured op when one FITS the gesture; `eval-cljs` is the workhorse for the long tail, not a last resort.** Dedicated tools (`orient`, `read-sub`, `get-path`, `read-ui`, `dispatch`, …) give a validated, elided, single-round-trip answer for the gesture they own — reach for them first when they fit. But epoch forensics (`find-where` / `cascade-of` / `epoch-diff`), arbitrary-selector DOM reads, cross-referencing reads, and **recovery** (re-running a blank/errored structured read as `eval-cljs` to confirm the runtime answers) are first-class `eval-cljs` work.
 - **Keep it in re-frame2's vocabulary.** Dispatch, reg-event-fx, reg-sub, reg-machine, frame, epoch — speak the same language the app speaks. Avoid `reset!` of a frame's app-db except when surgically needed, and say so when you do.
 - **Experiment, don't speculate.** When an answer isn't obvious, probe at the REPL against live data.
 - **Validate before proposing.** When a hot-swap or suggestion is on the table, compose the form and run it against current state first.
