@@ -3006,14 +3006,14 @@ async function runMachineEpochs(page, state) {
     { timeoutMs: 10000, description: '#6 trip → door :alarming (transition-with-effect)' },
   );
 
-  // ---- #7 ignored transition — insert-coin into :alarming has no :on
-  //      entry, so the door STAYS :alarming (the event is a no-op for the
-  //      machine).
+  // ---- #7 unhandled → benign no-op (rf2-ugdas) — insert-coin into
+  //      :alarming has no :on entry, so the event resolves to a BENIGN
+  //      no-op (xstate-v5 parity) and the door STAYS :alarming.
   await clickMachineRung(page, 7);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#7 insert-coin into :alarming → ignored, door STAYS :alarming' },
+    { timeoutMs: 10000, description: '#7 insert-coin into :alarming → benign no-op, door STAYS :alarming' },
   );
 
   // ---- #8 parallel regions — one :traffic/tick broadcasts to BOTH the
@@ -3071,6 +3071,29 @@ async function runMachineEpochs(page, state) {
   await clickTab(page, 'machines', 'rf-xray-machine-inspector');
   await expectVisible(
     page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
+
+  // ---- rf2-ugdas / rf2-e7yhv — the xstate-v5 unhandled-event CONTRAST.
+  //      #7 (unhandled event → benign no-op) emits the benign
+  //      :rf.machine.event/unhandled-no-op trace; #11 (a :* wildcard whose
+  //      action throws) emits the REAL :rf.error/machine-action-exception.
+  //      The Trace panel shows both; the trace stream is the robust,
+  //      non-flaky proof (the inverse pink-wash / epoch-render assertions
+  //      live in the CLJS unit tests, per the Causa/Story-as-CLJS rule).
+  await clickTab(page, 'trace', 'rf-xray-trace');
+  await clearTrace(page);
+  await clickMachineRung(page, 7); // unhandled → benign no-op
+  await waitForTraceMatch(
+    page,
+    /:rf\.machine\.event\/unhandled-no-op/,
+    '#7 unhandled event emits the benign :rf.machine.event/unhandled-no-op trace',
+  );
+  await clearTrace(page);
+  await clickMachineRung(page, 11); // :* wildcard action THROWS
+  await waitForTraceMatch(
+    page,
+    /:rf\.error\/machine-action-exception|unhandled machine event/,
+    '#11 :* wildcard-action throw emits :rf.error/machine-action-exception',
+  );
 
   state.machineEpochs = {
     blocked: { doorState: afterBlocked.doorState },
