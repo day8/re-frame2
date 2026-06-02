@@ -130,6 +130,15 @@ shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)
 
 ## When to use `snapshot` vs the per-op reads
 
+**Orient first.** Your first read each session is always `orient`
+(§Orientation + discovery above) — the bounded app-shape summary.
+`snapshot` is a drill-in you reach for *after* `orient`, never the way
+you take in an unfamiliar app. A full `snapshot {path: "[]"}` (the
+unsliced `:app-db`) is a **last resort**: large on any real app frame,
+and **never used on a reserved `:rf/*` tool frame** — on `:rf/xray` it
+is Xray's entire working set (epoch ring + trace buffer + panel state)
+and has overflowed past 100K tokens in one call.
+
 `snapshot` is the **coarse-grained mega-op** for investigate-X
 workflows that would otherwise chain 5-10 individual reads
 (`app-db/snapshot` + `subs/cache` + `machines/list` + `epoch/history`
@@ -162,7 +171,7 @@ Use the per-op reads when:
 
 - **`:summary` (default, no `path`)** — the `:app-db` slot is a `{:rf.mcp/summary {:type :map :keys [...] :count ... :bytes ...}}` marker carrying the top-level shape without committing the token budget. Map-key lists over 64 entries get truncated and flagged `:keys-truncated? true` so the marker itself can never blow the wire cap.
 - **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
-- **Root path `path: "[]"`** — explicit request for the full `:app-db`, equivalent to the legacy default. The wire cap is then the backstop.
+- **Root path `path: "[]"`** — explicit request for the full `:app-db`, equivalent to the legacy default. A **last resort**: large on any real app frame, and **never used on a reserved `:rf/*` tool frame** (on `:rf/xray` it is Xray's entire working set and has overflowed past 100K tokens). Orient first, then slice. The wire cap is the backstop.
 
 The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. Per rf2-mscih the `:traces` slice now ships **cascade bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per cascade — the framework's `(rf/trace-buffer frame-id)` shape and the same wire format the `subscribe` streaming surface emits on cascade-bundle topics).
 
