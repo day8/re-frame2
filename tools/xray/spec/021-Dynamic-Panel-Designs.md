@@ -1458,7 +1458,9 @@ a plain `reg-event-db` handler.
   `projection/long-step-threshold-ms` (16ms — one 60Hz frame).
 - **Outcome chip** — kind-specific:
   - `:guard` → `✓ pass / ▲ fail / ✗ threw`
-  - `:action` → `✓ ok / ✗ threw`
+  - `:action` → `✓ ok` (a THREW action carries NO outcome chip — rf2-4yrr6;
+    the pink "Exception Thrown" card + the row pink-wash are the single
+    threw signal)
   - `:transition` → `N microstep(s)` (the headline)
   - `:timer` → `· cancelled (<reason>)`
   - `:no-op` → `· ignored` (the benign unhandled-event no-op — muted, not red)
@@ -1557,8 +1559,12 @@ the defmachine DEFINITION:
 - **`↳ fx`** — per-action fx-id chips for each effect the action
   emitted (same data the FX step's `:attributed-to` chip surfaces,
   now visible IN the action's row).
-- **`✗ threw`** — when the action threw, an error chip + exception
-  message.
+
+A THREW action surfaces NO per-row threw chrome (rf2-4yrr6 retired the
+prior `✗ threw — <message>` outcome-detail line AND the duplicate `✗ threw`
+outcome chip above). The pink "Exception Thrown" card + the row pink-wash
+(the `issue-event?` predicate) already flag the throw; the verbatim message
+rides the card. One signal is enough.
 
 **Transition row — prominent header verb + logical-state DELTA box
 (rf2-ge6uj header · rf2-iwy0c body).** The transition zone is a SINGLE
@@ -2259,7 +2265,7 @@ and silently rendered empty rows. The binding inventory:
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source` (closed set per rf2-hxj0d + rf2-ejtpd + rf2-c3990; substrate-internal values drive the §9.1.6.3 per-kind enrichment), `:rf.trace/call-site`, `:rf.trace/parent-dispatch-id` (rf2-5qp4g — fx-dispatch parent-epoch link), `:rf.event/source-detail` (rf2-5qp4g — optional per-source-kind detail map; `:dispatch-later` rides `{:ms <delay>}` so the renderer surfaces the original scheduled delay) |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value`, `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v> :duration-ms <ms>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` duration | `:rf.event/run-end` `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
-| `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). |
+| `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). **EVENT handlers only:** a MACHINE handler renders NO HANDLER source block (rf2-4yrr6 — `handler-source-block` returns nil for `:reg-machine`). The machine CASCADE below is the content; the defmachine / reg-machine value stays reachable via the HANDLER verb link (rf2-ge6uj) + the per-element machine-def source-links (rf2-iwy0c). Dumping the whole machine spec via `edn/inspect` under the HANDLER step was noise, and the machine case does NOT fall through to the `<source not yet captured>` placeholder (that slot is for event handlers whose source the substrate didn't stamp). |
 | `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :event id) → :rf/machine`, then the co-located entry `:source-coords` for a named `[:actions <id>] | [:guards <id>]` key, or the spec's `:rf.machine/state-coords` index for a reference-site `[:states ...]` key (rf2-npvsx). |
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
@@ -2582,7 +2588,7 @@ mis-render):
 | `:rf.error/fx-handler-exception` | SIDE EFFECTS, row whose `:fx-id` = `:failing-id` | row-level (fallback step-level) |
 | `:rf.error/no-such-fx` | SIDE EFFECTS | step-level (fallback) |
 | `:rf.error/flow-eval-exception` | FLOW | step-level (fallback HANDLER when no FLOW step) |
-| `:rf.error/machine-action-exception` (rf2-e7yhv) | HANDLER | step-level. A machine action threw during a transition; the machine handler IS an event handler so its cascade renders under HANDLER. The card adds a machine-attribution line — `[in machine <id> (action <id>) threw on unhandled event <ev>]` — and, when the throw fired from a `:*` WILDCARD action (the xstate-v5 fail-loudly idiom; `:rf/via-wildcard?` rides the trace's `:transition` slot, stamped by `transition/match-on-clause`), names it `a :* wildcard action … fired by the :* wildcard, not a named transition`. The event row goes pink (the trace is op-type `:error`), the inverse of the benign `:no-op` row above |
+| `:rf.error/machine-action-exception` (rf2-e7yhv) | HANDLER | step-level. A machine action threw during a transition; the machine handler IS an event handler so its cascade renders under HANDLER. The card adds a single collapsed machine-attribution line — `action <id> threw an exception` (rf2-4yrr6, replacing the earlier `in machine <id> (action <id>) threw on unhandled event <ev> … fired by the :* wildcard …` run-on that repeated `:*`/`wildcard`/`unhandled`/`action` and re-stated the event right above the verbatim message). The machine is obvious from cascade context; the triggering event + `:where` ride the ex-data; the user's message renders verbatim below; `:data-via-wildcard` still rides the line so consumers can distinguish a `:*` WILDCARD throw (`:rf/via-wildcard?` on the trace's `:transition` slot, stamped by `transition/match-on-clause`) from a named-transition throw. The event row goes pink (the trace is op-type `:error`), the inverse of the benign `:no-op` row above |
 
 The error MESSAGE rides `[:tags :exception-message]` ONLY (handler / fx
 throws — `re-frame.router/emit-handler-exception!` stamps the

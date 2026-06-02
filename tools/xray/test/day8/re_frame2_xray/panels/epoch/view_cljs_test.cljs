@@ -3085,3 +3085,154 @@
       ;; rf2-9wq0v — no per-stage glyph; the SKIPPED body is the signal.
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-side-effects-status"))
           "no per-stage status glyph (retired rf2-9wq0v)"))))
+
+;; ============================================================================
+;; rf2-4yrr6 — :fuse/box exception-row decluttering (parts 2-4)
+;; ============================================================================
+
+;; ---- Part 2 — machine HANDLER step renders NO source block ----------------
+
+(deftest machine-handler-renders-no-source-block-test
+  (testing "rf2-4yrr6 — a MACHINE handler's HANDLER step renders NO source
+            block (the spec dump under the HANDLER step was noise; the
+            machine CASCADE below is the content and the defmachine /
+            reg-machine value is reachable via the verb / machine-def
+            source-links). It returns nil — NOT the '<source not yet
+            captured>' placeholder (that slot is for event handlers whose
+            source the substrate did not stamp)."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :fuse/box
+                :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :blow-fuse :phase :transition
+                                     :outcome :rf.error/action-threw
+                                     :threw? true}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
+          "NO source block wrapper for a machine handler")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-spec"))
+          "NO machine SPEC dump under the HANDLER step")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
+          "and NOT the '<source not yet captured>' placeholder either")
+      ;; The machine cascade IS the content — confirm it still renders.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
+          "the machine CASCADE remains the HANDLER step's content")))
+  (testing "rf2-4yrr6 — an EVENT handler (non-machine) STILL renders its
+            source block (only the machine case is suppressed)"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-event-db :event-id :no-such/handler
+                :fx [] :machine nil}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
+          "the event handler's source block is unaffected"))))
+
+;; ---- Part 3 — a threw ACTION row shows exactly ONE threw signal -----------
+
+(deftest threw-action-row-shows-single-threw-signal-test
+  (testing "rf2-4yrr6 — a threw `:action` cascade row carries NEITHER the
+            duplicate `:threw` outcome chip NOR the '✗ threw — <message>'
+            outcome-detail line. The pink 'Exception Thrown' card + the row
+            pink-wash (the issue-event? predicate) are the single threw
+            signal. Reproduces the throwing-action shape the projection
+            emits (`:threw? true` + `:outcome :rf.error/action-threw` +
+            `:exception`) and asserts the clean shape."
+    (let [exc  (ex-info "unhandled machine event"
+                        {:event [:fuse/short-circuit] :where :fuse-wildcard})
+          step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :fuse/box
+                :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :blow-fuse :phase :transition
+                                     :outcome :rf.error/action-threw
+                                     :threw? true
+                                     :exception exc}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      ;; (a) NO right-aligned `:threw` outcome chip.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-threw"))
+          "no duplicate `:threw` outcome chip on the threw action row")
+      ;; (b) NO '✗ threw — <message>' outcome-detail line.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-threw-1"))
+          "no duplicate '✗ threw — <message>' outcome-detail line")
+      ;; The action row itself still renders (only the threw chrome is gone).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+          "the action row still renders")))
+  (testing "rf2-4yrr6 — a SUCCESSFUL `:action` row keeps its `:ok` outcome
+            chip (only the threw chip was removed)"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :door/main
+                :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :count-open :phase :entry
+                                     :outcome {:data {:opened-count 1}}}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
+          "a successful action keeps its `:ok` outcome chip"))))
+
+;; ---- Part 4 — collapsed exception-card machine attribution ----------------
+
+(deftest machine-action-exception-card-collapsed-attribution-test
+  (testing "rf2-4yrr6 — the EXCEPTION card's machine-attribution line is
+            collapsed to 'action <id> threw an exception'. The earlier
+            run-on (`a :* wildcard action in machine :fuse/box (action
+            :blow-fuse) threw on unhandled event [...] — fired by the :*
+            wildcard, not a named transition`) repeated ':*'/'wildcard'/
+            'unhandled'/'action' and re-stated the event right above the
+            verbatim message — confusing. The collapsed line reads cleanly;
+            the dropped detail rides the ex-data + the verbatim message."
+    (let [exc  (ex-info "unhandled machine event"
+                        {:event [:fuse/short-circuit] :where :fuse-wildcard})
+          tree (view/error-block :handler 0
+                 {:operation     :rf.error/machine-action-exception
+                  :message       "unhandled machine event"
+                  :machine-id    :fuse/box
+                  :action-id     :blow-fuse
+                  :event         [:fuse/short-circuit]
+                  :via-wildcard? true
+                  :exception     exc
+                  :recovery      :no-recovery})
+          base "rf-xray-epoch-error-handler-0"
+          attr (text-of tree (str base "-machine-attribution"))]
+      (is (some? (th/find-by-testid tree (str base "-machine-attribution")))
+          "the machine-attribution line renders")
+      (is (= "action :blow-fuse threw an exception" attr)
+          "the attribution collapses to 'action :blow-fuse threw an exception'")
+      ;; The run-on detail is GONE — none of the repeated phrasing survives.
+      (is (not (string/includes? attr "wildcard"))
+          "no ':* wildcard' phrasing in the collapsed line")
+      (is (not (string/includes? attr "unhandled"))
+          "no 'unhandled event' phrasing in the collapsed line")
+      (is (not (string/includes? attr "in machine"))
+          "no 'in machine :fuse/box' echo (obvious from cascade context)")
+      ;; `:data-via-wildcard` STILL rides the row for downstream consumers.
+      (is (= "true"
+             (-> tree (th/find-by-testid (str base "-machine-attribution"))
+                 th/attrs :data-via-wildcard))
+          "the :data-via-wildcard attribute still distinguishes a wildcard throw")))
+  (testing "rf2-4yrr6 — the collapsed wording reads cleanly for a NAMED-action
+            throw too (not just the :* wildcard)"
+    (let [tree (view/error-block :handler 0
+                 {:operation     :rf.error/machine-action-exception
+                  :message       "boom"
+                  :machine-id    :door/main
+                  :action-id     :enter-alarm
+                  :via-wildcard? false
+                  :recovery      :no-recovery})
+          base "rf-xray-epoch-error-handler-0"]
+      (is (= "action :enter-alarm threw an exception"
+             (text-of tree (str base "-machine-attribution")))
+          "named-action throw reads 'action :enter-alarm threw an exception'")
+      (is (= "false"
+             (-> tree (th/find-by-testid (str base "-machine-attribution"))
+                 th/attrs :data-via-wildcard))
+          "named-transition throw stamps :data-via-wildcard false")))
+  (testing "rf2-4yrr6 — a non-machine exception kind renders NO
+            machine-attribution line (the line is machine-specific)"
+    (let [tree (view/error-block :handler 0
+                 {:operation :rf.error/handler-exception
+                  :message   "boom"
+                  :recovery  :no-recovery})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-error-handler-0-machine-attribution"))
+          "no machine-attribution line for a plain handler exception"))))
