@@ -180,34 +180,35 @@
 
 (deftest dispatch-source-after-timer-state-path-resolves-coord-test
   (testing "rf2-dcsw1 (iwy0c-followup) — when the `:after-timer` source
-            machine is registered with an `:rf.machine/state-coords`
-            reference-site index carrying a coord for the state-path, the
-            state-path chip resolves the coord and renders as a CLICKABLE
-            button (open-in-editor link), NOT the dead plain-span
-            placeholder.
+            machine's state-node carries a co-located `:source-coords`
+            (rf2-vqja2) for the state-path, the state-path chip resolves
+            the coord and renders as a CLICKABLE button (open-in-editor
+            link), NOT the dead plain-span placeholder.
 
             `machine-state-path-coord` previously read the NON-EXISTENT
             `:machine` registrar kind → resolved nil → every machine
             state-path link was dead (same latent-nil class rf2-iwy0c
             part C fixed in `handler-source-block` / `machine-block`,
             which read `:event` + the `:rf/machine` spec). This pins the
-            fixed path: read `:event` + the spec's
-            `:rf.machine/state-coords` (rf2-npvsx)."
+            fixed path: read `:event` + the state-node's co-located
+            `:source-coords` (rf2-vqja2, supersedes the flat
+            `:rf.machine/state-coords` index of rf2-npvsx)."
     (rf/with-frame :rf/default
       ;; A machine is registered as a `reg-event-fx` carrying
-      ;; `:rf/machine? true` + the stamped spec (with the reference-site
-      ;; `:rf.machine/state-coords` index, rf2-npvsx) under `:rf/machine`.
-      ;; The index keys by the spec-path shape that
-      ;; `projection/state-spec-path-prefix` produces for the state-path:
+      ;; `:rf/machine? true` + the stamped spec (with co-located state-node
+      ;; `:source-coords`, rf2-vqja2) under `:rf/machine`. The view
+      ;; navigates from the state-path to the state-node via the spec-path
+      ;; shape `projection/state-spec-path-prefix` produces:
       ;; `[:active :authenticating]` → `[:states :active :states
-      ;; :authenticating]`.
+      ;; :authenticating]` — and reads `:source-coords` there.
       (rf/reg-event-fx :rf2-dcsw1.view/timer-machine
                        {:rf/machine? true
                         :rf/machine {:initial :active
-                                     :rf.machine/state-coords
-                                     {[:states :active :states :authenticating]
-                                      {:file "src/app/auth.cljs" :line 42}}
-                                     :states {:active {}}}}
+                                     :states {:active
+                                              {:states
+                                               {:authenticating
+                                                {:source-coords
+                                                 {:file "src/app/auth.cljs" :line 42}}}}}}}
                        (fn [_ _] {}))
       (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:rf2-dcsw1.view/timer-machine
