@@ -17,7 +17,7 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:rf.machine/state-coords` index — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`.
+- **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:source-coords` on each `:states`-tree map node (state-node / transition map) — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`.
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/reagent/websocket)
 
 ### `reg-machine*`
