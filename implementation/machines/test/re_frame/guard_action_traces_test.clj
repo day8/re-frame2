@@ -220,3 +220,75 @@
           "guard-evaluated picks up the cascade dispatch-id from *handler-scope*")
       (is (= cascade-id (-> a :tags :rf.trace/dispatch-id))
           "action-ran picks up the same cascade dispatch-id"))))
+
+;; ---- rf2-4yrr6 — the `:*`-wildcard-throws machine (machine-epochs :fuse/box)
+;; ----------------------------------------------------------------------------
+;;
+;; The machine-epochs testbed's `:fuse/box` is `:armed` with a `:*` wildcard
+;; whose `:blow-fuse` action throws (the xstate-v5 'fail loudly on unknown'
+;; idiom). Two facts pin the testbed fix:
+;;
+;;   1. The `[:rf.machine/bootstrap]` EVENT, processed as an inner machine
+;;      event, hits the `:*` wildcard (no `:on :rf.machine/bootstrap` entry)
+;;      and THROWS. This is why the testbed's reset handler must NOT dispatch
+;;      `[:fuse/box [:rf.machine/bootstrap]]` — it would throw ON BOOT.
+;;   2. A machine that was NEVER explicitly bootstrapped STILL throws on its
+;;      first real unhandled event: it lazily bootstraps (needs-bootstrap?
+;;      fires when no snapshot exists) then the wildcard fires. So dropping the
+;;      explicit bootstrap from reset keeps Button 11 working.
+
+(defn- fuse-machine-spec []
+  {:initial :armed
+   :data    {}
+   :actions {:note-inspect (fn [{data :data}]
+                             {:data (update data :inspections (fnil inc 0))})
+             :blow-fuse    (fn [{:keys [event]}]
+                             (throw (ex-info "unhandled machine event"
+                                             {:event event :where :fuse-wildcard})))}
+   :states  {:armed {:on {:fuse/inspect {:action :note-inspect}
+                          :*            {:action :blow-fuse}}}}})
+
+(deftest fuse-bootstrap-event-hits-throwing-wildcard
+  (testing "rf2-4yrr6 — a `[:rf.machine/bootstrap]` inner event has no `:on`
+            entry on `:armed`, so it hits the `:*` wildcard and THROWS. This is
+            the on-boot throw the testbed's reset handler caused by explicitly
+            dispatching `[:fuse/box [:rf.machine/bootstrap]]` — and why that
+            dispatch was dropped."
+    (rf/reg-machine :ga/fuse-bootstrap (fuse-machine-spec))
+    (let [evs  (record-traces!
+                 (fn [] (rf/dispatch-sync [:ga/fuse-bootstrap [:rf.machine/bootstrap]])))
+          errs (ops evs :rf.error/machine-action-exception)]
+      (is (= 1 (count errs))
+          "the explicit bootstrap dispatch fires the throwing `:*` wildcard")
+      (is (= :blow-fuse (-> errs first :tags :action-id))
+          "attributed to the wildcard's `:blow-fuse` action"))))
+
+(deftest fuse-unhandled-event-throws-via-lazy-bootstrap
+  (testing "rf2-4yrr6 — with NO explicit bootstrap dispatch, the FIRST real
+            unhandled event still throws: the machine lazily bootstraps then
+            the `:*` wildcard fires. Button 11 keeps working after the testbed
+            dropped the explicit `[:fuse/box [:rf.machine/bootstrap]]` from
+            reset."
+    (rf/reg-machine :ga/fuse-lazy (fuse-machine-spec))
+    ;; No `[:rf.machine/bootstrap]` dispatch first — straight to the
+    ;; Button-11-style unhandled event against a never-bootstrapped machine.
+    (let [evs  (record-traces!
+                 (fn [] (rf/dispatch-sync [:ga/fuse-lazy [:fuse/short-circuit]])))
+          errs (ops evs :rf.error/machine-action-exception)]
+      (is (= 1 (count errs))
+          "the unhandled event lazily boots `:armed` then fires the wildcard")
+      (is (= :blow-fuse (-> errs first :tags :action-id))
+          "attributed to the wildcard's `:blow-fuse` action")
+      (is (= [:fuse/short-circuit] (-> errs first :tags :event))
+          "the triggering unhandled event rides the trace"))))
+
+(deftest fuse-explicit-inspect-does-not-throw
+  (testing "rf2-4yrr6 — the `:fuse/inspect` event matches the explicit `:on`
+            entry (a normal `:note-inspect` action), so it does NOT hit the
+            throwing wildcard — only otherwise-unhandled events do."
+    (rf/reg-machine :ga/fuse-inspect (fuse-machine-spec))
+    (let [evs  (record-traces!
+                 (fn [] (rf/dispatch-sync [:ga/fuse-inspect [:fuse/inspect]])))
+          errs (ops evs :rf.error/machine-action-exception)]
+      (is (zero? (count errs))
+          "an explicitly-handled event does not fire the throwing wildcard"))))

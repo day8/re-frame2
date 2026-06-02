@@ -3061,6 +3061,26 @@ async function runMachineEpochs(page, state) {
   //      above, we assert the panel handoff + trace activity, not the
   //      synthetic-injection chart-render that deep_machine owns.)
   await openXray(page);
+
+  // ---- rf2-4yrr6 — :fuse/box must NOT throw on boot. The reset handler
+  //      DELIBERATELY does not dispatch `[:fuse/box [:rf.machine/bootstrap]]`
+  //      (that inner event would hit the throwing `:*` wildcard ON BOOT). The
+  //      full trace buffer at this point holds the boot cascade + rungs 1-10
+  //      (none of which should throw) — assert no `:rf.error/machine-action-
+  //      exception` is present yet. Button 11 (clicked below) is the SOLE
+  //      trigger; that throw is asserted as the contrast at the end.
+  {
+    const bootTrace = await readTrace(page);
+    const bootThrow = bootTrace.filter((e) =>
+      /:rf\.error\/machine-action-exception/.test(e));
+    if (bootThrow.length > 0) {
+      failWithDetails(
+        'rf2-4yrr6 — :fuse/box (or another machine) threw on boot / rungs 1-10; '
+        + 'Button 11 must be the sole machine-action-exception trigger',
+        { machineActionExceptions: bootThrow });
+    }
+  }
+
   await clearTrace(page);
   await clickMachineRung(page, 2); // :locked ──► :closed — a fresh transition
   await waitForTraceMatch(

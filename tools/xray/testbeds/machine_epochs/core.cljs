@@ -413,13 +413,25 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :machine-epochs/reset
-  {:doc "Button 0 — re-seed app-db and reset BOTH machines to their initial
-         states. Start clean."}
+  {:doc "Button 0 — re-seed app-db and reset the door + traffic machines to
+         their initial states. Start clean.
+
+         `:fuse/box` is DELIBERATELY NOT bootstrapped here. A
+         `[:fuse/box [:rf.machine/bootstrap]]` dispatch runs the initial-entry
+         cascade (fine) and THEN processes the inner `[:rf.machine/bootstrap]`
+         event as a normal machine event: `:armed` has no `:on` entry for it,
+         so it falls to the `:*` wildcard whose `:blow-fuse` action THROWS — a
+         `:rf.error/machine-action-exception` ON BOOT, every load. The fuse box
+         must throw ONLY when Button 11 presses it, never on boot. The machine
+         lazily bootstraps on its first real event anyway (`needs-bootstrap?`
+         fires when no snapshot exists yet — see
+         `lifecycle-fx.registration/prepare-machine-ctx`), so Button 11's
+         `[:fuse/box [:fuse/short-circuit]]` still boots `:armed` then fires
+         the throwing wildcard. Net: clean boot, Button 11 the sole trigger."}
   (fn handler-reset [_ _ev]
     {:db initial-db
      :fx [[:dispatch [:door/main [:rf.machine/bootstrap]]]
-          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]
-          [:dispatch [:fuse/box [:rf.machine/bootstrap]]]]}))
+          [:dispatch [:traffic/light [:rf.machine/bootstrap]]]]}))
 
 ;; ============================================================================
 ;; THE BUTTON LADDER
