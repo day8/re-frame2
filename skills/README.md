@@ -9,6 +9,24 @@ during the `v0.0.1.alpha` prep — keeping the skill source colocated with the
 re-frame2 surfaces it consumes, so the spec, implementation, and tooling
 travel together.
 
+## Installing (link, never copy)
+
+Claude Code loads skills from `~/.claude/skills/<name>/`. **Link the repo
+directory in; never `cp -r` it.** A copy snapshots the skill and then drifts
+as the repo is maintained — Claude Code keeps loading the stale copy. The
+cross-platform installer links *every* skill below into `~/.claude/skills/`
+so the active skill is the repo source by construction:
+
+```bash
+scripts/install-skills.sh                                              # macOS / Linux (symlinks)
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
+```
+
+It is idempotent, refuses to clobber a non-link copy without `--force`
+(`-Force`), and supports `--check` (`-Check`) to verify the links. See
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#skills--link-dont-copy) for the full
+contributor setup.
+
 The docs-site landing page mirrors this index at
 [`docs/skills/index.md`](../docs/skills/index.md) — same eight skills, same
 picking-the-right-one decision flow, hosted on the mkdocs site.

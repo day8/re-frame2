@@ -57,6 +57,36 @@ The full test matrix and per-artefact entry-points are documented in
 [`TESTING.md`](TESTING.md). The fast pre-PR gate is `scripts/test-fast-pr.sh`
 from the repo root.
 
+### Skills — link, don't copy
+
+The agent-shaped skills under [`skills/`](skills/) (the `re-frame2-pair`
+pair-programming skill, `re-frame2-setup`, the migration/improver/implementor
+skills, …) are loaded by Claude Code from `~/.claude/skills/<name>/`. **Deploy
+them by link, not by copy.** A one-shot `cp -r` snapshots the skill and then
+silently drifts as the repo is maintained — Claude Code keeps loading a stale
+copy. Link the repo directory in instead, so the active skill *is* the repo
+source by construction and your edits take effect immediately.
+
+A cross-platform installer links **every** `skills/<name>/` directory into
+`~/.claude/skills/`:
+
+```bash
+# macOS / Linux (POSIX symlinks):
+scripts/install-skills.sh
+
+# Windows (PowerShell — directory junctions, no admin needed):
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1
+# (Git Bash users can run the .sh; it auto-selects the junction primitive.)
+```
+
+The installer is idempotent (re-run any time to re-link), prints what it
+linked, and **refuses to clobber a non-link directory** — if a target is a
+real copy with local edits, it warns and skips it; pass `--force` (`-Force` on
+PowerShell) to replace the copy with a link. `--check` (`-Check`) reports
+whether everything is linked without changing anything. Run it once after
+cloning, and re-run `--force` once to retire any stale copy a previous
+copy-install left behind.
+
 ## Pull request flow
 
 - Branch from `main`.
