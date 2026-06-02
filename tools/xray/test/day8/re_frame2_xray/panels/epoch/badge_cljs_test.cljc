@@ -96,14 +96,26 @@
 
 (deftest cascade-kind-set-test
   (testing "rf2-u69j7 — the cascade-kind inventory matches the
-            substrate trace ops the projection harvests"
-    (is (= #{:guard :action :transition :timer}
+            substrate trace ops the projection harvests (rf2-ugdas adds
+            :no-op for the benign unhandled-event no-op)"
+    (is (= #{:guard :action :transition :timer :no-op}
            badge/cascade-kind-set))
     (is (badge/cascade-kind? :guard))
     (is (badge/cascade-kind? :action))
     (is (badge/cascade-kind? :transition))
     (is (badge/cascade-kind? :timer))
-    (is (not (badge/cascade-kind? :NOT-A-KIND)))))
+    (is (badge/cascade-kind? :no-op))
+    (is (not (badge/cascade-kind? :NOT-A-KIND))))
+
+  (testing "rf2-ugdas — the :no-op kind resolves to a muted (not red) label
+            + colour, distinct from the error/warning hues"
+    (is (= "NO-OP" (badge/cascade-kind-label :no-op)))
+    (is (string? (badge/cascade-kind-colour :no-op)))
+    ;; The benign no-op uses the tertiary token (same as :guard / :timer's
+    ;; muted family) — explicitly NOT the :error / :warning hue.
+    (is (= (badge/cascade-kind-colour :guard)
+           (badge/cascade-kind-colour :no-op))
+        "muted/tertiary tone, not an alarmist hue")))
 
 (deftest cascade-kind-resolver-test
   (testing "rf2-u69j7 — every cascade kind resolves to a non-blank

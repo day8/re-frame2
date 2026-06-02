@@ -352,6 +352,43 @@
        :delay      delay
        :reason     reason}))
 
+(defn machine-unhandled-no-op-ev
+  "`:rf.machine.event/unhandled-no-op` trace (rf2-ugdas) — the benign
+  unhandled-event no-op (xstate-v5 parity). Op-type `:rf.machine` (NOT a
+  severity), so `issue-event?` does not flag it. Drives the EVENT HANDLER
+  machine cascade's muted `:no-op` row."
+  [machine-id event state]
+  (ev :rf.machine :rf.machine.event/unhandled-no-op
+      {:machine-id machine-id
+       :event      event
+       :state      state}))
+
+(defn machine-action-exception-ev
+  "`:rf.error/machine-action-exception` trace (rf2-e7yhv) — a machine
+  action threw during a transition. Mirrors the emit shape in
+  `machines/lifecycle_fx/registration.cljc/trace-action-failure!`: the
+  message rides `[:tags :exception-message]`, the raw exception rides
+  `[:tags :exception]`, and the `:transition` slot carries the matched
+  transition map (whose `:rf/via-wildcard?` flag attributes a `:*`
+  wildcard-action throw). Op-type `:error` — DOES go pink (the inverse of
+  the benign no-op). Drives the HANDLER step's inline EXCEPTION card.
+
+  `via-wildcard?` stamps `:rf/via-wildcard? true` on the `:transition`
+  slot so the card can attribute the throw to a wildcard action."
+  [{:keys [machine-id action-id event message exception via-wildcard? state-path]}]
+  (ev :error :rf.error/machine-action-exception
+      (cond-> {:machine-id        machine-id
+               :action-id         action-id
+               :event             event
+               :state-path        (or state-path [:armed])
+               :failing-id        machine-id
+               :handler-id        machine-id
+               :exception-message message
+               :recovery          :no-recovery
+               :transition        (cond-> {:action action-id}
+                                    via-wildcard? (assoc :rf/via-wildcard? true))}
+        exception (assoc :exception exception))))
+
 ;; ---- schema ------------------------------------------------------------
 
 (defn schema-violation-ev

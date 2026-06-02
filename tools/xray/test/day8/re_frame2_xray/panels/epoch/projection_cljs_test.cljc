@@ -35,6 +35,12 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            ;; rf2-ugdas / rf2-e7yhv — the canonical issue-projection
+            ;; predicate (`issue-event?`) + the L2 pink-wash predicate
+            ;; (`cascade-has-issue?`) the no-op MUST NOT trip and the
+            ;; `:*`-action throw MUST trip (the contrast).
+            [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]
+            [day8.re-frame2-xray.panels.l2-timeline :as l2]
             ;; rf2-tyivx — canonical trace-event builders shared with
             ;; the panel-gallery synth fixtures + any other projection
             ;; test. Pre-rf2-tyivx every `*-ev` helper was duplicated
@@ -68,6 +74,8 @@
 (def ^:private machine-guard-ev        teb/machine-guard-ev)
 (def ^:private machine-action-ev       teb/machine-action-ev)
 (def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
+(def ^:private machine-unhandled-no-op-ev teb/machine-unhandled-no-op-ev)
+(def ^:private machine-action-exception-ev teb/machine-action-exception-ev)
 (def ^:private schema-violation-ev     teb/schema-violation-ev)
 (def ^:private schema-hot-reload-ev    teb/schema-hot-reload-ev)
 (def ^:private handler-exception-ev    teb/handler-exception-ev)
@@ -627,6 +635,96 @@
       (is (= 1 (count rows)))
       (is (true? (:threw? r)))
       (is (= exc (:exception r))))))
+
+;; ---- rf2-ugdas — the benign unhandled-event no-op -----------------------
+
+(deftest machine-cascade-rows-unhandled-no-op-test
+  (testing "rf2-ugdas — a :rf.machine.event/unhandled-no-op trace projects
+            to a :no-op cascade row carrying machine-id / event / state"
+    (let [evs  [(machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
+          rows (proj/machine-cascade-rows evs)
+          r    (first rows)]
+      (is (= 1 (count rows)))
+      (is (= :no-op (:kind r)))
+      (is (= :door/main (:machine-id r)))
+      (is (= [:door/insert-coin] (:event r)))
+      (is (= :alarming (:state r)))
+      (is (= 1 (:step r)))))
+
+  (testing "rf2-ugdas — the no-op verb names machine + event + state, and
+            its outcome chip reads 'ignored' (benign, not error)"
+    (let [r (first (proj/machine-cascade-rows
+                     [(machine-unhandled-no-op-ev :door/main
+                                                  [:door/insert-coin] :alarming)]))]
+      (is (= "no-op — :door/main received [:door/insert-coin] in :alarming, no transition"
+             (fmt/cascade-row-label r)))
+      (is (= "ignored" (fmt/cascade-outcome-label r)))))
+
+  (testing "rf2-ugdas — a cascade whose ONLY machine activity is the no-op
+            is still :reg-machine flavour, so the EVENT HANDLER machine
+            section renders the notice (no action ran)"
+    (let [r (proj/handler-row
+              [(machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
+              :door/main)]
+      (is (= :reg-machine (:flavour r)))
+      (is (some? (:machine r)))
+      (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))))))
+
+(deftest unhandled-no-op-is-not-an-issue-test
+  (testing "rf2-ugdas — the no-op trace's op-type is :rf.machine (NOT a
+            severity), so issue-event? returns FALSE — NO pink wash, NO
+            ribbon entry, for free (the bead's automatic consequence)"
+    (let [no-op (machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
+      (is (= :rf.machine (:op-type no-op)))
+      (is (false? (issues/issue-event? no-op))
+          "issue-event? FALSE for the benign no-op")
+      (is (false? (l2/cascade-has-issue? {:other [no-op]}))
+          "cascade-has-issue? FALSE — no pink wash for a no-op-only cascade"))))
+
+;; ---- rf2-e7yhv — the :* wildcard-action throw (the inverse) --------------
+
+(deftest machine-action-exception-is-an-issue-test
+  (testing "rf2-e7yhv — a :rf.error/machine-action-exception IS an issue
+            (op-type :error) — issue-event? + cascade-has-issue? TRUE
+            (pink); the inverse of the benign no-op above"
+    (let [exc (machine-action-exception-ev
+                {:machine-id :fuse/box :action-id :blow-fuse
+                 :event [:fuse/short-circuit] :message "unhandled machine event"
+                 :via-wildcard? true})]
+      (is (= :error (:op-type exc)))
+      (is (true? (issues/issue-event? exc))
+          "issue-event? TRUE for the real exception")
+      (is (true? (l2/cascade-has-issue? {:other [exc]}))
+          "cascade-has-issue? TRUE — the event row goes pink"))))
+
+(deftest machine-action-exception-row-attributes-wildcard-test
+  (testing "rf2-e7yhv — exception-row lifts the machine attribution +
+            the :rf/via-wildcard? flag off the :transition slot so the
+            EXCEPTION card can name a :* wildcard-action throw"
+    (let [exc  (machine-action-exception-ev
+                 {:machine-id :fuse/box :action-id :blow-fuse
+                  :event [:fuse/short-circuit] :message "unhandled machine event"
+                  :via-wildcard? true})
+          rows (proj/exception-rows [exc])
+          r    (first rows)]
+      (is (= 1 (count rows)))
+      (is (= :rf.error/machine-action-exception (:operation r)))
+      (is (= :fuse/box (:machine-id r)))
+      (is (= :blow-fuse (:action-id r)))
+      (is (= [:fuse/short-circuit] (:event r)))
+      (is (= "unhandled machine event" (:message r)))
+      (is (true? (:via-wildcard? r))
+          "the :* wildcard attribution flag rides through")))
+
+  (testing "rf2-e7yhv — a NAMED-transition action throw is NOT flagged as
+            a wildcard (:rf/via-wildcard? absent from the transition slot)"
+    (let [exc (machine-action-exception-ev
+                {:machine-id :fuse/box :action-id :named-action
+                 :event [:fuse/inspect] :message "boom"
+                 :via-wildcard? false})
+          r   (first (proj/exception-rows [exc]))]
+      (is (false? (:via-wildcard? r))
+          "named-transition throw is not attributed to the wildcard"))))
 
 (deftest machine-cascade-rows-empty-when-no-machine-events-test
   (testing "rf2-u69j7 — non-machine cascades produce an empty cascade
