@@ -58,9 +58,11 @@
     slice. Pure when handed a run-result; impure (replays into a fresh
     frame) when handed an artifact / plan.
   - `golden-match?` — true iff a new run canonicalizes `=` to the golden's
-    frozen slice. The fast path checks the cheap `:run-hash` first, then
-    confirms with canonical equality (a hash collision can never report a
-    false GREEN — equality is the authority).
+    frozen slice. The fast path first confirms the golden's frozen
+    `:slice-keys` still match the current `run-hash-input-keys` (a
+    slice-surface drift is never a match), then checks the cheap `:run-hash`,
+    then confirms with canonical equality (a hash collision can never report
+    a false GREEN — equality is the authority).
   - `compare-golden` — the READABLE report. On match `{:match? true …}`; on
     mismatch it DELEGATES to `re-frame.story.diff/diff-runs` (NOT a
     reinvented diff) to localise WHERE the run parted from the golden, so a
@@ -70,7 +72,8 @@
 
   The slice + canonical capture + the match / report logic
   (`behavioural-slice`, `slice-canonical`, `make-golden`, `golden?`,
-  `golden-match?`, `compare-golden`) are pure data → data: a run-result in,
+  `slice-keys-current?`, `golden-match?`, `compare-golden`) are pure data →
+  data: a run-result in,
   a golden / verdict out — so they run under `clojure -M:test` with no
   runtime. The only impurity is `->run-result`, which (for an artifact /
   plan input) replays into a fresh frame via `.7`'s `replay-run-artifact`.
@@ -128,8 +131,11 @@
 
   The slice freezes the `canonicalize`d behavioural surface (`:canonical`)
   plus the cheap `:run-hash` discriminator and the `:run-hash-input-keys`
-  the slice was taken over (so a future slice-key change is detectable, not
-  silent).
+  the slice was taken over. `matches?` / `compare-golden` compare that
+  frozen `:slice-keys` against the CURRENT `fingerprint/run-hash-input-keys`
+  (see `slice-keys-current?`), so a future slice-key change is detectable,
+  not silent: a slice-surface drift reads as a distinct `:stale-slice-keys`
+  verdict ('recapture the golden') rather than a confusing fake regression.
 
   `opts` (optional):
 
@@ -286,18 +292,44 @@
     {:canonical canon
      :run-hash  (fingerprint/hash-canonical canon)}))
 
+(defn slice-keys-current?
+  "True iff the `golden`'s frozen `:slice-keys` (the behavioural surface the
+  golden was captured over) match the CURRENT `fingerprint/run-hash-input-keys`
+  (spec/017 §Golden slices). Pure data → data.
+
+  A golden's `:canonical` was taken via `select-keys` over the slice-key set
+  in force AT CAPTURE. If a later revision adds or removes a behavioural slot
+  (changing `run-hash-input-keys`), an old golden's frozen `:canonical` was
+  taken over the OLD surface while an incoming run is sliced over the NEW one
+  — the two no longer compare apples-to-apples. Unlike a canonical-FORM
+  change (version-tagged via `fingerprint/canonical-version`, which forces a
+  hash mismatch), a slice-SURFACE change carries no version tag, so without
+  this guard the drift would read as a confusing fake regression rather than
+  'baseline surface changed — recapture'.
+
+  A golden captured before `:slice-keys` was stored (no slot) is treated as
+  current — there is nothing to compare against, and failing it closed would
+  flag every legacy golden as stale."
+  [golden]
+  (let [frozen (:slice-keys golden)]
+    (or (nil? frozen)
+        (= frozen fingerprint/run-hash-input-keys))))
+
 (defn- matches?
   "The ONE GREEN/RED authority over an ALREADY-coerced run-`result` (spec/017
   §Golden slices). True iff `result` matches the `golden` slice. Pure data →
   data — both `golden-match?` and `compare-golden` route through this so the
   two-stage equality cannot drift between the predicate and the report.
 
-  Two-stage to avoid a false GREEN: the cheap `:run-hash` is checked first
-  (a mismatched hash ⇒ definitely different, short-circuit), then canonical
-  equality is the AUTHORITY (a hash collision can never report a match
-  because the canonical values still differ)."
+  Three-stage to avoid a false GREEN: first the frozen `:slice-keys` MUST
+  match the current `run-hash-input-keys` (a slice-surface drift means the
+  comparison is not apples-to-apples — never a match), then the cheap
+  `:run-hash` is checked (a mismatched hash ⇒ definitely different,
+  short-circuit), then canonical equality is the AUTHORITY (a hash collision
+  can never report a match because the canonical values still differ)."
   [golden {:keys [canonical run-hash]}]
-  (and (= (:run-hash golden) run-hash)
+  (and (slice-keys-current? golden)
+       (= (:run-hash golden) run-hash)
        (= (:canonical golden) canonical)))
 
 (defn golden-match?
@@ -328,6 +360,16 @@
 
   On MATCH: `{:match? true :run-hash <hash>}`.
 
+  On a STALE SLICE-SURFACE: `{:match? false :stale-slice-keys true
+  :golden-slice-keys <frozen> :current-slice-keys <now>}` — the golden's
+  frozen `:slice-keys` no longer match the current
+  `fingerprint/run-hash-input-keys`, so its `:canonical` was taken over a
+  DIFFERENT behavioural surface and the comparison is not apples-to-apples.
+  This is surfaced as a DISTINCT verdict (NOT a `:diff`) so a slice-surface
+  drift reads as 'baseline surface changed — recapture the golden' rather
+  than a confusing fake regression. No `diff/diff-runs` is taken because
+  diffing across two surfaces would mislocalise.
+
   On MISMATCH: `{:match? false :run-hash <new> :golden-run-hash <frozen>
   :diff <readable-diff>}` — the diff DELEGATES to
   `re-frame.story.diff/diff-runs` (the §Semantic-diff facet machinery, NOT
@@ -355,8 +397,17 @@
    (let [result    (->run-result run (dissoc opts :golden-run-result))
          {:keys [run-hash] :as ch} (canonical+hash result)
          base-run  (or golden-run-result (:run-result golden))]
-     (if (matches? golden ch)
+     (cond
+       (not (slice-keys-current? golden))
+       {:match?             false
+        :stale-slice-keys   true
+        :golden-slice-keys  (:slice-keys golden)
+        :current-slice-keys fingerprint/run-hash-input-keys}
+
+       (matches? golden ch)
        {:match? true :run-hash run-hash}
+
+       :else
        (cond-> {:match?          false
                 :run-hash        run-hash
                 :golden-run-hash (:run-hash golden)}

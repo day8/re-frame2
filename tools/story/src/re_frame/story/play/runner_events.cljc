@@ -158,7 +158,14 @@
 (defn clear-step-boundaries!
   "Reset the per-dispatch-step settle boundaries for `frame-id` (rf2-rkd14).
   Called at the START of a fresh script run so the narrative attribution
-  windows onto THIS run's epoch tape, not a previous run's boundaries."
+  windows onto THIS run's epoch tape, not a previous run's boundaries.
+
+  rf2-vkdam — owned by every entry that WRITES boundaries: the public driver
+  `run!`, the orchestrator `runtime/run-phase-4!` (which also covers its
+  no-auto-plays branch), and the stepper start `play/begin-stepper!` (via the
+  `:clear-step-boundaries` late-bind seam). So a non-orchestrator re-run /
+  replay-in-place / stepping session no longer inherits stale accumulated
+  offsets that would mis-attribute the exact narrative."
   [frame-id]
   (swap! step-boundaries dissoc frame-id)
   nil)
@@ -1223,6 +1230,17 @@
                     :cljs (.toString (js/Math.random)))
          started (-> (runner/start init (now-ms))
                      (assoc :run-token token))]
+     ;; rf2-vkdam — reset the per-dispatch-step settle boundaries here, in the
+     ;; SAME public entry that resets run-state and then writes boundaries via
+     ;; `run-loop!`/`record-settle-boundary!`. Previously only the orchestrator
+     ;; (`runtime/run-phase-4!`) cleared, so an interactive re-run / replay-in-
+     ;; place driving `run!` directly accumulated boundaries until teardown.
+     ;; Owning the reset alongside the write keeps the attribution windowed
+     ;; onto THIS run's epoch tape. The leading-nil-span semantics still hold:
+     ;; the boundaries snapshot the ABSOLUTE epoch-history length, so any setup
+     ;; epochs already on the tape precede the first boundary (in the
+     ;; orchestrator path setup runs in phase-2, before phase-4 drives `run!`).
+     (clear-step-boundaries! variant-id)
      (set-state! variant-id pk started)
      (set-active-play! variant-id pk)
      (run-loop! variant-id pk token done-cb)
@@ -1333,3 +1351,10 @@
 ;; available as soon as the play module drives a stepped run.
 
 (late-bind/set-fn! :run-play-step run-step!)
+
+;; rf2-vkdam — the stepper appends a settle boundary per `run-step!`, so a
+;; fresh stepping session (`play/begin-stepper!`) must reset the frame's
+;; boundaries first — the stepper analogue of `run!`'s reset. Exposed via the
+;; same late-bind seam since `play.cljc` cannot `:require` this ns.
+
+(late-bind/set-fn! :clear-step-boundaries clear-step-boundaries!)
