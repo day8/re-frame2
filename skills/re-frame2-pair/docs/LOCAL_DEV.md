@@ -16,7 +16,29 @@ Same as the README's *Requirements*:
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
 
-## 1. Symlink (recommended for dev)
+## 0. Repo installer (recommended — links all skills)
+
+From a re-frame2 clone, the cross-platform installer links **every** skill
+(including this one) into `~/.claude/skills/` by symlink (macOS/Linux) or
+directory junction (Windows, no admin needed). Edits in the repo are live
+immediately; nothing to keep in sync.
+
+```bash
+# macOS / Linux:
+scripts/install-skills.sh
+
+# Windows:
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1
+```
+
+Idempotent; re-run any time. It refuses to overwrite a non-link copy without
+`--force`/`-Force`, and `--check`/`-Check` verifies the links. See the repo's
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md#skills--link-dont-copy).
+
+The remaining paths below link this one skill by hand — equivalent for a
+single skill, useful when you are not working from a full re-frame2 clone.
+
+## 1. Symlink one skill by hand
 
 Edits you make in the repo are live immediately — no copy to keep in sync.
 
@@ -37,7 +59,8 @@ New-Item -ItemType SymbolicLink `
   -Target "$env:USERPROFILE\code\re-frame2\skills\re-frame2-pair"
 ```
 
-Without admin, use a directory junction:
+Without admin, use a directory junction (the primitive the repo installer
+uses):
 
 ```cmd
 mklink /J %USERPROFILE%\.claude\skills\re-frame2-pair %USERPROFILE%\code\re-frame2\skills\re-frame2-pair
@@ -45,13 +68,17 @@ mklink /J %USERPROFILE%\.claude\skills\re-frame2-pair %USERPROFILE%\code\re-fram
 
 Junctions behave like symlinks for read purposes; fine for skill loading.
 
-## 2. Copy (snapshot the current state)
+## 2. Copy (snapshot the current state) — drifts; avoid for everyday dev
 
 ```bash
 cp -r ~/code/re-frame2/skills/re-frame2-pair ~/.claude/skills/re-frame2-pair
 ```
 
-Simple, but you have to re-copy after every change. Useful if you want to pin a specific commit and keep iterating on the repo itself without affecting Claude's view of the skill.
+Simple, but you have to re-copy after every change — and if you forget, Claude
+Code silently loads a **stale** skill that drifts from the repo (this is the
+exact failure the link-based installer in §0 was written to prevent). Only use
+a copy when you deliberately want to pin a specific snapshot and keep iterating
+on the repo without affecting Claude's view. For everyday dev, prefer §0/§1.
 
 ## 3. Project-local (only active in one app)
 

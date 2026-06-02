@@ -8,7 +8,14 @@ re-frame2 ships eight skills, colocated under [`skills/`](https://github.com/day
 
 ## How to load a skill
 
-The exact mechanics depend on the agent you're driving. In **Claude Code**, install a skill by copying its directory into a project-level `.claude/skills/<name>/` (or globally into `~/.claude/skills/<name>/`). Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
+The exact mechanics depend on the agent you're driving. In **Claude Code**, a skill lives at a project-level `.claude/skills/<name>/` or globally at `~/.claude/skills/<name>/`. **Link the repo directory in rather than copying it** — a copy snapshots the skill and then silently drifts as the repo is maintained, so Claude Code ends up loading a stale skill. From a re-frame2 clone, the cross-platform installer links every skill into `~/.claude/skills/` in one step (symlinks on macOS/Linux, directory junctions on Windows — no admin needed):
+
+```bash
+scripts/install-skills.sh                                              # macOS / Linux
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
+```
+
+It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`. See [`CONTRIBUTING.md`](https://github.com/day8/re-frame2/blob/main/CONTRIBUTING.md#skills--link-dont-copy) for the full setup. Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
 
 The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the **spec-consuming** skills — they point at it for spec-corpus depth and EP rationale. (Two skills route their deep-dives elsewhere by design: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, and `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`.)
 
