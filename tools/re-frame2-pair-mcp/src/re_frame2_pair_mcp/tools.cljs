@@ -194,28 +194,62 @@
   so a no-`:build` follow-up call inherits the canonical form rather than
   the suffix `stick-build!` just stored.
 
+  ## Bare-default fast path (rf2-qda59 CI-race repair)
+
+  A no-`:build` call that falls through to the bare env / `:app` default
+  (no explicit `:build` arg AND no sticky `:resolved-build-id`) is NOT
+  canonicalized — it returns `ctx` synchronously with NO `active-builds`
+  round-trip. Two reasons:
+
+    1. **Correctness, not just speed.** The env default
+       (`SHADOW_CLJS_BUILD_ID` / `:app`) is a full build id by
+       construction — never a suffix an operator typed — so it needs no
+       suffix→canonical mapping. A default that isn't running surfaces via
+       the downstream `ensure-runtime!` diagnostic ladder exactly as
+       before; the alias step would only have round-tripped to re-derive
+       the id it was already handed.
+    2. **It un-breaks the streaming subscribe gate.** The pre-fix step
+       prepended a serial `active-builds` jvm-eval to EVERY first tool
+       call — including `subscribe`'s registration path. On a slow
+       hermetic CI runner that extra round-trip pushed `subscribe!`
+       registration past the live-subscribe conformance test's dispatch
+       head-start, so the dispatched cascade landed before the
+       subscription existed and zero `notifications/progress` frames
+       arrived (the bus only queues for already-registered subs). The
+       feature targets an operator who TYPES a build (`:build
+       machine-epochs`); the no-arg default never needed the trip.
+
+  Suffix-forgiveness is fully preserved for the case it was built for:
+  an explicit `:build` arg, or a sticky suffix stuck from a prior
+  explicit `:build`, still routes through `canonicalize-build!`.
+
   Pays one `active-builds` round-trip only the first time a not-yet-probed
-  build name is seen this session; an exact / already-aliased id resolves
-  with no round-trip. Pure-fail-safe: a stub conn (no caches) or a
-  `running-builds` hiccup degrades to the requested id unchanged, so the
-  diagnostic ladder still fires.
+  EXPLICIT build name is seen this session; an exact / already-aliased id
+  (or the bare default) resolves with no round-trip. Pure-fail-safe: a
+  stub conn (no caches) or a `running-builds` hiccup degrades to the
+  requested id unchanged, so the diagnostic ladder still fires.
 
   `discover-app` is INCLUDED here (unlike `stick-build!`): its explicit
   `:build` should be just as forgiving as the read ops', and the alias
   write is harmless — discover-app owns its own success-gated
   `:resolved-build-id` lifecycle separately."
   [{:keys [conn args] :as ctx}]
-  (let [requested (wire/requested-build conn args)]
-    (-> (probe/canonicalize-build! conn requested)
-        (.then (fn [canonical]
-                 ;; Keep the sticky default canonical too — only when a
-                 ;; build was already stuck (don't mint one for a no-build
-                 ;; call that fell through to the env default).
-                 (when (and (some? conn) (satisfies? IDeref conn)
-                            (some? (:resolved-build-id @conn)))
-                   (swap! conn assoc :resolved-build-id canonical))
-                 ctx))
-        (.catch (fn [_] ctx)))))
+  (if-not (wire/arg-build-explicit? conn args)
+    ;; Bare env / `:app` default — already canonical; skip the round-trip
+    ;; so latency-sensitive paths (subscribe registration) are not
+    ;; delayed. See the docstring's bare-default fast path.
+    (js/Promise.resolve ctx)
+    (let [requested (wire/requested-build conn args)]
+      (-> (probe/canonicalize-build! conn requested)
+          (.then (fn [canonical]
+                   ;; Keep the sticky default canonical too — only when a
+                   ;; build was already stuck (don't mint one for a no-build
+                   ;; call that fell through to the env default).
+                   (when (and (some? conn) (satisfies? IDeref conn)
+                              (some? (:resolved-build-id @conn)))
+                     (swap! conn assoc :resolved-build-id canonical))
+                   ctx))
+          (.catch (fn [_] ctx))))))
 
 (defn- precheck-step
   "Step 0 — rf2-36xod cheap-hash short-circuit. For precheck-eligible
