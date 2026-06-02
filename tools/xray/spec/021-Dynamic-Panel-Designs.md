@@ -1367,6 +1367,29 @@ from the trace stream:
 - **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
 - **`:reg-machine`** — **TIME-ORDERED MACHINE CASCADE** per rf2-u69j7.
 
+**Flavour discriminator (`handler-flavour`, rf2-eue07).** The classifier is
+a pure-data `cond` over the trace stream, machine-predicates FIRST (a machine
+handler always rides a `:rf.fx/do-fx` for its snapshot write, so `do-fx` must
+never win for a macrostep):
+
+1. `:rf.machine/transition` present → `:reg-machine`. This is the
+   AUTHORITATIVE macrostep marker — `commit-or-finalize` (machines ·
+   lifecycle_fx · registration.cljc) emits ONE transition summary per
+   macrostep UNCONDITIONALLY, for action-firing transitions, pure state
+   moves, **entry-cascade-only transitions** (whose `:entry` actions are NOT
+   traced as `:rf.machine/action-ran` — rf2-n9f4z), AND the bootstrap
+   `:initial-entry` (rf2-t4582). Keying on the transition (not the narrow
+   action-ran check) is what makes those action-less macrosteps render the
+   machine section instead of the raw `:db` diff of the snapshot write.
+2. `:rf.machine/action-ran` present → `:reg-machine` (subsumed by (1) for any
+   real macrostep; retained for fixtures / defence in depth).
+3. `:rf.machine.event/unhandled-no-op` present → `:reg-machine` (rf2-ugdas —
+   see below; once rf2-e6q97 suppresses the spurious `{X}→{X}` commit
+   transition, a no-op-only cascade carries neither a transition nor an
+   action, so it needs its own predicate).
+4. `:rf.fx/do-fx` present → `:reg-event-fx`.
+5. else → `:reg-event-db`.
+
 #### Machine cascade (rf2-u69j7)
 
 **Stance.** The pre-rf2-u69j7 layout grouped machine activity into 7

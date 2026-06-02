@@ -339,20 +339,43 @@
 (defn- handler-flavour
   "Discriminate the handler kind from the trace stream. Three flavours:
 
-      :reg-machine     — at least one `:rf.machine/action-ran` rode
+      :reg-machine     — the cascade carried a machine macrostep
       :reg-event-fx    — a `:rf.fx/do-fx` rode (effects were returned)
       :reg-event-db    — otherwise (default for any non-machine event)
 
   The discriminator is the trace stream — no spec read at projection
-  time. Pure-data; JVM-testable."
+  time. Pure-data; JVM-testable.
+
+  WHAT MARKS A MACHINE MACROSTEP (rf2-eue07). The authoritative signal is
+  `:rf.machine/transition`: the substrate's `commit-or-finalize`
+  (machines · lifecycle_fx · registration.cljc) emits ONE transition
+  summary per macrostep UNCONDITIONALLY — for action-firing transitions,
+  pure state moves, entry-cascade-only transitions (whose `:entry`
+  actions are NOT traced as `:rf.machine/action-ran`, see rf2-n9f4z),
+  AND the post-carve-out bootstrap `:initial-entry` (rf2-t4582). The
+  prior classifier keyed ONLY on `:rf.machine/action-ran`, so any
+  macrostep that fired no action (HVAC `:hvac/power-cycle` entry cascade,
+  bootstrap) fell through to `:reg-event-fx` — the machine handler always
+  rides a `:rf.fx/do-fx` (its snapshot write) — and rendered the raw `:db`
+  diff with NO machine section. Keying on the transition closes that gap.
+
+  The machine predicates MUST precede the `:rf.fx/do-fx` check: a machine
+  handler always rides a do-fx, so do-fx must never win for a macrostep."
   [events]
   (cond
+    ;; rf2-eue07 — a `:rf.machine/transition` summary marks a machine
+    ;; macrostep (action-firing or not, including the bootstrap
+    ;; :initial-entry). This is the authoritative, action-independent
+    ;; signal; it subsumes the narrow action-ran check below.
+    (some #(= :rf.machine/transition (op %)) events) :reg-machine
     (some #(= :rf.machine/action-ran (op %)) events) :reg-machine
     ;; rf2-ugdas — a cascade whose ONLY machine activity is the benign
     ;; unhandled-event no-op (an event that matched no transition, so no
-    ;; action ran) is still a machine cascade: classify it :reg-machine so
-    ;; the EVENT HANDLER machine section renders the no-op notice rather
-    ;; than collapsing to a plain reg-event-db handler.
+    ;; action ran AND — once rf2-e6q97 suppresses the spurious {X}→{X}
+    ;; commit transition — no transition row either) is still a machine
+    ;; cascade: classify it :reg-machine so the EVENT HANDLER machine
+    ;; section renders the no-op notice rather than collapsing to a plain
+    ;; reg-event-db handler.
     (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
     (some #(= :rf.fx/do-fx (op %)) events)           :reg-event-fx
     :else                                            :reg-event-db))
