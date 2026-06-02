@@ -225,7 +225,12 @@
    :action      "ACTION"
    :transition  "TRANSITION"
    :timer       "TIMER"
-   :no-op       "NO-OP"})
+   ;; rf2-iu3no — "NO OP" (space, not hyphen) is the SOLE marker for the
+   ;; benign unhandled-user-event no-op. The row collapsed to
+   ;; "[NO OP] staying in {state}" (`format/cascade-row-label`) — the pill
+   ;; carries the one badge; the verb carries the consequence. No "ignored"
+   ;; outcome chip, no "no-op —" prefix, no ", no transition" suffix.
+   :no-op       "NO OP"})
 
 (defn cascade-kind-token-key
   "Theme-token keyword for a cascade row's `:kind` (rf2-u69j7). Falls
@@ -326,9 +331,10 @@
     :fail      :warning
     :threw     :error
     :cancelled :text-tertiary
-    ;; rf2-ugdas — the benign unhandled-event no-op: ignored, muted tone
-    ;; (NOT error/warning).
-    :ignored   :text-tertiary
+    ;; rf2-iu3no — the benign no-op no longer renders an outcome chip
+    ;; (`format/cascade-outcome-label` returns nil for it; the "[NO OP]"
+    ;; pill + "staying in {state}" verb carry the whole notice), so the
+    ;; rf2-ugdas `:ignored` outcome value is retired.
     :text-tertiary))
 
 (defn cascade-outcome-glyph
@@ -348,7 +354,7 @@
     :fail      "▲"
     :threw     "✗"
     :cancelled "·"
-    :ignored   "·"
+    ;; rf2-iu3no — `:ignored` retired with the benign-no-op outcome chip.
     "·"))
 
 ;; rf2-9wq0v retired the per-STAGE status glyph primitive that used to

@@ -427,7 +427,8 @@ still targets a machine, so the Machines tab renders the machine's topology
 (the "no activity this epoch" Case B shape, [§021 Dynamic-Panel-Designs](021-Dynamic-Panel-Designs.md)),
 not this "does not target a state machine" placeholder. The benign no-op is
 surfaced in the **Epoch panel's** EVENT HANDLER machine cascade as a muted
-`NO-OP` row — see [021 §machine-cascade-rows](021-Dynamic-Panel-Designs.md).
+`NO OP` row (`[NO OP] staying in {state}`, rf2-iu3no) — see
+[021 §machine-cascade-rows](021-Dynamic-Panel-Designs.md).
 This placeholder is reserved for events that target NO machine at all.
 
 This is the **state 2** branch in

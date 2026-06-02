@@ -1397,6 +1397,66 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-trigger-1"))
           "the redundant echoed `event [...]` line is gone"))))
 
+;; ---- rf2-iu3no — the benign no-op collapses to `[NO OP] staying in {state}` --
+
+(deftest machine-handler-cascade-no-op-row-collapses-test
+  (testing "rf2-iu3no — a SINGLE-machine genuine no-op row renders the
+            `NO OP` kind-pill (the SOLE marker) + the verb `staying in
+            {state}`, drops the unexplained leading ordinal '1', and
+            carries NO outcome chip. RED before the fix: a `1` ordinal +
+            a `no-op — … received … no transition` verb + an `ignored`
+            outcome chip — four restatements of one fact."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :door/main
+                :fx []
+                :machine {:cascade [{:kind :no-op :step 1
+                                     :machine-id :door/main
+                                     :event [:door/insert-coin]
+                                     :state :alarming
+                                     :show-machine-name? false}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+          "the no-op row renders")
+      ;; The `[NO OP]` pill is the sole marker.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-kind-no-op"))
+          "the NO OP kind-pill is present")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-kind-no-op")
+                            "NO OP")
+          "the pill reads `NO OP` (space, not hyphen)")
+      ;; The stray leading "1" ordinal is SUPPRESSED for the no-op.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-ordinal-1"))
+          "the unexplained leading '1' ordinal is dropped for the no-op row")
+      ;; The verb is the consequence only: `staying in :alarming`.
+      (let [verb (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1")]
+        (is (= "staying in :alarming" verb)
+            "verb is the consequence — `staying in {state}`")
+        (is (not (string/includes? verb "no-op"))   "no 'no-op —' prefix")
+        (is (not (string/includes? verb "received")) "no 'received [event]' echo")
+        (is (not (string/includes? verb "transition")) "no ', no transition' suffix"))
+      ;; NO outcome chip — the prior `ignored` chip is gone.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ignored"))
+          "no `ignored` outcome chip — the pill + verb are the whole notice"))))
+
+(deftest machine-handler-cascade-multi-machine-no-op-keeps-name-test
+  (testing "rf2-iu3no — when >1 machine is in play (broadcast / parallel
+            regions), the no-op row keeps the machine name so the operator
+            can tell WHICH machine stood pat: `[NO OP] :hvac/controller
+            staying in {state}`."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :hvac/power-cycle
+                :fx []
+                :machine {:cascade [{:kind :no-op :step 1
+                                     :machine-id :hvac/controller
+                                     :event [:hvac/power-cycle]
+                                     :state [:off]
+                                     :show-machine-name? true}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (= ":hvac/controller staying in [:off]"
+             (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1"))
+          "the multi-machine no-op verb leads with the machine name"))))
+
 ;; ---- rf2-wwc3j — inline-fn / transition source-body rendering ------------
 
 (deftest cascade-row-renders-inline-entry-source-body-test

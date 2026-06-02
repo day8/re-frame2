@@ -33,6 +33,8 @@
         grouping, timer reasons, guard outcomes)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.string :as str]
+            [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             ;; rf2-ugdas / rf2-e7yhv — the canonical issue-projection
@@ -651,14 +653,51 @@
       (is (= :alarming (:state r)))
       (is (= 1 (:step r)))))
 
-  (testing "rf2-ugdas — the no-op verb names machine + event + state, and
-            its outcome chip reads 'ignored' (benign, not error)"
+  (testing "rf2-iu3no — a SINGLE-machine genuine no-op collapses to the
+            CONSEQUENCE only: '[NO OP] staying in {state}'. The `NO OP`
+            kind-pill is the sole marker; the verb is just 'staying in
+            <state>' — no 'no-op —' prefix, no 'received [event]' echo
+            (the focused-epoch Event header names it), no ', no transition'
+            suffix, no machine name (the lone machine is named above), and
+            NO 'ignored' outcome chip."
     (let [r (first (proj/machine-cascade-rows
                      [(machine-unhandled-no-op-ev :door/main
-                                                  [:door/insert-coin] :alarming)]))]
-      (is (= "no-op — :door/main received [:door/insert-coin] in :alarming, no transition"
-             (fmt/cascade-row-label r)))
-      (is (= "ignored" (fmt/cascade-outcome-label r)))))
+                                                  [:door/insert-coin] :alarming)]))
+          verb (fmt/cascade-row-label r)]
+      ;; RED before rf2-iu3no: verb == "no-op — :door/main received
+      ;; [:door/insert-coin] in :alarming, no transition" (the four-way
+      ;; restatement) + a non-nil "ignored" outcome label.
+      (is (= "staying in :alarming" verb))
+      (is (= "NO OP" (badge/cascade-kind-label :no-op))
+          "the pill is the sole marker — `NO OP` (space, not hyphen)")
+      (is (not (str/includes? verb "no-op"))   "no 'no-op —' prefix")
+      (is (not (str/includes? verb "received")) "no 'received [event]' echo")
+      (is (not (str/includes? verb "transition")) "no ', no transition' suffix")
+      (is (not (str/includes? verb ":door/main"))
+          "single-machine case drops the machine name")
+      (is (false? (:show-machine-name? r))
+          ":show-machine-name? false for the single-machine no-op")
+      (is (nil? (fmt/cascade-outcome-label r))
+          "no outcome chip — the pill + verb are the whole notice")))
+
+  (testing "rf2-iu3no — a MULTI-MACHINE epoch (broadcast event / parallel
+            regions) keeps the machine name on each no-op row so the
+            operator can tell WHICH machine stood pat:
+            '[NO OP] :hvac/controller staying in {state}'"
+    (let [rows (proj/machine-cascade-rows
+                 [(machine-unhandled-no-op-ev :hvac/controller
+                                              [:hvac/power-cycle] [:off])
+                  (machine-unhandled-no-op-ev :hvac/fan
+                                              [:hvac/power-cycle] [:idle])])
+          by-id (into {} (map (juxt :machine-id identity)) rows)]
+      (is (= 2 (count rows)))
+      (is (every? :show-machine-name? rows)
+          ">1 distinct machine-id in play → surface the name on every no-op")
+      (is (= ":hvac/controller staying in [:off]"
+             (fmt/cascade-row-label (by-id :hvac/controller)))
+          "the multi-machine no-op verb leads with the machine name")
+      (is (= ":hvac/fan staying in [:idle]"
+             (fmt/cascade-row-label (by-id :hvac/fan))))))
 
   (testing "rf2-ugdas — a cascade whose ONLY machine activity is the no-op
             is still :reg-machine flavour, so the EVENT HANDLER machine
@@ -672,24 +711,30 @@
 
 ;; ---- rf2-e6q97 — a no-op suppresses the spurious {X}→{X} transition row ---
 
-(deftest no-op-bootstrap-suppresses-spurious-transition-row-test
-  (testing "rf2-e6q97 — on a no-op bootstrap the substrate emits BOTH the
-            benign :rf.machine.event/unhandled-no-op AND its unconditional
-            :rf.machine/transition summary ({X}→{X}, 0 microsteps). Rendered
-            side-by-side those CONTRADICT. The cascade must show the :no-op
-            row ALONE — the spurious transition row is dropped."
+(deftest no-op-suppresses-spurious-transition-row-test
+  (testing "rf2-e6q97 — on a genuine unknown-user-event no-op the substrate
+            emits BOTH the benign :rf.machine.event/unhandled-no-op AND its
+            unconditional :rf.machine/transition summary ({X}→{X}, 0
+            microsteps). Rendered side-by-side those CONTRADICT. The cascade
+            must show the :no-op row ALONE — the spurious transition row is
+            dropped."
+    ;; rf2-iu3no — the live repro fixture was a `[:rf.machine/bootstrap]`
+    ;; no-op, but rf2-t4582 (#2846) carved the bootstrap OUT of the no-op
+    ;; classification (bootstrap runs :initial-entry, never a no-op). The
+    ;; dedup MECHANISM this asserts is independent of which event no-op'd, so
+    ;; the fixture is rebased onto a genuine unknown USER event (the only
+    ;; thing that still produces an unhandled-no-op post-t4582).
     (let [state {:vehicle :red :pedestrian :walk}
-          ;; Live repro: machine-epochs deck, epoch 3 —
-          ;; [:traffic/light [:rf.machine/bootstrap]] in a stable state.
-          ;; The substrate emit shape: unhandled-no-op (the event matched no
-          ;; transition) FOLLOWED BY the unconditional commit transition with
+          ;; A user dispatched [:traffic/unknown] in a state with no matching
+          ;; transition: unhandled-no-op (event matched no transition)
+          ;; FOLLOWED BY the unconditional commit transition with
           ;; :before == :after and :microsteps 0.
           no-op (machine-unhandled-no-op-ev :traffic/light
-                                            [:rf.machine/bootstrap] state)
+                                            [:traffic/unknown] state)
           tx    (machine-transition-ev :traffic/light
                                        {:state state :data {}}
                                        {:state state :data {}}
-                                       [:rf.machine/bootstrap] 0)
+                                       [:traffic/unknown] 0)
           rows  (proj/machine-cascade-rows [no-op tx])]
       ;; RED before the fix: rows == [:no-op :transition] (the contradiction).
       ;; GREEN after: the :transition row is gone.
@@ -706,9 +751,9 @@
     (let [state :stable
           tx    (machine-transition-ev :traffic/light
                                        {:state state} {:state state}
-                                       [:rf.machine/bootstrap] 0)
+                                       [:traffic/unknown] 0)
           no-op (machine-unhandled-no-op-ev :traffic/light
-                                            [:rf.machine/bootstrap] state)
+                                            [:traffic/unknown] state)
           rows  (proj/machine-cascade-rows [tx no-op])]
       (is (= [:no-op] (mapv :kind rows)))))
 
@@ -716,11 +761,11 @@
             the :machine :cascade slot the view renders (the live surface)"
     (let [state {:vehicle :red :pedestrian :walk}
           evs   [(machine-unhandled-no-op-ev :traffic/light
-                                             [:rf.machine/bootstrap] state)
+                                             [:traffic/unknown] state)
                  (machine-transition-ev :traffic/light
                                         {:state state :data {}}
                                         {:state state :data {}}
-                                        [:rf.machine/bootstrap] 0)]
+                                        [:traffic/unknown] 0)]
           r     (proj/handler-row evs :traffic/light)]
       (is (= :reg-machine (:flavour r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))

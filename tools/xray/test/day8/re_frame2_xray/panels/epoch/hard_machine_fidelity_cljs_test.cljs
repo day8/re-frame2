@@ -54,11 +54,13 @@
        #2843) fires exit+entry; internal (omit `:target`) fires action-only;
        neither emits a spurious no-op transition row (#2841)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.diff.engine :as diff]
+            [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as mih]
             [day8.re-frame2-xray.panels.machines.topology :as topo]
@@ -190,6 +192,17 @@
   {:event-id     :hvac/controller
    :trigger-event [:hvac/controller event-v]
    :trace-events (vec (trace-collector/buffer-for-test))})
+
+(defn- drive-other!
+  "Like `drive!` but for an arbitrary machine event-id (rf2-iu3no — the
+  bootstrap-scope guard drives a SECOND machine so the captured macrostep
+  is exactly its birth)."
+  [machine-id event-v]
+  (trace-collector/reset-for-test!)
+  (rf/dispatch-sync [machine-id event-v])
+  {:event-id      machine-id
+   :trigger-event [machine-id event-v]
+   :trace-events  (vec (trace-collector/buffer-for-test))})
 
 (defn- cascade [record]
   (proj/machine-cascade-rows (:trace-events record)))
@@ -474,3 +487,82 @@
           "an unchanged member does NOT render as added (no spurious churn)")
       (is (not (member-of :fan/on removed))
           "an unchanged member does NOT render as removed"))))
+
+;; ============================================================================
+;; rf2-iu3no — the benign no-op cell: scope guard + the live no-op render
+;; ============================================================================
+
+;; A minimal machine whose INITIAL state carries an entry action, so its
+;; birth observably runs the `:initial-entry` cascade (the hvac machine's
+;; initial leaves `:idle` / `:off` have no entry handlers, so they'd run
+;; zero action rows on bootstrap — no positive signal to assert against).
+(def initial-entry-machine
+  {:initial :booting
+   :data    {}
+   :states  {:booting {:entry :on-boot}}
+   :actions {:on-boot (fn [{data :data}] {:data (assoc data :booted? true)})}})
+
+(deftest bootstrap-renders-initial-entry-not-no-op
+  (testing "rf2-iu3no / rf2-t4582 (#2846) regression guard — a machine's
+            BIRTH (`[:rf.machine/bootstrap]`) runs its `:initial-entry`
+            cascade and is NOT classified as an unhandled-user-event no-op.
+            The collapsed `[NO OP] staying in {state}` cell renders the
+            CONSEQUENCE of NO state change — it would read FALSE for the
+            machine's birth (which ENTERED its initial config, it did not
+            'stay'). So the no-op cell must NEVER be reached for the
+            bootstrap: the bootstrap macrostep carries the `:initial-entry`
+            phase and ZERO `:no-op` rows. A regression on t4582 (the
+            bootstrap re-mislabelled as a no-op) surfaces RED here."
+    (registry/register-xray-handlers!)
+    (preload/register-trace-collector!)
+    (rf/reg-machine :iu3no/boot initial-entry-machine)
+    ;; The bootstrap macrostep is the machine's birth — capture exactly it.
+    (let [record  (drive-other! :iu3no/boot [:rf.machine/bootstrap])
+          rows    (cascade record)
+          phases  (set (map :phase (rows-of-kind rows :action)))]
+      (is (empty? (rows-of-kind rows :no-op))
+          "the bootstrap renders NO benign-no-op cell — it is the machine's
+           birth, not an ignored event (rf2-t4582)")
+      (is (contains? phases :initial-entry)
+          "the bootstrap runs its :initial-entry cascade — the boot action
+           row carries the :initial-entry phase, NOT a 'staying in {state}'
+           no-op notice")
+      (is (= :booting (-> (rf/app-db-value :rf/default)
+                          (get-in [:rf/runtime :machines :snapshots :iu3no/boot :state])))
+          "the machine ENTERED its initial config (:booting) — it did not
+           'stay' (the no-op cell's premise would read FALSE for a birth)"))))
+
+(deftest genuine-unknown-user-event-renders-no-op-staying-in-state
+  (testing "rf2-iu3no — a GENUINE unknown user event (one this machine's
+            current configuration matches no transition for) renders the
+            collapsed `[NO OP] staying in {state}` cell against the LIVE
+            substrate. In the initial config (climate :idle / fan :off),
+            `:hvac/mode-toggle` is handled only in the deep :heating /
+            :cooling leaves — so from rest it matches no transition: a
+            benign no-op. ONE machine in play → the machine name is DROPPED
+            (the verb is the bare consequence)."
+    (setup!) ; leaves climate :idle / fan :off
+    (let [record   (drive! [:hvac/mode-toggle])
+          rows     (cascade record)
+          no-ops   (rows-of-kind rows :no-op)
+          no-op    (first no-ops)]
+      (is (= 1 (count no-ops))
+          "the unknown user event renders exactly ONE benign no-op cell")
+      (is (= :hvac/controller (:machine-id no-op)))
+      (is (false? (:show-machine-name? no-op))
+          "ONE machine in play → drop the machine name")
+      (is (= "staying in :idle"
+             (fmt/cascade-row-label (assoc no-op :state :idle :show-machine-name? false)))
+          "the collapsed verb is the bare consequence — `staying in {state}`")
+      ;; The verb off the LIVE row (whatever the live :state shape is) carries
+      ;; no prefix/echo/suffix and no machine name.
+      (let [verb (fmt/cascade-row-label no-op)]
+        (is (string/starts-with? verb "staying in ") "verb leads with 'staying in '")
+        (is (not (string/includes? verb "no-op")) "no 'no-op —' prefix")
+        (is (not (string/includes? verb "received")) "no 'received [event]' echo")
+        (is (not (string/includes? verb "transition")) "no ', no transition' suffix")
+        (is (not (string/includes? verb ":hvac/controller"))
+            "single-machine case drops the machine name"))
+      ;; Benign — no transition row beside it, no state change committed.
+      (is (empty? (rows-of-kind rows :transition))
+          "a no-op carries no transition row (rf2-e6q97 suppression)"))))
