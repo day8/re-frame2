@@ -63,6 +63,35 @@
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
+(defn static-context-shape
+  "rf2-vcnvj — derive the STATIC context shape from a machine definition's
+  declared `:data` for the chart's root Context panel. Returns a map of
+  `{key type-caption}` so the root chrome shows the operator the context
+  KEYS + their TYPE shape (e.g. `{:opened-count \"number\" :trail
+  \"vector\"}`) even with no live snapshot in hand. This is deliberately
+  the SHAPE, not the live values — the live runtime `:data` overlay
+  stays a separate diagnostic (per the bead). Returns nil when the
+  definition declares no `:data` (so the panel stays hidden).
+
+  Pure fn — testable in isolation."
+  [definition]
+  (let [data (:data definition)]
+    (when (map? data)
+      (into {}
+            (map (fn [[k v]]
+                   [k (cond
+                        (nil? v)        "nil"
+                        (boolean? v)    "boolean"
+                        (number? v)     "number"
+                        (string? v)     "string"
+                        (keyword? v)    "keyword"
+                        (map? v)        "map"
+                        (vector? v)     "vector"
+                        (set? v)        "set"
+                        (sequential? v) "seq"
+                        :else           "value")]))
+            data))))
+
 (defn- resolve-current-state-path
   "Per-spec precedence (high → low): explicit > focused-epoch traces >
   epoch-history walk-back > live snapshot `:state` > nil.
@@ -198,6 +227,11 @@
         {:definition             definition
          :machine-id             machine-id
          :current-state          cur-path
+         ;; rf2-vcnvj — surface the STATIC context shape (keys + type
+         ;; captions of the definition's `:data`) so the root Context
+         ;; chrome renders on the blank-state topology. nil when the
+         ;; machine declares no `:data` (panel stays hidden).
+         :machine-data           (static-context-shape definition)
          :show-after-rings?      false
          :show-view-mode-toggle? false
          :show-controls?         show-controls?

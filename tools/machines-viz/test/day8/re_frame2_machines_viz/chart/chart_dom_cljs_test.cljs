@@ -64,6 +64,24 @@
    :states  {:idle    {:tags [:initial-tag] :on {:start :loading}}
              :loading {:on {:done :idle}}}})
 
+(def ^:private namespaced-tag-machine
+  "rf2-vcnvj — a state carrying a NAMESPACED tag (`:door/open`) so the
+  tag-identity-preservation fix is assertable (the visible label + the
+  `data-tag` attr must read `door/open`, not the truncated `open`)."
+  {:initial :open
+   :states  {:open {:tags [:door/open] :on {:close :shut}}
+             :shut {}}})
+
+(def ^:private machine-level-on-machine
+  "rf2-vcnvj — a flat machine with a top-level (machine-level) `:on`
+  fallback (`:reset` → `:a`), so the single-root-chip projection +
+  the root-context chrome are DOM-assertable on the live chart."
+  {:initial :a
+   :on      {:reset :a}
+   :data    {:hits 0 :seen []}
+   :states  {:a {:on {:go :b}}
+             :b {:on {:go :a}}}})
+
 (def ^:private parallel-machine
   "A parallel machine: 2 regions, 2 states each (rf2-lkwev)."
   {:type :parallel
@@ -410,6 +428,65 @@
                 "data-tags is the empty string when no tags declared")
             (is (= "0" (.getAttribute n "data-tag-count"))
                 "data-tag-count is 0 when no tags declared")))))))
+
+(deftest chart-namespaced-tag-preserves-declared-identity
+  (testing "rf2-vcnvj — a NAMESPACED state tag (`:door/open`) renders its
+            DECLARED identity (`door/open`) on the visible pill + the
+            `data-tag` attr, NOT the truncated `open`. The `data-testid`
+            keeps the namespace-collapsed segment (a `/` would break CSS /
+            Playwright selectors)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/door :definition namespaced-tag-machine}
+        (fn [_root node]
+          (let [pill (.querySelector node
+                       "[data-testid=\"rf-mv-chart-state-tag-open\"]")]
+            (is (some? pill) "the tag pill is rendered (testid segment is `open`)")
+            (is (= "door/open" (.getAttribute pill "data-tag"))
+                "data-tag preserves the full namespaced identity")
+            (is (re-find #"door/open" (.-textContent pill))
+                "the visible pill label reads `door/open`, not `open`")))))))
+
+(deftest chart-machine-level-on-renders-single-root-sourced-chip
+  (testing "rf2-vcnvj — a machine-level (top-level `:on`) fallback renders
+            EXACTLY ONE event chip on the live chart (the synthetic
+            MACHINE-ROOT node sources it), NOT one chip per state, and the
+            MACHINE-ROOT chip itself is present."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ml :definition machine-level-on-machine}
+        (fn [_root node]
+          ;; The MACHINE-ROOT chip is present (sources the single fallback).
+          (is (pos? (count-sel node "[data-machine-root=\"true\"]"))
+              "the synthetic machine-root chip mounted")
+          ;; Exactly ONE machine-level event NODE (the `:reset` fallback
+          ;; chip). The event-node carries data-machine-level=true on its
+          ;; `rf-mv-chart-event-*` root; the in/out edges are SVG paths
+          ;; without that testid, so this selector counts the chip alone.
+          (is (= 1 (count-sel node
+                     "[data-testid^=\"rf-mv-chart-event-\"][data-machine-level=\"true\"]"))
+              "the machine-level fallback projects a single event chip, not one per state"))))))
+
+;; ---- root context chrome (rf2-vcnvj) ------------------------------------
+
+(deftest chart-renders-root-context-panel-from-static-shape
+  (testing "rf2-vcnvj — when a machine declares `:data`, the chart paints
+            the root Context panel from the supplied `:machine-data` (the
+            static context shape the Xray topology path derives). The
+            panel sits at the top-left of the frame."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition machine-level-on-machine
+         :machine-data {:hits "number" :seen "vector"}}
+        (fn [_root node]
+          (let [panel (.querySelector node
+                        "[data-testid$=\"-machine-data-panel\"]")]
+            (is (some? panel) "the root Context panel mounted")
+            (is (= "2" (.getAttribute panel "data-key-count"))
+                "the panel reports both declared context keys")))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------
 

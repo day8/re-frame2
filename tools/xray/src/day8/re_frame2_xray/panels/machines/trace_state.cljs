@@ -232,10 +232,33 @@
                    to*    (to-path-from-trace ev)
                    event* (event-from-trace ev)]
                (when (and from* to* event*)
-                 (keep (fn [e]
-                         (when (and (= from*  (:from-path e))
-                                    (= to*    (:to-path e))
-                                    (= event* (:event e)))
-                           (:id e)))
-                       edges)))))
+                 ;; A transition trace carries the concrete (from, to,
+                 ;; event) the runtime took. A STATE-LOCAL edge matches on
+                 ;; all three. A MACHINE-LEVEL (top-level `:on`) fallback,
+                 ;; however, is now projected ONCE from the synthetic
+                 ;; MACHINE-ROOT node (rf2-vcnvj) — its `:from-path` is the
+                 ;; root context `[]`, not the concrete leaf the runtime
+                 ;; fired it from. So when a trace's (from, event, to)
+                 ;; matches NO state-local edge, fall back to matching the
+                 ;; machine-level edge on (to, event) alone — the single
+                 ;; root-sourced chip lights regardless of which leaf
+                 ;; inherited it (the correct visual for a machine-wide
+                 ;; fallback). Without this fallback the door `:door/audit`
+                 ;; fallback firing from `:alarming` would highlight no
+                 ;; edge at all.
+                 (let [local (keep (fn [e]
+                                     (when (and (not (:machine-level? e))
+                                                (= from*  (:from-path e))
+                                                (= to*    (:to-path e))
+                                                (= event* (:event e)))
+                                       (:id e)))
+                                   edges)]
+                   (if (seq local)
+                     local
+                     (keep (fn [e]
+                             (when (and (:machine-level? e)
+                                        (= to*    (:to-path e))
+                                        (= event* (:event e)))
+                               (:id e)))
+                           edges)))))))
          set)))

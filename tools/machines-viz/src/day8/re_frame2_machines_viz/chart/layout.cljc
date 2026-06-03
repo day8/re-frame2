@@ -294,6 +294,27 @@
                 (escape-id-segment (str p)))))
        (str/join "__")))
 
+(def machine-root-id
+  "rf2-vcnvj — the stable string id for the synthetic MACHINE-ROOT node.
+
+  A machine-level (top-level) `:on` transition (Spec 005 — `:on` is
+  valid per-state AND top-level) is a machine-wide fallback every state
+  inherits. The PRE-vcnvj projection expanded it into one visible event
+  chip PER leaf state (a back-edge from every leaf to the target), which
+  (a) repeated the same `door/audit` chip around every state and (b)
+  injected N spurious back-edges into ELK's layered ranking, scrambling
+  the natural top-to-bottom state order.
+
+  rf2-vcnvj projects each machine-level transition ONCE, sourced from
+  this synthetic root node into the transition's target — so the chip
+  appears exactly once and ELK's main-column ranking is no longer
+  distorted by the fallback back-edges. The id carries a leading +
+  trailing `__` that no real `node-id` can mint: `node-id` hex-escapes
+  every non-alphanumeric segment char (a literal `_` → `_5f`), so a
+  state path can never produce a bare double-underscore boundary at the
+  ends. Distinct from `region__` (region containers) by construction."
+  "__rf2_machine_root__")
+
 (defn region-node-id
   "Stable string id for a parallel region's synthetic compound node.
   Prefixed `region__` so it never collides with a state `node-id`
@@ -391,6 +412,18 @@
     (cond-> evt
       a-str (str " / " a-str))))
 
+(defn- edge-source-id
+  "rf2-vcnvj — the canonical xyflow source-node id for an edge. A
+  machine-level (top-level `:on`) fallback is sourced from the synthetic
+  MACHINE-ROOT node (`machine-root-id`); every other edge from its
+  `:from` state path via `node-id`. Centralised so the `edge-id`
+  composite + the projected `:source` agree (both must address the same
+  node)."
+  [edge]
+  (if (:machine-level? edge)
+    machine-root-id
+    (node-id (:from edge))))
+
 (defn- edge-id
   "Stable string id for an edge — composite of source-id, target-id,
   event segment, AND the guard/action segment so multiple candidate
@@ -399,15 +432,20 @@
   produces same-event/same-target edges differing only by guard, so
   folding the guard/action in keeps them distinct (xyflow drops a
   duplicate-id edge). The `parse-flat` caller appends a per-key ordinal
-  as a final tiebreak for the rare byte-identical-candidate case."
-  [from-path to-path {:keys [guard action] :as edge}]
-  (str (node-id from-path)
+  as a final tiebreak for the rare byte-identical-candidate case.
+
+  rf2-vcnvj — the source segment is `edge-source-id` (the MACHINE-ROOT
+  id for a machine-level fallback, the source-state node-id otherwise)
+  so a top-level fallback's id reads `<machine-root>__<target>__<event>`
+  rather than re-deriving an empty source from `[]`."
+  [to-path edge]
+  (str (edge-source-id edge)
        "__"
        (node-id to-path)
        "__"
        (event-segment edge)
-       (when guard  (str "__g_" (name-of guard)))
-       (when action (str "__a_" (name-of action)))))
+       (when (:guard edge)  (str "__g_" (name-of (:guard edge))))
+       (when (:action edge) (str "__a_" (name-of (:action edge))))))
 
 (defn- collect-machine-edges
   "Emit edges for the machine-level (top-level) `:on` fallback
@@ -415,45 +453,44 @@
   is valid `per-state AND top-level`; a top-level entry is a machine-
   wide fallback every state inherits).
 
-  Renders one edge from every LEAF state to the transition's target,
-  flagged `:machine-level? true` so the projection / SCXML emitter can
-  distinguish an inherited fallback from a state-local transition. Leaf
-  states (no `:states`) are the real transition sources — a compound
-  parent's inherited fallback fires from whichever leaf is active.
-  Edges back into a leaf's own state are kept (they self-loop). The
-  `:*` wildcard fallback is supported too (rendered as a non-fireable
-  affordance downstream)."
-  [machine-on leaf-paths]
+  rf2-vcnvj — projects each machine-level transition ONCE, sourced from
+  the synthetic MACHINE-ROOT node (`machine-root-id`) into the
+  transition's target, rather than expanding it into one back-edge per
+  LEAF state. The pre-vcnvj per-leaf expansion repeated the same chip
+  around every state AND injected N spurious back-edges that scrambled
+  ELK's top-to-bottom layered ranking (the door `:door/audit → :locked`
+  fallback forced every state to rank as a predecessor of `:locked`).
+  One route from root → target reads as the machine-wide fallback it is
+  and leaves the main-column ordering to the real state transitions.
+
+  Each edge is flagged `:machine-level? true` (so the projection / SCXML
+  emitter / fired-edge matcher can distinguish an inherited fallback)
+  and carries `:from []` (the root context, NOT a concrete state) so its
+  canonical `node-id` source is `machine-root-id`. The target resolves
+  at the TOP level (`resolve-target-path` with a root-level `[]` source).
+  An internal (omit-`:target`) or `:same-state` machine-level fallback
+  has no concrete state to self-anchor against at the root, so it
+  resolves to the target verbatim when one is present and is otherwise
+  dropped (a root-level internal fallback has no single source leaf to
+  hang an action chip off — the per-state action attribution that needs
+  is a state-local `:on` concern, not a machine-wide fallback). The `:*`
+  wildcard fallback is supported (rendered as a non-fireable affordance
+  downstream)."
+  [machine-on]
   (when (seq machine-on)
     (mapcat
       (fn [[event-id spec]]
-        (mapcat
-          (fn [leaf-path]
-            (keep (fn [candidate]
-                    (let [target    (:target candidate)
-                          internal? (and (map? candidate)
-                                         (not (contains? candidate :target)))
-                          ;; A machine-level transition's target is
-                          ;; resolved at the TOP level (a top-level
-                          ;; state), NOT relative to the inheriting
-                          ;; leaf's parent — so `resolve-target-path`
-                          ;; is called with a root-level `[]` source.
-                          ;; `:same-state` / omitted-target self-loop on
-                          ;; the leaf itself.
-                          tp        (cond
-                                      internal?              (vec leaf-path)
-                                      (= :same-state target) (vec leaf-path)
-                                      :else (resolve-target-path [] target))]
-                      (when tp
-                        (cond-> {:from           leaf-path
-                                 :to             tp
-                                 :event          event-id
-                                 :guard          (:guard candidate)
-                                 :action         (:action candidate)
-                                 :machine-level? true}
-                          internal? (assoc :internal? true)))))
-                  (transition-candidates spec)))
-          leaf-paths))
+        (keep (fn [candidate]
+                (let [target (:target candidate)
+                      tp     (resolve-target-path [] target)]
+                  (when tp
+                    {:from           []
+                     :to             tp
+                     :event          event-id
+                     :guard          (:guard candidate)
+                     :action         (:action candidate)
+                     :machine-level? true})))
+              (transition-candidates spec)))
       machine-on)))
 
 ;; ---- public projection --------------------------------------------------
@@ -484,16 +521,30 @@
                                    (assoc :parent-id (node-id (pop path))))]
                         (assoc n' :id (node-id path))))
                     base-nodes)
-        leaf-paths (->> base-nodes
-                        (remove :compound?)
-                        (mapv :path))
+        ;; rf2-vcnvj — machine-level (top-level) :on fallbacks now
+        ;; project ONCE from the synthetic MACHINE-ROOT node (no longer
+        ;; one back-edge per leaf), so `leaf-paths` is no longer threaded
+        ;; into `collect-machine-edges`.
+        machine-edges (collect-machine-edges on)
+        ;; rf2-vcnvj — surface the synthetic root node ONLY when a
+        ;; machine-level fallback exists, so a machine with no top-level
+        ;; `:on` keeps the pre-vcnvj node set unchanged. The root node is
+        ;; a top-level (no `:parent-id`) pseudo-state the projector paints
+        ;; as the root-context chip; its `:label` is filled in by
+        ;; `parse-definition` (which knows the machine-id), defaulting to
+        ;; a neutral caption here.
+        root-node (when (seq machine-edges)
+                    {:id           machine-root-id
+                     :path         []
+                     :label        "root"
+                     :depth        0
+                     :machine-root? true
+                     :compound?    false})
         raw-edges (vec (concat
                          (mapcat (fn [[state-id state-node]]
                                    (collect-state-edges [state-id] state-node))
                                  states)
-                         ;; Machine-level (top-level) :on fallback
-                         ;; transitions every state inherits (Spec 005).
-                         (collect-machine-edges on leaf-paths)))
+                         machine-edges))
         ;; rf2-ee38b.21 — disambiguate edges that share source/target/
         ;; event but differ by guard/action/machine-level (the vector-of-
         ;; candidates grammar routinely produces same-event/same-target
@@ -503,14 +554,14 @@
         edges (->> raw-edges
                    (reduce
                      (fn [{:keys [seen out]} e]
-                       (let [base (edge-id (:from e) (:to e) e)
+                       (let [base (edge-id (:to e) e)
                              n    (get seen base 0)
                              id   (if (zero? n) base (str base "__" n))]
                          {:seen (assoc seen base (inc n))
                           :out  (conj out
                                       (assoc e
                                         :id          id
-                                        :source      (node-id (:from e))
+                                        :source      (edge-source-id e)
                                         :target      (node-id (:to e))
                                         :from-path   (:from e)
                                         :to-path     (:to e)
@@ -518,7 +569,11 @@
                      {:seen {} :out []})
                    :out
                    vec)]
-    {:nodes        nodes
+    {;; rf2-vcnvj — the synthetic MACHINE-ROOT node (when present) leads
+     ;; the node vector so it precedes the event-node + `__out` edge that
+     ;; reference it (xyflow's parent-before-child / source-before-edge
+     ;; ordering invariant — the same reason region/compound parents lead).
+     :nodes        (vec (concat (when root-node [root-node]) nodes))
      :edges        edges
      :initial-path initial-path}))
 

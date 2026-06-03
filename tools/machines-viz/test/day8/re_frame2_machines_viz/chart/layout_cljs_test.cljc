@@ -512,22 +512,42 @@
 ;; ---- machine-level (top-level) :on fallback (rf2-ee38b.21) -------------
 
 (deftest parse-definition-machine-level-on-fallback
-  (testing "rf2-ee38b.21 — a top-level (machine-level) :on fallback
-            (Spec 005 — `:on` valid per-state AND top-level) charts one
-            edge from every leaf state, flagged :machine-level?, rather
-            than being dropped entirely"
+  (testing "rf2-vcnvj — a top-level (machine-level) :on fallback
+            (Spec 005 — `:on` valid per-state AND top-level) charts
+            EXACTLY ONE edge, sourced from the synthetic MACHINE-ROOT
+            node, flagged :machine-level? — NOT one back-edge per leaf
+            (the pre-vcnvj per-state repetition that scrambled ordering)"
     (let [m {:initial :a :on {:logout :a} :states {:a {} :b {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [nodes edges]} (layout/parse-definition m)
           logout (filter #(= :logout (:event %)) edges)]
-      (is (= 2 (count logout)) "one inherited edge per leaf state")
+      (is (= 1 (count logout)) "ONE machine-level edge, not one per leaf")
       (is (every? :machine-level? logout) "flagged machine-level")
-      (is (= #{[:a] [:b]} (set (map :from logout))) "from every leaf")
-      (is (every? #(= [:a] (:to %)) logout) "all land on the target"))))
+      (is (= #{[]} (set (map :from logout)))
+          "sourced from the root context, not a concrete leaf")
+      (is (= layout/machine-root-id (:source (first logout)))
+          "its canonical :source is the synthetic MACHINE-ROOT node id")
+      (is (every? #(= [:a] (:to %)) logout) "lands on the target")
+      ;; The synthetic root node is surfaced so the chip has a source.
+      (let [root (first (filter :machine-root? nodes))]
+        (is (some? root) "the synthetic MACHINE-ROOT node is present")
+        (is (= layout/machine-root-id (:id root)))
+        (is (= [] (:path root)))))))
+
+(deftest parse-definition-no-machine-level-on-emits-no-root-node
+  (testing "rf2-vcnvj — a machine with NO top-level :on keeps the
+            pre-vcnvj node set: no synthetic MACHINE-ROOT node leaks in"
+    (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}
+          {:keys [nodes edges]} (layout/parse-definition m)]
+      (is (empty? (filter :machine-root? nodes))
+          "no root node when there is no machine-level fallback")
+      (is (not-any? #(= layout/machine-root-id (:id %)) nodes))
+      (is (not-any? :machine-level? edges)))))
 
 (deftest parse-definition-machine-level-on-targets-top-level-state
-  (testing "rf2-ee38b.21 — a machine-level :on target is a TOP-LEVEL
-            state, resolved at the root — NOT relative to the inheriting
-            leaf's parent (a compound leaf must still reach :unauth)"
+  (testing "rf2-vcnvj — a machine-level :on target is a TOP-LEVEL state,
+            resolved at the root; the SINGLE projected edge lands on the
+            top-level target regardless of which leaf inherits it at
+            runtime"
     (let [m {:initial :authenticated
              :on      {:logout :unauth}
              :states  {:unauth        {}
@@ -536,10 +556,11 @@
                                                  :paying   {}}}}}
           {:keys [edges]} (layout/parse-definition m)
           logout (filter #(= :logout (:event %)) edges)]
+      (is (= 1 (count logout)) "ONE machine-level edge for the fallback")
       (is (every? #(= [:unauth] (:to %)) logout)
-          "every inherited :logout lands on the top-level :unauth")
-      (is (contains? (set (map :from logout)) [:authenticated :browsing])
-          "compound leaves inherit it too"))))
+          "the inherited :logout lands on the top-level :unauth")
+      (is (= layout/machine-root-id (:source (first logout)))
+          "sourced from the MACHINE-ROOT node, not a specific leaf"))))
 
 ;; ---- node-id injectivity (rf2-ee38b.21) --------------------------------
 
