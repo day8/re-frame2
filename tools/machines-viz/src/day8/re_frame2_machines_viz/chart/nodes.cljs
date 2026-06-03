@@ -319,7 +319,7 @@
                      :transition       "border-color 120ms ease, background 120ms ease"}}
        ;; Final-state QUIET double-ring (outer). The ✓ glyph is dropped.
        (when final?
-         [:div {:data-testid (str "rf-mv-chart-node-final-ring-" (.-id props))
+         [:div {:data-testid (str "rf-mv-chart-final-ring-" (.-id props))
                 :style {:position      "absolute"
                         :top           "-3px"
                         :left          "-3px"
