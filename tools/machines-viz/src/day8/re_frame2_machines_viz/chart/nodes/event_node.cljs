@@ -40,10 +40,9 @@
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [Handle pos-top pos-right pos-bottom pos-left
-                     chart-constants]]
+                     chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
-             :as tokens
-             :refer [mono-stack sans-stack]]))
+             :refer [chart-label-stack]]))
 
 (defn- variant-glyph
   "rf2-qo5xy — convention-glyph variants for the event-node header. The
@@ -88,6 +87,7 @@
   [^js props]
   (let [d           (.-data props)
         vc          (chart-constants d)
+        ct          (palette-of d)
         event-label (or (.-eventLabel d) "")
         variant     (keyword (or (.-variant d) "on"))
         after-ms    (.-afterMs d)
@@ -105,21 +105,33 @@
         header      (variant-glyph {:variant     variant
                                     :after-ms    after-ms
                                     :event-label event-label})
-        {:keys [corner-radius stroke-width stroke-width-emphasis
-                edge-label-px action-pill-height action-pill-pad-x
-                action-pill-px action-pill-radius action-pill-row-gap]} vc
+        {:keys [event-chip-min-w event-chip-min-h event-chip-pad-x
+                event-chip-pad-y event-chip-radius event-chip-px
+                event-chip-action-px stroke-width stroke-width-emphasis]} vc
         emphasised? (or focused? fired?)
         stroke-w    (if emphasised? stroke-width-emphasis stroke-width)
+        ;; rf2-az6e2 — the route chip is SUBORDINATE to states: a quiet
+        ;; neutral fill + neutral border by default. Runtime state
+        ;; (focused lens / fired-this-epoch) swaps the border to the
+        ;; runtime accent; a clickable (sim) chip gets a faint amber wash.
         stroke-col  (cond
-                      fired?    (:accent tokens/tokens)
-                      focused?  (:info tokens/tokens)
-                      :else     (tokens/with-alpha :border-default 0.7))
+                      fired?    (:edge-fired ct)
+                      focused?  (:edge-active ct)
+                      :else     (:event-chip-border ct))
         fill        (cond
-                      fired?    (tokens/with-alpha :accent 0.12)
-                      focused?  (tokens/with-alpha :info 0.10)
-                      clickable? (tokens/with-alpha :yellow 0.06)
-                      :else      (tokens/with-alpha :bg-3 0.6))]
+                      fired?    (:glow-fired ct)
+                      focused?  (:glow ct)
+                      clickable? (:sim-wash ct)
+                      :else      (:event-chip-bg ct))]
     (r/as-element
+      ;; rf2-az6e2 — route chip / card grammar. NO title bar (the bead is
+      ;; explicit: event nodes must NOT read as peer state boxes). The
+      ;; event label + guard ride the FIRST line; the action row appears
+      ;; only when an action exists; an internal / action-only transition
+      ;; (no outgoing target segment — the projector omits the `__out`
+      ;; edge) keeps a dashed border ring so it reads as "runs an action
+      ;; and hangs here". Machine-level is muted: NO loud label, only the
+      ;; `data-machine-level` attr for host introspection.
       [:div {:data-testid (str "rf-mv-chart-event-" (.-id props))
              :data-node-id (.-id props)
              :data-event-id (when event-id (str event-id))
@@ -148,78 +160,60 @@
              :style {:position       "relative"
                      :display        "inline-flex"
                      :flex-direction "column"
-                     :align-items    "center"
+                     :align-items    "flex-start"
                      :justify-content "center"
-                     :gap            "3px"
-                     :min-width      "84px"
-                     :min-height     "30px"
-                     :padding        "4px 10px"
+                     :gap            (str event-chip-pad-y "px")
+                     :min-width      (str event-chip-min-w "px")
+                     :min-height     (str event-chip-min-h "px")
+                     :padding        (str event-chip-pad-y "px "
+                                          event-chip-pad-x "px")
                      :background     fill
                      :border         (str stroke-w "px "
                                           (if internal? "dashed" "solid")
                                           " " stroke-col)
-                     :border-radius  (str (max 4 (- corner-radius 2)) "px")
-                     :font-family    sans-stack
-                     :font-size      (str edge-label-px "px")
+                     :border-radius  (str event-chip-radius "px")
+                     :font-family    chart-label-stack
+                     :font-size      (str event-chip-px "px")
                      :font-weight    (if emphasised? 600 500)
-                     :color          (:text-primary tokens/tokens)
+                     :color          (:text-secondary ct)
                      :cursor         (if clickable? "pointer" "default")
                      :user-select    "none"
                      :box-shadow     (when emphasised?
                                        (str "0 0 0 2px "
-                                            (tokens/with-alpha
-                                              (if fired? :accent :info) 0.15)))
+                                            (if fired? (:glow-fired ct) (:glow ct))))
                      :animation      (when fired?
                                        "mv-chart-transition-glow 720ms ease-out infinite")
                      :transition     "border-color 120ms ease, background 120ms ease"}}
-       ;; Header line: event name / ⌚ <ms> / ∞ + optional [guard] chip.
+       ;; First line: event name / ⌚ <ms> / ∞ + optional `IF <guard>`.
        [:span {:data-testid (str "rf-mv-chart-event-header-" (.-id props))
                :data-event-line (cond-> header
-                                  guard (str " [" guard "]"))
-               :style {:font-family mono-stack
-                       :white-space "nowrap"
-                       :line-height "1.1"}}
+                                  guard (str " IF " guard))
+               :style {:white-space "nowrap"
+                       :line-height "1.1"
+                       :color (:text-primary ct)}}
         header
         (when guard
           [:span {:data-testid (str "rf-mv-chart-event-guard-" (.-id props))
                   :data-guard guard
-                  :style {:margin-left "4px"
-                          :color (:advisory tokens/tokens)
-                          :font-family mono-stack}}
-           (str "[" guard "]")])]
-       ;; Action pill (`+ <action-name>`) — Stately graph view convention.
+                  :style {:margin-left "5px"
+                          :color (:text-tertiary ct)
+                          :font-weight 600}}
+           (str "IF " guard)])]
+       ;; Action row — appears ONLY when an action exists. Subdued bolt
+       ;; chip, subordinate to the event line.
        (when action
          [:span {:data-testid (str "rf-mv-chart-event-action-" (.-id props))
                  :data-action action
-                 :style {:display          "inline-flex"
-                         :align-items      "center"
-                         :height           (str action-pill-height "px")
-                         :padding          (str "0 " action-pill-pad-x "px")
-                         :margin-top       (str action-pill-row-gap "px")
-                         :background       (tokens/with-alpha :advisory 0.18)
-                         :border           (str "1px solid "
-                                                (tokens/with-alpha :advisory 0.6))
-                         :border-radius    (str action-pill-radius "px")
-                         :font-family      mono-stack
-                         :font-size        (str action-pill-px "px")
-                         :font-weight      500
-                         :color            (:advisory tokens/tokens)
-                         :line-height      "1"
-                         :white-space      "nowrap"}}
-          (str "+ " action)])
-       ;; Machine-level annotation — a small subscript chip so the
-       ;; operator can see at a glance that this event-handler is
-       ;; inherited from the machine's top-level :on (not declared on
-       ;; the source state).
-       (when machine-level?
-         [:span {:data-testid (str "rf-mv-chart-event-machine-level-" (.-id props))
-                 :style {:font-family sans-stack
-                         :font-size   (str (max 8 (- action-pill-px 1)) "px")
-                         :font-weight 600
-                         :color       (tokens/with-alpha :text-tertiary 0.85)
-                         :letter-spacing "0.04em"
-                         :text-transform "uppercase"}}
-          "machine-level"])
+                 :style {:display      "inline-flex"
+                         :align-items  "center"
+                         :gap          "3px"
+                         :font-size    (str event-chip-action-px "px")
+                         :font-weight  500
+                         :color        (:text-tertiary ct)
+                         :line-height  "1"
+                         :white-space  "nowrap"}}
+          [:span {:style {:opacity 0.7}} "⚡"]
+          action])
        ;; xyflow attachment points. Handles on every side so elkjs can
        ;; pick the cleanest anchor based on the routed direction.
        [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
