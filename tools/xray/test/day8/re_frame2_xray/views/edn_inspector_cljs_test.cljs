@@ -1411,6 +1411,169 @@
     (is (re-find #"data-rf-diff-op.*removed" s)
         "a row carries the removed diff-op marker")))
 
+;; =========================================================================
+;; rf2-vu42n — scattered / mid-vector removals render the genuinely-removed
+;; members struck, and the surviving-shifted members NOT struck. The fixed
+;; renderer consumes the engine's off-path `:vector-removals` + `:same-
+;; shifted` projection instead of index-aligning the raw before/after
+;; vectors via `children-of-pair`.
+;; =========================================================================
+;;
+;; Pre-fix, the vector body renderer index-aligned position-by-position:
+;; for `[:a :b :c :d] -> [:a :c]` it rendered `[ :a :c(was…) -:c -:d ]` —
+;; it struck `:c` (which SURVIVES at after-index 1) and `:d`, and never
+;; surfaced the genuinely-removed `:b`. Contiguous TAIL removals happened
+;; to line up under index alignment, so only mid / scattered removals
+;; mis-rendered. These tests drive `render-node` WITH a projection (the
+;; real diff path; the no-projection test/REPL path still falls back to
+;; `children-of-pair`), and assert which members are struck.
+
+(defn- struck-members
+  "Return the set of value strings the renderer struck through in `tree`.
+  A removed leaf renders via `gutter-row :removed`, whose OUTER span and
+  INNER body span BOTH carry `:data-rf-diff-op \"removed\"`; the outer span
+  also holds the `-` gutter glyph. We collect the text under the
+  shallowest `removed` span and strip a leading gutter glyph + whitespace
+  so the comparison is against the bare value (e.g. `\":b\"`, not `\"-:b\"`)."
+  [tree]
+  (let [out (atom #{})]
+    (letfn [(walk [node]
+              (when (vector? node)
+                (let [attrs (when (map? (second node)) (second node))]
+                  (if (= "removed" (:data-rf-diff-op attrs))
+                    (swap! out conj
+                           (-> (collect-text node)
+                               (str/replace #"^[\s\-−\+~]+" "")
+                               str/trim))
+                    (doseq [c (rest node)] (walk c))))))]
+      (walk tree))
+    @out))
+
+(defn- render-vec-diff
+  "Render `before -> after` as a vector diff THROUGH the real projection
+  path (the production renderer computes `engine/project` once at the top
+  and threads it down via `:projection`). Returns the hiccup tree."
+  [before after]
+  (ei/render-node {:value      after
+                   :before     before
+                   :diff?      true
+                   :projection (engine/project before after)
+                   :panel-id   :p :mount-id "m"
+                   :path [] :depth 0
+                   :expansion-map {}
+                   ;; default-expanded-depth high enough that the root
+                   ;; expands and the body walk runs.
+                   :opts {:default-expanded-depth 4}}))
+
+(deftest diff-vector-scattered-removal-strikes-removed-not-survivors
+  ;; Canonical rf2-vu42n repro: `[:a :b :c :d] -> [:a :c]` removes :b@1
+  ;; and :d@3; :c survives (shifted from index 2 → 1).
+  (let [before [:a :b :c :d]
+        after  [:a :c]
+        h      (render-vec-diff before after)
+        all    (collect-text h)
+        struck (struck-members h)]
+    (testing "the genuinely-removed members ARE struck"
+      (is (contains? struck ":b") ":b (removed@1) is struck")
+      (is (contains? struck ":d") ":d (removed@3) is struck"))
+    (testing "the surviving-shifted member is NOT struck"
+      (is (not (contains? struck ":c"))
+          ":c SURVIVES at after-index 1 — must not be struck")
+      (is (not (contains? struck ":a"))
+          ":a survives at index 0 — must not be struck"))
+    (testing "every member is still visible somewhere in the tree"
+      (is (re-find #":a" all))
+      (is (re-find #":b" all))
+      (is (re-find #":c" all))
+      (is (re-find #":d" all)))
+    (testing "the surviving-shifted :c carries a `(was N)` shift suffix"
+      ;; The engine's R6 shift detector reports :c's before-index for
+      ;; this edit script; the renderer surfaces it verbatim as `(was N)`.
+      ;; We only assert that SOME shift suffix renders for the survivor,
+      ;; not the exact N (that's the engine's contract, tested under
+      ;; rf2-yucxn / the engine suite) — the renderer's job is to PAINT it.
+      (is (re-find #"\(was \d+\)" all)
+          ":c is surviving-shifted → carries a (was N) shift suffix"))))
+
+(deftest diff-vector-single-mid-removal-strikes-only-the-gap
+  ;; A single mid-vector removal: `[:a :b :c] -> [:a :c]` removes :b@1.
+  ;; :c survives (shifted 2 → 1). Pre-fix this struck :c and dropped :b.
+  (let [before [:a :b :c]
+        after  [:a :c]
+        h      (render-vec-diff before after)
+        struck (struck-members h)]
+    (is (contains? struck ":b") ":b (the removed gap) is struck")
+    (is (not (contains? struck ":c"))
+        ":c survives (shifted) — must not be struck")
+    (is (not (contains? struck ":a")) ":a survives in place — not struck")))
+
+(deftest diff-vector-tail-removal-still-correct-with-projection
+  ;; Re-verify the contiguous-tail case under the projection path (it was
+  ;; the ONE case index alignment happened to get right; the projection
+  ;; walk must not regress it). `[:x :y :z] -> [:x]` removes :y@1 + :z@2.
+  (let [before [:x :y :z]
+        after  [:x]
+        h      (render-vec-diff before after)
+        struck (struck-members h)]
+    (is (contains? struck ":y") ":y (tail) is struck")
+    (is (contains? struck ":z") ":z (tail) is struck")
+    (is (not (contains? struck ":x")) ":x survives at index 0 — not struck")))
+
+(deftest diff-vector-numeric-scattered-removal
+  ;; Numeric payload, scattered removal: `[10 20 30 40 50] -> [10 30 50]`
+  ;; removes 20@1 + 40@3; 30 (2→1) and 50 (4→2) survive shifted.
+  (let [before [10 20 30 40 50]
+        after  [10 30 50]
+        h      (render-vec-diff before after)
+        struck (struck-members h)]
+    (is (contains? struck "20") "20 (removed@1) struck")
+    (is (contains? struck "40") "40 (removed@3) struck")
+    (is (not (contains? struck "30")) "30 survives (shifted 2→1) — not struck")
+    (is (not (contains? struck "50")) "50 survives (shifted 4→2) — not struck")
+    (is (not (contains? struck "10")) "10 survives in place — not struck")))
+
+(deftest sequential-diff-children-scattered-removal-shape
+  ;; The pure projection-aware child walk directly: for `[:a :b :c :d] ->
+  ;; [:a :c]` it emits before-ordered triples with the removed members at
+  ;; a synthetic key (forces `:removed` via `::missing` after-value) and
+  ;; the survivors at their AFTER index (projection chrome resolves).
+  (let [before [:a :b :c :d]
+        after  [:a :c]
+        proj   (engine/project before after)
+        pairs  (vec (ei/sequential-diff-children before after :vector [] proj))]
+    (testing "one triple per before-position (survivors + struck removals)"
+      (is (= 4 (count pairs))
+          "[:a :b :c :d] -> [:a :c]: 2 survivors + 2 removed = 4 rows"))
+    (testing "removed members carry ::missing on the AFTER side"
+      ;; :b and :d are the removed before-values; their after slot is ::missing.
+      (let [removed-after (->> pairs
+                               (filter (fn [[_ a _]] (= a ::ei/missing)))
+                               (map (fn [[_ _ b]] b))
+                               set)]
+        (is (= #{:b :d} removed-after)
+            ":b and :d are the struck (after=::missing) members")))
+    (testing "survivors keep their AFTER index as the path key"
+      (let [survivors (->> pairs
+                           (remove (fn [[_ a _]] (= a ::ei/missing)))
+                           (map (fn [[k a _]] [k a]))
+                           set)]
+        ;; :a at after-index 0, :c at after-index 1.
+        (is (= #{[0 :a] [1 :c]} survivors)
+            "survivors rendered at after-index 0 (:a) and 1 (:c)")))
+    (testing "before-order: :a, :b(removed), :c, :d(removed)"
+      (is (= [:a :b :c :d]
+             (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) pairs))
+          "rows read in before-order with deletions struck in place"))))
+
+(deftest sequential-diff-children-falls-back-without-projection
+  ;; No projection (test/REPL path) → defer to the index-aligning union
+  ;; walk so the no-removal / tail cases stay deterministic.
+  (let [before [:x :y :z]
+        after  [:x]
+        pairs  (vec (ei/sequential-diff-children before after :vector [] nil))]
+    (is (= (vec (ei/children-of-pair before after :vector)) pairs)
+        "nil projection falls back to children-of-pair")))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER

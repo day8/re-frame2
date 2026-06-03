@@ -1173,6 +1173,103 @@
 
     nil))
 
+(def ^:private removed-key-tag
+  "Path-segment tag wrapping a vector removal's before-index, so a struck-
+  through removed element gets a React `:key` distinct from the surviving
+  element now occupying that integer slot. The removal's op is forced
+  `:removed` by its `::missing` after-value (`render-leaf-with-diff`'s
+  structural override, rf2-8pfkk), so this synthetic segment is never
+  consulted for a projection op lookup — it exists purely for key + testid
+  uniqueness."
+  :rf.xray.edn-inspector/removed)
+
+(defn sequential-diff-children
+  "Projection-aware children walk for a vector / list / seq in diff mode
+  (rf2-vu42n). Returns a seq of `[child-key after-value before-value]`
+  triples — the SAME shape `children-of-pair` returns — but built by
+  CONSUMING the engine's `:vector-removals` + `:same-shifted` projection
+  rather than index-aligning the raw before/after vectors.
+
+  Why not `children-of-pair`: a vector `:-` removal has no stable after-
+  side path (survivors shift up). `children-of-pair` pairs before-index
+  `i` with after-index `i` position-by-position, so for a scattered /
+  mid-vector removal it strikes a SURVIVING-SHIFTED element (the one that
+  slid up into the vacated slot) and never surfaces the genuinely-removed
+  member. Contiguous TAIL removals happen to line up under index
+  alignment, so only mid / scattered removals mis-render — this walk
+  fixes all of them uniformly.
+
+  Reconstruction (pure, projection-driven):
+
+  - Surviving elements come from the AFTER vector at their AFTER index,
+    so the per-element op resolves correctly off the projection (`:same`
+    / `:same-shifted` / `:modified`). Their `before` slot carries the
+    element's PRIOR value (recovered via the survivor's before-index) —
+    NOT `::missing`, because `render-leaf-with-diff` treats a `::missing`
+    before slot as a structural `:added` (rf2-8pfkk), which would override
+    the projection and paint a surviving element green.
+  - Purely-added elements come from the AFTER vector at their AFTER index
+    with a `::missing` before slot (correctly forcing `:added`).
+  - Removed elements come from `:vector-removals` — each carries its true
+    `:before-index` + `:before-value`. They render struck-through with
+    the after-value `::missing` (forcing `:removed`).
+  - Order: the removed elements are spliced back into BEFORE-order
+    position relative to the survivors, so the rendered list reads as the
+    before-sequence with deletions struck IN PLACE; purely-added elements
+    append after the survivors/removals in after-order.
+
+  Falls back to `children-of-pair` when no `projection` is supplied (the
+  test / REPL path that drives `render-container` without a top-level
+  projection compute) — same answer for the no-removal case, graceful for
+  the rest. Pure; `parent-path` is this vector's absolute path.
+
+  Public so tests can probe the reconstruction without re-deriving it."
+  [before after kind parent-path projection]
+  (let [a-vec (when (sequential? after)  (vec after))
+        b-vec (when (sequential? before) (vec before))]
+    (cond
+      ;; No projection (test/REPL path) or one side absent / non-sequential
+      ;; — defer to the index-aligning union walk. With both sides present
+      ;; AND a projection we take the removal-aware reconstruction below.
+      (not (and projection a-vec b-vec))
+      (children-of-pair before after kind)
+
+      :else
+      (let [parent-path (vec parent-path)
+            removals    (vec (engine/vector-removals-at projection parent-path))
+            removed-bis (into #{} (map :before-index) removals)
+            ;; Survivors in after-order = after elements whose op is NOT
+            ;; `:added`. Each maps, in order, to a surviving before-index
+            ;; (ascending) — Editscript preserves survivor relative order.
+            added?      (fn [ai] (= :added (engine/op-at projection
+                                                         (conj parent-path ai))))
+            after-idxs  (range (count a-vec))
+            survivor-ais (vec (remove added? after-idxs))
+            added-ais    (vec (filter added? after-idxs))
+            survivor-bis (vec (remove removed-bis (range (count b-vec))))
+            ;; before-index → surviving after-index (1:1 in order).
+            bi->ai      (zipmap survivor-bis survivor-ais)
+            removal-by-bi (zipmap (map :before-index removals) removals)
+            ;; Walk BEFORE order: removed elements struck in place, survivors
+            ;; rendered at their AFTER index (projection chrome resolves).
+            ;; A survivor's `before` slot carries its PRIOR value (`nth
+            ;; b-vec bi`) — never `::missing`, which `render-leaf-with-diff`
+            ;; would read as a structural `:added`.
+            before-order
+            (mapcat
+              (fn [bi]
+                (if (contains? removed-bis bi)
+                  (let [{:keys [before-value]} (removal-by-bi bi)]
+                    [[[removed-key-tag bi] ::missing before-value]])
+                  (when-let [ai (bi->ai bi)]
+                    [[ai (nth a-vec ai) (nth b-vec bi)]])))
+              (range (count b-vec)))
+            ;; Purely-added elements append after the before-ordered run;
+            ;; `::missing` before slot forces the `:added` render path.
+            added-rows
+            (map (fn [ai] [ai (nth a-vec ai) ::missing]) added-ais)]
+        (concat before-order added-rows)))))
+
 (defn- diff-pair-count
   "Cheap union-aware child count for diff mode. Returns the number of
   rows the union walk will emit so the header logic (`empty?` /
@@ -1852,14 +1949,29 @@
         toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
                                  (boolean (and expanded? (not depth-capped?))))
         ;; rf2-zuh1e — in diff mode the body walks the UNION of BEFORE +
-        ;; AFTER children via `children-of-pair`. Plain browse keeps the
-        ;; original AFTER-only `children-of` walk. The pair-list shape
-        ;; differs (`[k v]` for browse vs `[k v b]` for diff) so the
-        ;; downstream child-pair construction below normalises into a
-        ;; uniform `[k v b]` triple for the recursive render call.
+        ;; AFTER children. Plain browse keeps the original AFTER-only
+        ;; `children-of` walk. The pair-list shape differs (`[k v]` for
+        ;; browse vs `[k v b]` for diff) so the downstream child-pair
+        ;; construction below normalises into a uniform `[k v b]` triple
+        ;; for the recursive render call.
+        ;;
+        ;; rf2-vu42n — vectors / lists / seqs consume the engine's off-path
+        ;; `:vector-removals` + `:same-shifted` projection via
+        ;; `sequential-diff-children` rather than index-aligning the raw
+        ;; before/after vectors. Index alignment (the old `children-of-pair`
+        ;; vector branch) mis-attributed the strike to a surviving-shifted
+        ;; element and dropped the genuinely-removed one for scattered /
+        ;; mid-vector removals; the projection-driven walk strikes the
+        ;; actually-removed members in before-order, in place. Maps / sets /
+        ;; records / map-entries keep the `children-of-pair` union walk
+        ;; (their slots are key/member-addressed — no positional shift).
         children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
-                        (if diff?
+                        (cond
+                          (and diff? (#{:vector :list :seq} kind))
+                          (sequential-diff-children before value kind path projection)
+                          diff?
                           (children-of-pair before value kind)
+                          :else
                           (children-of value)))
         ;; rf2-zl4rs — zoom-in is a node-local gesture (double-click /
         ;; Enter) on every non-empty container at a NON-ROOT relative
