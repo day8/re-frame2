@@ -1,7 +1,7 @@
 # CP-5 Machine Guide (appendix to Construction Prompts CP-5)
 
 > **Type:** Construction Prompts
-> Detailed machine-construction guidance that supports [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine). The CP-5 prompt itself is the build-facing template; this appendix carries the deeper material an AI agent needs when the user asks for non-trivial guards, parallel-region substitutes, history-state substitutes, the v1 grammar subset, or the inline-fn vs named-action escape-hatch test.
+> Detailed machine-construction guidance that supports [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine). The CP-5 prompt itself is the build-facing template; this appendix carries the deeper material an AI agent needs when the user asks for non-trivial guards, the N-machines-per-region pattern for conceptually-independent features, the v1 grammar subset, or the inline-fn vs named-action escape-hatch test.
 
 This file is intentionally **kept separate** from Construction-Prompts.md so that CP-5 reads as a parallel sibling to CP-1/CP-2/CP-3/CP-4 rather than a doc-within-a-doc. Read CP-5 first; consult this file when the prompt's checklist sends you here.
 
@@ -98,7 +98,7 @@ Hierarchical compound states, eventless `:always`, delayed `:after`, declarative
 
 Per (Nine States Stage 2), **parallel regions** are now a **first-class capability** (`:fsm/parallel-regions`; see [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions)). The N-machines-per-region pattern documented in this section remains valid and is the right answer when the regions are **conceptually independent features** that don't share data — multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event. Parallel regions inside one machine (`:type :parallel`) are the right answer when the regions are **orthogonal axes of one feature** that share a single `:data` blob — one form with three independent axes (data / form / mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Both patterns ship together; choose by domain shape.
 
-The **history-state** substitute (snapshot-as-value capture exploiting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility)) below remains the documented forward path for history-state needs — history states are still post-v1.
+**History states** are likewise a first-class capability now (`:fsm/history`; see [Spec 005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target)) — declare a `:type :history` pseudo-state under the compound and the runtime records and restores its last-active configuration. There is no substitute pattern to reach for: "remember where the user was" is one node in the transition table, not hand-rolled capture/restore wiring. The first-class grammar is summarised in §History states below.
 
 ### Parallel regions → separate machines per region (independent-features case)
 
@@ -178,58 +178,32 @@ What this gives:
 
 The cost: a coordinating event (`:media/play`) is one extra registration. In exchange the two regions are independently testable, independently inspectable, and independently rolled back. The substrate's machinery does the heavy lifting at no extra cost.
 
-### History states → snapshot-as-value capture
+## History states — first-class `:type :history`
 
-xstate's history states re-enter a compound state at *the substate that was active when it was last left*. The substrate concern is "remember where the user was."
-
-xstate needs history states because its runtime lacks first-class snapshot-as-value semantics — there's no general way to copy a machine's current state and restore it later. re-frame2 has snapshot-as-value as a foundation: every machine's snapshot at `[:rf/runtime :machines :snapshots <id>]` is a value, and copying / restoring values is what re-frame2's persistent data structures do best. The substitute is **capture on leave, restore on re-enter** — a two-line action pattern over the existing snapshot.
-
-#### Worked sketch — remember-last-substate via snapshot capture
+xstate's history states re-enter a compound state at *the substate that was active when it was last left*. re-frame2 ships this directly: a `:type :history` pseudo-state declared under a compound's `:states` is a transition target the runtime resolves to that compound's recorded (or default) configuration. There is no capture/restore code to hand-roll — the recording rides the snapshot for free (it lives in the snapshot's reserved `:rf/history` slot), so undo, time-travel, persistence, and SSR hydration all extend to it without extra machinery.
 
 ```clojure
-;; The flow has a :browsing parent that, when re-entered, should resume at
-;; the substate the user was on (e.g., :browsing.cart vs :browsing.search).
-;; The two helper actions are declared in the machine's :actions map:
-
-(rf/make-machine-handler
-  {:actions
-   {:capture-browsing-position
-    ;; Stash the current browsing-state into :data so we can restore it later.
-    ;; every machine callback receives a single
-    ;; context-map with :data / :event / :state / :meta — destructure the
-    ;; keys you need.
-    (fn [{:keys [state]}]
-      {:data {:last-browsing-state state}})                 ;; the FSM keyword
-
-    :restore-browsing-position
-    ;; Re-enter at the previously-captured state.
-    (fn [{:keys [data]}]
-      {:fx [[:raise [:flow/jump-to (:last-browsing-state data)]]]})}
-   :states
-   {:browsing
-    {:exit  :capture-browsing-position
-     :entry :restore-browsing-position
-     :states {...}}}})
-
-;; The :raise back into the same machine fires before the snapshot commits;
-;; the snapshot lands at the restored state in one externally-observable step.
+;; A :player compound that, when re-entered via :play, resumes the substate
+;; it was on when it last paused/stopped — not :playing's :initial.
+{:player
+ {:initial :stopped
+  :states {:stopped {:on {:play [:player :hist]}}        ;; target the pseudo-state to restore
+           :hist    {:type :history
+                     :deep? true                          ;; omit => SHALLOW (restore direct child, then cascade its :initial)
+                     :default-target :playing}            ;; omit => falls back to :player's :initial when nothing recorded yet
+           :playing {:initial :at-start
+                     :states {:at-start {:on {:seek :mid-track}}
+                              :mid-track {}}}
+           :paused  {:on {:resume [:player :playing]}}}}}
 ```
 
-What this gives:
+The pseudo-state carries exactly three keys: `:type :history`, `:deep?` (boolean; missing reads as shallow), and `:default-target` (used the first time the compound is entered, before anything is recorded; missing falls back to the compound's `:initial`). It is never occupied — a transition *to* it resolves to a real leaf, and that resolved leaf is what the snapshot's `:state` records.
 
-- **No new substrate.** The captured state is just a key in `:data`; the restore is a `:raise` (per [Spec 005 §Action effect map](005-StateMachines.md#action-effect-map--data-fx)).
-- **Inspectable.** `(:last-browsing-state data)` is visible in the machine's snapshot at all times. Visualisers see "the user was last at `:browsing.cart`" as a normal data field, not as opaque history-state plumbing.
-- **Undo / time-travel free.** The captured value rides along with the rest of the snapshot; reverting `app-db` reverts the captured value too.
-- **Per-region independent.** Combine with the parallel-region substitute above and each region captures and restores its own position independently — no cross-region history-state coupling.
+- **Shallow vs deep.** Shallow restores the recorded *direct child* of the compound, then cascades that child's own `:initial` chain. Deep restores the *full recorded leaf path* beneath the compound. Default is shallow.
+- **Per-region under `:type :parallel`.** Each region records and restores its own history independently; the `:rf/history` keys are region-qualified, so sibling regions never collide.
+- **Registration constraints.** A `:type :history` node MUST live inside a compound's `:states`, declares only those three keys (any of `:on` / `:entry` / `:exit` / `:states` / … is a registration error), and a compound declares at most one.
 
-The cost: explicit code for capture / restore, instead of a one-keyword `{:type :history}` in the transition table. In exchange the captured value is *visible* — a data field rather than xstate-runtime-internal state — and re-frame2's existing snapshot-as-value infrastructure does the rest. The trade is consistent with the spec's broader bias toward "data, in app-db, inspectable" over "runtime mechanism, opaque to users."
-
-#### Why xstate needs history but re-frame2 doesn't
-
-- **xstate** treats machine state as runtime objects — `ActorRef` instances with mailboxes and live observers. There is no general "value of this machine right now" you can copy and restore later, so the runtime ships dedicated history-state machinery.
-- **re-frame2** treats machine state as a value at `[:rf/runtime :machines :snapshots <id>]`. Every read is `(get-in db [:rf/runtime :machines :snapshots id])`; every write is `(assoc-in db [:rf/runtime :machines :snapshots id] new-snap)`. Capturing and restoring are *natural ops* on the existing data structure — no dedicated mechanism needed.
-
-The substitute is not a workaround; it is the same answer history states give, expressed in re-frame2's existing primitives. Goal 3 — Frame state revertibility — is what makes this affordable.
+See [Spec 005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target) for the full recording / restoring semantics, the `:rf/history` slot shape, the dangling-recorded-path policy after hot reload, and per-region composition. The capability flag is `:fsm/history`; the v1 CLJS reference claims it.
 
 ## Lessons from xstate (deliberate divergences)
 

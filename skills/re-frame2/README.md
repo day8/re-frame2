@@ -28,7 +28,7 @@ skills/re-frame2/
 │   └── plugin.json                   Claude Code plugin metadata.
 ├── references/
 │   ├── fundamentals/                 events, fx, cofx, subs, flows, frames, schemas, event-state-cycle, project-structure.
-│   ├── state-machines/               reg-machine, regions, tags, spawn, cancellation.
+│   ├── state-machines/               reg-machine, regions, tags, spawn, history, cancellation.
 │   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, xray.
 │   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring.
 ├── patterns/                         One leaf per canonical pattern (9 leaves).

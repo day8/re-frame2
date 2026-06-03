@@ -93,7 +93,7 @@ skills/re-frame2/
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
 │   ├── fundamentals/            (events, fx, cofx, subs, flows, schemas, frames, event-state-cycle, project-structure)
-│   ├── state-machines/          (reg-machine, regions, tags, spawn, cancellation)
+│   ├── state-machines/          (reg-machine, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
 │   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring)
 ├── patterns/                    (one leaf per canonical pattern)

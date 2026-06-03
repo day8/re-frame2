@@ -1780,6 +1780,16 @@ Pre-release framing: the snapshot's `:state` slot has a new third arm (Nine Stat
 
 **Cross-references.** [Spec 005 §Snapshot shape](../../spec/005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](../../spec/Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive) above for the registration-side change.
 
+### M-66. History states shipped — first-class `:type :history` pseudo-states (additive)
+
+Pre-release framing: state-machine declarations may now declare a `:type :history` **pseudo-state** under a compound state's `:states` (carrying `:deep?` and `:default-target`). A transition *to* it re-enters the compound at its last-active configuration instead of its `:initial`; the runtime records that configuration on the compound's exit cascade into a reserved `:rf/history` slot inside the snapshot. Shallow by default (restore the recorded direct child, then cascade its `:initial`); `:deep? true` restores the full recorded leaf path. Under `:type :parallel` history is per-region (the `:rf/history` keys are region-qualified).
+
+**Direction.** Additive — no user-side change required. The capability is `:fsm/history`, claimed by the v1 reference. xstate codebases mapping a `type: 'history'` node land directly on `:type :history` now — there is **no substitute pattern** to reach for (the earlier snapshot-as-value capture/restore guidance is withdrawn). The `:rf/state-node` schema gains the optional history-pseudo-state arm and `:rf/machine-snapshot` gains the optional, framework-owned `:rf/history` slot; both are absent for machines that declare no history pseudo-state, so pre-feature machines are unaffected. The slot is EDN-clean (vectors + keywords), so it rides `pr-str`/`read-string`, persistence, SSR hydration, and epoch time-travel exactly as the rest of the snapshot does.
+
+**Why now.** History is the parallel sibling to `:type :parallel` ([M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive)) — both were once on the post-v1 substitute list, both are now first-class capabilities claimed by the v1 reference. "Resume where the user was" (media player mid-track, a wizard step, a tab's inner position) is one declarative node rather than per-compound hand-rolled capture/restore wiring.
+
+**Cross-references.** [Spec 005 §History states](../../spec/005-StateMachines.md#history-states-type-history--shallow--deep--default-target) for the full grammar + recording/restoring semantics; [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](../../spec/Spec-Schemas.md#rfmachine-snapshot) for the schema extensions; [Spec 005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) for the `:fsm/history` row.
+
 ### M-50. `with-overrides` macro renamed to `with-fx-overrides`
 
 **Type A** (mechanical, name-rename).
