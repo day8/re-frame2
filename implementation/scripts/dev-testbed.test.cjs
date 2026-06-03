@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * Tests for `dev-testbed.cjs` group-alias resolution + URL printing
- * (rf2-jooy3).
+ * Tests for `dev-testbed.cjs` arg resolution + URL printing.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
  * `_path-policy.test.cjs`. Each test logs PASS / FAIL; the process exits
@@ -10,14 +9,17 @@
  *
  * Requiring `dev-testbed.cjs` does NOT spawn shadow-cljs: the CLI body is
  * guarded by `require.main === module`, so importing it here only loads
- * the pure `resolveArgs` / `urlsForBuild` helpers + the GROUPS / DEV_HTTP
- * maps.
+ * the pure `resolveArgs` / `urlsForBuild` helpers + the DEV_HTTP map.
+ *
+ * Group aliases (xray / stories / epochs / all) were removed (rf2-trlj7):
+ * `npm run dev` takes EXPLICIT build-ids only. `resolveArgs` now just
+ * passes tokens through, de-duplicating build-ids in first-seen order.
  */
 
 'use strict';
 
 const assert = require('assert');
-const { GROUPS, DEV_HTTP, resolveArgs, urlsForBuild } = require('./dev-testbed.cjs');
+const { DEV_HTTP, resolveArgs, urlsForBuild } = require('./dev-testbed.cjs');
 
 let failed = 0;
 
@@ -32,77 +34,35 @@ function it(label, f) {
   }
 }
 
-console.log('dev-testbed group-alias tests (rf2-jooy3)');
+console.log('dev-testbed arg-resolution tests (rf2-trlj7)');
 
-it('a group name expands to its build-ids', () => {
-  assert.deepStrictEqual(resolveArgs(['xray']), [
-    ':examples/standard-epochs',
-    ':examples/routes-epochs',
-    ':examples/machine-epochs',
-    ':examples/edn-inspector',
-    ':examples/two-frame-isolation',
-    ':testbeds/panel-gallery',
-  ]);
-  assert.deepStrictEqual(resolveArgs(['stories']), [
-    ':examples/nine-states-with-stories',
-    ':examples/login-with-stories',
-    ':examples/counter-with-stories',
-    ':examples/login-form',
-  ]);
-});
-
-it('the epochs group is the standard/routes/machine trio only', () => {
-  assert.deepStrictEqual(resolveArgs(['epochs']), [
-    ':examples/standard-epochs',
-    ':examples/routes-epochs',
-    ':examples/machine-epochs',
-  ]);
-});
-
-it('the all group is xray + stories, deduped', () => {
-  const expected = [...GROUPS.xray, ...GROUPS.stories];
-  assert.deepStrictEqual(resolveArgs(['all']), expected);
-  // No duplicates survive.
-  assert.strictEqual(new Set(resolveArgs(['all'])).size, resolveArgs(['all']).length);
-});
-
-it('an unknown arg passes through unchanged (back-compat)', () => {
+it('a single explicit build-id passes through unchanged', () => {
   assert.deepStrictEqual(resolveArgs([':examples/standard-epochs']), [
     ':examples/standard-epochs',
   ]);
-  // Extra shadow-cljs flags pass straight through.
+});
+
+it('several explicit build-ids pass through in order', () => {
+  assert.deepStrictEqual(
+    resolveArgs([':examples/standard-epochs', ':examples/routes-epochs']),
+    [':examples/standard-epochs', ':examples/routes-epochs'],
+  );
+});
+
+it('extra shadow-cljs flags pass straight through', () => {
   assert.deepStrictEqual(resolveArgs([':testbeds/panel-gallery', '--verbose']), [
     ':testbeds/panel-gallery',
     '--verbose',
   ]);
 });
 
-it('mixing a group with an explicit build-id works and dedups', () => {
-  // login-form is already in the stories group; the explicit repeat is
-  // dropped, first-seen order preserved.
-  assert.deepStrictEqual(resolveArgs(['stories', ':examples/login-form']), [
-    ':examples/nine-states-with-stories',
-    ':examples/login-with-stories',
-    ':examples/counter-with-stories',
-    ':examples/login-form',
-  ]);
-  // A NOT-yet-present build-id appended after a group is kept, in order.
-  assert.deepStrictEqual(resolveArgs(['stories', ':examples/standard-epochs']), [
-    ':examples/nine-states-with-stories',
-    ':examples/login-with-stories',
-    ':examples/counter-with-stories',
-    ':examples/login-form',
-    ':examples/standard-epochs',
-  ]);
-});
-
-it('preserves first-seen order across two groups (all dedups overlap)', () => {
-  assert.deepStrictEqual(resolveArgs(['xray', 'stories']), resolveArgs(['all']));
-  // Stories-first then xray keeps stories ahead of xray.
-  assert.deepStrictEqual(resolveArgs(['stories', 'xray']), [
-    ...GROUPS.stories,
-    ...GROUPS.xray,
-  ]);
+it('a removed group name is NOT expanded — it passes through as a literal', () => {
+  // Post-removal: `xray` is just a token. It reaches shadow-cljs as an
+  // unknown build-id (which shadow-cljs reports), never a 6-build expansion.
+  assert.deepStrictEqual(resolveArgs(['xray']), ['xray']);
+  assert.deepStrictEqual(resolveArgs(['stories']), ['stories']);
+  assert.deepStrictEqual(resolveArgs(['all']), ['all']);
+  assert.deepStrictEqual(resolveArgs(['epochs']), ['epochs']);
 });
 
 it('duplicate explicit build-ids are deduped, order preserved', () => {
@@ -110,24 +70,21 @@ it('duplicate explicit build-ids are deduped, order preserved', () => {
     resolveArgs([':examples/standard-epochs', ':examples/standard-epochs']),
     [':examples/standard-epochs'],
   );
+  assert.deepStrictEqual(
+    resolveArgs([
+      ':examples/login-form',
+      ':examples/standard-epochs',
+      ':examples/login-form',
+    ]),
+    [':examples/login-form', ':examples/standard-epochs'],
+  );
 });
 
 it('non-build flags are NOT deduped (passed verbatim)', () => {
-  assert.deepStrictEqual(resolveArgs(['xray', '--verbose', '--verbose']), [
-    ...GROUPS.xray,
-    '--verbose',
-    '--verbose',
-  ]);
-});
-
-it('every group build-id has a dev-http port entry', () => {
-  const all = new Set(Object.values(GROUPS).flat());
-  for (const build of all) {
-    assert.ok(
-      Object.prototype.hasOwnProperty.call(DEV_HTTP, build),
-      `${build} should have a DEV_HTTP entry`,
-    );
-  }
+  assert.deepStrictEqual(
+    resolveArgs([':testbeds/panel-gallery', '--verbose', '--verbose']),
+    [':testbeds/panel-gallery', '--verbose', '--verbose'],
+  );
 });
 
 it('urlsForBuild prints the live URL for a plain build', () => {
@@ -153,6 +110,12 @@ it('urlsForBuild prints the live + /#/stories URLs for a Story build', () => {
 it('urlsForBuild returns [] for a build with no dev-http port', () => {
   assert.deepStrictEqual(urlsForBuild(':examples/counter'), []);
   assert.deepStrictEqual(urlsForBuild('--verbose'), []);
+});
+
+it('every DEV_HTTP build-id is a colon-prefixed build coord', () => {
+  for (const build of Object.keys(DEV_HTTP)) {
+    assert.ok(build.startsWith(':'), `${build} should be a :build coord`);
+  }
 });
 
 if (failed > 0) {

@@ -16,8 +16,6 @@
   },
   "scripts": {
     "dev": "node scripts/dev-testbed.cjs",
-    "dev:xray": "node scripts/dev-testbed.cjs xray",
-    "dev:stories": "node scripts/dev-testbed.cjs stories",
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
     "test:security": "shadow-cljs compile node-test-security && node out/node-test-security.js",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * `dev` — cross-platform testbed dev launcher (rf2-5dphw; group
- * aliases + URL discoverability per rf2-jooy3).
+ * `dev` — cross-platform testbed dev launcher (rf2-5dphw).
  *
  * Resolves the repo root from THIS script's own location (via node's
  * `path` module, which behaves identically on Windows / macOS / Linux),
@@ -18,28 +17,29 @@
  * therefore works on a fresh clone at any path, on any OS, with no
  * `?project-root=` override needed.
  *
- * GROUP ALIASES (rf2-jooy3). A single CLI arg matching a curated group
- * name expands to that group's build-ids, so "watch the whole Xray
- * surface" or "watch all the Story showcases" is one short command:
- *
- *   npm run dev -- xray       # the 5 Xray driving surfaces
- *   npm run dev -- stories    # the 4 Story showcases
- *   npm run dev -- epochs     # the standard / routes / machine epochs trio
- *   npm run dev -- all        # xray + stories
- *
- * Anything that is NOT a group name passes through UNCHANGED, so explicit
- * build-ids and extra `shadow-cljs watch` flags keep working exactly as
- * before, and groups may be mixed with explicit build-ids / flags:
+ * EXPLICIT BUILD-IDS ONLY (rf2-trlj7). The launcher takes one or more
+ * explicit shadow-cljs build-ids — name the build(s) you actually want to
+ * watch:
  *
  *   npm run dev -- :examples/standard-epochs
  *   npm run dev -- :testbeds/panel-gallery
- *   npm run dev -- stories :examples/standard-epochs
- *   npm run dev -- xray --verbose
+ *   npm run dev -- :examples/standard-epochs :examples/routes-epochs
+ *   npm run dev -- :examples/login-form --verbose
  *
- * After expansion the build list is de-duplicated while PRESERVING first-
- * seen order (so `dev -- stories :examples/login-form` watches each build
- * once). Non-build flags (anything not starting with `:`) pass through in
- * place and are never treated as builds for URL printing.
+ * Group aliases (`xray` / `stories` / `epochs` / `all`) used to expand a
+ * single short name to a whole surface, but a group fired SIX builds into
+ * a single `shadow-cljs watch`, and six concurrent Closure externs-
+ * prebuilds raced on the shared externs.zip — intermittent build failures
+ * ("Exception parsing externs.zip", "this.contents is null"). They were
+ * removed (Mike-ruled 2026-06-03): name explicit build-ids so nobody
+ * accidentally fires a mass-parallel compile. Watch a handful at once by
+ * listing them — keep the count modest to avoid the race.
+ *
+ * Build-ids and extra `shadow-cljs watch` flags pass through unchanged.
+ * Duplicate build-ids are de-duplicated while PRESERVING first-seen order
+ * (so `dev -- :examples/login-form :examples/login-form` watches it once).
+ * Non-build flags (anything not starting with `:`) pass through in place
+ * and are never treated as builds for URL printing.
  *
  * Launching `npx shadow-cljs watch ...` directly still works — the env
  * var is just unset, so the helper falls back to the `?project-root=`
@@ -61,11 +61,11 @@
  * just elements of the args array — they pass through unescaped and
  * unconcatenated, exactly as before.
  *
- * URL DISCOVERABILITY (rf2-jooy3). For every watched build that has a
- * `:dev-http` port, the launcher prints `http://localhost:<port>/` on
- * start (Story builds also print the `/#/stories` shell URL) so "how do
- * I see them" is answered before the compile even finishes. The
- * build->port map below is kept in sync with the `:dev-http` map in
+ * URL DISCOVERABILITY. For every watched build that has a `:dev-http`
+ * port, the launcher prints `http://localhost:<port>/` on start (Story
+ * builds also print the `/#/stories` shell URL) so "how do I see them" is
+ * answered before the compile even finishes. The build->port map below is
+ * kept in sync with the `:dev-http` map in
  * `implementation/shadow-cljs.edn` (READ-only here — shadow-cljs.edn is
  * a hot-zone file).
  */
@@ -74,45 +74,6 @@
 
 const { spawn } = require('child_process');
 const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
-
-// ---------------------------------------------------------------------------
-// Curated group aliases (rf2-jooy3). group-name -> [build-id, ...].
-// Build-ids confirmed against implementation/shadow-cljs.edn :builds.
-// ---------------------------------------------------------------------------
-
-// The six Xray driving surfaces (the _epochs trio + the edn-inspector
-// widget driver + the two-frame isolation surface + the panel gallery).
-const XRAY_BUILDS = [
-  ':examples/standard-epochs',
-  ':examples/routes-epochs',
-  ':examples/machine-epochs',
-  ':examples/edn-inspector',
-  ':examples/two-frame-isolation',
-  ':testbeds/panel-gallery',
-];
-
-// The _epochs trio only (standard / routes / machine).
-const EPOCHS_BUILDS = [
-  ':examples/standard-epochs',
-  ':examples/routes-epochs',
-  ':examples/machine-epochs',
-];
-
-// The four Story showcases (rf2-xz4zn wired their :dev-http ports).
-const STORIES_BUILDS = [
-  ':examples/nine-states-with-stories',
-  ':examples/login-with-stories',
-  ':examples/counter-with-stories',
-  ':examples/login-form',
-];
-
-const GROUPS = {
-  xray: XRAY_BUILDS,
-  stories: STORIES_BUILDS,
-  epochs: EPOCHS_BUILDS,
-  // `all` = xray + stories (deduped in the resolver below).
-  all: [...XRAY_BUILDS, ...STORIES_BUILDS],
-};
 
 // ===========================================================================
 // OWNED-RANGE PORT MAP (rf2-ot0lv). Single source of truth for who-owns-
@@ -164,32 +125,24 @@ const DEV_HTTP = {
 };
 
 /**
- * Expand group aliases in `argv`, de-duplicating builds while preserving
- * first-seen order. Any token that is not a known group name passes
- * through unchanged (explicit build-ids AND extra shadow-cljs flags),
- * but duplicate build-ids (tokens starting with `:`) are dropped. Flags
- * and other non-build tokens are passed through verbatim (never deduped,
- * so e.g. a repeated `--verbose` is the caller's call to make).
+ * De-duplicate build-ids in `argv` while preserving first-seen order.
+ * Tokens pass through unchanged (explicit build-ids AND extra shadow-cljs
+ * flags), but duplicate build-ids (tokens starting with `:`) are dropped.
+ * Flags and other non-build tokens are passed through verbatim (never
+ * deduped, so e.g. a repeated `--verbose` is the caller's call to make).
  *
  * @param {string[]} argv  the raw CLI args (after `node script.cjs`).
- * @returns {string[]}     the expanded, order-preserving, deduped args.
+ * @returns {string[]}     the order-preserving, build-deduped args.
  */
 function resolveArgs(argv) {
   const out = [];
   const seenBuilds = new Set();
-  const push = (token) => {
+  for (const token of argv) {
     if (token.startsWith(':')) {
-      if (seenBuilds.has(token)) return;
+      if (seenBuilds.has(token)) continue;
       seenBuilds.add(token);
     }
     out.push(token);
-  };
-  for (const token of argv) {
-    if (Object.prototype.hasOwnProperty.call(GROUPS, token)) {
-      for (const build of GROUPS[token]) push(build);
-    } else {
-      push(token);
-    }
   }
   return out;
 }
@@ -209,7 +162,7 @@ function urlsForBuild(build) {
   return info.story ? [base, `${base}#/stories`] : [base];
 }
 
-module.exports = { GROUPS, DEV_HTTP, resolveArgs, urlsForBuild };
+module.exports = { DEV_HTTP, resolveArgs, urlsForBuild };
 
 // ---------------------------------------------------------------------------
 // CLI entry-point (skipped when this module is require()'d by a test).
@@ -217,14 +170,12 @@ module.exports = { GROUPS, DEV_HTTP, resolveArgs, urlsForBuild };
 if (require.main === module) {
   const rawArgs = process.argv.slice(2);
   if (rawArgs.length === 0) {
-    const groupList = Object.keys(GROUPS).join(' | ');
     console.error(
-      'Usage: npm run dev -- <group | build> [<build>...] [shadow-cljs flags]\n' +
-        `  groups: ${groupList}\n` +
-        '  e.g. npm run dev -- xray\n' +
-        '       npm run dev -- stories\n' +
-        '       npm run dev -- :examples/standard-epochs\n' +
-        '       npm run dev -- stories :examples/standard-epochs',
+      'Usage: npm run dev -- <build-id> [<build-id>...] [shadow-cljs flags]\n' +
+        '  e.g. npm run dev -- :examples/standard-epochs\n' +
+        '       npm run dev -- :testbeds/panel-gallery\n' +
+        '       npm run dev -- :examples/standard-epochs :examples/routes-epochs\n' +
+        '       npm run dev -- :examples/login-form --verbose',
     );
     process.exit(1);
   }
