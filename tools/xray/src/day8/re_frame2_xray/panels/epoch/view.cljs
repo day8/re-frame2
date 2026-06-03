@@ -2628,17 +2628,21 @@
 ;; ` for <state> ` then the action name. `for` is a muted connective; the
 ;; state renders code-formatted (it may be a keyword OR a path vector /
 ;; region→state map). Elides cleanly when no state was stamped.
-(defn- cascade-action-for-state-clause
-  "Render the ` for <state> ` clause that follows the merged action badge
-  (rf2-2hj0h item 6). `<state>` is `format/cascade-action-for-state` — the
-  exited state for an exit-phase action, the entered state for an
-  entry-phase action. Returns nil (renders nothing) when no state was
-  stamped on the row, so the header falls back to `[<PHASE> ACTION]
-  <action-name>` with no dangling `for`."
-  [row]
-  (when-let [state (fmt/cascade-action-for-state row)]
-    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-for-state-"
-                              (:step row))
+;;
+;; rf2-h710p item B — the SAME clause shape now also fronts the GUARD row's
+;; verb (`[GUARD] for <state> <guard-name>`); the clause is kind-agnostic,
+;; rendering a resolved `<state>` value the caller picks per kind
+;; (`cascade-action-for-state` / `cascade-guard-for-state`).
+(defn- cascade-for-state-clause
+  "Render the ` for <state> ` clause that fronts a cascade row's verb
+  (rf2-2hj0h item 6 + rf2-h710p item B). `state` is the resolved
+  belongs-to / gated state (caller-picked per kind). Returns nil (renders
+  nothing) for a nil `state`, so the header falls back to the bare badge +
+  verb with no dangling `for`. `step` keys the testid so per-row selectors
+  resolve."
+  [step state]
+  (when (some? state)
+    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-for-state-" step)
             :style cascade-action-for-state-style}
      [:span {:style orientation-connective-style} "for"]
      [:span {:style cascade-action-for-state-value-style}
@@ -3180,21 +3184,38 @@
       (if (= :action kind)
         (cascade-action-pill phase)
         (cascade-kind-pill kind))
-      ;; rf2-2hj0h item 6 — ` for <state> ` after the merged action badge.
+      ;; rf2-2hj0h item 6 + rf2-h710p item B — ` for <state> ` fronts the
+      ;; verb on `:action` (the state the action belongs to) AND `:guard`
+      ;; rows (the state whose transition the guard gates), reading the
+      ;; kind-specific belongs-to/gated state. The bare `[GUARD]` pill no
+      ;; longer needs the redundant "guard" verb word (dropped in
+      ;; `format/cascade-row-label`) — the clause + guard-id carry it.
       (when (= :action kind)
-        (cascade-action-for-state-clause row))
+        (cascade-for-state-clause step (fmt/cascade-action-for-state row)))
+      (when (= :guard kind)
+        (cascade-for-state-clause step (fmt/cascade-guard-for-state row)))
       (cascade-row-verb-link row coord verb)
+      ;; rf2-h710p item C — the GUARD outcome (pass/fail/threw) renders
+      ;; INLINE, straight after the guard name + its click-to-source glyph
+      ;; (`[GUARD] for :open :may-close? ↗ pass`), NOT right-aligned. The
+      ;; guard pass/fail is MEANINGFUL (it decides the branch — distinct from
+      ;; the rf2-2hj0h item-7 ACTION ok-tick, which was removed); keeping it
+      ;; inline puts the verdict beside the predicate that produced it.
+      (when (and (= :guard kind) outcome-lbl)
+        (cascade-outcome-chip outcome outcome-lbl))
       ;; rf2-it4vt — the `[START]` row's CAUSE tag (explicit / lazy /
       ;; spawned) rides right after the verb. The `lazy` cause is the
       ;; ordering-smell flag (warning tone).
       (when (= :start kind)
         (cascade-start-cause-chip cause))
-      ;; Right-aligned: duration + outcome chip
+      ;; Right-aligned: duration + (non-guard) outcome chip
       [:span {:style cascade-row-right-style}
        (duration-chip duration-ms)
        (cascade-outcome-chip
          (cond
-           (= :guard kind)      outcome
+           ;; rf2-h710p item C — the GUARD outcome moved INLINE (above), so it
+           ;; is no longer painted in the right-aligned slot.
+           (= :guard kind)      nil
            ;; rf2-2hj0h item 7 — an ACTION row carries NO outcome ok-tick.
            ;; SUCCESS is clean (no `✓ ok` chip — the prior tick was redundant
            ;; chrome in the normal case); FAILURE is the EXCEPTION BOX below
@@ -3209,8 +3230,7 @@
            ;; tell the whole story; the prior "ignored" chip was a third
            ;; restatement of the same fact.
            :else                nil)
-         (when (or (= :transition kind)
-                   (and (= :guard kind) outcome-lbl))
+         (when (= :transition kind)
            outcome-lbl))]]
      ;; Source code body (always visible per rf2-u69j7) — actions + guards
      ;; render their source (or the rf2-iwy0c machine-def link when none

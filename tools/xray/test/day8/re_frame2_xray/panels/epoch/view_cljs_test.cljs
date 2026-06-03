@@ -3470,6 +3470,60 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-for-state-1"))
           "no ` for <state> ` clause when neither source nor target state is stamped"))))
 
+(deftest event-handler-guard-row-for-state-and-inline-outcome-test
+  (testing "rf2-h710p item B — the GUARD row drops the redundant `guard` verb
+            word (the `[GUARD]` pill already says GUARD) and fronts the
+            guard-id with the item-6 ` for <state> ` clause, so the header
+            reads `[GUARD] for :open :may-close?`."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :guard :step 1 :machine-id :door/main
+                     :guard-id :may-close? :outcome :pass
+                     :source-state :open :target-state :closed}]))]
+      ;; B — the for-state clause carries the gated (source) state.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-for-state-1"))
+          "the guard row renders a ` for <state> ` clause")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
+                            "for")
+          "the clause carries the `for` connective")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
+                            ":open")
+          "the gated state is the transition's :source-state — `for :open`")
+      ;; B — the verb is the bare guard-id (no duplicate `guard` word).
+      (let [verb (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1") "")]
+        (is (string/includes? verb ":may-close?")
+            "the verb is the bare guard-id")
+        (is (not (string/includes? verb "guard"))
+            "the redundant `guard` word is dropped (the `[GUARD]` pill carries it)"))
+      ;; C — the pass/fail outcome chip renders INLINE in the header (a direct
+      ;; sibling of the verb), NOT inside the right-aligned span. The
+      ;; right-aligned span (`:margin-left auto`) must not contain it.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-pass"))
+          "the meaningful guard pass/fail chip still renders (it decides the branch)")
+      (let [row    (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")
+            header (first (th/children row))
+            ;; The right-aligned span is the header child carrying margin-left:auto.
+            right  (some (fn [c]
+                           (when (= "auto" (:margin-left (:style (th/attrs c)))) c))
+                         (th/children header))]
+        (is (some? header) "the row header renders")
+        (is (some? right) "the right-aligned span (margin-left:auto) renders")
+        (is (nil? (th/find-by-testid right "rf-xray-epoch-machine-cascade-outcome-pass"))
+            "the guard outcome chip is NOT in the right-aligned span (it moved inline)")
+        (is (some? (th/find-by-testid header "rf-xray-epoch-machine-cascade-outcome-pass"))
+            "the guard outcome chip IS in the header (inline after the verb + glyph)"))))
+  (testing "rf2-h710p item C — a FAILING guard's `fail` marker also renders
+            inline (the guard fail is meaningful — it blocked the transition)."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :guard :step 1 :machine-id :door/main
+                     :guard-id :may-close? :outcome :fail
+                     :source-state :open :target-state :closed}]))
+          row    (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")
+          header (first (th/children row))]
+      (is (some? (th/find-by-testid header "rf-xray-epoch-machine-cascade-outcome-fail"))
+          "the `fail` chip renders inline in the header"))))
+
 (deftest event-handler-action-no-ok-tick-test
   (testing "rf2-2hj0h item 7 — a SUCCESSFUL `:action` row carries NO green
             ok-tick (the prior `✓ ok` outcome chip is REMOVED — success is
