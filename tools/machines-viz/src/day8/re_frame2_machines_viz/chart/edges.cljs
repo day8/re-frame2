@@ -47,7 +47,7 @@
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
-             :refer [mono-stack]]
+             :refer [chart-label-stack]]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 (def ^:private get-bezier-path (.-getBezierPath xyflow))
@@ -319,17 +319,32 @@
       (js->clj c :keywordize-keys true)
       vc/chart-regular)))
 
+(defn- palette-of
+  "rf2-az6e2 — recover the resolved chart-semantic token map off an
+  edge's `:data` (`(.-palette d)`); `(tokens/chart-tokens)` (the dark
+  surface) when absent so a theme-less edge still paints the dark
+  grammar. Mirrors `chart.nodes.xyflow-node/palette-of`."
+  [^js d]
+  (let [p (.-palette d)]
+    (if (some? p)
+      (js->clj p :keywordize-keys true)
+      (tokens/chart-tokens))))
+
 (defn- edge-stroke
   "rf2-qeemm (G3) — `fired?` (the edge traversed THIS epoch) wins over
   `focused?` / `active?` so a fired arm reads as 'what just happened' in
-  the FIRED hue (`:accent`, distinct from the focused/active `:info`).
-  Palette delegated to Figma — `:accent` is the existing token, not a new
-  palette entry."
-  [{:keys [active? focused? fired?]}]
+  the FIRED hue, distinct from the focused/active hue.
+
+  rf2-az6e2 — colours resolve through the active-theme chart-tokens
+  (`ct`): fired = `:edge-fired`, focused/active = `:edge-active`, resting
+  = `:edge-quiet`. The QUIET source→event segment (`quiet?`) paints the
+  quiet colour even when the route is otherwise resting so the pair reads
+  as one transition with the primary arrowhead on the event→target half."
+  [ct {:keys [active? focused? fired?]}]
   (cond
-    fired?               (:accent tokens/tokens)
-    (or focused? active?) (:info tokens/tokens)
-    :else                (:border-default tokens/tokens)))
+    fired?                (:edge-fired ct)
+    (or focused? active?) (:edge-active ct)
+    :else                 (:edge-quiet ct)))
 
 (defn- edge-stroke-width
   "rf2-k647w — edge stroke widths read off the resolved density. The
@@ -338,15 +353,21 @@
   relationship 1.5 / 2.0 / 2.5).
 
   rf2-qeemm (G3) — `fired?` paints at the emphasis width (the heaviest
-  treatment), at least as prominent as `focused?`, so a traversed edge
-  stands out even when it isn't the focused FROM→TO lens (both the fired
-  arm and the focused lens share the emphasis width)."
-  [{:keys [active? focused? fired? chart]
+  treatment), at least as prominent as `focused?`.
+
+  rf2-az6e2 — the QUIET source→event segment (`quiet?`) paints ONE notch
+  THINNER than the resting width (so the pair reads as one route: the
+  quiet inbound half + the primary outbound half). A quiet segment that
+  is itself fired/focused still picks up the emphasis width so a
+  traversed route lights BOTH segments together."
+  [{:keys [active? focused? fired? quiet? chart]
     :or   {chart vc/chart-regular}}]
   (let [{:keys [stroke-width stroke-width-emphasis]} chart]
     (cond
       (or fired? focused?) stroke-width-emphasis
       active?              (/ (+ stroke-width stroke-width-emphasis) 2.0)
+      ;; resting quiet inbound half — one notch under the resting width.
+      quiet?               (max 0.75 (- stroke-width 0.5))
       :else                stroke-width)))
 
 ;; ---- transition-edge ----------------------------------------------------
@@ -366,6 +387,10 @@
         marker-end (.-markerEnd props)
         d          (.-data props)
         vc         (chart-constants d)
+        ct         (palette-of d)
+        ;; rf2-az6e2 — the quiet source→event half of the events-as-nodes
+        ;; route. Paints thinner so the pair reads as one transition.
+        quiet?     (boolean (.-quietSegment d))
         label      (or (.-eventLabel d) "")
         ;; rf2-a2b55 — Stately graph view convention. `eventLineLabel`
         ;; is the visible-line text (`event [guard]`, no `/ action`);
@@ -431,7 +456,7 @@
         sibling-index   (or (.-siblingIndex d) 0)
         sibling-count   (or (.-siblingCount d) 1)
         sibling-leader? (zero? sibling-index)
-        {:keys [edge-label-px edge-label-backplate-opacity
+        {:keys [edge-label-px
                 action-pill-height action-pill-pad-x action-pill-px
                 action-pill-radius action-pill-row-gap]} vc
         ;; rf2-j10sm (Phase 2, B) — per-sibling label-y offset. Vertical
@@ -456,9 +481,9 @@
                     ;; rf2-rlq97 — elk's computed label placement (nil →
                     ;; geometric heuristic fallback).
                     :label-pos label-pos})
-        stroke  (edge-stroke {:active? active? :focused? focused? :fired? fired?})
+        stroke  (edge-stroke ct {:active? active? :focused? focused? :fired? fired?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
-                                     :fired? fired? :chart vc})]
+                                     :fired? fired? :quiet? quiet? :chart vc})]
     (r/as-element
       [:<>
        ;; rf2-j10sm (Phase 2, B) — non-leader siblings (same `[source
@@ -539,31 +564,23 @@
                                             label-x "px," (+ label-y label-y-offset) "px)")
                        :pointer-events "auto"
                        :cursor         (if clickable? "pointer" "default")
-                       :font-family    mono-stack
+                       :font-family    chart-label-stack
                        :font-size      (str edge-label-px "px")
                        :font-weight    (if (and clickable? focused?) 600 400)
-                       ;; rf2-j10sm (Phase 1, D) — padded label backgrounds.
-                       ;; Opaque chart-bg colour matching the canvas
-                       ;; (`:bg-1`, the colour the chart root paints), so
-                       ;; each label "punches through" overlapping nodes /
-                       ;; edges with the surrounding background. Light text
-                       ;; on the dark canvas instead of the previous
-                       ;; white-pill + dark-text chip. Rounded ~4px corners
-                       ;; + ~4px padding give the label breathing room. The
-                       ;; `:edge-label-backplate-opacity` knob is preserved
-                       ;; for hosts that want a semi-transparent backplate
-                       ;; (still applied as the bg alpha; the new default of
-                       ;; 0.94 is high enough to mask underlying ink while
-                       ;; admitting a hint of the canvas so adjacent labels
-                       ;; do not look like solid stacked tiles).
-                       :color          (:text-primary tokens/tokens)
-                       :background     (tokens/with-alpha :bg-1 edge-label-backplate-opacity)
+                       ;; rf2-az6e2 — the rare labelled-edge backplate
+                       ;; (entry / after edges; events ride the event-NODE
+                       ;; under events-as-nodes so most edges carry no
+                       ;; label) reads the neutral event-chip fill/border
+                       ;; from the active-theme tokens so it punches through
+                       ;; overlapping ink with the surrounding background.
+                       :color          (:text-primary ct)
+                       :background     (:event-chip-bg ct)
                        :padding        "2px 6px"
                        :border-radius  "4px"
                        :border         (str "1px solid "
                                             (if clickable?
-                                              (tokens/with-alpha :yellow 0.7)
-                                              (tokens/with-alpha :border-default 0.6)))
+                                              (:sim ct)
+                                              (:event-chip-border ct)))
                        ;; rf2-j10sm (Phase 1, D) — z-index bump. The edge
                        ;; label sits above edges + node borders but below
                        ;; interactive controls (xyflow's Controls render at
@@ -593,12 +610,11 @@
                            :align-items      "center"
                            :height           (str action-pill-height "px")
                            :padding          (str "0 " action-pill-pad-x "px")
-                           :background       (tokens/with-alpha :advisory 0.18)
-                           :border           (str "1px solid "
-                                                  (tokens/with-alpha :advisory 0.6))
+                           :background       (:container-header-bg ct)
+                           :border           (str "1px solid " (:state-border ct))
                            :border-radius    (str action-pill-radius "px")
-                           :color            (:advisory tokens/tokens)
-                           :font-family      mono-stack
+                           :color            (:text-secondary ct)
+                           :font-family      chart-label-stack
                            :font-size        (str action-pill-px "px")
                            :font-weight      500
                            :line-height      "1"
