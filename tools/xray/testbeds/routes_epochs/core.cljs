@@ -449,15 +449,6 @@
      "ladder. The runner cursor lives in a " [:strong "local atom"] " — it "
      "never touches the inspected app-db."]]
    [current-route-strip]
-   ;; Reset — re-seed app-db, navigate home, rewind the runner.
-   [:button {:data-testid "reset-button"
-             :on-click (fn []
-                         (dispatch [:routes-epochs/reset])
-                         (runner/reset-runner! runner-state))
-             :style {:padding "0.4em 0.8em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db, navigate home, rewind runner"]
    [runner/runner "routes-epochs" runner-state steps host-frame]])
 
 ;; ============================================================================
