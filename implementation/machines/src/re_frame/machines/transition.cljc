@@ -771,21 +771,30 @@
   node's key) to a concrete leaf path, given the current `snapshot`'s
   `:rf/history` slot. `hist-node` is the pseudo-state node.
 
-  Returns `{:leaf <path> :source :recorded|:default}`:
+  Returns `{:leaf <path> :source :recorded|:default ...}`:
    - `:recorded` — a recording exists for the owning compound AND it is
      still a valid path in the current definition. Deep history restores
      the full recorded leaf path; shallow restores the recorded direct
-     child then `initial-cascade`s its `:initial` chain.
+     child then `initial-cascade`s its `:initial` chain. Additionally
+     carries `:restored-config` — the recorded value (per spec/009 the
+     `:rf.machine.history/restored` `:restored-config` tag).
    - `:default` — no (valid) recording: the owning compound was never
      entered, or the recorded config is a DANGLING path a hot-reloaded
      definition removed (rf2-wgfv0). Falls back to the pseudo-state's
      `:default-target` (initial-cascaded), or — when absent — the owning
-     compound's `:initial` cascade, exactly as a first-ever entry would."
+     compound's `:initial` cascade, exactly as a first-ever entry would.
+     Additionally carries `:fallback` — `:default-target` when the
+     pseudo-state declared one, else `:initial` (the spec/009 `:fallback`
+     tag)."
   [machine snapshot hist-path hist-node]
   (let [compound-path (vec (drop-last hist-path))
         hkey          (history-key machine compound-path)
         recorded      (get-in snapshot [:rf/history hkey])
         deep?         (true? (:deep? hist-node))
+        ;; Which fallback resolves the leaf on the `:default` path:
+        ;; `:default-target` when the pseudo-state declared one (keyword or
+        ;; vector form), else the owning compound's `:initial`.
+        fallback      (if (some? (:default-target hist-node)) :default-target :initial)
         default-leaf  (fn []
                         (let [dt (:default-target hist-node)]
                           (cond
@@ -802,19 +811,20 @@
     (cond
       ;; Deep — recorded value is the full absolute leaf path.
       (and recorded deep? (vector? recorded) (valid-leaf-path? machine recorded))
-      {:leaf recorded :source :recorded}
+      {:leaf recorded :source :recorded :restored-config recorded}
 
       ;; Shallow — recorded value is the direct-child KEYWORD; rebuild the
       ;; absolute child path and cascade its `:initial` chain.
       (and recorded (not deep?) (keyword? recorded)
            (let [child-path (conj compound-path recorded)]
              (valid-leaf-path? machine child-path)))
-      {:leaf (initial-cascade machine (conj compound-path recorded)) :source :recorded}
+      {:leaf (initial-cascade machine (conj compound-path recorded))
+       :source :recorded :restored-config recorded}
 
       ;; No recording, or a DANGLING recorded path (hot-reload removed the
       ;; substate) — graceful fallback to default-target / :initial.
       :else
-      {:leaf (default-leaf) :source :default})))
+      {:leaf (default-leaf) :source :default :fallback fallback})))
 
 (defn- record-history-config
   "Per Spec 005 §Recording — on compound-state exit. Given a compound at
@@ -854,9 +864,14 @@
   child (LCA strictly below `C`'s child) records nothing for `C`.
 
   Returns `[snapshot recorded]` where `recorded` is the seq of
-  `{:history-key :config :deep?}` maps (for the `:rf.machine.history/
-  recorded` trace). The slot is allocated lazily — a transition leaving no
-  history-bearing compound's child subtree leaves the snapshot untouched."
+  `{:compound-path :recorded-config :kind :prev-config}` maps (for the
+  `:rf.machine.history/recorded` trace, per spec/009). `:compound-path` is
+  the region-qualified declaration path (the `:rf/history` key); `:kind` is
+  `:deep`/`:shallow`; `:prev-config` is the value the slot held BEFORE this
+  write (omitted on the first-ever recording for the compound — the slot was
+  previously unallocated). The slot is allocated lazily — a transition
+  leaving no history-bearing compound's child subtree leaves the snapshot
+  untouched."
   [machine snapshot src-path lca-len]
   (let [src-path (vec src-path)
         n        (count src-path)]
@@ -870,9 +885,18 @@
                               (record-history-config machine compound-path src-path))]
           (if entry
             (let [[hkey config] entry
-                  deep?         (true? (:deep? (second (history-child machine compound-path))))]
+                  deep?         (true? (:deep? (second (history-child machine compound-path))))
+                  ;; Read the value the slot held BEFORE this write, off the
+                  ;; accumulating snapshot. `contains?` distinguishes a
+                  ;; never-allocated slot (first-ever recording — `:prev-config`
+                  ;; absent per spec) from one holding a value (incl. nil).
+                  had-prev?     (contains? (:rf/history snap) hkey)
+                  prev-config   (get-in snap [:rf/history hkey])]
               [(assoc-in snap [:rf/history hkey] config)
-               (conj recs {:history-key hkey :config config :deep? deep?})])
+               (conj recs (cond-> {:compound-path hkey
+                                   :recorded-config config
+                                   :kind (if deep? :deep :shallow)}
+                            had-prev? (assoc :prev-config prev-config)))])
             [snap recs])))
       [snapshot []]
       (range 0 n))))
@@ -886,38 +910,49 @@
 ;; classify them as issues):
 ;;
 ;;   - `:rf.machine.history/restored` — a transition resolved to a history
-;;     pseudo-state. Carries `:source :recorded | :default` (recorded config
-;;     vs first-entry / dangling-path fallback), the owning compound's
-;;     region-qualified `:history-key`, the `:resolved-leaf`, and `:deep?`.
+;;     pseudo-state. Tags (spec/009): `:compound-path` (region-qualified
+;;     declaration path — the `:rf/history` key), `:kind` (`:shallow`/
+;;     `:deep`), `:source` (`:recorded` | `:default`), `:fallback`
+;;     (`:default-target`/`:initial`, present ONLY on `:source :default`),
+;;     `:restored-config` (the recorded config that drove the restore,
+;;     ABSENT on `:source :default`), `:resolved-leaf` (the concrete leaf
+;;     entered), `:frame`.
 ;;   - `:rf.machine.history/recorded` — a history-bearing compound's exit
-;;     cascade wrote its last-active configuration. Carries the
-;;     `:history-key` and the recorded `:config` (deep leaf path / shallow
-;;     child keyword) + `:deep?`.
+;;     cascade wrote its last-active configuration. Tags (spec/009):
+;;     `:compound-path`, `:kind`, `:recorded-config` (the value written —
+;;     deep leaf path / shallow child keyword), `:prev-config` (the value
+;;     overwritten; ABSENT on the first-ever recording), `:frame`.
 ;;
-;; The precise spec/009 shape (tag-key catalogue) is owned by mle6e.2 (in
-;; flight, disjoint surface); these emits conform to that family's naming
-;; and will be reconciled at review if .2's contract differs.
+;; Shapes match spec/009 §History trace events EXACTLY (rf2-mle6e.2).
 
 (defn- emit-history-restored!
-  [machine hist-key resolved-leaf source deep?]
+  "Per spec/009 §`:rf.machine.history/restored`. `source` is `:recorded` |
+  `:default`. On the `:default` path `restored-config` is nil (no recording
+  drove the restore) so it is OMITTED, and `fallback` (`:default-target` |
+  `:initial`) names which fallback resolved the leaf; on the `:recorded`
+  path `fallback` is absent and `restored-config` carries the recorded
+  value."
+  [machine compound-path resolved-leaf source kind restored-config fallback]
   (trace/emit! :rf.machine :rf.machine.history/restored
-               {:machine-id    (or (:rf/parent-id machine) (:id machine))
-                :region        (:rf/region machine)
-                :history-key   hist-key
-                :resolved-leaf (vec resolved-leaf)
-                :source        source
-                :deep?         deep?
-                :frame         (:rf/frame machine)}))
+               (cond-> {:machine-id    (or (:rf/parent-id machine) (:id machine))
+                        :compound-path compound-path
+                        :kind          kind
+                        :source        source
+                        :resolved-leaf (vec resolved-leaf)
+                        :frame         (:rf/frame machine)}
+                 (= :default source) (assoc :fallback fallback)
+                 (not= :default source) (assoc :restored-config restored-config))))
 
 (defn- emit-history-recorded!
-  [machine hist-key config deep?]
+  "Per spec/009 §`:rf.machine.history/recorded`. `recorded` is the per-write
+  map from `record-exit-history` — carries `:compound-path`,
+  `:recorded-config`, `:kind`, and (when not the first-ever recording)
+  `:prev-config`."
+  [machine recorded]
   (trace/emit! :rf.machine :rf.machine.history/recorded
-               {:machine-id  (or (:rf/parent-id machine) (:id machine))
-                :region      (:rf/region machine)
-                :history-key hist-key
-                :config      config
-                :deep?       deep?
-                :frame       (:rf/frame machine)}))
+               (merge {:machine-id (or (:rf/parent-id machine) (:id machine))
+                       :frame      (:rf/frame machine)}
+                      recorded)))
 
 ;; When an action throws, `run-action` returns a `result/fail` carrying
 ;; `{:action-ref :exception}`. `collect-actions` propagates the failure;
@@ -988,10 +1023,17 @@
 ;;    :region <region-name-or-nil>             ;; parallel region (nil flat/compound)
 ;;    :action <action-id-or-nil>               ;; the action that fired (nil = no
 ;;                                             ;;   :exit/:entry/:action declared)
-;;    :data-delta {<k> <new-v>}}               ;; the :data keys THIS step's action
+;;    :data-delta {<k> <new-v>}                ;; the :data keys THIS step's action
 ;;                                             ;;   added/changed (empty when no
 ;;                                             ;;   action, or the action wrote no
 ;;                                             ;;   :data)
+;;    :source :recorded | :default}            ;; ADDITIVE, history-only: present
+;;                                             ;;   on an :entry step produced by a
+;;                                             ;;   history restore (spec/009 line
+;;                                             ;;   291), matching the
+;;                                             ;;   :rf.machine.history/restored
+;;                                             ;;   event's :source; ABSENT on every
+;;                                             ;;   non-history step (rf2-mle6e.3)
 ;;
 ;; The step vector is built in `compute-cascade-paths` (which owns the
 ;; ordered prefix paths + action refs) and the per-step `:data-delta` is
@@ -1050,14 +1092,20 @@
   ;; arity (which would churn every caller). `reduced` short-circuits on
   ;; the first throwing action, carrying the bare `:fail` Result.
   (let [acc (reduce
-              (fn [[acc-r cascade] {:keys [kind phase action state region]}]
+              (fn [[acc-r cascade] {:keys [kind phase action state region source]}]
                 (result/with-ok [snap fx] acc-r
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
-                        base-step   {:kind   kind
-                                     :state  state
-                                     :region region
-                                     :action action}]
+                        ;; Per spec/009 §History trace events (line 291): a
+                        ;; history-driven `:entry` step additively carries
+                        ;; `:source` (set in `compute-cascade-paths`); a
+                        ;; non-history step has none, so only stamp it when
+                        ;; the input step supplied it.
+                        base-step   (cond-> {:kind   kind
+                                             :state  state
+                                             :region region
+                                             :action action}
+                                      source (assoc :source source))]
                     (if action
                       (let [r (run-action machine snap action event emit-phase)]
                         (if (result/fail? r)
@@ -1589,8 +1637,10 @@
                       external contract requires).
     :history-restore — per Spec 005 §Restoring (rf2-mle6e.3): present iff
                       this transition resolved to a `:type :history`
-                      pseudo-state — `{:history-key :resolved-leaf :source
-                      :deep?}` (`:source` is `:recorded` | `:default`). The
+                      pseudo-state — the spec/009 `:rf.machine.history/
+                      restored` tag bag `{:compound-path :resolved-leaf
+                      :source :kind (+:restored-config|+:fallback)}`
+                      (`:source` is `:recorded` | `:default`). The
                       pseudo-state is swapped for `:resolved-leaf` BEFORE the
                       LCA geometry above, so `:target-leaf` / `:lca-len` /
                       `:entered-pairs` already reflect the resolved path.
@@ -1619,13 +1669,20 @@
                         (let [n (node-at machine target-base0)]
                           (when (history-node? n) n)))
         history-restore (when hist-node
-                          (let [{:keys [leaf source]}
+                          (let [{:keys [leaf source restored-config fallback]}
                                 (resolve-history-target machine snapshot
                                                         target-base0 hist-node)]
-                            {:history-key (history-key machine (vec (drop-last target-base0)))
-                             :resolved-leaf leaf
-                             :source      source
-                             :deep?       (true? (:deep? hist-node))}))
+                            ;; The spec/009 `:rf.machine.history/restored` tag
+                            ;; bag, threaded to `apply-transition-once`'s emit.
+                            ;; `:restored-config` rides only on `:recorded`;
+                            ;; `:fallback` only on `:default` (mirrors the emit's
+                            ;; cond->). `:kind` maps the grammar `:deep?`.
+                            (cond-> {:compound-path (history-key machine (vec (drop-last target-base0)))
+                                     :resolved-leaf leaf
+                                     :source        source
+                                     :kind          (if (true? (:deep? hist-node)) :deep :shallow)}
+                              (= :recorded source) (assoc :restored-config restored-config)
+                              (= :default source)  (assoc :fallback fallback))))
         ;; The effective base after history resolution: the resolved leaf
         ;; (already fully cascaded to a leaf) when restoring, else the
         ;; declared target.
@@ -1700,10 +1757,18 @@
         action-steps  (when (:action transition)
                         [{:kind :action :phase transition-phase :state (vec decl-path)
                           :region region :action (:action transition)}])
+        ;; Per spec/009 §History trace events (line 291): each `:entry` step
+        ;; produced by a history restore additively carries `:source`
+        ;; (`:recorded`|`:default`) matching the `:rf.machine.history/restored`
+        ;; event's `:source`; a step with no `:source` key was not
+        ;; history-driven. All entry steps of a history-driven transition came
+        ;; from the resolved leaf's entry cascade, so all carry the source.
+        hist-source   (:source history-restore)
         entry-steps   (when-not internal?
                         (mapv (fn [[prefix n]]
-                                {:kind :entry :phase entry-phase :state (vec prefix)
-                                 :region region :action (:entry n)})
+                                (cond-> {:kind :entry :phase entry-phase :state (vec prefix)
+                                         :region region :action (:entry n)}
+                                  hist-source (assoc :source hist-source)))
                               entered-pairs))
         cascade-steps (vec (concat exit-steps action-steps entry-steps))
         ;; Per Spec 005 §Hierarchy interaction: bump the per-path epoch
@@ -1727,9 +1792,10 @@
      :cascade-steps cascade-steps
      :after-bump-paths after-bump-paths
      ;; Per Spec 005 §Restoring (rf2-mle6e.3): present iff this transition
-     ;; resolved to a history pseudo-state — `{:history-key :resolved-leaf
-     ;; :source :deep?}`. `apply-transition-once` emits the
-     ;; `:rf.machine.history/restored` trace from it.
+     ;; resolved to a history pseudo-state — the spec/009 `:rf.machine.
+     ;; history/restored` tag bag `{:compound-path :resolved-leaf :source
+     ;; :kind (+:restored-config|+:fallback)}`. `apply-transition-once`
+     ;; emits the `:rf.machine.history/restored` trace from it.
      :history-restore history-restore}))
 
 (defn- run-cascade
@@ -1886,11 +1952,13 @@
               ;; history traces. `restored` when this transition resolved a
               ;; history pseudo-state; `recorded` once per history-bearing
               ;; compound exited.
-              _ (when-let [{:keys [history-key resolved-leaf source deep?]}
+              _ (when-let [{:keys [compound-path resolved-leaf source kind
+                                   restored-config fallback]}
                            (:history-restore cascade)]
-                  (emit-history-restored! machine history-key resolved-leaf source deep?))
-              _ (doseq [{:keys [history-key config deep?]} history-recorded]
-                  (emit-history-recorded! machine history-key config deep?))
+                  (emit-history-restored! machine compound-path resolved-leaf
+                                          source kind restored-config fallback))
+              _ (doseq [rec history-recorded]
+                  (emit-history-recorded! machine rec))
               parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
               after-fx        (build-after-fx machine (:entered-pairs cascade)
                                               (:internal? cascade) snap-final)
