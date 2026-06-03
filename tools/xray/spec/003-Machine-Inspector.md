@@ -966,7 +966,38 @@ Per Spec 005 and Spec 009:
 | `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The inspector keys on the `:rf.machine.lifecycle/*` axis for "actor appeared/disappeared" and on the `:rf.machine.spawn/*` / `:rf.machine/*` axis when correlating the causing fx (per [009 §Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
+| `:rf.machine.history/restored` / `:rf.machine.history/recorded` | Render the history restore / record banner + the per-`:entry`-step `:source` chip — see [§History restore rendering](#history-restore-rendering-rf2-mle6e5) below. |
 | Source-coord stamping | Every clickable element jumps to source. |
+
+<!-- ============================================================ -->
+<!--  HISTORY RESTORE RENDERING  (rf2-mle6e.5)                     -->
+<!-- ============================================================ -->
+
+## History restore rendering (rf2-mle6e.5)
+
+History pseudo-states ([Spec 005 §History states](../../../spec/005-StateMachines.md#history-states-type-history--shallow--deep--default-target)) record a compound's last-active configuration on exit and restore it on re-entry. The two activity traces ([Spec 009 §History trace events](../../../spec/009-Instrumentation.md#history-trace-events-rfmachinehistory)) make the record/restore observable; Xray renders them so a viewer reads **why** a re-entry landed where it did rather than only `{from}→{to}`.
+
+A history restore is **not** a separate cascade mechanism — it **is** the entry cascade whose target leaf came from `:rf/history` (Spec 009 §Composition with the entry cascade). So Xray composes the rendering, never duplicates it:
+
+### Where it renders — the EVENT HANDLER machine cascade (Epoch panel)
+
+The history surface rides the **EVENT HANDLER machine cascade** in the Epoch panel (the rf2-52u5n structured-cascade render — see [`021-Dynamic-Panel-Designs.md` §machine-cascade](021-Dynamic-Panel-Designs.md#machine-cascade-rf2-u69j7)), keyed to the macrostep's `:rf.machine/transition` row. Two additive renderings:
+
+1. **The history banner** (above the structured cascade, under the `{from}→{to}` verb + logical-state delta). The Xray-brand-violet (informational, never the error/pink wash — a restore/record is benign observability, op-type `:rf.machine`) banner carries the headline a viewer reads BEFORE walking the per-level entry steps:
+   - **restored** (`⟲`): `restored <compound-path> from <DEEP|SHALLOW> history · <restored-config> → <resolved-leaf>` on the `:recorded` path; `restored <compound-path> from DEFAULT (no recording) via :<fallback> → <resolved-leaf>` on the `:default` path (the compound was never exited, or the recorded path was dangling after a hot reload — Spec 005 §Dangling recorded paths).
+   - **recorded** (`✎`): `history advanced <compound-path> from <prev-config> to <recorded-config>` on an overwrite; `history recorded <compound-path> = <recorded-config>` on the first-ever write (no `:prev-config`).
+
+   A parallel macrostep that restores / records per region renders one banner line per record (the traces are region-qualified by `:compound-path` head segment).
+
+2. **The per-`:entry`-step `:source` chip.** Each structured-cascade `:entry` step produced by a history restore additively carries `:source :recorded | :default` (Spec 009 line 291 — the only addition history makes to the rf2-n9f4z step shape; absent on every non-history step). Xray renders a small chip — **`from history`** (`:recorded`) or **`default`** (`:default`) — on those `:entry` step rows, so the viewer sees WHICH entry steps came from a history restore vs an ordinary `:initial` descent. The chip's `:source` value matches the banner's `:source`; the consumer reads the headline off the banner, then the per-level origin off the `:source`-tagged entry steps without re-deriving either.
+
+### Inspectable `:rf/history` slot
+
+The recorded configuration lives in the snapshot's `:rf/history` slot (`[:rf/runtime :machines :snapshots <id> :rf/history]`), keyed by the compound's region-qualified declaration path. It is an ordinary snapshot slot, so it renders in the **App-db panel** through the standard edn-inspector — a viewer expands the machine's snapshot and reads the recorded config (keyword for shallow, leaf path for deep) the next restore will resolve. No bespoke panel chrome; `:rf/history` is EDN-clean (keywords + vectors-of-keywords) so it round-trips through the inspector like any other slot.
+
+### Data contract
+
+The pure projection (`panels/epoch/projection.cljc`) harvests the two ops with `history-restored-rows` / `history-recorded-rows` and stamps `:history-restored` / `:history-recorded` (keyed by `:machine-id`) onto the `:transition` cascade row via `attach-history-to-transition-rows`. The headline strings come from `panels/epoch/format.cljc` (`history-restored-headline` / `history-recorded-headline`). The focused-event Machine Inspector lens (`panels/machine_inspector_helpers.cljc` `project-focused-event-transitions`) attaches the same records per transition record so the lens surfaces the restore alongside the topology highlight. All are pure-data + JVM-tested.
 
 ## Source-coord integration
 

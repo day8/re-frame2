@@ -79,7 +79,7 @@
   (preload/register-trace-collector!)
   (machines/register-all!)
   (doseq [id [:door/main :traffic/light :quiz/scorer :brew/machine
-              :session/flow :hvac/controller]]
+              :session/flow :hvac/controller :media/deep :media/shallow]]
     (rf/dispatch-sync [id [:rf.machine/bootstrap]])))
 
 (defn- snapshot [machine-id]
@@ -547,18 +547,15 @@
     (is (= :on (:fan (:state (snapshot :hvac/controller)))))))
 
 ;; ============================================================================
-;; HISTORY (gap 8, SOON) — the rejection probe + the ready placeholders
+;; HISTORY (gap 8, LIVE) — placement rejection + shallow + deep RESTORE render
 ;; ============================================================================
 
 (deftest history-machine-misplaced-is-rejected
-  (testing "rung #24 (gap 8) — history is now FIRST-CLASS (rf2-mle6e); the
-            engine implements record/restore. A :type :history pseudo-state
-            still has a PLACEMENT constraint: it MUST have an owning compound.
-            A `:type :history` MACHINE ROOT (the probe spec) is rejected with
-            :rf.error/machine-history-misplaced. NOTE: full live-history-deck
-            rendering + the placeholder rungs (#25/#26) activation are
-            rf2-mle6e.5's job; this harness only confirms the placement
-            rejection still holds for the root probe."
+  (testing "rung #24 (gap 8) — history is FIRST-CLASS (rf2-mle6e); the engine
+            implements record/restore. A :type :history pseudo-state still has
+            a PLACEMENT constraint: it MUST have an owning compound. A
+            `:type :history` MACHINE ROOT (the probe spec) is rejected with
+            :rf.error/machine-history-misplaced."
     (let [thrown (try
                    (rf/reg-machine :machine-epochs/history-probe
                                    machines/history-machine-spec)
@@ -572,3 +569,95 @@
           ":feature names the history grammar"))
     (is (true? (machines/history-rejected?))
         "the deck's history-rejected? helper agrees the root probe is still rejected")))
+
+;; The eject/restore dance the deck's #25/#26 rungs drive — positions the
+;; player deep, ejects (records), and returns the FINAL :insert's drive!
+;; record (the restore whose cascade the Epoch panel renders).
+(defn- drive-history-restore!
+  "Position `machine-id` deep into :player, eject (record), then drive + return
+  the FINAL :insert (the restore). Mirrors `history-restore-fx` in the deck."
+  [machine-id]
+  (drive! machine-id [:insert])   ; first entry → default
+  (drive! machine-id [:seek])     ; :at-start → :mid-track (deep leaf)
+  (drive! machine-id [:eject])    ; exit :player → :tray (RECORDS)
+  (drive! machine-id [:insert]))  ; re-enter via :hist (RESTORES — the focal cascade)
+
+(deftest history-deep-restore-renders-restored-banner-and-source-steps
+  (testing "rung #26 (gap 8, rf2-mle6e.5) — :media/deep eject → re-insert
+            RESTORES the exact recorded leaf. (a) a :rf.machine.history/restored
+            trace fires with :source :recorded + :kind :deep; (b) the projection
+            stamps :history-restored on the transition row + every history-driven
+            :entry cascade step carries :source :recorded; (c) the player lands
+            at the exact recorded deep leaf."
+    (setup!)
+    (let [record    (drive-history-restore! :media/deep)
+          rows      (cascade record)
+          tx        (first (rows-of-kind rows :transition))
+          restored  (proj/history-restored-rows (:trace-events record))
+          structured (structured-of record)
+          entries   (filterv #(= :entry (:kind %)) structured)]
+      ;; (a) the trace shape.
+      (is (= 1 (count restored)) "(a) exactly one history-restored record")
+      (is (= :recorded (:source (first restored))) "(a) restored from the RECORDED config")
+      (is (= :deep (:kind (first restored))) "(a) deep history")
+      (is (= [:player :playing :mid-track] (:restored-config (first restored)))
+          "(a) the recorded config that drove the restore is the exact deep leaf")
+      (is (= [:player :playing :mid-track] (:resolved-leaf (first restored)))
+          "(a) deep restore resolved to the exact recorded leaf")
+      ;; (b) the projection enrichment + cascade-step :source.
+      (is (seq (:history-restored tx))
+          "(b) the transition row carries :history-restored (the banner gate)")
+      (is (seq entries) "(b) the restore produced entry cascade steps")
+      (is (some #(= :recorded (:source %)) entries)
+          "(b) at least one history-driven :entry step carries :source :recorded")
+      ;; (c) the live machine landed at the exact recorded leaf.
+      (is (= [:player :playing :mid-track] (:state (snapshot :media/deep)))
+          "(c) deep history restored the exact leaf, not :initial"))))
+
+(deftest history-shallow-restore-renders-restored-banner-shallow
+  (testing "rung #25 (gap 8, rf2-mle6e.5) — :media/shallow eject → re-insert
+            restores the recorded DIRECT CHILD then descends its :initial. (a)
+            the restored record is :source :recorded + :kind :shallow with the
+            child-keyword :restored-config; (b) the transition row carries
+            :history-restored; (c) the player lands at the child's :initial,
+            NOT the exact exit leaf."
+    (setup!)
+    (let [record   (drive-history-restore! :media/shallow)
+          rows     (cascade record)
+          tx       (first (rows-of-kind rows :transition))
+          restored (proj/history-restored-rows (:trace-events record))]
+      (is (= 1 (count restored)) "(a) one history-restored record")
+      (is (= :recorded (:source (first restored))) "(a) restored from the recorded config")
+      (is (= :shallow (:kind (first restored))) "(a) SHALLOW history")
+      (is (= :playing (:restored-config (first restored)))
+          "(a) shallow records + restores the direct-child keyword (:playing)")
+      (is (= [:player :playing :at-start] (:resolved-leaf (first restored)))
+          "(a) shallow restore descends the child's :initial chain")
+      (is (seq (:history-restored tx)) "(b) the transition row carries :history-restored")
+      (is (= [:player :playing :at-start] (:state (snapshot :media/shallow)))
+          "(c) shallow restored the child then its :initial, not the exit leaf"))))
+
+(deftest history-eject-records-and-renders-recorded-banner
+  (testing "gap 8 (rf2-mle6e.5) — ejecting :player (exit to the off-compound
+            :tray) WRITES :player's last config into :rf/history. (a) a
+            :rf.machine.history/recorded trace fires; (b) the projection stamps
+            :history-recorded on the EJECT transition row; (c) the snapshot's
+            inspectable :rf/history slot holds the recorded leaf."
+    (setup!)
+    (drive! :media/deep [:insert])               ; → default :playing :at-start
+    (drive! :media/deep [:seek])                 ; → :mid-track (deep leaf)
+    (let [record   (drive! :media/deep [:eject])  ; exit :player → :tray (RECORDS)
+          rows     (cascade record)
+          tx       (first (rows-of-kind rows :transition))
+          recorded (proj/history-recorded-rows (:trace-events record))]
+      (is (= 1 (count recorded)) "(a) exactly one history-recorded record")
+      (is (= [:player] (:compound-path (first recorded)))
+          "(a) recorded under the compound's declaration path (the :rf/history key)")
+      (is (= [:player :playing :mid-track] (:recorded-config (first recorded)))
+          "(a) deep recording wrote the full exit leaf")
+      (is (seq (:history-recorded tx))
+          "(b) the eject transition row carries :history-recorded (the banner gate)")
+      ;; (c) the inspectable :rf/history snapshot slot.
+      (is (= [:player :playing :mid-track]
+             (get-in (snapshot :media/deep) [:rf/history [:player]]))
+          "(c) the snapshot's :rf/history slot holds the recorded leaf (App-db inspectable)"))))

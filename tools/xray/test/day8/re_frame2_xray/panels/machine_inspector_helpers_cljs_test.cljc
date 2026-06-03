@@ -443,6 +443,41 @@
         (is (= :issue-token (-> rec :actions first :action-id)))
         (is (= :ok          (-> rec :actions first :outcome)))))))
 
+(deftest project-focused-event-attaches-history-restore-and-record
+  ;; rf2-mle6e.5 — a transition that resolved a `:type :history` pseudo-state
+  ;; carries `:history-restored`; one whose macrostep exited a history-bearing
+  ;; compound carries `:history-recorded` (spec/009 §History trace events). The
+  ;; lens surfaces them so the Machine Inspector renders WHY a re-entry landed
+  ;; where it did.
+  (testing "history restore/record traces attach to the per-transition record"
+    (let [events [(t-event 1 :media/deep [:player :stopped] [:player :playing :mid-track]
+                           [:insert])
+                  {:id 2 :time 11 :operation :rf.machine.history/restored
+                   :tags {:machine-id :media/deep :compound-path [:player]
+                          :kind :deep :source :recorded
+                          :restored-config [:player :playing :mid-track]
+                          :resolved-leaf [:player :playing :mid-track]}}]
+          rec    (-> (h/project-focused-event-transitions events) first)]
+      (is (= 1 (count (:history-restored rec))))
+      (is (= :recorded (-> rec :history-restored first :source)))
+      (is (= :deep (-> rec :history-restored first :kind)))
+      (is (= [:player :playing :mid-track]
+             (-> rec :history-restored first :restored-config)))))
+  (testing "the recorded trace attaches as :history-recorded"
+    (let [events [(t-event 1 :media/deep [:player :playing :mid-track] [:tray] [:eject])
+                  {:id 2 :time 11 :operation :rf.machine.history/recorded
+                   :tags {:machine-id :media/deep :compound-path [:player]
+                          :kind :deep :recorded-config [:player :playing :mid-track]}}]
+          rec    (-> (h/project-focused-event-transitions events) first)]
+      (is (= 1 (count (:history-recorded rec))))
+      (is (= [:player :playing :mid-track]
+             (-> rec :history-recorded first :recorded-config)))))
+  (testing "an ordinary (non-history) transition carries NEITHER history key"
+    (let [events [(t-event 1 :auth/login :idle :authing [:auth/submit])]
+          rec    (-> (h/project-focused-event-transitions events) first)]
+      (is (nil? (:history-restored rec)))
+      (is (nil? (:history-recorded rec))))))
+
 (deftest project-focused-event-surfaces-before-and-after-snapshots
   ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-transition record
   ;; carries the full `:before` / `:after` snapshot maps so the panel's

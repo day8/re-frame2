@@ -640,6 +640,51 @@
    :color       (badge/cascade-kind-colour :transition)
    :margin-bottom "1px"})
 
+;; rf2-mle6e.5 — HISTORY restore / record banner. A history restore/record is
+;; benign observability (Spec 009 §History trace events — op-type :rf.machine,
+;; never a severity discriminator), so the banner is the Xray brand-violet
+;; accent (informational), NOT the error / pink wash. It sits ABOVE the
+;; structured cascade so the operator reads "restored <compound> from <source>"
+;; before walking the per-level entry steps (the `:source`-tagged ones below).
+(def ^:private structured-cascade-history-banner-style
+  {:display        "flex"
+   :flex-direction "column"
+   :gap            "2px"
+   :margin         "4px 0 2px 0"
+   :padding        "4px 8px"
+   :border-left    (str "2px solid " accent-colour)
+   :background     bg-2-colour
+   :border-radius  "3px"})
+
+(def ^:private structured-cascade-history-line-style
+  {:font-family mono-stack
+   :font-size   "11px"
+   :color       accent-colour
+   :display     "flex"
+   :align-items "baseline"
+   :gap         "5px"})
+
+(def ^:private structured-cascade-history-glyph-style
+  {:font-weight 700
+   :min-width   "12px"
+   :text-align  "center"})
+
+;; The per-`:entry`-step history origin chip — `from history` (recorded) or
+;; `default` (the compound was never exited / dangling). Marks WHICH entry
+;; steps in the cascade came from a restore vs an ordinary :initial descent
+;; (Spec 009 line 291 — the additive cascade-step :source field).
+(def ^:private structured-cascade-step-source-chip-style
+  {:font-family    mono-stack
+   :font-size      "9px"
+   :font-weight    700
+   :letter-spacing "0.03em"
+   :margin-left    "4px"
+   :padding        "0 4px"
+   :border-radius  "3px"
+   :border         (str "1px solid " accent-colour)
+   :color          accent-colour
+   :white-space    "nowrap"})
+
 ;; rf2-4yrr6 — `cascade-detail-threw-row-style` / `cascade-threw-glyph-style`
 ;; / `cascade-threw-label-style` / `cascade-threw-message-style` RETIRED with
 ;; the per-action "✗ threw — <message>" detail line (the duplicate threw
@@ -2689,19 +2734,33 @@
     boundaries — e.g. exiting `:idle`);
   - the `:data-delta` (changed `:data` keys only) renders inline through
     the edn-inspector when non-empty, so the operator sees exactly what
-    that step contributed without expanding the whole snapshot."
-  [testid-prefix idx {:keys [kind state action data-delta]}]
+    that step contributed without expanding the whole snapshot;
+  - rf2-mle6e.5 — a HISTORY-driven `:entry` step additively carries
+    `:source :recorded | :default` (Spec 009 line 291); a small chip
+    (`from history` / `default`) marks it so the viewer sees WHICH entry
+    steps came from a history restore vs an ordinary `:initial` descent.
+    Absent on every non-history step (no chip rendered)."
+  [testid-prefix idx {:keys [kind state action data-delta source]}]
   (let [glyph (get structured-cascade-kind->glyph kind "·")
         tone  (get structured-cascade-kind->tone kind text-secondary-colour)]
     [:div {:key         (str testid-prefix "-step-" idx)
            :data-testid (str testid-prefix "-step-" idx)
            :data-cascade-step-kind (when (keyword? kind) (name kind))
+           :data-cascade-step-source (when (keyword? source) (name source))
            :style       structured-cascade-step-row-style}
      [:span {:aria-hidden true
              :style (assoc structured-cascade-kind-glyph-style :color tone)}
       glyph]
      [:span {:style structured-cascade-state-style}
       (pr-str state)]
+     ;; rf2-mle6e.5 — the additive history `:source` on an :entry step.
+     (when (and (= :entry kind) (keyword? source))
+       [:span {:data-testid (str testid-prefix "-step-" idx "-source")
+               :title (if (= :recorded source)
+                        "this leaf came from the recorded history config"
+                        "this leaf came from the :default-target / :initial fallback")
+               :style structured-cascade-step-source-chip-style}
+        (if (= :recorded source) "from history" "default")])
      (if (some? action)
        [:span {:data-testid (str testid-prefix "-step-" idx "-action")
                :style structured-cascade-action-chip-style}
@@ -2734,6 +2793,42 @@
              (structured-cascade-step-row
                (str testid-prefix "-microstep-" microstep-index) i step))
            (filterv #(contains? #{:exit :action :entry} (:kind %)) steps)))])
+
+(defn- structured-cascade-history-banner
+  "Render the HISTORY restore / record banner for a `:transition` cascade row
+  (rf2-mle6e.5). Surfaces the headline the operator reads BEFORE walking the
+  per-level entry steps:
+
+    ⟲  restored [:player] from DEEP history · [:player :paused] → [:player :paused]
+    ✎  history advanced [:player] from [:player :playing] to [:player :paused]
+
+  `:history-restored` (a re-entry resolved a history pseudo-state) and
+  `:history-recorded` (this exit wrote the compound's config) are stamped on
+  the transition row by `projection/attach-history-to-transition-rows` off the
+  `:rf.machine.history/restored` / `-recorded` traces (Spec 009 §History trace
+  events). Both are vectors (a parallel macrostep may restore / record per
+  region). Returns nil when the row carries neither key — the ordinary
+  (non-history) transition renders no banner."
+  [{:keys [step history-restored history-recorded] :as _row}]
+  (when (or (seq history-restored) (seq history-recorded))
+    [:div {:data-testid (str "rf-xray-epoch-machine-cascade-history-" step)
+           :style structured-cascade-history-banner-style}
+     (map-indexed
+       (fn [i rec]
+         ^{:key (str "restored-" i)}
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-restored-" i)
+                :style structured-cascade-history-line-style}
+          [:span {:aria-hidden true :style structured-cascade-history-glyph-style} "⟲"]
+          [:span (fmt/history-restored-headline rec)]])
+       history-restored)
+     (map-indexed
+       (fn [i rec]
+         ^{:key (str "recorded-" i)}
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-recorded-" i)
+                :style structured-cascade-history-line-style}
+          [:span {:aria-hidden true :style structured-cascade-history-glyph-style} "✎"]
+          [:span (fmt/history-recorded-headline rec)]])
+       history-recorded)]))
 
 (defn- structured-cascade-body
   "Render the STRUCTURED transition cascade (rf2-52u5n) for a `:transition`
@@ -2824,11 +2919,13 @@
     ;; alone when the trace carried no structured `:cascade`.
     (= :transition (:kind row))
     (let [delta      (cascade-row-transition-delta row)
+          history    (structured-cascade-history-banner row)
           structured (structured-cascade-body row)]
-      (when (or delta structured)
+      (when (or delta history structured)
         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-body-"
                                  (:step row))}
          delta
+         history
          structured]))
 
     (contains? #{:action :guard} (:kind row))

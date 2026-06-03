@@ -761,6 +761,109 @@
     :rf.machine.event/unhandled-no-op (no-op-cascade-row ev)
     nil))
 
+;; ---- history restore / record (rf2-mle6e.5) -----------------------------
+;;
+;; History pseudo-states (Spec 005 §History states) record a compound's
+;; last-active configuration on exit and restore it on re-entry. Spec 009
+;; §History trace events makes the record/restore observable with two
+;; activity traces (op-type `:rf.machine`, NOT severity discriminators —
+;; benign observability, never wash a cascade pink):
+;;
+;;   :rf.machine.history/restored — a transition targeted a `:type :history`
+;;     pseudo-state and re-entry resolved the recorded (or default) config to
+;;     a concrete leaf. Tags: `:compound-path` `:kind` (`:shallow`/`:deep`)
+;;     `:source` (`:recorded`/`:default`) `:fallback` (only on `:default`)
+;;     `:restored-config` (absent on `:default`) `:resolved-leaf`.
+;;   :rf.machine.history/recorded — a history-bearing compound's exit wrote
+;;     the config into `:rf/history`. Tags: `:compound-path` `:kind`
+;;     `:recorded-config` `:prev-config` (absent on the first-ever write).
+;;
+;; These do NOT join `machine-cascade-trace-ops` (they are not exit/action/
+;; entry/timer/no-op cascade ROWS — a restore IS the entry cascade, whose
+;; per-level `:entry` steps already carry the additive `:source` field per
+;; Spec 009 line 291). Instead they ENRICH the macrostep's `:transition`
+;; cascade row, so the view reads "restored <compound> from <source>" off the
+;; headline rather than re-folding the trace stream. They share the cascade's
+;; `:rf.trace/dispatch-id` with the transition; the projection keys them to a
+;; transition row by `:machine-id` (one transition per machine per macrostep,
+;; per Spec 005 §Trace events).
+
+(defn history-restored-rows
+  "Project every `:rf.machine.history/restored` trace event in `events`
+  into a vector of history-restore records (rf2-mle6e.5), trace order
+  preserved. Each record:
+
+      {:machine-id      <kw>
+       :compound-path   [<kw> …]   ;; the `:rf/history` key (declaration path)
+       :kind            :shallow | :deep
+       :source          :recorded | :default
+       :fallback        :default-target | :initial | nil  ;; only on :default
+       :restored-config [<kw> …] | <kw> | nil             ;; nil on :default
+       :resolved-leaf   [<kw> …]}                          ;; the entered leaf
+
+  Returns `[]` when no restore fired (the common non-history macrostep)."
+  [events]
+  (->> events
+       (filter (fn [ev] (= :rf.machine.history/restored (op ev))))
+       (mapv (fn [ev]
+               {:machine-id      (common/tag-of ev :machine-id)
+                :compound-path   (common/tag-of ev :compound-path)
+                :kind            (common/tag-of ev :kind)
+                :source          (common/tag-of ev :source)
+                :fallback        (common/tag-of ev :fallback)
+                :restored-config (common/tag-of ev :restored-config)
+                :resolved-leaf   (common/tag-of ev :resolved-leaf)}))))
+
+(defn history-recorded-rows
+  "Project every `:rf.machine.history/recorded` trace event in `events`
+  into a vector of history-record records (rf2-mle6e.5), trace order
+  preserved. Each record:
+
+      {:machine-id      <kw>
+       :compound-path   [<kw> …]   ;; the `:rf/history` key
+       :kind            :shallow | :deep
+       :recorded-config [<kw> …] | <kw>   ;; the value written
+       :prev-config     [<kw> …] | <kw> | nil}  ;; nil on first-ever write
+
+  Returns `[]` when no recording fired."
+  [events]
+  (->> events
+       (filter (fn [ev] (= :rf.machine.history/recorded (op ev))))
+       (mapv (fn [ev]
+               {:machine-id      (common/tag-of ev :machine-id)
+                :compound-path   (common/tag-of ev :compound-path)
+                :kind            (common/tag-of ev :kind)
+                :recorded-config (common/tag-of ev :recorded-config)
+                :prev-config     (common/tag-of ev :prev-config)}))))
+
+(defn- attach-history-to-transition-rows
+  "Stamp the history restore / record records (keyed by `:machine-id`)
+  onto each `:transition` cascade row (rf2-mle6e.5). A transition row that
+  resolved a history pseudo-state carries `:history-restored [<record> …]`;
+  one whose macrostep exited a history-bearing compound carries
+  `:history-recorded [<record> …]`. Non-history transition rows carry
+  neither key, so the view's history banner is absent for ordinary
+  transitions. Both vectors are dropped when empty so `(seq …)` reads as
+  the view's render gate.
+
+  Keying by `:machine-id` is correct because the substrate fires exactly
+  one `:rf.machine/transition` per machine per macrostep (Spec 005
+  §Trace events) — every restore / record in the window belongs to the
+  one transition that machine took."
+  [rows restored recorded]
+  (let [by-mid     (fn [recs] (group-by :machine-id recs))
+        restored-m (by-mid restored)
+        recorded-m (by-mid recorded)]
+    (mapv (fn [row]
+            (if (= :transition (:kind row))
+              (let [r (get restored-m (:machine-id row))
+                    w (get recorded-m (:machine-id row))]
+                (cond-> row
+                  (seq r) (assoc :history-restored (vec r))
+                  (seq w) (assoc :history-recorded (vec w))))
+              row))
+          rows)))
+
 ;; ---- inline-fn source-path enrichment (rf2-wwc3j) ----------------------
 ;;
 ;; Cascade rows arriving from the substrate carry no `:state-id` / `:event-id`
@@ -1029,6 +1132,15 @@
                            (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
                                    events))))
         enriched (enrich-cascade-rows base)
+        ;; rf2-mle6e.5 — stamp history restore / record records onto the
+        ;; `:transition` rows so the view's history banner reads "restored
+        ;; <compound> from <source>" / "history advanced <prev> → <recorded>"
+        ;; off the headline. Order-independent (keyed by machine-id), runs
+        ;; on the trace-ordered rows before the canonical sort.
+        enriched (attach-history-to-transition-rows
+                   enriched
+                   (history-restored-rows events)
+                   (history-recorded-rows events))
         ;; rf2-e6q97 — a no-op cascade carries both the `:no-op` row AND the
         ;; substrate's unconditional `{X}→{X}` 0-microstep `:transition` row;
         ;; the two contradict. Drop the spurious transition row (the `:no-op`

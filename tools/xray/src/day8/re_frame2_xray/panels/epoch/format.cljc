@@ -22,7 +22,8 @@
 
   No DOM, no substrate runtime — display-string builders over already-
   projected row data. JVM-testable via `clojure -M:test`."
-  (:require [day8.re-frame2-xray.panels.epoch.projection :as proj]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.epoch.projection :as proj]))
 
 (defn format-duration-ms
   "Render a duration in ms as a short string (`0.1ms` / `12ms` /
@@ -265,6 +266,57 @@
     ;; kind-pill + the "staying in {state}" verb (`cascade-row-label`) are
     ;; the whole story; the rf2-ugdas "ignored" chip was a third restatement.
     nil))
+
+(defn history-kind-label
+  "Render a history `:kind` keyword (`:shallow` / `:deep`) as a UI label."
+  [kind]
+  (case kind
+    :shallow "shallow"
+    :deep    "deep"
+    (when (keyword? kind) (name kind))))
+
+(defn history-restored-headline
+  "Render the headline string for a `:rf.machine.history/restored` record
+  (rf2-mle6e.5) — the one-line answer to 'why did this re-entry land HERE?':
+
+    :recorded → 'restored [:player] from DEEP history · [:player :paused] → [:player :paused]'
+    :default  → 'restored [:player] from DEFAULT (no recording) via :default-target → [:player :playing]'
+
+  Reads the spec/009 §`:rf.machine.history/restored` shape:
+  `:compound-path` `:kind` `:source` `:fallback` `:restored-config`
+  `:resolved-leaf`. On `:recorded` the headline shows the recorded config
+  that drove the restore → the concrete resolved leaf; on `:default` (the
+  compound was never exited, or the recorded path was dangling after a hot
+  reload) it names the fallback that resolved the leaf. Pure-data."
+  [{:keys [compound-path kind source fallback restored-config resolved-leaf]}]
+  (let [kind-label (history-kind-label kind)
+        compound   (path-display compound-path)
+        leaf       (pr-str resolved-leaf)]
+    (if (= :default source)
+      (str "restored " compound " from DEFAULT (no recording)"
+           (when fallback (str " via :" (name fallback)))
+           " → " leaf)
+      (str "restored " compound " from "
+           (when kind-label (str (str/upper-case kind-label) " "))
+           "history · " (pr-str restored-config) " → " leaf))))
+
+(defn history-recorded-headline
+  "Render the headline string for a `:rf.machine.history/recorded` record
+  (rf2-mle6e.5) — 'this exit wrote the compound's config into :rf/history':
+
+    first write   → 'history recorded [:player] = [:player :paused]'
+    later write   → 'history advanced [:player] from [:player :playing] to [:player :paused]'
+
+  Reads the spec/009 §`:rf.machine.history/recorded` shape: `:compound-path`
+  `:kind` `:recorded-config` `:prev-config` (absent on the first-ever write).
+  Pure-data."
+  [{:keys [compound-path recorded-config prev-config]}]
+  (let [compound (path-display compound-path)]
+    (if (some? prev-config)
+      (str "history advanced " compound
+           " from " (pr-str prev-config)
+           " to " (pr-str recorded-config))
+      (str "history recorded " compound " = " (pr-str recorded-config)))))
 
 (defn handler-flavour-label
   "Human-readable label for a handler flavour keyword."

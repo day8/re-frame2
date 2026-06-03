@@ -66,17 +66,35 @@
                                    internal/external self-transitions.
     - fuse      (WILDCARD-THROW) — `:*` wildcard action THROWS (exception
                                    card + pink-wash; the foil to the no-op).
+    - media     (HISTORY, gap 8) — a `:player` compound owning a `:type
+                                   :history` pseudo-state; shallow + deep
+                                   eject/restore drive the
+                                   `:rf.machine.history/restored` banner + the
+                                   per-`:entry`-step `:source` chip (rf2-mle6e).
 
-  ## HISTORY section (gap 8 — SOON)
+  ## HISTORY section (gap 8 — LIVE, rf2-mle6e)
 
-  re-frame2 currently REJECTS `:history` at registration
-  (`:rf.error/machine-grammar-not-in-v1`, Spec 005 §Substitutes; rf2-rkkag).
-  So the deck is HISTORY-READY: a rung drives the current expected-REJECTION
-  (the harness asserts `reg-machine` of a `:history` machine THROWS the
-  deferred-grammar error), and clearly-marked PLACEHOLDER rungs (disabled
-  buttons) reserve the slots for shallow + deep history RESTORE — when the
-  feature ships, flip the placeholders to live rungs and the harness already
-  has the slots.
+  History states are FIRST-CLASS (rf2-mle6e: grammar .1, trace .2, engine .3).
+  The deck drives a live media-player compound (`:media/deep` + `:media/shallow`,
+  shared via `machine-epochs.machines`) whose `:player` compound owns a
+  `:type :history` pseudo-state:
+
+    - rung #24 — the PLACEMENT rejection: a ROOT `:type :history` machine is
+      still rejected (`:rf.error/machine-history-misplaced`) because a
+      pseudo-state must have an owning compound. (NOT the old not-in-v1
+      deferral — history itself is supported.)
+    - rung #25 — SHALLOW history restore: position deep into `:player`, eject
+      (records the direct CHILD), re-insert → restores the recorded child then
+      descends its `:initial` chain. The Epoch cascade shows the
+      `:rf.machine.history/restored` banner (source `:recorded`, shallow) + the
+      `:source :recorded` chip on the restored `:entry` steps.
+    - rung #26 — DEEP history restore: same eject/insert dance on `:media/deep`
+      → restores the FULL nested LEAF path. The banner reads DEEP; the entry
+      steps descend to the exact recorded leaf, each chipped `from history`.
+
+  The `:rf/history` snapshot slot is inspectable in the App-db panel (it lives
+  inside `[:rf/runtime :machines :snapshots <id> :rf/history]`, rendered by the
+  App-db edn-inspector like any other snapshot slot). rf2-mle6e.5.
 
   ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
 
@@ -190,15 +208,17 @@
         child-id
         (assoc :fx [[:dispatch [child-id [:succeed :session/token-abc]]]])))))
 
-;; #24 — probe the current :history REJECTION contract. Registering a
-;; :type :history machine throws synchronously at reg-machine time
-;; (:rf.error/machine-grammar-not-in-v1). The deck event swallows the throw
+;; #24 — probe the :history PLACEMENT constraint. History is FIRST-CLASS
+;; (rf2-mle6e), but a :type :history pseudo-state MUST have an owning compound,
+;; so a ROOT :type :history machine throws synchronously at reg-machine time
+;; (:rf.error/machine-history-misplaced). The deck event swallows the throw
 ;; (the rung's job is to DRIVE the rejection; the harness asserts the throw
 ;; shape directly). It bumps baseline so the epoch still shows a delta.
 (rf/reg-event-db :machine-epochs/probe-history-rejection
-  {:doc "Button #24 — attempt to register a :type :history machine and
-         confirm the v1 deferral REJECTS it. The throw is swallowed here so
-         the deck does not crash; the harness asserts the rejection shape."}
+  {:doc "Button #24 — attempt to register a ROOT :type :history machine and
+         confirm the PLACEMENT constraint rejects it (a pseudo-state needs an
+         owning compound). The throw is swallowed here so the deck does not
+         crash; the harness asserts the misplaced-history rejection shape."}
   (fn handler-probe-history [db _ev]
     (-> db bump (assoc :machine-epochs/history-rejected? (machines/history-rejected?)))))
 
@@ -221,7 +241,7 @@
     {:db initial-db
      :fx (mapv (fn [id] [:dispatch [id [:rf.machine/bootstrap]]])
                [:door/main :traffic/light :quiz/scorer :brew/machine
-                :session/flow :hvac/controller])}))
+                :session/flow :hvac/controller :media/deep :media/shallow])}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS — machine snapshot reads for the live status strip
@@ -249,6 +269,18 @@
 (reg-machine-subs! "brew"    :brew/machine)
 (reg-machine-subs! "session" :session/flow)
 (reg-machine-subs! "hvac"    :hvac/controller)
+(reg-machine-subs! "media-deep"    :media/deep)
+(reg-machine-subs! "media-shallow" :media/shallow)
+
+;; The :rf/history snapshot slot — surfaced in the status strip so the deck is
+;; legible standalone; the App-db panel renders it inside the snapshot too.
+(rf/reg-sub :machine-epochs/media-deep-history
+  :<- [:rf/machine :media/deep]
+  (fn [snap _] (:rf/history snap)))
+
+(rf/reg-sub :machine-epochs/media-shallow-history
+  :<- [:rf/machine :media/shallow]
+  (fn [snap _] (:rf/history snap)))
 
 (rf/reg-sub :machine-epochs/door-data
   :<- [:rf/machine :door/main]
@@ -263,8 +295,7 @@
 ;; ============================================================================
 ;;
 ;; Each row: [n label caption event]. `:section` rows are separators (label
-;; only). `:placeholder` rows are HISTORY-section reservations (disabled —
-;; gap 8). The harness reads the machine specs (shared via
+;; only). The harness reads the machine specs (shared via
 ;; `machine-epochs.machines`) and drives each rung's intent through the live
 ;; substrate, asserting BOTH machine outcome + Xray render.
 
@@ -347,14 +378,16 @@
    [23 "Tweak fan — INTERNAL self-transition (omit :target)"
     "Cascade: ACTION ONLY (:tweak-fan) — no exit, no entry; the foil to #22; NO spurious no-op row"
     [:machine-epochs/send [[:hvac/controller [:hvac/tweak]]]]]
-   [:section "History (SOON) — gap 8: reject-now + ready placeholders"]
-   [24 "Register a :history machine — REJECTED (current contract)"
-    "The harness asserts reg-machine of a :type :history machine THROWS :rf.error/machine-grammar-not-in-v1 (Spec 005 §Substitutes; rf2-rkkag)"
+   [:section "History (LIVE, gap 8) — first-class shallow + deep restore (rf2-mle6e)"]
+   [24 "Register a ROOT :history machine — REJECTED (placement)"
+    "History is FIRST-CLASS; a ROOT :type :history is still rejected :rf.error/machine-history-misplaced (a pseudo-state needs an owning compound)"
     [:machine-epochs/probe-history-rejection]]
-   [:placeholder 25 "Shallow HISTORY restore — PLACEHOLDER (activate when :history lands)"
-    "Reserved slot: re-enter a compound region via :type :history :shallow and assert it restores the last active CHILD"]
-   [:placeholder 26 "Deep HISTORY restore — PLACEHOLDER (activate when :history lands)"
-    "Reserved slot: re-enter via :type :history :deep and assert it restores the full nested LEAF path"]])
+   [25 "SHALLOW history restore (:media/shallow eject → re-insert)"
+    "Epoch: the :rf.machine.history/restored banner (source :recorded, SHALLOW); restored :entry steps chip 'from history'; restores the CHILD then its :initial"
+    [:machine-epochs/history-shallow-restore]]
+   [26 "DEEP history restore (:media/deep eject → re-insert)"
+    "Epoch: the banner reads DEEP; the :entry steps descend to the EXACT recorded leaf [:player :playing :mid-track], each chipped 'from history'"
+    [:machine-epochs/history-deep-restore]]])
 
 ;; #13 — answer twice more so the running score reaches the `:enough?` pass
 ;; mark (3) and the guarded `:always` chain settles `:asking` ──► `:passed`
@@ -367,6 +400,45 @@
     {:db (bump db)
      :fx [[:dispatch [:quiz/scorer [:quiz/answer]]]
           [:dispatch [:quiz/scorer [:quiz/answer]]]]}))
+
+;; #25 / #26 — the HISTORY restore dance (rf2-mle6e.5). To make the RESTORE the
+;; focal cascade the operator inspects, the rung first POSITIONS the player deep
+;; (`:insert` → `:play` → `:seek` lands it at [:player :playing :mid-track]) and
+;; EJECTS it (recording :player's last config into :rf/history), then fires the
+;; final `:insert` — which is the restore whose cascade carries the
+;; :rf.machine.history/restored banner + the :source-chipped :entry steps. The
+;; restore is the LAST dispatch so it is the headline of the press's epoch.
+;;
+;; SHALLOW (:media/shallow) records the direct child (:playing) and restores
+;; [:player :playing :at-start] (the child descended through its :initial).
+;; DEEP (:media/deep) records + restores the exact leaf [:player :playing
+;; :mid-track]. The two share the driver shape; only the machine-id differs.
+(defn- history-restore-fx
+  "The fx vector that positions `machine-id` deep, ejects (records), and
+  re-inserts (restores). The trailing :insert is the focal restore."
+  [machine-id]
+  [[:dispatch [machine-id [:insert]]]   ; first entry → default (records nothing yet)
+   [:dispatch [machine-id [:seek]]]      ; :at-start → :mid-track (deep leaf)
+   [:dispatch [machine-id [:eject]]]     ; exit :player → :tray (RECORDS history)
+   [:dispatch [machine-id [:insert]]]])  ; re-enter via :hist (RESTORES — the headline)
+
+(rf/reg-event-fx :machine-epochs/history-shallow-restore
+  {:doc "Button #25 — drive :media/shallow through the eject/restore dance so
+         the final :insert restores the recorded CHILD then descends its
+         :initial chain. The restore cascade carries the history banner +
+         :source :recorded entry-step chips (SHALLOW)."}
+  (fn handler-history-shallow [{:keys [db]} _ev]
+    {:db (bump db)
+     :fx (history-restore-fx :media/shallow)}))
+
+(rf/reg-event-fx :machine-epochs/history-deep-restore
+  {:doc "Button #26 — drive :media/deep through the eject/restore dance so the
+         final :insert restores the EXACT recorded leaf [:player :playing
+         :mid-track]. The restore cascade carries the history banner (DEEP) +
+         :source :recorded entry-step chips down to the exact leaf."}
+  (fn handler-history-deep [{:keys [db]} _ev]
+    {:db (bump db)
+     :fx (history-restore-fx :media/deep)}))
 
 ;; ============================================================================
 ;; VIEWS
@@ -389,25 +461,6 @@
      (str n ".")]
     label]
    [:span {:style {:color "#666" :font-size "12px"}} caption]])
-
-(reg-view placeholder-button
-  "A HISTORY-section reservation: a DISABLED numbered button (the feature is
-  deferred — Spec 005 §Substitutes). When :history lands, flip this row to a
-  live [n label caption event] rung; the harness already has the slot."
-  [n label caption]
-  [:div {:style {:display "grid" :grid-template-columns "auto 1fr"
-                 :gap "0.75em" :align-items "center" :margin "0.35em 0"
-                 :opacity 0.55}}
-   [:button {:data-testid (str "machine-epochs-rung-" n)
-             :disabled    true
-             :style {:min-width "24em" :text-align "left"
-                     :padding "0.4em 0.6em" :cursor "not-allowed"
-                     :border "1px dashed #cfc8ff" :border-radius "6px"
-                     :background "#f7f5ff"}}
-    [:span {:style {:font-weight "bold" :color "#aaa" :margin-right "0.5em"}}
-     (str n ".")]
-    label]
-   [:span {:style {:color "#999" :font-size "12px" :font-style "italic"}} caption]])
 
 (reg-view section-heading
   "A section separator inside the ladder."
@@ -451,7 +504,13 @@
    [:div ":quiz/scorer data: " [:strong (pr-str @(subscribe [:machine-epochs/quiz-data]))]]
    [machine-row ":brew/machine"    "brew"]
    [machine-row ":session/flow"    "session"]
-   [machine-row ":hvac/controller" "hvac"]])
+   [machine-row ":hvac/controller" "hvac"]
+   [machine-row ":media/deep"      "media-deep"]
+   [:div {:data-testid "machine-epochs-media-deep-history"}
+    ":media/deep :rf/history: " [:strong (pr-str @(subscribe [:machine-epochs/media-deep-history]))]]
+   [machine-row ":media/shallow"   "media-shallow"]
+   [:div {:data-testid "machine-epochs-media-shallow-history"}
+    ":media/shallow :rf/history: " [:strong (pr-str @(subscribe [:machine-epochs/media-shallow-history]))]]])
 
 (reg-view root []
   [:div {:data-testid "machine-epochs-root"
@@ -476,8 +535,6 @@
    (for [row ladder]
      (case (first row)
        :section     ^{:key (str "sec-" (second row))} [section-heading (second row)]
-       :placeholder (let [[_ n label caption] row]
-                      ^{:key n} [placeholder-button n label caption])
        (let [[n label caption event] row]
          ^{:key n} [ladder-button n label caption event])))])
 

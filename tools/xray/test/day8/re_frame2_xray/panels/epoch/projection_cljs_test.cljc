@@ -78,6 +78,8 @@
 (def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
 (def ^:private machine-unhandled-no-op-ev teb/machine-unhandled-no-op-ev)
 (def ^:private machine-action-exception-ev teb/machine-action-exception-ev)
+(def ^:private machine-history-restored-ev  teb/machine-history-restored-ev)
+(def ^:private machine-history-recorded-ev  teb/machine-history-recorded-ev)
 (def ^:private schema-violation-ev     teb/schema-violation-ev)
 (def ^:private schema-hot-reload-ev    teb/schema-hot-reload-ev)
 (def ^:private handler-exception-ev    teb/handler-exception-ev)
@@ -3410,3 +3412,110 @@
 (deftest interceptor-badge-in-badge-set-test
   (testing "rf2-yz57h — :INTERCEPTOR is a valid badge"
     (is (proj/valid-badge? :INTERCEPTOR))))
+
+;; ============================================================================
+;; HISTORY restore / record projection (rf2-mle6e.5, spec/009 §History trace)
+;; ============================================================================
+
+(deftest history-restored-rows-recorded-source-test
+  (testing "rf2-mle6e.5 — `:rf.machine.history/restored` (source :recorded)
+            projects to a restore record carrying the full spec/009 tag bag"
+    (let [evs  [(machine-history-restored-ev
+                  {:machine-id :media/deep :compound-path [:player] :kind :deep
+                   :source :recorded :restored-config [:player :playing :mid-track]
+                   :resolved-leaf [:player :playing :mid-track]})]
+          rows (proj/history-restored-rows evs)
+          r    (first rows)]
+      (is (= 1 (count rows)))
+      (is (= :media/deep (:machine-id r)))
+      (is (= [:player] (:compound-path r)))
+      (is (= :deep (:kind r)))
+      (is (= :recorded (:source r)))
+      (is (= [:player :playing :mid-track] (:restored-config r)))
+      (is (= [:player :playing :mid-track] (:resolved-leaf r)))
+      (is (nil? (:fallback r)) ":fallback absent on the :recorded path"))))
+
+(deftest history-restored-rows-default-source-test
+  (testing "rf2-mle6e.5 — the :default path carries :fallback + nil :restored-config"
+    (let [r (first (proj/history-restored-rows
+                     [(machine-history-restored-ev
+                        {:machine-id :media/deep :compound-path [:player] :kind :deep
+                         :source :default :fallback :default-target
+                         :resolved-leaf [:player :playing :at-start]})]))]
+      (is (= :default (:source r)))
+      (is (= :default-target (:fallback r)))
+      (is (nil? (:restored-config r)) "nothing recorded ⇒ no :restored-config"))))
+
+(deftest history-recorded-rows-test
+  (testing "rf2-mle6e.5 — `:rf.machine.history/recorded` projects to a record
+            with :prev-config present only on an overwrite"
+    (let [first-write (first (proj/history-recorded-rows
+                               [(machine-history-recorded-ev
+                                  {:machine-id :media/deep :compound-path [:player]
+                                   :kind :deep :recorded-config [:player :playing :mid-track]
+                                   :prev-config nil})]))
+          overwrite   (first (proj/history-recorded-rows
+                               [(machine-history-recorded-ev
+                                  {:machine-id :media/deep :compound-path [:player]
+                                   :kind :deep :recorded-config [:player :paused]
+                                   :prev-config [:player :playing :mid-track]})]))]
+      (is (= [:player :playing :mid-track] (:recorded-config first-write)))
+      (is (nil? (:prev-config first-write)) ":prev-config absent on first-ever write")
+      (is (= [:player :playing :mid-track] (:prev-config overwrite))
+          ":prev-config = the overwritten value"))))
+
+(deftest machine-cascade-rows-stamps-history-on-transition-test
+  (testing "rf2-mle6e.5 — `machine-cascade-rows` stamps :history-restored /
+            :history-recorded (keyed by machine-id) onto the :transition row,
+            and an ORDINARY transition carries neither key"
+    (let [before  {:state [:player :stopped] :data {}}
+          after   {:state [:player :playing :mid-track] :data {}}
+          evs     [(machine-transition-ev :media/deep before after [:insert] 0)
+                   (machine-history-restored-ev
+                     {:machine-id :media/deep :compound-path [:player] :kind :deep
+                      :source :recorded :restored-config [:player :playing :mid-track]
+                      :resolved-leaf [:player :playing :mid-track]})]
+          tx      (first (filterv #(= :transition (:kind %))
+                                  (proj/machine-cascade-rows evs)))]
+      (is (seq (:history-restored tx)) "the restore record is stamped on the transition row")
+      (is (= :recorded (:source (first (:history-restored tx))))))
+    ;; the foil — a non-history transition carries no history keys.
+    (let [ordinary (first (filterv #(= :transition (:kind %))
+                                   (proj/machine-cascade-rows
+                                     [(machine-transition-ev
+                                        :door/main {:state :locked} {:state :closed}
+                                        [:door/insert-coin] 0)])))]
+      (is (nil? (:history-restored ordinary)) "non-history transition: no :history-restored")
+      (is (nil? (:history-recorded ordinary)) "non-history transition: no :history-recorded"))))
+
+(deftest history-restored-headline-test
+  (testing "rf2-mle6e.5 — the restored headline reads the recorded config →
+            resolved leaf, NAMES the kind, and on :default names the fallback"
+    (is (= "restored [:player] from DEEP history · [:player :playing :mid-track] → [:player :playing :mid-track]"
+           (fmt/history-restored-headline
+             {:compound-path [:player] :kind :deep :source :recorded
+              :restored-config [:player :playing :mid-track]
+              :resolved-leaf [:player :playing :mid-track]})))
+    (is (= "restored [:player] from SHALLOW history · :playing → [:player :playing :at-start]"
+           (fmt/history-restored-headline
+             {:compound-path [:player] :kind :shallow :source :recorded
+              :restored-config :playing
+              :resolved-leaf [:player :playing :at-start]})))
+    (is (= "restored [:player] from DEFAULT (no recording) via :default-target → [:player :playing :at-start]"
+           (fmt/history-restored-headline
+             {:compound-path [:player] :kind :deep :source :default
+              :fallback :default-target
+              :resolved-leaf [:player :playing :at-start]})))))
+
+(deftest history-recorded-headline-test
+  (testing "rf2-mle6e.5 — the recorded headline reads 'advanced from X to Y'
+            on an overwrite, 'recorded = Y' on the first-ever write"
+    (is (= "history recorded [:player] = [:player :playing :mid-track]"
+           (fmt/history-recorded-headline
+             {:compound-path [:player] :kind :deep
+              :recorded-config [:player :playing :mid-track]})))
+    (is (= "history advanced [:player] from [:player :playing :at-start] to [:player :playing :mid-track]"
+           (fmt/history-recorded-headline
+             {:compound-path [:player] :kind :deep
+              :recorded-config [:player :playing :mid-track]
+              :prev-config [:player :playing :at-start]})))))
