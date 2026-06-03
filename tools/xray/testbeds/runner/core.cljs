@@ -332,11 +332,16 @@
   Carries a stable per-step `data-testid` (`<prefix>-step-<n>`).
 
   The index is a clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`)
-  that drives exactly this step via `run-step-at!` (random-access, manual
-  — no focus pinning). The single Step control remains the primary
+  that drives exactly this step by invoking the bound `on-run` thunk
+  (random-access, manual — no focus pinning). `on-run` is a 0-arg fn the
+  RUNNER builds (closing over `state` / `steps` / `host-frame` / `n`), so
+  the leaf row carries ONLY what it renders — its own `step` / `n` /
+  `current?` / `done?` plus that bound action — NOT the whole `steps`
+  vector, the runner `state` atom, or the `host-frame` id (none of which a
+  leaf view should know). The single Step control remains the primary
   affordance; this lets an operator (or a scenario) drive any step
   directly without a parallel bespoke button ladder."
-  [prefix state steps host-frame n step current? done?]
+  [prefix n step current? done? on-run]
   [:div {:data-testid (str prefix "-step-" n)
          :style {:display "grid" :grid-template-columns "auto 1fr"
                  :gap "0.75em" :align-items "baseline" :margin "0.25em 0"
@@ -345,7 +350,7 @@
                  :background (cond current? "#f1ecff" done? "#fafafa" :else "#fff")}}
    [:button {:data-testid (str prefix "-step-" n "-run")
              :title "Run this step"
-             :on-click #(run-step-at! state steps host-frame n)
+             :on-click #(on-run)
              :style {:font-weight "bold" :cursor "pointer"
                      :padding "0.1em 0.45em" :border-radius "5px"
                      :border (if current? "1px solid #7C5CFF" "1px solid #e3def9")
@@ -379,10 +384,15 @@
       (map-indexed
         (fn [n step]
           ^{:key n}
-          ;; Highlight + 'done' shading render off `:active` (the just-run
-          ;; step), so at rest the highlighted row matches the focused epoch.
-          ;; Before the first step `:active` is nil → no row highlighted.
-          [step-row prefix state steps host-frame n step
+          ;; The runner has `state` / `steps` / `host-frame` in scope, so it
+          ;; binds each row a 0-arg `:on-run` thunk over `run-step-at!` and
+          ;; passes the leaf only what it renders — NOT the whole steps vector,
+          ;; the state atom, or the host-frame id. Highlight + 'done' shading
+          ;; render off `:active` (the just-run step), so at rest the
+          ;; highlighted row matches the focused epoch. Before the first step
+          ;; `:active` is nil → no row highlighted.
+          [step-row prefix n step
            (= n active)
-           (and (some? active) (< n active))])
+           (and (some? active) (< n active))
+           #(run-step-at! state steps host-frame n)])
         steps)]]))
