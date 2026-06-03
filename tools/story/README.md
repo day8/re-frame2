@@ -125,24 +125,23 @@ Xray preload is wired — press `Ctrl+Shift+C`).
 | `:examples/counter-with-stories` | 8042 | http://localhost:8042/#/stories | canonical minimal testbed |
 | `:examples/login-form` | 8043 | http://localhost:8043/#/stories | five-state login-form testbed |
 
-A single command brings all four up at once and prints each shell URL
-(via the `stories` group alias in `implementation/scripts/dev-testbed.cjs`,
-rf2-jooy3):
+Name the Story build(s) you want to watch and `npm run dev`
+(`implementation/scripts/dev-testbed.cjs`) prints each shell URL on start
+and seeds `RF2_TESTBED_PROJECT_ROOT` so "open in editor" works:
 
 ```bash
 # from implementation/
-npm run dev -- stories
-# or the package.json shortcut (no `--`):
-npm run dev:stories
+npm run dev -- :examples/login-form
+# watch a couple at once — keep the list short (each build kicks off a
+# Closure externs-prebuild; many at once race on the shared externs.zip):
+npm run dev -- :examples/login-with-stories :examples/counter-with-stories
 ```
 
 Equivalently, the raw watch (no URL printing, no `RF2_TESTBED_PROJECT_ROOT`
 seeding for open-in-editor):
 
 ```bash
-npx shadow-cljs watch :examples/nine-states-with-stories \
-  :examples/login-with-stories \
-  :examples/counter-with-stories :examples/login-form
+npx shadow-cljs watch :examples/login-form
 ```
 
 ## Browser testbed guardrails
