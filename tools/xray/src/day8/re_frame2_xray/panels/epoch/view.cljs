@@ -414,19 +414,26 @@
    :font-weight 600
    :white-space "nowrap"})
 
-(def ^:private cascade-phase-style
-  {:display        "inline-flex"
-   :align-items    "center"
-   :background     bg-3-colour
-   :color          text-tertiary-colour
-   :border         (str "1px solid " border-subtle-colour)
-   :border-radius  "2px"
-   :padding        "1px 5px"
-   :font-family    mono-stack
-   :font-size      "10px"
-   :font-weight    600
-   :letter-spacing "0.3px"
-   :white-space    "nowrap"})
+;; rf2-2hj0h item 5 — `cascade-phase-style` (the standalone muted phase chip)
+;; is RETIRED: the phase now rides the MERGED action badge
+;; (`cascade-action-pill`, painted with the ACTION-kind hue), not a separate
+;; pill. Kept removed (pre-alpha, no shim).
+
+;; rf2-2hj0h item 6 — the ` for <state> ` clause after the merged action
+;; badge. The `for` connective is muted (`orientation-connective-style`);
+;; the state value is code-formatted mono.
+(def ^:private cascade-action-for-state-style
+  {:display     "inline-flex"
+   :align-items "baseline"
+   :gap         "4px"
+   :white-space "nowrap"})
+
+(def ^:private cascade-action-for-state-value-style
+  {:color       text-primary-colour
+   :font-family mono-stack
+   :font-size   "11px"
+   :font-weight 600
+   :white-space "nowrap"})
 
 (def ^:private cascade-kind-pill-base-style
   {:display        "inline-flex"
@@ -507,10 +514,23 @@
    :font-weight 600
    :white-space "nowrap"})
 
+;; rf2-2hj0h item 2 + 3 — the per-step left connector (`:border-left`) is
+;; REMOVED (one of the two left vertical lines the bead retires; the
+;; full-height rail is the other). The source body now ALIGNS to the
+;; `[EXIT ACTION]` / `[TRANSITION]` badge's left edge (item 3) — past the
+;; `[N]` ordinal chip (min-width 21px) + the header gap (6px) — so the code
+;; sits under the badge rather than indented behind a connector line.
+(def ^:private cascade-info-indent
+  "Left-edge alignment for a cascade row's subsequent info lines (rf2-2hj0h
+  item 3) — the source body + the per-action outcome details. Equals the
+  `[N]` ordinal chip width (21px) + the header `:gap` (6px), so the info
+  lines start at the LEFT EDGE of the merged action / kind badge that
+  follows the ordinal."
+  "27px")
+
 (def ^:private cascade-row-source-style
   {:margin       "5px 0 3px 0"
-   :padding-left "8px"
-   :border-left  (str "2px solid " border-subtle-colour)
+   :padding-left cascade-info-indent
    :min-width    0})
 
 ;; rf2-iwy0c — the source-not-captured fallback now LINKS to the machine
@@ -540,8 +560,12 @@
    :font-size   "11px"
    :color       text-tertiary-colour})
 
+;; rf2-2hj0h item 3 — the per-action outcome details (`↳ data Δ` / `↳ fx`)
+;; align to the SAME badge left edge (`cascade-info-indent`) as the source
+;; body, so a row's subsequent info lines form one left-aligned column under
+;; the badge rather than the prior 21px ordinal-only indent.
 (def ^:private cascade-outcome-details-style
-  {:padding        "2px 0 4px 21px"
+  {:padding        (str "2px 0 4px " cascade-info-indent)
    :display        "flex"
    :flex-direction "column"
    :gap            "2px"
@@ -669,11 +693,14 @@
    :font-weight 700
    :white-space "nowrap"})
 
+;; rf2-2hj0h item 1 — the thin HORIZONTAL line between mini-pipeline steps
+;; (`:border-bottom`) is REMOVED. The steps read as one pipeline via the
+;; ordinal chips + vertical rhythm; inter-step rules added visual noise the
+;; outer pipeline does not carry.
 (def ^:private cascade-row-style
   {:display        "flex"
    :flex-direction "column"
-   :padding        "5px 0 5px 0"
-   :border-bottom  border-subtle-1px})
+   :padding        "5px 0 5px 0"})
 
 (def ^:private cascade-row-header-style
   {:display     "flex"
@@ -700,38 +727,23 @@
    :font-style  "italic"
    :color       text-tertiary-colour})
 
-;; rf2-akvfe — the EVENT HANDLER inner cascade rows render as a NESTED
-;; pipeline-of-boxes, mirroring the OUTER stage pipeline ([DISPATCH] →
-;; [EVENT HANDLER] → …): a single vertical rail runs behind the numbered
-;; [1][2][3] ordinal chips so the inner steps read as one connected
-;; pipeline rather than a flat stack. The rail is `position: relative` on
-;; the rows host + an absolutely-positioned line behind the ordinals;
-;; `padding-left` opens the gutter the rail + ordinals sit in.
+;; rf2-2hj0h item 1 + 2 — the rows host carries NO chrome lines: the
+;; `:border-top` horizontal rule (item 1) and the nested-pipeline vertical
+;; RAIL + its `padding-left` gutter (item 2) are REMOVED. akvfe added the
+;; rail (a line behind the [N] ordinals) to make the inner steps read as one
+;; pipeline; Mike's door-deck review (2026-06-04) retires it — the numbered
+;; ordinal chips alone carry the pipeline reading, and the rail + the
+;; per-step source-body connector were the two left vertical lines this bead
+;; removes. The host is now a plain vertical stack.
 (def ^:private machine-cascade-rows-style
-  {:position       "relative"
-   :display        "flex"
+  {:display        "flex"
    :flex-direction "column"
-   :border-top     border-subtle-1px
-   :margin-top     "3px"
-   :padding-left   "14px"})
+   :margin-top     "3px"})
 
-;; The nested-pipeline vertical rail — a thin line behind the [N] ordinal
-;; chips, the inner counterpart to `pipeline-rail-style`. Sits in the
-;; padding-left gutter, spanning the row stack so the numbered steps read
-;; as one pipeline. `top` / `bottom` inset it to the first / last ordinal.
-(def ^:private machine-cascade-rail-style
-  {:position       "absolute"
-   :left           "4px"
-   :top            "12px"
-   :bottom         "12px"
-   :width          "1px"
-   :background     border-default-colour
-   :pointer-events "none"})
-
-;; Each cascade row is position-relative so its leading [N] ordinal chip
-;; anchors on the rail (the inner analogue of `pipeline-step-style`).
-(def ^:private machine-cascade-row-wrap-style
-  {:position "relative"})
+;; rf2-2hj0h item 2 — `machine-cascade-rail-style` (the absolutely-positioned
+;; vertical rail behind the [N] ordinals) and `machine-cascade-row-wrap-style`
+;; (the per-row `position: relative` rail anchor) RETIRED with the rail
+;; itself. The rows render as a flat numbered stack; no wrapper is needed.
 
 ;; -- EVENT HANDLER orientation line (rf2-akvfe) ---------------------------
 ;;
@@ -1764,6 +1776,12 @@
 (declare violation-block)
 (declare error-blocks)
 (declare error-block)
+;; rf2-2hj0h item 8 — the per-cascade-row EXCEPTION BOX
+;; (`cascade-row-exception-box`) reuses the outer pipeline's collapsible
+;; `error-block-details` (stack + ex-data disclosure), which is defined
+;; later in source order; forward-declared so the cascade renderer compiles
+;; without an undeclared-var warning.
+(declare error-block-details)
 
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
@@ -2578,17 +2596,53 @@
        [:span {:aria-hidden true :style diff-glyph-bold-style} glyph]
        (when label-string label-string)])))
 
-(defn- cascade-phase-chip
-  "Render the phase pill for an `:action` cascade row (rf2-u69j7).
-  Renders nothing for non-action rows. The pill is intentionally
-  muted (`:text-tertiary` + 10px) — the action verb is the headline;
-  the phase is refinement."
+;; rf2-2hj0h item 5 — the separate `[ACTION]` kind pill + `[exit]` phase
+;; chip MERGE into ONE descriptive badge (`[EXIT ACTION]` / `[ENTRY ACTION]`
+;; / `[TRANSITION ACTION]` / …). `cascade-phase-chip` is RETIRED; the merged
+;; `cascade-action-pill` below replaces both. The `…-phase-<phase>` testid
+;; is preserved ON the merged pill so existing phase-targeting selectors
+;; still resolve (the phase is still discoverable; it just rides one badge
+;; now alongside the `…-kind-action` stem).
+(defn- cascade-action-pill
+  "Render the MERGED action badge for an `:action` cascade row (rf2-2hj0h
+  item 5) — `[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` /
+  `[ALWAYS ACTION]` / … — folding the `ACTION` kind + the row's `:phase`
+  into one token. Painted with the ACTION-kind hue (the same pill chrome
+  the prior `[ACTION]` kind pill used), so it reads as a single badge.
+
+  Carries BOTH the `…-kind-action` and the `…-phase-<phase>` testid stems
+  (the merged badge is the sole carrier of each now), so selectors that
+  targeted either the old kind pill or the old phase chip still resolve."
   [phase]
-  (when (badge/cascade-phase? phase)
-    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-phase-"
-                              (name phase))
-            :style cascade-phase-style}
-     (badge/cascade-phase-label phase)]))
+  [:span {:data-testid (str "rf-xray-epoch-machine-cascade-kind-action")
+          :data-cascade-phase-badge (when (keyword? phase) (name phase))
+          :style (assoc cascade-kind-pill-base-style
+                        :background (badge/cascade-kind-colour :action))}
+   ;; A nested span carrying the phase testid so `…-phase-<phase>`
+   ;; selectors (and the merged-badge text assertion) resolve on one node.
+   [:span {:data-testid (str "rf-xray-epoch-machine-cascade-phase-"
+                             (when (keyword? phase) (name phase)))}
+    (badge/cascade-action-badge-label phase)]])
+
+;; rf2-2hj0h item 6 — after the merged action badge the header reads
+;; ` for <state> ` then the action name. `for` is a muted connective; the
+;; state renders code-formatted (it may be a keyword OR a path vector /
+;; region→state map). Elides cleanly when no state was stamped.
+(defn- cascade-action-for-state-clause
+  "Render the ` for <state> ` clause that follows the merged action badge
+  (rf2-2hj0h item 6). `<state>` is `format/cascade-action-for-state` — the
+  exited state for an exit-phase action, the entered state for an
+  entry-phase action. Returns nil (renders nothing) when no state was
+  stamped on the row, so the header falls back to `[<PHASE> ACTION]
+  <action-name>` with no dangling `for`."
+  [row]
+  (when-let [state (fmt/cascade-action-for-state row)]
+    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-for-state-"
+                              (:step row))
+            :style cascade-action-for-state-style}
+     [:span {:style orientation-connective-style} "for"]
+     [:span {:style cascade-action-for-state-value-style}
+      (pr-str state)]]))
 
 (defn- cascade-start-cause-chip
   "Render the `[START]` row's CAUSE tag (rf2-it4vt) — `explicit` / `lazy` /
@@ -2954,12 +3008,12 @@
     fx-id (per-action attribution; same data as the FX step's
     `:attributed-to` chip, now visible IN the action's row).
 
-  rf2-4yrr6 — the EXCEPTION slot (the `✗ threw — <message>` line) is
-  REMOVED. A threw action row already carries the pink 'Exception Thrown'
-  card + the row's pink-wash (the `issue-event?` predicate); the duplicate
-  threw line here (and the duplicate `:threw` outcome chip in
-  `cascade-row-view`) were redundant — one signal is enough. The verbatim
-  message rides the card.
+  rf2-4yrr6 / rf2-2hj0h — the EXCEPTION slot (the `✗ threw — <message>`
+  line) is REMOVED. A threw action row's failure is now rendered by the
+  per-row EXCEPTION BOX (`cascade-row-exception-box`, item 8) directly below
+  the code; the duplicate threw line here (and the duplicate `:threw`
+  outcome chip in `cascade-row-view`, plus the success `:ok` tick — item 7)
+  are gone. One signal: the exception box.
 
   Each slot elides cleanly when the underlying data is absent so the
   row stays minimal for actions that ran without side-effects."
@@ -2994,6 +3048,71 @@
                                       (:step row) "-" j)
                     :style cascade-detail-fx-chip-style}
              (fmt/ns-keyword fx-id)])])])))
+
+;; rf2-2hj0h item 8 — the per-row EXCEPTION BOX. When a GUARD or ACTION
+;; THREW, render an exception box directly below that step's code —
+;; modeled on the OUTER pipeline's inline exception card (`error-block`):
+;; the same `error-block-*` chrome (✗ glyph + 'Exception Thrown' title +
+;; verbatim message + the collapsible stack / ex-data via
+;; `error-block-details`). This is the cascade row's FAILURE outcome
+;; display (paired with item 7: success = clean / no ok-tick; failure =
+;; this box). It mirrors how the fuse `:*` throw surfaces on the outer
+;; HANDLER step, but lands IN the cascade row where the throwing step ran,
+;; so the operator reads the code AND its exception at one vertical
+;; position.
+
+(defn- cascade-row-exception-message
+  "Lift the verbatim exception message for a throwing cascade row's box
+  (rf2-2hj0h item 8). Prefers a pre-projected `:message` string; falls back
+  to `ex-message` on the raw `:exception` object (the substrate stamps the
+  raw Throwable per rf2-wnvid). nil when neither is present."
+  [{:keys [message exception]}]
+  (cond
+    (and (string? message) (not (str/blank? message))) message
+    (some? exception) (let [m (try (ex-message exception) (catch :default _ nil))]
+                        (when (and (string? m) (not (str/blank? m))) m))
+    :else nil))
+
+(defn- cascade-row-exception-box
+  "Render the EXCEPTION BOX for a throwing GUARD / ACTION cascade row
+  (rf2-2hj0h item 8). Returns nil — renders nothing — for a clean row (the
+  common case: a successful action / passing guard shows no chrome here per
+  item 7). A throwing row carries `:exception` (the raw Throwable) and/or a
+  threw outcome (`:threw? true` for an action; `:outcome :threw` for a
+  guard); the box reuses the OUTER pipeline's `error-block-*` chrome so the
+  inner exception reads identically to a handler / fx / interceptor throw:
+  ✗ 'Exception Thrown' title, the verbatim message, and the collapsible
+  stack / ex-data disclosure (`error-block-details`).
+
+  The `<source-coord>` the bead names is carried by the row's verb-link (the
+  click-to-source affordance already lands the operator on the throwing
+  guard/action's `file:line`), so the box itself does not re-render a coord
+  line — matching the outer card, which dropped its redundant jump-to-source
+  link in rf2-wnvid for the same reason."
+  [{:keys [kind threw? outcome exception step] :as row}]
+  (let [threw? (or (true? threw?)
+                   (= :threw outcome)
+                   (= :rf.error/action-threw outcome))]
+    (when (and (contains? #{:action :guard} kind)
+               (or threw? (some? exception)))
+      (let [testid-base (str "rf-xray-epoch-machine-cascade-exception-" step)
+            message     (cascade-row-exception-message row)]
+        [:div {:data-testid testid-base
+               :data-cascade-exception-kind (when (keyword? kind) (name kind))
+               :style error-block-style}
+         ;; Title bar — ✗ glyph + 'Exception Thrown' (the outer card's anatomy).
+         [:div {:style error-block-title-style}
+          [:span {:aria-hidden true :style error-block-glyph-style} "✗"]
+          [:span {:data-testid (str testid-base "-title")} "Exception Thrown"]]
+         ;; Verbatim message (the punchline) — monospace, primary text.
+         (when message
+           [:div {:data-testid (str testid-base "-message")
+                  :style error-block-message-style}
+            message])
+         ;; Collapsible stack + ex-data — the SAME disclosure the outer card
+         ;; uses (`error-block-details`), so the `ex-data` / source depth
+         ;; reads one click away exactly as on a handler throw.
+         (error-block-details testid-base {:exception exception})]))))
 
 ;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
 ;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
@@ -3045,7 +3164,7 @@
            :data-cascade-phase (when (keyword? phase) (name phase))
            :data-cascade-long-step (str (boolean long?))
            :style cascade-row-style}
-     ;; Header row: ordinal + kind pill + phase chip + verb + duration + outcome
+     ;; Header row: ordinal + badge + (for <state>) + verb + duration + outcome
      [:div {:style cascade-row-header-style}
       ;; rf2-iu3no — the `:no-op` row is a SINGLE muted notice (the cascade
       ;; collapses to one row when nothing transitioned), so its 1..N
@@ -3053,9 +3172,17 @@
       ;; it for the no-op; every other kind keeps its scannability ordinal.
       (when-not (= :no-op kind)
         (cascade-row-ordinal step))
-      (cascade-kind-pill kind)
+      ;; rf2-2hj0h item 5 — an `:action` row renders ONE merged badge
+      ;; (`[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` / …);
+      ;; every other kind keeps its single kind pill (the state-change
+      ;; `:transition` ROW keeps its own `[TRANSITION]` pill — distinct from
+      ;; a `TRANSITION ACTION`).
+      (if (= :action kind)
+        (cascade-action-pill phase)
+        (cascade-kind-pill kind))
+      ;; rf2-2hj0h item 6 — ` for <state> ` after the merged action badge.
       (when (= :action kind)
-        (cascade-phase-chip phase))
+        (cascade-action-for-state-clause row))
       (cascade-row-verb-link row coord verb)
       ;; rf2-it4vt — the `[START]` row's CAUSE tag (explicit / lazy /
       ;; spawned) rides right after the verb. The `lazy` cause is the
@@ -3068,14 +3195,14 @@
        (cascade-outcome-chip
          (cond
            (= :guard kind)      outcome
-           ;; rf2-4yrr6 — a threw ACTION row carries NO outcome chip. The
-           ;; pink 'Exception Thrown' card + the row's pink-wash (the
-           ;; `issue-event?` predicate) already say it threw — one signal is
-           ;; enough (the duplicate `:threw` chip + the `cascade-row-action-
-           ;; outcome-details` "✗ threw —" line were both removed). A
-           ;; successful action keeps its `:ok` chip.
-           (and (= :action kind) threw?)  nil
-           (= :action kind)     :ok
+           ;; rf2-2hj0h item 7 — an ACTION row carries NO outcome ok-tick.
+           ;; SUCCESS is clean (no `✓ ok` chip — the prior tick was redundant
+           ;; chrome in the normal case); FAILURE is the EXCEPTION BOX below
+           ;; the code (item 8), NOT a chip. A threw action already dropped
+           ;; its chip under rf2-4yrr6; item 7 drops the success `:ok` chip
+           ;; too, so the action row's outcome is signalled purely by
+           ;; presence/absence of the exception box.
+           (= :action kind)     nil
            (= :timer kind)      :cancelled
            ;; rf2-iu3no — the benign no-op carries NO outcome chip. The
            ;; "[NO OP]" kind-pill + the "staying in {state}" verb already
@@ -3090,6 +3217,13 @@
      ;; was captured); the `:transition` row renders the rf2-iwy0c
      ;; logical-state DELTA box (`{:state :tags}` before → after).
      (cascade-row-source-body machine-meta row source-form)
+     ;; rf2-2hj0h item 8 — when a GUARD or ACTION THREW, render the EXCEPTION
+     ;; BOX directly below the step's code, modeled on the OUTER pipeline's
+     ;; inline exception card (`error-block`): ✗ 'Exception Thrown' title +
+     ;; verbatim message + collapsible stack / ex-data. This is the row's
+     ;; failure outcome display (paired with item 7: success = clean, no
+     ;; tick; failure = exception box). A clean row renders nothing here.
+     (cascade-row-exception-box row)
      ;; Per-row outcome details — kind-specific. rf2-ge6uj ISSUE 3 — the
      ;; `:transition` row carries NO extra detail body: the prominent
      ;; header verb (`<before> → <after>`) is the focal point and the
@@ -3116,11 +3250,12 @@
   the steps plainly. That line also carried the cascade total-ms —
   re-surface the total elsewhere later if wanted.)
 
-  rf2-akvfe — the rows render as a NESTED pipeline-of-boxes mirroring
-  the outer stage pipeline: a vertical rail (`machine-cascade-rail-style`)
-  runs behind the numbered [1][2][3] ordinal chips, and each row is wrapped
-  position-relative so the ordinals read as connected pipeline nodes (the
-  inner analogue of `pipeline-view`'s rail + step wrappers)."
+  rf2-2hj0h item 1 + 2 — the rows render as a FLAT numbered stack. akvfe's
+  nested-pipeline vertical RAIL (the line behind the [1][2][3] ordinals) and
+  its `:border-top` rule are REMOVED (Mike door-deck review 2026-06-04); the
+  numbered ordinal chips alone carry the pipeline reading. The per-row
+  `position: relative` rail-anchor wrapper is gone with the rail, so each
+  row renders directly (no wrapper div)."
   [machine-meta cascade-rows]
   (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
@@ -3131,16 +3266,10 @@
               :style machine-cascade-empty-style}
         "— (no machine cascade events fired)"]
        (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
-                    :style machine-cascade-rows-style}
-              ;; The nested pipeline rail — runs behind the [N] ordinals so
-              ;; the inner steps read as one connected pipeline (rf2-akvfe).
-              [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rail"
-                     :aria-hidden true
-                     :style machine-cascade-rail-style}]]
+                    :style machine-cascade-rows-style}]
              (for [row cascade-rows]
-               ^{:key (str "cascade-wrap-" (:step row))}
-               [:div {:style machine-cascade-row-wrap-style}
-                (cascade-row-view machine-meta row)])))]))
+               ^{:key (str "cascade-row-wrap-" (:step row))}
+               (cascade-row-view machine-meta row))))]))
 
 (defn- event-handler-orientation-line
   "Render the EVENT HANDLER orientation line (rf2-akvfe) — ONE structured
@@ -3166,7 +3295,9 @@
              (proj/machine-event-orientation cascade event-id)]
     [:div {:data-testid "rf-xray-epoch-event-handler-orientation"
            :style orientation-line-style}
-     [:span {:style orientation-connective-style} "Processing"]
+     ;; rf2-2hj0h item 4 — the leading "Processing" word is DROPPED. The line
+     ;; reads `[TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>` — the
+     ;; chips + values are self-orienting; the verb was filler.
      [:span {:style orientation-chip-style} "trigger"]
      [:span {:data-testid "rf-xray-epoch-event-handler-orientation-trigger"
              :style orientation-value-style}

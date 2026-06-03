@@ -352,10 +352,13 @@
                                          :lifecycle [] :timers []}}))]
         (is (nil? (th/find-by-testid tree sp))
             "rf2-akvfe — the up/down structured-cascade block no longer renders")
-        ;; The EVENT HANDLER renders as a nested pipeline — the rail + the
-        ;; orientation line for this real `[:hvac/power-cycle]` macrostep.
-        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-            "the nested-pipeline rail renders")
+        ;; rf2-2hj0h item 2 — the akvfe nested-pipeline RAIL is REMOVED; the
+        ;; rows render as a flat numbered stack (the ordinal chips carry the
+        ;; pipeline reading). The rows host + the orientation line remain.
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+            "the nested-pipeline rail is removed (rf2-2hj0h)")
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
+            "the flat rows host still renders")
         (is (some? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
             "the EVENT HANDLER orientation line renders")
         ;; No-info-loss: the per-EMIT exit/entry action rows survive and carry
