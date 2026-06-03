@@ -225,9 +225,11 @@
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.xray/machine-transitions-for-focused-event
-   ;; rf2-y9xmf — scrubber-position slot survives the collapse so the
-   ;; share-URL surface can round-trip the position; the scrubber UI
-   ;; itself is gone (sibling bead rf2-r4nao re-hosts it under Static).
+   ;; rf2-y9xmf — scrubber-position slot survives the collapse; the
+   ;; `:after`-rings overlay reads it to gate ring rendering to the
+   ;; `:present` position. (rf2-nugvv removed the share-URL surface that
+   ;; previously also round-tripped it.) The scrubber UI itself is gone
+   ;; (sibling bead rf2-r4nao re-hosts it under Static).
    :rf.xray/machine-scrubber-position
    :rf.xray/machine-snapshots
    :rf.xray/machine-snapshots-override
@@ -356,17 +358,9 @@
    ;; transition (focused-edge animation).
    :rf.xray.static.machines/sim-current-state
    :rf.xray.static.machines/sim-last-transition
-   ;; rf2-nqw0v Phase 5 — Share affordance subs.
-   :rf.xray/share-copy-status
-   :rf.xray/share-modal-open?
-   :rf.xray/share-state
-   :rf.xray/share-url
-   ;; rf2-0us27 — Per-cascade structured export subs. Co-located with
-   ;; the share/* family — same modal, same install! call.
-   :rf.xray/cascade-export
-   :rf.xray/cascade-export-available?
-   :rf.xray/cascade-export-edn
-   :rf.xray/cascade-export-status
+   ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) + its
+   ;; per-cascade structured export (rf2-0us27) subs are removed with
+   ;; the Machine panel's Share button (the modal's sole UI entry point).
    :rf.xray/suppressed-sensitive-count
    :rf.xray/target-frame
    :rf.xray/target-frame-db
@@ -455,7 +449,6 @@
    :rf.xray/close-edit-popup
    :rf.xray/close-shell
    :rf.xray/copy-path-to-clipboard
-   :rf.xray/copy-share-url-to-clipboard
    :rf.xray/copy-value-to-clipboard
    ;; First-class edn-inspector widget events (sticky-expansion +
    ;; reset). Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
@@ -556,7 +549,6 @@
    ;; rf2-e9tb0 — App-DB segment-inspector popup open event.
    :rf.xray/open-segment-inspector
    :rf.xray/open-settings
-   :rf.xray/open-share-url-in-new-tab
    :rf.xray/palette-close
    :rf.xray/palette-cursor-down
    :rf.xray/palette-cursor-set
@@ -582,7 +574,6 @@
    ;; failure-flash setter.
    :rf.xray/reset-to-epoch
    :rf.xray/reset-flash-failed
-   :rf.xray/restore-from-share-url
    :rf.xray/save-edit-popup
    :rf.xray/select-dispatch-id
    :rf.xray/select-epoch
@@ -675,15 +666,9 @@
    :rf.xray/settings-select-tab
    :rf.xray/settings-toggle
    :rf.xray/settings-update
-   ;; rf2-nqw0v Phase 5 — Share affordance events.
-   :rf.xray/share-copy-status
-   :rf.xray/share-modal-close
-   :rf.xray/share-modal-open
-   ;; rf2-0us27 — Per-cascade structured export events. Lives under
-   ;; the share/* family because it rides the same modal as URL share.
-   :rf.xray/cascade-export-status
-   :rf.xray/copy-cascade-export-to-clipboard
-   :rf.xray/download-cascade-export
+   ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) + its
+   ;; per-cascade structured export (rf2-0us27) events are removed with
+   ;; the Machine panel's Share button (the modal's sole UI entry point).
    ;; rf2-r4nao — Static Machines Sim sub-mode events (rehost from
    ;; rf2-v869p Phase 2; ns moved from :rf.xray/sim-* to
    ;; :rf.xray.static.machines/sim-*).
@@ -727,10 +712,10 @@
    ;; `rf/restore-epoch` against the observed frame + focused epoch, and
    ;; dispatches the inline failure flash on a false return.
    :rf.xray.fx/restore-epoch
-   ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
-   :rf.xray.fx/open-in-new-tab
-   ;; rf2-0us27 — Per-cascade structured export: text-file download fx.
-   :rf.xray.fx/download-text-file
+   ;; rf2-nugvv (2026-06-04) — the Share affordance new-tab fx
+   ;; (`:rf.xray.fx/open-in-new-tab`, rf2-nqw0v) + the per-cascade export
+   ;; download fx (`:rf.xray.fx/download-text-file`, rf2-0us27) are
+   ;; removed with the Machine panel's Share button.
    ;; rf2-fq491 — `✕` close button: the DOM-side shell-hide effect fired
    ;; by `:rf.xray/close-shell`. Registered via `mount/install-fx!` from
    ;; the orchestrator; calls `mount/close!`.

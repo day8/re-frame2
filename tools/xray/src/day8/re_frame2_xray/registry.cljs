@@ -408,10 +408,11 @@
     ;; pointing at" in one shot. The original home was
     ;; `panels/event_detail.cljs`'s `install!`; when the Event/Handler
     ;; panel was retired (Epoch panel supersedes it — rf2-5gl5r) the
-    ;; composite stayed valuable to the share modal
-    ;; (`:rf.xray/cascade-export`), the per-cascade managed-fx surface,
+    ;; composite stayed valuable to the per-cascade managed-fx surface
     ;; and the existing test corpus, so it lives here as a cross-panel
     ;; primitive next to `:rf.xray/cascades` it composes against.
+    ;; (rf2-nugvv removed the share modal that previously also consumed
+    ;; it via `:rf.xray/cascade-export`.)
     ;;
     ;; Reads the EFFECTIVE focused dispatch-id off the spine sub
     ;; (`:rf.xray/focus`); spine auto-advances to head in `:live` mode,

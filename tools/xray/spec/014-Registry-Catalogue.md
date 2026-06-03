@@ -136,9 +136,10 @@ panel ([`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 §9.1). The composite sub + spine-shim events listed below were
 **relocated** from the deleted `panels/event_detail.cljs` to
 `registry.cljs` as cross-panel primitives — multiple consumers
-(`share.cljs`'s cascade-export, the trace panel's status bar,
-machine-inspector, cancellation-cascade, the unit-test corpus) read
-them and they outlived the panel that originally owned them.
+(the trace panel's status bar, machine-inspector, cancellation-cascade,
+the unit-test corpus) read them and they outlived the panel that
+originally owned them. (rf2-nugvv removed `share.cljs`'s cascade-export,
+which was also a consumer.)
 
 ### Subscriptions
 
@@ -445,8 +446,9 @@ rf2-lq0ef (audit verdict B).
 
 Spec: [`003-Machine-Inspector.md`](./003-Machine-Inspector.md). Reads
 `(rf/machines)`, the live `:rf/machine` snapshots, and the
-trace-buffer's `:rf.machine/transition` slice. Read-only at v1 —
-share-affordance and source-coord jumps live in `tools/machines-viz/`.
+trace-buffer's `:rf.machine/transition` slice. Read-only at v1.
+(rf2-nugvv removed the panel's Share affordance; source-coord jumps
+remain deferred.)
 
 ### Subscriptions
 

@@ -44,15 +44,13 @@
 
     - No source-coord jumps (the cross-panel jump API hasn't
       stabilised yet — same as the routes panel's v1 deferral).
-    - No `:spawn-all` viz / `:after` countdown rings / share
-      affordance — those live in `tools/machines-viz/` per Spec
-      003 §Embedding posture. This panel embeds the component; the
-      rendering is the component's job. The placeholder simply
-      surfaces the props the real component would consume.
-    - No share-URL encoding — that lives in
-      `tools/machines-viz/spec/API.md` §Share-URL encoding under the
-      `share/encode-share-url` surface. The panel will wire the
-      affordance through to those exports when machines-viz ships.
+    - No `:spawn-all` viz / `:after` countdown rings — those live in
+      `tools/machines-viz/` per Spec 003 §Embedding posture. This panel
+      embeds the component; the rendering is the component's job. The
+      placeholder simply surfaces the props the real component would
+      consume.
+    - No share affordance (rf2-nugvv removed it — the Machine panel was
+      the sole UI entry point to the Xray share modal).
 
   ## Inputs to the projection
 

@@ -133,9 +133,9 @@ All tab content shares the cross-panel substrate:
 > surviving cross-panel sub `:rf.xray/event-detail` + spine-shim
 > events `:rf.xray/select-dispatch-id` / `:rf.xray/clear-selected-
 > dispatch-id` were relocated to `registry.cljs` as cross-panel
-> primitives (consumed by `share.cljs`, the trace panel's status bar,
+> primitives (consumed by the trace panel's status bar,
 > machine-inspector, cancellation-cascade, and the existing test
-> corpus).
+> corpus; rf2-nugvv removed `share.cljs`, which was also a consumer).
 
 ## Effects content — folded into Epoch panel
 

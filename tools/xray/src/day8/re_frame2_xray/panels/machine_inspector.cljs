@@ -51,7 +51,13 @@
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
-            [day8.re-frame2-xray.share :as share]
+            ;; rf2-nugvv — the per-machine prev/next nav routes its focus
+            ;; mutation through the spine's `focus-cascade-reducer` so the
+            ;; jump stamps `:mode :retro` (and resolves the settling
+            ;; dispatch-id) — a bare `[:focus :epoch-id]` write is silently
+            ;; overridden by `compose-focus`'s LIVE+unpaused head-tracking,
+            ;; which is why the buttons were dead on the live panel.
+            [day8.re-frame2-xray.spine :as spine]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-machine
             ;; snapshot drill-in surface mounts the first-class
             ;; edn-inspector widget directly. Each machine gets its own
@@ -1016,30 +1022,6 @@
      "rf/reg-machine"]
     " to populate this panel."]])
 
-;; ---- share button -------------------------------------------------------
-
-(defn- share-button
-  "Top-right Share button in the panel toolbar."
-  []
-  ;; rf2-nesy9 — render-time frame capture for the deferred share click.
-  (let [frame (rf/current-frame-id)]
-   [:button
-   {:data-testid "rf-xray-machine-inspector-share-button"
-    :on-click    (fn [_]
-                   (rf/dispatch [:rf.xray/share-modal-open] {:frame frame}))
-    :title       "Share this view (URL with focus + mode + scrubber)"
-    :style       {:background "transparent"
-                  :border (str "1px solid " (:border-default tokens))
-                  :color (:accent tokens)
-                  :font-family sans-stack
-                  :font-size "11px"
-                  :font-weight 600
-                  :padding "4px 12px"
-                  :border-radius "10px"
-                  :cursor "pointer"
-                  :white-space "nowrap"}}
-   "⤴ Share"]))
-
 ;; ---- public view --------------------------------------------------------
 
 (rf/reg-view Panel
@@ -1063,13 +1045,15 @@
                :style panel-header-style}
       ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Machine
       ;; inspector" heading is scrubbed; the L4 tab strip is the
-      ;; panel-name source-of-truth. The header row keeps the nav +
-      ;; share affordances on the right.
+      ;; panel-name source-of-truth. The header row keeps the per-machine
+      ;; prev/next nav on the right.
+      ;;
+      ;; rf2-nugvv — the Share affordance is removed (Mike, 2026-06-04);
+      ;; the prev/next nav is the only header toolbar affordance now.
       [:div]
       (when (not= :no-machines empty-kind)
         [:div {:style panel-header-toolbar-style}
-         (prev-next-nav scope-machine-id)
-         (share-button)])]
+         (prev-next-nav scope-machine-id)])]
      (cond
        (= :no-machines empty-kind)
        (empty-state)
@@ -1095,10 +1079,13 @@
     - the per-machine projection composite (`:rf.xray/machine-inspector-data`)
     - the focused-event lens composite (`:rf.xray/machine-transitions-for-focused-event`)
     - the per-machine prev/next nav events
-    - the scrubber-position slot (kept for share-URL compatibility;
-      the scrubber UI is gone but the slot round-trips through share)
+    - the scrubber-position slot (read by the `:after`-rings overlay to
+      gate ring rendering to the `:present` position; rf2-nugvv removed
+      the share-URL surface that previously also round-tripped it)
     - the rings install (`:after` countdown ring overlay)
-    - the share-affordance install
+
+  rf2-nugvv (2026-06-04) — the Share affordance (button + modal +
+  `share.cljs` infra) is removed; `install!` no longer installs it.
 
   rf2-r4nao moved the Sim engine + UI into
   `static.machines.sim` — installed via
@@ -1244,20 +1231,45 @@
     (fn [db _event]
       (update db :machine-inspector/elk-pulse-tick (fnil inc 0))))
 
-  ;; ---- per-machine prev/next nav (rf2-y9xmf) ---------------------
-
-  ;; Walk the epoch-history to the prior / next epoch that ALSO
-  ;; touched the focused machine. The focused-event lens picks the
-  ;; head section's machine-id as scope; these events filter
-  ;; epoch-history for that machine + step the spine's focus.
+  ;; ---- per-machine prev/next nav (rf2-y9xmf · fixed rf2-nugvv) ----
+  ;;
+  ;; Step the spine's focus backwards / forwards to the adjacent epoch
+  ;; whose cascade TARGETS THE CURRENTLY-VIEWED MACHINE — skipping
+  ;; epochs whose cascade touched only other machines. The focused-event
+  ;; lens binds to the head transition's machine-id; that machine is the
+  ;; nav's scope.
+  ;;
+  ;; rf2-nugvv — two corrections over the original walk:
+  ;;
+  ;;   1. **Start from the COMPOSED focus, not the raw `:focus` slot.**
+  ;;      In LIVE+unpaused mode `compose-focus` derives the effective
+  ;;      `:epoch-id` to the head cascade's settling epoch, ignoring the
+  ;;      stored slot. Walking from the raw slot's `:epoch-id` (often nil
+  ;;      on a fresh session) made the step start from the wrong place
+  ;;      and the scope machine resolve off the wrong epoch.
+  ;;
+  ;;   2. **Mutate focus through `spine/focus-cascade-reducer`, not a
+  ;;      bare `[:focus :epoch-id]` write.** A bare epoch-id write is
+  ;;      silently overridden by `compose-focus`'s LIVE+unpaused head-
+  ;;      tracking (`eff-epoch-id` snaps back to head), so the panel
+  ;;      never moved — the buttons looked dead. Routing through the
+  ;;      reducer stamps `:mode :retro` + resolves the target epoch's
+  ;;      settling `:dispatch-id`, the same focus mutation the L2 row
+  ;;      click and the spine `[◀ ▶]` ribbon use, so the jump sticks.
   (letfn [(epoch-touches-machine? [epoch machine-id]
             (some (fn [ev]
                     (and (h/transition-event? ev)
                          (= machine-id (h/machine-id-of ev))))
                   (or (:trace-events epoch) [])))
-          (scope-machine-id [db]
+          ;; The composed focus the panel actually renders from — honours
+          ;; LIVE head-tracking, the frame picker, and retro pins.
+          (composed-focus [db]
+            (spine/compose-focus (get db :focus)
+                                 (spine/db->cascades db)
+                                 (spine/db->show-ungrouped? db)
+                                 (get db :epoch-history [])))
+          (scope-machine-id [db focus]
             (let [history (vec (or (get db :epoch-history) []))
-                  focus   (get db :focus)
                   record  (h/focused-epoch-record history focus)
                   events  (when record (:trace-events record))
                   records (h/project-focused-event-transitions events nil)]
@@ -1265,25 +1277,53 @@
                   (get db :selected-machine-id))))
           (step-focus [db direction]
             (let [history (vec (or (get db :epoch-history) []))
-                  mid     (scope-machine-id db)
-                  current (get-in db [:focus :epoch-id])
+                  focus   (composed-focus db)
+                  mid     (scope-machine-id db focus)
+                  current (:epoch-id focus)
                   cur-idx (or (some (fn [[i r]]
                                       (when (= (:epoch-id r) current) i))
                                     (map-indexed vector history))
+                              ;; No pin yet (composed focus lacks an
+                              ;; epoch-id, or it is evicted) — anchor at
+                              ;; the tail so :prev steps back from the
+                              ;; newest epoch and :next is a no-op.
                               (dec (count history)))
                   step    (case direction :prev dec :next inc)
                   match?  (fn [r] (epoch-touches-machine? r mid))
                   pred    (case direction
                             :prev #(neg? %)
-                            :next #(>= % (count history)))]
+                            :next #(>= % (count history)))
+                  ;; The head cascade's dispatch-id so the reducer can
+                  ;; pick :live vs :retro correctly when the jump lands
+                  ;; back on head.
+                  cascades        (spine/db->cascades db)
+                  show-ungrouped? (spine/db->show-ungrouped? db)
+                  head-id         (spine/focusable-head-id cascades show-ungrouped?)]
               (loop [i (step cur-idx)]
                 (cond
                   (or (nil? mid) (pred i))
                   db
 
                   (match? (nth history i))
-                  (update db :focus (fnil assoc {}) :epoch-id
-                          (:epoch-id (nth history i)))
+                  (let [target      (nth history i)
+                        epoch-id    (:epoch-id target)
+                        frame-id    (:frame target)
+                        dispatch-id (spine/dispatch-id-for-epoch history epoch-id)]
+                    (if dispatch-id
+                      ;; Reuse the canonical spine focus mutation so the
+                      ;; jump stamps mode + dispatch-id and sticks.
+                      (spine/focus-cascade-reducer
+                        db dispatch-id frame-id epoch-id head-id)
+                      ;; No settling dispatch-id (trace elided / synthetic
+                      ;; epoch) — pin the epoch-id directly AND force
+                      ;; :retro so compose-focus stops head-tracking and
+                      ;; the navigation holds. Mirrors the spine's
+                      ;; `:rf.xray/focus-epoch` no-dispatch-id fallback.
+                      (cond-> (update db :focus (fnil assoc {})
+                                      :epoch-id   epoch-id
+                                      :mode       :retro
+                                      :previewing? false)
+                        frame-id (assoc-in [:focus :frame] frame-id))))
 
                   :else (recur (step i))))))]
     (rf/reg-event-db :rf.xray/machine-focus-prev
@@ -1292,11 +1332,13 @@
     (rf/reg-event-db :rf.xray/machine-focus-next
       (fn [db _event] (step-focus db :next))))
 
-  ;; ---- scrubber-position slot (share-URL compatibility) ----------
+  ;; ---- scrubber-position slot ----------
 
-  ;; The scrubber UI is gone (rf2-y9xmf), but the slot survives because
-  ;; share.cljs / share_modal.cljs round-trip the position through the
-  ;; share URL. Reads default to `:present`. The companion `set-scrubber-
+  ;; The scrubber UI is gone (rf2-y9xmf) and the share-URL surface that
+  ;; round-tripped this slot is gone too (rf2-nugvv), but the slot
+  ;; survives because the `:after`-rings overlay reads it
+  ;; (`machine_after_rings*` gate ring rendering to the `:present`
+  ;; position). Reads default to `:present`. The companion `set-scrubber-
   ;; position` event keeps the contract bidirectional.
   (rf/reg-sub :rf.xray/machine-scrubber-position
     (fn [db _query]
@@ -1330,8 +1372,11 @@
   ;; ---- Interactive viewport adapter (rf2-y3l8z) -----------------
   (machine-canvas/install!)
 
-  ;; ---- Share affordance (rf2-nqw0v) -----------------------------
-  (share/install!)
+  ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) is
+  ;; removed. The machine panel was the sole UI entry point to the
+  ;; share modal (`:rf.xray/share-modal-open`), so the button, the
+  ;; modal (`share_modal.cljs`), the shell mount, and the `share.cljs`
+  ;; infra all go with it.
 
   ;; rf2-2moh1 — register the Dynamic Machines tab with the internal L4
   ;; tab registry.

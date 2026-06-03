@@ -718,8 +718,8 @@
   by the trace bus, which has no surrounding render/event frame, and
   the bottom-rail's `[● REDACTED N]` indicator lives on the single
   in-app shell. It is the legitimate production-singleton seam,
-  consistent with `share/maybe-restore-from-location!` +
-  `spine-filters/hydrate!`. Guarded on the frame's existence so
+  consistent with `spine-filters/hydrate!`. Guarded on the frame's
+  existence so
   pre-mount callers (Xray shell not yet opened) bump the atom
   without emitting an `:rf.error/frame-destroyed` trace into the
   bus — the seed in `ensure-xray-frame!` lifts the atom's contents
