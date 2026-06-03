@@ -4,7 +4,7 @@ The testing surface is structured around one premise: **the framework's discipli
 
 The surface lives across **three namespaces** because the three concerns separate cleanly:
 
-- `re-frame.core` — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`).
+- `re-frame.core` — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`).
 - `re-frame.test-support` — the test-only fixture machinery and test-flavoured helpers. **Runtime-state axis**: registrar, frames, `app-db`, drain.
 - `re-frame.test-helpers` — the view-assertion helpers (hiccup-walk + the `testid` authoring helper). **View-tree axis**: hiccup data, testids, attached handlers.
 
