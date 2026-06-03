@@ -2661,10 +2661,25 @@ async function runPanelGalleryThemeTokens(page, state) {
 // section reflects the just-clicked button. CURRENT ROUTE + ROUTE TABLE
 // render every epoch. We read each section's stable data-testids.
 
-// Click a deck ladder rung by its per-rung data-testid
-// (`routes-epochs-rung-<n>`, outside Xray chrome).
+// Drive a deck ladder rung by its (1-based) rung number.
+//
+// rf2-3xakq — the deck was converted to the shared queued-step runner
+// (`runner.core`). It no longer mounts a bespoke `routes-epochs-rung-<n>`
+// button per rung; instead the runner renders one step row per step, and
+// each row's index is a RANDOM-ACCESS RUN-THIS-STEP button
+// (`routes-epochs-step-<n>-run`, n = 0-based step index). The runner's
+// per-step run affordance is exactly the random-access addressing this
+// scenario needs — it drives rungs OUT OF ORDER (#3, #1, #4, #5, #7, #10,
+// #11), asserting the Routing panel after each, which the runner's
+// sequential cursor alone could not provide.
+//
+// The scenario keeps the historical 1-based rung vocabulary (rung 1 = the
+// first step) and maps it onto the 0-based runner step index here, so every
+// call site below reads unchanged. The step ORDER is identical to the old
+// ladder (same events, same routing features); only the driving affordance
+// moved to the runner.
 async function clickRung(page, n) {
-  await clickTestId(page, `routes-epochs-rung-${n}`);
+  await clickTestId(page, `routes-epochs-step-${n - 1}-run`);
 }
 
 // Read the Routing panel's projected slice from the DOM. Returns nulls
@@ -2849,8 +2864,10 @@ async function runRoutesEpochs(page, state) {
     try {
       const cljs = window.cljs && window.cljs.core;
       const rf = window.re_frame && window.re_frame.core;
-      // `re-frame.core/get-frame-db` returns the plain db map (no deref).
-      if (cljs && rf && typeof rf.get_frame_db === 'function') {
+      // `re-frame.core/app-db-value` returns the plain db VALUE (no deref)
+      // for the named frame (rf2-003ce renamed the former get-frame-db
+      // container accessor; the value accessor is the public read seam).
+      if (cljs && rf && typeof rf.app_db_value === 'function') {
         const kw = (s) => {
           const t = String(s).replace(/^:/, '');
           const p = t.split('/');
@@ -2858,7 +2875,7 @@ async function runRoutesEpochs(page, state) {
             ? (cljs.keyword.call ? cljs.keyword.call(null, p[0], p[1]) : cljs.keyword(p[0], p[1]))
             : (cljs.keyword.call ? cljs.keyword.call(null, t) : cljs.keyword(t));
         };
-        const db = rf.get_frame_db(kw('rf/default'));
+        const db = rf.app_db_value(kw('rf/default'));
         const path = cljs.PersistentVector.fromArray(
           [kw('rf/runtime'), kw('routing'), kw('pending-navigation')], true);
         const pn = db ? cljs.get_in(db, path) : null;

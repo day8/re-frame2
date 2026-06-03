@@ -1,30 +1,41 @@
 (ns routes-epochs.core
-  "ROUTES-EPOCHS testbed (rf2-5crg4) — the ROUTING sibling of the
-  `standard_epochs` deck. A deliberately simple Xray driving surface
-  aimed squarely at the **Routing panel** (`rf-xray-routing`).
+  "ROUTES-EPOCHS testbed (rf2-5crg4 → rf2-3xakq) — the ROUTING sibling of the
+  `standard_epochs` deck, converted to the shared queued-step RUNNER
+  (`runner.core`, the rf2-8pbjr pilot). A deliberately simple Xray driving
+  surface aimed squarely at the **Routing panel** (`rf-xray-routing`).
 
-  ## Shape
+  ## Shape (rf2-3xakq — adopt the shared queued-step RUNNER)
 
-  ONE tall column of NUMBERED buttons, top to bottom — the same shape as
-  `standard_epochs`. Beside each button a one-line caption says WHAT TO
-  WATCH in Xray's Routing tab when you press it. Each button is ONE test:
-  it fires one event that
+  ONE purple Step button (`routes-epochs-step`) walks the routing ladder
+  top to bottom while the operator watches how Xray's Routing panel renders
+  each rung; EVERY step row's index is ALSO a RANDOM-ACCESS RUN-THIS-STEP
+  button (`routes-epochs-step-<n>-run`, n = 0-based step index) so any rung
+  can be driven directly. The runner (`runner.core`) is the shared harness;
+  this deck supplies a `steps` vector (CODE DATA) + the testid prefix
+  `routes-epochs`. Each step DISPATCHES one event that
 
     (a) bumps a shared baseline counter (so App-db / Epoch always show a
-        delta on every press), and
+        delta on every step), and
     (b) exercises exactly ONE additional ROUTING feature.
 
-  Progressive: button 1 is a plain `navigate`; each later button layers
-  one more routing concept on top. A SINGLE frame, plainly mounted, with
-  the routing artefact booted (`[re-frame.routing]`) and Xray
-  auto-mounting inline on the right (`[data-rf-xray-host]` + the xray
-  preload) reading that one frame. No tabs, no live ACTION→CHECK strip:
-  the static caption is the 'what to look for', and the Routing panel
-  itself is the check.
+  Replaces the bespoke numbered-button ladder (`routes-epochs-rung-<n>`):
+  same events, same routing features, same coverage — but driven by the
+  shared runner. The runner's per-step RUN-THIS-STEP affordance (rf2-kipb5)
+  is exactly the RANDOM-ACCESS addressing the feature-matrix scenario needs
+  — it drives rungs OUT OF ORDER (#3, #1, #4, #5, #7, #10, #11), asserting
+  the Routing panel after each, which the runner's sequential cursor alone
+  could not provide.
+
+  Progressive: step 1 is a plain `navigate`; each later step layers one
+  more routing concept on top. A SINGLE frame, plainly mounted, with the
+  routing artefact booted (`[re-frame.routing]`) and Xray auto-mounting
+  inline on the right (`[data-rf-xray-host]` + the xray preload) reading
+  that one frame. The Routing panel itself is the check; each step's
+  `:watch` note says what to look for.
 
   ## North star (acceptance)
 
-  Click the buttons top to bottom → the Xray **Routing panel** is
+  Step through the ladder top to bottom → the Xray **Routing panel** is
   COMPLETELY exercised: its three sections —
 
     - CURRENT ROUTE         (active id · params · matched path)
@@ -57,25 +68,37 @@
                              route params (transition :loading → :idle).
     #9  back/forward        — push, then a popstate-style back; NAVIGATION
                              THIS EPOCH's FROM ──► TO reverses.
-    #10 guarded/blocked nav— a `:can-leave` guard refuses; outcome
+    #10 guarded/enter       — navigate INTO settings + arm the dirty flag.
+    #11 guarded/blocked nav — a `:can-leave` guard refuses; outcome
                              `blocked` + `:rf/pending-navigation` is set.
+
+  ## Runner state = LOCAL ATOM (rf2-8pbjr contract)
+
+  The runner cursor / status / pace live in `runner-state` — a LOCAL
+  Reagent atom in THIS ns. It is NEVER written to the inspected app-db
+  (that would pollute the App-db / Routing panels under inspection) and is
+  NOT a second frame (only the inspected app frame, `:rf/default`, is
+  Xray-relevant). A Step / per-step click is manual (operator-driven focus
+  — the runner does not pin focus).
 
   ## Test surface, not tutorial
 
   Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs as
   anti-patterns, no teaching layers. The guard / not-found / redirect
-  buttons exercise the REAL routing surface — each is a feature being
-  driven, not a buggy demo. Captions are guidance, not lessons.
+  steps exercise the REAL routing surface — each is a feature being
+  driven, not a buggy demo. `:watch` notes are guidance, not lessons.
 
   ## Test-free + self-contained
 
   Per rf2-8cevm this testbed carries no spec.cjs; regression coverage
   lives in the substrate contract tests + the Xray feature-matrix gate
   (`tools/xray/testbeds/feature_matrix/scenarios.cjs` — the
-  `routes-epochs routing ladder` scenario). The routes / events / subs /
+  `routes-epochs routing ladder` scenario, which drives the ladder via the
+  runner's per-step RUN-THIS-STEP buttons). The routes / events / subs /
   views below are OWNED here — this deck does NOT reuse the shared
   `testdeck.*` modules."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent.core :as r]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Routing artefact — load-time hook so `reg-route`,
             ;; `:rf.route/navigate`, the `:rf.route/*` subs and
@@ -90,8 +113,18 @@
             [day8.re-frame2-xray.config :as xray-config]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; The shared queued-step runner (rf2-8pbjr pilot). This deck
+            ;; supplies a `steps` vector + the testid prefix; the runner
+            ;; drives the ONE-button series + the per-step RUN buttons.
+            [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
+
+;; ============================================================================
+;; The inspected app frame (rf2-8pbjr — only the app frame is Xray-relevant)
+;; ============================================================================
+
+(def host-frame :rf/default)
 
 ;; ============================================================================
 ;; ROUTES — the deck OWNS its own route table
@@ -117,13 +150,13 @@
    :path "/"})
 
 (rf/reg-route :routes-epochs/articles
-  {:doc  "Articles list — the nested-route PARENT (button #5's child sits
+  {:doc  "Articles list — the nested-route PARENT (step #5's child sits
           under it, so the ROUTE TABLE draws the indented tree)."
    :path "/articles"})
 
 (rf/reg-route :routes-epochs/article
-  {:doc    "Article detail — carries a `:id` path param (button #3) and is
-            NESTED under `:routes-epochs/articles` (button #5) so the
+  {:doc    "Article detail — carries a `:id` path param (step #3) and is
+            NESTED under `:routes-epochs/articles` (step #5) so the
             ROUTE TABLE indents it and the current-row highlight walks the
             parent chain."
    :path   "/articles/:id"
@@ -132,7 +165,7 @@
 
 (rf/reg-route :routes-epochs/search
   {:doc   "Search — declares a `:query` schema so the query keys round-trip
-           into the route slice (button #4)."
+           into the route slice (step #4)."
    :path  "/search"
    :query [:map
            [:q {:optional true} :string]
@@ -140,27 +173,27 @@
 
 (rf/reg-route :routes-epochs/old-home
   {:doc      "A retired URL that REDIRECTS to `:routes-epochs/home` via its
-              `:on-match` (button #6) — navigating here lands the slice on
+              `:on-match` (step #6) — navigating here lands the slice on
               home, one cascade later."
    :path     "/old-home"
    :on-match [[:routes-epochs/redirect-to-home]]})
 
 (rf/reg-route :routes-epochs/profile
   {:doc      "A profile route whose `:on-match` LOADER writes app-db from
-              the route params (button #8): transition runs :loading → :idle
+              the route params (step #8): transition runs :loading → :idle
               while the loader fills `:profile`."
    :path     "/profile/:user"
    :params   [:map [:user :string]]
    :on-match [[:routes-epochs/load-profile]]})
 
 (rf/reg-route :routes-epochs/settings
-  {:doc       "Settings — GUARDED by a `:can-leave` gate (button #10). The
+  {:doc       "Settings — GUARDED by a `:can-leave` gate (step #11). The
                gate refuses to leave while `:settings-dirty?` is set, so a
                navigation AWAY is blocked and `:rf/pending-navigation` fills."
    :path      "/settings"
    :can-leave :routes-epochs/can-leave-settings?})
 
-;; The runtime emits :rf.route/not-found for unmatched URLs (button #7).
+;; The runtime emits :rf.route/not-found for unmatched URLs (step #7).
 (rf/reg-route :rf.route/not-found
   {:doc  "Fallback page for unmatched URLs — CURRENT ROUTE reads
           `:rf.route/not-found`; NAVIGATION THIS EPOCH's outcome chip
@@ -171,11 +204,11 @@
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
-;; `:baseline` is the shared counter every button bumps (so App-db / Epoch
+;; `:baseline` is the shared counter every step bumps (so App-db / Epoch
 ;; always show a delta). `:articles` feeds the params / nested-route
-;; targets. `:profile` is the slot the route-driven loader (button #8)
+;; targets. `:profile` is the slot the route-driven loader (step #8)
 ;; fills from the route params. `:settings-dirty?` arms the `:can-leave`
-;; guard (button #10).
+;; guard (step #11).
 
 (def initial-db
   {:baseline        0
@@ -185,7 +218,7 @@
    :settings-dirty? false})
 
 (rf/reg-event-fx :routes-epochs/reset
-  {:doc "Button 0 — re-seed app-db AND navigate home. Start clean."}
+  {:doc "Re-seed app-db AND navigate home. Start clean."}
   (fn handler-reset [_ _ev]
     {:db initial-db
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
@@ -197,7 +230,7 @@
 ;; The routing events themselves are FRAMEWORK events (`:rf.route/navigate`
 ;; etc.) we cannot edit, so each rung is a thin deck-owned event-fx that
 ;; (a) bumps `:baseline` via `:db` and (b) dispatches the routing
-;; event/fx. The Epoch / App-db delta on every press comes from the bump;
+;; event/fx. The Epoch / App-db delta on every step comes from the bump;
 ;; the Routing panel lights up from the dispatched routing event.
 
 (defn- bump [db] (update db :baseline inc))
@@ -217,7 +250,7 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :routes-epochs/redirect-to-home
-  {:doc "Button #6's redirect — fired as `:routes-epochs/old-home`'s
+  {:doc "Step #6's redirect — fired as `:routes-epochs/old-home`'s
          `:on-match`. Re-navigates to home so the slice lands on a
          DIFFERENT route one cascade later."}
   (fn handler-redirect [{:keys [db]} _ev]
@@ -225,7 +258,7 @@
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
 
 (rf/reg-event-db :routes-epochs/load-profile
-  {:doc "Button #8's route-driven loader — fired as
+  {:doc "Step #8's route-driven loader — fired as
          `:routes-epochs/profile`'s `:on-match`. Reads the route params
          from the slice and writes `:profile` into app-db (the
          transition runs :loading → :idle around this loader)."}
@@ -234,7 +267,7 @@
       (-> db bump (assoc :profile {:user user :loaded-at-baseline (:baseline db)})))))
 
 ;; ============================================================================
-;; GUARDED NAV (#10) — a :can-leave gate
+;; GUARDED NAV (#10/#11) — a :can-leave gate
 ;; ============================================================================
 ;;
 ;; `:routes-epochs/settings` declares `:can-leave :routes-epochs/can-leave-
@@ -248,14 +281,14 @@
   (fn [db _] (boolean (not (:settings-dirty? db)))))
 
 (rf/reg-event-fx :routes-epochs/enter-dirty-settings
-  {:doc "Button #10a — navigate INTO settings AND arm the dirty flag, so
+  {:doc "Step #10 — navigate INTO settings AND arm the dirty flag, so
          the `:can-leave` guard will block the next attempt to leave."}
   (fn handler-enter-dirty [{:keys [db]} _ev]
     {:db (-> db bump (assoc :settings-dirty? true))
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/settings]]]}))
 
 (rf/reg-event-fx :routes-epochs/try-leave-settings
-  {:doc "Button #10b — attempt to navigate home FROM dirty settings. The
+  {:doc "Step #11 — attempt to navigate home FROM dirty settings. The
          `:can-leave` guard refuses: the slice stays on settings, the
          outcome reads `blocked`, and `:rf/pending-navigation` fills."}
   (fn handler-try-leave [{:keys [db]} _ev]
@@ -272,7 +305,7 @@
 ;; the forward navigation that preceded it.
 
 (rf/reg-event-fx :routes-epochs/back
-  {:doc "Button #9 — emulate the browser Back button by handling a
+  {:doc "Step #9 — emulate the browser Back button by handling a
          url-change back to the articles list (a popstate-style
          transition). NAVIGATION THIS EPOCH's FROM ──► TO reverses."}
   (fn handler-back [{:keys [db]} _ev]
@@ -291,79 +324,87 @@
 (rf/reg-sub :routes-epochs/profile  (fn [db _] (:profile db)))
 
 ;; ============================================================================
-;; THE BUTTON LADDER
+;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
+;; ============================================================================
+;;
+;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
+;;             :label "<short row label>"}. The runner renders :watch per
+;; STEP (per-occurrence narration), dispatches :event, then waits
+;; :settle-ms before advancing. Navigation cascades through
+;; `:routes-epochs/go` (bump + :rf.route/navigate) settle quickly — a
+;; short pause is enough for the navigation cascade + the Routing panel to
+;; render before the next step. Redirect (#6) is given a longer settle
+;; because its `:on-match` fires a SECOND navigation cascade.
+;;
+;; The ladder order matches the historical numbered rungs 1..11 (1-based):
+;; step index 0 = rung #1, step index N-1 = rung #N. The feature-matrix
+;; scenario keeps the 1-based rung vocabulary and drives the runner's
+;; per-step RUN button at index (rung - 1).
+
+(def steps
+  [;; -- Navigation basics — CURRENT ROUTE + NAVIGATION THIS EPOCH --
+   {:label     "navigate / push"
+    :event     [:routes-epochs/go :routes-epochs/home]
+    :watch     "CURRENT ROUTE → :home · NAVIGATION ──► home · outcome transitioned. The ROUTE TABLE paints the :to overlay on the home row."
+    :settle-ms 400}
+   {:label     "replace (no history push)"
+    :event     [:routes-epochs/go :routes-epochs/home nil {:replace? true}]
+    :watch     "Same slice write via :replace? true (:rf.nav/replace-url, no history push) — the slice lands on :home without a back-stack entry."
+    :settle-ms 400}
+
+   ;; -- Params & query — the slice carries params / query --
+   {:label     "route params (/articles/:id)"
+    :event     [:routes-epochs/go :routes-epochs/article {:id "intro"}]
+    :watch     "CURRENT ROUTE → :article · params {:id \"intro\"} · NAVIGATION ──► :article · transitioned."
+    :settle-ms 400}
+   {:label     "query params (?q&sort)"
+    :event     [:routes-epochs/go :routes-epochs/search nil {:query {:q "routing" :sort "asc"}}]
+    :watch     "CURRENT ROUTE → :search · query {:q \"routing\" :sort \"asc\"} (the :rf.route/query slice)."
+    :settle-ms 400}
+
+   ;; -- ROUTE TABLE — nested tree, redirect, fallback --
+   {:label     "nested route (under :articles)"
+    :event     [:routes-epochs/go :routes-epochs/article {:id "nested"}]
+    :watch     "ROUTE TABLE indents :article under :articles (deeper padding-left) · the destination :to overlay paints on the :article row this navigation epoch."
+    :settle-ms 400}
+   {:label     "redirect (:on-match re-navigates)"
+    :event     [:routes-epochs/go :routes-epochs/old-home]
+    :watch     "Navigate :old-home → its :on-match re-navigates, landing the slice on :home one cascade later. Epoch: the two-navigation cascade."
+    :settle-ms 600}
+   {:label     "not-found / fallback"
+    :event     [:routes-epochs/go {:url "/no-such-page"}]
+    :watch     "Unmatched URL → CURRENT ROUTE :rf.route/not-found · NAVIGATION ──► the registered :rf.route/not-found fallback."
+    :settle-ms 400}
+
+   ;; -- Loaders & transitions — :on-match drives app-db --
+   {:label     "route-driven app-db (:on-match loader)"
+    :event     [:routes-epochs/go :routes-epochs/profile {:user "ada"}]
+    :watch     "Navigate :profile → :on-match writes :profile from params · App-db gains :profile {:user \"ada\" ..} · transition :loading→:idle."
+    :settle-ms 500}
+   {:label     "back / forward (popstate)"
+    :event     [:routes-epochs/back]
+    :watch     "Emulate Back → :articles · NAVIGATION THIS EPOCH's FROM ──► TO reverses relative to the forward navigation."
+    :settle-ms 400}
+
+   ;; -- Guarded navigation — :can-leave blocks --
+   {:label     "enter dirty settings (arm the guard)"
+    :event     [:routes-epochs/enter-dirty-settings]
+    :watch     "Navigate INTO :settings + arm :settings-dirty? so the :can-leave guard will block the next attempt to leave."
+    :settle-ms 400}
+   {:label     "try to leave (blocked by :can-leave)"
+    :event     [:routes-epochs/try-leave-settings]
+    :watch     "Attempt → home FROM dirty settings · the guard refuses · CURRENT ROUTE STAYS :settings · outcome blocked · :rf/pending-navigation fills."
+    :settle-ms 400}])
+
+;; ============================================================================
+;; RUNNER STATE — LOCAL ATOM (rf2-8pbjr: not app-db, not a 2nd frame)
 ;; ============================================================================
 
-(def ^:private ladder
-  "The ordered routing ladder. Each row: [n label caption event]. `event`
-  is the dispatch vector; `:section` rows are separators (label only)."
-  [[:section "Navigation basics — CURRENT ROUTE + NAVIGATION THIS EPOCH"]
-   [1  "navigate / push"
-    "CURRENT ROUTE → :home · NAVIGATION ──► home · outcome transitioned"
-    [:routes-epochs/go :routes-epochs/home]]
-   [2  "replace (no history push)"
-    "Same slice write via :replace? true (:rf.nav/replace-url, no push)"
-    [:routes-epochs/go :routes-epochs/home nil {:replace? true}]]
-   [:section "Params & query — the slice carries params / query"]
-   [3  "route params (/articles/:id)"
-    "CURRENT ROUTE → :article · params {:id \"intro\"}"
-    [:routes-epochs/go :routes-epochs/article {:id "intro"}]]
-   [4  "query params (?q&sort)"
-    "CURRENT ROUTE → :search · query {:q \"routing\" :sort \"asc\"} (:rf.route/query)"
-    [:routes-epochs/go :routes-epochs/search nil {:query {:q "routing" :sort "asc"}}]]
-   [:section "ROUTE TABLE — nested tree, redirect, fallback"]
-   [5  "nested route (under :articles)"
-    "ROUTE TABLE indents :article under :articles · highlight walks the parent chain"
-    [:routes-epochs/go :routes-epochs/article {:id "nested"}]]
-   [6  "redirect (:on-match re-navigates)"
-    "Navigate :old-home → its :on-match lands the slice on :home one cascade later"
-    [:routes-epochs/go :routes-epochs/old-home]]
-   [7  "not-found / fallback"
-    "Unmatched URL → CURRENT ROUTE :rf.route/not-found · outcome not-found"
-    [:routes-epochs/go {:url "/no-such-page"}]]
-   [:section "Loaders & transitions — :on-match drives app-db"]
-   [8  "route-driven app-db (:on-match loader)"
-    "Navigate :profile → :on-match writes :profile from params · transition :loading→:idle"
-    [:routes-epochs/go :routes-epochs/profile {:user "ada"}]]
-   [9  "back / forward (popstate)"
-    "Emulate Back → :articles · NAVIGATION THIS EPOCH's FROM ──► TO reverses"
-    [:routes-epochs/back]]
-   [:section "Guarded navigation — :can-leave blocks"]
-   [10 "enter dirty settings (arm the guard)"
-    "Navigate INTO :settings + arm :settings-dirty? so the guard will block leaving"
-    [:routes-epochs/enter-dirty-settings]]
-   [11 "try to leave (blocked by :can-leave)"
-    "Attempt → home FROM dirty settings · outcome blocked · :rf/pending-navigation fills"
-    [:routes-epochs/try-leave-settings]]])
+(defonce runner-state (r/atom (runner/initial-state)))
 
-(reg-view ladder-button
-  "One numbered ladder row: a numbered button on the left, its caption on
-  the right. Pressing it dispatches the row's event. The button carries a
-  per-rung `data-testid` (`routes-epochs-rung-<n>`) so each rung is
-  uniquely addressable even though several share the `:routes-epochs/go`
-  event-id (the feature-matrix scenario drives them by rung)."
-  [n label caption event]
-  [:div {:style {:display "grid" :grid-template-columns "auto 1fr"
-                 :gap "0.75em" :align-items "center" :margin "0.35em 0"}}
-   [:button {:data-testid (str "routes-epochs-rung-" n)
-             :on-click    #(dispatch event)
-             :style {:min-width "20em" :text-align "left"
-                     :padding "0.4em 0.6em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#fff"}}
-    [:span {:style {:font-weight "bold" :color "#7C5CFF" :margin-right "0.5em"}}
-     (str n ".")]
-    label]
-   [:span {:style {:color "#666" :font-size "12px"}} caption]])
-
-(reg-view section-heading
-  "A section separator inside the ladder."
-  [label]
-  [:div {:style {:margin "1em 0 0.25em 0" :font-size "11px" :font-weight "bold"
-                 :color "#7C5CFF" :text-transform "uppercase"
-                 :letter-spacing "0.04em" :border-top "1px dashed #ddd"
-                 :padding-top "0.5em"}}
-   label])
+;; ============================================================================
+;; VIEWS
+;; ============================================================================
 
 (reg-view current-route-strip
   "A small live read-out of the active route slice — mirrors what the
@@ -393,30 +434,31 @@
 (reg-view root []
   [:div {:data-testid "routes-epochs-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
-                 :max-width "760px"}}
+                 :max-width "820px"}}
    [:header {:style {:margin-bottom "0.5em"}}
-    [:h2 {:style {:margin 0}} "Routes-epochs"]
+    [:h2 {:data-testid "routes-epochs-title" :style {:margin 0}} "Routes-epochs"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One frame, one tall column of routing test buttons. Each button bumps a shared "
-     [:strong "baseline"] " counter (so App-db / Epoch always show a delta) and "
-     "exercises exactly one more routing feature. The caption says what to watch in "
-     "Xray's " [:strong "Routing"] " panel on the right — click top to bottom and the "
-     "panel's three sections (Current route · Navigation this epoch · Route table) are "
-     "fully exercised."]]
+     "One frame, one routing ladder. One button (" [:strong "⏭ Step"] ") "
+     "walks the rungs top to bottom (each row's number is also a "
+     [:strong "RUN-THIS-STEP"] " button for random access). Each step bumps "
+     "a shared " [:strong "baseline"] " counter (so App-db / Epoch always "
+     "show a delta) and exercises exactly one more routing feature. Read "
+     "each step's " [:strong "Watch"] " note, then watch Xray's "
+     [:strong "Routing"] " panel on the right — its three sections (Current "
+     "route · Navigation this epoch · Route table) light up across the "
+     "ladder. The runner cursor lives in a " [:strong "local atom"] " — it "
+     "never touches the inspected app-db."]]
    [current-route-strip]
-   ;; Button 0 — Reset.
+   ;; Reset — re-seed app-db, navigate home, rewind the runner.
    [:button {:data-testid "reset-button"
-             :on-click #(dispatch [:routes-epochs/reset])
+             :on-click (fn []
+                         (dispatch [:routes-epochs/reset])
+                         (runner/reset-runner! runner-state))
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db, navigate home"]
-   ;; The ladder.
-   (for [row ladder]
-     (if (= :section (first row))
-       ^{:key (second row)} [section-heading (second row)]
-       (let [[n label caption event] row]
-         ^{:key n} [ladder-button n label caption event])))])
+    "0. Reset — re-seed app-db, navigate home, rewind runner"]
+   [runner/runner "routes-epochs" runner-state steps host-frame]])
 
 ;; ============================================================================
 ;; ROUTER WIRING
@@ -449,7 +491,7 @@
   (rf/init! reagent-adapter/adapter)
   ;; Seed app-db and pull the current URL into the route slice (what a
   ;; popstate / initial-load handler does). The default frame is the one
-  ;; Xray reads. The browser History listener is installed so button #9's
+  ;; Xray reads. The browser History listener is installed so step #9's
   ;; back/forward emulation has somewhere to land.
   (rf/install-history-listener!)
   (rf/dispatch-sync [:routes-epochs/reset])

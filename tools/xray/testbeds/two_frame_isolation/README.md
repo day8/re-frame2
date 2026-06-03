@@ -12,11 +12,11 @@ left, with a **Xray** instance on the right.
 │  Two-frame isolation             │                  │
 │  ┌────────────────────────────┐  │   Xray          │
 │  │ ABOVE frame  (:above)      │  │   (inline)       │
-│  │ standard-epochs ladder     │  │                  │
+│  │ standard-epochs runner deck│  │                  │
 │  └────────────────────────────┘  │   frame picker   │
 │  ┌────────────────────────────┐  │   switches every │
 │  │ BELOW frame  (:below)      │  │   L2 / L4 panel  │
-│  │ standard-epochs ladder     │  │   between        │
+│  │ standard-epochs runner deck│  │   between        │
 │  └────────────────────────────┘  │   :above /:below │
 └──────────────────────────────────┴──────────────────┘
 ```
@@ -35,7 +35,7 @@ isolated frames.
 
 ## The shared app code path — `standard_epochs` ×2
 
-The app both frames mount is the **standard-epochs button ladder**
+The app both frames mount is the **standard-epochs runner-driven deck**
 (`standard-epochs.core/root`, under
 `tools/xray/testbeds/standard_epochs/`). This testbed
 (`two-frame-isolation.core`) supplies only the two-frame harness: it
@@ -47,6 +47,28 @@ frame-providers — plus the Xray host.
 It does **not** call `standard-epochs.core/run` (which would mount the
 deck once into `#app` on the default frame). It reuses only the
 registrations + the `root` Var.
+
+### Per-frame runner atoms (rf2-3xakq)
+
+`standard-epochs.core/root` was converted to the shared queued-step
+runner (`runner.core`) and parameterised over `[runner-state host-frame
+prefix]`. The runner's cursor lives in a **local Reagent atom** and the
+runner dispatches to its `host-frame` **explicitly** (a runner control's
+`on-click` fires outside the React frame-provider context, so an
+un-targeted dispatch would land on the ambient frame). This testbed
+therefore supplies a **distinct runner atom + the frame's own id + a
+distinct testid prefix per mount**:
+
+| frame    | runner atom          | host-frame | prefix                   |
+| -------- | -------------------- | ---------- | ------------------------ |
+| `:above` | `above-runner-state` | `:above`   | `standard-epochs-above`  |
+| `:below` | `below-runner-state` | `:below`   | `standard-epochs-below`  |
+
+Two genuinely independent runner cursors, each driving events **only**
+into its own frame. Pressing **⏭ Step** (or a numbered RUN-THIS-STEP
+button) in `:above` advances only `:above`'s cursor and moves only
+`:above`'s app-db / sub-cache / epoch history — the load-bearing detail
+that keeps the isolation proof intact under the runner conversion.
 
 > **Why `standard_epochs` ×2 (rf2-wa8my)?** The earlier shape mounted a
 > bespoke `testdeck.*` tabs-as-routes panel. That coupled this testbed
@@ -98,25 +120,33 @@ scenario together cover what the old surface demonstrated.
 
 Open the page; Xray auto-mounts inline on the right. The frame picker
 in the L1 ribbon switches every L2 (Events) and L4 (App-db, Views,
-Trace, …) panel between observing `:above` and `:below`.
+Trace, …) panel between observing `:above` and `:below`. Each frame's
+deck is runner-driven: press **⏭ Step** to walk the ladder, or click a
+numbered **RUN-THIS-STEP** button to drive a specific step directly
+(`standard-epochs-above-step-<n>-run` / `standard-epochs-below-step-<n>-run`,
+n = 0-based).
 
-1. **Frame divergence on the baseline.** Click button **1
-   (Increment)** three times on `:above`. Switch the Xray frame picker
-   to `:below`: the Events list is empty for `:below`; the App-db diff
-   shows no `:baseline` movement.
+1. **Frame divergence on the baseline.** Run step **1 (Increment)**
+   three times on `:above`. Switch the Xray frame picker to `:below`:
+   the Events list is empty for `:below`; the App-db diff shows no
+   `:baseline` movement.
 
-2. **Per-frame Views.** Mount Child A (button **10**) on `:above` only.
-   Switch the picker to `:below`: the Views lens shows no Child-A node
-   and none of its sub-cache entries — A's whole reactive subtree lives
-   only in `:above`'s context.
+2. **Per-frame Views.** Run step **6 (Mount Child A)** on `:above`
+   only. Switch the picker to `:below`: the Views lens shows no Child-A
+   node and none of its sub-cache entries — A's whole reactive subtree
+   lives only in `:above`'s context.
 
-3. **Per-frame Issues.** Press button **16 (throw in the handler)** on
+3. **Per-frame Issues.** Run step **12 (Exception in the handler)** on
    `:below`. The handler-exception surfaces scoped to `:below`; the
    `:above` frame shows no exception.
 
-4. **Per-frame epoch history.** Drive several buttons on `:above`, a
+4. **Per-frame epoch history.** Drive several steps on `:above`, a
    different few on `:below`. The Epoch panel's history differs per
    frame — each frame accumulated only its own dispatches.
+
+5. **Per-frame runner cursor.** Step `:above` three times, `:below`
+   once. Each deck's status chip + highlighted row reflect its OWN
+   cursor — the two runners never share state.
 
 ## Files
 
