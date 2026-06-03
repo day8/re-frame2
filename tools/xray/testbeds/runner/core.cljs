@@ -51,7 +51,16 @@
   - **Per-step addressing.** Every rendered step row carries a stable,
     unique `data-testid` (`<prefix>-step-<n>`, plus the run / pause /
     reset / step controls) so a feature-matrix scenario can name each
-    rung. The prefix is the testbed's, passed via `opts`.
+    rung. The prefix is the testbed's, passed via `opts`. Each row's
+    index is ALSO a clickable RUN-THIS-STEP button
+    (`<prefix>-step-<n>-run`) that drives that step directly via
+    `run-step-at!` — RANDOM-ACCESS addressing alongside the sequential
+    run / step controls. A deck whose feature-matrix assertions need to
+    re-drive a NAMED step out of cursor order (a routing / machine
+    ladder asserting a panel render after a specific rung) names each
+    step through that button rather than keeping a parallel bespoke
+    button ladder. The sequential one-button contract is unchanged; the
+    per-step run is purely additive.
 
   ## Why a shared ns (the rollout vehicle)
 
@@ -218,6 +227,26 @@
   (swap! state assoc :running? false)
   (run-step! state steps host-frame {:auto? false}))
 
+(defn run-step-at!
+  "RANDOM-ACCESS manual step: move the cursor to step `n` and run THAT
+  step (dispatch + settle + advance), WITHOUT pinning focus (manual mode
+  — the operator drives the spine). Stops any in-flight auto series first.
+  No-op for an out-of-range `n`.
+
+  This is the per-step affordance the runner exposes alongside the
+  sequential run / step controls: each rendered step row carries a
+  clickable `<prefix>-step-<n>-run` button so an operator (or a feature-
+  matrix scenario) can drive ANY step directly, not only the next one in
+  the cursor's path. The sequential run-series + step-once contract is
+  unchanged; this is purely additive — a deck whose assertions need to
+  re-drive a specific step out of order (a routing / machine ladder that
+  asserts a panel render AFTER a NAMED rung) can name each step here
+  rather than keeping a parallel bespoke button ladder."
+  [state steps host-frame n]
+  (when (and (integer? n) (<= 0 n) (< n (count steps)))
+    (swap! state assoc :running? false :cursor n)
+    (run-step! state steps host-frame {:auto? false})))
+
 (defn reset-runner!
   "Reset the runner to the top, idle, no pending timer."
   [state]
@@ -291,16 +320,28 @@
 (reg-view step-row
   "One step row: its index, label, and `:watch` commentary. The CURRENT
   step (the one just-run or about-to-run) is highlighted. Carries a
-  stable per-step `data-testid` (`<prefix>-step-<n>`)."
-  [prefix n step current? done?]
+  stable per-step `data-testid` (`<prefix>-step-<n>`).
+
+  The index is a clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`)
+  that drives exactly this step via `run-step-at!` (random-access, manual
+  — no focus pinning). The sequential run / step / reset controls remain
+  the primary affordances; this lets an operator (or a scenario) drive any
+  step directly without a parallel bespoke button ladder."
+  [prefix state steps host-frame n step current? done?]
   [:div {:data-testid (str prefix "-step-" n)
          :style {:display "grid" :grid-template-columns "auto 1fr"
                  :gap "0.75em" :align-items "baseline" :margin "0.25em 0"
                  :padding "0.4em 0.6em" :border-radius "6px"
                  :border (if current? "1px solid #7C5CFF" "1px solid #eee")
                  :background (cond current? "#f1ecff" done? "#fafafa" :else "#fff")}}
-   [:span {:style {:font-weight "bold"
-                   :color (cond current? "#7C5CFF" done? "#aaa" :else "#555")}}
+   [:button {:data-testid (str prefix "-step-" n "-run")
+             :title "Run this step"
+             :on-click #(run-step-at! state steps host-frame n)
+             :style {:font-weight "bold" :cursor "pointer"
+                     :padding "0.1em 0.45em" :border-radius "5px"
+                     :border (if current? "1px solid #7C5CFF" "1px solid #e3def9")
+                     :background (if current? "#7C5CFF" "#fff")
+                     :color (cond current? "#fff" done? "#aaa" :else "#7C5CFF")}}
     (str (inc n) ".")]
    [:div
     [:div {:style {:font-weight "600" :color "#333"}}
@@ -329,5 +370,5 @@
       (map-indexed
         (fn [n step]
           ^{:key n}
-          [step-row prefix n step (= n cursor) (< n cursor)])
+          [step-row prefix state steps host-frame n step (= n cursor) (< n cursor)])
         steps)]]))
