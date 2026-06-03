@@ -229,7 +229,9 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :meta    {<user-keys> ...}}                 ;; user-defined meta (NOT used for terminal marking — see §Final states)
 ```
 
-All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:spawn`, `:spawn-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:spawn`, `:spawn-all`, `:states` / `:initial`, and the `:type :history` pseudo-state node (below) are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability rejects the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+
+One sibling-of-a-substate node is **not** an ordinary state but a **history pseudo-state** — `{:type :history :deep? <bool> :default-target <target>}` declared under a compound's `:states`. It is never occupied; it is a transition target that resolves to the compound's recorded (or default) configuration. Its grammar and constraints are specified in [§History states](#history-states-type-history--shallow--deep--default-target); it declares none of the ordinary state-node keys above.
 
 A state node MUST NOT declare both `:spawn` and `:spawn-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:spawn`; a node spawning N parallel children uses `:spawn-all`). `make-machine-handler` rejects the combination at registration time as a malformed transition table.
 
@@ -1251,7 +1253,7 @@ Hierarchical compound states are claimed by the v1 CLJS reference per [§Capabil
 Out of scope of *this section* — see the cross-reference for each:
 
 - **Parallel regions** — first-class capability per [§Parallel regions](#parallel-regions); the N-machines-per-region substitute in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains the right answer when regions are independent features.
-- **History pseudo-states** — substitute: snapshot-as-value capture per [§Substitutes for skipped features](#substitutes-for-skipped-features).
+- **History pseudo-states** — first-class capability per [§History states](#history-states-type-history--shallow--deep--default-target); a `:type :history` node under a compound's `:states` re-enters the compound's last-active configuration (shallow / deep / default-target).
 - **`onDone` final-state notification** — substitute: explicit `[:raise ...]` from the leaf state's `:entry`.
 
 `:always`, `:after`, and `:spawn` are all specified independently of the hierarchy work above (see [§Eventless `:always` transitions](#eventless-always-transitions), [§Delayed `:after` transitions](#delayed-after-transitions), and [§Declarative `:spawn`](#declarative-spawn)). All three are state-node keys whose semantics compose with the hierarchical entry/exit cascade described above.
@@ -2538,6 +2540,146 @@ Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:
 - [§Destroy is silent-idempotent](#destroy-is-silent-idempotent) — D4's auto-destroy is followed at most ONCE by an observable `:rf.machine/destroyed` trace; subsequent explicit `[:rf.machine/destroy <id>]` calls on the same finished actor are silent no-ops (aligned with XState convention).
 -.
 
+## History states (`:type :history` — shallow / deep / default-target)
+
+re-frame2 ships first-class **history states** — the xstate / SCXML pattern for re-entering a compound state at the substate it was in when control last left it, rather than restarting from `:initial`. An earlier draft of this spec deferred history past v1 and pointed authors at a hand-rolled snapshot-as-value substitute; that deferral is **withdrawn**. History is now a declarative grammar node the runtime records and restores, and the substitute pattern is removed entirely (see [§Why first-class history replaces the snapshot-as-value substitute](#why-first-class-history-replaces-the-snapshot-as-value-substitute) below).
+
+### The grammar — a targetable pseudo-state
+
+A history state is a **pseudo-state**: a node declared under a compound state's `:states` map, alongside that compound's real substates, whose role is to be a **transition target** that resolves to a recorded configuration rather than to a state the machine ever occupies. The machine's `:state` path is never `[… :hist]`; a transition *to* `:hist` resolves to the recorded (or default) leaf, and that resolved leaf is what the snapshot records.
+
+```clojure
+{:player
+ {:initial :stopped
+  :states {:stopped {:on {:play [:player :hist]}}      ;; transition targets the pseudo-state to restore
+           :hist    {:type :history
+                     :deep? true                        ;; omit => SHALLOW history
+                     :default-target :playing}          ;; omit => falls back to :player's :initial
+           :playing {:initial :at-start
+                     :states {:at-start {:on {:seek :mid-track}}
+                              :mid-track {}}}
+           :paused  {:on {:resume [:player :playing]}}}}}
+```
+
+The pseudo-state node carries exactly three keys, all owned by the history grammar:
+
+| Key | Value | Meaning |
+|---|---|---|
+| `:type` | `:history` | Marks the node as a history pseudo-state. Required — this is the discriminator that distinguishes the node from a real substate. |
+| `:deep?` | `boolean` | `true` => **deep** history (restore the full recorded leaf path beneath the compound); `false` or **absent** => **shallow** history (restore the recorded *direct child* of the compound, then cascade through that child's own `:initial` chain). The default is **shallow** — a missing `:deep?` reads as `:deep? false`. |
+| `:default-target` | `<transition-target>` | The target used when the compound state has **never been entered** (so nothing is recorded yet). A keyword (sibling of the compound — i.e. a direct child) or a vector (absolute path). When **absent**, the fallback is the owning compound state's `:initial`. |
+
+A transition resolves to the pseudo-state by naming it the way any other state is named — a vector `[:player :hist]` (absolute path) or, from a sibling inside the compound, a keyword `:hist` (per [§Target resolution — vector vs keyword](#target-resolution--vector-vs-keyword)). The pseudo-state is **resolved at transition time** to a real leaf path; the resolved path is what the entry cascade enters and what the snapshot's `:state` records.
+
+### Recording — on compound-state exit
+
+Every time the exit cascade (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) leaves a compound state that owns a history pseudo-state, the runtime **records that compound's last-active configuration** — the active substate path *beneath* the compound at the moment of exit — into the reserved snapshot slot `:rf/history` (per [§The `:rf/history` snapshot slot](#the-rfhistory-snapshot-slot) below). The recording is keyed by the compound's **declaration path** (the absolute prefix-path of the compound state-node in the transition table), so a machine with several history-bearing compounds records each independently.
+
+- A **deep**-history compound records the **full leaf path** beneath itself (e.g. `[:playing :mid-track]` relative to `:player`'s subtree, stored as the absolute path).
+- A **shallow**-history compound records only its **direct child** (e.g. `:playing`); on restore the runtime cascades from that child through its own `:initial` chain.
+
+Recording happens **as part of the exit cascade's commit**, on the same drain that exits the compound — there is no separate write phase. Because `:rf/history` lives inside the snapshot (a revertible value), the recording rides every persistence and time-axis path that the snapshot itself rides (per [§Composition with persistence, SSR, and time-travel](#composition-with-persistence-ssr-and-time-travel)).
+
+A compound state that owns **no** history pseudo-state records nothing — the slot stays absent for that compound's path. The slot is **fixed-and-additive** and framework-owned; user code MUST NOT write under it.
+
+### Restoring — on transition to the pseudo-state
+
+When a transition resolves to a history pseudo-state declared under compound `C`, the runtime resolves the target leaf as follows:
+
+1. **A recording exists for `C`'s declaration path** (`C` has been entered and exited at least once, and the recorded path is still valid against the current definition):
+   - **Deep** — the target leaf is the full recorded path. The entry cascade enters every level from `C` down to that leaf, firing each level's `:entry` shallowest-first (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)).
+   - **Shallow** — the target is the recorded direct child of `C`; the runtime then cascades through that child's `:initial` chain to a leaf (per [§Initial-state cascading](#initial-state-cascading)). If the recorded direct child is itself a leaf, the cascade terminates there.
+2. **No recording exists for `C`** (the compound was never entered, so nothing was recorded) — the runtime resolves the pseudo-state's `:default-target`; if `:default-target` is absent, it falls back to `C`'s `:initial` and cascades from there exactly as an ordinary entry to `C` would.
+3. **A recording exists but is no longer a valid path** in the current (e.g. hot-reloaded) definition — the runtime treats it as "no recording" and falls back to `:default-target` / `:initial` per (2). See [§Dangling recorded paths after hot reload](#dangling-recorded-paths-after-hot-reload).
+
+In every case the **resolved** leaf path — not the pseudo-state — is what the entry cascade enters and what the post-transition snapshot's `:state` records. The pseudo-state node is never a member of any `:state` configuration; it has no `:entry` / `:exit` / `:on` / `:always` / `:after` of its own (see [§Pseudo-state constraints](#pseudo-state-constraints)).
+
+### Composition with the LCA, entry/exit cascade, and final states
+
+History restoration is **not a new cascade mechanism** — it is a target-resolution step that feeds the existing entry-cascade machinery. Once the pseudo-state resolves to a concrete leaf path, the standard geometry applies unchanged:
+
+- **LCA + cascade ordering.** The transition's LCA is computed (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) between the source path and the **resolved** target leaf — exactly as if the author had written the resolved path as a literal `:target`. The exit cascade fires deepest-first from the source leaf back to the LCA; the transition `:action` runs at the LCA boundary; the entry cascade fires shallowest-first from below the LCA down to the resolved leaf, continuing through any `:initial` chain (shallow case). The recording write for the *source* compound (if it owns history and is being exited) happens as part of that same exit cascade.
+- **Deep nesting.** A deep-history compound nested several levels down records and restores its full subtree path relative to itself; an outer compound's own history (if any) records independently, keyed by its own declaration path. The two never interfere — each compound's recording is a separate entry in the `:rf/history` map.
+- **Final states.** Entering a `:final?` leaf inside a history-bearing compound records normally on the way in only if a later exit occurs; in practice a singleton reaching `:final?` auto-destroys (per [§Final states](#final-states-final--on-done--output-key)) and the snapshot is dissoc'd, so its `:rf/history` goes with it. Restoring a recorded path whose leaf was `:final?` is a no-op edge the runtime handles via the dangling-path fallback (a `:final?` leaf the definition still declares restores like any other leaf; one the definition removed falls back to `:default-target` / `:initial`).
+- **`:always` / `:after`.** The resolved leaf's `:always` entries are checked after the restoring entry cascade settles (microstep loop, per [§Eventless `:always` transitions](#eventless-always-transitions)); its `:after` timers are scheduled at entry (per [§Delayed `:after` transitions](#delayed-after-transitions)) — identical to entering that leaf by any other path.
+
+### Composition with parallel regions — per-region history
+
+Under a `:type :parallel` machine each region runs an independent state-tree (per [§Parallel regions](#parallel-regions)), so history is **per-region**: a history pseudo-state is declared inside a region's compound state, records that region's last-active configuration on the region's own exit cascade, and restores that region independently of its siblings. The `:rf/history` slot's keys are therefore **region-qualified** — a recorded compound's key is its declaration path *including the region name as the head segment* (`[<region-name> … <compound>]`), so two regions that each declare a history-bearing compound at structurally-identical paths never collide. A transition that restores history in one region leaves sibling regions untouched, matching the per-region scoping of `:spawn` / `:after` / `:always` (per [§Per-region `:always` / `:after` / `:spawn` scoping](#per-region-always--after--spawn-scoping)).
+
+### The `:rf/history` snapshot slot
+
+The recorded history lives in a reserved snapshot-root slot, a sibling of `:rf/spawn-counter` and `:rf/machine-type` (per [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)):
+
+```clojure
+{:state :stopped
+ :data  {…}
+ :rf/history {[:player]        [:playing :mid-track]    ;; deep — full leaf path beneath :player
+              [:player :inner] :paused}}                ;; shallow — recorded direct child
+```
+
+`:rf/history` is a **map** keyed by **compound declaration path** (a vector of keywords) to that compound's **recorded configuration**. It is NOT a single config — a machine may own several history-bearing compounds, each recorded independently; and under `:type :parallel` the keys are region-qualified (head segment is the region name), so per-region recordings never collide. The recorded value is:
+
+- for a **deep** compound, the absolute leaf path the machine occupied beneath that compound when it last exited;
+- for a **shallow** compound, the recorded direct child keyword (the runtime cascades its `:initial` chain on restore).
+
+The slot is **read-only for users** (the runtime owns it and writes it during the exit cascade), **EDN-clean** (vectors and keywords only — round-trips through `pr-str` / `read-string` like the other persisting slots), and **absent until a history-bearing compound is first exited** (allocated lazily; a machine with no history pseudo-states never carries the key). See [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the slot schema and [Conventions §Reserved snapshot-internal keys](Conventions.md#reserved-snapshot-internal-keys-machine-runtime) for the catalogue row.
+
+### Composition with persistence, SSR, and time-travel
+
+Because `:rf/history` lives **inside the snapshot** — and the snapshot is a revertible value at `[:rf/runtime :machines :snapshots <id>]` — recorded history rides every path the snapshot itself rides, with no separate machinery:
+
+- **`pr-str` / `read-string` round-trip** — the slot is vectors-and-keywords only, so it survives the wire (invariant 1 of [§Snapshot shape](#snapshot-shape)).
+- **SSR hydration** ([011](011-SSR.md)) — a snapshot serialised on the server arrives on the client with its `:rf/history` intact; a subsequent restore-to-history transition resolves against the server-recorded configuration.
+- **Tool-Pair epoch replay** ([Tool-Pair.md §Time-travel](Tool-Pair.md#time-travel)) — restoring an earlier epoch restores the `:rf/history` of that epoch along with the rest of the snapshot, so "rewind, then re-enter the compound" replays deterministically. The epoch-restore precondition keys off `:rf/machine-type` (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)), which `:rf/history` does not affect — a history-bearing snapshot is admitted as a valid restore target exactly like any other.
+
+This is the property the withdrawn substitute was hand-rolling; first-class history gets it **for free** because the recording is part of the snapshot value rather than a side-table.
+
+### Dangling recorded paths after hot reload
+
+Snapshot stability invariant 3 (per [§Snapshot shape](#snapshot-shape)) says hot-reloading a definition does not invalidate a snapshot whose `:state` is still a member of the new definition. History adds a parallel edge case: a **recorded** configuration in `:rf/history` may reference a substate that a hot-reloaded definition **removed** — a *dangling recorded path*. The restore policy (the history analogue of invariant 3):
+
+> On a restore-to-history transition, if the recorded configuration for the compound is no longer a valid path in the **current** definition, the runtime discards it and falls back to the pseudo-state's `:default-target` — or, when `:default-target` is absent, to the compound's `:initial` — cascading from there exactly as a first-ever entry would. The runtime never enters a dead recorded path.
+
+The recorded slot itself is left in place (it is overwritten on the next genuine exit); only the *restore* is graceful. This policy is pinned here in the keystone; its engine realisation and round-trip / SSR-hydration test coverage are tracked under rf2-mle6e.3 (engine) / mle6e.7 (verify), and the dangling-path edge specifically under [rf2-wgfv0] (left open for its engine half). A dangling recorded path is a benign, expected consequence of hot reload — not an error; no `:rf.error/*` is raised for it (it is observable through the history trace events per [Spec 009](009-Instrumentation.md), tracked under mle6e.2).
+
+### Pseudo-state constraints
+
+`make-machine-handler` validates the history grammar at **registration time** (the same layer that rejects malformed compound states):
+
+- **A `:type :history` node MUST be declared inside a compound state's `:states`** (it has an owning compound whose configuration it records). A history node at the machine root, or under a `:type :parallel` root that has no enclosing compound region, is a registration error.
+- **A history pseudo-state declares only `:type` / `:deep?` / `:default-target`.** It MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:spawn`, `:spawn-all`, `:entry`, `:exit`, `:tags`, or `:final?` — it is never occupied, so transition / lifecycle / projection keys are meaningless on it. Any such key is a registration error.
+- **`:default-target`, when present, MUST resolve to a real state** — a direct child of the owning compound (keyword form) or an absolute path (vector form) the definition declares. An unresolvable `:default-target` is a registration error.
+- **A compound state may declare at most one history pseudo-state.** Two history children under one compound is a registration error (deep-vs-shallow is a property of the single node's `:deep?`, not a reason for two nodes).
+
+These are the registration-time guarantees; the precise error-id catalogue for history-grammar violations is owned by [Spec 009 §Error contract](009-Instrumentation.md#error-contract) and added under mle6e.2 (with mle6e.3 raising them in the reference engine).
+
+### Why first-class history replaces the snapshot-as-value substitute
+
+Earlier drafts argued that re-frame2 did **not** need first-class history — that the snapshot-as-value foundation (Goal 3 — Frame state revertibility) made history-state machinery unnecessary, because an author could capture a compound's snapshot on the way out and restore it on the way back in. That thesis is **withdrawn** (ruled 2026-06-03). First-class history is ratified, and the snapshot-as-value substitute is removed — not demoted to a "lightweight pattern", but excised. The reasons the substitute argument no longer holds:
+
+- **Declarative beats hand-rolled.** `{:type :history :deep? true}` is one node in the transition table; the substitute was per-compound user wiring (an `:exit` action that copies a sub-path, an entry that restores it, plus the bookkeeping to know *which* compound and — under parallel — *which region*). The declarative form is what an AI agent reads and writes confidently; the hand-rolled form is bespoke per machine.
+- **Composition the substitute could not give cheaply.** Per-region history under `:type :parallel`, deep nesting, and shallow-vs-deep depth all fall out of the grammar + the existing LCA / cascade machinery. The substitute had to re-implement each of these by hand, correctly, per machine.
+- **Tooling legibility.** A `:type :history` node is visible to the machine inspector, the diagram exporter, and the SCXML / xstate corpus (which both have first-class history); a hand-rolled capture/restore is invisible to all of them — it reads as ordinary `:data` shuffling.
+- **Parity.** Both SCXML (`<history>`) and xstate (`{type:'history'}`) ship first-class history; matching the shape keeps the conformance corpus and the AI-trained-on-xstate path aligned (per [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences)).
+
+Revertibility (Goal 3) remains the *substrate* that makes history cheap — the recording rides the snapshot for free — but it is the foundation history is **built on**, not a reason to skip the feature. Authors who only need "remember a single flat axis across a leave/return" can still keep that axis in `:data` like any other state; that is ordinary modelling, not a named substitute pattern.
+
+### Capability gating
+
+History states are claimed as **`:fsm/history`** in the v1 CLJS reference per [§Capability matrix](#capability-matrix). A port that does not claim `:fsm/history` rejects a `:type :history` node at registration time with `:rf.error/machine-grammar-not-in-v1` (the same reject-at-registration disposition every other unclaimed capability uses — per [§Error category for unclaimed grammar](#capability-matrix)). The schema extension (the `:rf/state-node` history-pseudo-state arm; the `:rf/machine-snapshot` `:rf/history` slot) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
+
+### Cross-references
+
+- [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) — the cascade geometry a resolved history target feeds into.
+- [§Initial-state cascading](#initial-state-cascading) — the `:initial` chain a shallow restore (and a default-target fallback) cascades through.
+- [§Parallel regions](#parallel-regions) and [§Per-region `:always` / `:after` / `:spawn` scoping](#per-region-always--after--spawn-scoping) — per-region history.
+- [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys) — the `:rf/history` slot among the closed `:rf/*` set.
+- [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) — the history-pseudo-state node schema; [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) — the `:rf/history` slot schema.
+- [Conventions §Reserved snapshot-internal keys (machine runtime)](Conventions.md#reserved-snapshot-internal-keys-machine-runtime) — the catalogue row.
+- [Spec 009 §Trace events](009-Instrumentation.md) — history `recorded` / `restored` trace events (mle6e.2) and the history-grammar error catalogue.
+- [rf2-wgfv0] — dangling-recorded-path fallback (spec policy pinned here; engine half open).
+
 ## Wall-clock timeouts on `:spawn` — use parent state's `:after`
 
 `:spawn` and `:spawn-all` do **not** carry their own `:timeout-ms` slot. Wall-clock timeouts on a state hosting a `:spawn` are expressed by adding an `:after` entry on the **parent state**: when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy` and the parent transitions to whichever target the `:after` entry names. `:after` is the **single canonical primitive** for "after N ms in this state, do X"; no second mechanism is needed for the `:spawn`-bearing case.
@@ -3304,7 +3446,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Delayed `:after` transitions** — fire after a time delay | Prose: [§Delayed `:after` transitions](#delayed-after-transitions); Schema: `:rf/state-node` extended for `:after` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `after-single-delay`, `after-stale-detection`, `after-hierarchy` | ✓ claimed (specified) | Epoch-based stale detection — no `:cancel-dispatch-later` fx; clock primitives live in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`); SSR-mode no-ops timer scheduling; trace events at `:scheduled` / `:fired` / `:stale-after` granularity. |
 | **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: `:rf/state-node` extended for `:tags`, `:rf/machine-snapshot` extended for `:tags` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | Strictly additive — the snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar covers the predicate query. Composes with hierarchical compound states (union along the active path) and — per Stage 2 — will compose with parallel regions (union across every active region). Per (Nine States Stage 1). |
 | **Parallel regions** — `:type :parallel` with multiple concurrent regions | Prose: [§Parallel regions](#parallel-regions); Schema: `:rf/transition-table` extended for `:type` + `:regions`, `:rf/state-node` extended for the parallel-region body, `:rf/machine-snapshot`'s `:state` widened to the third arm (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `parallel-flat-two-regions`, `parallel-compound-region`, `parallel-tags-union-across-regions`, `parallel-broadcast-event-both-regions`, `parallel-spawn-scoped-to-region`, `parallel-after-scoped-to-region`, `parallel-always-cascade-per-region`, `parallel-initial-state-per-region`, `parallel-snapshot-round-trip`, `parallel-ssr-hydration` | ✓ claimed (specified) | The third `:state` arm — a map of region-name → keyword-or-vector-path. Shared `:data` across regions per §9.4 (per-region encapsulation is a signal to use the N-machine substitute pattern from [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)). Composes with `:fsm/tags` (union across every active state in every region) and with `:fsm/eventless-always` / `:fsm/delayed-after` / `:actor/invoke` (per-region scoping; one region's `:after` timer doesn't fire transitions in sibling regions). Per (Nine States Stage 2). |
-| **History states** — `:type :history` re-entering a compound's last-active substate | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: snapshot-as-value capture using the existing `[:rf/runtime :machines :snapshots <id>]` snapshot. |
+| **History states** — `:type :history` pseudo-state re-entering a compound's last-active substate; shallow / deep / default-target | Prose: [§History states](#history-states-type-history--shallow--deep--default-target); Schema: `:rf/state-node` extended for the history-pseudo-state arm, `:rf/machine-snapshot` extended for the `:rf/history` slot (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `history-shallow-restores-direct-child`, `history-deep-restores-leaf-path`, `history-default-target-on-first-entry`, `history-per-region-parallel`, `history-dangling-path-falls-back` | ✓ claimed (specified) | A targetable pseudo-state (`{:type :history :deep? bool :default-target <target>}`) under a compound's `:states`. Records last-active configuration on the compound's exit cascade into the revertible `:rf/history` snapshot slot (map keyed by compound declaration path, region-qualified under `:type :parallel`); restores via the existing LCA / entry-cascade machinery. Missing `:deep?` => shallow; missing `:default-target` => the compound's `:initial`; a dangling recorded path after hot reload falls back to `:default-target` / `:initial`. |
 | **Final states** — `:final?` on a leaf state terminates the machine; a `:spawn`d child's `:final?` fires the parent's `:on-done` with the child's `:output-key`-designated `:data` slot, then auto-destroys the child | Prose: [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key); Schema: `:rf/state-node` extended for `:final?` + `:output-key`; `:rf/invoke-spec` extended for `:on-done`; Fixtures: `final-state-singleton-auto-destroys`, `final-state-child-fires-on-done` | ✓ claimed (specified) | First-class `:final?` flag (loud, not `:meta`-buried). Auto-destroy is synchronous on entry to the final state. Singleton symmetry: a standalone machine reaching `:final?` also auto-destroys ("final means final"). |
 
 ### Actor-model axis
@@ -3333,6 +3475,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :fsm/tags
                  :fsm/parallel-regions
                  :fsm/final-states                    ;; :final? + :on-done + :output-key
+                 :fsm/history                          ;; :type :history pseudo-state — shallow / deep / default-target
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
@@ -3343,19 +3486,19 @@ A re-frame2 port declares its capability list in its conformance harness manifes
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
 
-**Error category for unclaimed grammar:** when `make-machine-handler` encounters a key whose capability is not in the host's claimed capability list, it emits a single structured error trace event:
+**Error category for unclaimed grammar:** when `make-machine-handler` encounters a key whose capability is not in the host's claimed capability list, it **rejects the registration** — the registration does not proceed, no handler is installed, and a single structured error trace event is emitted:
 
 ```clojure
 {:operation :rf.error/machine-grammar-not-in-v1
  :op-type   :error
  :tags      {:category   :rf.error/machine-grammar-not-in-v1
              :failing-id <machine-id>
-             :feature    <unsupported-key>             ;; e.g. :after
+             :feature    <unsupported-key>             ;; e.g. :after, :type :history
              :reason     "Transition-table feature `<X>` is not in this implementation's claimed capability list. See [§Capability matrix](#capability-matrix)."}
- :recovery  :replaced-with-default}                    ;; the unsupported key is ignored
+ :recovery  :no-recovery}                              ;; registration is rejected — the handler is not installed
 ```
 
-The error is registered as a category in [009 §Error contract](009-Instrumentation.md#error-contract). Surfaced once per `(machine-id, feature)` pair per process to avoid log spam.
+The disposition is **reject-at-registration** (`:no-recovery`): an unsupported key is a hard error raised at the only construction site (registration), not a trace-and-continue. This matches the neighbouring capability rows above — parallel regions, `:tags`, and `:spawn-all` all "raise at registration" when unclaimed — and is the disposition the [009 §Error contract](009-Instrumentation.md#error-contract) catalogue (the error-id SSOT) records as canonical. The error is registered as a category in [009 §Error contract](009-Instrumentation.md#error-contract).
 
 Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) for the goal text; [conformance/README.md](conformance/README.md) for the fixture-tagging convention.
 
@@ -3363,7 +3506,7 @@ Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-
 
 Per (Nine States Stage 2), **parallel regions** are now a first-class capability — see [§Parallel regions](#parallel-regions). The N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains valid and is the right answer when the regions are conceptually independent features (multiple tabs with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event). Parallel regions are the right answer when the regions are orthogonal axes of *one* feature that share a single `:data` blob (one form with three orthogonal axes, one widget with display + interaction, one page's render-mode predicates).
 
-**History states** remain post-v1. The substitute — snapshot-as-value capture exploiting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) — is documented in [CP-5-MachineGuide §History states → snapshot-as-value capture](CP-5-MachineGuide.md#history-states--snapshot-as-value-capture). The runtime emits `:rf.error/machine-grammar-not-in-v1` against `:history`; the substitute pattern is the documented forward path.
+**History states** are a first-class capability — see [§History states](#history-states-type-history--shallow--deep--default-target). The earlier snapshot-as-value substitute is withdrawn; there is no substitute pattern to reach for. (The N-machines-per-region substitute for the *parallel* case above remains valid for conceptually-independent features.)
 
 ## Open questions
 
@@ -3494,6 +3637,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{<delay> → <transition-spec>}` where `<delay>` is `pos-int?`, a subscription vector (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)), or `(fn [snapshot] ms)`. Epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled` (with `:reason` closed set) / `:rf.machine.timer/skipped-on-server` trace events. The whichever-fires-first cancellation cascade (per [§Whichever fires first wins](#whichever-fires-first-wins)) composes with the in-flight `:rf.http/managed` abort contract per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts). Per.
 - The state-tags capability per [§State tags](#state-tags): state-node `:tags <set-of-keywords>` slot; runtime maintains the active-configuration tag union at `[:rf/runtime :machines :snapshots <id> :tags]` recomputed on every transition (including `:always` microsteps); framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar; empty-union elision per snapshot-size optimisation; reserved framework namespace (`:rf/*` / `:rf.*/*`). Per (Nine States Stage 1).
 - The spawn-and-join `:spawn-all` capability per [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all): state-node `:spawn-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]` (direct-map shape per — `:children` + `:done` + `:failed` + `:resolved?` + `:spec` co-mingled at the root, NO nested `:join` sub-map), cancel-on-decision = `true` by default, and the `:rf.machine.spawn-all/started` / `:rf.machine.spawn-all/all-completed` / `:rf.machine.spawn-all/some-completed` / `:rf.machine.spawn-all/any-failed` / `:rf.machine.spawn/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, `:rf.error/machine-spawn-all-with-spawn`.
+- The history-states capability per [§History states](#history-states-type-history--shallow--deep--default-target): a `:type :history` pseudo-state under a compound's `:states` carrying `:deep?` (default shallow) and optional `:default-target` (default the compound's `:initial`); record-on-exit of the compound's last-active configuration into the revertible snapshot-root slot `:rf/history` (a map keyed by compound declaration path, region-qualified under `:type :parallel`); restore-on-re-entry via the existing LCA / entry-cascade machinery (deep = full leaf path, shallow = recorded direct child then `:initial` descent, never-entered = `:default-target` / `:initial`); dangling-recorded-path fallback after hot reload. Capability axis `:fsm/history`.
 - ~~The wall-clock `:timeout-ms` capability~~ — DROPPED. State-level `:after` is the canonical wall-clock-timeout primitive on `:spawn` / `:spawn-all`-bearing states. See [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).
 - The cancellation cascade for in-flight `:rf.http/managed` requests per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts): the `:rf.machine/destroy` path aborts every in-flight `:rf.http/managed` request the destroyed actor had issued, via the `:http/abort-on-actor-destroy` late-bind hook. Triggers include parent state exit, parent's `:after` firing, `:spawn-all` cancel-on-decision, frame destroy, and imperative `[:rf.machine/destroy <actor-id>]`. Each abort emits `:rf.http/aborted-on-actor-destroy` per [Spec 009 §Trace events](009-Instrumentation.md). Direct dispatches from event handlers (no spawned-actor envelope) are NOT subject to the cascade — apps that want HTTP-tied-to-state-occupancy lifetimes spawn child machines. Per.
 
@@ -3501,10 +3645,8 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 Richer scaffolding on top of the v1 foundation. None of the items below add a new substrate — each desugars into the v1 surface:
 
-- **Advanced grammar:** history states. (Hierarchical state nodes, `:always`, `:after`, `:spawn`, parallel state nodes, and **final states with `:on-done`** are v1; see the v1 ship list above. Final states landed in v1.)
-- **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`).
+- **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`). (Hierarchical state nodes, `:always`, `:after`, `:spawn`, parallel state nodes, **final states with `:on-done`**, and **history states** are all v1; see the v1 ship list above.)
 - **XState/Stately/SCXML interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping. Tracked alongside (SCXML) as the v1.1+ interop family.
 - **Visualisation tooling:** `machine->mermaid`, `machine->d2` exporters.
 - **Model-based testing harness:** `@xstate/test`-style graph traversal over the transition table.
-- **Declarative `:history` grammar** (history pseudo-states; substitute is snapshot-as-value capture per [§Substitutes for skipped features](#substitutes-for-skipped-features)).
 - **Recurring timers, wall-clock delays, pause/resume on `:after`** — explicitly out of scope for v1; see [§What `:after` does *not* include](#what-after-does-not-include).
