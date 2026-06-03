@@ -218,10 +218,15 @@
      ;; actions"), NOT uppercase. The uppercase transform competed with
      ;; the state title for attention against the structure-first grammar;
      ;; the caption is a quiet section label, so it reads in natural case.
+     ;; rf2-ly51l — drop the 600 weight + 0.02em letter-spacing: the
+     ;; bolded, tracked caption still read as a loud label competing with
+     ;; the action chip below it. A normal-weight, un-tracked, tertiary-
+     ;; colour caption is the QUIETEST tier of the topology type hierarchy
+     ;; (state title > event chip > action chip > tag pill > section
+     ;; caption), so it reads as a section hint, not a heading.
      [:span {:style {:font-family    chart-label-stack
                      :font-size      (str action-caption-px "px")
-                     :font-weight    600
-                     :letter-spacing "0.02em"
+                     :font-weight    400
                      :color          (:text-tertiary ct)
                      :line-height     "1"}}
       caption]

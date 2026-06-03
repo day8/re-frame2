@@ -135,12 +135,53 @@
       labels never overlap (the renderer then reads elk's computed label
       position instead of the old middle-segment-midpoint heuristic).
     - `elk.spacing.edgeLabel` (6) — gap between a label box and its
-      edge."
+      edge.
+
+  rf2-ly51l — initial-state placement SOFT preference. `elk.layered.
+  cycleBreaking.strategy` is `DEPTH_FIRST` (was the implicit `GREEDY`).
+  This is the statechart-intent layer the bead asks for, expressed as a
+  soft bias rather than a forced layout (NOT `forceNodeModelOrder`):
+
+  A statechart graph is almost always CYCLIC (resets, retries, back
+  transitions, machine-level `:on` fallbacks all loop back toward the
+  initial state). The Layered algorithm must first make the graph
+  ACYCLIC by reversing a set of edges; the layer ranking — and hence the
+  top-to-bottom (or left-to-right) reading order — then follows the
+  forward edges. GREEDY picks the reversal set that minimises reversed
+  EDGE COUNT with no regard for where the flow STARTS, so for the door
+  (`locked → closed → open → alarming`, with `alarming → locked` reset +
+  a root `:door/audit → locked` fallback) it reversed the wrong arcs and
+  ranked `open` at the TOP with `locked` (the initial) THIRD — the exact
+  observed-diff (the reference strongly prefers the initial near the
+  top). DEPTH_FIRST instead breaks cycles by a depth-first walk FROM THE
+  SOURCES (the initial state is a source — only its entry-marker points
+  in; the root-fallback anchor is the only other source), reversing just
+  the true back-edges, so the natural forward spine starting at the
+  initial state is honoured: `locked → closed → open → alarming`.
+
+  It stays a PREFERENCE, not an invariant: DEPTH_FIRST only chooses WHICH
+  edges are reversed to acyclic-ise the graph. ELK still runs full
+  LAYER_SWEEP crossing minimisation + Brandes-Köpf node placement on top,
+  so it remains free to arrange a state OFF the initial-on-top ideal when
+  crossings/spacing demand it. For an ALREADY-ACYCLIC graph (a plain
+  `idle → loading → done/failed` flow) there is no cycle to break, so
+  DEPTH_FIRST is layout-identical to GREEDY — the common linear case is
+  untouched. The preference also rides the child MODEL ORDER (the initial
+  state leads its container's children, `projection/->elk-children`), so
+  DEPTH_FIRST's source selection prefers the initial state as its walk
+  root."
   {"elk.algorithm"                              "layered"
    "elk.direction"                              "DOWN"
    "elk.spacing.nodeNode"                       "40"
    "elk.layered.spacing.nodeNodeBetweenLayers"  "70"
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
+   ;; rf2-ly51l — break cycles by a depth-first walk from the sources
+   ;; (the initial state) rather than GREEDY min-reversed-count, so a
+   ;; cyclic statechart's forward spine starts at the initial state and
+   ;; ranks near the top/left. Soft: only changes WHICH edges are
+   ;; reversed to acyclic-ise; layer-sweep + node-placement still run.
+   ;; Identical to GREEDY for already-acyclic graphs. See the docstring.
+   "elk.layered.cycleBreaking.strategy"         "DEPTH_FIRST"
    "elk.edgeRouting"                            "ORTHOGONAL"
    "elk.json.edgeCoords"                        "ROOT"
    ;; rf2-rlq97 — edge-to-node + edge-to-edge clearance so ORTHOGONAL

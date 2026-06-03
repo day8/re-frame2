@@ -225,6 +225,41 @@
       :height (max event-node-elk-height (or (:height m) 0))
       :labels [{:text (or (:event-label parsed-edge) "")}]})))
 
+(defn order-state-children
+  "rf2-ly51l — order a container's STATE children so the initial state
+  LEADS its local model order, with the synthetic machine-root annotation
+  demoted LAST; every other state keeps its parse order. A stable sort on
+  a per-node rank:
+
+    0  initial state            (`:initial?`)  — the preferred anchor
+    1  ordinary state           (parse order kept by stable sort)
+    2  machine-root annotation  (`:machine-root?`) — a quiet routing
+                                 anchor, never a flow start, so it sinks
+                                 to the END of the model order
+
+  This is the model-order half of the rf2-ly51l initial-state placement
+  SOFT preference (the layout half is `chart.cljs`'s `cycleBreaking.
+  strategy DEPTH_FIRST`). It biases TWO ELK decisions toward the initial
+  state without forcing any position:
+
+    - DEPTH_FIRST cycle-breaking walks from the SOURCES; an earlier
+      model-order source is preferred as the walk root, so leading the
+      initial state makes ELK's acyclic-isation start there;
+    - LAYER_SWEEP within-layer ordering uses model order as a tiebreaker
+      when crossings are equal.
+
+  ELK still runs full crossing-minimisation + node-placement on top, so a
+  state can still land off the initial-on-top ideal when the graph
+  demands it — preference, not invariant. Applied per container (top
+  level + every compound/region via `->elk-children`'s recursion), so a
+  nested compound's own `:initial?` child leads ITS local order too."
+  [state-nodes]
+  (sort-by (fn [n] (cond
+                     (:machine-root? n) 2
+                     (:initial? n)      0
+                     :else              1))
+           state-nodes))
+
 (defn ->elk-children
   "Project parsed nodes + parsed edges into elk.js's `children` shape.
 
@@ -267,7 +302,12 @@
         by-parent (group-by :parent-id nodes)
         events-by-parent (group-by ::event-parent event-children)
         build (fn build [n]
-                (let [state-kids (get by-parent (:id n) [])
+                (let [;; rf2-ly51l — the local initial state leads its
+                      ;; container's model order (machine-root sinks last);
+                      ;; biases ELK's DEPTH_FIRST source selection + the
+                      ;; within-layer tiebreak toward the initial state.
+                      state-kids (order-state-children
+                                   (get by-parent (:id n) []))
                       event-kids (get events-by-parent (:id n) [])
                       kids       (concat state-kids event-kids)]
                   (cond-> (elk-child n measured-dims)
@@ -287,7 +327,10 @@
                            ;; `:container-body-pad` inset.
                            :layoutOptions {"elk.algorithm" "layered"
                                            "elk.padding"   "[top=44,left=16,bottom=16,right=16]"}))))
-        top-state-children (mapv build (get by-parent nil))
+        ;; rf2-ly51l — top-level model order: initial state first,
+        ;; machine-root annotation last (see `order-state-children`).
+        top-state-children (mapv build (order-state-children
+                                         (get by-parent nil)))
         top-event-children (->> (get events-by-parent nil [])
                                 (mapv #(dissoc % ::event-parent)))]
     (vec (concat top-state-children top-event-children)))))

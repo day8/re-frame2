@@ -379,6 +379,30 @@ container. The layout engine treats them as ordinary layered-graph
 children with explicit incoming/outgoing edges — no new layout
 algorithm.
 
+**Initial-state placement is a SOFT preference (rf2-ly51l).** A
+statechart graph is almost always cyclic (resets, retries, back
+transitions, machine-level `:on` fallbacks all loop back toward the
+initial state), and the Layered algorithm must first reverse a set of
+edges to make the graph acyclic before it ranks layers. `default-elk-
+options` sets `elk.layered.cycleBreaking.strategy DEPTH_FIRST`: cycles
+break by a depth-first walk **from the sources** (the initial state — its
+only incoming edge is the entry marker) rather than GREEDY's
+min-reversed-edge-count, so the natural forward spine starting at the
+initial state ranks near the top (`:tb`) / left (`:lr`). The
+preference also rides the child **model order**: `projection/order-state-
+children` floats the `:initial?` state to the front of each container's
+ELK children (and sinks the synthetic machine-root annotation to the
+back), so DEPTH_FIRST's source selection + the LAYER_SWEEP within-layer
+tiebreak both prefer the initial state. This is a **bias, not an
+invariant**: only the cycle-reversal SET changes — full crossing-
+minimisation + Brandes-Köpf node placement still run, so ELK remains
+free to arrange a state off the initial-on-top ideal when crossings /
+spacing demand. An already-acyclic graph has no cycle to break, so
+DEPTH_FIRST is layout-identical to the prior GREEDY for the common
+linear case. (`forceNodeModelOrder` — the HARD variant — is deliberately
+NOT used: real machines exist where forcing the initial top/left worsens
+the layout.)
+
 #### Convention glyphs (rf2-qo5xy)
 
 The event-node header renders the variant glyph an operator who
@@ -973,7 +997,9 @@ colour is subordinate to structure**.
   chip style** (the VISIBLE label + `data-tag` preserve the DECLARED
   namespaced identity — `door/open`, not truncated `open`; rf2-vcnvj) +
   quiet **title-case** "Entry actions" / "Exit actions" caption rows
-  (NOT uppercase — rf2-vcnvj) with subdued bolt-glyph action chips.
+  (NOT uppercase — rf2-vcnvj; **normal weight, no letter-spacing,
+  tertiary colour** — rf2-ly51l, the quietest tier so the caption reads
+  as a section hint, not a heading) with subdued bolt-glyph action chips.
   Square-ish, low radius (the 6px `corner-radius` lock). Runtime state
   (active / focus lens / sim) rides the **border + header + glow**, never
   the whole fill. A **final state** is a quiet double border (the ✓ check
@@ -1007,6 +1033,20 @@ colour is subordinate to structure**.
   transition** — a quiet source→event segment (thinner stroke, small
   arrowhead, `:edge-quiet`) and a primary event→target segment (full
   arrowhead). Fired/focused lights **both** segments together.
+- **Typography hierarchy** (loudest → quietest): **state title**
+  (`state-title-px`, weight 500/600) › **event chip** (`event-chip-px`)
+  › **action chip** (`action-pill-px`, weight 500, `text-secondary`) ›
+  **tag pill** (`tag-pill-px`, muted) › **section caption**
+  (`action-caption-px`, normal weight, `text-tertiary`, no letter-
+  spacing — rf2-ly51l). Each tier is visibly subordinate to the one
+  above so the eye reads structure (state titles) first.
+- **Initial-state placement** (rf2-ly51l): a **soft** preference biases a
+  cyclic statechart so its initial state sits near the top (`:tb`) / left
+  (`:lr`) and the forward spine reads from there — via DEPTH_FIRST
+  cycle-breaking + an initial-leads child model order (see
+  [`001-Topology-Parity.md`](001-Topology-Parity.md) §Layout). NOT a hard
+  invariant: ELK's crossing-min + node-placement can still arrange a
+  state off the ideal when the graph demands it.
 - **Root chrome**: a **root machine title strip** is pinned in the chart
   frame (a subtle `∥` glyph for root-parallel machines). A Context
   section under the title is rendered from the optional `:machine-data`
