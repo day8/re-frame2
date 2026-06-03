@@ -9,9 +9,13 @@
 
   ## Edge kinds (per the bead's scope §Custom edges)
 
-    - `transition-edge` — the canonical edge. Renders a curved
-      path between source/target with the event label sitting at
-      the midpoint behind a small backplate rect.
+    - `transition-edge` — the canonical edge. Renders the route ELK
+      computed (a smooth poly-path THROUGH ELK's bend-points, rf2-cz8v6)
+      with the event label sitting where ELK placed it (rf2-rlq97 —
+      `:labelPos`, ELK's reserved label channel) behind a small
+      backplate rect. When ELK placed no label (the events-as-nodes
+      default — the transition text rides on the event-NODE) the anchor
+      falls back to a geometric midpoint heuristic.
     - `after-edge` — `:after`-timer edge. Same path as transition-
       edge but renders the label as `after(<ms>)` and exposes a
       `:data-after-ms` attr so a host-side overlay can find the
@@ -249,15 +253,21 @@
     2. elk route     → when `points` is a JS array of ≥ 2 `#js {:x :y}`,
        a smooth poly-path THROUGH the bends so the edge goes AROUND
        nested containers (`:routed? true`).
-       rf2-shv82 (Issue 3): when `cross-hierarchy?` is true the label
-       anchors near the SOURCE-SIDE first bend point (just outside the
-       container the edge exits) instead of the routed midpoint — the
-       Stately Studio convention for cross-hierarchy edges (whose
-       midpoint can land far from the visual origin).
+       rf2-rlq97: the LABEL anchor is elk's COMPUTED label position
+       (`label-pos` `{:x :y}`, fed from `chart.edges`'s
+       `elk.edgeLabels.placement`) when elk placed one — so a labelled
+       edge's text sits in the collision-free channel elk reserved, NOT
+       at a renderer-side heuristic. When elk placed NO label (the
+       events-as-nodes default — the transition text rides on the
+       event-NODE so the edge carries no label), the anchor falls back
+       to the geometric heuristic:
+         rf2-shv82 (Issue 3): cross-hierarchy edges anchor near the
+         SOURCE-SIDE first bend point (just outside the container the
+         edge exits); other edges use the routed middle-segment midpoint.
     3. bezier        → `getBezierPath` between the handles (`:routed?
        false`) — the no-bend-point fallback."
   [{:keys [src-x src-y tgt-x tgt-y src-pos tgt-pos
-           self-loop? points loop-index cross-hierarchy?]}]
+           self-loop? points loop-index cross-hierarchy? label-pos]}]
   (let [routed? (and (not self-loop?)
                      (some? points)
                      (> (alength points) 1))]
@@ -268,8 +278,16 @@
         {:d d :label-x label-x :label-y label-y :routed? false})
 
       routed?
-      (let [[lx ly] (if cross-hierarchy?
+      (let [[lx ly] (cond
+                      ;; rf2-rlq97 — elk placed the label: paint there.
+                      (and label-pos
+                           (number? (:x label-pos))
+                           (number? (:y label-pos)))
+                      [(:x label-pos) (:y label-pos)]
+                      ;; No elk label (events-as-nodes default): heuristic.
+                      cross-hierarchy?
                       (cross-hierarchy-label-anchor points)
+                      :else
                       (path-midpoint points))]
         {:d (poly-path points) :label-x lx :label-y ly :routed? true})
 
@@ -393,6 +411,13 @@
         ;; multi-point route; nil for a simple edge (bezier fallback)
         ;; and for self-loops (which keep their dedicated loop path).
         points     (.-points d)
+        ;; rf2-rlq97 — elk's COMPUTED label position (a `#js {:x :y}`,
+        ;; absolute coords) for a labelled edge; nil under events-as-nodes
+        ;; (the label rides on the event-node so the edge carries none).
+        ;; When present, `edge-path` anchors the label here — elk's
+        ;; reserved channel — instead of the geometric midpoint heuristic.
+        label-pos  (let [lp (.-labelPos d)]
+                     (when lp {:x (.-x lp) :y (.-y lp)}))
         ;; rf2-j10sm (Phase 2, B) — multi-event same-`[source target]`
         ;; collapse. The projector groups edges by their `[source target]`
         ;; pair and assigns each a `:siblingIndex` 0..N-1 + a
@@ -427,7 +452,10 @@
                     :self-loop? self-loop?
                     :points points
                     :loop-index loop-index
-                    :cross-hierarchy? cross-hierarchy?})
+                    :cross-hierarchy? cross-hierarchy?
+                    ;; rf2-rlq97 — elk's computed label placement (nil →
+                    ;; geometric heuristic fallback).
+                    :label-pos label-pos})
         stroke  (edge-stroke {:active? active? :focused? focused? :fired? fired?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
                                      :fired? fired? :chart vc})]

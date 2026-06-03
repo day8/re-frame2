@@ -77,6 +77,40 @@
     (let [edge (->edge [(->section (pt 5 5) [] (pt 5 5))])]
       (is (nil? (chart/elk-edge-points edge))))))
 
+;; ---- elk-edge-label-pos: ELK's computed label placement (rf2-rlq97) ----
+;;
+;; ELK owns edge-label PLACEMENT (the label analogue of ELK owning the
+;; route via `elk-edge-points`). `elk-edge-label-pos` lifts the position
+;; ELK computed for an edge's first label into a {:x :y} map (absolute
+;; coords under `edgeCoords ROOT`), or nil when ELK placed no label
+;; (the events-as-nodes default — the edge label is empty, the text is
+;; on the event-NODE).
+
+(defn- ->edge-with-label [sections lbl]
+  #js {:sections (apply array sections)
+       :labels   (array lbl)})
+
+(deftest elk-edge-label-pos-lifts-placed-position
+  (testing "rf2-rlq97 — ELK placed a label at (x,y); lift it to {:x :y}"
+    (let [edge (->edge-with-label
+                 [(->section (pt 0 0) [] (pt 0 100))]
+                 #js {:text "evt" :x 33 :y 77 :width 40 :height 16})]
+      (is (= {:x 33 :y 77} (chart/elk-edge-label-pos edge))))))
+
+(deftest elk-edge-label-pos-nil-without-labels
+  (testing "rf2-rlq97 — no labels array (or empty) → nil (geometric
+            fallback in the renderer)"
+    (is (nil? (chart/elk-edge-label-pos #js {})))
+    (is (nil? (chart/elk-edge-label-pos #js {:labels #js []})))))
+
+(deftest elk-edge-label-pos-nil-when-unplaced
+  (testing "rf2-rlq97 — a label ELK did NOT place (no x/y — empty-text
+            label under events-as-nodes) lifts to nil"
+    (let [edge (->edge-with-label
+                 [(->section (pt 0 0) [] (pt 0 100))]
+                 #js {:text "" :width 0 :height 0})]
+      (is (nil? (chart/elk-edge-label-pos edge))))))
+
 ;; ---- elk-layout-options: the G5 cross-hierarchy switch ------------------
 ;;
 ;; `chart/elk-layout-options` is the pure root `layoutOptions` computation
@@ -202,6 +236,51 @@
       ;; middle segment is (0,100)→(100,100): midpoint (50,100).
       (is (= 50 label-x))
       (is (= 100 label-y)))))
+
+(deftest edge-path-prefers-elk-label-position
+  (testing "rf2-rlq97 — when ELK supplies a computed label position
+            (`:label-pos`), the routed edge anchors the label THERE (the
+            collision-free channel ELK reserved) instead of the geometric
+            middle-segment midpoint"
+    (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
+          ;; The geometric midpoint would be (50,100); ELK placed it at
+          ;; (140, 60) — the label MUST honour ELK's position.
+          {:keys [label-x label-y routed?]}
+          (edges/edge-path (assoc base-coords
+                                  :self-loop? false
+                                  :points points
+                                  :label-pos {:x 140 :y 60}))]
+      (is (true? routed?))
+      (is (= 140 label-x) "label honours ELK's computed x")
+      (is (= 60 label-y) "label honours ELK's computed y"))))
+
+(deftest edge-path-elk-label-position-beats-cross-hierarchy-anchor
+  (testing "rf2-rlq97 — ELK's placement wins even over the cross-hierarchy
+            source-bend heuristic (ELK reserved the channel knowing the
+            full graph; the heuristic is only the no-ELK-label fallback)"
+    (let [points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
+          {:keys [label-x label-y]}
+          (edges/edge-path (assoc base-coords
+                                  :self-loop? false
+                                  :points points
+                                  :cross-hierarchy? true
+                                  :label-pos {:x 200 :y 10}))]
+      (is (= 200 label-x) "ELK position overrides the cross-hierarchy anchor")
+      (is (= 10 label-y)))))
+
+(deftest edge-path-no-elk-label-falls-back-to-geometric
+  (testing "rf2-rlq97 — with NO ELK label position (the events-as-nodes
+            default — label is on the event-node, edge carries none) the
+            routed edge keeps its geometric midpoint anchor (regression
+            guard that the fallback is intact)"
+    (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
+          {:keys [label-x label-y]}
+          (edges/edge-path (assoc base-coords
+                                  :self-loop? false
+                                  :points points
+                                  :label-pos nil))]
+      (is (= 50 label-x) "no ELK label → middle-segment midpoint x")
+      (is (= 100 label-y) "no ELK label → middle-segment midpoint y"))))
 
 (deftest edge-path-two-point-route-is-a-straight-line
   (testing "rf2-cz8v6 — a degenerate two-point route (no interior bend)

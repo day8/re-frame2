@@ -237,6 +237,100 @@
                                 (mapv #(dissoc % ::event-parent)))]
     (vec (concat top-state-children top-event-children)))))
 
+;; ---- elk.js EDGE projection (rf2-rlq97) ---------------------------------
+;;
+;; rf2-rlq97 — the elk EDGE descriptors are projected here (pure data),
+;; mirroring `->elk-children` for nodes. Before rf2-rlq97 the elk edge
+;; objects were built inline in `chart.cljs/->elk-input` (a `mapcat` over
+;; the parsed edges) — JS-side and JVM-unloadable, so the edges that ELK
+;; routes the topology AROUND were never pinned at the cheap JVM layer.
+;; Lifting them into `->elk-edge` here lets the projection test corpus
+;; assert the edge-feed (ids + endpoints + label dims) the same way it
+;; pins the node-feed.
+;;
+;; Each parsed transition is decomposed into the events-as-nodes
+;; (rf2-qo5xy) edge pair:
+;;
+;;   source-state ─→ event-node   (`<spec-edge-id>__in`)
+;;   event-node   ─→ target-state (`<spec-edge-id>__out`; omitted for
+;;                                  internal transitions, which have no
+;;                                  `:target`)
+;;
+;; ## Edge labels (rf2-rlq97)
+;;
+;; The xstate-style transition text (`event [guard] / action`) rides on
+;; the event-NODE (`xyflow-graph` event-nodes; the event-node is the
+;; events-as-nodes analogue of a Stately edge label and is ALREADY
+;; measured + ELK-laid-out via `elk-event-child` + the d9ro2 measure
+;; pass). So the `__in` / `__out` edges themselves carry NO visible
+;; label, and ELK must reserve NO label channel for them — feeding label
+;; dims onto BOTH the event-node AND its incident edges would
+;; double-budget the same text.
+;;
+;; `->elk-edge` therefore takes an optional `label-dims` map but uses it
+;; ONLY for an edge that genuinely renders its OWN label in the renderer
+;; (none today under events-as-nodes; the parameter keeps the helper
+;; honest + future-proof — a labelled edge type added later threads its
+;; MEASURED `{:width :height}` here so ELK's `edgeLabels.placement`
+;; reserves space). A nil entry emits an empty zero-size label, which
+;; ELK treats as no label to place. This is the edge-label analogue of
+;; d9ro2's node measure: dims flow from the rendered DOM into the ELK
+;; input rather than being a renderer-side heuristic.
+
+(defn elk-edge-label
+  "rf2-rlq97 — build the elk edge `labels` entry for an edge. `text` is
+  the visible label string (\"\" when the label rides on the event-node,
+  which is the events-as-nodes default). `dims` is the optional MEASURED
+  `{:width :height}` of the rendered label; nil emits a zero-size label
+  ELK treats as nothing to place. Returns a single-label vector (elk's
+  `labels` is always an array)."
+  [text dims]
+  [(cond-> {:text (or text "")}
+     (and dims (pos? (:width dims 0)) (pos? (:height dims 0)))
+     (assoc :width (:width dims) :height (:height dims)))])
+
+(defn ->elk-edge
+  "rf2-rlq97 — project ONE parsed transition into its elk edge
+  descriptor(s) under the events-as-nodes paradigm (rf2-qo5xy):
+
+    [{:id \"<spec-id>__in\"  :sources [src]   :targets [ev]    :labels …}
+     {:id \"<spec-id>__out\" :sources [ev]    :targets [tgt]   :labels …}]
+
+  The `__out` edge is OMITTED for an internal transition (no `:target`)
+  — its event-node hangs with no outgoing arrow per the Stately
+  convention.
+
+  `label-dims` is the optional `{elk-edge-id {:width :height}}` map of
+  MEASURED rendered-label boxes, threaded through from the measure pass
+  the same way `->elk-children` threads node `measured-dims`. Keyed by
+  the elk edge id (`<spec-id>__in` / `__out`). Under events-as-nodes the
+  visible text is on the event-NODE so these entries are normally absent
+  and the edges carry empty labels — see the section comment above."
+  ([e] (->elk-edge e nil))
+  ([e label-dims]
+   (let [ev-id  (event-node-id e)
+         in-id  (str (:id e) "__in")
+         out-id (str (:id e) "__out")]
+     (cond-> [{:id      in-id
+               :sources [(:source e)]
+               :targets [ev-id]
+               :labels  (elk-edge-label "" (get label-dims in-id))}]
+       (not (:internal? e))
+       (conj {:id      out-id
+              :sources [ev-id]
+              :targets [(:target e)]
+              :labels  (elk-edge-label "" (get label-dims out-id))})))))
+
+(defn ->elk-edges
+  "rf2-rlq97 — project ALL parsed edges into the flat elk `edges` vector
+  `chart.cljs/->elk-input` `clj->js`-es onto the elk root graph. The
+  events-as-nodes split (`->elk-edge`) means N parsed transitions emit
+  up to 2N elk edges. `label-dims` (optional measured-label map) is
+  forwarded to every `->elk-edge`."
+  ([parsed] (->elk-edges parsed nil))
+  ([{:keys [edges]} label-dims]
+   (vec (mapcat #(->elk-edge % label-dims) edges))))
+
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 
 (defn choose-edge-type
@@ -334,6 +428,22 @@
                            emits post-rf2-qo5xy, so every lookup missed
                            and the whole feature silently fell back to
                            beziers — a dead G2.)
+    :edge-labels         — rf2-rlq97. A map `{elk-edge-id {:x :y}}` of
+                           elk's COMPUTED label positions (absolute /
+                           flow coords; the LABEL analogue of
+                           `:edge-points`). Keyed by the same
+                           `<spec-edge-id>__in` / `__out` elk edge ids.
+                           When present for an edge, the projector
+                           attaches it to that edge's `:data {:labelPos}`
+                           and `chart.edges/transition-edge` paints the
+                           label at elk's placement instead of the
+                           geometric middle-segment midpoint — so a
+                           labelled edge's text sits where elk reserved a
+                           collision-free channel. Empty under
+                           events-as-nodes (the transition text rides on
+                           the event-NODE, ELK-placed already), so this
+                           is normally `{}` and the edge keeps its
+                           geometric anchor. Defaults to `{}`.
     :fired-edge-ids      — rf2-qeemm (closes parity gap G3). A SET of
                            canonical edge-ids (the EXACT `:id` scheme
                            `chart.layout` mints) that fired THIS epoch.
@@ -369,8 +479,10 @@
   [{:keys [nodes edges]}
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
-           on-state-click on-edge-click edge-points fired-edge-ids chart]
-    :or   {chart vc/chart-regular edge-points {} fired-edge-ids #{}}}]
+           on-state-click on-edge-click edge-points edge-labels
+           fired-edge-ids chart]
+    :or   {chart vc/chart-regular edge-points {} edge-labels {}
+           fired-edge-ids #{}}}]
   (let [;; rf2-g2svr (G1) — the active set unifies the single-active
         ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
         ;; A PARALLEL machine's snapshot has N simultaneously-active
@@ -571,7 +683,13 @@
                       ;; every lookup missed and the feature fell back to
                       ;; beziers — silently dead post-rf2-qo5xy.)
                       in-points    (get edge-points (str (:id e) "__in"))
-                      out-points   (get edge-points (str (:id e) "__out"))]
+                      out-points   (get edge-points (str (:id e) "__out"))
+                      ;; rf2-rlq97 — elk's computed label positions for
+                      ;; the two segments (LABEL analogue of the routes).
+                      ;; Empty under events-as-nodes (label is on the
+                      ;; event-node); present for any labelled edge.
+                      in-label-pos  (get edge-labels (str (:id e) "__in"))
+                      out-label-pos (get edge-labels (str (:id e) "__out"))]
                   {:edge      e
                    :event-id  event-id
                    :variant   variant
@@ -584,7 +702,9 @@
                    :internal? internal?
                    :cross-hier? cross-hier?
                    :in-points  in-points
-                   :out-points out-points}))
+                   :out-points out-points
+                   :in-label-pos  in-label-pos
+                   :out-label-pos out-label-pos}))
               edges)
         ;; Event-nodes — one per parsed transition. The xyflow node
         ;; renderer (`chart.nodes.event-node`) paints the event header
@@ -636,7 +756,7 @@
         ;; "this state handles this event".
         inbound-edges
         (mapv (fn [{:keys [edge ev-node-id from-active? focused? fired?
-                           cross-hier? in-points]}]
+                           cross-hier? in-points in-label-pos]}]
                 {:id        (str (:id edge) "__in")
                  :source    (:source edge)
                  :target    ev-node-id
@@ -670,6 +790,10 @@
                              ;; container. nil when elk emitted no route
                              ;; (bezier fallback).
                              :points     in-points
+                             ;; rf2-rlq97 — elk's computed label position
+                             ;; (nil under events-as-nodes; the renderer
+                             ;; falls back to its geometric anchor).
+                             :labelPos   in-label-pos
                              :internal   false
                              :machineLevel (boolean (:machine-level? edge))
                              :eventId    nil
@@ -690,7 +814,7 @@
         (->> edge-descriptors
              (remove (fn [{:keys [internal?]}] internal?))
              (mapv (fn [{:keys [edge ev-node-id focused? fired? from-active?
-                                cross-hier? out-points]}]
+                                cross-hier? out-points out-label-pos]}]
                      {:id        (str (:id edge) "__out")
                       :source    ev-node-id
                       :target    (:target edge)
@@ -722,6 +846,10 @@
                                   ;; the producer actually emits (was the
                                   ;; bare canonical id → always missed).
                                   :points     out-points
+                                  ;; rf2-rlq97 — elk's computed label
+                                  ;; position (nil under events-as-nodes;
+                                  ;; renderer falls back to geometric anchor).
+                                  :labelPos   out-label-pos
                                   :internal   false
                                   :machineLevel (boolean (:machine-level? edge))
                                   :eventId    nil
@@ -793,6 +921,10 @@
                                ;; crosses a container); :points nil so
                                ;; the every-edge :data shape stays whole.
                                :points nil
+                               ;; rf2-rlq97 — entry edges carry no label
+                               ;; (unlabelled marker→state hop), so no elk
+                               ;; label position; nil keeps the shape whole.
+                               :labelPos nil
                                :internal false :machineLevel false
                                :eventId nil :fromPath nil :toPath nil
                                :onClick on-edge-click :chart chart}})
