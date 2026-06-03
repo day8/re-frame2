@@ -364,7 +364,7 @@
   operator's eye reads `chart = primary, lens = secondary`. Same body
   background as the rest of the section interior (`bg-2`); padding-only
   separation; section labels carry weight differential per issue #5."
-  [{:keys [machine-id from-state to-state guards actions start? cause]}]
+  [{:keys [machine-id from-state to-state guards actions start? cause no-op?]}]
   [:div {:data-testid "rf-xray-machine-focused-transition-lens"
          :data-machine-id (str machine-id)
          :data-guard-count (str (count guards))
@@ -374,6 +374,11 @@
          ;; transition) when the focused epoch is a machine start.
          :data-start (str (boolean start?))
          :data-cause (str cause)
+         ;; rf2-skmc7 — no-op marker so the forensic block reads NO
+         ;; TRANSITION (the machine stayed in its current state — a
+         ;; guard-blocked / unhandled event) rather than a misleading
+         ;; `state → state` self-transition.
+         :data-no-op (str (boolean no-op?))
          ;; Issue #6 option (b) — secondary-metadata treatment. No
          ;; coloured body (matches the section's `bg-2`); slightly
          ;; smaller mono font; lighter default text colour. The lens
@@ -397,14 +402,19 @@
     ;; Issue #5 — `<strong>` weight differential on the section
     ;; label so the eye picks it out from the path that follows.
     ;; rf2-eldze — a birth is INITIAL ENTRY, not a TRANSITION.
+    ;; rf2-skmc7 — a no-op is NO TRANSITION (the machine stayed put).
     [:strong {:style {:color (:text-tertiary tokens)
                       :text-transform "uppercase"
                       :font-size "10px"
                       :letter-spacing "0.5px"
                       :font-weight 700}}
-     (if start? "Initial entry" "Transition")]
+     (cond
+       start? "Initial entry"
+       no-op? "No transition"
+       :else  "Transition")]
     [:div {:style {:padding-left "16px"}}
-     (if start?
+     (cond
+       start?
        ;; No from-state — render only the resulting initial state, with
        ;; the entry-arrow grammar (`↳ :initial`) the topology's initial-
        ;; state marker mirrors.
@@ -415,6 +425,18 @@
         (when cause
           [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
            (str "(" (name cause) ")")])]
+
+       no-op?
+       ;; rf2-skmc7 — the event matched no transition (unhandled / guard-
+       ;; blocked). Render only the unchanged current state with a muted
+       ;; `(no transition)` annotation — no `→` edge, no destination.
+       [:span {:data-testid "rf-xray-machine-lens-no-op-state"}
+        [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+         (h/format-state to-state)]
+        [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
+         "(stayed — no transition matched)"]]
+
+       :else
        [:span
         [:span {:style {:color (:text-secondary tokens)}}
          (h/format-state from-state)]
@@ -695,7 +717,7 @@
    - issue #8: outer margin bumped to 16px so the section has visible
      breathing room from the panel host edge."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition fired-edge-ids start? cause]
+           definition fired-edge-ids start? cause no-op?]
     :as record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
@@ -705,8 +727,14 @@
   (let [;; rf2-nesy9 — render-time frame capture for the deferred
         ;; right-click filter dispatch.
         frame      (rf/current-frame-id)
-        from-id    (when from-state (chart-layout/highlight-id from-state))
-        to-id      (when to-state   (chart-layout/highlight-id to-state))
+        ;; rf2-skmc7 — a NO-OP suppresses the from→to highlight grammar
+        ;; (no edge; the machine stayed put). The wrapper's highlight-id
+        ;; data-attrs therefore read "" for a no-op, matching the chart
+        ;; props below; the current state is surfaced via `:current-state`.
+        from-id    (when (and from-state (not no-op?))
+                     (chart-layout/highlight-id from-state))
+        to-id      (when (and to-state (not no-op?))
+                     (chart-layout/highlight-id to-state))
         engine     "xyflow+elkjs"
         collapsed? @(rf/subscribe
                       [:rf.xray.machine-canvas/chart-collapsed-for machine-id])
@@ -732,6 +760,12 @@
       ;; / :spawned).
       :data-start (str (boolean start?))
       :data-cause (str cause)
+      ;; rf2-skmc7 — guard-blocked / unhandled / NO-OP record marker.
+      ;; `:data-no-op "true"` lets tests + hosts pin that a
+      ;; `:rf.machine.event/unhandled-no-op` epoch renders the topology
+      ;; (CURRENT state highlighted) rather than the 'does not target a
+      ;; state machine' empty state.
+      :data-no-op (str (boolean no-op?))
       :data-chart-collapsed (str collapsed?)
       ;; rf2-zdfbm — the topology is the panel's centrepiece, so the
       ;; section grows to fill the focused-event host's available
@@ -771,7 +805,12 @@
       ;; an entry into the initial state, not a from→to). Render a
       ;; `[START]` marker + the resulting initial state instead of the
       ;; misleading `(uninit) → :initial` path a transition header shows.
-      (if start?
+      ;; rf2-skmc7 — NO-OP path: a guard-blocked / unhandled event matched
+      ;; no transition, so the machine stayed in its current state. Render
+      ;; a `[NO-OP]` marker + the unchanged current state instead of a
+      ;; misleading `state → state` self-transition.
+      (cond
+        start?
         [:<>
          [:span {:data-testid "rf-xray-machine-focused-event-start-badge"
                  :style {:color (:accent tokens)
@@ -786,6 +825,23 @@
          [:span {:style {:color (:accent tokens)}} "→"]
          [:span {:style {:color (:text-primary tokens) :font-weight 600}}
           (h/format-state to-state)]]
+
+        no-op?
+        [:<>
+         [:span {:data-testid "rf-xray-machine-focused-event-no-op-badge"
+                 :style {:color (:text-tertiary tokens)
+                         :font-size "10px"
+                         :font-weight 700
+                         :letter-spacing "0.5px"
+                         :text-transform "uppercase"
+                         :border (str "1px solid " (:border-default tokens))
+                         :border-radius "3px"
+                         :padding "1px 5px"}}
+          "No-op"]
+         [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+          (h/format-state to-state)]]
+
+        :else
         [:<>
          [:span {:style {:color (:text-secondary tokens)}}
           (h/format-state from-state)]
@@ -905,8 +961,13 @@
                [machine-canvas/Chart
                 {:definition         definition
                  :machine-id         machine-id
-                 :from-highlight     from-state
-                 :to-highlight       to-state
+                 ;; rf2-skmc7 — a NO-OP has no from→to edge (the machine
+                 ;; stayed put). Suppress the from/to highlight grammar so
+                 ;; the chart does NOT paint a misleading `state → state`
+                 ;; self-transition; the CURRENT state is surfaced via
+                 ;; `:current-state` below as a single active-state highlight.
+                 :from-highlight     (when-not no-op? from-state)
+                 :to-highlight       (when-not no-op? to-state)
                  ;; rf2-eldze — a machine BIRTH has no from→to edge; the
                  ;; resulting initial state IS the active state. Feed it
                  ;; through `:current-state` so the chart paints the
@@ -915,7 +976,13 @@
                  ;; to) already lands the same node. Belt-and-braces: the
                  ;; node lights up whether the chart keys off to-highlight
                  ;; or current-state.
-                 :current-state      (when start? to-state)
+                 ;; rf2-skmc7 — a NO-OP's current state IS the (unchanged)
+                 ;; `to-state` (== `from-state`); feed it so the topology
+                 ;; highlights the one current node the machine is resting in.
+                 :current-state      (cond
+                                       start? to-state
+                                       no-op? to-state
+                                       :else  nil)
                  ;; rf2-qeemm (G3) — the focused epoch's traversed edges paint
                  ;; the FIRED treatment on the live chart (canonical ids from
                  ;; `extract-fired-edge-ids`, attached to the section record).

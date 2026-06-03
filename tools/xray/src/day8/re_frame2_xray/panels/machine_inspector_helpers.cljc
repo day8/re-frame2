@@ -165,6 +165,53 @@
   (and (map? ev)
        (= started-operation (:operation ev))))
 
+;; ---- no-op / guard-blocked machine event (`:rf.machine.event/unhandled-no-op`) — rf2-skmc7 -----
+;;
+;; A machine event that matched no transition — an UNHANDLED user event, OR
+;; a transition whose GUARD failed (`match-on-clause` returns the first
+;; candidate WHOSE GUARD PASSES, so a guard-blocked clause is indistinguishable
+;; from no clause at the resolution layer) — produces NO `:rf.machine/transition`
+;; (Spec 009: "A no-op macrostep emits NO `:rf.machine/transition` … the benign
+;; `:rf.machine.event/unhandled-no-op` is the SOLE signal for an unhandled /
+;; guard-blocked event"). The machine stays in its current state as a no-op.
+;;
+;; The event STILL targeted a registered machine: the substrate dispatched the
+;; event to the machine's handler and ran its guards. So per spec/003
+;; §Empty state ("Unhandled-event no-op is NOT this empty state") the Machine
+;; tab MUST render the machine's topology with the CURRENT state highlighted —
+;; NOT the "does not target a state machine" placeholder.
+;;
+;; This is the SAME underlying gap rf2-eldze fixed for the machine-START case:
+;; the focused-event lens keyed off a from→to TRANSITION, so any event that
+;; targeted a machine but produced no transition (start, guard-block, unhandled
+;; no-op) was wrongly classified as "does not target a state machine". eldze
+;; folded in `:rf.machine/started`; this folds in
+;; `:rf.machine.event/unhandled-no-op`.
+;;
+;; The no-op trace carries `{:machine-id :event :state :frame}` where `:state`
+;; is the machine's CURRENT state (`(:state snapshot)` at resolution time —
+;; unchanged by the no-op). We project it into the same record shape as a
+;; transition, with `:from-state` == `:to-state` == the current state (a no-op
+;; is a stationary self-loop) and a `:no-op? true` flag so the view renders a
+;; `[NO-OP]` marker + a single highlighted current state rather than a
+;; from→to edge.
+
+(def no-op-operation
+  "The benign no-op / guard-blocked / unhandled trace op (Spec 009
+  §`:op-type` vocabulary). Emitted from `machines/transition.cljc` (flat /
+  compound) and `machines/parallel.cljc` (the parallel-region aggregate)
+  exactly once when an event matched no transition at any level — including
+  a clause whose guard failed. Op-type `:rf.machine` (machine-activity
+  family, NOT an error / warning)."
+  :rf.machine.event/unhandled-no-op)
+
+(defn no-op-event?
+  "True iff `ev` is the benign machine no-op (`:rf.machine.event/unhandled-no-op`)
+  trace. Pure predicate; tolerant of a missing `:operation` key."
+  [ev]
+  (and (map? ev)
+       (= no-op-operation (:operation ev))))
+
 ;; ---- machine-id resolution ----------------------------------------------
 
 (defn machine-id-of
@@ -567,6 +614,57 @@
      :guards      []
      :actions     []}))
 
+(defn- no-op-record-from-trace
+  "Project a `:rf.machine.event/unhandled-no-op` (guard-blocked / unhandled /
+  no-op) trace into the same view-consumed record shape the transition / start
+  projectors produce, so the focused-event lens renders the topology with the
+  CURRENT state highlighted — rather than the 'does not target a state machine'
+  empty state. rf2-skmc7.
+
+  The no-op trace carries `{:machine-id :event :state :frame}` (Spec 009;
+  machines · transition.cljc / parallel.cljc) where `:state` is the machine's
+  CURRENT state at resolution time (unchanged — that's what makes it a no-op).
+  We map:
+
+    :from-state (:state tag)  — the current state == to-state (a stationary
+                                self-loop; the state did not change)
+    :to-state   (:state tag)  — same current state (highlighted on the chart)
+    :before     nil           — the no-op trace carries no snapshot pair; the
+    :after      nil             drill-in suppresses cleanly (no `:data` change)
+    :no-op?     true           — flags the no-op case for the view (the header
+                                renders a `[NO-OP]` marker, the lens reads
+                                NO TRANSITION, the chart highlights the one
+                                current state)
+    :event      (:event tag)  — the inbound user event that produced the no-op
+
+  Guards / actions default empty: a guard-blocked transition's guard DOES run,
+  but today's substrate does not emit `:rf.machine/guard-evaluated` for the
+  declining candidate (the no-op trace is the sole signal), so there is nothing
+  to attach. When the substrate gains guard traces on the no-op path a follow-on
+  bead surfaces the failing guard in the lens; the record shape stays stable.
+
+  The record shape is otherwise identical to a transition record so every
+  downstream consumer (section view, chart highlight, prev/next nav) treats it
+  uniformly."
+  [ev]
+  (let [tags  (get ev :tags {})
+        state (:state tags)
+        event (:event tags)]
+    {:machine-id  (machine-id-of ev)
+     :from-state  state
+     :to-state    state
+     :before      nil
+     :after       nil
+     :no-op?      true
+     :on-event    (when (vector? event) (first event))
+     :event       event
+     :time        (:time ev)
+     :id          (:id ev)
+     :dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
+     :microstep?  false
+     :guards      []
+     :actions     []}))
+
 (defn- ref-display-id
   "Coerce a guard/action ref to a renderable id for the per-transition
   Guards / Actions list.
@@ -746,6 +844,8 @@
        :dispatch-id  <id|nil>
        :microstep?   <bool>
        :definition   <machine-def-or-nil>
+       :no-op?       <bool>                ;; true iff this is a guard-blocked /
+                                            ;; unhandled / no-op record (rf2-skmc7)
        :guards       [<guard-record>...]
        :actions      [<action-record>...]
        :history-restored [<restore-record>...]  ;; rf2-mle6e.5, only when a
@@ -763,43 +863,88 @@
   = the resulting initial state, so the view highlights the initial state
   on the topology.
 
-  Returns `[]` when no machine-transition / start trace fired in the
+  Per rf2-skmc7 a guard-blocked / unhandled / NO-OP machine event
+  (`:rf.machine.event/unhandled-no-op`) is ALSO surfaced as a first-class
+  record — the SAME gap as the eldze birth case for a DIFFERENT no-transition
+  cause. A no-op emits no `:rf.machine/transition` (the machine stayed put),
+  so without this fold a focused guard-blocked-close epoch produced zero
+  records and the Machine tab wrongly rendered 'does not target a state
+  machine' — even though the event DID dispatch to a registered machine and
+  ran its guard. The no-op record carries `:from-state` == `:to-state` == the
+  current state + `:no-op? true`, so the view highlights the current state on
+  the topology with a `[NO-OP]` marker. A no-op record is folded ONLY for a
+  machine that produced NO transition / start record in the same cascade
+  (Spec 005 — a no-op is single-signalled): a machine that both transitioned
+  and later no-op'd in one cascade surfaces its transition, not a redundant
+  ghost no-op section.
+
+  Returns `[]` when no machine-transition / start / no-op trace fired in the
   cascade — the silent-by-default branch the view honours per rf2-g3ghh.
 
   Pure fn — JVM-runnable."
   ([trace-events]
    (project-focused-event-transitions trace-events nil))
   ([trace-events definitions]
-   (let [defs (or definitions {})
-         events (or trace-events [])]
-     (->> events
-          ;; Transition macrosteps / microsteps AND machine births
-          ;; (rf2-eldze). A birth carries no from-state; it is projected
-          ;; via `started-record-from-trace` rather than the transition
-          ;; projector.
-          (filter (fn [ev] (or (transition-event? ev) (started-event? ev))))
-          ;; Stable cascade order — :id is monotonic per Spec 009;
-          ;; fall back to :time, then 0.
-          (sort-by (fn [ev] (or (:id ev) (:time ev) 0)))
-          (map (fn [ev]
-                 (let [base   (if (started-event? ev)
-                                ;; Birth: no guard/action/history attach —
-                                ;; the initial-entry cascade's actions are
-                                ;; not traced as `:rf.machine/action-ran`
-                                ;; (rf2-n9f4z), so there is nothing to fold.
-                                (started-record-from-trace ev)
-                                (-> (transition-record-from-trace ev)
-                                    (attach-guards-and-actions events)
-                                    (attach-history events)))
-                       mid    (:machine-id base)
-                       defn-> (get defs mid)]
-                   (cond-> base
-                     defn-> (assoc :definition defn->)))))
-          ;; Drop records whose machine-id couldn't be resolved — a
-          ;; malformed trace shouldn't surface a section with no
-          ;; identity. nil :machine-id matches no chart definition so
-          ;; the row would be unrenderable anyway.
-          (filter :machine-id)
+   (let [defs   (or definitions {})
+         events (or trace-events [])
+         attach-def
+         (fn [base]
+           (let [defn-> (get defs (:machine-id base))]
+             (cond-> base
+               defn-> (assoc :definition defn->))))
+         order  (fn [ev] (or (:id ev) (:time ev) 0))
+         ;; (1) Transition macrosteps / microsteps AND machine births
+         ;; (rf2-eldze). A birth carries no from-state; it is projected
+         ;; via `started-record-from-trace` rather than the transition
+         ;; projector.
+         move-records
+         (->> events
+              (filter (fn [ev] (or (transition-event? ev) (started-event? ev))))
+              (sort-by order)
+              (map (fn [ev]
+                     (attach-def
+                       (if (started-event? ev)
+                         ;; Birth: no guard/action/history attach — the
+                         ;; initial-entry cascade's actions are not traced as
+                         ;; `:rf.machine/action-ran` (rf2-n9f4z).
+                         (started-record-from-trace ev)
+                         (-> (transition-record-from-trace ev)
+                             (attach-guards-and-actions events)
+                             (attach-history events))))))
+              (filter :machine-id)
+              vec)
+         ;; (2) Guard-blocked / unhandled / NO-OP machine events (rf2-skmc7).
+         ;; Folded ONLY for a machine that did NOT also produce a transition /
+         ;; start record in this cascade — Spec 005 "a no-op is
+         ;; single-signalled": a machine that transitioned AND no-op'd in the
+         ;; same cascade surfaces the transition, never a duplicate ghost
+         ;; no-op section.
+         moved-machine-ids (set (map :machine-id move-records))
+         no-op-records
+         (->> events
+              (filter no-op-event?)
+              (sort-by order)
+              (map no-op-record-from-trace)
+              (filter :machine-id)
+              ;; Drop a no-op for a machine that already has a move record.
+              (remove (fn [r] (contains? moved-machine-ids (:machine-id r))))
+              ;; Dedup multiple no-op traces for the same machine in one
+              ;; cascade (parallel-region aggregate can only emit one, but
+              ;; belt-and-braces): keep the FIRST in trace order.
+              (reduce (fn [{:keys [seen acc]} r]
+                        (let [mid (:machine-id r)]
+                          (if (contains? seen mid)
+                            {:seen seen :acc acc}
+                            {:seen (conj seen mid) :acc (conj acc r)})))
+                      {:seen #{} :acc []})
+              :acc
+              (map attach-def)
+              vec)]
+     ;; Merge + re-sort by trace order so a no-op interleaves with any
+     ;; transitions in document order (the Dynamic-mode single-instance rule
+     ;; picks `first`, so order is load-bearing).
+     (->> (concat move-records no-op-records)
+          (sort-by order)
           vec))))
 
 (defn focused-epoch-record
