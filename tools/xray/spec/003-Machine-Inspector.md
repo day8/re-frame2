@@ -92,9 +92,15 @@ below; the three render states are:
    [§Dynamic mode — single-instance, event-driven (rf2-8og3k)](#dynamic-mode--single-instance-event-driven-rf2-8og3k)
    for the full rule.)
 3. **Focused event targets a machine instance** → one section for that
-   one instance (chosen per the rf2-8og3k selection rule below):
+   one instance (chosen per the rf2-8og3k selection rule below). A
+   machine **birth** (`:rf.machine/started`) is a first-class member of
+   this set per [§Machine birth — the start / initial-entry case
+   (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze)
+   below: it has no from-state (it is an entry INTO the initial state,
+   not a from→to transition), so the section renders a `[START]` marker
+   in place of the from-state and highlights the resulting initial state.
     - Header: `<from-state> → <to-state>` with the event vector right-
-      aligned.
+      aligned (for a birth: `[START] → <initial-state>`).
     - Topology chart (**xyflow + elkjs** primitive — rf2-gpzb4 xyflow
       migration; the prior host-side ELK+SVG render is gone) with the
       FROM state drawn dashed/accent-violet and the TO state bold/cyan;
@@ -397,16 +403,22 @@ one subject, sourced implicitly from event focus.
 
 For the currently-focused event in the L2 event list:
 
-1. **Enumerate the event's `:rf.machine/transition` traces.** These
-   are the transitions the event caused (Spec 005 trace contract;
-   one per outer transition, plus
-   `:rf.machine.microstep/transition` for `:always`-driven
-   microsteps). Each trace carries `:tags {:machine-id …}` naming
-   the instance that transitioned.
+1. **Enumerate the event's `:rf.machine/transition` traces _and its
+   machine-birth `:rf.machine/started` traces_.** The transitions are
+   the from→to moves the event caused (Spec 005 trace contract; one per
+   outer transition, plus `:rf.machine.microstep/transition` for
+   `:always`-driven microsteps). The `:rf.machine/started` traces are
+   machine **births** (rf2-eldze) — a pure start emits no
+   `:rf.machine/transition` (it is an entry into the initial state, not
+   a from→to), so a birth would otherwise be invisible to this lens.
+   Each trace (transition or birth) carries `:tags {:machine-id …}`
+   naming the instance.
 2. **If the set is empty** → the panel renders only the verbatim
    placeholder (see [§Empty state — focused event does not target
    a state machine](#empty-state--focused-event-does-not-target-a-state-machine)
-   below). No chart, no lens, no history ribbon, nothing else.
+   below). No chart, no lens, no history ribbon, nothing else. (A birth
+   makes the set non-empty — a focused start epoch is NOT this empty
+   state; see [§Machine birth (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze).)
 3. **If the set is non-empty** → select **one** instance per the
    tiebreaker below; render the focused-transition lens above the
    chart with that instance as `Target Machine Instance:`, the
@@ -469,6 +481,60 @@ This is the **state 2** branch in
 [§Post-collapse Dynamic panel shape](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k);
 the rf2-y9xmf prior text "No machine activity in the focused event."
 is superseded by the verbatim string above.
+
+### Machine birth — the start / initial-entry case (rf2-eldze)
+
+A machine **birth** is the moment a machine first comes up into its
+initial state — the eager `[:machine-id [:rf.machine/start]]` kick, the
+lazy first-real-event fold, or a `:spawn`. The runtime emits exactly one
+`:rf.machine/started` trace per successful initial-entry cascade (Spec
+009 §`:op-type` vocabulary; the substrate's `maybe-boot` per Spec 005),
+carrying `:tags {:machine-id :state :data :cause}` where `:state` /
+`:data` are the **initial** snapshot slots and `:cause` is
+`:explicit` / `:lazy` / `:spawned`.
+
+A pure start **does not** emit a `:rf.machine/transition` — the substrate
+deliberately suppresses it because a birth is an entry INTO the initial
+state, not a from→to transition (Spec 005; "a pure start emits no
+`:rf.machine/transition`; `:rf.machine/started` is the sole birth
+signal"). So the Machine tab MUST treat `:rf.machine/started` as a
+render-worthy focused-event member, not only `:rf.machine/transition`.
+Before rf2-eldze the focused-event lens filtered to transitions alone, so
+a focused start epoch produced zero records and the tab rendered the
+state-2 "does not target a state machine" empty state — even though the
+machine had just come up into its initial state. That was the rf2-eldze
+bug.
+
+**Render shape for a birth.** The birth renders the SAME per-machine
+section a transition does, with these differences:
+
+- **No from-state.** The header renders a `[START]` marker in place of
+  the from-state path (`[START] → <initial-state>`), and the
+  focused-transition lens renders **INITIAL ENTRY** (not TRANSITION) with
+  the entry-arrow grammar `↳ <initial-state> (<cause>)` instead of
+  `<from> → <to>`.
+- **Topology highlights the initial state.** The chart is fed the
+  resulting initial state as both the `to-highlight` (the landing-state
+  emphasis grammar) and the `:current-state` (active-state highlight) so
+  the just-born machine's initial state lights up regardless of which
+  highlight the renderer keys off. There is no from-highlight (no prior
+  state).
+- **Snapshot drill-in.** `:before` is nil (the machine did not exist
+  before its birth); `:after` is the synthesized initial snapshot
+  (`{:state <initial> :data <initial-data>}`) so the drill-in renders the
+  just-born machine's `:data`.
+- **No guards / actions list.** The initial-entry cascade's actions are
+  not traced as `:rf.machine/action-ran` (rf2-n9f4z), so there are no
+  guard / action rows to attach.
+
+Normal transitions are unaffected — they continue to render
+`<from> → <to>` with from-dashed / to-bold highlighting exactly as
+before.
+
+The Epoch panel's EVENT HANDLER section renders the SAME birth signal as
+a `[START]` cascade-row (rf2-it4vt) — that surface is the per-event
+cascade narration; this section is the Machines TAB's topology read.
+Both key off the one `:rf.machine/started` trace.
 
 ### Relationship to the focused-transition lens (rf2-99rhe)
 

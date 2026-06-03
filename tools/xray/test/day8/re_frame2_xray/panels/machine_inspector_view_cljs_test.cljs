@@ -239,6 +239,57 @@
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "the blank-state is suppressed when records exist")))))
 
+(deftest focused-event-machine-start-renders-topology-not-blank-rf2-eldze
+  (testing "a focused machine START / initial-entry epoch (a
+            `:rf.machine/started` trace, NO `:rf.machine/transition`)
+            renders the topology with the resulting initial state
+            highlighted — NOT the 'does not target a state machine' empty
+            state (rf2-eldze). Before the fix the focused-event lens only
+            projected transitions, so a pure start produced zero records
+            and the tab went blank."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:door/main])
+      (override-definitions! {:door/main {:initial :closed
+                                          :states  {:closed {:on {:push :open}}
+                                                    :open   {}}}})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/started
+            :tags {:machine-id :door/main
+                   :state      :closed
+                   :data       {:open? false}
+                   :cause      :explicit
+                   :rf.trace/dispatch-id "s-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            section (find-by-testid
+                      tree "rf-xray-machine-focused-event-section-door/main")
+            chart   (find-by-testid
+                      tree "rf-xray-machine-focused-event-chart")]
+        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
+            "the focused-event surface mounts for a machine birth")
+        (is (some? section)
+            "the per-machine section renders for the started machine")
+        (is (= "true" (:data-start (second section)))
+            "the section is flagged as a machine-birth record")
+        (is (= ":closed" (:data-to-state (second section)))
+            "to-state is the resulting initial state")
+        (is (some? chart)
+            "the topology chart renders for the birth (not the empty state)")
+        ;; The initial state is the active state — surfaced as the to-
+        ;; highlight on the chart props (no from-highlight on a birth).
+        (is (= "closed" (:data-to-highlight-id (second chart)))
+            "the initial state is highlighted via to-highlight")
+        (is (= "" (:data-from-highlight-id (second chart)))
+            "a birth has no from-highlight — there was no prior state")
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-focused-event-start-badge"))
+            "the header renders a [START] badge rather than a (uninit) → path")
+        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
+            "the blank-state is suppressed — the bug was an empty tab here")))))
+
 (deftest gate-reads-the-migrated-rf-machine-transition-op-only
   (testing "the machine-relatedness gate keys on the `:rf.*` migrated op
             `:rf.machine/transition` (post-#1973). A focused epoch whose

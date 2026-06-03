@@ -121,6 +121,50 @@
   (and (map? ev)
        (contains? transition-operations (:operation ev))))
 
+;; ---- machine BIRTH (`:rf.machine/started`) — rf2-eldze ------------------
+;;
+;; A machine's BIRTH (the `[:rf.machine/start]` kick, or the lazy first-
+;; event fold, or a spawn) runs the initial-entry cascade and emits ONE
+;; `:rf.machine/started` trace — NOT a `:rf.machine/transition`. The pure
+;; start is an entry INTO the initial state, not a from→to transition, so
+;; `commit-or-finalize` deliberately suppresses the transition trace
+;; (machines · lifecycle_fx · registration.cljc — "a pure start emits no
+;; `:rf.machine/transition`; `:rf.machine/started` is the sole birth
+;; signal", rf2-gl588 / rf2-coozg). The started trace carries
+;; `{:machine-id :state :data :cause}` — `:state` / `:data` are the
+;; INITIAL snapshot slots (`(:state booted)` / `(:data booted)`).
+;;
+;; Before rf2-eldze the focused-event lens only projected
+;; `transition-event?` traces, so a focused start epoch produced zero
+;; records and the Machine tab rendered the "does not target a state
+;; machine" empty state — even though the machine DID just come up into
+;; its initial state. This is the bug rf2-eldze fixes: surface the start
+;; as a first-class focused-event record (no from-state; to-state = the
+;; resulting initial state) so the topology renders with the initial
+;; state highlighted.
+
+(def started-operation
+  "The machine-birth trace op (Spec 009 §:op-type vocabulary; rf2-it4vt /
+  rf2-gl588). `maybe-boot` emits exactly one per successful initial-entry
+  cascade in BOTH creation paths (eager start-kick + lazy first-event)."
+  :rf.machine/started)
+
+(def start-marker-event
+  "The reserved synthetic creation-marker event vector, surfaced on a
+  birth record's `:event` slot so the section header / lens read it as
+  the machine's birth (xstate parity with `createActor(m).start()`). Per
+  Spec 005 §reserved `:rf/*` lifecycle (the `[:rf.machine/start]` kick).
+  Held as a literal here so the pure-data helper does not reach into the
+  runtime `machines` artefact (tools must not `:require` implementation)."
+  [:rf.machine/start])
+
+(defn started-event?
+  "True iff `ev` is the machine-birth (`:rf.machine/started`) trace.
+  Pure predicate; tolerant of a missing `:operation` key."
+  [ev]
+  (and (map? ev)
+       (= started-operation (:operation ev))))
+
 ;; ---- machine-id resolution ----------------------------------------------
 
 (defn machine-id-of
@@ -477,6 +521,52 @@
      :guards       []
      :actions      []}))
 
+(defn- started-record-from-trace
+  "Project a `:rf.machine/started` (machine BIRTH) trace into the same
+  view-consumed record shape `transition-record-from-trace` produces, so
+  the focused-event lens renders a start exactly like a transition —
+  except there is NO from-state (a birth is an entry into the initial
+  state, not a from→to). rf2-eldze.
+
+  The started trace carries `{:machine-id :state :data :cause}` (Spec 009;
+  machines · lifecycle_fx · registration.cljc) where `:state` / `:data`
+  are the INITIAL snapshot slots. We map:
+
+    :from-state nil           — no prior state (the birth marker)
+    :to-state   (:state tag)  — the resulting INITIAL state (highlighted)
+    :before     nil           — the machine did not exist before
+    :after      {:state :data} — the initial snapshot (for the drill-in)
+    :start?     true          — flags the birth case for the view
+    :cause      (:cause tag)  — :explicit / :lazy / :spawned
+    :event      [:rf.machine/start] — the synthetic creation marker
+
+  Guards / actions default empty — the initial-entry cascade's actions
+  are not traced as `:rf.machine/action-ran` (rf2-n9f4z), so there is
+  nothing to attach. The record shape is otherwise identical to a
+  transition record so every downstream consumer (the section view, the
+  snapshot drill-in, the chart highlight) treats it uniformly."
+  [ev]
+  (let [tags  (get ev :tags {})
+        state (:state tags)
+        data  (:data tags)]
+    {:machine-id  (machine-id-of ev)
+     :from-state  nil
+     :to-state    state
+     :before      nil
+     ;; Synthesize the initial snapshot from the started tags so the
+     ;; snapshot drill-in renders the just-born machine's `{:state :data}`.
+     :after       {:state state :data data}
+     :start?      true
+     :cause       (:cause tags)
+     :on-event    (first start-marker-event)
+     :event       start-marker-event
+     :time        (:time ev)
+     :id          (:id ev)
+     :dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
+     :microstep?  false
+     :guards      []
+     :actions     []}))
+
 (defn- ref-display-id
   "Coerce a guard/action ref to a renderable id for the per-transition
   Guards / Actions list.
@@ -639,13 +729,16 @@
 
   Returns a vector of records, oldest-first (cascade-document-order),
   one per `:rf.machine/transition` / `:rf.machine.microstep/transition`
-  event in the cascade:
+  OR `:rf.machine/started` (machine BIRTH — rf2-eldze) event in the
+  cascade:
 
       {:machine-id   <kw>
-       :from-state   <kw|vec|nil>
-       :to-state     <kw|vec|nil>
-       :before       <snapshot-map|nil>   ;; full {:state :data} pre-transition
-       :after        <snapshot-map|nil>   ;; full {:state :data} post-transition
+       :from-state   <kw|vec|nil>          ;; nil on a START record (birth)
+       :to-state     <kw|vec|nil>          ;; the resulting INITIAL state on START
+       :before       <snapshot-map|nil>   ;; full {:state :data} pre-transition (nil on START)
+       :after        <snapshot-map|nil>   ;; full {:state :data} post-transition / initial on START
+       :start?       <bool>                ;; true iff this is the machine-birth record
+       :cause        <kw|nil>              ;; :explicit / :lazy / :spawned (START only)
        :on-event     <kw|nil>
        :event        <event-vec|nil>
        :time         <int|nil>
@@ -660,8 +753,18 @@
        :history-recorded [<record-record>...]}  ;; rf2-mle6e.5, only when a
                                                  ;; history-bearing compound exited
 
-  Returns `[]` when no machine-transition trace fired in the cascade —
-  the silent-by-default branch the view honours per rf2-g3ghh.
+  Per rf2-eldze a machine BIRTH (`:rf.machine/started`) is surfaced as a
+  first-class record alongside transitions: a pure start emits no
+  `:rf.machine/transition` (it is an entry into the initial state, not a
+  from→to), so without this fold a focused start epoch produced zero
+  records and the Machine tab rendered the 'does not target a state
+  machine' empty state — even though the machine just came up into its
+  initial state. The start record carries `:from-state nil` + `:to-state`
+  = the resulting initial state, so the view highlights the initial state
+  on the topology.
+
+  Returns `[]` when no machine-transition / start trace fired in the
+  cascade — the silent-by-default branch the view honours per rf2-g3ghh.
 
   Pure fn — JVM-runnable."
   ([trace-events]
@@ -670,17 +773,27 @@
    (let [defs (or definitions {})
          events (or trace-events [])]
      (->> events
-          (filter transition-event?)
+          ;; Transition macrosteps / microsteps AND machine births
+          ;; (rf2-eldze). A birth carries no from-state; it is projected
+          ;; via `started-record-from-trace` rather than the transition
+          ;; projector.
+          (filter (fn [ev] (or (transition-event? ev) (started-event? ev))))
           ;; Stable cascade order — :id is monotonic per Spec 009;
           ;; fall back to :time, then 0.
           (sort-by (fn [ev] (or (:id ev) (:time ev) 0)))
           (map (fn [ev]
-                 (let [base (transition-record-from-trace ev)
-                       mid  (:machine-id base)
+                 (let [base   (if (started-event? ev)
+                                ;; Birth: no guard/action/history attach —
+                                ;; the initial-entry cascade's actions are
+                                ;; not traced as `:rf.machine/action-ran`
+                                ;; (rf2-n9f4z), so there is nothing to fold.
+                                (started-record-from-trace ev)
+                                (-> (transition-record-from-trace ev)
+                                    (attach-guards-and-actions events)
+                                    (attach-history events)))
+                       mid    (:machine-id base)
                        defn-> (get defs mid)]
-                   (cond-> (-> base
-                               (attach-guards-and-actions events)
-                               (attach-history events))
+                   (cond-> base
                      defn-> (assoc :definition defn->)))))
           ;; Drop records whose machine-id couldn't be resolved — a
           ;; malformed trace shouldn't surface a section with no
