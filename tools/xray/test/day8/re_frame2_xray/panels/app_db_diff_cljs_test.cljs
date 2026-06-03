@@ -258,7 +258,14 @@
             produces the universal `[path before after op]` 4-tuples
             (rf2-xuyac — routed through `diff/engine.cljc`'s
             `:flat-rows`; the same shape Machine Inspector + HANDLER
-            `:db` `:diff` lenses consume)"
+            `:db` `:diff` lenses consume).
+
+            rf2-yucxn — `{:cart {:items []}} → {:cart {:items [{:id 7}]}}`
+            is the VECTOR populated-from-empty edge: the engine now expands
+            it member-level (the element added at index 0), matching the
+            set/map empty edges, instead of a whole-key `[:cart :items]
+            :modified`. The new tuple anchors at the added leaf
+            `[:cart :items 0 :id]`."
     (seed-xray! {:cart {:items [{:id 7}]}}
                  [(mk-record :e-1 [:cart/add-item]
                              {:cart {:items []}}
@@ -266,7 +273,7 @@
     (rf/with-frame :rf/xray
       (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
         (is (= 1 (count diff)))
-        (is (= [[:cart :items] [] [{:id 7}] :modified]
+        (is (= [[:cart :items 0 :id] nil 7 :added]
                (first diff)))))))
 
 (deftest selected-epoch-diff-tracks-selected-epoch
@@ -432,8 +439,13 @@
             ;; lens shape); path lives at index 0.
             non-reserved-paths (set (map first (:changed-non-reserved data)))
             reserved-keys-shown (set (map first (:changed-reserved data)))]
-        (is (contains? non-reserved-paths [:cart :items])
-            "non-reserved path lands in :changed-non-reserved")
+        ;; rf2-yucxn — the populated-from-empty vector edge now diffs
+        ;; member-level, so the non-reserved path is `[:cart :items 0 :id]`
+        ;; rather than the whole-key `[:cart :items]`. The segregation
+        ;; contract is what matters: SOME non-reserved path rooted at
+        ;; `:cart` lands here, and no `:rf/runtime` path leaks in.
+        (is (some (fn [p] (= :cart (first p))) non-reserved-paths)
+            "non-reserved :cart-rooted path lands in :changed-non-reserved")
         (is (not (some #(= :rf/runtime (first %)) non-reserved-paths))
             "any :rf/runtime-rooted path filtered out of :changed-non-reserved")
         (is (contains? reserved-keys-shown :rf/route))

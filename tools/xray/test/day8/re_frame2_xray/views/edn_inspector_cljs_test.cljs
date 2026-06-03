@@ -1671,6 +1671,138 @@
         "the :tags set is not rendered as a removed ghost (no whole-key strike)")))
 
 ;; =========================================================================
+;; rf2-yucxn — vector/list emptied renders member-level (BUG A) + multi-
+;; element removal shows every removed value distinctly (BUG B)
+;; =========================================================================
+;;
+;; The audit found vector/list empty edges classified as a whole-key
+;; `:modified` (a `~` amber row + `← was [1]`) instead of the member-level
+;; removal the set/map empty edges produce — and multi-element vector
+;; removals reporting one before-value repeatedly while dropping the rest.
+;; These tests drive the LIVE render path (a real `engine/project`
+;; projection) so the renderer's structural handling is exercised.
+
+(deftest yucxn-vector-emptied-renders-member-level-not-whole-key
+  ;; rf2-yucxn BUG A — `{:a [1]} → {:a []}` (vector emptied, key intact):
+  ;; the operator must see `:a [ ]` with the removed `1` struck-through
+  ;; INSIDE it, NOT a whole-key `:a ~ [] ← was [1]`. The `:a` key must not
+  ;; be a removed ghost (its value is still present, just empty).
+  (let [before {:a [1]}
+        after  {:a []}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    ;; The removed element is visible + struck.
+    (is (re-find #"\b1\b" all) "the removed element 1 still renders")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "a row carries the removed diff-op marker (the dropped element)")
+    (is (re-find #"line-through" s)
+        "the dropped element is struck-through, not a whole-key modify")
+    ;; The :a key is NOT a removed ghost (key intact, value just empty).
+    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
+        "the :a vector is not a removed ghost (key intact)")
+    ;; No `← was [1]` whole-value annotation (that was the BUG A symptom).
+    (is (not (re-find #"← was \[1\]" all))
+        "no whole-key `← was [1]` modify annotation (member-level instead)")))
+
+(deftest yucxn-list-emptied-renders-member-level
+  ;; rf2-yucxn BUG A — the list empty edge mirrors the vector edge.
+  (let [before {:a '(1)}
+        after  {:a '()}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "the emptied list shows the dropped element as a removed row")
+    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
+        "the :a list is not a removed ghost (key intact)")))
+
+(deftest yucxn-vector-populated-from-empty-renders-added
+  ;; rf2-yucxn BUG A — symmetric `{:a []} → {:a [1]}` shows the new element
+  ;; in green (`+`), not a whole-key `~` modify.
+  (let [before {:a []}
+        after  {:a [1]}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #"\b1\b" all) "the new element 1 renders")
+    (is (re-find #"data-rf-diff-op.*added" s)
+        "the filled-from-empty vector shows the new element as an added row")))
+
+(deftest yucxn-vector-multi-removal-shows-every-removed-value-distinctly
+  ;; rf2-yucxn BUG B — `{:a [1 2 3]} → {:a [1]}` drops 2 AND 3. The
+  ;; renderer must show BOTH struck-through, with their CORRECT values —
+  ;; not `2` twice (the pre-fix duplication) and not a vanished `3`.
+  (let [before {:a [1 2 3]}
+        after  {:a [1]}
+        proj   (engine/project before after)
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :projection proj
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 6}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    ;; Engine precondition — the channel carries both with true values.
+    (is (= [{:before-index 1 :before-value 2}
+            {:before-index 2 :before-value 3}]
+           (get-in proj [:vector-removals [:a]]))
+        "precondition: both removed elements recovered with correct values")
+    ;; Both removed values appear in the render (3 is the proof BUG B is gone).
+    (is (re-find #"\b2\b" all) "removed element 2 renders")
+    (is (re-find #"\b3\b" all) "removed element 3 renders (not dropped — BUG B fixed)")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "the dropped elements carry the removed marker")))
+
+(deftest yucxn-vector-scattered-removal-engine-channel-correct
+  ;; rf2-yucxn BUG B — a scattered removal `[:a :b :c :d] → [:a :c]` drops
+  ;; :b (before-idx 1) and :d (before-idx 3). The ENGINE's :vector-removals
+  ;; channel now recovers both with true before-index + value (the pre-fix
+  ;; post-shift-index resolution reported :b + :c, dropping :d).
+  ;;
+  ;; The RENDERER side is a KNOWN residual gap (rf2-vu42n): the inline
+  ;; vector body uses an index-aligned `children-of-pair` walk rather than
+  ;; the engine's :vector-removals + :same-shifted projection, so a
+  ;; scattered/mid removal mis-renders which members are struck. Contiguous
+  ;; TAIL removals (the common case) render correctly — see
+  ;; `yucxn-vector-multi-removal-shows-every-removed-value-distinctly`.
+  ;; This test pins the ENGINE contract that rf2-vu42n's renderer fix will
+  ;; consume.
+  (let [before {:v [:a :b :c :d]}
+        after  {:v [:a :c]}
+        proj   (engine/project before after)]
+    (is (= [{:before-index 1 :before-value :b}
+            {:before-index 3 :before-value :d}]
+           (get-in proj [:vector-removals [:v]]))
+        "engine recovers :b (idx 1) + :d (idx 3) — not :b + :c (pre-fix bug)")))
+
+;; =========================================================================
 ;; rf2-e28r3 — single render path: value (always) + before (optional)
 ;; =========================================================================
 ;;
