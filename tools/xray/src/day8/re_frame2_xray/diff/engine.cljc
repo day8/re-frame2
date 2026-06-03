@@ -224,9 +224,27 @@
   the membership delta regardless of member count — the empty↔populated
   edge is just the degenerate case where the in-both intersection is empty.
 
+  ## Vectors / lists — empty↔populated edge (rf2-yucxn)
+
+  Editscript emits a whole-value `:r` for the vector/list empty edge too
+  (`[1] → []` ⇒ `[[] :r []]`; `{:a [1]} → {:a []}` ⇒ `[[:a] :r []]`; and
+  symmetrically for `[] → [1]`). Left alone this classifies as a single
+  `:modified` at the sequential's path — a whole-key `~` modify — which
+  reads inconsistently with the set/map empty edges (which expand to
+  member-level `:removed` / `:added` with the key intact). A vector/list
+  going empty is an ELEMENT REMOVAL (and going populated-from-empty an
+  ELEMENT ADD), not a wholesale value mutation. We expand the empty edge to
+  per-index `:-` / `:+` edits so it renders member-level, matching set/map.
+  Only the EMPTY edge is expanded: a populated↔populated vector swap is
+  handled by Editscript's per-index `:+` / `:-` / `:r` edits already (it does
+  NOT collapse to a whole-value `:r`), so there is no `:r` to intercept
+  there. Per-index `:-` edits then flow through `project`'s
+  `:vector-removals` channel exactly like ordinary tail deletions.
+
   This expansion runs over the raw edit script BEFORE classification so
   every downstream artefact (`:path-ops`, `:container-ops`,
-  `:flat-rows`, `:wholly-changed-roots`) sees per-member granularity.
+  `:flat-rows`, `:wholly-changed-roots`, `:vector-removals`) sees
+  member-level granularity.
 
   Rule:
     - SET↔SET `:r` (both sides sets) → membership-delta expansion, any
@@ -235,8 +253,13 @@
       (Multi-key populated↔populated MAP swaps are NOT a known Editscript
       `:r` pathology — A* emits per-key edits for maps — so this branch
       stays scoped to the empty edge.)
-    - Type changes (nil↔map, scalar↔set, map↔vector, set↔map) are LEFT
-      ALONE so R7's `:rf.xray.diff/type-change?` branch still fires.
+    - VECTOR/LIST/SEQ `:r` where ONE side is the EMPTY sequential → per-
+      index `:-` (going empty) / `:+` (filling from empty). Scoped to the
+      empty edge — populated↔populated sequentials never collapse to a
+      whole-value `:r` (rf2-yucxn).
+    - Type changes (nil↔map, scalar↔set, map↔vector, set↔map, vector↔map)
+      are LEFT ALONE so R7's `:rf.xray.diff/type-change?` branch still
+      fires (both sides must be the SAME sequential kind to expand).
 
   Pure; non-matching edits pass through unchanged."
   [edit before after]
@@ -261,6 +284,32 @@
           (and (map? before-at) (seq before-at)
                (map? after-at)  (empty? after-at))
           (mapv (fn [[k _v]] [(conj (vec path) k) :-]) before-at)
+
+          ;; rf2-yucxn — sequential (vector / list / seq) empty edge. BOTH
+          ;; sides must be sequentials of the same family (neither a set nor
+          ;; a map) so a vector↔map type flip stays an R7 `:modified`.
+          ;; `[] → [populated]`: per-index :+ at the AFTER indices.
+          ;; `[populated] → []`: per-index :- at the BEFORE indices (each
+          ;; flows through `project`'s `:vector-removals` channel).
+          ;; Indices descend for the removal so the renderer surfaces them
+          ;; in before order; `resolve-vector-removals` recovers the true
+          ;; before-index regardless.
+          (let [seq? (fn [v] (and (sequential? v) (not (map? v)) (not (set? v))))]
+            (and (seq? before-at) (seq? after-at)
+                 (or (empty? before-at) (empty? after-at))))
+          (let [bvec (vec before-at)
+                avec (vec after-at)]
+            (cond
+              (and (empty? bvec) (seq avec))
+              (mapv (fn [i] [(conj (vec path) i) :+ (nth avec i)])
+                    (range (count avec)))
+
+              (and (seq bvec) (empty? avec))
+              (mapv (fn [i] [(conj (vec path) i) :-])
+                    (range (count bvec)))
+
+              ;; both empty (shouldn't reach — `:r` implies a value change)
+              :else [edit]))
 
           :else
           [edit])))))
@@ -767,6 +816,51 @@
        (sort-by :path compare-path)
        vec))
 
+(defn- resolve-vector-removals
+  "rf2-yucxn — recover the true `{:before-index :before-value}` for every
+  `:-` edit Editscript emits at a single vector/list parent.
+
+  Editscript applies `:-` edits SEQUENTIALLY against a progressively-
+  shrinking sequence: each `:-` at edit-index `i` removes the element
+  CURRENTLY occupying index `i`, AFTER all prior `:-` at this parent have
+  already been applied. A contiguous tail deletion therefore repeats the
+  SAME edit-index (`[1 2 3] → [1]` ⇒ `[[1] :-] [[1] :-]`), and a scattered
+  deletion uses post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-]
+  [[2] :-]`). Resolving `(value-at before [parent i])` independently per
+  edit (the pre-fix approach) read the WRONG element for every edit after
+  the first — reporting one before-value repeatedly and dropping the
+  genuinely-removed tail elements.
+
+  We replay the edits against a live mutable index map: `survivors` is the
+  vector of ORIGINAL before-indices still present; each `:-` at edit-index
+  `i` removes (and records) `survivors[i]`, then drops it from `survivors`.
+  The recorded original index resolves the before-value via `(nth bvec _)`.
+
+  `edits` are the raw `:-` edits at THIS parent in Editscript order; `bvec`
+  is the parent's before-side sequence as a vector. Returns a vector of
+  `{:before-index :before-value}` in before-index order. Pure."
+  [edits bvec]
+  (let [edit-idxs (mapv (fn [e] (peek (first e))) edits)
+        recovered (loop [survivors (vec (range (count bvec)))
+                         [i & more] edit-idxs
+                         acc        []]
+                    (if (nil? i)
+                      acc
+                      (if (and (>= i 0) (< i (count survivors)))
+                        (let [orig (nth survivors i)]
+                          (recur (into (subvec survivors 0 i)
+                                       (subvec survivors (inc i)))
+                                 more
+                                 (conj acc orig)))
+                        ;; Defensive: an out-of-range edit-index (should not
+                        ;; happen for well-formed Editscript output) is
+                        ;; skipped rather than crashing the projection.
+                        (recur survivors more acc))))]
+    (->> recovered
+         sort
+         (mapv (fn [orig] {:before-index orig
+                           :before-value (nth bvec orig)})))))
+
 (defn project
   "Compute the diff projection for `(before, after)`. Returns a map per
   the namespace docstring. Pure."
@@ -792,17 +886,28 @@
               (let [parent (value-at before (vec (butlast path)))]
                 (or (vector? parent)
                     (and (sequential? parent) (not (map? parent)) (not (set? parent)))))))
-          [vector-removals other-edits]
+          ;; Split raw edits into vector-`:-` deletions (per parent) and
+          ;; everything else. The deletions are grouped by parent path IN
+          ;; EDIT ORDER so `resolve-vector-removals` can replay them against
+          ;; the live before-sequence (rf2-yucxn — a single post-shift
+          ;; before-index resolution per edit was wrong for multi-element
+          ;; / scattered deletions).
+          [vec-del-edits other-edits]
           (reduce
-            (fn [[vrm oth] [path op value :as edit]]
+            (fn [[dels oth] [path op _value :as edit]]
               (if (and (= op :-) (vector-parent? path))
-                [(update vrm (vec (butlast path)) (fnil conj [])
-                         {:before-index (peek path)
-                          :before-value (value-at before path)})
-                 oth]
-                [vrm (conj oth edit)]))
+                [(update dels (vec (butlast path)) (fnil conj []) edit) oth]
+                [dels (conj oth edit)]))
             [{} []]
             raw)
+          vector-removals
+          (reduce-kv
+            (fn [acc parent-path edits]
+              (let [bvec (vec (value-at before parent-path))]
+                (assoc acc parent-path
+                       (resolve-vector-removals edits bvec))))
+            {}
+            vec-del-edits)
           ;; Step 1 — expand each non-vector-deletion raw edit into
           ;; per-leaf ops at every path the operator can navigate to in
           ;; the AFTER tree.

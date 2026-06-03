@@ -804,3 +804,258 @@
       (is (= :modified (engine/op-at p [:t])))
       (is (engine/type-change? p [:t])))))
 
+;; ---- rf2-yucxn — comprehensive base-case audit ------------------------
+;;
+;; A senior-dev sweep over the full datatype matrix (maps / vectors /
+;; lists / sets · scalars · empty-vs-removal · multi-adjust · deep mixed).
+;; Most rules were already pinned above; this section adds the cases the
+;; audit found uncovered or buggy:
+;;
+;;   BUG A — vector/list emptied (key intact) classified as a WHOLE-KEY
+;;           `:modified` instead of member-level removal (inconsistent
+;;           with the set/map empty edges). Fixed by expanding the
+;;           sequential empty-edge `:r` to per-index `:-` / `:+`.
+;;   BUG B — vector/list multi-element + scattered removal mis-recovered
+;;           the before-index/before-value (Editscript emits sequential
+;;           `:-` at post-shift indices; the pre-fix per-edit resolution
+;;           read one element repeatedly + dropped the rest). Fixed by
+;;           replaying the `:-` edits against the live before-sequence
+;;           (`resolve-vector-removals`).
+
+;; -- Case 3: empty-result (key intact) vs key-removal, ALL collection kinds
+
+(deftest yucxn-vector-emptied-is-member-level-removal
+  (testing "rf2-yucxn BUG A — `{:a [1]} → {:a []}` (vector emptied, key
+            intact) projects member-level: the element removal flows
+            through `:vector-removals` keyed by `[:a]`, NOT a whole-key
+            `:modified`. Matches the set/map empty edges."
+    (let [p (engine/project {:a [1]} {:a []})]
+      ;; No whole-key :modified at [:a].
+      (is (not= :modified (engine/op-at p [:a])))
+      ;; The removed element lives on the vector-removals channel.
+      (is (= [{:before-index 0 :before-value 1}]
+             (get-in p [:vector-removals [:a]])))
+      ;; flat-rows carry the member-level removal, not a [:a] row.
+      (let [paths (set (map :path (:flat-rows p)))]
+        (is (contains? paths [:a 0]))
+        (is (not (contains? paths [:a])))))))
+
+(deftest yucxn-list-emptied-is-member-level-removal
+  (testing "rf2-yucxn BUG A — `{:a (1)} → {:a ()}` (list emptied) behaves
+            like the vector empty edge: member-level, not whole-key."
+    (let [p (engine/project {:a '(1)} {:a '()})]
+      (is (not= :modified (engine/op-at p [:a])))
+      (is (= [{:before-index 0 :before-value 1}]
+             (get-in p [:vector-removals [:a]]))))))
+
+(deftest yucxn-vector-populated-from-empty-is-member-level-add
+  (testing "rf2-yucxn BUG A — symmetric `{:a []} → {:a [1]}` (vector filled
+            from empty) projects `[:a 0] :added` with `[:a]` wholly-changed,
+            mirroring the empty-map / empty-set cold-boot edge."
+    (let [p (engine/project {:a []} {:a [1]})]
+      (is (= :added (engine/op-at p [:a 0])))
+      (is (= 1 (:after (engine/entry-at p [:a 0]))))
+      (is (contains? (:wholly-changed-roots p) [:a])))))
+
+(deftest yucxn-list-populated-from-empty-is-member-level-add
+  (testing "rf2-yucxn BUG A — `{:a ()} → {:a (1)}` mirrors the vector edge."
+    (let [p (engine/project {:a '()} {:a '(1)})]
+      (is (= :added (engine/op-at p [:a 0])))
+      (is (contains? (:wholly-changed-roots p) [:a])))))
+
+(deftest yucxn-root-vector-empty-edges
+  (testing "rf2-yucxn BUG A — the empty edge at the ROOT (a bare vector):
+            `[1] → []` member-removes index 0; `[] → [1]` member-adds it.
+            Neither collapses to a whole-`[]` `:modified`."
+    (let [p (engine/project [1] [])]
+      (is (not= :modified (engine/op-at p [])))
+      (is (= [{:before-index 0 :before-value 1}]
+             (get-in p [:vector-removals []]))))
+    (let [p (engine/project [] [1])]
+      (is (not= :modified (engine/op-at p [])))
+      (is (= :added (engine/op-at p [0]))))))
+
+(deftest yucxn-empty-edge-vector-to-map-still-type-change
+  (testing "rf2-yucxn BUG A regression guard — the sequential empty-edge
+            expansion fires ONLY when BOTH sides are sequentials of the
+            same family. A vector↔map flip at the empty edge stays an R7
+            `:modified` type-change, never a spurious member delta."
+    ;; [] → {} would be identical-empty (no diff); use [] → {:k 1}.
+    (let [p (engine/project {:a []} {:a {:k 1}})]
+      (is (= :modified (engine/op-at p [:a])))
+      (is (engine/type-change? p [:a])))
+    ;; vector → set at the empty edge — R7, not a member-delta.
+    (let [p (engine/project {:a [1]} {:a #{}})]
+      (is (= :modified (engine/op-at p [:a])))
+      (is (engine/type-change? p [:a])))))
+
+(deftest yucxn-key-removed-distinct-from-emptied-all-kinds
+  (testing "rf2-yucxn Case 3 — the KEY-REMOVED transition (`{:a coll} → {}`)
+            must produce a wholly-changed `[:a]` (the renderer paints a
+            removed ghost), DISTINCT from the EMPTIED transition (`{:a coll}
+            → {:a empty-coll}`, key intact). Verified for set / map (which
+            share path-ops shape but differ structurally) and for the
+            vector/list channel split."
+    ;; KEY REMOVED — wholly-changed [:a] for every kind.
+    (doseq [coll [#{:x} {:k 1} [1] '(1)]]
+      (let [p (engine/project {:a coll} {})]
+        (is (contains? (:wholly-changed-roots p) [:a])
+            (str "key-removed " (pr-str coll) " marks [:a] wholly-changed"))))
+    ;; EMPTIED set/map — also wholly-changed [:a] in path-ops, BUT the
+    ;; structural distinction (key present in after) is the renderer's job;
+    ;; the engine correctly surfaces a member-level removal under [:a].
+    (let [p (engine/project {:a #{:x}} {:a #{}})]
+      (is (= :removed (engine/op-at p [:a :x]))))
+    (let [p (engine/project {:a {:k 1}} {:a {}})]
+      (is (= :removed (engine/op-at p [:a :k]))))
+    ;; EMPTIED vector/list — member-removal on the vector-removals channel,
+    ;; [:a] NOT in wholly-changed-roots (off-path, like a tail deletion).
+    (let [p (engine/project {:a [1]} {:a []})]
+      (is (seq (get-in p [:vector-removals [:a]])))
+      (is (not (contains? (:wholly-changed-roots p) [:a]))))))
+
+;; -- Case 2 + 5: vector multi-element / scattered removal (BUG B)
+
+(deftest yucxn-vector-multi-tail-removal-recovers-all-elements
+  (testing "rf2-yucxn BUG B — `{:a [1 2 3]} → {:a [1]}` drops TWO trailing
+            elements. Editscript emits two `:-` at the SAME post-shift
+            index; the engine must recover before-index 1 (value 2) AND
+            before-index 2 (value 3) — NOT value 2 twice with 3 dropped."
+    (let [p (engine/project {:a [1 2 3]} {:a [1]})
+          removals (get-in p [:vector-removals [:a]])]
+      (is (= [{:before-index 1 :before-value 2}
+              {:before-index 2 :before-value 3}]
+             removals)
+          "both removed elements recovered with true before-index + value")
+      ;; flat-rows surface both removed indices, distinct values.
+      (let [paths (set (map :path (:flat-rows p)))]
+        (is (contains? paths [:a 1]))
+        (is (contains? paths [:a 2]))))))
+
+(deftest yucxn-vector-three-element-tail-removal
+  (testing "rf2-yucxn BUG B — three contiguous trailing removals
+            `[1 2 3 4] → [1]` recover before-indices 1,2,3 with values
+            2,3,4 (Editscript emits three `:-` at index 1)."
+    (let [p (engine/project [1 2 3 4] [1])
+          removals (get-in p [:vector-removals []])]
+      (is (= [{:before-index 1 :before-value 2}
+              {:before-index 2 :before-value 3}
+              {:before-index 3 :before-value 4}]
+             removals)))))
+
+(deftest yucxn-vector-scattered-removal
+  (testing "rf2-yucxn BUG B — a SCATTERED (non-contiguous) removal
+            `[:a :b :c :d] → [:a :c]` drops `:b` (before-idx 1) and `:d`
+            (before-idx 3). Editscript emits `[[1] :-] [[2] :-]` (post-
+            shift indices); the replay must recover 1 and 3, not 1 and 2."
+    (let [p (engine/project [:a :b :c :d] [:a :c])
+          removals (get-in p [:vector-removals []])]
+      (is (= [{:before-index 1 :before-value :b}
+              {:before-index 3 :before-value :d}]
+             removals)))))
+
+(deftest yucxn-vector-single-tail-removal-unchanged
+  (testing "rf2-yucxn BUG B regression guard — a single-element removal
+            `[:x :y :z] → [:x :y]` still recovers the one dropped element
+            (before-idx 2, value :z); the replay degenerates correctly."
+    (let [p (engine/project [:x :y :z] [:x :y])]
+      (is (= [{:before-index 2 :before-value :z}]
+             (get-in p [:vector-removals []]))))))
+
+;; -- Case 4: scalar kinds beyond int/string
+
+(deftest yucxn-scalar-kinds-all-modify-at-leaf
+  (testing "rf2-yucxn Case 4 — ratio, float, symbol, boolean, and nil↔value
+            scalar changes all classify as `:modified` at the leaf with the
+            before/after values intact (no type-change false-positive for
+            same-kind numeric changes)."
+    ;; ratio — JVM only (clojure.lang.Ratio is not a valid CLJS constant;
+    ;; CLJS has no rational type, so the ratio case is exercised against
+    ;; the JVM target alone).
+    #?(:clj
+       (let [p (engine/project {:n 1/2} {:n 3/4})]
+         (is (= :modified (engine/op-at p [:n])))
+         (is (= 1/2 (:before (engine/entry-at p [:n]))))
+         (is (= 3/4 (:after (engine/entry-at p [:n]))))
+         (is (not (engine/type-change? p [:n])))))
+    ;; float
+    (let [p (engine/project {:n 1.5} {:n 2.5})]
+      (is (= :modified (engine/op-at p [:n])))
+      (is (not (engine/type-change? p [:n]))))
+    ;; symbol
+    (let [p (engine/project {:s 'foo} {:s 'bar})]
+      (is (= :modified (engine/op-at p [:s])))
+      (is (= 'foo (:before (engine/entry-at p [:s])))))
+    ;; boolean
+    (let [p (engine/project {:b true} {:b false})]
+      (is (= :modified (engine/op-at p [:b]))))
+    ;; nil → value
+    (let [p (engine/project {:n nil} {:n 5})]
+      (is (= :modified (engine/op-at p [:n])))
+      (is (= nil (:before (engine/entry-at p [:n]))))
+      (is (= 5 (:after (engine/entry-at p [:n])))))
+    ;; value → nil
+    (let [p (engine/project {:n 5} {:n nil})]
+      (is (= :modified (engine/op-at p [:n])))
+      (is (= 5 (:before (engine/entry-at p [:n]))))
+      (is (= nil (:after (engine/entry-at p [:n])))))))
+
+(deftest yucxn-number-to-string-is-not-type-change
+  (testing "rf2-yucxn Case 4 — a number→string change is a SCALAR
+            `:modified` (both are scalars; R7 only fires on a container-
+            kind flip). The renderer shows `~` + `← was 5`, not a type-
+            change suffix."
+    (let [p (engine/project {:n 5} {:n "5"})]
+      (is (= :modified (engine/op-at p [:n])))
+      (is (not (engine/type-change? p [:n]))))))
+
+;; -- Case 5: multiple adjustments at once (maps / vectors)
+
+(deftest yucxn-map-add-and-remove-in-one-diff
+  (testing "rf2-yucxn Case 5 — one diff that simultaneously ADDS and
+            REMOVES map keys (`{:a 1 :b 2} → {:a 1 :c 3}`): `:b` removed,
+            `:c` added, `:a` same — generalising 4vp8c's set case to maps."
+    (let [p (engine/project {:a 1 :b 2} {:a 1 :c 3})]
+      (is (= :removed (engine/op-at p [:b])))
+      (is (= :added (engine/op-at p [:c])))
+      (is (= :same (engine/op-at p [:a])))
+      (is (= 2 (:before (engine/entry-at p [:b]))))
+      (is (= 3 (:after (engine/entry-at p [:c])))))))
+
+(deftest yucxn-vector-simultaneous-change-and-append
+  (testing "rf2-yucxn Case 5 — one diff that both MODIFIES an existing slot
+            and APPENDS a new one (`[1 2 3] → [1 9 3 4]`): index 1 modified
+            (2→9), index 3 added (4)."
+    (let [p (engine/project [1 2 3] [1 9 3 4])]
+      (is (= :modified (engine/op-at p [1])))
+      (is (= 2 (:before (engine/entry-at p [1]))))
+      (is (= 9 (:after (engine/entry-at p [1]))))
+      (is (= :added (engine/op-at p [3])))
+      (is (= 4 (:after (engine/entry-at p [3])))))))
+
+;; -- Case 6: deep hierarchy + mixed-type nesting, ancestor non-promotion
+
+(deftest yucxn-deep-mixed-type-nesting-no-ancestor-promotion
+  (testing "rf2-yucxn Case 6 — a set swap THREE levels deep through mixed
+            container kinds (`{:a {:b [#{:x}]}} → {:a {:b [#{:y}]}}` — map →
+            map → vector → set) diffs member-level at the set and promotes
+            NO ancestor: `:a`, `:a :b`, `:a :b 0` all stay `:children`."
+    (let [p (engine/project {:a {:b [#{:x}]}} {:a {:b [#{:y}]}})]
+      (is (= :children (engine/op-at p [:a])))
+      (is (= :children (engine/op-at p [:a :b])))
+      (is (= :children (engine/op-at p [:a :b 0])))
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :removed (engine/op-at p [:a :b 0 :x])))
+      (is (= :added (engine/op-at p [:a :b 0 :y]))))))
+
+(deftest yucxn-deep-scalar-change-promotes-no-ancestor
+  (testing "rf2-yucxn Case 6 — a deep scalar change marks the ancestor
+            chain `:children` but promotes none to a whole-key replace
+            (the l0us2 ancestor-non-promotion property across map nesting)."
+    (let [p (engine/project {:a {:b {:c {:d 1}}}} {:a {:b {:c {:d 2}}}})]
+      (is (= :modified (engine/op-at p [:a :b :c :d])))
+      (is (= :children (engine/op-at p [:a])))
+      (is (= :children (engine/op-at p [:a :b])))
+      (is (= :children (engine/op-at p [:a :b :c])))
+      (is (= #{} (:wholly-changed-roots p))))))
+
