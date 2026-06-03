@@ -717,6 +717,20 @@
                          time (per `spec/API.md` §Density resolution
                          rules) — picking outside the closed set is a
                          programmer error, not a runtime fallback.
+    :theme             — rf2-az6e2. `:dark` (default) / `:light`.
+                         Resolves the chart palette + semantic token map
+                         ONCE per render (`theme/tokens/theme-palette` +
+                         `chart-tokens`), threaded through the projector
+                         onto every node/edge `:data {:palette}` so the
+                         renderers paint the ACTIVE theme — NOT the dark
+                         alias. The chart's own chrome (canvas surface,
+                         root title strip, Context panel, dot-grid,
+                         minimap, layout-error banner) reads the same
+                         palette. The resolved theme surfaces on the root
+                         as `data-theme`. INDEPENDENT of `:density`
+                         (geometry vs colour are orthogonal knobs). nil /
+                         unknown → `:dark`. This bead builds no light/dark
+                         toggle UI — hosts pass the prop.
     :layout-options    — host-side elk.js `layoutOptions` overrides
                          merged on top of `default-elk-options`.
     :height            — outer wrapper height (CSS string; default
@@ -878,12 +892,13 @@
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
                  fired-edge-ids
                  sim? on-state-click on-edge-click read-only?
-                 direction layout-options density
+                 direction layout-options density theme
                  height show-minimap? show-controls? show-background?
                  overlays
                  machine-data
                  testid]
           :or   {direction         :tb
+                 theme             :dark
                  height            "100%"
                  show-minimap?     false
                  show-controls?    true
@@ -1023,6 +1038,17 @@
           ;; the root as `data-density`.
           (let [chart-vc          (vc/chart-for-density density)
                 density-name      (name (or density :regular))
+                ;; rf2-az6e2 — resolve the `:theme` prop to its palette
+                ;; + the chart-semantic token map ONCE per render
+                ;; (independent of `:density`). The token map threads
+                ;; through the projector onto every node/edge `:data` so
+                ;; the renderers paint the ACTIVE theme; the chart's own
+                ;; chrome (below) reads `theme-palette` / `ct` too. The
+                ;; resolved theme name surfaces on the root as
+                ;; `data-theme`.
+                theme-palette     (tokens/theme-palette theme)
+                ct                (tokens/chart-tokens theme-palette)
+                theme-name        (name (or theme :dark))
                 ;; rf2-g2svr (G1) — `highlight-ids` resolves the WHOLE
                 ;; `:current-state` to the SET of active leaves, so a
                 ;; PARALLEL snapshot's N simultaneously-active leaves
@@ -1059,7 +1085,12 @@
                                ;; edge-id set; the projector marks each
                                ;; matching edge :fired. nil → #{} default.
                                :fired-edge-ids    (set fired-edge-ids)
-                               :chart             chart-vc})
+                               :chart             chart-vc
+                               ;; rf2-az6e2 — the resolved chart-semantic
+                               ;; token map for the active theme; the
+                               ;; projector threads it onto every node/edge
+                               ;; `:data {:palette}`.
+                               :palette           ct})
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))
@@ -1123,6 +1154,11 @@
                    ;; re-reading the bound prop (per spec/API.md
                    ;; §Density resolution rules).
                    :data-density density-name
+                   ;; rf2-az6e2 — the resolved theme surfaces here so
+                   ;; hosts + tests read the active theme without
+                   ;; re-reading the bound prop. Dark remains the Xray
+                   ;; default. Independent of `data-density`.
+                   :data-theme theme-name
                    ;; rf2-g2svr (G1) — the FULL active set surfaces as a
                    ;; sorted, space-joined attr so hosts + DOM tests can
                    ;; read every active leaf (N for a parallel snapshot).
@@ -1152,7 +1188,9 @@
                    :style {:position "relative"
                            :width    "100%"
                            :height   height
-                           :background (:bg-1 tokens/tokens)
+                           ;; rf2-az6e2 — the chart canvas reads the
+                           ;; ACTIVE theme's surface, not the dark alias.
+                           :background (:bg-1 theme-palette)
                            :border-radius "4px"
                            :overflow "hidden"}}
              ;; Inline keyframes + reduced-motion seam — mirrors the
@@ -1219,7 +1257,10 @@
                 [:> Background {:variant (.-Dots BackgroundVariant)
                                 :gap (:dot-grid-spacing-px chart-vc)
                                 :size (:dot-grid-radius-px chart-vc)
-                                :color (tokens/with-alpha :accent 0.4)}])
+                                ;; rf2-az6e2 — dot colour resolves through
+                                ;; the active theme's accent (light hosts
+                                ;; get a darker dot).
+                                :color (tokens/with-alpha :accent 0.4 theme-palette)}])
               (when show-controls?
                 [:> Controls {:showZoom true
                               :showFitView true
@@ -1227,8 +1268,47 @@
               (when show-minimap?
                 [:> MiniMap {:zoomable true
                              :pannable true
-                             :nodeColor (fn [_] (:bg-3 tokens/tokens))
-                             :maskColor (tokens/with-alpha :bg-0 0.6)}])]
+                             :nodeColor (fn [_] (:bg-3 theme-palette))
+                             :maskColor (tokens/with-alpha :bg-0 0.6 theme-palette)}])]
+             ;; rf2-az6e2 — ROOT MACHINE CHROME. A title strip pinned to
+             ;; the top of the chart frame integrates the root machine
+             ;; into the grammar (it was previously only the aria-label).
+             ;; A root PARALLEL machine shows a subtle ∥ glyph in the
+             ;; strip. The optional static "Context" section is rendered
+             ;; from the `:machine-data` overlay below (kept as an opt-in
+             ;; diagnostic; static context-shape derivation is a follow-on
+             ;; — current definitions expose no static context schema).
+             (when machine-id
+               [:div {:data-testid (str testid "-root-title")
+                      :data-parallel (str (boolean (:parallel? parsed)))
+                      :style {:position       "absolute"
+                              :top            0
+                              :left           0
+                              :right          0
+                              :z-index        4
+                              :display        "flex"
+                              :align-items    "center"
+                              :gap            "6px"
+                              :height         (str (:root-title-height chart-vc) "px")
+                              :padding        (str "0 " (:root-context-pad chart-vc) "px")
+                              :pointer-events "none"
+                              :font-family    tokens/sans-stack
+                              :font-size      (str (:root-title-px chart-vc) "px")
+                              :font-weight    700
+                              :letter-spacing "0.02em"
+                              :color          (:text-primary theme-palette)
+                              :background      (tokens/with-alpha :bg-2 0.82 theme-palette)
+                              :border-bottom   (str "1px solid "
+                                                    (tokens/with-alpha :border-default 0.6 theme-palette))}}
+                (when (:parallel? parsed)
+                  [:span {:data-testid (str testid "-root-parallel-glyph")
+                          :style {:opacity 0.6
+                                  :font-family tokens/mono-stack}}
+                   "∥"])
+                [:span {:style {:white-space "nowrap"
+                                :overflow "hidden"
+                                :text-overflow "ellipsis"}}
+                 (name machine-id)]])
              ;; rf2-7w4qr — host-fed overlays, composed through the
              ;; single `:overlays` slot. Each descriptor map (keyed on
              ;; `:id`) is dispatched to its rendering namespace by
@@ -1262,7 +1342,10 @@
                       :aria-label (str "Machine context for "
                                        (when machine-id (name machine-id)))
                       :style {:position      "absolute"
-                              :top           "8px"
+                              ;; rf2-az6e2 — tuck the Context panel just
+                              ;; UNDER the root title strip so the two
+                              ;; chrome bands stack rather than overlap.
+                              :top           (str (+ (:root-title-height chart-vc) 6) "px")
                               :left          "8px"
                               :z-index       6
                               :max-width     "260px"
@@ -1272,17 +1355,17 @@
                               :font-family   tokens/mono-stack
                               :font-size     "11px"
                               :line-height   1.4
-                              :color         (:text-primary tokens/tokens)
-                              :background    (tokens/with-alpha :bg-2 0.92)
+                              :color         (:text-primary theme-palette)
+                              :background    (tokens/with-alpha :bg-2 0.92 theme-palette)
                               :border        (str "1px solid "
-                                                  (tokens/with-alpha :border-default 0.6))
+                                                  (tokens/with-alpha :border-default 0.6 theme-palette))
                               :border-radius "4px"}}
                 [:div {:style {:font-family    tokens/sans-stack
                                :font-size      "9px"
                                :font-weight    700
                                :letter-spacing "0.06em"
                                :text-transform "uppercase"
-                               :color          (:text-tertiary tokens/tokens)
+                               :color          (:text-tertiary theme-palette)
                                :margin-bottom  "4px"}}
                  "Context"]
                 (for [[k v] (seq machine-data)]
@@ -1296,12 +1379,12 @@
                                  :white-space "nowrap"
                                  :overflow "hidden"
                                  :text-overflow "ellipsis"}}
-                   [:span {:style {:color (:accent tokens/tokens)
+                   [:span {:style {:color (:accent theme-palette)
                                    :font-weight 600}}
                     (if (keyword? k) (name k) (str k))]
-                   [:span {:style {:color (:text-tertiary tokens/tokens)}}
+                   [:span {:style {:color (:text-tertiary theme-palette)}}
                     ":"]
-                   [:span {:style {:color (:text-secondary tokens/tokens)
+                   [:span {:style {:color (:text-secondary theme-palette)
                                    :overflow "hidden"
                                    :text-overflow "ellipsis"}}
                     (pr-str v)]])])
@@ -1328,16 +1411,16 @@
                               :font-family   tokens/sans-stack
                               :font-size     "12px"
                               :line-height   1.4
-                              :color         (:text-primary tokens/tokens)
-                              :background    (tokens/with-alpha :error 0.15)
+                              :color         (:text-primary theme-palette)
+                              :background    (tokens/with-alpha :error 0.15 theme-palette)
                               :border        (str "1px solid "
-                                                  (:error tokens/tokens))
+                                                  (:error theme-palette))
                               :border-radius "4px"}}
-                [:strong {:style {:color (:error tokens/tokens)
+                [:strong {:style {:color (:error theme-palette)
                                   :margin-right "6px"}}
                  "Layout failed."]
                 [:span (or (get-in layout-error [:error :message])
                            "ELK threw an unknown error.")]
-                [:span {:style {:color (:text-tertiary tokens/tokens)
+                [:span {:style {:color (:text-tertiary theme-palette)
                                 :margin-left "6px"}}
                  "See console / Issues panel."]])]))))))
