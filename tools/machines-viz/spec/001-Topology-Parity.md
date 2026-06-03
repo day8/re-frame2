@@ -111,6 +111,26 @@ xstate/SCXML semantics.
   ([stately.ai/docs/parallel-states](https://stately.ai/docs/parallel-states) §history,
   [state-machines-and-statecharts](https://stately.ai/docs/state-machines-and-statecharts)).
   **(re-frame2 has no `:history` in Spec 005 v1 — see §3 divergences.)**
+  **rf2-az6e2 — VISUAL HOOK ONLY.** The structured grammar defines how a
+  history pseudo-state *renders* (shallow `H` / deep `H*`, a small
+  symbolic node inside the owning compound at the same child level, NOT
+  a normal state box, with direct incoming transitions and no default
+  fallback edge unless the topology explicitly carries one). The
+  renderer (`chart.nodes/history-marker`) is registered in the
+  node-types map, but `chart.layout/parse-definition` emits **no**
+  history pseudo-state node today (the parsed node shape carries no
+  `:history` data), so the projector never produces one. This bead adds
+  the VISUAL rendering for parsed pseudo-state data that already exists —
+  it does **not** add statechart history semantics. When Spec 005 history
+  semantics + the parse land, flip the projector to emit a
+  `{:type "history-marker" :data {:deep? …}}` node and `history-marker`
+  paints it; file the follow-on render-wiring bead then.
+
+> **rf2-az6e2 final-state glyph decision.** The final-state marker is the
+> quiet **doubled border** (the UML/SCXML convention) — the previously-
+> shipped `✓` check glyph is **dropped**. The doubled border is the
+> unambiguous final-state signal; the glyph competed with the state
+> title for attention against the structure-first grammar.
 
 ### 1.5 Event labels
 
@@ -301,29 +321,40 @@ The dimensions each topology element MUST be distinguishable on. Figma
 owns the palette; the table is the contract for **what must differ**,
 not **which colour**.
 
+**rf2-az6e2 — structured visual grammar.** The baselines below reflect
+the structured topology grammar: structure-first reading (neutral by
+default), runtime state on the **border + header + glow** (not the
+fill), and colours resolved through the active-theme **chart-tokens**
+(see [`API.md` §Theme](API.md#theme-rf2-az6e2)). The contract is still
+*what must differ*, not *which colour*.
+
 | Element | Must be distinguished by | Shipped baseline (replaceable) |
 |---|---|---|
-| **State (resting)** | rounded-rect body, mono label, neutral fill + 1px border | *`bg-2` fill, `border-default` stroke* |
-| **State (active / live)** | tinted fill + **emphasised** stroke (one notch heavier) + soft outer glow | *`info` (cyan) tint + 2px-box-shadow* |
-| **State (FROM — focused-event origin)** | distinct hue from active + **dashed** stroke (reads as "we left here") | *`accent` (violet), dashed* |
-| **State (TO — focused-event landing)** | the **active** affordance, heavier than FROM (reads as "we arrived") | *`info` (cyan), heaviest stroke* |
-| **State (sim — what-if, not live)** | a hue **reserved** for "informational, not a real event" — visually distinct from live | *`yellow` (amber) tint + stroke* |
-| **Final state** | **doubled** border (outer ring proud of corner) + `✓` glyph | *`green` ring + glyph* |
-| **Initial marker** | small **filled dot** + unlabelled arrow into the initial state, at every compound level | *`accent` dot* |
-| **Compound container** | translucent box, **dashed** border, header-strip title | *`accent` 6% fill, dashed `accent`* |
-| **Parallel region container** | **distinct dashed boundary per region** (rotation so adjacent regions differ) + `∥` glyph + uppercased region label | *`region-boundary-palette` rotation* |
-| **Parallel region (ACTIVE) — G1/G4** | region header + boundary carry an **active affordance**; **every** active leaf inside lights with the active dimension **simultaneously**; the set reads as "all active at once," not N independent picks | ✅ shipped (rf2-80rm2): solid emphasised boundary + emphasised header tint + `info` glow ring (the state-node active token). Figma may re-key the region-active palette |
-| **Edge (resting transition)** | thin stroke + arrowhead + label backplate | *`border-default`* |
-| **Edge (active — touches active state)** | mid-weight stroke + arrow tinted to active hue | *`info`, midweight* |
-| **Edge (focused — the fired FROM→TO)** | **emphasised** stroke + **animated glow** | *`info` + `mv-chart-transition-glow`* |
-| **Edge (fired THIS epoch) — G3** | matched by **edge-id** (not endpoint), the **heaviest** stroke + **animated glow** + a hue **distinct from focused/active**; `data-fired` DOM hook; lights **every** traversed arm (microsteps, guard-fork candidates) | *`accent` + `mv-chart-transition-glow`* — distinct from the focused/active `info` |
+| **State (resting)** | **title/body box** — full-width left-aligned title strip (sans), hairline divider when body exists, neutral body band; low-radius square-ish box | *`:state-body-bg` fill, `:state-border` 1px, `:state-header-bg` strip* |
+| **State (active / live)** | runtime accent **border** + faint **header** wash + soft outer **glow** — NOT a whole-fill tint | *`:active` border + `:active-wash` header + `:glow` ring* |
+| **State (FROM — focused-event origin)** | distinct accent on the border (reads as "we left here") | *`:focus` border + `:focus-wash` header* |
+| **State (TO — focused-event landing)** | the **active** affordance, heavier than FROM | *`:active`, heaviest stroke* |
+| **State (sim — what-if, not live)** | a hue reserved for informational/not-live | *`:sim` border + `:sim-wash` header* |
+| **Final state** | **quiet doubled** border (outer ring proud of corner). **No glyph** (rf2-az6e2 dropped the ✓) | *outer ring in the resting/runtime border colour* |
+| **Initial marker** | small **neutral** filled dot + unlabelled arrow into the initial state, at every compound level (NOT accent-blue) | *`:pseudo-marker` dot* |
+| **History pseudo-state (HOOK)** | small symbolic node — shallow `H` / deep `H*` — inside the owning compound; NOT a state box. **Renderer registered as a hook; projector emits none until parsed history topology exists** (this bead adds no statechart history semantics) | *`history-marker` node-type registered; `:pseudo-*` constants carry the variant* |
+| **Compound container** | **solid subtle-neutral** box + full-width title strip; NO dashed border, NO accent wash by default | *`:container-body-bg` fill, `:container-border` solid, `:container-header-bg` strip* |
+| **Parallel region container** | **dashed neutral** boundary + full-width region title strip + subtle `∥` glyph + uppercased label. Region identity from **containment/layout**, NOT a rotating border colour | *`:region-border` dashed (same for every region — rotation removed)* |
+| **Parallel region (ACTIVE) — G1/G4** | region boundary firms to **solid** + header carries an **active affordance**; **every** active leaf inside lights **simultaneously** | ✅ shipped (rf2-80rm2 / rf2-az6e2): solid `:active` boundary + `:active-wash` header + `:glow` ring |
+| **Edge (source→event — quiet half)** | **thinner** stroke + **small** arrowhead in the quiet colour | *`:edge-quiet`, ~−0.5 stroke, 10px arrowhead* |
+| **Edge (event→target — primary half)** | standard stroke + **full** arrowhead — the pair reads as ONE route | *`:edge-quiet` resting, 18px arrowhead* |
+| **Edge (active — touches active state)** | mid-weight stroke + arrow tinted to active hue | *`:edge-active`, midweight* |
+| **Edge (focused — the fired FROM→TO)** | **emphasised** stroke + **animated glow**; lights **both** segments together | *`:edge-active` + `mv-chart-transition-glow`* |
+| **Edge (fired THIS epoch) — G3** | matched by **edge-id** (not endpoint), **heaviest** stroke + **animated glow** + a hue distinct from focused/active; `data-fired` hook; both segments | *`:edge-fired` + `mv-chart-transition-glow`* |
 | **Edge (self-loop)** | a small loop off the node edge (not a degenerate bezier) | shipped path |
-| **Edge (internal self-transition)** | **dashed** loop + **no arrowhead** (no exit/entry re-trigger) | shipped dash |
-| **Edge (`:after` timer)** | `after(<ms>)` label + `data-after-ms` hook for the countdown-ring overlay | shipped |
-| **Edge (`:always` eventless)** | `always` label segment | shipped |
-| **Edge (machine-level fallback)** | `data-machine-level` hook (inherited-fallback affordance the host may style) | shipped flag |
-| **Edge label** | `event [guard] / action`; clickable form (host sim) gets a button affordance + distinct border | *`yellow` border when clickable* |
-| **Event label segments** | `after(ms)` / `always` / `* (any)` render in the event slot | shipped |
+| **Edge (internal self-transition)** | terminal **route chip** (dashed border ring) + **no outgoing target segment** | shipped (event-node, no `__out` edge) |
+| **Edge (`:after` timer)** | `⌚ <ms>` event chip + `data-after-ms` hook for the countdown-ring overlay | shipped |
+| **Edge (`:always` eventless)** | `∞` event chip | shipped |
+| **Edge (machine-level fallback)** | `data-machine-level` hook only — the loud "machine-level" label is **muted** by default (rf2-az6e2) | shipped flag |
+| **Event chip** | subordinate route chip, **no title bar**; event + guard on the first line as **`IF <guard>`**; action row only when present (subdued bolt chip); clickable (host sim) gets a button affordance + distinct border | *`:event-chip-bg` / `:event-chip-border`; `:sim` border when clickable* |
+| **State tags** | **one neutral chip style** (structure wins over annotation colour — rotation dropped); identity preserved in `data-tag` / `title` / `data-tags` | *`:container-header-bg` fill, `:state-border`* |
+| **Root machine chrome** | a **root title strip** pinned in the chart frame; subtle `∥` glyph for root-parallel machines; optional Context section from `:machine-data` | shipped (`<testid>-root-title`) |
+| **Event label segments** | `⌚ <ms>` / `∞` / `* (any)` render in the event slot | shipped |
 
 ### 4.3 G2 / G5 — edge routing through nesting
 
