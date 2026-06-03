@@ -1207,6 +1207,53 @@
     (when (seq nums)
       (reduce + 0 nums))))
 
+(defn machine-event-orientation
+  "Project the orientation triple the EVENT HANDLER heading renders as
+  its one structured orientation line (rf2-akvfe, supersedes the
+  rf2-18oe3 DISPATCH gloss):
+
+      Processing [TRIGGER] <trigger-vector> for [MACHINE] <machine-id>
+                 in [STATE] <pre-transition-state>
+
+  Returns `{:trigger <inner-trigger-vector> :machine-id <id> :state
+  <pre-transition-state>}` read directly off the already-projected
+  `cascade-rows` (so the view never re-walks the trace stream):
+
+    - `:trigger`    — the inner trigger event vector the macrostep
+                      processed. The `:transition` / `:no-op` rows carry
+                      the `:event` tag verbatim (the inner trigger
+                      `[:door/close …]`, args included).
+    - `:machine-id` — the machine that handled it; every cascade row
+                      carries `:machine-id`. Falls back to the explicit
+                      `machine-id` arg (the HANDLER step's `:event-id`)
+                      when no row stamped one.
+    - `:state`      — the PRE-transition logical state. The `:transition`
+                      row's `:from-state`, or the `:no-op` row's `:state`
+                      (a blocked / unhandled event stays put). nil when
+                      neither is present.
+
+  The `:trigger` / `:state` slots resolve off the FIRST `:transition` row,
+  else the FIRST `:no-op` row (a guarded-blocked or unhandled event
+  produces a no-op, not a transition). A pure creation kick
+  (`[:rf.machine/start]`) carries only a `:start` row — no trigger / no
+  prior state — so the orientation line is suppressed (the birth story
+  rides the `[START]` cascade row, not a 'Processing …' line).
+
+  Returns nil when the cascade carries no transition / no-op row (e.g. a
+  pure birth, or a non-machine handler) so the view renders no line.
+  Pure-data; JVM-testable."
+  ([cascade-rows] (machine-event-orientation cascade-rows nil))
+  ([cascade-rows machine-id]
+   (let [tx     (first (filterv #(= :transition (:kind %)) cascade-rows))
+         no-op  (first (filterv #(= :no-op (:kind %)) cascade-rows))
+         primary (or tx no-op)]
+     (when primary
+       {:trigger    (:event primary)
+        :machine-id (or (:machine-id primary)
+                        (some :machine-id cascade-rows)
+                        machine-id)
+        :state      (if tx (:from-state tx) (:state no-op))}))))
+
 ;; ---- structured transition cascade (rf2-52u5n / rf2-n9f4z) --------------
 ;;
 ;; The `:rf.machine/transition` trace carries a STRUCTURED `:cascade` tag

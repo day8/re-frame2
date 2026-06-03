@@ -471,47 +471,32 @@
   "The reserved synthetic marker a machine receives as its creation kick
   (`[<machine-id> [:rf.machine/start]]`). It is NOT a real trigger — per F‴
   (rf2-gl588) it runs the initial-entry cascade then STOPS (a PURE init-kick,
-  xstate's `createActor(m).start()` / `xstate.init`) — so the DISPATCH gloss
-  phrases it as creation, not 'received the trigger' (rf2-18oe3;
-  ai/findings/2026-06-03.machine-creation-bootstrap-review.md §1). Renamed
-  from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim)."
+  xstate's `createActor(m).start()` / `xstate.init`)
+  (ai/findings/2026-06-03.machine-creation-bootstrap-review.md §1). Renamed
+  from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim). The EVENT
+  HANDLER orientation line (rf2-akvfe) suppresses itself for a pure creation
+  kick — the birth story rides the `[START]` cascade row, not a
+  'Processing …' line."
   :rf.machine/start)
 
-(defn machine-event-gloss
-  "Decode a machine dispatch's `[<machine-id> [<inner-trigger> ...]]` shape
-  into a one-line plain-English gloss for the DISPATCH step's helper
-  sub-line (rf2-18oe3).
+;; rf2-akvfe — the rf2-18oe3 DISPATCH gloss (`machine-event-gloss`, the
+;; 'this means the machine <id> received the trigger <trigger>' sub-line)
+;; is RETIRED. It is superseded by the structured EVENT HANDLER orientation
+;; line — `Processing [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>`
+;; — projected by `projection/machine-event-orientation` and rendered with
+;; grey chip-labels + code-formatted values under the EVENT HANDLER heading
+;; (a better location, more scannable, and it carries the pre-transition
+;; STATE the gloss never showed). The value-display formatting is below.
 
-  A re-frame2 machine IS an event handler addressed by its id; dispatching
-  `[:door/main [:door/insert-coin]]` routes the inner trigger
-  `[:door/insert-coin]` through the machine's `:on` map. The raw event
-  vector reads as opaque nesting, so the gloss spells out the routing:
-
-      [:door/main [:door/insert-coin]]
-        → 'this means the machine :door/main received the trigger :door/insert-coin'
-
-  SPECIAL CASE — the reserved `[:rf.machine/start]` marker is a creation
-  kick (runs the initial-entry cascade), NOT a real trigger, so it is
-  phrased as creation:
-
-      [:door/main [:rf.machine/start]]
-        → 'the machine :door/main was created / initialised'
-
-  Returns nil when `event` is not a 2-element vector whose second element
-  is a non-empty vector (the machine-dispatch shape) — the caller renders
-  the gloss line only when this returns a string. Pure-data; whether the
-  `<machine-id>` actually names a registered machine is the VIEW's gate
-  (runtime `handler-meta` lookup) — except the reserved start marker,
-  which is unambiguous on its own."
-  [event]
-  (when (and (vector? event)
-             (= 2 (count event))
-             (vector? (second event))
-             (seq (second event)))
-    (let [[machine-id inner]   event
-          trigger              (first inner)
-          machine-str          (ns-keyword machine-id)]
-      (if (= machine-start-marker trigger)
-        (str "the machine " machine-str " was created / initialised")
-        (str "this means the machine " machine-str
-             " received the trigger " (ns-keyword trigger))))))
+(defn orientation-value
+  "Render an EVENT HANDLER orientation-line VALUE (the trigger vector, the
+  machine id, or the pre-transition state) as its code-formatted display
+  string (rf2-akvfe). A keyword renders via `ns-keyword` (`:door/main`); a
+  vector / other value renders via `pr-str` (the full trigger vector incl.
+  args, `[:door/close 42]`). nil renders the muted em-dash placeholder so a
+  missing slot stays visible rather than collapsing. Pure-data."
+  [v]
+  (cond
+    (nil? v)     "—"
+    (keyword? v) (ns-keyword v)
+    :else        (pr-str v)))
