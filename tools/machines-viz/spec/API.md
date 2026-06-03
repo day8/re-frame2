@@ -61,7 +61,8 @@ registry).
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
 | `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom; `:lr` left-to-right. Fed to elkjs as `elk.direction`. |
 | `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). `default-elk-options` carries `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT` (G2 bend-point routing) plus the edge-clearance keys (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` / `elk.spacing.edgeEdge`) and label-placement keys (`elk.edgeLabels.placement CENTER` / `elk.spacing.edgeLabel`) so ELK routes edges *around* nodes and *places* labels in reserved channels (rf2-rlq97). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
-| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. |
+| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. **Independent of `:theme`** (geometry vs colour are orthogonal knobs). |
+| `:theme` | no | `:dark` | rf2-az6e2. `:dark` / `:light`. Resolves the chart palette + the chart-semantic token map ONCE per render (`theme/tokens/theme-palette` + `chart-tokens`); the token map is threaded through the projector onto every node/edge `:data` so the renderers paint the **active theme** — not the dark-tokens alias. The chart's own chrome (canvas surface, root title strip, Context panel, dot-grid, minimap, layout-error banner) reads the same palette. The resolved theme surfaces on the root as `data-theme`. `nil` / unknown → `:dark`. **Independent of `:density`.** This bead builds no light/dark toggle UI — hosts pass the prop. Per [§Theme](#theme-rf2-az6e2). |
 | `:height` | no | `"100%"` | Outer wrapper height (CSS string). xyflow requires a non-zero parent height. |
 | `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |
 | `:show-controls?` | no | `true` | When `true`, render xyflow's built-in zoom/pan/fit Controls. |
@@ -889,6 +890,109 @@ forward-promise; naming settled on compact / regular / cosy per the
 bead title — `regular` is the load-bearing default name now that the
 chart-floor lift (rf2-gg7ws) put the previous-default size at the
 floor of three rungs rather than the only rung).
+
+## Theme (rf2-az6e2)
+
+`MachineChart` accepts a `:theme` prop — `:dark` (default) or `:light`
+— and **theme support is real**: the chart resolves the active palette
+ONCE per render and the renderers paint that palette, rather than
+reading a hardwired dark-tokens alias.
+
+### Theme vs density — orthogonal knobs
+
+`:theme` (colour) and `:density` (geometry + typography) are
+**independent**. A host picks a density for its surface (Story grid →
+`:compact`, Xray tab → `:regular`/`:cosy`) and a theme for its surround
+(dark Xray → `:dark`, a light embed → `:light`) without either knob
+constraining the other.
+
+### Chart-semantic tokens
+
+Rather than grow the palette (the Xray↔machines-viz dark-palette
+**key-set drift gate** — rf2-z7ms8 — asserts the two dark palettes share
+an identical key set), the structured grammar's semantic roles are
+**derived** from the existing palette entries by
+`theme/tokens/chart-tokens`, parameterised by the active palette:
+
+| Role | Resolves to |
+|------|-------------|
+| `:state-header-bg` / `:state-body-bg` / `:state-border` | leaf-state title strip / body / resting border |
+| `:divider` | title/body hairline |
+| `:container-header-bg` / `:container-body-bg` / `:container-border` | compound chrome (solid neutral, no accent wash) |
+| `:region-border` / `:region-header-bg` | parallel-region chrome (dashed neutral) |
+| `:event-chip-bg` / `:event-chip-border` | route-chip fill / border (subordinate) |
+| `:pseudo-marker` | initial / history pseudo-state (neutral, NOT accent) |
+| `:edge-quiet` / `:edge-active` / `:edge-fired` | source→event quiet / event→target+active / fired-epoch |
+| `:active` / `:focus` / `:sim` / `:final` | runtime-state accents (reserved for runtime, NOT static structure) |
+
+### Resolution rules
+
+- `:theme nil` or an unrecognised value ≡ `:dark` (the Xray default
+  surface). Unlike `:density` (which throws on an unknown value),
+  `:theme` degrades to dark — a colour fallback is graceful, a geometry
+  fallback would silently mis-size.
+- The resolved theme surfaces on the chart's root wrapper as
+  `data-theme="<dark|light>"`.
+
+### Implementation notes
+
+- `MachineChart` resolves `:theme` ONCE per render via
+  `theme/tokens/theme-palette` → `chart-tokens`. The token map is
+  threaded through the projector (`chart.projection/xyflow-graph`) onto
+  every node + edge `:data` as `{:palette <chart-tokens-map>}`.
+- The xyflow node + edge components recover the map off `:data`
+  (`chart.nodes.xyflow-node/palette-of`) — xyflow invokes them OUTSIDE
+  any dynamic-binding scope, so the palette travels in the data, not a
+  dynamic Var (the same discipline `:chart` uses for density).
+- A node/edge payload without a `:palette` entry falls back to
+  `chart-tokens` of the dark palette, so a theme-less / directly-
+  constructed node still renders the dark grammar.
+- The chart's own chrome (root canvas surface, the **root title strip**,
+  the Context panel, dot-grid, minimap, layout-error banner) reads the
+  resolved `theme-palette` directly.
+
+## Visual grammar (rf2-az6e2)
+
+The structured topology grammar reads STRUCTURE first; **annotation
+colour is subordinate to structure**.
+
+- **Leaf states** render as title/body boxes — a full-width, left-
+  aligned **title strip** (sans `chart-label-stack`), a hairline divider
+  when body content exists, and a body band carrying **one neutral tag
+  chip style** + quiet "Entry actions" / "Exit actions" rows with
+  subdued bolt-glyph action chips. Square-ish, low radius (the 6px
+  `corner-radius` lock). Runtime state (active / focus lens / sim) rides
+  the **border + header + glow**, never the whole fill. A **final state**
+  is a quiet double border (the ✓ check glyph is **dropped** —
+  rf2-az6e2 decision).
+- **Event/transition nodes** stay synthetic layout nodes (source-state →
+  event-node → target-state) but render as **subordinate route chips** —
+  no title bar, event + guard on the first line as **`IF <guard>`**, an
+  action row only when an action exists, machine-level **muted** (data-
+  attr only). An internal / action-only transition is a terminal chip
+  with a dashed border ring and no outgoing target segment.
+- **Compound containers** render as **solid subtle-neutral** title-strip
+  containers (no dashed border, no saturated accent wash by default).
+- **Parallel regions** render as **dashed neutral** title-strip
+  containers; region identity comes from **containment + layout**, NOT a
+  rotating border colour (the prior `region-boundary-palette` rotation is
+  removed). Active / focus colour is reserved for runtime state.
+- **Pseudo-states**: initial markers are small **neutral** dots (not
+  accent-blue). A **history** pseudo-state renderer (shallow `H` / deep
+  `H*`, small symbolic node) is registered as a **hook** — the projector
+  emits no history node until parsed history-pseudo-state topology data
+  exists (this bead does not add statechart history semantics). See
+  [`001-Topology-Parity.md`](001-Topology-Parity.md) §History.
+- **Arrow/routing**: the two-edge event-node route reads as **one
+  transition** — a quiet source→event segment (thinner stroke, small
+  arrowhead, `:edge-quiet`) and a primary event→target segment (full
+  arrowhead). Fired/focused lights **both** segments together.
+- **Root chrome**: a **root machine title strip** is pinned in the chart
+  frame (a subtle `∥` glyph for root-parallel machines). A static
+  Context section under the title is rendered from the optional
+  `:machine-data` overlay when supplied; a static **context-shape**
+  derivation from the definition is a follow-on (current definitions
+  expose no static context schema).
 
 ## Performance invariants
 
