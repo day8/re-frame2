@@ -1,0 +1,77 @@
+;; Conformance fixture: machine/scxml-history-test580-parallel-shallow
+;;
+;; ADAPTED from W3C SCXML IRP test580 (https://www.w3.org/Voice/2013/scxml-irp/580/test580.txml).
+;; Mandatory-automated history test. test580 places a SHALLOW <history> inside a
+;; compound state (s1) that is itself a child of a <parallel> (p1). It verifies
+;; that a shallow history state inside a parallel region correctly remembers the
+;; most-recently-visited child of its compound, excluding the history pseudo-
+;; state itself from the configuration.
+;;
+;; re-frame2 mapping: per-region history (Spec 005 §Composition with parallel
+;; regions). The history pseudo-state is declared inside region :s1's compound
+;; :group; its recording is keyed by the REGION-QUALIFIED declaration path
+;; [:s1 :group]. The sibling region :s0 is unaffected. The pseudo-state is never
+;; occupied — the snapshot's region value is the resolved real leaf, never [...
+;; :sh].
+;;
+;; SEMANTIC DIVERGENCE (cited): SCXML drives the sequence with <send delay> +
+;; datamodel counters; re-frame2 has no datamodel / <send>, so the record→
+;; restore is expressed as two Mode B calls whose region configuration shows the
+;; remembered child. re-frame2 is not an SCXML processor; the chart shape and
+;; the per-region shallow-history restoration are translated, not the .scxml
+;; verbatim.
+;;
+;; Per [005 §Composition with parallel regions — per-region history]
+;; (../../005-StateMachines.md#composition-with-parallel-regions--per-region-history).
+
+{:fixture/id           :machine/scxml-history-test580-parallel-shallow
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/parallel-regions :fsm/history}
+ :fixture/doc          "W3C SCXML test580 adapted: a shallow history inside a compound (:group) within a parallel region (:s1) remembers the most-recent child (:s12) on exit and restores it on re-entry, keyed by the region-qualified path [:s1 :group]; the sibling region :s0 is unaffected."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) RECORD: region :s1 is at [:group :s12]; exit :group's subtree to the
+  ;; region-local park state. Shallow history records the direct child :s12
+  ;; under the region-qualified key [:s1 :group]. Region :s0 stays :idle.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :on      {:exit-to-park [:s1park]}
+                                      :states  {:sh   {:type :history :default-target :s11}
+                                                :s11  {:on {:to12 :s12}}
+                                                :s12  {}}}
+                             :s1park {:on {:back [:group :sh]}}}}}}
+   :snapshot     {:state {:s0 :idle :s1 [:group :s12]} :data {}}
+   :event        [:exit-to-park]
+   :expect-next-snapshot {:state    {:s0 :idle :s1 [:s1park]}
+                          :data     {}
+                          :rf/history {[:s1 :group] :s12}}
+   :expect-effects       []}
+
+  ;; (2) RESTORE: re-enter :group via its shallow history; the remembered child
+  ;; :s12 is restored in region :s1. Region :s0 untouched.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :on      {:exit-to-park [:s1park]}
+                                      :states  {:sh   {:type :history :default-target :s11}
+                                                :s11  {:on {:to12 :s12}}
+                                                :s12  {}}}
+                             :s1park {:on {:back [:group :sh]}}}}}}
+   :snapshot     {:state    {:s0 :idle :s1 [:s1park]}
+                  :data     {}
+                  :rf/history {[:s1 :group] :s12}}
+   :event        [:back]
+   :expect-next-snapshot {:state    {:s0 :idle :s1 [:group :s12]}
+                          :data     {}
+                          :rf/history {[:s1 :group] :s12}}
+   :expect-effects       []}]}

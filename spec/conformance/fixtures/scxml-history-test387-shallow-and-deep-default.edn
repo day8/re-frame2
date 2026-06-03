@@ -1,0 +1,62 @@
+;; Conformance fixture: machine/scxml-history-test387-shallow-and-deep-default
+;;
+;; ADAPTED from W3C SCXML IRP test387 (https://www.w3.org/Voice/2013/scxml-irp/387/test387.txml).
+;; Mandatory-automated history test. test387 verifies the DEFAULT history
+;; transition fires correctly at BOTH shallow and deep levels when no history
+;; is yet recorded: entering a compound via its shallow-history pseudo-state on
+;; first entry lands on the shallow default's :initial descent; entering a
+;; DIFFERENT compound via its deep-history pseudo-state on first entry lands on
+;; the deep default's exact target.
+;;
+;; SEMANTIC DIVERGENCE FROM SCXML (cited): test387's two compounds (s0, s1) each
+;; declare BOTH a shallow and a deep <history> sibling. re-frame2 permits at
+;; most one history node per compound, so the adaptation keeps each compound's
+;; SINGLE history node and exercises the two default arms across the two
+;; compounds: :s0 carries the shallow node, :s1 the deep node — preserving
+;; test387's "default fires at both shallow and deep levels" contract. re-frame2
+;; is not an SCXML processor (no datamodel / <raise>); the chart shape and the
+;; first-entry default-resolution sequence are translated.
+;;
+;; Per [005 §History states §Restoration](../../005-StateMachines.md#restoration--on-re-entry-resolving-the-pseudo-state)
+;; ("never-entered = :default-target / :initial").
+
+{:fixture/id           :machine/scxml-history-test387-shallow-and-deep-default
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/history}
+ :fixture/doc          "W3C SCXML test387 adapted: the default history transition resolves correctly at both shallow (s0 — child's :initial descent) and deep (s1 — exact deep target) levels on first entry when no history is recorded. Each compound carries one history node (one-per-compound grammar)."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) SHALLOW default on first entry: enter :s0 via its shallow history
+  ;; pseudo-state from the top-level :hub; nothing recorded ⇒ :default-target
+  ;; :s01 descended to its :initial (:s011).
+  {:call         :machine-transition
+   :definition
+   {:initial :hub
+    :states  {:hub {:on {:into-s0 [:s0 :hist]}}
+              :s0  {:initial :s01
+                    :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
+                              :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                              :hist {:type :history :default-target :s01}}}}}
+   :snapshot     {:state :hub :data {}}
+   :event        [:into-s0]
+   :expect-next-snapshot {:state [:s0 :s01 :s011] :data {}}
+   :expect-effects       []}
+
+  ;; (2) DEEP default on first entry: enter :s1 via its deep history
+  ;; pseudo-state from :hub; nothing recorded ⇒ :default-target [:s1 :s12 :s122]
+  ;; (the exact deep target, no :initial re-descent past it).
+  {:call         :machine-transition
+   :definition
+   {:initial :hub
+    :states  {:hub {:on {:into-s1 [:s1 :hist]}}
+              :s1  {:initial :s11
+                    :states  {:s11  {:initial :s111 :states {:s111 {} :s112 {}}}
+                              :s12  {:initial :s121 :states {:s121 {} :s122 {}}}
+                              :hist {:type :history :deep? true :default-target [:s1 :s12 :s122]}}}}}
+   :snapshot     {:state :hub :data {}}
+   :event        [:into-s1]
+   :expect-next-snapshot {:state [:s1 :s12 :s122] :data {}}
+   :expect-effects       []}]}

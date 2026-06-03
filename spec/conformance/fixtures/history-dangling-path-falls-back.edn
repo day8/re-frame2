@@ -1,0 +1,69 @@
+;; Conformance fixture: machine/history-dangling-path-falls-back
+;;
+;; First-class history dangling-path fallback (rf2-mle6e / rf2-wgfv0). A
+;; recorded configuration in `:rf/history` may reference a substate a
+;; hot-reloaded definition REMOVED — a *dangling recorded path*. On a
+;; restore-to-history transition the runtime DISCARDS the dead recorded path
+;; and falls back to the pseudo-state's `:default-target` (or the compound's
+;; `:initial`), cascading from there exactly as a first-ever entry would. The
+;; runtime never enters a dead path. This is a benign, expected consequence of
+;; hot reload — NOT an error; no `:rf.error/*` is raised.
+;;
+;; Per [005 §Dangling recorded paths after hot reload]
+;; (../../005-StateMachines.md#dangling-recorded-paths-after-hot-reload).
+
+{:fixture/id           :machine/history-dangling-path-falls-back
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/history}
+ :fixture/doc          "A recorded config the (hot-reloaded) definition no longer declares is discarded on restore; the runtime falls back to :default-target (deep arm) or the compound :initial (no-default arm), never entering the dead path. Benign — no error."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) DEEP dangling leaf: the seeded :rf/history references [:player :playing
+  ;; :gone], which the current definition does not declare. The restore
+  ;; discards it and falls back to :default-target :playing → :at-start. The
+  ;; exit cascade overwrites the slot with the valid outgoing :stopped config.
+  {:call         :machine-transition
+   :definition
+   {:initial :player
+    :states  {:player
+              {:initial :stopped
+               :states  {:stopped {:on {:play [:player :hist]}}
+                         :hist    {:type :history :deep? true :default-target :playing}
+                         :playing {:initial :at-start
+                                   :on      {:stop [:player :stopped]}
+                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}}
+   :snapshot     {:state    [:player :stopped]
+                  :data     {}
+                  :rf/history {[:player] [:player :playing :gone]}}
+   :event        [:play]
+   :expect-next-snapshot {:state    [:player :playing :at-start]
+                          :data     {}
+                          :rf/history {[:player] [:player :stopped]}}
+   :expect-effects       []}
+
+  ;; (2) SHALLOW dangling child: the seeded :rf/history records the child :ghost,
+  ;; not a child of :player in the current definition. Discarded; falls back to
+  ;; :default-target :playing → :at-start.
+  {:call         :machine-transition
+   :definition
+   {:initial :player
+    :states  {:player
+              {:initial :stopped
+               :states  {:stopped {:on {:play [:player :hist]}}
+                         :hist    {:type :history :default-target :playing}
+                         :playing {:initial :at-start
+                                   :on      {:stop [:player :stopped]}
+                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}}
+   :snapshot     {:state    [:player :stopped]
+                  :data     {}
+                  :rf/history {[:player] :ghost}}
+   :event        [:play]
+   :expect-next-snapshot {:state    [:player :playing :at-start]
+                          :data     {}
+                          :rf/history {[:player] :stopped}}
+   :expect-effects       []}]}
