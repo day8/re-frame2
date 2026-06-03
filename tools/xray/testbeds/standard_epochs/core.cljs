@@ -23,15 +23,20 @@
 
   ## Parameterised root (rf2-3xakq — the two-frame mount)
 
-  `root` takes `[runner-state host-frame prefix]`. The single-frame deck
-  (`run`) mounts `[root runner-state :rf/default \"standard-epochs\"]` on
-  the plain default frame, Xray auto-mounting inline. The TWO-FRAME
-  isolation testbed (`two_frame_isolation`) mounts this SAME `root` once
-  per `:above` / `:below` frame-provider, each with its OWN runner atom +
-  host-frame + a DISTINCT prefix — so the two reactive contexts (and the
-  two runner cursors) stay genuinely independent. This is what makes the
-  deck reusable as the two-frame isolation PROOF without sharing a cursor
-  or focusing the wrong frame.
+  `root` is a PURE ladder taking `[runner-state host-frame prefix]` — just
+  the runner + the two children + the diamond probe, NO header, NO reset
+  button (rf2-7prmj). The single-frame deck (`run`) mounts the `standalone`
+  wrapper, which renders the deck's title + intro header ABOVE
+  `[root runner-state :rf/default \"standard-epochs\"]` on the plain default
+  frame, Xray auto-mounting inline. The TWO-FRAME isolation testbed
+  (`two_frame_isolation`) mounts this SAME `root` once per `:above` /
+  `:below` frame-provider, each with its OWN runner atom + host-frame + a
+  DISTINCT prefix — so the two reactive contexts (and the two runner
+  cursors) stay genuinely independent. Keeping the header OUT of `root` is
+  what stops the two-frame cards showing the title twice (mislabel) and
+  leaves them as clean per-frame ladders. This is what makes the deck
+  reusable as the two-frame isolation PROOF without sharing a cursor or
+  focusing the wrong frame.
 
   ## North star (acceptance)
 
@@ -151,7 +156,10 @@
               :diamond-root 0}})
 
 (rf/reg-event-db :standard-epochs/reset
-  {:doc "Button 0 — re-seed app-db and unmount both child views. Start clean."}
+  {:doc "Seed event — re-seed app-db and unmount both child views. Used by
+         `run` (dispatch-sync on load) and by two_frame_isolation's per-frame
+         :on-create. There is no on-page reset button (rf2-7prmj); a reload
+         re-seeds."}
   (fn handler-reset [_db _ev]
     initial-db))
 
@@ -744,15 +752,19 @@
 (defonce runner-state (r/atom (runner/initial-state)))
 
 ;; ============================================================================
-;; ROOT — parameterised over (runner-state, host-frame, prefix)
+;; ROOT — pure ladder, parameterised over (runner-state, host-frame, prefix)
 ;; ============================================================================
 ;;
 ;; rf2-3xakq — `root` takes the runner atom + host-frame + testid prefix so
-;; the deck is mountable BOTH on its own single (`:rf/default`) frame AND
-;; twice (once per `:above` / `:below` frame) by the two-frame isolation
-;; testbed. The reg-view-injected `dispatch` / `subscribe` close over the
-;; surrounding frame-provider's frame id, so the same source drives an
-;; isolated reactive context per mount; the runner dispatches to
+;; the deck is mountable BOTH on its own single (`:rf/default`) frame (via
+;; the `standalone` wrapper below) AND twice (once per `:above` / `:below`
+;; frame) by the two-frame isolation testbed. rf2-7prmj — `root` is now a
+;; PURE ladder (runner + children + diamond): the title + intro header live
+;; in the standalone `run` path only, and there is no deck-reset button, so
+;; the two-frame cards stay clean per-frame ladders (no title duplication,
+;; no per-frame reset). The reg-view-injected `dispatch` / `subscribe` close
+;; over the surrounding frame-provider's frame id, so the same source drives
+;; an isolated reactive context per mount; the runner dispatches to
 ;; `host-frame` explicitly (see runner.core/dispatch+settle!), keeping each
 ;; runner's events scoped to the frame it inspects.
 
@@ -760,25 +772,6 @@
   [:div {:data-testid "standard-epochs-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
                  :max-width "720px"}}
-   [:header {:style {:margin-bottom "0.5em"}}
-    [:h2 {:style {:margin 0}} "Standard-epochs"]
-    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "Explore how the " [:code "Epoch"] " panel renders different scenarios. "
-     "It is the centerpiece panel, after all."]
-    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "Press " [:strong "⏭ Step"] " to walk the ladder top to bottom (each "
-     "row's number is also a RUN-THIS-STEP button for random access)."]]
-   ;; Reset — re-seed THIS frame's app-db, unmount both child views, rewind
-   ;; this mount's runner. Reset dispatches via the reg-view-injected
-   ;; `dispatch`, so it targets the surrounding frame-provider's frame.
-   [:button {:data-testid (str prefix "-deck-reset")
-             :on-click (fn []
-                         (dispatch [:standard-epochs/reset])
-                         (runner/reset-runner! runner-state))
-             :style {:padding "0.4em 0.8em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db, unmount both child views, rewind runner"]
    ;; The runner — drives the step ladder against this mount's host-frame.
    [runner/runner prefix runner-state steps host-frame]
    ;; The two children, mounted / unmounted by steps 6..11. Child A
@@ -811,6 +804,28 @@
 
 (def host-frame :rf/default)
 
+;; ============================================================================
+;; STANDALONE WRAPPER — header (title + intro) above the shared `root`
+;; ============================================================================
+;;
+;; rf2-7prmj — the title + intro live HERE, not in the shared `root`, because
+;; `root` is mounted TWICE by `two_frame_isolation` (once per :above / :below
+;; frame). Extracting the header keeps the shared `root` a pure ladder, so the
+;; two-frame cards stay clean (no per-frame title duplication) while the
+;; standalone deck still shows the Epochs header. There is no deck-reset
+;; button: reloading re-seeds via `run` (the frames re-seed via :on-create),
+;; so the manual reset is unnecessary.
+
+(reg-view standalone []
+  [:div {:style {:font-family "system-ui, sans-serif" :max-width "720px"}}
+   [:header {:style {:padding "1em 1em 0 1em"}}
+    [:h2 {:style {:margin 0}} "Xray Testbed: Epochs"]
+    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
+     "The Epoch panel is the centerpiece of xray design. Use the "
+     [:strong "⏭ Step"] " button to see how different pipeline scenarios "
+     "are rendered."]]
+   [root runner-state host-frame "standard-epochs"]])
+
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so the preload's auto-open reads the
   ;; right project-root on its first paint of any chip.
@@ -818,7 +833,8 @@
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
   ;; no routing here). The default frame is the one Xray reads. Mount the
-  ;; parameterised `root` with this deck's own runner atom, the
-  ;; `:rf/default` host-frame, and the `standard-epochs` testid prefix.
+  ;; standalone wrapper (header + the parameterised `root`) with this deck's
+  ;; own runner atom, the `:rf/default` host-frame, and the `standard-epochs`
+  ;; testid prefix.
   (rf/dispatch-sync [:standard-epochs/reset])
-  (rdc/render react-root [root runner-state host-frame "standard-epochs"]))
+  (rdc/render react-root [standalone]))
