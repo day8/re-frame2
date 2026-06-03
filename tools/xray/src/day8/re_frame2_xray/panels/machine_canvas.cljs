@@ -338,6 +338,15 @@
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.
+    :machine-data       — rf2-vcnvj. Optional CLJS map surfaced in the
+                          chart's top-left Context panel. The Static
+                          topology path passes the machine's STATIC
+                          context shape (keys of the definition's `:data`)
+                          so the root context chrome renders without a
+                          live snapshot; the live runtime `:data` overlay
+                          stays a separate (future) diagnostic. nil → no
+                          panel. Forwarded verbatim to
+                          `mv-chart/MachineChart`'s `:machine-data`.
     :fired-edge-ids     — rf2-qeemm (G3). A SET of canonical machines-viz
                           edge-ids that fired THIS epoch (resolved by the
                           host via
@@ -377,7 +386,7 @@
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
-           fired-edge-ids
+           fired-edge-ids machine-data
            sim? on-state-click on-edge-click
            show-after-rings? show-view-mode-toggle?
            show-controls? theme testid inner-testid]
@@ -412,6 +421,7 @@
     [mv-chart/MachineChart
      {:definition      definition
       :machine-id      machine-id
+      :machine-data    machine-data
       :from-highlight  from-highlight
       :to-highlight    to-highlight
       :current-state   current-state

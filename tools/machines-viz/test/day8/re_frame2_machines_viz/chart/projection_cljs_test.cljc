@@ -1431,15 +1431,51 @@
       (is (= :start (:eventId (:data start)))))))
 
 (deftest xyflow-graph-machine-level-event-nodes-flagged
-  (testing "rf2-ee38b.21 + rf2-qo5xy — machine-level (top-level) :on
-            fallback transitions project as event-nodes flagged
-            `:machineLevel true` (one per inheriting leaf)."
+  (testing "rf2-vcnvj — a machine-level (top-level) :on fallback projects
+            as EXACTLY ONE event-node flagged `:machineLevel true`,
+            sourced from the synthetic MACHINE-ROOT node — NOT one chip
+            per inheriting leaf (the pre-vcnvj per-state repetition)."
     (let [parsed (layout/parse-definition machine-level-on-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
-          logout (filter #(= :logout (:eventId (:data %))) ev-nodes)]
-      (is (= 2 (count logout)) "one inherited event-node per leaf")
-      (is (every? #(true? (:machineLevel (:data %))) logout)))))
+          logout (filter #(= :logout (:eventId (:data %))) ev-nodes)
+          ml-edge (first (filter :machine-level? (:edges parsed)))
+          in-edge (inbound-edge-for graph (:id ml-edge))]
+      (is (= 1 (count logout)) "exactly ONE machine-level event-node")
+      (is (every? #(true? (:machineLevel (:data %))) logout))
+      ;; The chip's inbound edge originates at the MACHINE-ROOT node.
+      (is (some? in-edge))
+      (is (= layout/machine-root-id (:source in-edge))
+          "the fallback's `__in` edge leaves the MACHINE-ROOT node"))))
+
+(deftest xyflow-graph-machine-root-node-projected
+  (testing "rf2-vcnvj — the synthetic MACHINE-ROOT node projects as a
+            xyflow node of type `machine-root` (the quiet root-context
+            chip the fallback routes FROM); it leads the node vector so
+            xyflow sees the source node before the edge referencing it."
+    (let [parsed (layout/parse-definition machine-level-on-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          root   (node-by-id graph layout/machine-root-id)
+          root-idx (->> (:nodes graph)
+                        (map-indexed vector)
+                        (filter #(= layout/machine-root-id (:id (second %))))
+                        ffirst)
+          ev-idx (->> (:nodes graph)
+                      (map-indexed vector)
+                      (filter #(= "rf2-event" (:type (second %))))
+                      ffirst)]
+      (is (some? root) "the machine-root node is projected")
+      (is (= "machine-root" (:type root)))
+      (is (and root-idx ev-idx (< root-idx ev-idx))
+          "the root node precedes the event-node that references it"))))
+
+(deftest xyflow-graph-no-machine-level-emits-no-root-node
+  (testing "rf2-vcnvj — a machine with no top-level :on projects no
+            machine-root node (the chip is the fallback's anchor only)."
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (nil? (node-by-id graph layout/machine-root-id)))
+      (is (empty? (filter #(= "machine-root" (:type %)) (:nodes graph)))))))
 
 (deftest xyflow-graph-state-only-transitions-not-machine-level
   (testing "rf2-ee38b.21 + rf2-qo5xy — a normal state-local transition's

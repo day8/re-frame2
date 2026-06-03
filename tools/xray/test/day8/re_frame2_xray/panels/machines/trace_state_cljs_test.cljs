@@ -361,3 +361,60 @@
       (is (= 1 (count fired)))
       (is (every? projected-ids fired)
           "the namespaced-event fired id is a real live-chart edge id"))))
+
+;; ---- machine-level (top-level :on) fallback fired-edge match (rf2-vcnvj) -
+;;
+;; rf2-vcnvj projects a machine-level fallback ONCE from the synthetic
+;; MACHINE-ROOT node, so its `:from-path` is `[]` (the root context), not
+;; the concrete leaf the runtime fired it from. `extract-fired-edge-ids`
+;; therefore falls back to matching a machine-level edge on (to, event)
+;; alone when no state-local edge matches the trace's (from, to, event) —
+;; the single root-sourced chip lights regardless of source leaf.
+
+(deftest fired-ids-match-machine-level-fallback-from-any-leaf
+  (testing "rf2-vcnvj — a top-level `:on` fallback firing from a leaf
+            that does NOT declare it (the door `:door/audit` from
+            `:alarming`) lights the single machine-level chip, matched on
+            (to, event) since the chip's from-path is the root `[]`."
+    (let [def           {:initial :locked
+                         :on      {:door/audit {:target :locked
+                                                :action :record-audit}}
+                         :states  {:locked   {:on {:door/insert-coin :closed}}
+                                   :closed   {:on {:door/push :open}}
+                                   :open     {:on {:door/trip :alarming}}
+                                   :alarming {:on {:door/reset :locked}}}}
+          projected     (:edges (chart-layout/parse-definition def))
+          projected-ids (set (map :id projected))
+          ml-edge       (first (filter :machine-level? projected))
+          ;; The runtime fired :door/audit from :alarming (which declares
+          ;; no :door/audit → falls through to the root :on).
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :door}
+                          :from [:alarming] :to [:locked] :event :door/audit}]
+          fired         (trace-state/extract-fired-edge-ids def events :door)]
+      (is (some? ml-edge) "the definition has a machine-level fallback edge")
+      (is (= #{(:id ml-edge)} fired)
+          "the single machine-level chip's id lights, matched on (to, event)")
+      (is (every? projected-ids fired)
+          "the fired id is a real live-chart edge id"))))
+
+(deftest fired-ids-prefer-state-local-over-machine-level
+  (testing "rf2-vcnvj — when a leaf declares its OWN transition for the
+            same event, the STATE-LOCAL edge matches (full from/to/event)
+            and the machine-level fallback does NOT also light."
+    (let [def           {:initial :a
+                         :on      {:go :a}        ;; machine-level fallback → :a
+                         :states  {:a {:on {:go :b}}  ;; state-local :go → :b
+                                   :b {}}}
+          projected     (:edges (chart-layout/parse-definition def))
+          local-edge    (first (filter #(and (= [:a] (:from-path %))
+                                             (= [:b] (:to-path %))
+                                             (= :go (:event %)))
+                                       projected))
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :m}
+                          :from [:a] :to [:b] :event :go}]
+          fired         (trace-state/extract-fired-edge-ids def events :m)]
+      (is (some? local-edge))
+      (is (= #{(:id local-edge)} fired)
+          "the state-local edge lights; the machine-level fallback is not pulled in"))))

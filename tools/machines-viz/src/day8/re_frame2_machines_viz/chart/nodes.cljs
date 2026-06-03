@@ -119,6 +119,19 @@
     active?         (:active-wash ct)
     :else           (:state-header-bg ct)))
 
+(defn- tag-label
+  "rf2-vcnvj — render a state-tag's DECLARED identity as a string,
+  PRESERVING the namespace. A `:door/open` tag reads `door/open`, not
+  the truncated `open` — the bead's tag-identity fix. The pre-vcnvj
+  `(name tag)` dropped the namespace, collapsing `:door/open`,
+  `:lift/open`, … to the same visible `open`."
+  [t]
+  (cond
+    (keyword? t) (if-let [ns (namespace t)]
+                   (str ns "/" (name t))
+                   (name t))
+    :else        (str t)))
+
 (defn- tag-title-attr
   "Compose a state's `:tags` set (Spec 005 user-declared semantic
   tags) into a sorted space-joined string for the state-node's
@@ -130,11 +143,14 @@
   it BELOW the state name (Stately graph view convention) via the
   `tag-pill` helper. The title + data-tags attrs remain so the host
   inspector + DOM introspection still resolve a state's tags in
-  bulk without parsing the per-pill DOM."
+  bulk without parsing the per-pill DOM.
+
+  rf2-vcnvj — uses `tag-label` so the namespaced tag identity
+  (`door/open`) survives here too, matching the visible pill."
   [tags]
   (when (seq tags)
     (->> tags
-         (map (fn [t] (if (keyword? t) (name t) (str t))))
+         (map tag-label)
          sort
          (str/join " "))))
 
@@ -147,15 +163,22 @@
   attrs + the state-node's `data-tags` + the inspector surfaces, so host
   introspection + hover still resolve every tag.
 
+  rf2-vcnvj — the VISIBLE label + the `data-tag` attr now preserve the
+  DECLARED tag identity (`door/open`, not the truncated `open`) via
+  `tag-label`. The `data-testid` keeps the namespace-collapsed `name`
+  segment (a `/` in a testid breaks CSS / Playwright selectors) — host
+  introspection reads the full identity off `data-tag` / `title`.
+
   Geometry + typography read off the resolved density `vc` map; colour
   is the neutral container-header fill + the structural border + the
   secondary text colour from the active-theme `ct` map."
   [tag ct {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
                   tag-pill-radius tag-pill-gap]}]
-  (let [label (if (keyword? tag) (name tag) (str tag))]
+  (let [label      (tag-label tag)
+        testid-seg (if (keyword? tag) (name tag) (str tag))]
     [:span {:key   label
             :title (str tag)
-            :data-testid (str "rf-mv-chart-state-tag-" label)
+            :data-testid (str "rf-mv-chart-state-tag-" testid-seg)
             :data-tag    label
             :style {:display          "inline-flex"
                     :align-items      "center"
@@ -191,11 +214,14 @@
            :style {:display        "flex"
                    :flex-direction "column"
                    :gap            (str action-caption-gap "px")}}
+     ;; rf2-vcnvj — quiet TITLE-CASE caption ("Entry actions" / "Exit
+     ;; actions"), NOT uppercase. The uppercase transform competed with
+     ;; the state title for attention against the structure-first grammar;
+     ;; the caption is a quiet section label, so it reads in natural case.
      [:span {:style {:font-family    chart-label-stack
                      :font-size      (str action-caption-px "px")
                      :font-weight    600
-                     :letter-spacing "0.04em"
-                     :text-transform "uppercase"
+                     :letter-spacing "0.02em"
                      :color          (:text-tertiary ct)
                      :line-height     "1"}}
       caption]
@@ -510,6 +536,52 @@
        [:> Handle {:type "source" :position pos-right
                    :style {:opacity 0}}]])))
 
+;; ---- machine-root node (rf2-vcnvj) --------------------------------------
+
+(defn machine-root-node
+  "rf2-vcnvj — the synthetic MACHINE-ROOT node: the in-graph source a
+  machine-level (top-level `:on`) fallback transition routes FROM, so
+  the fallback renders as exactly ONE route/chip into its target instead
+  of one back-edge per leaf state (the pre-vcnvj per-state repetition
+  that also scrambled ELK's main-column ordering).
+
+  Painted as a quiet ROOT-CONTEXT chip — a small neutral pill with a
+  subtle root glyph (`◆`) + a `root` caption — NOT a state box, so it
+  reads as the machine-wide anchor. The frame-level root TITLE strip
+  (`chart.cljs`) carries the machine name + Context shape; this in-graph
+  chip is just the routing anchor for the fallback arrow. Carries an
+  outgoing source `<Handle>` (the fallback's `__in` edge leaves here)."
+  [^js props]
+  (let [d   (.-data props)
+        vc  (chart-constants d)
+        ct  (palette-of d)
+        {:keys [pseudo-px]} vc]
+    (r/as-element
+      [:div {:data-testid (str "rf-mv-chart-machine-root-" (.-id props))
+             :data-machine-root "true"
+             :style {:display       "inline-flex"
+                     :align-items   "center"
+                     :gap           "5px"
+                     :padding       "4px 9px"
+                     :background    (:container-header-bg ct)
+                     :border        (str "1px solid " (:state-border ct))
+                     :border-radius "999px"
+                     :font-family   chart-label-stack
+                     :font-size     (str pseudo-px "px")
+                     :font-weight   600
+                     :letter-spacing "0.04em"
+                     :color         (:text-tertiary ct)
+                     :line-height   "1"
+                     :white-space   "nowrap"
+                     :user-select   "none"}}
+       [:span {:style {:opacity 0.7}} "◆"]
+       [:span (or (.-label d) "root")]
+       [:> Handle {:type "source" :position pos-bottom
+                   :style {:opacity 0}}]
+       [:> Handle {:type "source" :position pos-right
+                   :id "right"
+                   :style {:opacity 0}}]])))
+
 ;; ---- history pseudo-state renderer (rf2-az6e2 — HOOK ONLY) --------------
 ;;
 ;; rf2-az6e2 — the bead defines the VISUAL rendering of history pseudo-
@@ -587,6 +659,10 @@
        "compound"        compound-node
        "parallel-region" parallel-region-node/parallel-region-node
        "initial-marker"  initial-marker
+       ;; rf2-vcnvj — the synthetic root-context chip a machine-level
+       ;; (top-level `:on`) fallback routes from (projected once, not
+       ;; per-state).
+       "machine-root"    machine-root-node
        ;; rf2-az6e2 — history pseudo-state renderer registered as a HOOK
        ;; (the projector emits no `history-marker` node until history
        ;; topology data lands; see `history-marker` docstring).

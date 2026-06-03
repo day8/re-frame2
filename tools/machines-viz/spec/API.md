@@ -392,6 +392,7 @@ knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
 | `+ <name>` | action pill (entry / exit / transition) | `chart.nodes/action-pill` + `chart.nodes.event-node` |
 | `[name]` | guard chip | `chart.nodes.event-node` |
 | filled dot | initial-marker source | `chart.nodes/initial-marker` |
+| `◆ root` pill | machine-root chip — the SINGLE source of a machine-level (top-level `:on`) fallback (rf2-vcnvj) | `chart.nodes/machine-root-node` (type `"machine-root"`, node-id `chart.layout/machine-root-id`) |
 
 #### Active state on box border
 
@@ -405,14 +406,24 @@ box" (rf2-a2b55) is unchanged — those are user-declared semantic
 
 #### Context corner panel (rf2-qo5xy)
 
-The chart accepts an optional `:machine-data` prop — the machine's
-current `:data` map (the `:rf.machine/data` slot from the snapshot).
-When non-nil + non-empty, the chart paints a small read-only panel
-in the top-LEFT corner of the canvas showing each `(key, value)`
-pair so the operator sees the live context without leaving the
-chart. The panel is presentation-only — the host owns the data
-projection; the chart paints whatever shape it receives. nil / empty
-→ no panel.
+The chart accepts an optional `:machine-data` prop — a `(key, value)`
+map painted as a small read-only panel in the top-LEFT corner of the
+canvas so the operator sees the machine context without leaving the
+chart. The panel is presentation-only — the host owns the projection;
+the chart paints whatever shape it receives. nil / empty → no panel.
+
+Two host projections feed it:
+
+- **Live context** — the machine's current `:data` map (the
+  `:rf.machine/data` slot from the snapshot), `(key → value)`.
+- **Static context shape** (rf2-vcnvj) — when no live snapshot is in
+  hand (the Static-Machines blank-state topology), the Xray topology
+  path derives `(key → type-caption)` from the definition's declared
+  `:data` via `topology-view/static-context-shape`, so the root Context
+  chrome renders the context KEYS + their TYPE shape (e.g.
+  `{:opened-count "number" :trail "vector"}`). This satisfies the
+  rf2-vcnvj acceptance "root title/context chrome at the top when
+  context shape is available" without a live runtime read.
 
 #### Legacy paradigm sections below
 
@@ -959,18 +970,27 @@ colour is subordinate to structure**.
 - **Leaf states** render as title/body boxes — a full-width, left-
   aligned **title strip** (sans `chart-label-stack`), a hairline divider
   when body content exists, and a body band carrying **one neutral tag
-  chip style** + quiet "Entry actions" / "Exit actions" rows with
-  subdued bolt-glyph action chips. Square-ish, low radius (the 6px
-  `corner-radius` lock). Runtime state (active / focus lens / sim) rides
-  the **border + header + glow**, never the whole fill. A **final state**
-  is a quiet double border (the ✓ check glyph is **dropped** —
-  rf2-az6e2 decision).
+  chip style** (the VISIBLE label + `data-tag` preserve the DECLARED
+  namespaced identity — `door/open`, not truncated `open`; rf2-vcnvj) +
+  quiet **title-case** "Entry actions" / "Exit actions" caption rows
+  (NOT uppercase — rf2-vcnvj) with subdued bolt-glyph action chips.
+  Square-ish, low radius (the 6px `corner-radius` lock). Runtime state
+  (active / focus lens / sim) rides the **border + header + glow**, never
+  the whole fill. A **final state** is a quiet double border (the ✓ check
+  glyph is **dropped** — rf2-az6e2 decision).
 - **Event/transition nodes** stay synthetic layout nodes (source-state →
   event-node → target-state) but render as **subordinate route chips** —
   no title bar, event + guard on the first line as **`IF <guard>`**, an
   action row only when an action exists, machine-level **muted** (data-
   attr only). An internal / action-only transition is a terminal chip
   with a dashed border ring and no outgoing target segment.
+- **Machine-level (top-level `:on`) fallback** projects as a SINGLE
+  route from the synthetic **machine-root chip** (`◆ root` pill) into its
+  target (rf2-vcnvj) — NOT one chip per leaf. The per-state expansion
+  repeated the chip around every state AND injected back-edges that
+  scrambled ELK's top-to-bottom ranking; one root-sourced route reads as
+  the machine-wide fallback it is and leaves the main column to the real
+  state transitions.
 - **Compound containers** render as **solid subtle-neutral** title-strip
   containers (no dashed border, no saturated accent wash by default).
 - **Parallel regions** render as **dashed neutral** title-strip
@@ -988,11 +1008,13 @@ colour is subordinate to structure**.
   arrowhead, `:edge-quiet`) and a primary event→target segment (full
   arrowhead). Fired/focused lights **both** segments together.
 - **Root chrome**: a **root machine title strip** is pinned in the chart
-  frame (a subtle `∥` glyph for root-parallel machines). A static
-  Context section under the title is rendered from the optional
-  `:machine-data` overlay when supplied; a static **context-shape**
-  derivation from the definition is a follow-on (current definitions
-  expose no static context schema).
+  frame (a subtle `∥` glyph for root-parallel machines). A Context
+  section under the title is rendered from the optional `:machine-data`
+  overlay — live context `(key → value)` when a snapshot is in hand, or
+  the static **context-shape** `(key → type-caption)` the Xray topology
+  path derives from the definition's `:data` via
+  `topology-view/static-context-shape` (rf2-vcnvj) so the root context
+  chrome renders on the blank-state topology.
 
 ## Performance invariants
 

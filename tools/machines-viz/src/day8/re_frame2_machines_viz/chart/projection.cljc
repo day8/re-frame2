@@ -62,6 +62,18 @@
   (title strip ~24px + a body band for tags / action rows)."
   58)
 
+(def machine-root-node-min-width
+  "rf2-vcnvj — minimum width for the synthetic MACHINE-ROOT chip (the
+  source of a machine-level top-level `:on` fallback). A compact root-
+  context chip, narrower than a state box so it reads as the root anchor
+  rather than a peer state."
+  120)
+
+(def machine-root-node-min-height
+  "rf2-vcnvj — minimum height for the synthetic MACHINE-ROOT chip. A
+  single header line — no body band."
+  30)
+
 (def compound-node-min-width
   "Minimum width for a compound container.
 
@@ -174,9 +186,21 @@
    (merge
      {:id     (:id n)
       :labels [{:text (:label n)}]}
-     (if (:compound? n)
+     (cond
+       ;; rf2-vcnvj — the synthetic machine-root node is a compact root-
+       ;; context chip, not a full state box; it lays out at content size
+       ;; (`max measured floor`) against a small floor so it does not push
+       ;; the main state column apart like a peer state.
+       (:machine-root? n)
+       (let [m (get measured-dims (:id n))]
+         {:width  (max machine-root-node-min-width  (or (:width  m) 0))
+          :height (max machine-root-node-min-height (or (:height m) 0))})
+
+       (:compound? n)
        {:width  compound-node-min-width
         :height compound-node-min-height}
+
+       :else
        (leaf-elk-size (get measured-dims (:id n)))))))
 
 (defn elk-event-child
@@ -593,6 +617,12 @@
                       base
                       {:id       (:id n)
                        :type     (cond
+                                   ;; rf2-vcnvj — the synthetic root node a
+                                   ;; machine-level (top-level `:on`) fallback
+                                   ;; routes FROM. Painted as a quiet root-
+                                   ;; context chip (`chart.nodes/machine-root-
+                                   ;; node`), not a state box.
+                                   (:machine-root? n) "machine-root"
                                    region?        "parallel-region"
                                    (:compound? n) "compound"
                                    :else          "state")
@@ -654,7 +684,11 @@
                     (and (not region?) (:parent-id n))
                     (assoc :parentId (:parent-id n)
                            :extent   "parent"))))
-              (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
+              ;; rf2-vcnvj — the machine-root node leads (it is the source
+              ;; of a machine-level fallback's `__in` edge + event-node, and
+              ;; xyflow wants a source-node before any edge that references
+              ;; it), alongside region/compound parents.
+              (sort-by #(if (or (:machine-root? %) (:region? %) (:compound? %)) 0 1) nodes))
 
         ;; rf2-qo5xy — events-as-nodes paradigm. Each parsed transition
         ;; emits ONE event-node (xyflow `type "rf2-event"`) plus one or
