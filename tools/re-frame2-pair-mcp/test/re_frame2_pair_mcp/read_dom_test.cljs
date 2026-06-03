@@ -23,7 +23,9 @@
   the conformance corpus pins the outer wire shape, this suite pins the
   form's internal contract."
   (:require [cljs.test :refer-macros [deftest is async testing]]
+            [cljs.tools.reader :as tr]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -83,6 +85,116 @@
         (is (not (str/includes? form alias))
             (str "the inlined eval form must depend only on cljs.core + JS "
                  "interop — found require-only alias " alias))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-w2mjm — GENERAL unresolved-symbol guard (the alias-trap bug CLASS).
+;;
+;; rf2-5ffuv pinned the ONE alias that had bitten (`str/lower-case`) via a
+;; substring blocklist of the four aliases this ns happens to carry
+;; (`str/ wire/ probe/ j/`). That blocklist is brittle: a future edit that
+;; reaches for a DIFFERENT require-only symbol — `set/union`,
+;; `walk/postwalk`, a freshly-aliased helper — would sail past it and
+;; re-introduce the exact failure mode (the whole inlined form is sent to
+;; the browser cljs-eval context, which aliases NOTHING beyond cljs.core +
+;; JS interop; an unresolved symbol there makes the entire form evaluate to
+;; nil — a compile-level miss the inner try/catch cannot trap — and EVERY
+;; read-dom call comes back :rf.error/read-dom-blank-result, while read-ui,
+;; which calls a runtime fn rather than inlining source, stays unaffected).
+;;
+;; This guard parses the generated form and asserts every PLAIN symbol in
+;; it resolves to one of: a special form, a `cljs.core` name, a JS-interop
+;; form (`js/…`, `.method`, `.-field`), or a local binding introduced by
+;; the form's own `let` / `fn` / `fn*`. Any residual symbol is a
+;; require-only alias that will nil the form out at runtime — the test
+;; fails BY NAME on the offender, no blocklist to keep in sync.
+;; ---------------------------------------------------------------------------
+
+(def ^:private cljs-core+special
+  "The special forms + `cljs.core` names the read-dom form may use. A
+  symbol outside this set (and not JS-interop, and not a local binding) is
+  a require-only alias — the unresolved-symbol trap that nils the form."
+  '#{;; special forms / macros the form leans on
+     let if-not if try catch fn fn* when or and do quote recur
+     ;; cljs.core fns/macros used by the form
+     exists? array-seq mapcat count take into keep merge mapv
+     string? subs min pr-str = > some? nil? not vec})
+
+(defn- interop-symbol?
+  "True for a symbol that resolves in the BARE browser cljs-eval context
+  WITHOUT any `:require`: a JS-interop method/field (`.method` / `.-field`)
+  or a host-namespace symbol (`js/…`, `goog…`). Crucially this does NOT
+  blanket-allow every namespace-qualified symbol — a qualified symbol whose
+  namespace is a require-only ALIAS (`str/lower-case`, `walk/postwalk`) is
+  exactly the trap that nils the whole form out (the alias resolves only in
+  a namespace that `:requires` it, never in the bare eval context). Only
+  the genuinely-global host namespaces are exempt."
+  [s]
+  (let [n  (name s)
+        ns (namespace s)]
+    (or (str/starts-with? n ".")             ;; .method / .-field
+        (= ns "js")                          ;; js/document, js/globalThis
+        (str/starts-with? n "js/")           ;; (defensive — name carries it)
+        (some-> ns (str/starts-with? "goog"))))) ;; goog.* host namespace
+
+(defn- collect-symbols
+  "Every plain symbol appearing anywhere in the parsed form."
+  [parsed]
+  (let [acc (atom #{})]
+    (walk/postwalk (fn [x] (when (symbol? x) (swap! acc conj x)) x) parsed)
+    @acc))
+
+(defn- collect-locals
+  "Symbols bound as locals by the form's own `let` / `fn` / `fn*` — these
+  are legitimately unqualified and must not be flagged as aliases. Walks
+  every `(let [bind …] …)` binding-vector and every `(fn … [args…] …)` /
+  `(fn* [args…] …)` arg-vector."
+  [parsed]
+  (let [acc (atom #{})]
+    (walk/postwalk
+      (fn [x]
+        (when (and (seq? x) (symbol? (first x)))
+          (case (name (first x))
+            "let" (let [binds (second x)]
+                    (when (vector? binds)
+                      (doseq [[k _] (partition 2 binds)]
+                        (when (symbol? k) (swap! acc conj k)))))
+            ("fn" "fn*") (doseq [seg (rest x)]
+                           (when (vector? seg)
+                             (doseq [a seg] (when (symbol? a) (swap! acc conj a)))))
+            ;; `(catch :default e …)` binds `e` (the 3rd element) — a local,
+            ;; not an alias. Capture it so the exception binding isn't flagged.
+            "catch" (let [ex-bind (nth (vec x) 2 nil)]
+                      (when (symbol? ex-bind) (swap! acc conj ex-bind)))
+            nil))
+        x)
+      parsed)
+    @acc))
+
+(deftest form-carries-no-unresolved-symbol-alias
+  ;; rf2-w2mjm — the bug-class guard. Parses each generated variant and
+  ;; asserts no symbol escapes (cljs.core ∪ special-forms ∪ JS-interop ∪
+  ;; locals). A residual symbol is the alias trap that nils the form.
+  (doseq [[label form] [["default"        (#'read-dom/read-dom-form "#app .counter" nil
+                                                                    read-dom/default-limit
+                                                                    read-dom/default-max-text nil)]
+                        ["explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"])]
+                        ["sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil)]]]
+    (let [;; `cljs.tools.reader` (not `cljs.reader`) — it supports the
+          ;; `#(…)` anonymous-fn literal the form carries (`#(read-attr el %)`),
+          ;; reading it as `(fn* [p__N] …)`.
+          parsed   (tr/read-string form)
+          locals   (collect-locals parsed)
+          suspects (->> (collect-symbols parsed)
+                        (remove cljs-core+special)
+                        (remove interop-symbol?)
+                        (remove locals)
+                        set)]
+      (is (empty? suspects)
+          (str "read-dom-form (" label ") must depend only on cljs.core + JS "
+               "interop — these symbols resolve to NOTHING in the browser "
+               "cljs-eval context and would nil the whole form out "
+               "(:rf.error/read-dom-blank-result on every call): "
+               (sort suspects))))))
 
 (deftest form-embeds-sub-selector-when-supplied
   (let [with-sub (#'read-dom/read-dom-form "div" ".title" 10 100 nil)
