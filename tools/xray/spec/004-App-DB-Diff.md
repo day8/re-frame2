@@ -202,6 +202,54 @@ taken only for sets.
 > fixes: all three close gaps where the wholly-changed uniformity walk
 > disagreed with the per-leaf op classification.
 
+### Vectors and lists diff member-level at the empty edge (rf2-yucxn)
+
+A **vector or list** that goes empty with its **key intact** (`{:a [1]}
+→ {:a []}`, `{:a '(1)} → {:a '()}`) is an **element removal**, not a
+wholesale value mutation — and going **populated from empty** (`{:a []}
+→ {:a [1]}`) is an **element addition**. Editscript emits a whole-value
+`:r` for the sequential empty edge (`[1] → []` ⇒ `[[] :r []]`), exactly
+as it does for the empty map (rf2-9d4j8) and empty set (rf2-l0us2). Left
+alone that `:r` classifies as a single `:modified` at the sequential's
+path — a whole-key `~` modify — which reads **inconsistently** with the
+set/map empty edges (which expand member-level with the key intact).
+
+The projection **pre-expands the sequential empty-edge `:r`** into
+per-index `:-` (going empty) / `:+` (filling from empty), bringing
+vectors and lists to member-level parity with sets and maps. The
+expansion is scoped to the empty edge **and to same-family
+sequentials** — both sides must be sequentials (neither set nor map), so
+a vector↔map (or vector↔set) flip at the empty edge stays an R7
+`:modified` type-change rather than a spurious member delta. A
+populated↔populated vector swap never collapses to a whole-value `:r`
+(Editscript emits per-index edits), so there is no `:r` to intercept
+there.
+
+A vector/list `:-` removal flows through the off-path
+`:vector-removals` channel (a removed before-index has no stable
+after-side path — the survivors shift up). **Multiple `:-` edits at one
+sequential are recovered by replaying the edit-indices against the
+progressively-shrinking before-sequence**, because Editscript applies
+`:-` edits *sequentially*: each `:-` at edit-index `i` removes the
+element *currently* at index `i` after all prior `:-` at this parent.
+A contiguous tail deletion therefore repeats the same edit-index (`[1 2
+3] → [1]` ⇒ `[[1] :-] [[1] :-]`) and a scattered deletion uses
+post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-] [[2] :-]`).
+Resolving each `:-` against the *original* before-vector independently
+(the pre-fix approach) read the wrong element for every edit after the
+first — reporting one before-value repeatedly and dropping the rest.
+The replay recovers the true before-index + before-value for every
+removed element regardless of contiguity or multiplicity.
+
+> **Renderer note (rf2-vu42n, deferred).** The engine's
+> `:vector-removals` channel is now correct for scattered/mid-vector
+> removals, but the inline vector body renderer still index-aligns the
+> before/after vectors via `children-of-pair` rather than consuming
+> `:vector-removals` + `:same-shifted`. Contiguous *tail* removals
+> render correctly; mid/scattered removals mis-render which members are
+> struck. Tracked separately so the renderer rework does not balloon the
+> engine fix.
+
 ### Removed slots render in place; the absence marker never escapes (rf2-8pfkk)
 
 The diff renders the **union of `before ∪ after`** — a slot present in

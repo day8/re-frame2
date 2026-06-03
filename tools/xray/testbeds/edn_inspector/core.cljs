@@ -1,67 +1,54 @@
 (ns edn-inspector.core
-  "EDN-INSPECTOR testbed (rf2-74u2s → rf2-1niob) — a standard-epochs-style
-  driving surface that exercises the Xray edn-inspector THROUGH its primary
-  use case: the Epoch and App-db PANELS.
+  "EDN-INSPECTOR testbed (rf2-74u2s → rf2-1niob → rf2-yucxn) — a
+  standard-epochs-style driving surface that exercises the Xray edn-inspector
+  THROUGH its primary use case: the Epoch and App-db PANELS.
 
-  ## Shape (rework — rf2-1niob)
+  ## Shape (rework — rf2-yucxn: the full datatype matrix)
 
-  ONE tall column of NUMBERED buttons, top to bottom — exactly the
-  `standard_epochs` shape. Each button DISPATCHES one event that changes
-  REAL app-db at a meaningful path, and the Xray SIDECAR mounted INLINE on
-  the right (`[data-rf-xray-host]`, like `standard_epochs`) shows the change
-  via the EPOCH panel (db-before / db-after) and the APP-DB panel (the diff).
+  ONE tall column of NUMBERED buttons grouped into the diff-audit case
+  matrix, top to bottom — the `standard_epochs` shape. Each button
+  DISPATCHES one event that makes ONE clean, meaningful app-db transition,
+  and the Xray SIDECAR mounted INLINE on the right (`[data-rf-xray-host]`,
+  like `standard_epochs`) shows the change via the EPOCH panel (db-before /
+  db-after) and the APP-DB panel (the diff).
 
-  Both of those panels render their CLJS values THROUGH the edn-inspector
+  Both panels render their CLJS values THROUGH the edn-inspector
   (`day8.re-frame2-xray.views.edn-inspector`) — the single value renderer
-  behind every Xray panel. So the inspector is demonstrated where it actually
-  earns its keep: a button writes a stressing shape into app-db, and the
-  inspector renders that shape (and its diff) inside the panels.
+  behind every Xray panel. So the inspector + its DIFF projection are
+  demonstrated where they earn their keep: a button writes a stressing shape
+  into app-db, and the inspector renders that shape and its diff inside the
+  panels.
 
-  This SUPERSEDES the earlier widget-first deck (PR #2702), which mounted a
-  standalone `inspector-stage` widget below the buttons and seeded a single
-  `:edn-inspector/fixture` slot. Per Mike (2026-06-01) the inspector is seen
-  ONLY through the Epoch + App-db panels — there is no standalone widget
-  'elsewhere'.
+  ## The matrix (rf2-yucxn — senior-dev base-case audit)
+
+  The deck is organised SIMPLE → COMPLEX along the audit matrix; each
+  control drives ONE case. Press the buttons within a section top-to-bottom
+  to walk the case ladder. `0. Reset` re-seeds the baseline shape.
+
+    MAPS                — key added · key removed · value changed
+    SEQUENTIALS         — vector/list/set: entry added · removed · changed
+    EMPTY vs REMOVAL    — a collection emptied (KEY INTACT) vs the KEY
+                          removed, for set / vector / list / map — these
+                          must render DISTINCTLY (members removed inside an
+                          intact, now-empty container vs a struck-through
+                          removed key)
+    SCALARS             — keyword/string/number/bool/nil/symbol changes;
+                          nil↔value; type changes (number→string, R7
+                          scalar→collection / map→vector)
+    MULTI-ADJUST        — add AND remove in ONE collection in ONE diff
+                          (map, vector, set)
+    DEEP / MIXED        — change several levels deep through mixed container
+                          kinds; ancestors must stay `:children`, never
+                          promote to a whole-key replace
+    SENTINELS           — :rf/redacted · :rf.size/large-elided
+    SHOWCASE            — large collection (elision) · deep nesting (collapse
+                          summary) · mixed scalar + tagged-literal vector
 
   ## Per-press delta (standard_epochs pattern)
 
   Every action event bumps a shared `:baseline` counter (the `bump` helper),
-  so the App-db / Epoch panels always show a delta on every press, and the
-  per-button capability shape is the ADDITIONAL change layered on top.
-
-  ## Button ladder — each a real app-db change exercising one inspector
-  capability AS THE PANELS RENDER IT
-
-    1  Large collection → ELISION. A 50-key map at `:metrics`; the App-db
-       panel's inspector elides past its threshold + the body scrolls.
-    2  Deeply nested → PATH RENDER / COLLAPSE. A six-level nested map at
-       `:tenant`; the inspector renders the path + `▸ {…N keys}` summaries
-       past the depth ceiling.
-    3  Diff: ADDED. A wholly-new `:flash` subtree (assoc-in) — the App-db
-       diff paints `+` / green wash.
-    4  Diff: REMOVED → empty (rf2-8pfkk). Dissoc the ONLY key under
-       `:session` so the after-tree is `{}` — a struck-through `−`
-       removal, NOT a `:added ::missing` leak.
-    5  Diff: CHANGED in place (diff-mode-3). Bump a nested scalar
-       `[:metrics :counter]` — the value-side `~` glyph + `← was N`.
-    5b Diff: SET-MEMBER REMOVED (rf2-l0us2). Remove one member from the
-       set at `[:metrics :tags]` (`#{:a :b :c}` → `#{:a :c}` → … → `#{}`,
-       re-seeding when empty). The removed member renders member-level
-       `−:b` with the set's KEY INTACT — NOT a struck-through whole-key
-       'sea of red'. The last-member → `#{}` press exercises the
-       empty-collection-replacement expansion of the same fix.
-    6  Sensitive → :rf/redacted. Write the `:rf/redacted` sentinel three
-       levels deep at `[:session-secure :user :password]` — the inspector
-       renders a `redacted` chip, never the raw value.
-    7  Large-elided sentinel. Write `{:rf.size/large-elided {…}}` (Spec 015)
-       at `[:report-cache :report-42]` — routed through the size-chip
-       renderer, not the regular map path.
-    8  Mixed types / tagged literals. Write a vector of every scalar kind
-       plus `#uuid` + `#inst` tagged literals at `:scalar-mix` — every
-       syntax-palette token + the default formatters' compact headers.
-
-  Each press: the Epoch panel shows the cascade (db-before/after); the
-  App-db panel shows the inspector rendering the shape / diff.
+  so the App-db / Epoch panels always show a delta on every press; the
+  per-button matrix case is the ADDITIONAL change layered on top.
 
   ## Inline Xray sidecar (no preload edit)
 
@@ -77,16 +64,18 @@
   ## Test surface, not tutorial
 
   Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs, no teaching
-  layers, no anti-pattern demos. Each button writes a clean inspector-
-  stressing shape; captions are guidance, not lessons.
+  layers, no anti-pattern demos. Each button writes a clean, correct
+  inspector-stressing shape; captions are guidance, not lessons.
 
   ## Test-free + self-contained
 
   Per rf2-8cevm this testbed carries no spec.cjs; the edn-inspector's
-  regression coverage lives in the `panel_gallery` Story gallery
-  (gated by the Xray feature-matrix gate) + the substrate contract tests.
-  This deck is the manual LIVE driver of the inspector inside the real
-  Epoch + App-db panels. The events / subs / views are OWNED here."
+  regression coverage lives in the engine + renderer unit tests
+  (`diff/engine_cljs_test`, `views/edn_inspector_cljs_test`) + the
+  `panel_gallery` Story gallery (gated by the Xray feature-matrix gate) +
+  the substrate contract tests. This deck is the manual LIVE driver of the
+  inspector inside the real Epoch + App-db panels. The events / subs / views
+  are OWNED here."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
@@ -113,21 +102,44 @@
 ;; One flat, named seed. `:baseline` is the shared counter every button
 ;; bumps (so App-db / Epoch always show a delta on every press). The other
 ;; slots are the real, meaningful paths the per-button events write the
-;; inspector-stressing shapes into — the App-db panel renders them (and their
-;; diffs) THROUGH the edn-inspector.
+;; matrix-case shapes into — the App-db panel renders them (and their diffs)
+;; THROUGH the edn-inspector.
+;;
+;; The seed is chosen so EVERY matrix case has something clean to act on:
+;; a map with keys to add/remove/change, sequentials with entries, a set,
+;; nested structure for the deep cases, and secure / cache slots for the
+;; sentinel cases.
 
 (def initial-db
-  {:baseline      0
-   :metrics       {:counter 5
-                   :tags    #{:a :b :c}}
-   :tenant        {}
-   :session       {:only-key {:label "removed" :n 42}}
-   :session-secure {:user {:id 7}}
-   :report-cache  {}
-   :scalar-mix    nil})
+  {:baseline   0
+   ;; MAPS — keys to add / remove / change.
+   :profile    {:name "Ada" :role :engineer}
+   ;; SEQUENTIALS — a vector, a list, a set with entries.
+   :queue      [:task-1 :task-2 :task-3]
+   :history    '(:login :browse)
+   :tags       #{:alpha :beta :gamma}
+   ;; EMPTY vs REMOVAL — a single-member of each kind to empty (key intact)
+   ;; alongside a sibling key to remove wholesale.
+   :one-vec    [:only]
+   :one-list   '(:only)
+   :one-set    #{:only}
+   :one-map    {:k 1}
+   :doomed     {:goodbye true}
+   ;; SCALARS — a leaf of each kind to flip in place.
+   :scalar     5
+   ;; MULTI-ADJUST — collections to add-and-remove in one diff.
+   :flags      {:a 1 :b 2}
+   :slots      [1 2 3]
+   :labels     #{:x :y :z}
+   ;; DEEP / MIXED — nested several levels through mixed kinds.
+   :deep       {:a {:b {:c {:d 1}}}}
+   :mixed      {:a {:b [#{:x}]}}
+   ;; SENTINELS — secure + cache slots.
+   :secure     {:user {:id 7}}
+   :cache      {}})
 
 (rf/reg-event-db :edn-inspector/reset
-  {:doc "Button 0 — re-seed app-db."}
+  {:doc "Button 0 — re-seed app-db to the matrix baseline."}
   (fn handler-reset [_db _ev]
     initial-db))
 
@@ -137,129 +149,249 @@
 ;;
 ;; Kept as a plain db->db fn (not an interceptor) so the baseline bump is
 ;; visible inline in each handler body — the App-db / Epoch delta on every
-;; press comes from here, and the per-button capability shape is the
-;; ADDITIONAL change layered on top (the standard_epochs pattern).
+;; press comes from here, and the per-button matrix case is the ADDITIONAL
+;; change layered on top (the standard_epochs pattern).
 
 (defn- bump [db] (update db :baseline inc))
 
 ;; ============================================================================
-;; EVENTS — the button ladder (each a real app-db write the panels render)
+;; EVENTS — the button ladder, grouped by the audit matrix
 ;; ============================================================================
 
-;; -- 1. large collection → elision -------------------------------------------
-(rf/reg-event-db :edn-inspector/large-collection
-  {:doc "Button 1 — write a 50-key map to `:metrics/grid`."}
-  (fn handler-large-collection [db _ev]
-    (-> db
-        bump
-        (assoc-in [:metrics :grid]
-                  (into {} (for [i (range 50)]
-                             [(keyword (str "metric-" i)) (str "value-" i)]))))))
+;; -- MAPS --------------------------------------------------------------------
 
-;; -- 2. deeply nested → path render / collapse -------------------------------
-(rf/reg-event-db :edn-inspector/deeply-nested
-  {:doc "Button 2 — write a six-level nested map to `:tenant`. The inspector
-         renders the path; deep nodes render `▸ {…N keys}` summaries past the
-         depth ceiling, ancestors open under the width-aware heuristic."}
-  (fn handler-deeply-nested [db _ev]
-    (-> db
-        bump
-        (assoc :tenant
-               {:acme {:department {:engineering {:team {:platform
-                                                         {:project :xray
-                                                          :status  :active
-                                                          :leads   ["Ada" "Grace"]}}}}}}))))
+(rf/reg-event-db :edn-inspector/map-key-added
+  {:doc "Map: a KEY ADDED. assoc a new `:team` key under :profile — the
+         App-db diff paints `+:team` (green, key-anchored)."}
+  (fn [db _] (-> db bump (assoc-in [:profile :team] :platform))))
 
-;; -- 3. diff: ADDED (green +) ------------------------------------------------
-(rf/reg-event-db :edn-inspector/diff-added
-  {:doc "Button 3 — assoc-in a wholly-new `:flash` subtree."}
-  (fn handler-diff-added [db _ev]
-    (-> db
-        bump
-        (assoc-in [:metrics :flash] {:level :ok :text "Order placed"}))))
-
-;; -- 4. diff: REMOVED → empty (rf2-8pfkk) ------------------------------------
-(rf/reg-event-db :edn-inspector/diff-removed-to-empty
-  {:doc "Button 4 — dissoc the ONLY key under `:session` so the after-tree is
-         `{}`. The App-db diff shows a struck-through `−` removal, NOT a
-         `:added ::missing` leak (the bug rf2-8pfkk fixed). Re-seeds the key
-         first if it was already removed so there is always something to
-         remove."}
-  (fn handler-diff-removed-to-empty [db _ev]
+(rf/reg-event-db :edn-inspector/map-key-removed
+  {:doc "Map: a KEY REMOVED. dissoc `:role` from :profile — the diff paints
+         a struck-through `−:role` (red, key-anchored)."}
+  (fn [db _]
     (let [db (bump db)]
-      (if (seq (:session db))
-        (assoc db :session {})
-        (assoc db :session {:only-key {:label "removed" :n 42}})))))
+      (if (contains? (:profile db) :role)
+        (update db :profile dissoc :role)
+        (assoc-in db [:profile :role] :engineer)))))
 
-;; -- 5. diff: CHANGED in place (diff-mode-3) ---------------------------------
-(rf/reg-event-db :edn-inspector/diff-changed
-  {:doc "Button 5 — bump the nested scalar `[:metrics :counter]` in place. The
-         App-db diff shows the value-side `~` glyph + `← was N` annotation
-         (diff-mode-3 R1)."}
-  (fn handler-diff-changed [db _ev]
-    (-> db
-        bump
-        (update-in [:metrics :counter] (fnil inc 0)))))
+(rf/reg-event-db :edn-inspector/map-value-changed
+  {:doc "Map: a VALUE CHANGED in place. Bump :profile/name — the value-side
+         `~` glyph + `← was \"…\"` annotation, key intact."}
+  (fn [db _]
+    (-> db bump
+        (update-in [:profile :name]
+                   #(if (= % "Ada") "Ada Lovelace" "Ada")))))
 
-;; -- 5b. diff: SET-MEMBER REMOVED (rf2-l0us2) --------------------------------
-(rf/reg-event-db :edn-inspector/diff-set-member-removed
-  {:doc "Button 5b — remove ONE member from the set at `[:metrics :tags]`
-         (`#{:a :b :c}` → `#{:a :c}` → … → `#{}`), re-seeding the full set
-         once it has been emptied so there is always a member to remove. The
-         App-db diff renders the removed member member-level (`−:b`) with the
-         set's KEY INTACT — NOT a struck-through whole-key removal (the
-         `mark-wholly-changed` 'sea of red' rf2-l0us2 fixed). The
-         last-member → `#{}` press exercises the same fix's
-         empty-collection-replacement expansion."}
-  (fn handler-diff-set-member-removed [db _ev]
+;; -- SEQUENTIALS (vector / list / set) ---------------------------------------
+
+(rf/reg-event-db :edn-inspector/seq-entry-added
+  {:doc "Sequential: ENTRY ADDED. conj a new task onto the :queue vector —
+         the appended entry paints `+` green."}
+  (fn [db _]
+    (-> db bump
+        (update :queue conj (keyword (str "task-" (inc (count (:queue db)))))))))
+
+(rf/reg-event-db :edn-inspector/seq-entry-removed
+  {:doc "Sequential: ENTRY REMOVED. pop the tail off the :queue vector — the
+         dropped entry renders struck-through (member-level, not a whole-key
+         replace). Re-seeds when down to one so there is always a tail."}
+  (fn [db _]
+    (let [db (bump db)]
+      (if (> (count (:queue db)) 1)
+        (update db :queue pop)
+        (assoc db :queue [:task-1 :task-2 :task-3])))))
+
+(rf/reg-event-db :edn-inspector/set-member-changed
+  {:doc "Set: a MEMBER CHANGED (swap). Replace one member of :tags — the
+         diff paints member-level `−:alpha +:delta` with the :tags KEY
+         INTACT (not a 'sea of red' whole-key strike). Cycles members."}
+  (fn [db _]
     (let [db   (bump db)
-          tags (get-in db [:metrics :tags])]
-      (if (seq tags)
-        (assoc-in db [:metrics :tags] (disj tags (first (sort tags))))
-        (assoc-in db [:metrics :tags] #{:a :b :c})))))
+          tags (:tags db)]
+      (assoc db :tags
+             (cond
+               (contains? tags :alpha) (-> tags (disj :alpha) (conj :delta))
+               (contains? tags :delta) (-> tags (disj :delta) (conj :alpha))
+               :else                   #{:alpha :beta :gamma})))))
 
-;; -- 6. sensitive → :rf/redacted ---------------------------------------------
+;; -- EMPTY vs REMOVAL (the subtle one) ---------------------------------------
+;;
+;; Each "empty" button drops the single member of a one-member collection so
+;; the container goes EMPTY with its KEY INTACT — the inspector renders the
+;; now-empty bracket pair with the dropped member struck inside. The
+;; "remove key" button dissocs the :doomed key wholesale — a struck-through
+;; removed KEY (the collapsed removed-ghost). The two must read DISTINCTLY.
+
+(rf/reg-event-db :edn-inspector/empty-vector
+  {:doc "Empty a VECTOR, key intact. `:one-vec [:only]` → `[]` — the element
+         removal renders member-level inside the intact (now-empty) vector,
+         NOT a whole-key `~` modify (rf2-yucxn BUG A). Re-seeds when empty."}
+  (fn [db _]
+    (let [db (bump db)]
+      (assoc db :one-vec (if (seq (:one-vec db)) [] [:only])))))
+
+(rf/reg-event-db :edn-inspector/empty-list
+  {:doc "Empty a LIST, key intact. `:one-list (:only)` → `()` — member-level
+         removal inside the intact list (rf2-yucxn BUG A). Re-seeds."}
+  (fn [db _]
+    (let [db (bump db)]
+      (assoc db :one-list (if (seq (:one-list db)) '() '(:only))))))
+
+(rf/reg-event-db :edn-inspector/empty-set
+  {:doc "Empty a SET, key intact. `:one-set #{:only}` → `#{}` — member-level
+         removal inside the intact set (l0us2 empty-edge expansion). Re-seeds."}
+  (fn [db _]
+    (let [db (bump db)]
+      (assoc db :one-set (if (seq (:one-set db)) #{} #{:only})))))
+
+(rf/reg-event-db :edn-inspector/empty-map
+  {:doc "Empty a MAP, key intact. `:one-map {:k 1}` → `{}` — member-level
+         removal inside the intact map (rf2-9d4j8 empty-map expansion).
+         Re-seeds."}
+  (fn [db _]
+    (let [db (bump db)]
+      (assoc db :one-map (if (seq (:one-map db)) {} {:k 1})))))
+
+(rf/reg-event-db :edn-inspector/remove-key
+  {:doc "Remove a KEY wholesale. dissoc `:doomed` — a struck-through removed
+         KEY (collapsed removed-ghost), DISTINCT from emptying a collection
+         whose key stays. Re-seeds the key when gone."}
+  (fn [db _]
+    (let [db (bump db)]
+      (if (contains? db :doomed)
+        (dissoc db :doomed)
+        (assoc db :doomed {:goodbye true})))))
+
+;; -- SCALARS -----------------------------------------------------------------
+
+(rf/reg-event-db :edn-inspector/scalar-number
+  {:doc "Scalar: NUMBER changed in place. Increment :scalar — `~` + `← was N`."}
+  (fn [db _] (-> db bump (update :scalar #(if (number? %) (inc %) 5)))))
+
+(rf/reg-event-db :edn-inspector/scalar-nil-toggle
+  {:doc "Scalar: NIL ↔ VALUE. Toggle :scalar between a value and nil — both
+         transitions are `:modified` leaves (nil is a real value, not absence)."}
+  (fn [db _] (-> db bump (update :scalar #(if (nil? %) 5 nil)))))
+
+(rf/reg-event-db :edn-inspector/scalar-type-flip
+  {:doc "Scalar: TYPE CHANGE. Flip :scalar number↔string (`5` ↔ `\"five\"`)
+         and scalar↔map — R7 renders `~` + `← was <type>` type-change suffix."}
+  (fn [db _]
+    (-> db bump
+        (update :scalar
+                (fn [v]
+                  (cond
+                    (number? v) "five"
+                    (string? v) {:was :string}
+                    :else       5))))))
+
+;; -- MULTI-ADJUST (add AND remove in one diff) -------------------------------
+
+(rf/reg-event-db :edn-inspector/map-multi-adjust
+  {:doc "Map: ADD + REMOVE in ONE diff. Swap :flags `{:a 1 :b 2}` ↔
+         `{:a 1 :c 3}` — `:b` removed AND `:c` added simultaneously, `:a`
+         unchanged."}
+  (fn [db _]
+    (-> db bump
+        (update :flags
+                (fn [m]
+                  (if (contains? m :b) {:a 1 :c 3} {:a 1 :b 2}))))))
+
+(rf/reg-event-db :edn-inspector/vector-multi-adjust
+  {:doc "Vector: CHANGE + APPEND in ONE diff. Swap :slots `[1 2 3]` ↔
+         `[1 9 3 4]` — index 1 modified (2→9) AND index 3 appended (4)."}
+  (fn [db _]
+    (-> db bump
+        (update :slots
+                (fn [v] (if (= v [1 2 3]) [1 9 3 4] [1 2 3]))))))
+
+(rf/reg-event-db :edn-inspector/set-multi-adjust
+  {:doc "Set: MULTI-MEMBER swap in ONE diff. Swap :labels `#{:x :y :z}` ↔
+         `#{:x :p :q}` — `:y :z` removed AND `:p :q` added, `:x` kept,
+         member-level, key intact (rf2-4vp8c)."}
+  (fn [db _]
+    (-> db bump
+        (update :labels
+                (fn [s] (if (contains? s :y) #{:x :p :q} #{:x :y :z}))))))
+
+;; -- DEEP / MIXED ------------------------------------------------------------
+
+(rf/reg-event-db :edn-inspector/deep-change
+  {:doc "Deep: a scalar change FIVE levels deep at `[:deep :a :b :c :d]`.
+         Every ancestor reads `:children` (◴ + rail); none promotes to a
+         whole-key replace."}
+  (fn [db _] (-> db bump (update-in [:deep :a :b :c :d] (fnil inc 0)))))
+
+(rf/reg-event-db :edn-inspector/mixed-deep-change
+  {:doc "Mixed: a SET swap through map→map→vector→set at
+         `[:mixed :a :b 0]`. Diffs member-level at the set; no ancestor
+         (map or vector) is falsely promoted to a whole-key replace
+         (the l0us2 ancestor-non-promotion property across kinds). Cycles."}
+  (fn [db _]
+    (-> db bump
+        (update-in [:mixed :a :b 0]
+                   (fn [s] (if (contains? s :x) #{:y} #{:x}))))))
+
+;; -- SENTINELS ---------------------------------------------------------------
+
 (rf/reg-event-db :edn-inspector/redacted
-  {:doc "Button 6 — write the `:rf/redacted` sentinel three levels deep at
-         `[:session-secure :user :password]`. The inspector renders a
-         `redacted` chip, never the raw value."}
-  (fn handler-redacted [db _ev]
-    (-> db
-        bump
-        (assoc-in [:session-secure :user :password] :rf/redacted))))
+  {:doc "Sentinel: :rf/redacted. Write the sentinel three levels deep at
+         `[:secure :user :password]` — the inspector renders a `redacted`
+         chip, never the raw value."}
+  (fn [db _] (-> db bump (assoc-in [:secure :user :password] :rf/redacted))))
 
-;; -- 7. large-elided sentinel (Spec 015) -------------------------------------
 (rf/reg-event-db :edn-inspector/large-elided
-  {:doc "Button 7 — write a `:rf.size/large-elided` sentinel (Spec 015) at
-         `[:report-cache :report-42]`. The inspector routes it through the
-         size-chip renderer, not the regular map path."}
-  (fn handler-large-elided [db _ev]
-    (-> db
-        bump
-        (assoc-in [:report-cache :report-42]
+  {:doc "Sentinel: :rf.size/large-elided (Spec 015). Write the sentinel at
+         `[:cache :report-42]` — routed through the size-chip renderer."}
+  (fn [db _]
+    (-> db bump
+        (assoc-in [:cache :report-42]
                   {:rf.size/large-elided {:source        :app-db
-                                          :path          [:report-cache :report-42]
+                                          :path          [:cache :report-42]
                                           :original-size 12480293
                                           :bytes         12480293
                                           :handle        :report/payload-42
                                           :reason        :over-budget}}))))
 
-;; -- 8. mixed types / tagged literals ----------------------------------------
+;; -- SHOWCASE (rendering capabilities the diff matrix doesn't exercise) ------
+
+(rf/reg-event-db :edn-inspector/large-collection
+  {:doc "Showcase: LARGE collection → elision. Write a 50-key map at
+         `[:cache :grid]` — the App-db inspector elides past its threshold +
+         the body scrolls."}
+  (fn [db _]
+    (-> db bump
+        (assoc-in [:cache :grid]
+                  (into {} (for [i (range 50)]
+                             [(keyword (str "metric-" i)) (str "value-" i)]))))))
+
+(rf/reg-event-db :edn-inspector/deeply-nested
+  {:doc "Showcase: DEEP nesting → path render / collapse. Write a six-level
+         nested map at `:cache/tenant` — deep nodes render `▸ {…N keys}`
+         summaries past the depth ceiling."}
+  (fn [db _]
+    (-> db bump
+        (assoc-in [:cache :tenant]
+                  {:acme {:department {:engineering {:team {:platform
+                                                            {:project :xray
+                                                             :status  :active
+                                                             :leads   ["Ada" "Grace"]}}}}}}))))
+
 (rf/reg-event-db :edn-inspector/mixed-types
-  {:doc "Button 8 — write a vector of every scalar kind PLUS `#uuid` + `#inst`
-         tagged literals at `:scalar-mix`. The inspector paints every
-         syntax-palette token + the default formatters' compact headers."}
-  (fn handler-mixed-types [db _ev]
-    (-> db
-        bump
-        (assoc :scalar-mix
-               [nil true false
-                42 -7 3.14159
-                "hello" "with \"escaped\" quotes"
-                :simple :ns/qualified
-                'plain-sym 'my.ns/qualified-sym
-                (random-uuid)
-                (js/Date.)]))))
+  {:doc "Showcase: MIXED scalar kinds + tagged literals. Write a vector of
+         every scalar kind PLUS `#uuid` + `#inst` at `:cache/scalar-mix` —
+         every syntax-palette token + the default formatters' compact
+         headers."}
+  (fn [db _]
+    (-> db bump
+        (assoc-in [:cache :scalar-mix]
+                  [nil true false
+                   42 -7 3.14159
+                   "hello" "with \"escaped\" quotes"
+                   :simple :ns/qualified
+                   'plain-sym 'my.ns/qualified-sym
+                   (random-uuid)
+                   (js/Date.)]))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS — the on-page mirror of the baseline counter
@@ -268,45 +400,74 @@
 (rf/reg-sub :edn-inspector/baseline (fn [db _] (:baseline db)))
 
 ;; ============================================================================
-;; THE BUTTON LADDER
+;; THE BUTTON LADDER — grouped by the audit matrix
 ;; ============================================================================
 
 (def ^:private ladder
   "The ordered button ladder. Each row: [n label caption event]. `event` is
-  the dispatch vector; `:section` rows are separators (label only)."
-  [[:section "Resting / elision / nesting"]
-   [1 "Large collection → elision"
-    "Add a 50-key map at :metrics/grid"
-    [:edn-inspector/large-collection]]
-   [2 "Deeply nested → path + collapse"
-    "Adds six-level nested map at :tenant — deep nodes shown as summary"
-    [:edn-inspector/deeply-nested]]
+  the dispatch vector; `:section` rows are matrix-group separators."
+  [[:section "Maps — key add / remove / value change"]
+   ["1a" "Map: key ADDED"   "assoc :profile/:team — `+:team`, key-anchored"
+    [:edn-inspector/map-key-added]]
+   ["1b" "Map: key REMOVED" "dissoc :profile/:role — struck `−:role`"
+    [:edn-inspector/map-key-removed]]
+   ["1c" "Map: value CHANGED" "bump :profile/:name — `~` + `← was \"…\"`"
+    [:edn-inspector/map-value-changed]]
 
-   [:section "Diff ops — added / removed / changed"]
-   [3 "Diff: ADDED (green +)"
-    "added new :flash subtree - see the `+` glyph + green wash"
-    [:edn-inspector/diff-added]]
-   [4 "Diff: REMOVED → empty"
-    "remove only key under :session → is `{}`"
-    [:edn-inspector/diff-removed-to-empty]]
-   [5 "Diff: CHANGED in place"
-    "Increment [:metrics :counter] — see value-side `~` glyph + `← was N`"
-    [:edn-inspector/diff-changed]]
-   ["5b" "Remove set member"
-    "Drop one member from the set [:metrics :tags] — removed member renders `−:b`, key intact (not a whole-key strike); last press empties the set"
-    [:edn-inspector/diff-set-member-removed]]
+   [:section "Sequentials — vector / list / set entry"]
+   ["2a" "Vector: entry ADDED"   "conj a task onto :queue — `+` green"
+    [:edn-inspector/seq-entry-added]]
+   ["2b" "Vector: entry REMOVED" "pop :queue tail — struck member, key intact"
+    [:edn-inspector/seq-entry-removed]]
+   ["2c" "Set: member CHANGED"   "swap a :tags member — `−:alpha +:delta`, key intact"
+    [:edn-inspector/set-member-changed]]
+
+   [:section "Empty-result vs key-removal (must read DISTINCTLY)"]
+   ["3a" "Empty a VECTOR (key intact)" ":one-vec [:only] → [] — member removal, key stays"
+    [:edn-inspector/empty-vector]]
+   ["3b" "Empty a LIST (key intact)"   ":one-list (:only) → () — member removal, key stays"
+    [:edn-inspector/empty-list]]
+   ["3c" "Empty a SET (key intact)"    ":one-set #{:only} → #{} — member removal, key stays"
+    [:edn-inspector/empty-set]]
+   ["3d" "Empty a MAP (key intact)"    ":one-map {:k 1} → {} — member removal, key stays"
+    [:edn-inspector/empty-map]]
+   ["3e" "Remove a KEY (wholesale)"    "dissoc :doomed — struck removed KEY (ghost), distinct from emptying"
+    [:edn-inspector/remove-key]]
+
+   [:section "Scalars — value / nil / type change"]
+   ["4a" "Scalar: NUMBER changed" "increment :scalar — `~` + `← was N`"
+    [:edn-inspector/scalar-number]]
+   ["4b" "Scalar: nil ↔ value"    "toggle :scalar value↔nil — both `:modified`"
+    [:edn-inspector/scalar-nil-toggle]]
+   ["4c" "Scalar: TYPE change"    "flip :scalar number↔string↔map — R7 `← was <type>`"
+    [:edn-inspector/scalar-type-flip]]
+
+   [:section "Multiple adjustments in ONE diff"]
+   ["5a" "Map: add AND remove"    "swap :flags {:a 1 :b 2}↔{:a 1 :c 3} — `−:b +:c`"
+    [:edn-inspector/map-multi-adjust]]
+   ["5b" "Vector: change AND append" "swap :slots [1 2 3]↔[1 9 3 4] — `~`@1 + `+`@3"
+    [:edn-inspector/vector-multi-adjust]]
+   ["5c" "Set: multi-member swap"  "swap :labels #{:x :y :z}↔#{:x :p :q} — `−:y −:z +:p +:q`"
+    [:edn-inspector/set-multi-adjust]]
+
+   [:section "Deep hierarchy / mixed-type nesting"]
+   ["6a" "Deep scalar change"     "bump [:deep :a :b :c :d] — ancestors `:children`, none promoted"
+    [:edn-inspector/deep-change]]
+   ["6b" "Mixed-kind deep swap"   "swap set at [:mixed :a :b 0] (map→map→vec→set) — no ancestor promotion"
+    [:edn-inspector/mixed-deep-change]]
 
    [:section "Sentinels — redaction / size-elision"]
-   [6 "Sensitive → :rf/redacted"
-    "Add a :rf/redacted sentinel at [:session-secure :user :password] renders a `redacted` chip, never the raw value"
+   ["7a" "Sensitive → :rf/redacted" "assoc [:secure :user :password] :rf/redacted — `redacted` chip"
     [:edn-inspector/redacted]]
-   [7 "Large-elided sentinel"
-    "Add a :rf.size/large-elided sentinel at [:report-cache :report-42]"
+   ["7b" "Large-elided sentinel"    "assoc [:cache :report-42] a :rf.size/large-elided sentinel"
     [:edn-inspector/large-elided]]
 
-   [:section "Tagged literals / mixed types"]
-   [8 "Mixed types / tagged literals"
-    "Add a vector of scalar kinds — nil, boolean, int, float, string, keyword, symbol, #uuid, #inst tagged literals"
+   [:section "Showcase — elision / collapse / tagged literals"]
+   ["8a" "Large collection → elision" "50-key map at [:cache :grid] — elides past threshold"
+    [:edn-inspector/large-collection]]
+   ["8b" "Deeply nested → collapse"   "six-level nested map at [:cache :tenant] — `▸ {…N keys}` summaries"
+    [:edn-inspector/deeply-nested]]
+   ["8c" "Mixed types / tagged literals" "scalar-kind vector + #uuid + #inst at [:cache :scalar-mix]"
     [:edn-inspector/mixed-types]]])
 
 (defn- testid-for [event]
@@ -321,7 +482,7 @@
                  :gap "0.75em" :align-items "center" :margin "0.35em 0"}}
    [:button {:data-testid (testid-for event)
              :on-click    #(dispatch event)
-             :style {:min-width "18em" :text-align "left"
+             :style {:min-width "20em" :text-align "left"
                      :padding "0.4em 0.6em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#fff"}}
@@ -331,7 +492,7 @@
    [:span {:style {:color "#666" :font-size "12px"}} caption]])
 
 (reg-view section-heading
-  "A section separator inside the ladder."
+  "A matrix-group separator inside the ladder."
   [label]
   [:div {:style {:margin "1em 0 0.25em 0" :font-size "11px" :font-weight "bold"
                  :color "#7C5CFF" :text-transform "uppercase"
@@ -342,24 +503,24 @@
 (reg-view root []
   [:div {:data-testid "edn-inspector-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
-                 :max-width "760px"}}
+                 :max-width "820px"}}
    [:header {:style {:margin-bottom "0.5em"}}
-    [:h2 {:style {:margin 0}} "edn-inspector"]
+    [:h2 {:style {:margin 0}} "edn-inspector — diff case matrix"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     [:code "edn-inspector"] " is a component used within "
+     [:code "edn-inspector"] " is the value renderer used inside "
      [:code "xray"] " panels like " [:code "Epoch"] " and " [:code "app-db"]
-     ". This is a test app for that component."]
+     ". This deck walks its DIFF projection across the full datatype matrix."]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "It is a tall column of buttons. Click them one after the other to "
-     "see a series of " [:code "app-db"] " changes rendered within xray "
-     "on the right."]]
+     "Press the buttons top-to-bottom within each section. Each makes ONE "
+     [:code "app-db"] " change; the Epoch + App-db panels on the right "
+     "render the before/after + diff through the inspector."]]
    ;; Button 0 — Reset.
    [:button {:data-testid "edn-inspector-reset"
              :on-click #(dispatch [:edn-inspector/reset])
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db"]
+    "0. Reset — re-seed the matrix baseline"]
    ;; The ladder.
    (for [row ladder]
      (if (= :section (first row))
