@@ -378,6 +378,23 @@
        :event      event
        :state      state}))
 
+(defn machine-started-ev
+  "`:rf.machine/started` trace (rf2-it4vt, the machine BIRTH signal
+  `maybe-boot` emits per rf2-gl588 / F-triple-prime). Op-type `:rf.machine`
+  (benign birth, NOT a severity). Carries the machine's INITIAL logical
+  `:state` + INITIAL `:data` + the `:cause` enum (`:explicit` / `:lazy` /
+  `:spawned`). Drives the EVENT HANDLER machine cascade's `[START]` row.
+
+    - EAGER  -> `:explicit` (an explicit `[:machine-id [:rf.machine/start]]`)
+    - LAZY   -> `:lazy`     (init folded into the first real event's epoch)
+    - SPAWN  -> `:spawned`  (the spawn fx pre-seeded the snapshot)"
+  [machine-id state data cause]
+  (ev :rf.machine :rf.machine/started
+      {:machine-id machine-id
+       :state      state
+       :data       data
+       :cause      cause}))
+
 (defn machine-history-restored-ev
   "`:rf.machine.history/restored` trace (rf2-mle6e.5, spec/009 §History trace
   events) — a transition resolved a `:type :history` pseudo-state. Op-type

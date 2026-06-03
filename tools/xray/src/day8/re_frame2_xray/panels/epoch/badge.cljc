@@ -216,7 +216,12 @@
    :timer       :warning
    ;; rf2-ugdas — the benign unhandled-event no-op. Muted/tertiary tone:
    ;; benign, low-signal — explicitly NOT an error/warning hue.
-   :no-op       :text-tertiary})
+   :no-op       :text-tertiary
+   ;; rf2-it4vt — the machine's BIRTH (`[START]`). Green/success tone: a
+   ;; clean creation is a GOOD event (xstate's `createActor(m).start()`),
+   ;; and the green reads as "the machine came alive here" — distinct from
+   ;; the blue ACTION, the magenta TRANSITION, and the muted no-op.
+   :start       :success})
 
 (def ^:private cascade-kind->label
   "Map from machine-cascade row `:kind` keyword → uppercase label
@@ -230,7 +235,11 @@
    ;; "[NO OP] staying in {state}" (`format/cascade-row-label`) — the pill
    ;; carries the one badge; the verb carries the consequence. No "ignored"
    ;; outcome chip, no "no-op —" prefix, no ", no transition" suffix.
-   :no-op       "NO OP"})
+   :no-op       "NO OP"
+   ;; rf2-it4vt — the machine's BIRTH pill. "START" mirrors xstate's
+   ;; `createActor(m).start()` — the machine ran its initial-entry cascade
+   ;; and installed its initial state.
+   :start       "START"})
 
 (defn cascade-kind-token-key
   "Theme-token keyword for a cascade row's `:kind` (rf2-u69j7). Falls
@@ -257,8 +266,9 @@
 (def cascade-kind-set
   "Closed set of cascade row kinds the view paints chrome for
   (rf2-u69j7). New kinds extend the projection's
-  `machine-cascade-trace-ops` AND this set in lockstep."
-  #{:guard :action :transition :timer :no-op})
+  `machine-cascade-trace-ops` AND this set in lockstep.
+  rf2-it4vt — `:start` (the machine's birth `[START]` badge)."
+  #{:guard :action :transition :timer :no-op :start})
 
 (defn cascade-kind?
   "Predicate — `kind` keyword is a member of `cascade-kind-set`."

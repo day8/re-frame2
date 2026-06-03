@@ -448,6 +448,31 @@
    :line-height    1
    :white-space    "nowrap"})
 
+;; rf2-it4vt — the `[START]` row's CAUSE tag (`explicit` / `lazy` /
+;; `spawned`). A small outlined chip next to the verb that tells the
+;; operator HOW the machine came to life. `:lazy` is the ORDERING SMELL
+;; (something dispatched to the machine before it was explicitly started) —
+;; painted in the warning tone; `:explicit` / `:spawned` ride the muted
+;; tertiary tone (a clean, expected birth).
+(def ^:private cascade-start-cause-style
+  {:display        "inline-flex"
+   :align-items    "center"
+   :background     bg-3-colour
+   :color          text-tertiary-colour
+   :border         (str "1px solid " border-subtle-colour)
+   :border-radius  "2px"
+   :padding        "1px 5px"
+   :font-family    mono-stack
+   :font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.3px"
+   :white-space    "nowrap"})
+
+(def ^:private cascade-start-cause-smell-style
+  (assoc cascade-start-cause-style
+         :color  warning-colour
+         :border (str "1px solid " warning-colour)))
+
 (def ^:private cascade-ordinal-style
   {:display         "inline-flex"
    :align-items     "center"
@@ -2623,6 +2648,22 @@
             :style cascade-phase-style}
      (badge/cascade-phase-label phase)]))
 
+(defn- cascade-start-cause-chip
+  "Render the `[START]` row's CAUSE tag (rf2-it4vt) — `explicit` / `lazy` /
+  `spawned`, off the `:rf.machine/started` trace's `:cause`. Tells the
+  operator HOW the machine came to life. The `:lazy` cause is the ORDERING
+  SMELL (something dispatched to the machine before it was explicitly
+  started) — painted in the warning tone; `:explicit` / `:spawned` ride the
+  muted tertiary tone. Renders nothing when no cause was stamped."
+  [cause]
+  (when-let [label (fmt/start-cause-label cause)]
+    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-start-cause-"
+                              (when (keyword? cause) (name cause)))
+            :style (if (fmt/start-cause-smell? cause)
+                     cascade-start-cause-smell-style
+                     cascade-start-cause-style)}
+     label]))
+
 (defn- cascade-kind-pill
   "Render the kind pill (`GUARD / ACTION / TRANSITION / TIMER`) on a
   cascade row's header (rf2-u69j7). Smaller than the top-level badge
@@ -2937,6 +2978,28 @@
                       :style structured-cascade-microsteps-style}]
                (map #(structured-cascade-microstep prefix %) microsteps)))])))
 
+(defn- cascade-row-start-body
+  "Render the `[START]` row's body (rf2-it4vt) — the machine's INITIAL
+  `:data` (off the `:rf.machine/started` trace's `:data` tag), shown through
+  `ei/edn-inspector` (the SAME widget the transition delta + per-action
+  DATA Δ use). NO `:before` (a birth has no prior state — the data is freshly
+  built by the initial-entry cascade), so the inspector renders the initial
+  data map plainly rather than as a diff. The initial logical STATE rides the
+  header verb (`started in {state}`); this box is the initial DATA.
+
+  Returns nil when the machine carries no `:data` (a data-less machine) so
+  the caller renders no body slot — the `[START]` pill + `started in {state}`
+  verb already tell the birth story."
+  [{:keys [step data]}]
+  (when (some? data)
+    [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-" step)
+           :style cascade-row-source-style}
+     [:div {:data-testid (str "rf-xray-epoch-machine-cascade-start-data-" step)}
+      [ei/edn-inspector data
+       {:site-id                [:rf.xray.epoch/machine-cascade-start-data step]
+        :card?                  false
+        :default-expanded-depth 3}]]]))
+
 (defn- cascade-row-source-body
   "Render the source code body for a cascade row (rf2-u69j7 baseline +
   rf2-wwc3j inline-fn extensions). Always visible per the bead body's
@@ -2967,6 +3030,11 @@
   step's source body."
   [machine-meta row source-form]
   (cond
+    ;; rf2-it4vt — the `[START]` row's body is the machine's INITIAL :data
+    ;; (the initial logical :state rides the header verb).
+    (= :start (:kind row))
+    (cascade-row-start-body row)
+
     ;; rf2-iwy0c part A — transition rows show the logical-state delta,
     ;; NOT the transition map literal. Self/internal transitions (no
     ;; logical change) elide the box entirely.
@@ -3115,9 +3183,12 @@
   state-change verb (`<before> → <after>`) + the rf2-iwy0c logical-state
   DELTA box (`{:state :tags}` before → after), with NO repetitive detail
   block (rf2-ge6uj ISSUE 3); `:timer` rides a minimal layout (kind +
-  state + reason, no source body)."
+  state + reason, no source body); `:start` (rf2-it4vt) rides the
+  `[START]` pill + `started in {state}` verb + a CAUSE tag chip
+  (`explicit` / `lazy` / `spawned`) + the initial-`:data` body box, with
+  NO source-link (a birth has no spec call-site) and NO outcome chip."
   [machine-meta row]
-  (let [{:keys [kind step phase duration-ms outcome threw?]} row
+  (let [{:keys [kind step phase duration-ms outcome threw? cause]} row
         coord       (cascade-row-coord machine-meta row)
         source-form (cascade-row-source-form machine-meta row)
         verb        (fmt/cascade-row-label row)
@@ -3142,6 +3213,11 @@
       (when (= :action kind)
         (cascade-phase-chip phase))
       (cascade-row-verb-link row coord verb)
+      ;; rf2-it4vt — the `[START]` row's CAUSE tag (explicit / lazy /
+      ;; spawned) rides right after the verb. The `lazy` cause is the
+      ;; ordering-smell flag (warning tone).
+      (when (= :start kind)
+        (cascade-start-cause-chip cause))
       ;; Right-aligned: duration + outcome chip
       [:span {:style cascade-row-right-style}
        (duration-chip duration-ms)

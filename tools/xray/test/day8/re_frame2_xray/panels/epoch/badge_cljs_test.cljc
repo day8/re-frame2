@@ -97,15 +97,27 @@
 (deftest cascade-kind-set-test
   (testing "rf2-u69j7 — the cascade-kind inventory matches the
             substrate trace ops the projection harvests (rf2-ugdas adds
-            :no-op for the benign unhandled-event no-op)"
-    (is (= #{:guard :action :transition :timer :no-op}
+            :no-op for the benign unhandled-event no-op; rf2-it4vt adds
+            :start for the machine's birth [START] badge)"
+    (is (= #{:guard :action :transition :timer :no-op :start}
            badge/cascade-kind-set))
     (is (badge/cascade-kind? :guard))
     (is (badge/cascade-kind? :action))
     (is (badge/cascade-kind? :transition))
     (is (badge/cascade-kind? :timer))
     (is (badge/cascade-kind? :no-op))
+    (is (badge/cascade-kind? :start))
     (is (not (badge/cascade-kind? :NOT-A-KIND))))
+
+  (testing "rf2-it4vt — the :start kind resolves to a green/success label +
+            colour (a clean birth is a GOOD event), distinct from the muted
+            no-op tone"
+    (is (= "START" (badge/cascade-kind-label :start)))
+    (is (string? (badge/cascade-kind-colour :start)))
+    (is (re-find #"var\(--rf-xray-" (badge/cascade-kind-colour :start)))
+    (is (not= (badge/cascade-kind-colour :start)
+              (badge/cascade-kind-colour :no-op))
+        "the green birth is distinct from the muted no-op tone"))
 
   (testing "rf2-ugdas / rf2-iu3no — the :no-op kind resolves to a muted (not
             red) label + colour, distinct from the error/warning hues. The

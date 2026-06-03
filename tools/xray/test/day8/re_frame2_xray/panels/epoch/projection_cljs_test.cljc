@@ -77,6 +77,7 @@
 (def ^:private machine-action-ev       teb/machine-action-ev)
 (def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
 (def ^:private machine-unhandled-no-op-ev teb/machine-unhandled-no-op-ev)
+(def ^:private machine-started-ev      teb/machine-started-ev)
 (def ^:private machine-action-exception-ev teb/machine-action-exception-ev)
 (def ^:private machine-history-restored-ev  teb/machine-history-restored-ev)
 (def ^:private machine-history-recorded-ev  teb/machine-history-recorded-ev)
@@ -780,74 +781,154 @@
       (is (some? (:machine r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))))))
 
-;; ---- rf2-e6q97 — a no-op suppresses the spurious {X}→{X} transition row ---
+;; ---- rf2-it4vt — the machine's [START] badge -----------------------------
 
-(deftest no-op-suppresses-spurious-transition-row-test
-  (testing "rf2-e6q97 — on a genuine unknown-user-event no-op the substrate
-            emits BOTH the benign :rf.machine.event/unhandled-no-op AND its
-            unconditional :rf.machine/transition summary ({X}→{X}, 0
-            microsteps). Rendered side-by-side those CONTRADICT. The cascade
-            must show the :no-op row ALONE — the spurious transition row is
-            dropped."
-    ;; rf2-iu3no — the live repro fixture was a `[:rf.machine/start]`
-    ;; no-op, but rf2-t4582 (#2846) carved the start OUT of the no-op
-    ;; classification (start runs :initial-entry, never a no-op). The
-    ;; dedup MECHANISM this asserts is independent of which event no-op'd, so
-    ;; the fixture is rebased onto a genuine unknown USER event (the only
-    ;; thing that still produces an unhandled-no-op post-t4582).
-    (let [state {:vehicle :red :pedestrian :walk}
-          ;; A user dispatched [:traffic/unknown] in a state with no matching
-          ;; transition: unhandled-no-op (event matched no transition)
-          ;; FOLLOWED BY the unconditional commit transition with
-          ;; :before == :after and :microsteps 0.
-          no-op (machine-unhandled-no-op-ev :traffic/light
-                                            [:traffic/unknown] state)
-          tx    (machine-transition-ev :traffic/light
-                                       {:state state :data {}}
-                                       {:state state :data {}}
-                                       [:traffic/unknown] 0)
-          rows  (proj/machine-cascade-rows [no-op tx])]
-      ;; RED before the fix: rows == [:no-op :transition] (the contradiction).
-      ;; GREEN after: the :transition row is gone.
-      (is (= [:no-op] (mapv :kind rows))
-          "only the :no-op row survives — no spurious {X}→{X} transition row")
+(deftest machine-started-projects-to-start-row-test
+  (testing "rf2-it4vt — a :rf.machine/started trace projects to a :start
+            cascade row carrying machine-id / initial state / initial data
+            / cause"
+    (let [ev   (machine-started-ev :door/main :locked {:attempts 0} :explicit)
+          rows (proj/machine-cascade-rows [ev])
+          r    (first rows)]
       (is (= 1 (count rows)))
-      (is (not-any? #(= :transition (:kind %)) rows)
-          "the spurious 0-microstep no-change transition row is suppressed")
-      (is (= 1 (:step (first rows)))
-          ":step renumbered 1..N over the deduped cascade")))
+      (is (= :start (:kind r)))
+      (is (= :door/main (:machine-id r)))
+      (is (= :locked (:state r))      "the initial logical state")
+      (is (= {:attempts 0} (:data r)) "the initial :data")
+      (is (= :explicit (:cause r)))
+      (is (= 1 (:step r)))))
 
-  (testing "rf2-e6q97 — emit-order is irrelevant: even if the transition emit
-            precedes the no-op emit, the transition row is still dropped"
-    (let [state :stable
-          tx    (machine-transition-ev :traffic/light
-                                       {:state state} {:state state}
-                                       [:traffic/unknown] 0)
+  (testing "rf2-it4vt — EAGER (explicit) start: a standalone [START] is the
+            cascade's SOLE row (a pure init-kick — rf2-gl588 — runs the
+            initial-entry cascade then STOPS, emitting no transition / action
+            rows)"
+    (let [evs  [(machine-started-ev :door/main :locked {} :explicit)]
+          rows (proj/machine-cascade-rows evs)]
+      (is (= [:start] (mapv :kind rows))
+          "EAGER → standalone [START], no transition rows")))
+
+  (testing "rf2-it4vt — LAZY start: when a machine is first reached by a REAL
+            event, init folds into the SAME epoch, so [START] renders at the
+            FRONT of the cascade — ahead of that event's transition rows"
+    (let [start (machine-started-ev :door/main :locked {} :lazy)
+          ;; the real first event drove a transition AFTER the fold-in birth
+          tx    (machine-transition-ev :door/main
+                                       {:state :locked :data {}}
+                                       {:state :open   :data {}}
+                                       [:door/unlock] 0)
+          ;; deliberately feed the transition FIRST to prove the canonical
+          ;; sort floats :start to the front regardless of emit order.
+          rows  (proj/machine-cascade-rows [tx start])]
+      (is (= :start (:kind (first rows)))
+          "[START] leads the cascade, ahead of the real event's transition")
+      (is (= [:start :transition] (mapv :kind rows)))
+      (is (= 1 (:step (first rows)))  ":step renumbered 1..N over the sorted order")
+      (is (= :lazy (:cause (first rows))))))
+
+  (testing "rf2-it4vt — the cause tag renders: explicit / lazy / spawned,
+            with :lazy flagged as the ordering smell"
+    (is (= "explicit" (fmt/start-cause-label :explicit)))
+    (is (= "lazy"     (fmt/start-cause-label :lazy)))
+    (is (= "spawned"  (fmt/start-cause-label :spawned)))
+    (is (true?  (fmt/start-cause-smell? :lazy))
+        ":lazy is the ordering smell (something dispatched before explicit start)")
+    (is (false? (fmt/start-cause-smell? :explicit)))
+    (is (false? (fmt/start-cause-smell? :spawned))))
+
+  (testing "rf2-it4vt — the [START] verb names the machine + its initial
+            state; the kind pill reads START; flat / compound / parallel
+            states render verbatim"
+    ;; flat
+    (is (= ":door/main started in :locked"
+           (fmt/cascade-row-label
+             (first (proj/machine-cascade-rows
+                      [(machine-started-ev :door/main :locked {} :explicit)])))))
+    ;; compound (path-vector state)
+    (is (= ":hvac/unit started in [:on :cooling]"
+           (fmt/cascade-row-label
+             (first (proj/machine-cascade-rows
+                      [(machine-started-ev :hvac/unit [:on :cooling] {} :lazy)])))))
+    ;; parallel (region->state map)
+    (is (= ":player/av started in {:audio :muted, :video :playing}"
+           (fmt/cascade-row-label
+             (first (proj/machine-cascade-rows
+                      [(machine-started-ev :player/av
+                                           {:audio :muted :video :playing}
+                                           {} :spawned)])))))
+    (is (= "START" (badge/cascade-kind-label :start))
+        "the kind pill reads START")
+    (is (badge/cascade-kind? :start)
+        ":start is a member of the closed cascade-kind-set"))
+
+  (testing "rf2-it4vt — a [START] carries NO outcome chip and NO source-link
+            spec-path key (a birth has no transition outcome / call-site)"
+    (let [r (first (proj/machine-cascade-rows
+                     [(machine-started-ev :door/main :locked {} :explicit)]))]
+      (is (nil? (fmt/cascade-outcome-label r)))
+      (is (nil? (fmt/cascade-row-source-key r)))))
+
+  (testing "rf2-it4vt — an EAGER pure start makes the cascade :reg-machine
+            (it emits :rf.machine/started but no transition/action/no-op), so
+            handler-row renders the [START] row in the :machine :cascade slot
+            rather than collapsing to a plain reg-event-fx :db diff"
+    (let [r (proj/handler-row
+              [(machine-started-ev :door/main :locked {:attempts 0} :explicit)
+               ;; the machine handler always rides a do-fx (its snapshot write)
+               (do-fx-ev {:db {}})]
+              :door/main)]
+      (is (= :reg-machine (:flavour r)))
+      (is (some? (:machine r)))
+      (is (= [:start] (mapv :kind (-> r :machine :cascade))))))
+
+  (testing "rf2-it4vt — the [START] is benign birth (op-type :rf.machine),
+            so issue-event? is FALSE — no pink wash, no ribbon entry"
+    (let [ev (machine-started-ev :door/main :locked {} :explicit)]
+      (is (= :rf.machine (:op-type ev)))
+      (is (false? (issues/issue-event? ev)))
+      (is (false? (l2/cascade-has-issue? {:other [ev]}))))))
+
+;; ---- rf2-it4vt — the rf2-e6q97 band-aid is RETIRED -----------------------
+
+(deftest no-op-cascade-carries-no-transition-row-test
+  (testing "rf2-it4vt / rf2-coozg — the rf2-e6q97 `drop-spurious-no-op-
+            transition` band-aid is RETIRED. rf2-coozg fixed the
+            double-emit at the SOURCE: a no-op macrostep (`:before` ==
+            `:after`, empty cascade, zero microsteps) no longer emits the
+            redundant `:rf.machine/transition` at all. So a genuine
+            unknown-user-event no-op cascade carries ONLY the
+            `:rf.machine.event/unhandled-no-op` trace — the projection
+            renders the single `:no-op` row with no transition to suppress."
+    (let [state {:vehicle :red :pedestrian :walk}
+          ;; post-coozg the substrate emits the no-op ALONE (no companion
+          ;; {X}->{X} transition); this fixture mirrors that real trace.
           no-op (machine-unhandled-no-op-ev :traffic/light
                                             [:traffic/unknown] state)
-          rows  (proj/machine-cascade-rows [tx no-op])]
-      (is (= [:no-op] (mapv :kind rows)))))
+          rows  (proj/machine-cascade-rows [no-op])]
+      (is (= [:no-op] (mapv :kind rows))
+          "the single :no-op row — coozg emits no companion transition")
+      (is (= 1 (count rows)))
+      (is (not-any? #(= :transition (:kind %)) rows))
+      (is (= 1 (:step (first rows)))
+          ":step renumbered 1..N over the cascade")))
 
-  (testing "rf2-e6q97 — the no-op suppression flows through handler-row into
-            the :machine :cascade slot the view renders (the live surface)"
+  (testing "rf2-it4vt — the no-op flows through handler-row into the
+            :machine :cascade slot the view renders (the live surface)"
     (let [state {:vehicle :red :pedestrian :walk}
           evs   [(machine-unhandled-no-op-ev :traffic/light
-                                             [:traffic/unknown] state)
-                 (machine-transition-ev :traffic/light
-                                        {:state state :data {}}
-                                        {:state state :data {}}
-                                        [:traffic/unknown] 0)]
+                                             [:traffic/unknown] state)]
           r     (proj/handler-row evs :traffic/light)]
       (is (= :reg-machine (:flavour r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))
           "the view's :cascade carries the no-op row alone"))))
 
 (deftest genuine-self-transition-keeps-its-row-test
-  (testing "rf2-e6q97 NEGATIVE GUARD — a genuine EXTERNAL self-transition
+  (testing "rf2-it4vt NEGATIVE GUARD — a genuine EXTERNAL self-transition
             (:target :same-state; :exit + :entry FIRE, microsteps > 0) is a
             REAL transition (Spec 005 L291-296). It has a real `match`, so the
             unhandled-no-op branch is never reached — NO :no-op row fires —
-            and the suppression MUST NOT touch its transition row."
+            and its transition row renders untouched (the retired e6q97
+            band-aid never gated on state-equality, only on a :no-op row's
+            presence, which a self-transition never carries)."
     (let [state [:active]
           ;; exit + entry actions fired (the external self-transition
           ;; semantics) and a microstep ran — a real transition, NO no-op.
@@ -866,7 +947,7 @@
         (is (= 1 (:microsteps tx))
             "microsteps > 0 — a real transition, not a no-op"))))
 
-  (testing "rf2-e6q97 NEGATIVE GUARD — an INTERNAL self-transition (omit
+  (testing "rf2-it4vt NEGATIVE GUARD — an INTERNAL self-transition (omit
             :target; action runs, no exit/entry) likewise has a real match,
             so no :no-op row — its transition row is preserved per semantics"
     (let [state :idle
