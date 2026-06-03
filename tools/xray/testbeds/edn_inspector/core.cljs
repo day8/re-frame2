@@ -1,29 +1,37 @@
 (ns edn-inspector.core
-  "EDN-INSPECTOR testbed (rf2-74u2s → rf2-1niob → rf2-yucxn) — a
-  standard-epochs-style driving surface that exercises the Xray edn-inspector
+  "EDN-INSPECTOR testbed (rf2-74u2s → rf2-1niob → rf2-yucxn → rf2-rrqku) —
+  a queued-step driving surface that exercises the Xray edn-inspector
   THROUGH its primary use case: the Epoch and App-db PANELS.
 
-  ## Shape (rework — rf2-yucxn: the full datatype matrix)
+  ## Shape (rf2-rrqku — adopt the shared queued-step RUNNER)
 
-  ONE tall column of NUMBERED buttons grouped into the diff-audit case
-  matrix, top to bottom — the `standard_epochs` shape. Each button
-  DISPATCHES one event that makes ONE clean, meaningful app-db transition,
-  and the Xray SIDECAR mounted INLINE on the right (`[data-rf-xray-host]`,
-  like `standard_epochs`) shows the change via the EPOCH panel (db-before /
-  db-after) and the APP-DB panel (the diff).
+  ONE button (`▶ Run series`) walks the diff-audit case matrix top to
+  bottom while the operator watches how the Xray panels render each
+  step. The runner (`runner.core`, the rf2-8pbjr pilot) is the shared
+  harness; this deck supplies a `steps` vector (CODE DATA) + a testid
+  `prefix`. Each step DISPATCHES one event that makes ONE clean,
+  meaningful app-db transition, and the Xray SIDECAR mounted INLINE on
+  the right (`[data-rf-xray-host]`) shows the change via the EPOCH panel
+  (db-before / db-after) and the APP-DB panel (the diff). Title:
+  `Xray Testbed: edn-inspector`.
+
+  Replaces the bespoke numbered-button ladder: same events, same app-db
+  transitions, same coverage — but driven by the shared runner so the
+  operator presses ONE button and reads each step's per-occurrence
+  `:watch` note while the panels render. After each auto-advance dispatch
+  the runner pins Xray focus to the latest `:rf/default` epoch.
 
   Both panels render their CLJS values THROUGH the edn-inspector
   (`day8.re-frame2-xray.views.edn-inspector`) — the single value renderer
   behind every Xray panel. So the inspector + its DIFF projection are
-  demonstrated where they earn their keep: a button writes a stressing shape
+  demonstrated where they earn their keep: a step writes a stressing shape
   into app-db, and the inspector renders that shape and its diff inside the
   panels.
 
   ## The matrix (rf2-yucxn — senior-dev base-case audit)
 
-  The deck is organised SIMPLE → COMPLEX along the audit matrix; each
-  control drives ONE case. Press the buttons within a section top-to-bottom
-  to walk the case ladder. `0. Reset` re-seeds the baseline shape.
+  The step vector is organised SIMPLE → COMPLEX along the audit matrix;
+  each step drives ONE case, in order:
 
     MAPS                — key added · key removed · value changed
     SEQUENTIALS         — vector/list/set: entry added · removed · changed
@@ -44,11 +52,19 @@
     SHOWCASE            — large collection (elision) · deep nesting (collapse
                           summary) · mixed scalar + tagged-literal vector
 
-  ## Per-press delta (standard_epochs pattern)
+  ## Per-step delta (standard_epochs pattern)
 
   Every action event bumps a shared `:baseline` counter (the `bump` helper),
-  so the App-db / Epoch panels always show a delta on every press; the
-  per-button matrix case is the ADDITIONAL change layered on top.
+  so the App-db / Epoch panels always show a delta on every step; the
+  per-step matrix case is the ADDITIONAL change layered on top.
+
+  ## Runner state = LOCAL ATOM (rf2-8pbjr contract)
+
+  The runner cursor / status / pace live in `runner-state` — a LOCAL
+  Reagent atom in THIS ns. It is NEVER written to the inspected app-db
+  (that would pollute the App-db panel under inspection) and is NOT a
+  second frame (only the inspected app frame, `:rf/default`, is
+  Xray-relevant).
 
   ## Inline Xray sidecar (no preload edit)
 
@@ -64,8 +80,8 @@
   ## Test surface, not tutorial
 
   Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs, no teaching
-  layers, no anti-pattern demos. Each button writes a clean, correct
-  inspector-stressing shape; captions are guidance, not lessons.
+  layers, no anti-pattern demos. Each step writes a clean, correct
+  inspector-stressing shape; the `:watch` notes are guidance, not lessons.
 
   ## Test-free + self-contained
 
@@ -75,8 +91,10 @@
   `panel_gallery` Story gallery (gated by the Xray feature-matrix gate) +
   the substrate contract tests. This deck is the manual LIVE driver of the
   inspector inside the real Epoch + App-db panels. The events / subs / views
-  are OWNED here."
-  (:require [reagent.dom.client :as rdc]
+  are OWNED here. It is NOT referenced by `feature_matrix/scenarios.cjs`, so
+  the step `data-testid`s (`edn-inspector-step-<n>`) are deck-internal."
+  (:require [reagent.core :as r]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -92,16 +110,26 @@
             [day8.re-frame2-xray.config :as xray-config]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; The shared queued-step runner (rf2-8pbjr pilot). This deck
+            ;; supplies a `steps` vector + a testid prefix; the runner
+            ;; drives the ONE-button series.
+            [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
+
+;; ============================================================================
+;; The inspected app frame (rf2-8pbjr — only the app frame is Xray-relevant)
+;; ============================================================================
+
+(def host-frame :rf/default)
 
 ;; ============================================================================
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
-;; One flat, named seed. `:baseline` is the shared counter every button
-;; bumps (so App-db / Epoch always show a delta on every press). The other
-;; slots are the real, meaningful paths the per-button events write the
+;; One flat, named seed. `:baseline` is the shared counter every step
+;; bumps (so App-db / Epoch always show a delta on every step). The other
+;; slots are the real, meaningful paths the per-step events write the
 ;; matrix-case shapes into — the App-db panel renders them (and their diffs)
 ;; THROUGH the edn-inspector.
 ;;
@@ -119,7 +147,7 @@
    :history    '(:login :browse)
    :tags       #{:alpha :beta :gamma}
    ;; SCATTERED removal repro (rf2-vu42n) — a four-element lane the
-   ;; scattered-removal button thins to [:a :c] (drops :b@1 + :d@3).
+   ;; scattered-removal step thins to [:a :c] (drops :b@1 + :d@3).
    :lane       [:a :b :c :d]
    ;; EMPTY vs REMOVAL — a single-member of each kind to empty (key intact)
    ;; alongside a sibling key to remove wholesale.
@@ -142,7 +170,7 @@
    :cache      {}})
 
 (rf/reg-event-db :edn-inspector/reset
-  {:doc "Button 0 — re-seed app-db to the matrix baseline."}
+  {:doc "Re-seed app-db to the matrix baseline."}
   (fn handler-reset [_db _ev]
     initial-db))
 
@@ -152,13 +180,13 @@
 ;;
 ;; Kept as a plain db->db fn (not an interceptor) so the baseline bump is
 ;; visible inline in each handler body — the App-db / Epoch delta on every
-;; press comes from here, and the per-button matrix case is the ADDITIONAL
+;; step comes from here, and the per-step matrix case is the ADDITIONAL
 ;; change layered on top (the standard_epochs pattern).
 
 (defn- bump [db] (update db :baseline inc))
 
 ;; ============================================================================
-;; EVENTS — the button ladder, grouped by the audit matrix
+;; EVENTS — the step ladder, grouped by the audit matrix
 ;; ============================================================================
 
 ;; -- MAPS --------------------------------------------------------------------
@@ -232,10 +260,10 @@
 
 ;; -- EMPTY vs REMOVAL (the subtle one) ---------------------------------------
 ;;
-;; Each "empty" button drops the single member of a one-member collection so
+;; Each "empty" step drops the single member of a one-member collection so
 ;; the container goes EMPTY with its KEY INTACT — the inspector renders the
 ;; now-empty bracket pair with the dropped member struck inside. The
-;; "remove key" button dissocs the :doomed key wholesale — a struck-through
+;; "remove key" step dissocs the :doomed key wholesale — a struck-through
 ;; removed KEY (the collapsed removed-ghost). The two must read DISTINCTLY.
 
 (rf/reg-event-db :edn-inspector/empty-vector
@@ -416,135 +444,188 @@
 (rf/reg-sub :edn-inspector/baseline (fn [db _] (:baseline db)))
 
 ;; ============================================================================
-;; THE BUTTON LADDER — grouped by the audit matrix
+;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
+;; ============================================================================
+;;
+;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
+;;             :label "<short row label>"}. The runner renders :watch per
+;; STEP (per-occurrence narration), dispatches :event, focuses the latest
+;; :rf/default epoch, then waits :settle-ms before advancing. The matrix
+;; walks SIMPLE → COMPLEX; the settle is short (these are synchronous
+;; db-only transitions — no async cascade to wait on), just enough for the
+;; operator's eye to land on the rendered diff before the next step.
+
+(def steps
+  [;; -- MAPS --
+   {:label     "Map: key ADDED"
+    :event     [:edn-inspector/map-key-added]
+    :watch     "App-db diff: assoc :profile/:team paints `+:team` (green, key-anchored). Epoch: the db-before/db-after of a single key add."
+    :settle-ms 450}
+   {:label     "Map: key REMOVED"
+    :event     [:edn-inspector/map-key-removed]
+    :watch     "App-db diff: dissoc :profile/:role paints a struck-through `−:role` (red, key-anchored) — distinct from emptying a collection."
+    :settle-ms 450}
+   {:label     "Map: value CHANGED"
+    :event     [:edn-inspector/map-value-changed]
+    :watch     "App-db diff: :profile/:name flips in place — the value-side `~` glyph + `← was \"…\"` annotation, the KEY intact."
+    :settle-ms 450}
+
+   ;; -- SEQUENTIALS --
+   {:label     "Vector: entry ADDED"
+    :event     [:edn-inspector/seq-entry-added]
+    :watch     "App-db diff: a task conj'd onto :queue — the appended entry paints `+` green at the tail."
+    :settle-ms 450}
+   {:label     "Vector: entry REMOVED"
+    :event     [:edn-inspector/seq-entry-removed]
+    :watch     "App-db diff: :queue tail popped — the dropped entry renders struck-through (member-level, NOT a whole-key replace)."
+    :settle-ms 450}
+   {:label     "Vector: SCATTERED removal"
+    :event     [:edn-inspector/seq-scattered-removed]
+    :watch     ":lane [:a :b :c :d] → [:a :c]: −:b@1 and −:d@3 render struck IN PLACE; the surviving-shifted :c (was index 2 → 1) is NOT struck and carries a `(was N)` suffix."
+    :settle-ms 450}
+   {:label     "Set: member CHANGED"
+    :event     [:edn-inspector/set-member-changed]
+    :watch     "App-db diff: one :tags member swapped — member-level `−:alpha +:delta` with the :tags KEY intact (not a sea-of-red whole-key strike)."
+    :settle-ms 450}
+
+   ;; -- EMPTY vs REMOVAL (the subtle one) --
+   {:label     "Empty a VECTOR (key intact)"
+    :event     [:edn-inspector/empty-vector]
+    :watch     ":one-vec [:only] → []: the element removal renders member-level inside the intact (now-empty) vector, NOT a whole-key `~` modify (rf2-yucxn BUG A)."
+    :settle-ms 450}
+   {:label     "Empty a LIST (key intact)"
+    :event     [:edn-inspector/empty-list]
+    :watch     ":one-list (:only) → (): member-level removal inside the intact list — the key stays, the bracket pair goes empty."
+    :settle-ms 450}
+   {:label     "Empty a SET (key intact)"
+    :event     [:edn-inspector/empty-set]
+    :watch     ":one-set #{:only} → #{}: member-level removal inside the intact set (l0us2 empty-edge expansion)."
+    :settle-ms 450}
+   {:label     "Empty a MAP (key intact)"
+    :event     [:edn-inspector/empty-map]
+    :watch     ":one-map {:k 1} → {}: member-level removal inside the intact map (rf2-9d4j8 empty-map expansion)."
+    :settle-ms 450}
+   {:label     "Remove a KEY (wholesale)"
+    :event     [:edn-inspector/remove-key]
+    :watch     "dissoc :doomed: a struck-through removed KEY (collapsed removed-ghost) — read it AGAINST the empty-collection steps above; they must look DISTINCT."
+    :settle-ms 450}
+
+   ;; -- SCALARS --
+   {:label     "Scalar: NUMBER changed"
+    :event     [:edn-inspector/scalar-number]
+    :watch     "App-db diff: :scalar incremented — `~` + `← was N` on a number leaf."
+    :settle-ms 400}
+   {:label     "Scalar: nil ↔ value"
+    :event     [:edn-inspector/scalar-nil-toggle]
+    :watch     ":scalar toggles value ↔ nil — both transitions are `:modified` leaves (nil is a real value, not absence)."
+    :settle-ms 400}
+   {:label     "Scalar: TYPE change"
+    :event     [:edn-inspector/scalar-type-flip]
+    :watch     ":scalar flips number↔string↔map — R7 renders `~` + `← was <type>` type-change suffix (scalar→collection promotes without a false whole-key strike)."
+    :settle-ms 400}
+
+   ;; -- MULTI-ADJUST --
+   {:label     "Map: add AND remove"
+    :event     [:edn-inspector/map-multi-adjust]
+    :watch     ":flags {:a 1 :b 2} ↔ {:a 1 :c 3}: `−:b` removed AND `+:c` added in ONE diff, `:a` unchanged."
+    :settle-ms 450}
+   {:label     "Vector: change AND append"
+    :event     [:edn-inspector/vector-multi-adjust]
+    :watch     ":slots [1 2 3] ↔ [1 9 3 4]: index 1 modified (`~`@1: 2→9) AND index 3 appended (`+`@3) in ONE diff."
+    :settle-ms 450}
+   {:label     "Set: multi-member swap"
+    :event     [:edn-inspector/set-multi-adjust]
+    :watch     ":labels #{:x :y :z} ↔ #{:x :p :q}: `−:y −:z +:p +:q` member-level, key intact (rf2-4vp8c)."
+    :settle-ms 450}
+
+   ;; -- DEEP / MIXED --
+   {:label     "Deep scalar change"
+    :event     [:edn-inspector/deep-change]
+    :watch     "[:deep :a :b :c :d] bumped FIVE levels deep: every ancestor reads `:children` (◴ + rail); none promotes to a whole-key replace."
+    :settle-ms 450}
+   {:label     "Mixed-kind deep swap"
+    :event     [:edn-inspector/mixed-deep-change]
+    :watch     "Set swap at [:mixed :a :b 0] through map→map→vector→set: diffs member-level at the set; no ancestor (map or vector) is falsely promoted (l0us2 across kinds)."
+    :settle-ms 450}
+
+   ;; -- SENTINELS --
+   {:label     "Sensitive → :rf/redacted"
+    :event     [:edn-inspector/redacted]
+    :watch     "[:secure :user :password] := :rf/redacted: the inspector renders a `redacted` chip, NEVER the raw value."
+    :settle-ms 450}
+   {:label     "Large-elided sentinel"
+    :event     [:edn-inspector/large-elided]
+    :watch     "[:cache :report-42] := a :rf.size/large-elided sentinel (Spec 015) — routed through the size-chip renderer, not rendered as a literal map."
+    :settle-ms 450}
+
+   ;; -- SHOWCASE --
+   {:label     "Large collection → elision"
+    :event     [:edn-inspector/large-collection]
+    :watch     "A 50-key map at [:cache :grid]: the App-db inspector elides past its threshold and the body scrolls."
+    :settle-ms 500}
+   {:label     "Deeply nested → collapse"
+    :event     [:edn-inspector/deeply-nested]
+    :watch     "A six-level nested map at [:cache :tenant]: deep nodes render `▸ {…N keys}` summaries past the depth ceiling."
+    :settle-ms 500}
+   {:label     "Mixed types / tagged literals"
+    :event     [:edn-inspector/mixed-types]
+    :watch     "A vector of every scalar kind + #uuid + #inst at [:cache :scalar-mix]: every syntax-palette token + the default formatters' compact headers."
+    :settle-ms 500}])
+
+;; ============================================================================
+;; RUNNER STATE — LOCAL ATOM (rf2-8pbjr: not app-db, not a 2nd frame)
 ;; ============================================================================
 
-(def ^:private ladder
-  "The ordered button ladder. Each row: [n label caption event]. `event` is
-  the dispatch vector; `:section` rows are matrix-group separators."
-  [[:section "Maps — key add / remove / value change"]
-   ["1a" "Map: key ADDED"   "assoc :profile/:team — `+:team`, key-anchored"
-    [:edn-inspector/map-key-added]]
-   ["1b" "Map: key REMOVED" "dissoc :profile/:role — struck `−:role`"
-    [:edn-inspector/map-key-removed]]
-   ["1c" "Map: value CHANGED" "bump :profile/:name — `~` + `← was \"…\"`"
-    [:edn-inspector/map-value-changed]]
+(defonce runner-state (r/atom (runner/initial-state)))
 
-   [:section "Sequentials — vector / list / set entry"]
-   ["2a" "Vector: entry ADDED"   "conj a task onto :queue — `+` green"
-    [:edn-inspector/seq-entry-added]]
-   ["2b" "Vector: entry REMOVED" "pop :queue tail — struck member, key intact"
-    [:edn-inspector/seq-entry-removed]]
-   ["2c" "Vector: SCATTERED removal" ":lane [:a :b :c :d]→[:a :c] — struck −:b −:d, :c survives (was N)"
-    [:edn-inspector/seq-scattered-removed]]
-   ["2d" "Set: member CHANGED"   "swap a :tags member — `−:alpha +:delta`, key intact"
-    [:edn-inspector/set-member-changed]]
+;; ============================================================================
+;; VIEWS
+;; ============================================================================
 
-   [:section "Empty-result vs key-removal (must read DISTINCTLY)"]
-   ["3a" "Empty a VECTOR (key intact)" ":one-vec [:only] → [] — member removal, key stays"
-    [:edn-inspector/empty-vector]]
-   ["3b" "Empty a LIST (key intact)"   ":one-list (:only) → () — member removal, key stays"
-    [:edn-inspector/empty-list]]
-   ["3c" "Empty a SET (key intact)"    ":one-set #{:only} → #{} — member removal, key stays"
-    [:edn-inspector/empty-set]]
-   ["3d" "Empty a MAP (key intact)"    ":one-map {:k 1} → {} — member removal, key stays"
-    [:edn-inspector/empty-map]]
-   ["3e" "Remove a KEY (wholesale)"    "dissoc :doomed — struck removed KEY (ghost), distinct from emptying"
-    [:edn-inspector/remove-key]]
-
-   [:section "Scalars — value / nil / type change"]
-   ["4a" "Scalar: NUMBER changed" "increment :scalar — `~` + `← was N`"
-    [:edn-inspector/scalar-number]]
-   ["4b" "Scalar: nil ↔ value"    "toggle :scalar value↔nil — both `:modified`"
-    [:edn-inspector/scalar-nil-toggle]]
-   ["4c" "Scalar: TYPE change"    "flip :scalar number↔string↔map — R7 `← was <type>`"
-    [:edn-inspector/scalar-type-flip]]
-
-   [:section "Multiple adjustments in ONE diff"]
-   ["5a" "Map: add AND remove"    "swap :flags {:a 1 :b 2}↔{:a 1 :c 3} — `−:b +:c`"
-    [:edn-inspector/map-multi-adjust]]
-   ["5b" "Vector: change AND append" "swap :slots [1 2 3]↔[1 9 3 4] — `~`@1 + `+`@3"
-    [:edn-inspector/vector-multi-adjust]]
-   ["5c" "Set: multi-member swap"  "swap :labels #{:x :y :z}↔#{:x :p :q} — `−:y −:z +:p +:q`"
-    [:edn-inspector/set-multi-adjust]]
-
-   [:section "Deep hierarchy / mixed-type nesting"]
-   ["6a" "Deep scalar change"     "bump [:deep :a :b :c :d] — ancestors `:children`, none promoted"
-    [:edn-inspector/deep-change]]
-   ["6b" "Mixed-kind deep swap"   "swap set at [:mixed :a :b 0] (map→map→vec→set) — no ancestor promotion"
-    [:edn-inspector/mixed-deep-change]]
-
-   [:section "Sentinels — redaction / size-elision"]
-   ["7a" "Sensitive → :rf/redacted" "assoc [:secure :user :password] :rf/redacted — `redacted` chip"
-    [:edn-inspector/redacted]]
-   ["7b" "Large-elided sentinel"    "assoc [:cache :report-42] a :rf.size/large-elided sentinel"
-    [:edn-inspector/large-elided]]
-
-   [:section "Showcase — elision / collapse / tagged literals"]
-   ["8a" "Large collection → elision" "50-key map at [:cache :grid] — elides past threshold"
-    [:edn-inspector/large-collection]]
-   ["8b" "Deeply nested → collapse"   "six-level nested map at [:cache :tenant] — `▸ {…N keys}` summaries"
-    [:edn-inspector/deeply-nested]]
-   ["8c" "Mixed types / tagged literals" "scalar-kind vector + #uuid + #inst at [:cache :scalar-mix]"
-    [:edn-inspector/mixed-types]]])
-
-(defn- testid-for [event]
-  (-> (first event) name (str "-button")))
-
-(reg-view ladder-button
-  "One numbered ladder row: a numbered button on the left, its caption on the
-  right. Pressing it dispatches the row's event — a REAL app-db change the
-  Epoch + App-db panels render through the inspector."
-  [n label caption event]
-  [:div {:style {:display "grid" :grid-template-columns "auto 1fr"
-                 :gap "0.75em" :align-items "center" :margin "0.35em 0"}}
-   [:button {:data-testid (testid-for event)
-             :on-click    #(dispatch event)
-             :style {:min-width "20em" :text-align "left"
-                     :padding "0.4em 0.6em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#fff"}}
-    [:span {:style {:font-weight "bold" :color "#7C5CFF" :margin-right "0.5em"}}
-     (str n ".")]
-    label]
-   [:span {:style {:color "#666" :font-size "12px"}} caption]])
-
-(reg-view section-heading
-  "A matrix-group separator inside the ladder."
-  [label]
-  [:div {:style {:margin "1em 0 0.25em 0" :font-size "11px" :font-weight "bold"
-                 :color "#7C5CFF" :text-transform "uppercase"
-                 :letter-spacing "0.04em" :border-top "1px dashed #ddd"
-                 :padding-top "0.5em"}}
-   label])
+(reg-view baseline-strip
+  "A tiny on-page mirror of the shared baseline counter — keeps the deck
+  legible standalone. The App-db / Epoch panels are the actual check."
+  []
+  (let [baseline @(subscribe [:edn-inspector/baseline])]
+    [:div {:data-testid "edn-inspector-baseline-strip"
+           :style {:border "1px solid #d8d2ff" :border-radius "6px"
+                   :padding "0.5em 0.75em" :margin "0.5em 0"
+                   :background "#fcfbff" :font-size "12px"}}
+     [:span {:style {:font-size "11px" :color "#7C5CFF" :font-weight "bold"
+                     :text-transform "uppercase" :letter-spacing "0.04em"
+                     :margin-right "0.5em"}}
+      "baseline"]
+     [:strong {:data-testid "edn-inspector-baseline"} baseline]]))
 
 (reg-view root []
   [:div {:data-testid "edn-inspector-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
                  :max-width "820px"}}
    [:header {:style {:margin-bottom "0.5em"}}
-    [:h2 {:style {:margin 0}} "edn-inspector — diff case matrix"]
+    [:h2 {:data-testid "edn-inspector-title" :style {:margin 0}}
+     "Xray Testbed: edn-inspector"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
      [:code "edn-inspector"] " is the value renderer used inside "
      [:code "xray"] " panels like " [:code "Epoch"] " and " [:code "app-db"]
-     ". This deck walks its DIFF projection across the full datatype matrix."]
+     ". One button (" [:strong "▶ Run series"] ") walks its DIFF projection "
+     "across the full datatype matrix — maps · sequentials · empty-vs-removal · "
+     "scalars · multi-adjust · deep/mixed · sentinels · showcase."]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "Press the buttons top-to-bottom within each section. Each makes ONE "
-     [:code "app-db"] " change; the Epoch + App-db panels on the right "
-     "render the before/after + diff through the inspector."]]
-   ;; Button 0 — Reset.
-   [:button {:data-testid "edn-inspector-reset"
-             :on-click #(dispatch [:edn-inspector/reset])
+     "After each dispatch the runner pins Xray focus to the latest "
+     [:code ":rf/default"] " epoch; read each step's " [:strong "Watch"]
+     " note, then watch the Epoch + App-db panels render the before/after + "
+     "diff through the inspector. The runner cursor lives in a "
+     [:strong "local atom"] " — it never touches the inspected app-db."]]
+   [:button {:data-testid "edn-inspector-deck-reset"
+             :on-click (fn []
+                         (dispatch [:edn-inspector/reset])
+                         (runner/reset-runner! runner-state))
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed the matrix baseline"]
-   ;; The ladder.
-   (for [row ladder]
-     (if (= :section (first row))
-       ^{:key (second row)} [section-heading (second row)]
-       (let [[n label caption event] row]
-         ^{:key n} [ladder-button n label caption event])))])
+                     :background "#f4f1ff" :margin "0.25em 0"}}
+    "0. Reset — re-seed the matrix baseline + rewind runner"]
+   [baseline-strip]
+   [runner/runner "edn-inspector" runner-state steps host-frame]])
 
 ;; ============================================================================
 ;; MOUNT
