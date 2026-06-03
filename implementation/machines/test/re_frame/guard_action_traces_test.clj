@@ -221,74 +221,89 @@
       (is (= cascade-id (-> a :tags :rf.trace/dispatch-id))
           "action-ran picks up the same cascade dispatch-id"))))
 
-;; ---- rf2-4yrr6 — the `:*`-wildcard-throws machine (machine-epochs :fuse/box)
-;; ----------------------------------------------------------------------------
+;; ---- rf2-4yrr6 / rf2-gl588 — the throw-on-boot machine (machine-epochs
+;; :fuse/box) ------------------------------------------------------------------
 ;;
-;; The machine-epochs testbed's `:fuse/box` is `:armed` with a `:*` wildcard
-;; whose `:blow-fuse` action throws (the xstate-v5 'fail loudly on unknown'
-;; idiom). Two facts pin the testbed fix:
+;; The machine-epochs testbed's `:fuse/box` exercises a machine-action
+;; exception ON BOOT. Pre-F‴ it relied on the double-duty wart: an eager
+;; `[:rf.machine/bootstrap]` kick was re-processed as a normal trigger against
+;; the just-born `:armed`, which had no `:on` entry → fell to a `:*` wildcard
+;; whose `:blow-fuse` action threw. F‴ (rf2-gl588) makes the start marker a
+;; PURE init-kick that STOPS after initial-entry — it is NEVER re-fed into the
+;; transition step, so that `:*`-via-marker path no longer exists.
 ;;
-;;   1. The `[:rf.machine/bootstrap]` EVENT, processed as an inner machine
-;;      event, hits the `:*` wildcard (no `:on :rf.machine/bootstrap` entry)
-;;      and THROWS. This is why the testbed's reset handler must NOT dispatch
-;;      `[:fuse/box [:rf.machine/bootstrap]]` — it would throw ON BOOT.
-;;   2. A machine that was NEVER explicitly bootstrapped STILL throws on its
-;;      first real unhandled event: it lazily bootstraps (needs-bootstrap?
-;;      fires when no snapshot exists) then the wildcard fires. So dropping the
-;;      explicit bootstrap from reset keeps Button 11 working.
+;; The throw is therefore RE-VEHICLED to a real initial-`:entry` action on
+;; `:armed`: now the throw fires inside the initial-entry cascade itself, on
+;; ANY boot (eager `:rf.machine/start` kick OR lazy first-real-event). This
+;; preserves the "exception on boot" coverage on the F‴ creation model. Three
+;; facts pin it:
+;;
+;;   1. An eager `[:fuse/box [:rf.machine/start]]` kick runs the initial-entry
+;;      cascade, whose `:armed` `:entry` action `:blow-fuse` THROWS on boot.
+;;   2. A machine NEVER explicitly started STILL throws on its first real
+;;      event: it lazily boots (`needs-bootstrap?` fires when no snapshot
+;;      exists) and the same `:entry` action throws during that boot — before
+;;      the event is ever processed.
+;;   3. A machine whose initial state has no throwing `:entry` boots cleanly,
+;;      so only the throwing-entry shape trips the exception.
 
-(defn- fuse-machine-spec []
+(defn- fuse-machine-spec
+  "An `:armed`-at-birth machine whose initial `:entry` action throws — the
+  F‴ re-vehicle of the old `:*`-wildcard-on-boot throw."
+  []
   {:initial :armed
    :data    {}
-   :actions {:note-inspect (fn [{data :data}]
-                             {:data (update data :inspections (fnil inc 0))})
-             :blow-fuse    (fn [{:keys [event]}]
-                             (throw (ex-info "unhandled machine event"
-                                             {:event event :where :fuse-wildcard})))}
-   :states  {:armed {:on {:fuse/inspect {:action :note-inspect}
-                          :*            {:action :blow-fuse}}}}})
+   :actions {:blow-fuse (fn [{:keys [event]}]
+                          (throw (ex-info "fuse blown on boot"
+                                          {:event event :where :fuse-entry})))}
+   :states  {:armed {:entry :blow-fuse}}})
 
-(deftest fuse-bootstrap-event-hits-throwing-wildcard
-  (testing "rf2-4yrr6 — a `[:rf.machine/bootstrap]` inner event has no `:on`
-            entry on `:armed`, so it hits the `:*` wildcard and THROWS. This is
-            the on-boot throw the testbed's reset handler caused by explicitly
-            dispatching `[:fuse/box [:rf.machine/bootstrap]]` — and why that
-            dispatch was dropped."
-    (rf/reg-machine :ga/fuse-bootstrap (fuse-machine-spec))
+(deftest fuse-start-marker-throws-via-initial-entry
+  (testing "rf2-4yrr6 / rf2-gl588 — an eager `[:rf.machine/start]` kick runs
+            the initial-entry cascade, whose `:armed` `:entry` action throws ON
+            BOOT. (Pre-F‴ this was the start marker re-triggering a throwing
+            `:*` wildcard; F‴ re-vehicles the throw to a real `:entry`.)"
+    (rf/reg-machine :ga/fuse-start (fuse-machine-spec))
     (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:ga/fuse-bootstrap [:rf.machine/bootstrap]])))
+                 (fn [] (rf/dispatch-sync [:ga/fuse-start [:rf.machine/start]])))
           errs (ops evs :rf.error/machine-action-exception)]
       (is (= 1 (count errs))
-          "the explicit bootstrap dispatch fires the throwing `:*` wildcard")
+          "the eager start kick fires the throwing initial `:entry` action")
       (is (= :blow-fuse (-> errs first :tags :action-id))
-          "attributed to the wildcard's `:blow-fuse` action"))))
+          "attributed to the initial `:entry`'s `:blow-fuse` action"))))
 
-(deftest fuse-unhandled-event-throws-via-lazy-bootstrap
-  (testing "rf2-4yrr6 — with NO explicit bootstrap dispatch, the FIRST real
-            unhandled event still throws: the machine lazily bootstraps then
-            the `:*` wildcard fires. Button 11 keeps working after the testbed
-            dropped the explicit `[:fuse/box [:rf.machine/bootstrap]]` from
-            reset."
+(deftest fuse-throws-on-boot-via-lazy-first-event
+  (testing "rf2-4yrr6 / rf2-gl588 — with NO explicit start, the FIRST real
+            event still throws: the machine lazily boots (`needs-bootstrap?`
+            fires when no snapshot exists) and the initial `:entry` action
+            throws DURING that boot, before the event is processed."
     (rf/reg-machine :ga/fuse-lazy (fuse-machine-spec))
-    ;; No `[:rf.machine/bootstrap]` dispatch first — straight to the
-    ;; Button-11-style unhandled event against a never-bootstrapped machine.
+    ;; No `[:rf.machine/start]` dispatch first — straight to a real event
+    ;; against a never-started machine; the boot `:entry` throws.
     (let [evs  (record-traces!
                  (fn [] (rf/dispatch-sync [:ga/fuse-lazy [:fuse/short-circuit]])))
           errs (ops evs :rf.error/machine-action-exception)]
       (is (= 1 (count errs))
-          "the unhandled event lazily boots `:armed` then fires the wildcard")
+          "the first real event lazily boots `:armed`; its `:entry` throws")
       (is (= :blow-fuse (-> errs first :tags :action-id))
-          "attributed to the wildcard's `:blow-fuse` action")
-      (is (= [:fuse/short-circuit] (-> errs first :tags :event))
-          "the triggering unhandled event rides the trace"))))
+          "attributed to the initial `:entry`'s `:blow-fuse` action")
+      ;; On boot the cascade-threaded `:event` is the synthetic start marker —
+      ;; the throw fires inside initial-entry, before the real event is run.
+      (is (= [:rf.machine/start] (-> errs first :tags :event))
+          "the throw rides the synthetic creation marker (boot-time)"))))
 
-(deftest fuse-explicit-inspect-does-not-throw
-  (testing "rf2-4yrr6 — the `:fuse/inspect` event matches the explicit `:on`
-            entry (a normal `:note-inspect` action), so it does NOT hit the
-            throwing wildcard — only otherwise-unhandled events do."
-    (rf/reg-machine :ga/fuse-inspect (fuse-machine-spec))
+(deftest fuse-clean-initial-entry-does-not-throw
+  (testing "rf2-4yrr6 / rf2-gl588 — a machine whose initial state has no
+            throwing `:entry` boots cleanly; only the throwing-entry shape
+            trips the on-boot exception."
+    (rf/reg-machine :ga/fuse-clean
+      {:initial :armed
+       :data    {}
+       :actions {:note-inspect (fn [{data :data}]
+                                 {:data (update data :inspections (fnil inc 0))})}
+       :states  {:armed {:on {:fuse/inspect {:action :note-inspect}}}}})
     (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:ga/fuse-inspect [:fuse/inspect]])))
+                 (fn [] (rf/dispatch-sync [:ga/fuse-clean [:fuse/inspect]])))
           errs (ops evs :rf.error/machine-action-exception)]
       (is (zero? (count errs))
-          "an explicitly-handled event does not fire the throwing wildcard"))))
+          "a non-throwing initial `:entry` boots cleanly"))))

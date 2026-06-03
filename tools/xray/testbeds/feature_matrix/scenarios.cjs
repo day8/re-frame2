@@ -2913,7 +2913,7 @@ async function runRoutesEpochs(page, state) {
 // each step's machine feature landed, then opens the Xray Machine Inspector
 // (`rf-xray-machine-inspector`) and confirms the panel mounts on the focused
 // machine event. The final handoff re-drives a few steps OUT OF ORDER (the
-// fresh-transition / unhandled-no-op / wildcard-throw contrast) — the random-
+// fresh-transition / unhandled-no-op / boot-entry-throw contrast) — the random-
 // access addressing the runner's per-step run button provides.
 //
 // What this scenario can / cannot assert:
@@ -2951,7 +2951,7 @@ async function runRoutesEpochs(page, state) {
 // (`machine-epochs-step-<n>-run`, n = 0-based step index). The runner's
 // per-step run affordance is exactly the random-access addressing this
 // scenario needs — it drives steps OUT OF ORDER at the end (re-driving the
-// fresh-transition / unhandled-no-op / wildcard-throw steps for the
+// fresh-transition / unhandled-no-op / boot-entry-throw steps for the
 // Inspector + throw/no-op-contrast handoff), which the runner's sequential
 // cursor alone could not provide.
 //
@@ -3330,9 +3330,10 @@ async function runMachineEpochs(page, state) {
   // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
 
-  // rf2-4yrr6 — :fuse/box must NOT throw on boot / rungs 1-24. The reset
-  // handler DELIBERATELY does not bootstrap :fuse/box; rung 19 (clicked
-  // below) is the SOLE machine-action-exception trigger.
+  // rf2-4yrr6 / rf2-gl588 — :fuse/box must NOT throw on boot / rungs 1-24.
+  // The reset handler DELIBERATELY does not eager-start :fuse/box (its
+  // initial `:entry` action throws on the boot cascade); rung 19 (clicked
+  // below) lazily boots it and is the SOLE machine-action-exception trigger.
   {
     const bootTrace = await readTrace(page);
     const bootThrow = bootTrace.filter((e) =>
@@ -3356,12 +3357,12 @@ async function runMachineEpochs(page, state) {
   await expectVisible(
     page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
 
-  // rf2-ugdas / rf2-e7yhv — the xstate-v5 unhandled-event CONTRAST.
-  // #7 (unhandled event -> benign no-op) emits the benign
-  // :rf.machine.event/unhandled-no-op trace; #19 (a :* wildcard whose action
-  // throws) emits the REAL :rf.error/machine-action-exception. The Trace
-  // panel shows both; the inverse pink-wash / epoch-render assertions live in
-  // the CLJS harness.
+  // rf2-ugdas / rf2-e7yhv / rf2-gl588 — the xstate-v5 unhandled-event
+  // CONTRAST. #7 (unhandled event -> benign no-op) emits the benign
+  // :rf.machine.event/unhandled-no-op trace; #19 (an initial `:entry` action
+  // that throws on the lazy boot) emits the REAL
+  // :rf.error/machine-action-exception. The Trace panel shows both; the
+  // inverse pink-wash / epoch-render assertions live in the CLJS harness.
   await clickTab(page, 'trace', 'rf-xray-trace');
   await clearTrace(page);
   await clickMachineRung(page, 7); // unhandled -> benign no-op
@@ -3371,11 +3372,11 @@ async function runMachineEpochs(page, state) {
     '#7 unhandled event emits the benign :rf.machine.event/unhandled-no-op trace',
   );
   await clearTrace(page);
-  await clickMachineRung(page, 19); // :* wildcard action THROWS
+  await clickMachineRung(page, 19); // initial :entry action THROWS on boot
   await waitForTraceMatch(
     page,
-    /:rf\.error\/machine-action-exception|unhandled machine event/,
-    '#19 :* wildcard-action throw emits :rf.error/machine-action-exception',
+    /:rf\.error\/machine-action-exception|fuse blown on boot/,
+    '#19 boot :entry-action throw emits :rf.error/machine-action-exception',
   );
 
   state.machineEpochs = {
@@ -3574,7 +3575,7 @@ const SCENARIOS = [
     // effect · unhandled no-op · root-:on RESOLUTION), traffic (parallel
     // regions · history · tag-set member swap), quiz (:always MICROSTEPS),
     // brew (:after TIMER + cancel), session (SPAWN · child :final · :on-done ·
-    // DESTROY), fuse (:* wildcard THROW), hvac (deep compound · LCA cascade ·
+    // DESTROY), fuse (boot :entry THROW), hvac (deep compound · LCA cascade ·
     // self-transitions), history (placement reject + live shallow/deep restore
     // — the restore-cascade render is asserted in the CLJS harness). Then opens
     // the Xray Machine Inspector
@@ -3585,7 +3586,7 @@ const SCENARIOS = [
     // test `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/
     // Story-as-CLJS rule (the chart-render shim-survival probe stays owned by
     // the `deep machine inspector substrate` scenario).
-    name: 'machine-epochs machine ladder (rf2-g27vv full feature x render matrix: start/transition/entry-exit/guards/internal/effect/unhandled-no-op/root-:on RESOLUTION; parallel regions + history + TAG-SET delta; :always MICROSTEPS; :after TIMER + cancel; SPAWN/:final/:on-done/DESTROY lifecycle; :* wildcard THROW; deep-compound LCA + self-transitions; :history reject-now)',
+    name: 'machine-epochs machine ladder (rf2-g27vv full feature x render matrix: start/transition/entry-exit/guards/internal/effect/unhandled-no-op/root-:on RESOLUTION; parallel regions + history + TAG-SET delta; :always MICROSTEPS; :after TIMER + cancel; SPAWN/:final/:on-done/DESTROY lifecycle; boot :entry THROW; deep-compound LCA + self-transitions; :history reject-now)',
     url: '/testbeds/machine-epochs/',
     panels: ['machines'],
     coveredRows: ['Machines'],

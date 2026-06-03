@@ -221,7 +221,7 @@
     (transition/apply-transition-once
       machine
       (assoc initial-snapshot :state [])
-      [:rf.machine/bootstrap]
+      [transition/start-marker]
       {:target    boot-target
        :decl-path []}
       :initial-entry)))

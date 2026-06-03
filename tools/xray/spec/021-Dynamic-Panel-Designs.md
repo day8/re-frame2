@@ -1447,11 +1447,13 @@ The projection walks `:trace-events` and surfaces every member of
 The `:no-op` row (rf2-ugdas) surfaces the benign unhandled-event no-op
 (xstate-v5 parity — an event that matched no transition is ignored, NOT an
 error). It fires ONLY for a genuine unknown **user** event: framework
-lifecycle traffic (`:rf.machine/bootstrap`, `:rf.machine.spawn/spawned`,
+lifecycle traffic (`:rf.machine/start`, `:rf.machine.spawn/spawned`,
 stories-runtime pings, bare reserved-`:rf/*`) is carved out at the
-substrate (rf2-t4582 — bootstrap runs its `:initial-entry` cascade and is
-NOT classified as an unhandled-user-event no-op), so this row never stands
-in for a machine's birth. It ranks WITH the `:transition` slot (it stands
+substrate (rf2-t4582 — creation runs its `:initial-entry` cascade and is
+NOT classified as an unhandled-user-event no-op; per rf2-gl588 the eager
+start is a pure init-kick that never reaches the no-op site as a trigger),
+so this row never stands in for a machine's birth. It ranks WITH the
+`:transition` slot (it stands
 in for "the state change that did not happen") and renders, collapsed to
 the **CONSEQUENCE only** (rf2-iu3no): a muted (`:text-tertiary`) **`NO OP`**
 kind pill as the SOLE marker, plus the verb **`staying in {state}`** — the
@@ -2364,26 +2366,27 @@ shape in plain English:
 | Dispatched event                       | Gloss sub-line                                                              |
 |----------------------------------------|-----------------------------------------------------------------------------|
 | `[:door/main [:door/insert-coin]]`     | *this means the machine `:door/main` received the trigger `:door/insert-coin`* |
-| `[:door/main [:rf.machine/bootstrap]]` | *the machine `:door/main` was created / initialised*                        |
+| `[:door/main [:rf.machine/start]]`     | *the machine `:door/main` was created / initialised*                        |
 
-**Bootstrap special case.** The reserved `[:rf.machine/bootstrap]`
-marker is a **creation kick** — it runs the initial-entry cascade
-(xstate's `xstate.init`), **not** a real trigger (see
+**Start special case.** The reserved `[:rf.machine/start]` marker is a
+**creation kick** — per F‴ (rf2-gl588) it runs the initial-entry
+cascade then STOPS (a pure init-kick — xstate's `createActor(m).start()`
+/ `xstate.init`), **not** a real trigger (see
 `ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1). So
-the gloss for the bootstrap marker is phrased as creation (*"was
-created / initialised"*), never *"received the trigger"*.
+the gloss for the start marker is phrased as creation (*"was created /
+initialised"*), never *"received the trigger"*.
 
 **Formatter.** `fmt/machine-event-gloss` (`panels/epoch/format.cljc`)
 is the pure-data string builder — it accepts the dispatched event
 vector, returns the gloss string for the `[<machine-id>
-[<inner-trigger> …]]` shape (bootstrap special-cased via
-`fmt/machine-bootstrap-marker`), and returns `nil` for any other shape
+[<inner-trigger> …]]` shape (start special-cased via
+`fmt/machine-start-marker`), and returns `nil` for any other shape
 (single-element events, scalar args, empty inner vectors, non-2-tuples).
 
 **View gate.** The sub-line renders ONLY when the dispatch actually
 targets a machine — the view checks `rf/handler-meta :event
 <machine-id>` for `:rf/machine? true` (`machine-dispatch?`) — OR when
-the inner trigger is the reserved `:rf.machine/bootstrap` marker (which
+the inner trigger is the reserved `:rf.machine/start` marker (which
 is self-identifying: a reserved `:rf.machine/*` trigger only ever rides
 a machine dispatch, so the creation gloss renders even when runtime
 registration meta is unavailable, e.g. fixtures / production builds).

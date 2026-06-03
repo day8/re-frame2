@@ -186,8 +186,8 @@
           (is (= :no-recovery (:recovery t)))
           (is (= :rf2-dd3b/throws (-> t :tags :machine-id))
               ":machine-id identifies the bootstrapping machine")
-          (is (= [:rf.machine/bootstrap] (-> t :tags :event))
-              ":event tag identifies the synthetic bootstrap event")
+          (is (= [:rf.machine/start] (-> t :tags :event))
+              ":event tag identifies the synthetic creation marker")
           (is (some? (-> t :tags :exception))
               ":exception slot is populated"))))))
 

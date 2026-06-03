@@ -293,34 +293,43 @@
      :on    {:session/close :idle}}}})
 
 ;; ============================================================================
-;; MACHINE 6 — :fuse/box  (WILDCARD-THROW: :* action THROWS — xstate-v5)
+;; MACHINE 6 — :fuse/box  (THROW-ON-BOOT: initial `:entry` action THROWS)
 ;; ============================================================================
 ;;
-;; The xstate-v5 idiomatic 'fail loudly on unknown'. `:armed` handles a plain
-;; `:fuse/inspect` (a benign internal action), and its `:*` wildcard's action
-;; THROWS for any other event → a REAL `:rf.error/machine-action-exception`.
-;; The CONTRAST with the door's benign unhandled-no-op validates that Xray's
-;; pink-wash / `issue-event?` predicate distinguishes a thrown `:*` action
+;; A machine-action exception ON BOOT — the F‴ (rf2-gl588) re-vehicle. The
+;; initial state `:armed` declares an `:entry` action `:blow-fuse` that THROWS,
+;; so the initial-entry cascade itself raises a REAL
+;; `:rf.error/machine-action-exception`. This fires on ANY boot — an eager
+;; `[:fuse/box [:rf.machine/start]]` kick OR the first real event lazily
+;; booting the machine — because under F‴ `maybe-boot` is the single birth
+;; site that runs the cascade in both paths.
+;;
+;; Pre-F‴ this coverage rode the double-duty wart: an eager start marker was
+;; re-processed as a normal trigger, hit `:armed`'s `:*` wildcard, and threw.
+;; F‴ makes the start marker a PURE init-kick (init then STOP — it never
+;; reaches the transition step), so that path is gone; the throw moves to a
+;; real `:entry` action, demonstrating "exception on boot" on the F‴ model.
+;;
+;; The CONTRAST with the door's benign unhandled-no-op still validates that
+;; Xray's pink-wash / `issue-event?` predicate distinguishes a thrown action
 ;; (error, pink, EXCEPTION card, cascade-summary :outcome :error) from a
-;; benign no-op (NOT pink).
+;; benign no-op (NOT pink) — the foil is now a throwing BIRTH rather than a
+;; throwing wildcard.
 
 (defmachine fuse-machine
   {:initial :armed
    :data    {:trail []}
 
    :actions
-   {:note-inspect (trail-action 'note-inspect :action:inspect
-                                (fn [d _] (update d :inspections (fnil inc 0))))
-    :blow-fuse
+   {:blow-fuse
     (fn action-blow-fuse [{:keys [event]}]
-      (throw (ex-info "unhandled machine event"
-                      {:event event :where :fuse-wildcard})))}
+      (throw (ex-info "fuse blown on boot"
+                      {:event event :where :fuse-entry})))}
 
    :states
    {:armed
-    {:tags #{:fuse/armed}
-     :on   {:fuse/inspect {:action :note-inspect}
-            :*            {:action :blow-fuse}}}}})
+    {:tags  #{:fuse/armed}
+     :entry :blow-fuse}}})
 
 ;; ============================================================================
 ;; MACHINE 7 — :hvac/controller  (DEEP-COMPOUND — compound · LCA · self-tx)

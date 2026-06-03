@@ -327,14 +327,15 @@
     :reg-machine   "reg-machine"
     (str flavour)))
 
-(def machine-bootstrap-marker
+(def machine-start-marker
   "The reserved synthetic marker a machine receives as its creation kick
-  (`[<machine-id> [:rf.machine/bootstrap]]`). It is NOT a real trigger —
-  it runs the initial-entry cascade (xstate's `xstate.init`) — so the
-  DISPATCH gloss phrases it as creation, not 'received the trigger'
-  (rf2-18oe3; ai/findings/2026-06-03.machine-creation-bootstrap-review.md
-  §1)."
-  :rf.machine/bootstrap)
+  (`[<machine-id> [:rf.machine/start]]`). It is NOT a real trigger — per F‴
+  (rf2-gl588) it runs the initial-entry cascade then STOPS (a PURE init-kick,
+  xstate's `createActor(m).start()` / `xstate.init`) — so the DISPATCH gloss
+  phrases it as creation, not 'received the trigger' (rf2-18oe3;
+  ai/findings/2026-06-03.machine-creation-bootstrap-review.md §1). Renamed
+  from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim)."
+  :rf.machine/start)
 
 (defn machine-event-gloss
   "Decode a machine dispatch's `[<machine-id> [<inner-trigger> ...]]` shape
@@ -349,18 +350,18 @@
       [:door/main [:door/insert-coin]]
         → 'this means the machine :door/main received the trigger :door/insert-coin'
 
-  SPECIAL CASE — the reserved `[:rf.machine/bootstrap]` marker is a
-  creation kick (runs the initial-entry cascade), NOT a real trigger, so
-  it is phrased as creation:
+  SPECIAL CASE — the reserved `[:rf.machine/start]` marker is a creation
+  kick (runs the initial-entry cascade), NOT a real trigger, so it is
+  phrased as creation:
 
-      [:door/main [:rf.machine/bootstrap]]
+      [:door/main [:rf.machine/start]]
         → 'the machine :door/main was created / initialised'
 
   Returns nil when `event` is not a 2-element vector whose second element
   is a non-empty vector (the machine-dispatch shape) — the caller renders
   the gloss line only when this returns a string. Pure-data; whether the
   `<machine-id>` actually names a registered machine is the VIEW's gate
-  (runtime `handler-meta` lookup) — except the reserved bootstrap marker,
+  (runtime `handler-meta` lookup) — except the reserved start marker,
   which is unambiguous on its own."
   [event]
   (when (and (vector? event)
@@ -370,7 +371,7 @@
     (let [[machine-id inner]   event
           trigger              (first inner)
           machine-str          (ns-keyword machine-id)]
-      (if (= machine-bootstrap-marker trigger)
+      (if (= machine-start-marker trigger)
         (str "the machine " machine-str " was created / initialised")
         (str "this means the machine " machine-str
              " received the trigger " (ns-keyword trigger))))))

@@ -72,7 +72,7 @@
 
 (defn- setup!
   "Register the Xray handlers + trace collector, register every (non-throwing)
-  deck machine via the shared specs, and bootstrap each to its initial state.
+  deck machine via the shared specs, and START each to its initial state.
   Clears the trace buffer so per-rung captures contain only that macrostep."
   []
   (registry/register-xray-handlers!)
@@ -80,7 +80,7 @@
   (machines/register-all!)
   (doseq [id [:door/main :traffic/light :quiz/scorer :brew/machine
               :session/flow :hvac/controller :media/deep :media/shallow]]
-    (rf/dispatch-sync [id [:rf.machine/bootstrap]])))
+    (rf/dispatch-sync [id [:rf.machine/start]])))
 
 (defn- snapshot [machine-id]
   (get-in (rf/app-db-value :rf/default)
@@ -462,28 +462,33 @@
 ;; FUSE (WILDCARD-THROW) — :* action THROWS (gap b: the unasserted outcome)
 ;; ============================================================================
 
-(deftest fuse-wildcard-action-throw-renders-as-error-not-no-op
-  (testing "rung #19 (rf2-hhkbb gap b) — a :* wildcard whose action THROWS is
-            a REAL machine-action exception, NOT a benign no-op. (b) the
-            cascade's action row carries :threw? true + an :exception (the
-            Xray-surface analogue of cascade-summary :outcome :error — the
-            slot rf2-hhkbb found unasserted); (b) NO :no-op row (a throw is
-            never a no-op — the contrast with the door's benign no-op)."
+(deftest fuse-boot-entry-throw-renders-as-error-not-no-op
+  (testing "rung #19 (rf2-hhkbb gap b / rf2-gl588) — an initial `:entry`
+            action that THROWS on boot is a REAL machine-action exception,
+            NOT a benign no-op. The first event lazily boots :armed, whose
+            `:entry :blow-fuse` throws DURING the initial-entry cascade. (b) a
+            cascade row carries :threw? true + an :exception (the Xray-surface
+            analogue of cascade-summary :outcome :error); (b) NO :no-op row (a
+            throw is never a no-op — the contrast with the door's benign
+            no-op). Re-vehicled from the old `:*`-wildcard throw — F‴ made the
+            start marker a pure init-kick, so the boot-time `:entry` is now
+            the exception vehicle."
     (setup!)
-    ;; lazy-bootstrap the fuse (the deck deliberately doesn't boot it).
-    (let [record (drive! :fuse/box [:fuse/short-circuit])
-          rows   (cascade record)
-          thrown (filterv :threw? (rows-of-kind rows :action))
+    ;; The deck deliberately doesn't eager-start the fuse: its first real
+    ;; event lazily boots :armed, whose `:entry` throws on the boot cascade.
+    (let [record  (drive! :fuse/box [:fuse/short-circuit])
+          rows    (cascade record)
+          thrown  (filterv :threw? rows)
           err-ops (filterv #(= :rf.error/machine-action-exception (:operation %))
                            (:trace-events record))]
       (is (seq err-ops)
           "(b) a :rf.error/machine-action-exception rode the trace stream")
       (is (seq thrown)
-          "(b) the cascade action row is marked :threw? true (NOT silently green)")
+          "(b) a cascade row is marked :threw? true (NOT silently green)")
       (is (some? (:exception (first thrown)))
           "(b) the thrown action carries its :exception for the EXCEPTION card")
       (is (empty? (rows-of-kind rows :no-op))
-          "(b) a thrown :* action is NEVER a no-op — the foil to the benign no-op"))))
+          "(b) a throwing boot `:entry` is NEVER a no-op — the foil to the benign no-op"))))
 
 ;; ============================================================================
 ;; HVAC (DEEP-COMPOUND) — the LCA + self-transition headline (subsumes k08ay)

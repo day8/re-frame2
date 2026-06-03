@@ -54,17 +54,17 @@
 
 (defn install!
   "Register the `:deep/main` machine with re-frame's machines layer.
-  No initial dispatch — the test fires `[:rf.machine/bootstrap]`
+  No initial dispatch — the test fires `[:rf.machine/start]`
   itself when it wants the machine's initial-entry cascade."
   []
   (rf/reg-machine :deep/main mini-machine)
   nil)
 
 (defn install-and-init!
-  "Install + bootstrap. After this returns the machine is settled in
+  "Install + start. After this returns the machine is settled in
   `:idle` state and Xray's `:rf.xray/registered-machines` sub
   includes `:deep/main`."
   []
   (install!)
-  (rf/dispatch-sync [:deep/main [:rf.machine/bootstrap]])
+  (rf/dispatch-sync [:deep/main [:rf.machine/start]])
   nil)

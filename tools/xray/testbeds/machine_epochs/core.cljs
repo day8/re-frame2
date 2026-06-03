@@ -64,8 +64,9 @@
                                    + exit-cascade-on-destroy (gaps 3, 4, 5).
     - hvac     (DEEP-COMPOUND)   — compound · initial cascade · LCA cascade ·
                                    internal/external self-transitions.
-    - fuse     (WILDCARD-THROW)  — `:*` wildcard action THROWS (exception
-                                   card + pink-wash; the foil to the no-op).
+    - fuse     (THROW-ON-BOOT)   — initial `:entry` action THROWS on boot
+                                   (exception card + pink-wash; the foil to
+                                   the no-op).
     - media    (HISTORY, gap 8)  — a `:player` compound owning a `:type
                                    :history` pseudo-state; shallow + deep
                                    eject/restore drive the
@@ -302,19 +303,23 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :machine-epochs/reset
-  {:doc "Re-seed app-db and bootstrap every NON-throwing machine to its initial
+  {:doc "Re-seed app-db and START every NON-throwing machine to its initial
          state. Start clean.
 
-         :fuse/box is DELIBERATELY NOT bootstrapped: a
-         [:fuse/box [:rf.machine/bootstrap]] dispatch would, after the
-         initial-entry cascade, process the inner [:rf.machine/bootstrap] as
-         a normal event — :armed has no :on entry for it, so it falls to the
-         :* wildcard whose :blow-fuse action THROWS on boot. The fuse box must
-         throw ONLY when its step presses it (it lazily bootstraps on its first
-         real event). Net: clean boot."}
+         Each `[id [:rf.machine/start]]` is the eager kick (xstate
+         `createActor(m).start()`): per F‴ (rf2-gl588) it runs the
+         initial-entry cascade then STOPS — a PURE init-kick, never re-fed
+         into the transition step.
+
+         :fuse/box is DELIBERATELY NOT started here: its initial state :armed
+         declares an `:entry` action `:blow-fuse` that THROWS on boot, so an
+         eager `[:fuse/box [:rf.machine/start]]` would raise during the
+         initial-entry cascade and pollute the clean reset. The fuse box
+         throws ONLY when its step presses it — its first real event lazily
+         boots :armed, whose `:entry` throws. Net: clean boot."}
   (fn handler-reset [_ _ev]
     {:db initial-db
-     :fx (mapv (fn [id] [:dispatch [id [:rf.machine/bootstrap]]])
+     :fx (mapv (fn [id] [:dispatch [id [:rf.machine/start]]])
                [:door/main :traffic/light :quiz/scorer :brew/machine
                 :session/flow :hvac/controller :media/deep :media/shallow])}))
 
@@ -352,9 +357,9 @@
 
 (def steps
   [;; -- DOOR (FLAT) — start · transition · entry/exit · effect --
-   {:label     "Door: start machine (bootstrap)"
-    :event     [:door/main [:rf.machine/bootstrap]]
-    :watch     "Inspector: the door chart renders; live-highlight lands on :locked. Epoch: :initial-entry, NOT a no-op."
+   {:label     "Door: start machine (:rf.machine/start)"
+    :event     [:door/main [:rf.machine/start]]
+    :watch     "Inspector: the door chart renders; live-highlight lands on :locked. Epoch: a [START] badge (initial state + data) — a pure init-kick, NOT a transition / no-op."
     :settle-ms 350}
    {:label     "Door: insert coin (:locked ──► :closed)"
     :event     [:machine-epochs/send [[:door/main [:door/insert-coin]]]]
@@ -433,10 +438,10 @@
     :watch     "Cascade: drive the child to :final? → :on-done reports the token to the parent → child auto-destroys (exit-cascade-on-destroy + destroyed trace)."
     :settle-ms 450}
 
-   ;; -- FUSE (WILDCARD-THROW) — :* action THROWS (xstate-v5 fail-loudly) --
-   {:label     "Fuse: unhandled event to :fuse/box — :* action THROWS"
+   ;; -- FUSE (THROW-ON-BOOT) — initial `:entry` action THROWS on lazy boot --
+   {:label     "Fuse: first event to :fuse/box — initial :entry THROWS on boot"
     :event     [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]
-    :watch     "Epoch: EXCEPTION card (message + ex-data + coord) attributing a :* WILDCARD action; event row IS pink; cascade-summary :outcome :error."
+    :watch     "Epoch: the first event lazily boots :armed, whose :entry action :blow-fuse THROWS. EXCEPTION card (message + ex-data + coord) attributing the initial :entry action; event row IS pink; cascade-summary :outcome :error."
     :settle-ms 400}
 
    ;; -- HVAC (DEEP-COMPOUND) — compound · LCA cascade · self-transitions --

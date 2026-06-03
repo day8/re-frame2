@@ -12,7 +12,7 @@
       `:rf.machine.event/unhandled-no-op` trace (op-type `:rf.machine`,
       NOT `:error` / `:warning`) and leaves the snapshot unchanged.
       rf2-t4582 refines this: reserved-`:rf/*` framework lifecycle traffic
-      (the synthetic bootstrap `[:rf.machine/bootstrap]`, the spawn
+      (the synthetic creation marker `[:rf.machine/start]`, the spawn
       kick-off `[:rf.machine.spawn/spawned]`, the stories-runtime
       lifecycle pings) is NOT classified as an unknown-user-event no-op —
       `transition/unhandled-event-no-op?` gates the emit. Severity is
@@ -144,8 +144,8 @@
    domain event (still a no-op) and FALSE for any reserved-:rf/* event"
     (is (transition/unhandled-event-no-op? [:nope])
         "a domain event is classified as an unknown-user-event no-op")
-    (is (not (transition/unhandled-event-no-op? [:rf.machine/bootstrap]))
-        "the synthetic bootstrap is framework init, not a no-op")
+    (is (not (transition/unhandled-event-no-op? [:rf.machine/start]))
+        "the synthetic creation marker is framework init, not a no-op")
     (is (not (transition/unhandled-event-no-op? [:rf.machine.spawn/spawned]))
         "the spawn kick-off is framework init, not a no-op")
     (is (not (transition/unhandled-event-no-op? [:rf.story.lifecycle/events-complete]))
@@ -155,11 +155,12 @@
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-t4582 — the machine's BIRTH renders as :initial-entry, not a no-op.
-;; The bootstrap threads the synthetic `[:rf.machine/bootstrap]` event into
-;; the initial-entry cascade (Spec 005:1101). Because `:rf.machine/bootstrap`
-;; is reserved-:rf/*, the bootstrap NEVER trips the unhandled-no-op even when
-;; the initial state declares no `:on`; instead it runs the entry cascade and
-;; the entry action emits `:rf.machine/action-ran` with `:phase :initial-entry`.
+;; The start threads the synthetic `[:rf.machine/start]` event into the
+;; initial-entry cascade (Spec 005 §Synthetic creation marker). Because
+;; `:rf.machine/start` is reserved-:rf/*, the start NEVER trips the
+;; unhandled-no-op even when the initial state declares no `:on`; instead it
+;; runs the entry cascade and the entry action emits `:rf.machine/action-ran`
+;; with `:phase :initial-entry`.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private boot-entry-spec
@@ -174,9 +175,9 @@
                  :on    {:known {:target :a}}}}})
 
 (deftest bootstrap-renders-initial-entry-not-a-no-op
-  (testing "the bootstrap cascade emits the :initial-entry-phase action-ran
+  (testing "the initial-entry cascade emits the :initial-entry-phase action-ran
    and installs the initial state — NOT an unhandled-no-op for
-   [:rf.machine/bootstrap]"
+   [:rf.machine/start]"
     (let [seen (atom [])
           _    (trace/register-listener! ::boot (fn [ev] (swap! seen conj ev)))
           r    (try (parallel/apply-initial-entry-cascade

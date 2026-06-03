@@ -95,7 +95,7 @@
     ;; Bootstrap into :loading first (so the per-path epoch lands at 1).
     ;; Then dispatch the synthetic after-elapsed event carrying the
     ;; matching delay-key + carried-epoch + carried-decl-path tuple.
-    (let [_ (rf/dispatch-sync [:rf2-82a0u/after [:rf.machine/bootstrap]])
+    (let [_ (rf/dispatch-sync [:rf2-82a0u/after [:rf.machine/start]])
           evs (record-traces!
                 (fn []
                   (rf/dispatch-sync
@@ -118,7 +118,7 @@
                   ;; Any dispatch into a freshly-registered machine
                   ;; triggers the bootstrap entry cascade before the
                   ;; event itself is handled.
-                  (rf/dispatch-sync [:rf2-82a0u/boot [:rf.machine/bootstrap]])))
+                  (rf/dispatch-sync [:rf2-82a0u/boot [:rf.machine/start]])))
           as  (ops evs :rf.machine/action-ran)
           hello (some #(when (= :hello (-> % :tags :action-id)) %) as)]
       (is (some? hello) ":hello fired from initial-entry")
@@ -232,7 +232,7 @@
     (let [evs (record-traces!
                 (fn []
                   ;; Bootstrap into :armed — fx layer arms the timer.
-                  (rf/dispatch-sync [:rf2-82a0u/cancel-exit [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/cancel-exit [:rf.machine/start]])
                   ;; Exit :armed — fires after-cancel-fx.
                   (rf/dispatch-sync [:rf2-82a0u/cancel-exit [:cancel]])))
           cs  (timer-cancellations evs)
@@ -263,9 +263,9 @@
     (let [evs (record-traces!
                 (fn []
                   ;; Bootstrap the target so its :after arms.
-                  (rf/dispatch-sync [:rf2-82a0u/destroy-target [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/destroy-target [:rf.machine/start]])
                   ;; Bootstrap the destroyer, then trigger destroy.
-                  (rf/dispatch-sync [:rf2-82a0u/destroyer [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/destroyer [:rf.machine/start]])
                   (rf/dispatch-sync [:rf2-82a0u/destroyer [:fire]])))
           cs  (timer-cancellations evs)
           destroy-evs (filter #(= :on-destroy (-> % :tags :reason)) cs)]
@@ -283,7 +283,7 @@
                  :timeout {}}})
     (let [evs (record-traces!
                 (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/mirror [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/mirror [:rf.machine/start]])
                   (rf/dispatch-sync [:rf2-82a0u/mirror [:cancel]])))
           sched-ev  (first (ops evs :rf.machine.timer/scheduled))
           cancel-ev (first (timer-cancellations evs))]
@@ -310,7 +310,7 @@
                  :c {}}})
     (let [evs (record-traces!
                 (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/closed-reasons [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/closed-reasons [:rf.machine/start]])
                   (rf/dispatch-sync [:rf2-82a0u/closed-reasons [:cancel]])))
           cs  (timer-cancellations evs)
           reasons (set (map #(-> % :tags :reason) cs))
@@ -335,7 +335,7 @@
                  :c {}}})
     (let [evs (record-traces!
                 (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/no-old-id [:rf.machine/bootstrap]])
+                  (rf/dispatch-sync [:rf2-82a0u/no-old-id [:rf.machine/start]])
                   (rf/dispatch-sync [:rf2-82a0u/no-old-id [:exit]])))]
       (is (empty? (ops evs :rf.machine.timer/cancelled-on-resolution))
           "no emit of the legacy event id (rf2-82a0u removed it)"))))
