@@ -1,0 +1,84 @@
+;; Conformance fixture: machine/history-per-region-parallel
+;;
+;; First-class PER-REGION history under `:type :parallel` (rf2-mle6e). Each
+;; region runs an independent state-tree, so history is per-region: a history
+;; pseudo-state inside a region's compound records THAT region's last-active
+;; config and restores it independently of siblings. The `:rf/history` keys are
+;; REGION-QUALIFIED — the head segment is the region name — so two regions with
+;; STRUCTURALLY-IDENTICAL within-region compound paths ([:group]) never collide.
+;;
+;; Per [005 §Composition with parallel regions — per-region history]
+;; (../../005-StateMachines.md#composition-with-parallel-regions--per-region-history).
+
+{:fixture/id           :machine/history-per-region-parallel
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/parallel-regions :fsm/history}
+ :fixture/doc          "Parallel per-region deep history: each region records its own last-active config under a REGION-QUALIFIED key ([<region> :group]); structurally-identical region compounds never collide, and re-entry restores each region to its OWN recorded leaf."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) RECORD: a :turn-off broadcast exits the :on subtree in BOTH regions.
+  ;; Each region records its OWN deep leaf, keyed by [<region> :group].
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:left  {:initial :group
+                      :states  {:group {:initial :off
+                                        :states  {:off  {:on {:turn-on [:group :hist]}}
+                                                  :hist {:type :history :deep? true}
+                                                  :on   {:initial :dim
+                                                         :on      {:turn-off [:group :off]}
+                                                         :states  {:dim    {:on {:brighten :bright}}
+                                                                   :bright {:on {:turn-off [:group :off]}}}}}}}}
+              :right {:initial :group
+                      :states  {:group {:initial :off
+                                        :states  {:off  {:on {:turn-on [:group :hist]}}
+                                                  :hist {:type :history :deep? true}
+                                                  :on   {:initial :dim
+                                                         :on      {:turn-off [:group :off]}
+                                                         :states  {:dim    {:on {:brighten :bright}}
+                                                                   :bright {:on {:turn-off [:group :off]}}}}}}}}}}
+   :snapshot     {:state {:left [:group :on :bright] :right [:group :on :dim]} :data {}}
+   :event        [:turn-off]
+   :expect-next-snapshot
+   {:state    {:left [:group :off] :right [:group :off]}
+    :data     {}
+    :rf/history {[:left :group]  [:group :on :bright]
+                 [:right :group] [:group :on :dim]}}
+   :expect-effects       []}
+
+  ;; (2) RESTORE: a :turn-on broadcast re-enters each region via ITS OWN history.
+  ;; :left restores :bright, :right restores :dim — no cross-region leak. The
+  ;; exit cascades re-record the outgoing :off config per region.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:left  {:initial :group
+                      :states  {:group {:initial :off
+                                        :states  {:off  {:on {:turn-on [:group :hist]}}
+                                                  :hist {:type :history :deep? true}
+                                                  :on   {:initial :dim
+                                                         :on      {:turn-off [:group :off]}
+                                                         :states  {:dim    {:on {:brighten :bright}}
+                                                                   :bright {:on {:turn-off [:group :off]}}}}}}}}
+              :right {:initial :group
+                      :states  {:group {:initial :off
+                                        :states  {:off  {:on {:turn-on [:group :hist]}}
+                                                  :hist {:type :history :deep? true}
+                                                  :on   {:initial :dim
+                                                         :on      {:turn-off [:group :off]}
+                                                         :states  {:dim    {:on {:brighten :bright}}
+                                                                   :bright {:on {:turn-off [:group :off]}}}}}}}}}}
+   :snapshot     {:state    {:left [:group :off] :right [:group :off]}
+                  :data     {}
+                  :rf/history {[:left :group]  [:group :on :bright]
+                               [:right :group] [:group :on :dim]}}
+   :event        [:turn-on]
+   :expect-next-snapshot
+   {:state    {:left [:group :on :bright] :right [:group :on :dim]}
+    :data     {}
+    :rf/history {[:left :group]  [:group :off]
+                 [:right :group] [:group :off]}}
+   :expect-effects       []}]}

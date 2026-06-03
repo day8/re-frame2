@@ -1,0 +1,66 @@
+;; Conformance fixture: machine/scxml-history-test579-default-only-first-entry
+;;
+;; ADAPTED from W3C SCXML IRP test579 (https://www.w3.org/Voice/2013/scxml-irp/579/test579.txml).
+;; Mandatory-automated history test. test579 verifies that a history state's
+;; DEFAULT transition executes ONLY IF THERE IS NO STORED HISTORY: on first
+;; entry to the compound the default content runs (no recording yet); once the
+;; compound has been exited and re-entered, the STORED history is restored and
+;; the default is NOT re-applied.
+;;
+;; re-frame2 mapping: the default-target arm (`:source :default`) fires only
+;; when nothing is recorded for the compound; a recorded config (`:source
+;; :recorded`) overrides the default. This is the same semantic — the recording
+;; takes priority over the default once it exists.
+;;
+;; SEMANTIC DIVERGENCE (cited): SCXML expresses "default ran" via <raise> events
+;; the datamodel counts; re-frame2 has no datamodel / <raise>, so the test is
+;; translated to two Mode B calls whose RESULTING CONFIGURATION distinguishes
+;; default (s01) from restored (the recorded s02). re-frame2 is not an SCXML
+;; processor; the chart shape and the default-vs-stored resolution are
+;; translated, not the .scxml verbatim.
+;;
+;; Per [005 §History states §Restoration](../../005-StateMachines.md#restoration--on-re-entry-resolving-the-pseudo-state).
+
+{:fixture/id           :machine/scxml-history-test579-default-only-first-entry
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/history}
+ :fixture/doc          "W3C SCXML test579 adapted: a history pseudo-state's :default-target resolves ONLY when nothing is recorded (first entry → s01); once a config is recorded (s02), re-entry restores the stored config and the default is NOT re-applied."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) FIRST ENTRY (no recording): enter :s0 via [:s0 :sh] from :away with an
+  ;; empty :rf/history ⇒ the :default-target :s01 fires.
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :sh
+                     :on      {:leave :away}
+                     :states  {:sh  {:type :history :default-target :s01}
+                               :s01 {:on {:next :s02}}
+                               :s02 {:on {:next :s03}}
+                               :s03 {}}}
+              :away {:on {:return [:s0 :sh]}}}}
+   :snapshot     {:state :away :data {}}
+   :event        [:return]
+   :expect-next-snapshot {:state [:s0 :s01] :data {}}
+   :expect-effects       []}
+
+  ;; (2) RE-ENTRY (history recorded): the slot holds :s02 (a prior exit). The
+  ;; restore uses the STORED config (:s02), NOT the default (:s01). The exit
+  ;; cascade overwrites the slot with the outgoing :s02 (already there).
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :sh
+                     :on      {:leave :away}
+                     :states  {:sh  {:type :history :default-target :s01}
+                               :s01 {:on {:next :s02}}
+                               :s02 {:on {:next :s03}}
+                               :s03 {}}}
+              :away {:on {:return [:s0 :sh]}}}}
+   :snapshot     {:state :away :data {} :rf/history {[:s0] :s02}}
+   :event        [:return]
+   :expect-next-snapshot {:state [:s0 :s02] :data {} :rf/history {[:s0] :s02}}
+   :expect-effects       []}]}

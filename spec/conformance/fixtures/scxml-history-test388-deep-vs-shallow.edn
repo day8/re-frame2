@@ -1,0 +1,97 @@
+;; Conformance fixture: machine/scxml-history-test388-deep-vs-shallow
+;;
+;; ADAPTED from W3C SCXML IRP test388 (https://www.w3.org/Voice/2013/scxml-irp/388/test388.txml).
+;; Mandatory-automated history test. test388 demonstrates the DEEP-vs-SHALLOW
+;; distinction: a compound :s0 (children :s01 ⊃ {s011, s012}, :s02 ⊃ {s021,
+;; s022}) is entered deep at s012, left, and re-entered via history —
+;;   - DEEP history restores the EXACT deepest prior leaf (s012);
+;;   - SHALLOW history restores only the immediate child (s01) then applies its
+;;     :initial (s011).
+;;
+;; SEMANTIC DIVERGENCE FROM SCXML (cited): the SCXML source declares BOTH a
+;; <history type="deep"> and a <history type="shallow"> as SIBLINGS under the
+;; same <state id="s0">. re-frame2 rules AT MOST ONE history pseudo-state per
+;; compound (deep-vs-shallow is the single node's `:deep?`, not two nodes — a
+;; second is `:rf.error/machine-history-duplicate`, per
+;; [005 §Pseudo-state constraints](../../005-StateMachines.md#pseudo-state-constraints)).
+;; So the adaptation SPLITS the one SCXML chart into TWO machines with identical
+;; geometry, one deep / one shallow, exercised from the IDENTICAL recorded exit
+;; leaf — preserving the test's behavioural contrast exactly while honouring the
+;; one-history-per-compound grammar. re-frame2 is not an SCXML processor (no
+;; datamodel / <raise> / <send>); the chart SHAPE and the last-active-config
+;; restoration SEQUENCE are translated, not the .scxml verbatim.
+;;
+;; Per [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
+
+{:fixture/id           :machine/scxml-history-test388-deep-vs-shallow
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/history}
+ :fixture/doc          "W3C SCXML test388 adapted: deep history restores the exact deepest prior leaf (s012); shallow history restores only the immediate child (s01) and applies its :initial (s011). Split into two machines (one deep / one shallow) because re-frame2 permits at most one history node per compound."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; ---- DEEP machine ----
+  ;; (1d) Record: leave :s0 from the deepest leaf [:s0 :s01 :s012].
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :s01
+                     :on      {:leave :away}
+                     :states  {:s01  {:initial :s011 :states {:s011 {:on {:next :s012}} :s012 {}}}
+                               :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                               :hist {:type :history :deep? true :default-target :s022}}}
+              :away {:on {:return [:s0 :hist]}}}}
+   :snapshot     {:state [:s0 :s01 :s012] :data {}}
+   :event        [:leave]
+   :expect-next-snapshot {:state :away :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
+   :expect-effects       []}
+
+  ;; (2d) Restore deep: re-enter via [:s0 :hist] → the EXACT recorded leaf s012.
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :s01
+                     :on      {:leave :away}
+                     :states  {:s01  {:initial :s011 :states {:s011 {:on {:next :s012}} :s012 {}}}
+                               :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                               :hist {:type :history :deep? true :default-target :s022}}}
+              :away {:on {:return [:s0 :hist]}}}}
+   :snapshot     {:state :away :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
+   :event        [:return]
+   :expect-next-snapshot {:state [:s0 :s01 :s012] :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
+   :expect-effects       []}
+
+  ;; ---- SHALLOW machine (identical geometry, no :deep?) ----
+  ;; (1s) Record: leave :s0 from the SAME deepest leaf [:s0 :s01 :s012].
+  ;; Shallow records only the direct child :s01.
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :s01
+                     :on      {:leave :away}
+                     :states  {:s01  {:initial :s011 :states {:s011 {:on {:next :s012}} :s012 {}}}
+                               :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                               :hist {:type :history :default-target :s02}}}
+              :away {:on {:return [:s0 :hist]}}}}
+   :snapshot     {:state [:s0 :s01 :s012] :data {}}
+   :event        [:leave]
+   :expect-next-snapshot {:state :away :data {} :rf/history {[:s0] :s01}}
+   :expect-effects       []}
+
+  ;; (2s) Restore shallow: re-enter via [:s0 :hist] → the recorded child :s01
+  ;; then its :initial (:s011) — NOT the deep exit leaf s012.
+  {:call         :machine-transition
+   :definition
+   {:initial :s0
+    :states  {:s0   {:initial :s01
+                     :on      {:leave :away}
+                     :states  {:s01  {:initial :s011 :states {:s011 {:on {:next :s012}} :s012 {}}}
+                               :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                               :hist {:type :history :default-target :s02}}}
+              :away {:on {:return [:s0 :hist]}}}}
+   :snapshot     {:state :away :data {} :rf/history {[:s0] :s01}}
+   :event        [:return]
+   :expect-next-snapshot {:state [:s0 :s01 :s011] :data {} :rf/history {[:s0] :s01}}
+   :expect-effects       []}]}

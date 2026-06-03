@@ -94,14 +94,17 @@
       (W3C SCXML §3.10, e.g. test 387, 388, 579, 580 history family).
       re-frame2 ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral
       is withdrawn): `{:type :history :deep? <bool> :default-target <t>}` is
-      a targetable pseudo-state under a compound's `:states`. The §History
-      section below now carries only the registration-time GRAMMAR-CONSTRAINT
-      rejections the engine enforces (a `:type :history` node MUST have an
-      owning compound — `:rf.error/machine-history-misplaced`). The
-      COMPREHENSIVE record/restore conformance corpus (W3C 387/388/579/580
-      adapted) lands under rf2-mle6e.4; this file keeps only the minimal
-      placement-rejection assertions + a smoke that a well-placed history
-      node validates.
+      a targetable pseudo-state under a compound's `:states`. NO LONGER an
+      exclusion — the §History section below now carries BOTH the
+      registration-time GRAMMAR-CONSTRAINT rejections (a `:type :history` node
+      MUST have an owning compound — `:rf.error/machine-history-misplaced`)
+      AND the RECORD/RESTORE behavioural corpus (the W3C 387/388/579/580
+      family adapted to the re-frame2 grammar shape). The Mode-B
+      `:machine-transition` fixture counterparts live at
+      `spec/conformance/fixtures/scxml-history-test{387,388,579,580}-*.edn`
+      and `history-{shallow,deep,default-target,per-region,dangling}-*.edn`
+      (rf2-mle6e.4). This entry is retained in the EXCLUSIONS list only as a
+      historical marker — history is now COVERED, not excluded.
 
   ## Divergences found
 
@@ -780,17 +783,31 @@
           "the compound :wrapper ancestor is NOT itself final (leaf-only property)"))))
 
 ;; ===========================================================================
-;; §13. HISTORY — first-class grammar, placement rejections (SCXML §3.10)
+;; §13. HISTORY — first-class grammar + record/restore (SCXML §3.10)
 ;;
 ;; SCXML §3.10 `<history type="shallow|deep">` records and restores the
 ;; most recent active descendant of a compound/parallel state. re-frame2
 ;; ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral is withdrawn):
 ;; `{:type :history :deep? <bool> :default-target <t>}` under a compound's
-;; `:states`. The COMPREHENSIVE record/restore conformance corpus (the W3C
-;; 387/388/579/580 record-and-restore behaviour) lands under rf2-mle6e.4;
-;; this section keeps only the registration-time PLACEMENT-CONSTRAINT
-;; rejections the engine enforces (a `:type :history` node MUST have an
-;; owning compound) + a smoke that a well-placed history node validates.
+;; `:states`. This section covers BOTH halves:
+;;   §13a — the registration-time PLACEMENT / GRAMMAR-CONSTRAINT rejections the
+;;          engine enforces (a `:type :history` node MUST have an owning
+;;          compound; the closed key-set; one-per-compound).
+;;   §13b — the RECORD/RESTORE behavioural corpus, the W3C 387/388/579/580
+;;          history family ADAPTED to the re-frame2 grammar shape (rf2-mle6e.4).
+;;          The Mode-B `:machine-transition` fixture counterparts live at
+;;          `spec/conformance/fixtures/scxml-history-test*-*.edn` +
+;;          `history-*-*.edn`; these in-corpus tests give the same coverage
+;;          dual-runtime (JVM + CLJS).
+;;
+;; SCXML ADAPTATION NOTES (cited per assertion below). re-frame2 is NOT an
+;; SCXML processor — no datamodel / `<raise>` / `<send>` — so each W3C test's
+;; statechart SHAPE and its last-active-config restoration SEQUENCE are
+;; translated, not the `.scxml` verbatim. One structural divergence recurs:
+;; W3C charts declare a deep AND a shallow `<history>` as SIBLINGS under one
+;; state; re-frame2 permits AT MOST ONE history pseudo-state per compound
+;; (deep-vs-shallow is the single node's `:deep?`), so a multi-history W3C
+;; chart is split into per-depth machines of identical geometry.
 ;; ===========================================================================
 
 (defn- history-rejection-id
@@ -868,3 +885,144 @@
                                            :playing {:initial :at-start
                                                      :states {:at-start {}}}}}}}))
         "a well-placed first-class history pseudo-state validates without error")))
+
+(deftest scxml-history-duplicate-per-compound-rejected
+  (testing "SCXML §3.10 / re-frame2 divergence: SCXML allows sibling
+            shallow+deep <history> under one state, but re-frame2 permits AT
+            MOST ONE history pseudo-state per compound (deep-vs-shallow is the
+            single node's `:deep?`). Two history children under one compound is
+            `:rf.error/machine-history-duplicate`. Spec 005 §Pseudo-state
+            constraints. This is the divergence the W3C-adapted fixtures
+            (scxml-history-test387/388) split around."
+    (is (= :rf.error/machine-history-duplicate
+           (history-rejection-id
+             {:initial :s0
+              :states  {:s0 {:initial :s01
+                             :states  {:s01          {}
+                                       :s02          {}
+                                       :hist-deep    {:type :history :deep? true}
+                                       :hist-shallow {:type :history}}}}}))
+        "two history nodes under one compound is rejected as duplicate")))
+
+(deftest scxml-history-bad-default-target-rejected
+  (testing "SCXML §3.10: a history pseudo-state's default transition must target
+            a real state. re-frame2 rejects a `:default-target` that does not
+            resolve (not a direct child of the owning compound, nor a declared
+            absolute path) with `:rf.error/machine-history-bad-default-target`.
+            Spec 005 §Pseudo-state constraints."
+    (is (= :rf.error/machine-history-bad-default-target
+           (history-rejection-id
+             {:initial :s0
+              :states  {:s0 {:initial :s01
+                             :states  {:s01  {}
+                                       :hist {:type :history :default-target :nonexistent}}}}}))
+        "an unresolvable :default-target is rejected")))
+
+;; ---------------------------------------------------------------------------
+;; §13b. HISTORY record/restore — the W3C 387/388/579/580 family adapted
+;; ---------------------------------------------------------------------------
+;;
+;; Behavioural corpus driven through the pure `machine-transition` engine
+;; (`step` above unwraps the Result). Each test cites the W3C test id it
+;; derives from and the re-frame2 spec anchor; the EDN Mode-B counterparts at
+;; spec/conformance/fixtures/ give the same coverage through the conformance
+;; runner. These run dual-runtime (JVM + CLJS) so the engine's history
+;; semantics are externally proven on both.
+
+(deftest scxml-history-test388-deep-restores-exact-leaf
+  (testing "W3C test388 (DEEP arm): deep history restores the EXACT deepest
+            prior leaf, not the compound's :initial. Spec 005 §Restoration."
+    (let [m {:initial :s0
+             :states  {:s0   {:initial :s01
+                              :on      {:leave :away}
+                              :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
+                                        :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                                        :hist {:type :history :deep? true :default-target :s022}}}
+                       :away {:on {:return [:s0 :hist]}}}}
+          left (step m {:state [:s0 :s01 :s012] :data {}} [:leave])]
+      (is (= [:s0 :s01 :s012] (get-in (:snapshot left) [:rf/history [:s0]]))
+          "deep recorded the full leaf path on exit")
+      (is (= [:s0 :s01 :s012] (:state (step m (:snapshot left) [:return])))
+          "deep restored the EXACT recorded leaf (s012)"))))
+
+(deftest scxml-history-test388-shallow-restores-child-then-initial
+  (testing "W3C test388 (SHALLOW arm): shallow history restores only the
+            immediate child and applies its :initial — from the IDENTICAL exit
+            leaf as the deep arm. Spec 005 §Restoration."
+    (let [m {:initial :s0
+             :states  {:s0   {:initial :s01
+                              :on      {:leave :away}
+                              :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
+                                        :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
+                                        :hist {:type :history :default-target :s02}}}
+                       :away {:on {:return [:s0 :hist]}}}}
+          left (step m {:state [:s0 :s01 :s012] :data {}} [:leave])]
+      (is (= :s01 (get-in (:snapshot left) [:rf/history [:s0]]))
+          "shallow recorded only the direct child :s01")
+      (is (= [:s0 :s01 :s011] (:state (step m (:snapshot left) [:return])))
+          "shallow restored :s01 then its :initial (s011), NOT the deep leaf s012"))))
+
+(deftest scxml-history-test387-default-fires-at-both-levels
+  (testing "W3C test387: the default history transition resolves correctly at
+            both shallow (child's :initial descent) and deep (exact deep
+            target) levels on FIRST entry (no recording). Spec 005 §Restoration
+            — never-entered = :default-target / :initial."
+    ;; Shallow default → child's :initial descent.
+    (let [shallow {:initial :hub
+                   :states  {:hub {:on {:into [:s0 :hist]}}
+                             :s0  {:initial :s01
+                                   :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
+                                             :hist {:type :history :default-target :s01}}}}}]
+      (is (= [:s0 :s01 :s011] (:state (step shallow {:state :hub :data {}} [:into])))
+          "shallow :default-target :s01 descended to its :initial s011"))
+    ;; Deep default → exact deep target.
+    (let [deep {:initial :hub
+                :states  {:hub {:on {:into [:s1 :hist]}}
+                          :s1  {:initial :s11
+                                :states  {:s11  {:initial :s111 :states {:s111 {} :s112 {}}}
+                                          :s12  {:initial :s121 :states {:s121 {} :s122 {}}}
+                                          :hist {:type :history :deep? true
+                                                 :default-target [:s1 :s12 :s122]}}}}}]
+      (is (= [:s1 :s12 :s122] (:state (step deep {:state :hub :data {}} [:into])))
+          "deep :default-target resolves to the exact deep target s122"))))
+
+(deftest scxml-history-test579-default-only-when-no-recording
+  (testing "W3C test579: the default history transition fires ONLY when nothing
+            is recorded; once a config is stored it overrides the default.
+            Spec 005 §Restoration."
+    (let [m {:initial :s0
+             :states  {:s0   {:initial :sh
+                              :on      {:leave :away}
+                              :states  {:sh  {:type :history :default-target :s01}
+                                        :s01 {:on {:next :s02}}
+                                        :s02 {:on {:next :s03}}
+                                        :s03 {}}}
+                       :away {:on {:return [:s0 :sh]}}}}]
+      (is (= [:s0 :s01] (:state (step m {:state :away :data {}} [:return])))
+          "first entry (no recording) ⇒ :default-target :s01")
+      (is (= [:s0 :s02]
+             (:state (step m {:state :away :data {} :rf/history {[:s0] :s02}} [:return])))
+          "a recorded config (:s02) overrides the default — default NOT re-applied"))))
+
+(deftest scxml-history-test580-parallel-region-shallow
+  (testing "W3C test580: a shallow history inside a compound within a PARALLEL
+            region remembers the most-recent child, keyed region-qualified; the
+            sibling region is unaffected. Spec 005 §Composition with parallel
+            regions — per-region history."
+    (let [m {:type    :parallel
+             :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+                       :s1 {:initial :group
+                            :states  {:group  {:initial :sh
+                                               :on      {:exit-to-park [:s1park]}
+                                               :states  {:sh  {:type :history :default-target :s11}
+                                                         :s11 {:on {:to12 :s12}}
+                                                         :s12 {}}}
+                                      :s1park {:on {:back [:group :sh]}}}}}}
+          parked (step m {:state {:s0 :idle :s1 [:group :s12]} :data {}} [:exit-to-park])]
+      (is (= :s12 (get-in (:snapshot parked) [:rf/history [:s1 :group]]))
+          "shallow recorded :s12 under the region-qualified key [:s1 :group]")
+      (let [back (step m (:snapshot parked) [:back])]
+        (is (= [:group :s12] (get-in (:snapshot back) [:state :s1]))
+            "region :s1 restored its remembered child :s12")
+        (is (= :idle (get-in (:snapshot back) [:state :s0]))
+            "sibling region :s0 untouched by the :s1 history restore")))))

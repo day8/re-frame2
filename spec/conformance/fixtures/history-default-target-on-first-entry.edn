@@ -1,0 +1,58 @@
+;; Conformance fixture: machine/history-default-target-on-first-entry
+;;
+;; First-class history default fallback (rf2-mle6e). When a transition resolves
+;; to a history pseudo-state but NOTHING was recorded for the owning compound
+;; (the compound was never exited), the runtime falls back to the pseudo-state's
+;; `:default-target` — or, when `:default-target` is absent, to the compound's
+;; `:initial`. Both arms are pinned here as two independent calls.
+;;
+;; Per [005 §History states §Restoration](../../005-StateMachines.md#restoration--on-re-entry-resolving-the-pseudo-state):
+;; "never-entered = `:default-target` (or `:initial`)".
+
+{:fixture/id           :machine/history-default-target-on-first-entry
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/history}
+ :fixture/doc          "First entry (no recording) resolves a history pseudo-state to its :default-target (descended to that target's :initial); when no :default-target is declared, it falls back to the owning compound's :initial."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) :default-target DECLARED, nothing recorded ⇒ :default-target :playing,
+  ;; descended to its :initial (:at-start). The restore transition records the
+  ;; outgoing :stopped on the way (the slot is allocated for the first time).
+  {:call         :machine-transition
+   :definition
+   {:initial :player
+    :states  {:player
+              {:initial :stopped
+               :states  {:stopped {:on {:play [:player :hist]}}
+                         :hist    {:type :history :deep? true :default-target :playing}
+                         :playing {:initial :at-start
+                                   :on      {:stop [:player :stopped]}
+                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}}
+   :snapshot     {:state [:player :stopped] :data {}}
+   :event        [:play]
+   :expect-next-snapshot {:state    [:player :playing :at-start]
+                          :data     {}
+                          :rf/history {[:player] [:player :stopped]}}
+   :expect-effects       []}
+
+  ;; (2) NO :default-target, nothing recorded ⇒ the owning compound's :initial
+  ;; (:stopped). The restore is a no-op move (already at :stopped), recording
+  ;; :stopped as the outgoing config.
+  {:call         :machine-transition
+   :definition
+   {:initial :player
+    :states  {:player
+              {:initial :stopped
+               :states  {:stopped {:on {:play [:player :hist]}}
+                         :hist    {:type :history :deep? true}
+                         :playing {:on {:stop :stopped}}}}}}
+   :snapshot     {:state [:player :stopped] :data {}}
+   :event        [:play]
+   :expect-next-snapshot {:state    [:player :stopped]
+                          :data     {}
+                          :rf/history {[:player] [:player :stopped]}}
+   :expect-effects       []}]}
