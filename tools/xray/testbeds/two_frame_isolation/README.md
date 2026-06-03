@@ -48,27 +48,29 @@ It does **not** call `standard-epochs.core/run` (which would mount the
 deck once into `#app` on the default frame). It reuses only the
 registrations + the `root` Var.
 
-### Per-frame runner atoms (rf2-3xakq)
+### Per-frame run-step events (rf2-3xakq → rf2-5sjbg)
 
-`standard-epochs.core/root` was converted to the shared queued-step
-runner (`runner.core`) and parameterised over `[runner-state host-frame
-prefix]`. The runner's cursor lives in a **local Reagent atom** and the
-runner dispatches to its `host-frame` **explicitly** (a runner control's
+`standard-epochs.core/root` is the shared step-driver runner
+(`runner.core`), parameterised over `[host-frame prefix run-step-event]`.
+The runner's cursor lives in each frame's **app-db `:step`** slot (NOT a
+Reagent atom) — and per-frame app-db gives each mount its own `:step`, so
+the two cursors are isolated by construction. The runner dispatches its
+run-step event into `host-frame` **explicitly** (a runner control's
 `on-click` fires outside the React frame-provider context, so an
 un-targeted dispatch would land on the ambient frame). This testbed
-therefore supplies a **distinct runner atom + the frame's own id + a
-distinct testid prefix per mount**:
+therefore registers a **distinct run-step event per frame** and supplies
+**the frame's own id + a distinct testid prefix + that event per mount**:
 
-| frame    | runner atom          | host-frame | prefix                   |
-| -------- | -------------------- | ---------- | ------------------------ |
-| `:above` | `above-runner-state` | `:above`   | `standard-epochs-above`  |
-| `:below` | `below-runner-state` | `:below`   | `standard-epochs-below`  |
+| frame    | host-frame | prefix                  | run-step event              |
+| -------- | ---------- | ----------------------- | --------------------------- |
+| `:above` | `:above`   | `standard-epochs-above` | `:two-frame/run-step-above` |
+| `:below` | `:below`   | `standard-epochs-below` | `:two-frame/run-step-below` |
 
-Two genuinely independent runner cursors, each driving events **only**
-into its own frame. Pressing **⏭ Step** (or a numbered RUN-THIS-STEP
-button) in `:above` advances only `:above`'s cursor and moves only
-`:above`'s app-db / sub-cache / epoch history — the load-bearing detail
-that keeps the isolation proof intact under the runner conversion.
+Two genuinely independent cursors, each driving events **only** into its
+own frame. Pressing **⏭ Step** (or a numbered RUN-THIS-STEP button) in
+`:above` writes only `:above`'s `:step` and moves only `:above`'s app-db /
+sub-cache / epoch history — the load-bearing detail that keeps the
+isolation proof intact. There is **no Reagent atom** for step state.
 
 > **Why `standard_epochs` ×2 (rf2-wa8my)?** The earlier shape mounted a
 > bespoke `testdeck.*` tabs-as-routes panel. That coupled this testbed
@@ -126,10 +128,9 @@ numbered **RUN-THIS-STEP** button to drive a specific step directly
 (`standard-epochs-above-step-<n>-run` / `standard-epochs-below-step-<n>-run`,
 n = 0-based).
 
-1. **Frame divergence on the baseline.** Run step **1 (Increment)**
-   three times on `:above`. Switch the Xray frame picker to `:below`:
-   the Events list is empty for `:below`; the App-db diff shows no
-   `:baseline` movement.
+1. **Frame divergence on the step cursor.** Run step **1 (Increment)**
+   on `:above`. Switch the Xray frame picker to `:below`: the Events list
+   is empty for `:below`; the App-db diff shows no `:step` movement.
 
 2. **Per-frame Views.** Run step **6 (Mount Child A)** on `:above`
    only. Switch the picker to `:below`: the Views lens shows no Child-A
