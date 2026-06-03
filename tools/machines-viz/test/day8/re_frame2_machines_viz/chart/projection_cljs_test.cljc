@@ -18,6 +18,7 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- fixtures ----------------------------------------------------------
@@ -604,6 +605,68 @@
       (is (not= (:color (:markerEnd active))
                 (:color (:markerEnd inactive)))
           "active vs idle arrowheads are distinct colours"))))
+
+;; ---- rf2-az6e2 — structured visual grammar data -----------------------
+
+(deftest xyflow-graph-threads-palette-onto-every-node-and-edge
+  (testing "rf2-az6e2 — the resolved chart-semantic token map (`:palette`
+            option) is threaded onto EVERY node + edge `:data {:palette}`
+            so the renderers paint the active theme. Default (no
+            `:palette`) resolves the dark chart-tokens."
+    (let [parsed (layout/parse-definition idle-loading)
+          ct     (tokens/chart-tokens tokens/light-palette)
+          graph  (projection/xyflow-graph parsed {} {:palette ct})]
+      (is (seq (:nodes graph)))
+      (is (every? #(= ct (:palette (:data %))) (:nodes graph))
+          "every node :data carries the threaded palette")
+      (is (every? #(= ct (:palette (:data %))) (:edges graph))
+          "every edge :data carries the threaded palette"))))
+
+(deftest xyflow-graph-palette-defaults-to-dark-chart-tokens
+  (testing "rf2-az6e2 — a caller that omits `:palette` gets the dark
+            chart-tokens map on every node/edge (theme-less default)."
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          dark   (tokens/chart-tokens tokens/dark-palette)]
+      (is (every? #(= dark (:palette (:data %))) (:nodes graph)))
+      (is (every? #(= dark (:palette (:data %))) (:edges graph))))))
+
+(deftest xyflow-graph-event-route-arrowhead-split
+  (testing "rf2-az6e2 — the two-edge event route reads as ONE transition:
+            the source→event (`__in`) segment carries a SMALL arrowhead
+            (10px) + the quiet-segment flag, while the event→target
+            (`__out`) segment carries the PRIMARY full-size arrowhead
+            (18px). `idle --start--> loading` is a plain external
+            transition so both halves exist."
+    (let [parsed  (layout/parse-definition idle-loading)
+          graph   (projection/xyflow-graph parsed {} {})
+          ;; the plain :on transition edge id
+          on-edge (first (filter #(= :start (:event %)) (:edges parsed)))
+          in-e    (inbound-edge-for graph (:id on-edge))
+          out-e   (outbound-edge-for graph (:id on-edge))]
+      (is (some? in-e) "inbound (__in) segment exists")
+      (is (some? out-e) "outbound (__out) segment exists")
+      (is (= 10 (:width (:markerEnd in-e)))
+          "quiet source→event arrowhead is small (10px)")
+      (is (= 18 (:width (:markerEnd out-e)))
+          "primary event→target arrowhead is full size (18px)")
+      (is (true? (:quietSegment (:data in-e)))
+          "the inbound half is flagged the quiet segment")
+      (is (false? (:quietSegment (:data out-e)))
+          "the outbound half is the primary segment"))))
+
+(deftest xyflow-graph-internal-transition-no-outbound-segment
+  (testing "rf2-az6e2 — an internal / action-only transition (no
+            `:target`) emits the inbound terminal segment but NO outgoing
+            target segment, so the event chip reads as a terminal route."
+    (let [parsed   (layout/parse-definition internal-self-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          internal (first (filter :internal? (:edges parsed)))]
+      (when internal
+        (is (some? (inbound-edge-for graph (:id internal)))
+            "internal transition keeps the source→event segment")
+        (is (nil? (outbound-edge-for graph (:id internal)))
+            "internal transition has NO event→target segment")))))
 
 ;; ---- xyflow-graph misc payload + style ---------------------------------
 

@@ -201,16 +201,22 @@
 ;; ---- final-state affordance ---------------------------------------------
 
 (deftest chart-marks-final-states
-  (testing "rf2-y9j79 — final states render with their state-tags
-            scaffolding + final glyph (checkmark)"
+  (testing "rf2-az6e2 — final states render the QUIET DOUBLE BORDER
+            (an outer ring node, testid `rf-mv-chart-final-ring-*`); the
+            prior ✓ check glyph is DROPPED (the doubled border is the
+            unambiguous final-state signal). idle-loading-done has two
+            final states (:done, :failed)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/flow :definition idle-loading-done}
         (fn [_root node]
-          ;; The check glyph ✓ is painted inside each :final? node.
-          (let [text (.-textContent node)]
-            (is (re-find #"✓" text) "a final-state checkmark glyph renders")))))))
+          ;; The doubled border renders as an inner ring div per final node.
+          (is (pos? (count-sel node "[data-testid^=\"rf-mv-chart-final-ring-\"]"))
+              "a final-state double-border ring renders")
+          ;; The dropped ✓ glyph must NOT appear.
+          (is (not (re-find #"✓" (.-textContent node)))
+              "the ✓ check glyph is dropped (rf2-az6e2)"))))))
 
 ;; ---- Controls / MiniMap / Background presence ---------------------------
 
@@ -291,6 +297,49 @@
           {:machine-id :test/flow :definition idle-loading-done :density :cosy}
           (fn [root _node]
             (is (= "cosy" (.getAttribute root "data-density")))))))))
+
+;; ---- :theme prop + root chrome (rf2-az6e2) ------------------------------
+
+(deftest chart-data-theme-defaults-to-dark
+  (testing "rf2-az6e2 — omitting :theme surfaces data-theme=\"dark\" on
+            the chart root (Xray default surface)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [root _node]
+          (is (= "dark" (.getAttribute root "data-theme"))
+              "data-theme defaults to dark"))))))
+
+(deftest chart-data-theme-reflects-prop-and-is-density-independent
+  (testing "rf2-az6e2 — :theme :light surfaces data-theme=\"light\";
+            :theme is INDEPENDENT of :density (both knobs surface their
+            own attr)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done
+         :theme :light :density :compact}
+        (fn [root _node]
+          (is (= "light" (.getAttribute root "data-theme")))
+          (is (= "compact" (.getAttribute root "data-density"))
+              "density unaffected by theme — orthogonal knobs"))))))
+
+(deftest chart-renders-root-title-strip
+  (testing "rf2-az6e2 — the chart frame renders a ROOT MACHINE TITLE
+            STRIP carrying the machine name; a non-parallel machine
+            reports data-parallel=\"false\"."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [_root node]
+          (let [strip (.querySelector node "[data-testid$=\"-root-title\"]")]
+            (is (some? strip) "root title strip is present")
+            (is (re-find #"flow" (.-textContent strip))
+                "root title strip carries the machine name")
+            (is (= "false" (.getAttribute strip "data-parallel"))
+                "non-parallel machine flagged data-parallel=false")))))))
 
 ;; ---- state-node :tags surface (rf2-so5b0) -------------------------------
 
