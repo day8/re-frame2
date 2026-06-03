@@ -8,15 +8,15 @@
   literally the SAME values — a drift between them is impossible (the bead's
   single-source-of-truth requirement for the machine half of the matrix).
 
-  ## The generalized `:trail` order-oracle
+  ## Cascade order is read off the structured `:cascade`
 
-  Every machine here carries a `:data :trail` vector; every `:entry` /
-  `:exit` / transition `:action` / `:always` action APPENDS one
-  `<phase>:<state>` label via `trail-action`. The post-macrostep `:trail` is
-  the cascade ORDER made visible — the order-oracle the harness keys its
-  assertions off. (Spec 005 §The structured transition cascade now exposes
-  the structured `:cascade` directly, so the trail is a legible cross-check,
-  not a workaround.)
+  Cascade ORDER (exit-deepest-first → action @ LCA → entry-shallowest-first,
+  microsteps, region walk) is exposed by the engine's structured `:cascade`
+  off the transition row (Spec 005 §The structured transition cascade), so
+  the harness keys its order assertions directly off the Xray-surface
+  projection — there is no app-level order-oracle to keep in sync. Actions
+  here do only their real data mutation (`:opened-count`, `:score`, the
+  spawned token, …); state-only transitions carry no action at all.
 
   ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
 
@@ -26,32 +26,6 @@
   bug."
   (:require [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [defmachine]]))
-
-;; ----------------------------------------------------------------------------
-;; trail-action — the generalized order-oracle action factory.
-;; ----------------------------------------------------------------------------
-;;
-;; Returns a NAMED action fn that conj's `label` (`<phase>:<state>`) onto
-;; `[:data :trail]`. The `:name` metadata survives onto the fn so `defmachine`
-;; stamps per-element source AND the Inspector's ref-display-id surfaces a
-;; legible action id (rf2-ujra6). When `extra-fn` is supplied it is applied to
-;; the resulting `:data` map (for actions that ALSO mutate other `:data` keys,
-;; e.g. the door's :count-open or the quiz's :score bump) — so a single
-;; factory covers both the pure trail recorders and the data-mutating actions
-;; while keeping every action trail-appending (the oracle stays complete).
-
-(defn trail-action
-  "Build a named action appending `label` to `[:data :trail]`. Optional
-  `extra-fn` is `(fn [data event] data)` applied AFTER the trail append, to
-  mutate other `:data` keys. `label` is `<phase>:<state>` so the rendered
-  cascade / snapshot-Δ reads as an ordered, self-describing sequence."
-  ([nm label] (trail-action nm label nil))
-  ([nm label extra-fn]
-   (with-meta
-     (fn [{data :data event :event}]
-       (let [data' (update data :trail (fnil conj []) label)]
-         {:data (if extra-fn (extra-fn data' event) data')}))
-     {:name nm})))
 
 ;; ============================================================================
 ;; MACHINE 1 — :door/main  (FLAT: guards + entry/exit + fx + RESOLUTION)
@@ -76,12 +50,13 @@
 (defmachine door-machine
   {:initial :locked
    :data    {:opened-count 0
-             :held-open?   false
-             :trail        []}
+             :held-open?   false}
 
    ;; ROOT-level :on — the fallthrough target for any state that does not
-   ;; declare :door/audit locally (gap 6 — transition resolution).
-   :on {:door/audit {:target :locked :action :record-audit}}
+   ;; declare :door/audit locally (gap 6 — transition resolution). A plain
+   ;; transition: the structured cascade attributes :alarming ──► :locked to
+   ;; this root clause.
+   :on {:door/audit :locked}
 
    :guards
    {:may-close?
@@ -89,21 +64,16 @@
       (not (:held-open? data)))}
 
    :actions
-   {:count-open  (trail-action 'count-open  :entry:open
-                               (fn [d _] (update d :opened-count (fnil inc 0))))
-    :clear-hold  (trail-action 'clear-hold  :exit:closed
-                               (fn [d _] (assoc d :held-open? false)))
+   {:count-open  (fn action-count-open [{data :data}]
+                   {:data (update data :opened-count (fnil inc 0))})
+    :clear-hold  (fn action-clear-hold [{data :data}]
+                   {:data (assoc data :held-open? false)})
     :hold-open   (fn action-hold-open [{data :data}]
-                   ;; INTERNAL transition (no :target): writes :data only;
-                   ;; not part of the entry/exit cascade so it does NOT append
-                   ;; the cascade trail — it records its own marker instead so
-                   ;; the internal-transition action is still observable.
-                   {:data (-> data
-                              (assoc :held-open? true)
-                              (update :trail (fnil conj []) :action:hold))})
-    :enter-alarm (trail-action 'enter-alarm :action:trip
-                               (fn [d _] (assoc d :alarm-fx? true)))
-    :record-audit (trail-action 'record-audit :action:audit)}
+                   ;; INTERNAL transition (no :target): writes :data only —
+                   ;; it is not part of the entry/exit cascade.
+                   {:data (assoc data :held-open? true)})
+    :enter-alarm (fn action-enter-alarm [{data :data}]
+                   {:data (assoc data :alarm-fx? true)})}
 
    :states
    {:locked
@@ -186,16 +156,16 @@
 
 (defmachine quiz-machine
   {:initial :asking
-   :data    {:score 0 :trail []}
+   :data    {:score 0}
 
    :guards
    {:enough? (fn guard-enough? [{data :data}] (>= (:score data) 3))}
 
    :actions
-   {:count-answer (trail-action 'count-answer :action:answer
-                                (fn [d _] (update d :score (fnil inc 0))))
-    :award        (trail-action 'award        :always:passed
-                                (fn [d _] (assoc d :passed? true)))}
+   {:count-answer (fn action-count-answer [{data :data}]
+                    {:data (update data :score (fnil inc 0))})
+    :award        (fn action-award [{data :data}]
+                    {:data (assoc data :passed? true)})}
 
    :states
    {:asking {:tags   #{:quiz/asking}
@@ -217,12 +187,6 @@
 
 (defmachine brew-machine
   {:initial :idle
-   :data    {:trail []}
-
-   :actions
-   {:start-brewing (trail-action 'start-brewing :entry:brewing)
-    :serve         (trail-action 'serve         :entry:ready)
-    :abort-brewing (trail-action 'abort-brewing :exit:brewing)}
 
    :states
    {:idle
@@ -231,14 +195,11 @@
 
     :brewing
     {:tags  #{:brew/brewing}
-     :entry :start-brewing
-     :exit  :abort-brewing
      :after {5000 :ready}
      :on    {:brew/abort :idle}}
 
     :ready
     {:tags  #{:brew/ready}
-     :entry :serve
      :on    {:brew/start :brewing}}}})
 
 ;; ============================================================================
@@ -253,10 +214,9 @@
 
 (defmachine session-login-machine
   {:initial :running
-   :data    {:trail []}
    :actions
-   {:capture (trail-action 'capture :action:succeed
-                           (fn [d ev] (assoc d :token (second ev))))}
+   {:capture (fn action-capture [{data :data event :event}]
+               {:data (assoc data :token (second event))})}
    :states
    {:running {:tags #{:session/running}
               :on   {:succeed {:target :done :action :capture}}}
@@ -274,9 +234,6 @@
 
 (defmachine session-flow-machine
   {:initial :idle
-   :data    {:trail []}
-   :actions
-   {:open-session (trail-action 'open-session :entry:authenticating)}
    :states
    {:idle
     {:tags #{:session/idle}
@@ -284,12 +241,9 @@
 
     :authenticating
     {:tags  #{:session/authenticating}
-     :entry :open-session
      :spawn {:machine-id :session/login
              :on-done    (fn on-done [{data :data result :result}]
-                           (-> data
-                               (assoc :session-token result)
-                               (update :trail (fnil conj []) :action:on-done)))}
+                           (assoc data :session-token result))}
      :on    {:session/close :idle}}}})
 
 ;; ============================================================================
@@ -318,7 +272,6 @@
 
 (defmachine fuse-machine
   {:initial :armed
-   :data    {:trail []}
 
    :actions
    {:blow-fuse
@@ -341,7 +294,6 @@
 
 (defmachine hvac-controller-machine
   {:type :parallel
-   :data {:trail []}
 
    :regions
    {:climate
@@ -349,66 +301,49 @@
      :states
      {:idle
       {:tags #{:climate/idle}
-       :on   {:hvac/power-cycle {:target :running :action :enter-running}}}
+       :on   {:hvac/power-cycle :running}}
 
       :running
       {:tags    #{:climate/running}
        :initial :conditioning
-       :entry   :enter-running-level
-       :exit    :exit-running-level
-       :on      {:hvac/power-cycle {:target :idle :action :back-to-idle}}
+       :on      {:hvac/power-cycle :idle}
        :states
        {:conditioning
         {:tags    #{:climate/conditioning}
          :initial :heating
-         :entry   :enter-conditioning
-         :exit    :exit-conditioning
          :states
          {:heating
           {:tags  #{:climate/heating}
-           :entry :enter-heating
-           :exit  :exit-heating
-           :on    {:hvac/mode-toggle {:target :cooling :action :swap-mode}}}
+           ;; :mode-toggle crosses the LCA :conditioning (exit :heating →
+           ;; enter :cooling). The structured :cascade surfaces the LCA walk;
+           ;; the transition needs no action.
+           :on    {:hvac/mode-toggle :cooling}}
 
           :cooling
           {:tags  #{:climate/cooling}
-           :entry :enter-cooling
-           :exit  :exit-cooling
-           :on    {:hvac/mode-toggle {:target :heating :action :swap-mode}}}}}}}}}
+           :on    {:hvac/mode-toggle :heating}}}}}}}}
 
     :fan
     {:initial :off
      :states
      {:off
       {:tags #{:fan/off}
-       :on   {:hvac/power-cycle {:target :on :action :fan-on}}}
+       :on   {:hvac/power-cycle :on}}
 
       :on
       {:tags  #{:fan/on}
-       :entry :enter-fan-on
-       :exit  :exit-fan-on
-       :on    {:hvac/power-cycle {:target :off :action :fan-off}
-               :hvac/nudge {:target :same-state :action :nudge-fan}
+       ;; :nudge is an EXTERNAL self-transition (:target :same-state forces a
+       ;; real exit→entry of :on); :tweak is an INTERNAL self-transition
+       ;; (omit :target) — action-only, no exit/entry. :tweak-fan must do real
+       ;; work (bump :tweaks) so the internal transition stays a genuine
+       ;; transition, not a no-op.
+       :on    {:hvac/power-cycle :off
+               :hvac/nudge {:target :same-state}
                :hvac/tweak {:action :tweak-fan}}}}}}
 
    :actions
-   {:enter-running         (trail-action 'enter-running         :action:power-on)
-    :enter-running-level   (trail-action 'enter-running-level   :entry:running)
-    :exit-running-level    (trail-action 'exit-running-level    :exit:running)
-    :back-to-idle          (trail-action 'back-to-idle          :action:power-off)
-    :enter-conditioning    (trail-action 'enter-conditioning    :entry:conditioning)
-    :exit-conditioning     (trail-action 'exit-conditioning     :exit:conditioning)
-    :enter-heating         (trail-action 'enter-heating         :entry:heating)
-    :exit-heating          (trail-action 'exit-heating          :exit:heating)
-    :enter-cooling         (trail-action 'enter-cooling         :entry:cooling)
-    :exit-cooling          (trail-action 'exit-cooling          :exit:cooling)
-    :swap-mode             (trail-action 'swap-mode             :action:swap-mode)
-    :fan-on                (trail-action 'fan-on                :action:fan-on)
-    :fan-off               (trail-action 'fan-off               :action:fan-off)
-    :enter-fan-on          (trail-action 'enter-fan-on          :entry:fan-on)
-    :exit-fan-on           (trail-action 'exit-fan-on           :exit:fan-on)
-    :nudge-fan             (trail-action 'nudge-fan             :action:nudge)
-    :tweak-fan             (trail-action 'tweak-fan             :action:tweak)}})
+   {:tweak-fan (fn action-tweak-fan [{data :data}]
+                 {:data (update data :tweaks (fnil inc 0))})}})
 
 ;; ============================================================================
 ;; MACHINE 8 — :media/deep + :media/shallow  (HISTORY: shallow + deep restore)
@@ -439,18 +374,10 @@
   "Build a media-player history machine. `deep?` selects deep vs shallow
   history. The `:player` compound owns the `:hist` pseudo-state; the OUTER
   `:tray` state is the off-compound resting place so `:eject` / `:insert`
-  exit + re-enter `:player` (record + restore). Every action trail-appends so
-  the harness order-oracle reads the cascade order."
+  exit + re-enter `:player` (record + restore). The eject/restore cascade
+  order is read off the structured `:cascade`."
   [deep?]
   {:initial :tray
-   :data    {:trail []}
-
-   :actions
-   {:enter-player  (trail-action 'enter-player  :entry:player)
-    :exit-player   (trail-action 'exit-player   :exit:player)
-    :enter-playing (trail-action 'enter-playing :entry:playing)
-    :enter-paused  (trail-action 'enter-paused  :entry:paused)
-    :seek-track    (trail-action 'seek-track    :action:seek)}
 
    :states
    {;; OFF-compound resting place — exiting :player to here records history;
@@ -462,8 +389,6 @@
     :player
     {:tags    #{:media/player}
      :initial :stopped
-     :entry   :enter-player
-     :exit    :exit-player
      :on      {:eject :tray}
      :states
      {:stopped {:tags #{:media/stopped}
@@ -474,16 +399,14 @@
 
       :playing {:tags    #{:media/playing}
                 :initial :at-start
-                :entry   :enter-playing
                 :on      {:stop  [:player :stopped]
                           :pause [:player :paused]}
                 :states  {:at-start  {:tags #{:media/at-start}
-                                      :on   {:seek {:target :mid-track :action :seek-track}}}
+                                      :on   {:seek :mid-track}}
                           :mid-track {:tags #{:media/mid-track}
                                       :on   {:stop [:player :stopped]}}}}
 
       :paused  {:tags  #{:media/paused}
-                :entry :enter-paused
                 :on    {:resume [:player :playing]}}}}}})
 
 (defmachine media-deep-machine

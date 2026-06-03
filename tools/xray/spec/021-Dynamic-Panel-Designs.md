@@ -1795,10 +1795,10 @@ Rendered shape (`view/structured-cascade-body`):
   delta box remain (graceful degradation). The grouping helpers degrade
   to `[]` / `nil` on a nil cascade.
 
-This removes the need for the app-level `:data :trail` workaround the
-`machine_epochs` testbed previously used to make the cascade observable
-by hand (rf2-52u5n live finding, machine-epochs :8033). It is the
-consumer of the rf2-n9f4z instrumentation contract per
+This makes the cascade observable WITHOUT any app-level workaround the
+`machine_epochs` testbed once used to read the order by hand (rf2-52u5n live
+finding, machine-epochs :8033). It is the consumer of the rf2-n9f4z
+instrumentation contract per
 [003-Machine-Inspector §The EVENT HANDLER machine cascade](003-Machine-Inspector.md).
 
 The `machine_epochs` testbed (:8033) is now the **assertion-backed render
@@ -1819,11 +1819,11 @@ shallow + deep restore** steps (first-class history per rf2-mle6e). Each step
 is backed by a CLJS-unit assertion in
 `day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test` that
 drives the step through the live substrate and pins BOTH the machine outcome
-(via the generalized per-machine `:data :trail` order-oracle) AND the Xray
-cascade-render projection it lights up — so re-driving the deck is a real
-regression test of this render contract. The `:data :trail` is no longer a
-workaround; every machine carries it as a legible cross-check the harness
-keys its order assertions off.
+AND the Xray cascade-render projection it lights up — so re-driving the deck
+is a real regression test of this render contract. Cascade ORDER is read off
+the structured `:cascade` steps (the `cascade-regions` projection), so the
+harness keys its order assertions directly off the Xray-surface projection —
+there is no app-level order-oracle to keep in sync.
 
 Timer rows surface only the header + click-to-source chip (no inline
 body — cancellations are housekeeping; the chip routes to the

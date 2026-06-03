@@ -2965,8 +2965,8 @@ async function clickMachineRung(page, n) {
 }
 
 // Read every machine's snapshot directly from the host's `:rf/default`
-// app-db and reconstruct the same `state … · tags … · trail …` text the
-// deck used to render in its on-page status strip.
+// app-db and reconstruct a `state … · tags …` text for each machine — the
+// robust, non-flaky proof each machine feature landed its configuration.
 //
 // rf2-5sgwn — the deck's `machine-epochs-status-strip` (and the deck subs
 // it consumed) were removed: the Xray Epoch panel + Machine Inspector are
@@ -3019,19 +3019,12 @@ async function readMachineStrip(page) {
     function pr(v) {
       return v == null ? 'nil' : cljs.pr_str(v);
     }
-    // Reconstruct one strip row: "<label> state: <state> · tags: <tags>
-    // [· trail: <trail>]" (trail clause only when non-empty), matching
-    // the deck's removed `machine-row` view.
+    // Reconstruct one strip row: "<label> state: <state> · tags: <tags>".
     function row(label, machineId) {
       const snap = snapshot(machineId);
       const state = field(snap, ':state');
       const tags = field(snap, ':tags');
-      const trail = field(snap, ':data', ':trail');
-      let line = `${label} state: ${pr(state)} · tags: ${pr(tags)}`;
-      if (trail != null && cljs.seq(trail)) {
-        line += ` · trail: ${pr(trail)}`;
-      }
-      return line;
+      return `${label} state: ${pr(state)} · tags: ${pr(tags)}`;
     }
     const doorData = field(snapshot(':door/main'), ':data');
     const quizData = field(snapshot(':quiz/scorer'), ':data');
@@ -3045,6 +3038,7 @@ async function readMachineStrip(page) {
       `:quiz/scorer data: ${pr(quizData)}`,
       row(':brew/machine', ':brew/machine'),
       row(':session/flow', ':session/flow'),
+      `:session/flow data: ${pr(field(snapshot(':session/flow'), ':data'))}`,
       row(':hvac/controller', ':hvac/controller'),
       row(':media/deep', ':media/deep'),
       `:media/deep :rf/history: ${pr(mediaDeepHistory)}`,
@@ -3065,7 +3059,7 @@ async function readMachineStrip(page) {
       brewState: stateText(':brew/machine', ':brew/machine'),
       sessionState: stateText(':session/flow', ':session/flow'),
       hvacState: stateText(':hvac/controller', ':hvac/controller'),
-      hvacTrail: pr(field(snapshot(':hvac/controller'), ':data', ':trail')),
+      sessionData: pr(field(snapshot(':session/flow'), ':data')),
     };
   });
 }
@@ -3249,17 +3243,16 @@ async function runMachineEpochs(page, state) {
   );
 
   // #18 child succeeds — :final + :on-done reports the token to the parent +
-  //     the child auto-destroys. The strip surfaces the parent's :on-done via
-  //     its trail (:action:on-done appended) — the observable proof the
-  //     callback ran; the reported :session-token (in the parent's :data) +
-  //     the auto-destroy / :rf.machine/finished trace are asserted in the
-  //     CLJS harness.
+  //     the child auto-destroys. The strip surfaces the parent's :session-token
+  //     (written into its :data by the :on-done callback) — the observable
+  //     proof the callback ran; the auto-destroy / :rf.machine/finished trace
+  //     is asserted in the CLJS harness.
   await clickMachineRung(page, 18);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:session\/flow state: :authenticating/.test(snap.stripText || '') &&
-              /:action:on-done/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#18 child :final -> :on-done ran on the parent (trail shows :action:on-done) + child auto-destroyed' },
+              /:session-token/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#18 child :final -> :on-done ran on the parent (data carries :session-token) + child auto-destroyed' },
   );
 
   // ===== Fuse (WILDCARD-THROW) — asserted as the throw contrast below ====
@@ -3279,41 +3272,34 @@ async function runMachineEpochs(page, state) {
   );
 
   // #21 multi-level LCA cascade — :heating -> :cooling crossing the LCA
-  //     :conditioning; the trail records the cascade ORDER.
+  //     :conditioning. The deep compound leaf moves to :cooling (the LCA
+  //     cascade ORDER is pinned in the CLJS harness off the structured
+  //     :cascade).
   await clickMachineRung(page, 21);
   await waitForValue(
     () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:climate \[:running :conditioning :cooling\]/.test(t) &&
-             /:exit:heating :action:swap-mode :entry:cooling/.test(t);
-    },
-    { timeoutMs: 10000, description: '#21 mode-toggle -> :cooling + trail shows LCA cascade order' },
+    (snap) => /:climate \[:running :conditioning :cooling\]/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#21 mode-toggle -> deep leaf :cooling (crosses the :conditioning LCA)' },
   );
 
-  // #22 EXTERNAL self-transition (:hvac/nudge) — exit -> action -> entry; fan
-  //     STAYS :on.
+  // #22 EXTERNAL self-transition (:hvac/nudge) — :target :same-state re-enters
+  //     :on (exit -> entry boundary, asserted in the CLJS harness); fan STAYS
+  //     :on.
   await clickMachineRung(page, 22);
   await waitForValue(
     () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:fan :on/.test(t) &&
-             /:exit:fan-on :action:nudge :entry:fan-on/.test(t);
-    },
-    { timeoutMs: 10000, description: '#22 nudge -> external self-transition: trail exit->action->entry, fan STAYS :on' },
+    (snap) => /:fan :on/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#22 nudge -> external self-transition, fan STAYS :on' },
   );
 
-  // #23 INTERNAL self-transition (:hvac/tweak) — action ONLY; fan STAYS :on.
+  // #23 INTERNAL self-transition (:hvac/tweak) — its :tweak-fan action runs
+  //     (bumps :tweaks); no exit/entry boundary (asserted in the CLJS harness);
+  //     fan STAYS :on.
   await clickMachineRung(page, 23);
   const afterHvacTweak = await waitForValue(
     () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:fan :on/.test(t) &&
-             /:action:nudge :entry:fan-on :action:tweak/.test(t);
-    },
-    { timeoutMs: 10000, description: '#23 tweak -> internal self-transition: trail gains :action:tweak ONLY, fan STAYS :on' },
+    (snap) => /:fan :on/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#23 tweak -> internal self-transition (action-only), fan STAYS :on' },
   );
 
   // ===== History (gap 8 — reject-now) ===================================

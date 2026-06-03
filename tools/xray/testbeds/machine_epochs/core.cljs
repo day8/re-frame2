@@ -37,15 +37,14 @@
   the runner conversion is additive: it neither drops nor relies on the
   harness's assertions.
 
-  ## The generalized `:trail` order-oracle (rf2-g27vv)
+  ## Cascade order is read off the structured `:cascade` (rf2-g27vv)
 
-  Every machine carries a `:data :trail` vector and every `:entry` /
-  `:exit` / transition `:action` / `:always` action APPENDS one
-  `<phase>:<state>` label (built by `machines/trail-action`). So the
-  post-macrostep `:trail` is the cascade ORDER made visible — the order-
-  oracle the harness keys its assertions off. The deck has no on-page
-  snapshot read-out; the Xray Inspector / Epoch panel is the read-out
-  (and the actual check), and the harness drives the substrate directly.
+  Cascade ORDER (exit-deepest-first → action @ LCA → entry-shallowest-first,
+  microsteps, the per-region walk) is exposed by the engine's structured
+  `:cascade` off the transition row, so the harness keys its order assertions
+  directly off the Xray-surface projection. The deck has no on-page snapshot
+  read-out; the Xray Inspector / Epoch panel is the read-out (and the actual
+  check), and the harness drives the substrate directly.
 
   ## The machine set (each a coherent clean domain; collectively the matrix)
 
@@ -111,8 +110,7 @@
   ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
 
   No deliberate bugs, no teaching layers. Every transition is a clean feature
-  being driven; the trail is instrumentation, not an anti-pattern demo. The
-  `:watch` notes are guidance, not lessons.
+  being driven. The `:watch` notes are guidance, not lessons.
 
   ## Test-free + self-contained (rf2-8cevm)
 
@@ -328,10 +326,8 @@
 ;;
 ;; The deck reads NO machine snapshots on-page — the Xray Epoch panel +
 ;; Machine Inspector are the read-out, and the harness drives the substrate
-;; directly. The machines' `:trail` order-oracle lives in
-;; `machine-epochs.machines` and is read by the harness, not the deck. So
-;; this deck registers no on-page subs; the runner reads the shared
-;; `:rf.runner/step` sub for its highlight + counter.
+;; directly. So this deck registers no on-page subs; the runner reads the
+;; shared `:rf.runner/step` sub for its highlight + counter.
 ;;
 ;; Each step: {:event [...] :watch "<what to look for>" :label "<short row
 ;; label>"}. The runner renders :watch per STEP; pressing Step (or a per-row
