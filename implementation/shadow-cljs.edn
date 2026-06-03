@@ -327,6 +327,21 @@
             ;; machine-epochs 8033).
             8034 ["../tools/xray/testbeds/edn_inspector"
                   "out/examples/edn-inspector"]
+            ;; Single-frame managed-http testbed (rf2-6nolv) — the
+            ;; MANAGED-HTTP pilot of the shared queued-step RUNNER
+            ;; (rf2-8pbjr; runner.core). One button walks the
+            ;; :rf.http/managed lifecycle (fire · success · 4xx · 5xx ·
+            ;; abort · concurrent-by-actor · request-outlives-teardown),
+            ;; pinning Xray focus to the latest :rf/default epoch after
+            ;; each dispatch so the operator sees how the Epoch / Trace /
+            ;; App-db panels render each step. Title "Xray Testbed:
+            ;; Managed HTTP". Same source-dir-first cascade as 8031-8034;
+            ;; the source dir resolves the hand-written index.html + the
+            ;; static api/ok.json at `/`, compiled main.js falls through
+            ;; to out/examples/managed-http. Port 8035 is the next free
+            ;; testbed slot above the _epochs trio + edn-inspector.
+            8035 ["../tools/xray/testbeds/managed_http"
+                  "out/examples/managed-http"]
             ;; --- Story showcases (rf2-xz4zn) -------------------------
             ;; The four Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
@@ -886,6 +901,47 @@
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn edn-inspector.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
+
+  ;; Single-frame managed-http testbed (rf2-6nolv) — the MANAGED-HTTP
+  ;; PILOT of the shared queued-step RUNNER (rf2-8pbjr; runner.core).
+  ;; ONE button (`▶ Run series`) walks the :rf.http/managed lifecycle
+  ;; (fire-in-flight · success · 4xx · 5xx · abort · concurrent-by-actor ·
+  ;; request-outlives-frame-teardown), aimed at how the Xray Epoch /
+  ;; Trace / App-db panels render managed-HTTP effects + traces. After
+  ;; each auto-advance dispatch the runner pins Xray focus to the latest
+  ;; :rf/default epoch (via day8.re-frame2-xray.focus/focus!) so the
+  ;; operator always sees the just-dispatched render. The runner cursor
+  ;; lives in a LOCAL ATOM in managed-http.core — NOT the inspected
+  ;; app-db (would pollute the App-db panel) and NOT a second frame
+  ;; (would appear in Xray's frame surfaces). Title "Xray Testbed:
+  ;; Managed HTTP". A TEST surface — no deliberate bugs, no teaching
+  ;; layers (feedback_testbeds_are_test_surfaces).
+  ;;
+  ;; The events / fxs / subs / step-vector are OWNED in
+  ;; managed_http/core.cljs; it requires the managed-HTTP artefact
+  ;; (`[re-frame.http-managed]`) + its test-support
+  ;; (`[re-frame.http-test-support]` — a testbed IS a test affordance,
+  ;; per rf2-cdmle) + the shared `[runner.core]`. The HOT success path
+  ;; rides a live Fetch against the static api/ok.json shipped beside the
+  ;; testbed (source-dir-first cascade resolves it); the failure / abort
+  ;; paths use the framework canned-stub fxs for determinism (same shape
+  ;; as testbeds/http_toggle). Sources live under
+  ;; tools/xray/testbeds/managed_http/; the Xray preload auto-mounts
+  ;; inline so every lens reads the single :rf/default frame. Served at
+  ;; http://localhost:8035 via the top-level `:dev-http` map (the next
+  ;; free testbed slot above the _epochs trio + edn-inspector 8034).
+  :examples/managed-http
+  {:target           :browser
+   :output-dir       "out/examples/managed-http"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn managed-http.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Xray panel-gallery testbed (rf2-1o7mp) — visual gallery of Xray
   ;; panels under varying state magnitude. Sources live under
