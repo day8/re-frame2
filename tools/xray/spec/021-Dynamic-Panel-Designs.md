@@ -2350,6 +2350,50 @@ machine-action `:dispatch-later` variant alike),
 (the spawn fx stamps `:source :machine-spawn`). The substrate-side
 contract is the closed set documented in §9.1.10.1's table.
 
+#### §9.1.6.4 Machine-event DISPATCH gloss (rf2-18oe3)
+
+A re-frame2 machine **is** an event handler addressed by its id
+(`reg-machine :door/main spec` ≈ `reg-event-fx :door/main …`);
+dispatching `[:door/main [:door/insert-coin]]` routes the **inner
+trigger** `[:door/insert-coin]` through the machine's `:on` map. The
+raw event vector reads as opaque nesting — `[:machine-id
+[inner-trigger]]` — so the DISPATCH step renders a small **additive
+helper sub-line** just under the boxed event vector that decodes the
+shape in plain English:
+
+| Dispatched event                       | Gloss sub-line                                                              |
+|----------------------------------------|-----------------------------------------------------------------------------|
+| `[:door/main [:door/insert-coin]]`     | *this means the machine `:door/main` received the trigger `:door/insert-coin`* |
+| `[:door/main [:rf.machine/bootstrap]]` | *the machine `:door/main` was created / initialised*                        |
+
+**Bootstrap special case.** The reserved `[:rf.machine/bootstrap]`
+marker is a **creation kick** — it runs the initial-entry cascade
+(xstate's `xstate.init`), **not** a real trigger (see
+`ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1). So
+the gloss for the bootstrap marker is phrased as creation (*"was
+created / initialised"*), never *"received the trigger"*.
+
+**Formatter.** `fmt/machine-event-gloss` (`panels/epoch/format.cljc`)
+is the pure-data string builder — it accepts the dispatched event
+vector, returns the gloss string for the `[<machine-id>
+[<inner-trigger> …]]` shape (bootstrap special-cased via
+`fmt/machine-bootstrap-marker`), and returns `nil` for any other shape
+(single-element events, scalar args, empty inner vectors, non-2-tuples).
+
+**View gate.** The sub-line renders ONLY when the dispatch actually
+targets a machine — the view checks `rf/handler-meta :event
+<machine-id>` for `:rf/machine? true` (`machine-dispatch?`) — OR when
+the inner trigger is the reserved `:rf.machine/bootstrap` marker (which
+is self-identifying: a reserved `:rf.machine/*` trigger only ever rides
+a machine dispatch, so the creation gloss renders even when runtime
+registration meta is unavailable, e.g. fixtures / production builds).
+An ordinary `reg-event-fx` whose arg merely happens to be a vector gets
+no gloss. The existing event-vector rendering is untouched — the gloss
+is purely additive.
+
+**Test surface.** `data-testid` `rf-xray-epoch-dispatch-machine-gloss`
+(the sub-line; absent when no gloss applies).
+
 ### §9.1.7 Composition with the edn-inspector widget
 
 Per the bead body's §Implementation Notes, expandable rows mount the
