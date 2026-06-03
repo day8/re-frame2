@@ -555,6 +555,98 @@
           records (h/project-focused-event-transitions events)]
       (is (= :issue-token (-> records first :actions first :action-id))))))
 
+;; ---- (10b) machine BIRTH (`:rf.machine/started`) — rf2-eldze ------------
+;;
+;; A pure machine start emits `:rf.machine/started` (the birth signal) but
+;; NO `:rf.machine/transition` (machines · lifecycle_fx · registration.cljc
+;; — rf2-gl588 / rf2-coozg). Before rf2-eldze the focused-event lens only
+;; projected transitions, so a focused start epoch produced zero records
+;; and the Machine tab rendered the "does not target a state machine"
+;; empty state. These tests pin that a start IS surfaced as a first-class
+;; record (no from-state; to-state = the resulting initial state), and
+;; that ordinary transitions are unaffected.
+
+(defn- started-event
+  "Build a `:rf.machine/started` (machine BIRTH) trace event with the
+  registration.cljc shape — `{:machine-id :state :data :cause}` in
+  `:tags`, `:state`/`:data` being the INITIAL snapshot slots."
+  ([id mid state] (started-event id mid state {} :explicit))
+  ([id mid state data cause]
+   {:id        id
+    :time      (* id 10)
+    :operation :rf.machine/started
+    :tags      {:machine-id mid
+                :state      state
+                :data       data
+                :cause      cause
+                :rf.trace/dispatch-id (str "s-" id)}}))
+
+(deftest started-event-predicate
+  (is (true?  (h/started-event? {:operation :rf.machine/started})))
+  (is (false? (h/started-event? {:operation :rf.machine/transition})))
+  (is (false? (h/started-event? nil)))
+  (is (false? (h/started-event? {}))))
+
+(deftest project-focused-event-surfaces-machine-start
+  (testing "a focused machine-start epoch yields ONE record with no
+            from-state and the resulting initial state as to-state — so
+            the Machine tab renders the topology (initial highlighted)
+            rather than the empty state (rf2-eldze)"
+    (let [events  [(started-event 1 :door/main :closed {:open? false} :explicit)]
+          records (h/project-focused-event-transitions events)
+          rec     (first records)]
+      (is (= 1 (count records))
+          "the start is a first-class focused-event record — NOT dropped")
+      (is (= :door/main (:machine-id rec)))
+      (is (nil? (:from-state rec))
+          "a birth has no from-state (entry into the initial state)")
+      (is (= :closed (:to-state rec))
+          "to-state is the resulting INITIAL state — the chart highlights it")
+      (is (true? (:start? rec))
+          ":start? flags the birth case for the view")
+      (is (= :explicit (:cause rec)))
+      (is (= [:rf.machine/start] (:event rec))
+          "the synthetic creation-marker event rides the record")
+      (is (= :rf.machine/start (:on-event rec)))
+      (is (nil? (:before rec))
+          "the machine did not exist before its birth")
+      (is (= {:state :closed :data {:open? false}} (:after rec))
+          "the initial snapshot is synthesized for the drill-in"))))
+
+(deftest project-focused-event-start-carries-definition
+  (testing "a start record gets the registered definition attached so the
+            chart can render the topology"
+    (let [definitions {:door/main {:initial :closed
+                                    :states  {:closed {:on {:push :open}}
+                                              :open   {}}}}
+          events  [(started-event 1 :door/main :closed)]
+          records (h/project-focused-event-transitions events definitions)]
+      (is (= (get definitions :door/main)
+             (-> records first :definition))))))
+
+(deftest project-focused-event-start-and-transition-interleave
+  (testing "a cascade carrying BOTH a birth and a later transition yields
+            both records in cascade order; the transition is unaffected by
+            the start fold (no regression)"
+    (let [events  [(started-event 1 :door/main :closed)
+                   (t-event 2 :door/main :closed :open [:door/push])]
+          records (h/project-focused-event-transitions events)]
+      (is (= 2 (count records)))
+      (is (= [true false] (mapv (comp boolean :start?) records))
+          "the first is the birth, the second an ordinary transition")
+      ;; The ordinary transition still resolves from/to exactly as before.
+      (is (= [nil :closed]  (mapv :from-state records)))
+      (is (= [:closed :open] (mapv :to-state records))))))
+
+(deftest project-focused-event-transition-still-not-flagged-start
+  (testing "an ordinary transition record carries no :start? flag — the
+            birth fold does not contaminate the transition projector"
+    (let [events  [(t-event 1 :auth/login :idle :authing [:auth/submit])]
+          rec     (-> (h/project-focused-event-transitions events) first)]
+      (is (nil? (:start? rec)))
+      (is (= :idle (:from-state rec)))
+      (is (= :authing (:to-state rec))))))
+
 ;; ---- (11) focused-epoch-record (rf2-a9cke) ------------------------------
 
 (deftest focused-epoch-record-empty-history

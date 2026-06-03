@@ -364,11 +364,16 @@
   operator's eye reads `chart = primary, lens = secondary`. Same body
   background as the rest of the section interior (`bg-2`); padding-only
   separation; section labels carry weight differential per issue #5."
-  [{:keys [machine-id from-state to-state guards actions]}]
+  [{:keys [machine-id from-state to-state guards actions start? cause]}]
   [:div {:data-testid "rf-xray-machine-focused-transition-lens"
          :data-machine-id (str machine-id)
          :data-guard-count (str (count guards))
          :data-action-count (str (count actions))
+         ;; rf2-eldze — birth markers on the lens so the forensic block
+         ;; reads INITIAL ENTRY (not a misleading `(uninit) → :initial`
+         ;; transition) when the focused epoch is a machine start.
+         :data-start (str (boolean start?))
+         :data-cause (str cause)
          ;; Issue #6 option (b) — secondary-metadata treatment. No
          ;; coloured body (matches the section's `bg-2`); slightly
          ;; smaller mono font; lighter default text colour. The lens
@@ -391,18 +396,31 @@
           :style {:margin "4px 0"}}
     ;; Issue #5 — `<strong>` weight differential on the section
     ;; label so the eye picks it out from the path that follows.
+    ;; rf2-eldze — a birth is INITIAL ENTRY, not a TRANSITION.
     [:strong {:style {:color (:text-tertiary tokens)
                       :text-transform "uppercase"
                       :font-size "10px"
                       :letter-spacing "0.5px"
                       :font-weight 700}}
-     "Transition"]
+     (if start? "Initial entry" "Transition")]
     [:div {:style {:padding-left "16px"}}
-     [:span {:style {:color (:text-secondary tokens)}}
-      (h/format-state from-state)]
-     [:span {:style {:color (:accent tokens) :margin "0 6px"}} "→"]
-     [:span {:style {:color (:text-primary tokens) :font-weight 600}}
-      (h/format-state to-state)]]]
+     (if start?
+       ;; No from-state — render only the resulting initial state, with
+       ;; the entry-arrow grammar (`↳ :initial`) the topology's initial-
+       ;; state marker mirrors.
+       [:span
+        [:span {:style {:color (:accent tokens) :margin-right "6px"}} "↳"]
+        [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+         (h/format-state to-state)]
+        (when cause
+          [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
+           (str "(" (name cause) ")")])]
+       [:span
+        [:span {:style {:color (:text-secondary tokens)}}
+         (h/format-state from-state)]
+        [:span {:style {:color (:accent tokens) :margin "0 6px"}} "→"]
+        [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+         (h/format-state to-state)]])]]
    (when (seq guards)
      [:div {:data-testid "rf-xray-machine-lens-guards-run"
             :style {:margin "4px 0"}}
@@ -677,7 +695,7 @@
    - issue #8: outer margin bumped to 16px so the section has visible
      breathing room from the panel host edge."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition fired-edge-ids]
+           definition fired-edge-ids start? cause]
     :as record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
@@ -707,6 +725,13 @@
       :data-to-state (str to-state)
       :data-on-event (str on-event)
       :data-microstep (str (boolean microstep?))
+      ;; rf2-eldze — machine-BIRTH record markers. `:data-start "true"`
+      ;; lets tests + hosts pin that a `:rf.machine/started` epoch renders
+      ;; the topology (initial state highlighted) rather than the empty
+      ;; state; `:data-cause` surfaces the birth cause (:explicit / :lazy
+      ;; / :spawned).
+      :data-start (str (boolean start?))
+      :data-cause (str cause)
       :data-chart-collapsed (str collapsed?)
       ;; rf2-zdfbm — the topology is the panel's centrepiece, so the
       ;; section grows to fill the focused-event host's available
@@ -742,11 +767,31 @@
          "↳"])
       [:strong {:style {:color (:accent tokens)}}
        (h/format-machine-id machine-id)]
-      [:span {:style {:color (:text-secondary tokens)}}
-       (h/format-state from-state)]
-      [:span {:style {:color (:accent tokens)}} "→"]
-      [:span {:style {:color (:text-primary tokens) :font-weight 600}}
-       (h/format-state to-state)]
+      ;; rf2-eldze — machine BIRTH path: a start has NO from-state (it is
+      ;; an entry into the initial state, not a from→to). Render a
+      ;; `[START]` marker + the resulting initial state instead of the
+      ;; misleading `(uninit) → :initial` path a transition header shows.
+      (if start?
+        [:<>
+         [:span {:data-testid "rf-xray-machine-focused-event-start-badge"
+                 :style {:color (:accent tokens)
+                         :font-size "10px"
+                         :font-weight 700
+                         :letter-spacing "0.5px"
+                         :text-transform "uppercase"
+                         :border (str "1px solid " (:accent tokens))
+                         :border-radius "3px"
+                         :padding "1px 5px"}}
+          "START"]
+         [:span {:style {:color (:accent tokens)}} "→"]
+         [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+          (h/format-state to-state)]]
+        [:<>
+         [:span {:style {:color (:text-secondary tokens)}}
+          (h/format-state from-state)]
+         [:span {:style {:color (:accent tokens)}} "→"]
+         [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+          (h/format-state to-state)]])
       (when event
         [:span {:style {:color (:text-tertiary tokens)
                         :font-size "11px"
@@ -862,6 +907,15 @@
                  :machine-id         machine-id
                  :from-highlight     from-state
                  :to-highlight       to-state
+                 ;; rf2-eldze — a machine BIRTH has no from→to edge; the
+                 ;; resulting initial state IS the active state. Feed it
+                 ;; through `:current-state` so the chart paints the
+                 ;; active-state highlight on the initial node even though
+                 ;; the to-highlight grammar (which `:current-state` defers
+                 ;; to) already lands the same node. Belt-and-braces: the
+                 ;; node lights up whether the chart keys off to-highlight
+                 ;; or current-state.
+                 :current-state      (when start? to-state)
                  ;; rf2-qeemm (G3) — the focused epoch's traversed edges paint
                  ;; the FIRED treatment on the live chart (canonical ids from
                  ;; `extract-fired-edge-ids`, attached to the section record).
