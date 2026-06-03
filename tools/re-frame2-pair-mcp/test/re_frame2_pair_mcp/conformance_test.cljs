@@ -959,24 +959,26 @@
     {:isError? false
      :edn-submap {:ok? false :reason :path-not-found}}}
 
-   ;; ---------- read-dom (rf2-nfjil — view-plane read) --------------------
-   ;; The whole read runs browser-side; the corpus stubs the eval form's
-   ;; canned envelope. Pins the outer wire shape: matched :count +
-   ;; per-node {:tag :text :attrs}, the large-text elision marker, the
-   ;; missing-arg gate, and the bad-selector error reason.
+   ;; ---------- read-dom (rf2-nfjil — raw DOM plane read) -----------------
+   ;; The whole read runs browser-side in the preloaded runtime fn
+   ;; (re-frame2-pair.runtime/dom-read — shared plumbing with read-ui since
+   ;; rf2-q0r7e); the corpus stubs the form's canned envelope, matching on
+   ;; the `dom-read` runtime call. Pins the outer wire shape: matched
+   ;; :count + per-node {:tag :text :attrs}, the large-text elision marker,
+   ;; the missing-arg gate, and the bad-selector error reason.
    {:fixture/id    :read-dom/happy
-    :fixture/doc   "read-dom returns {:ok? true :count N :nodes [{:tag :text :attrs}]} from the browser-side querySelectorAll form."
+    :fixture/doc   "read-dom returns {:ok? true :count N :nodes [{:tag :text :attrs}]} from the browser-side dom-read runtime fn."
     :fixture/tool  "read-dom"
     :fixture/args  {:selector "#app .counter"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["querySelectorAll"          {:ok? true :selector "#app .counter"
+     ["dom-read"                  {:ok? true :selector "#app .counter"
                                    :count 1 :truncated? false
                                    :nodes [{:tag "div" :text "Count: 3"
                                             :attrs {"class" "counter" "data-count" "3"}}]}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["querySelectorAll" "#app .counter" ":rf.size/large-elided"]
+    ["re-frame2-pair.runtime/dom-read" "#app .counter" ":selector"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :count 1 :truncated? false}
@@ -988,7 +990,7 @@
     :fixture/args  {:selector "pre" :max-text 100}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["querySelectorAll"          {:ok? true :selector "pre" :count 1 :truncated? false
+     ["dom-read"                  {:ok? true :selector "pre" :count 1 :truncated? false
                                    :nodes [{:tag "pre"
                                             :text {:rf.size/large-elided
                                                    {:type :dom-text :chars 54000 :preview "lorem..."}}
@@ -1009,12 +1011,12 @@
      :reason :missing-selector}}
 
    {:fixture/id    :read-dom/bad-selector
-    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError)."
+    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError inside dom-read)."
     :fixture/tool  "read-dom"
     :fixture/args  {:selector "###"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["querySelectorAll"          {:ok? false :reason :rf.error/read-dom-bad-selector
+     ["dom-read"                  {:ok? false :reason :rf.error/read-dom-bad-selector
                                    :selector "###" :message "bad selector"}]
      [:default                    nil]]
     :fixture/expect

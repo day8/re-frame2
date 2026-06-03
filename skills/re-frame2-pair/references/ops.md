@@ -113,9 +113,18 @@ Read-only from the trace stream + epoch history.
 | `dom/fire-click-at-src` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-fire-click \"view.cljs\" 84)"}` | Synthesise a click on the element rendered by that line |
 | `dom/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-describe \"#save-button\")"}` | Tag, classes, both source-coord attributes, and any registration metadata they resolve to |
 
-## View → rendered content + producing entity (`ui/read`)
+## Reading what's on screen — two planes (`read-dom` vs `read-ui`)
 
-**The most common UI-pairing question, first-classed.** The DOM source bridge above maps a gesture/selector → *source coord*; `read-dom` returns *content* by an explicit CSS selector. `ui/read` (MCP tool `read-ui`, rf2-3bu3d.1) does what neither does: given a **view-id** (or a point / CSS selector), return the **rendered subtree** as structured, elided data **PLUS the re-frame2 entity that produced it** — view-id, source-coord, render-key, and the frame's live `subs-read` — in one round-trip. It rides the **same view-id↔DOM map** the Xray pink hover-highlight uses (every registered view's root carries `data-rf-view="<id>"`, per [Spec 006 §View tagging contract](../../../spec/006-ReactiveSubstrate.md#view-tagging-contract-fallback)), so it works on **any** re-frame2 app with **zero testids** — no more guessing selectors then mapping the node back to a view by hand.
+Two rendered-state reads at **different layers** — NOT duplicates:
+
+- **`read-dom` = the raw DOM plane.** A CSS selector → matched nodes `{:tag :text :attrs}`. Multi-node, exact, **no re-frame2 awareness**. *"What does this exact node SAY?"*
+- **`read-ui` = the re-frame2 view plane.** Rides the `data-rf-view` map → content **PLUS the producing entity** (view-id, source-coord, subs-read, render-key). *"What is this view, and what produced it?"*
+
+**When to use which:** reach for `read-dom` when you already have a CSS selector and want raw content across N matched nodes and don't need provenance; reach for `read-ui` when you want a view's content **and** its re-frame2 entity (which subs feed it, where it's defined) in one round-trip — or when you only have a view-id / a screen point rather than a selector. Both apply per-node text caps at the source and emit the same `:rf.size/large-elided` marker for over-cap text. Under the hood both call the same preloaded runtime ns (`re-frame2-pair.runtime/dom-read` / `…/ui-read`) and share one per-node projection, so their content shapes stay aligned.
+
+### View → rendered content + producing entity (`ui/read`)
+
+**The most common UI-pairing question, first-classed.** The DOM source bridge above maps a gesture/selector → *source coord*; `read-dom` returns raw *content* by an explicit CSS selector. `ui/read` (MCP tool `read-ui`, rf2-3bu3d.1) does what neither does: given a **view-id** (or a point / CSS selector), return the **rendered subtree** as structured, elided data **PLUS the re-frame2 entity that produced it** — view-id, source-coord, render-key, and the frame's live `subs-read` — in one round-trip. It rides the **same view-id↔DOM map** the Xray pink hover-highlight uses (every registered view's root carries `data-rf-view="<id>"`, per [Spec 006 §View tagging contract](../../../spec/006-ReactiveSubstrate.md#view-tagging-contract-fallback)), so it works on **any** re-frame2 app with **zero testids** — no more guessing selectors then mapping the node back to a view by hand.
 
 Pass **exactly one** entry point (precedence `view-id` > `point` > `selector`). The returned `:text` is routed through `re-frame.core/elide-wire-value` (the same elision `snapshot` / `get-path` use), so large/sensitive content collapses to a `:rf.size/large-elided` marker rather than shipping raw user DOM text. Read-only by construction.
 
@@ -127,9 +136,9 @@ Pass **exactly one** entry point (precedence `view-id` > `point` > `selector`). 
 
 The accepted args (`:additionalProperties false`): `view-id`, `point`, `selector`, `max-text` (per-node char cap, default 2000), `frame`, `build`. Failure modes: `:no-target-arg` (no entry point), `:no-element` (entry point matched nothing), `:rf.error/ui-read-bad-selector` (malformed CSS). A portal / fragment leaf with no tagged view ancestor still returns `:content`, with `:entity {:view-id nil :reason :no-tagged-view-root}`.
 
-### `read-dom` — rendered content by explicit CSS selector (rf2-nfjil)
+### `read-dom` — raw DOM content by explicit CSS selector (rf2-nfjil)
 
-`read-ui` is the typed view read (it rides the view-id↔DOM map and returns the producing entity). `read-dom` is the **content-only** read by an explicit CSS selector — the answer to *"did the UI update?"* / *"what does the rendered node SAY?"* when you already have a selector and don't need the entity provenance. The data-plane reads (`snapshot` / `get-path` / `read-sub` / `trace-window`) tell you what's in `app-db` and the trace; `read-dom` tells you what the app actually **put on screen**. Read-only by construction (only `querySelectorAll` + `textContent` / attribute strings). Pairs with `dispatch :await-render` / `:settle` for a deterministic *dispatch → settle → read-dom* observe.
+`read-dom` is the **raw DOM plane** read by an explicit CSS selector — the answer to *"did the UI update?"* / *"what does the rendered node SAY?"* when you already have a selector and don't need the entity provenance (for that, use `read-ui` above). The data-plane reads (`snapshot` / `get-path` / `read-sub` / `trace-window`) tell you what's in `app-db` and the trace; `read-dom` tells you what the app actually **put on screen**. Read-only by construction (only `querySelectorAll` + `textContent` / attribute strings). Pairs with `dispatch :await-render` / `:settle` for a deterministic *dispatch → settle → read-dom* observe.
 
 | Op | Invocation | Returns |
 |---|---|---|

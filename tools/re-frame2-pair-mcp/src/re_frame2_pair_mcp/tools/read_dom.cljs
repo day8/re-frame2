@@ -1,30 +1,67 @@
 (ns re-frame2-pair-mcp.tools.read-dom
-  "Tool: read-dom — first-class view-plane READ (rf2-nfjil).
+  "Tool: read-dom — the RAW DOM plane read (rf2-nfjil).
 
-  ## Why a view-plane read primitive
+  ## The two DOM-read planes (read-dom vs read-ui)
+
+  re-frame2-pair carries TWO rendered-state reads, at different LAYERS —
+  they are NOT duplicates:
+
+  - `read-dom` (this op) = the **raw DOM plane**: a CSS selector →
+    matched nodes `{:tag :text :attrs}`. Multi-node, exact, NO re-frame2
+    awareness. \"What does this exact node SAY?\"
+  - `read-ui` = the **re-frame2 view plane**: rides the `data-rf-view`
+    map → content PLUS the producing ENTITY (view-id, source-coord,
+    subs-read, render-key). \"What is this view, and what produced it?\"
+
+  Pick `read-dom` when you have a selector and want raw content across N
+  matched nodes; pick `read-ui` when you want a view's content AND its
+  re-frame2 provenance in one round-trip.
+
+  ## Why a raw-DOM read primitive
 
   re-frame2-pair has rich DATA-plane reads — `snapshot` / `get-path`
   (app-db), `trace-window` / `watch-epochs` (epoch history),
-  `list-subscriptions` (the reactive sub-cache). What it lacked: a
-  way to ask what the app actually RENDERED. Answering \"did the UI
-  update?\", \"what does the rendered node / attribute say?\" meant
-  hand-rolling an `eval-cljs` form around `js/document.querySelectorAll`
-  on every call — fiddly, easy to get wrong (text never capped → a
-  multi-megabyte innerText blows the wire cap), and not discoverable in
-  the catalogue. The App-db stale-frame bug (rf2-yng0y) was only
-  diagnosable by reading the DOM repeatedly; this op makes that a
-  first-class gesture.
+  `list-subscriptions` (the reactive sub-cache). What it lacked: a way to
+  ask what the app actually RENDERED, by an explicit selector, with no
+  re-frame2 awareness. Answering \"did the UI update?\", \"what does the
+  rendered node / attribute say?\" meant hand-rolling an `eval-cljs` form
+  around `js/document.querySelectorAll` on every call — fiddly, easy to
+  get wrong (text never capped → a multi-megabyte innerText blows the
+  wire cap), and not discoverable in the catalogue. The App-db
+  stale-frame bug (rf2-yng0y) was only diagnosable by reading the DOM
+  repeatedly; this op makes that a first-class gesture.
 
-  `read-dom` generalises the source-coord reads (`handler-meta`'s
-  `:rf.source/uri`, which return where a handler is DEFINED) to
-  rendered-CONTENT reads — what's on screen NOW.
+  ## One shared DOM-read core with read-ui (rf2-q0r7e)
+
+  Both planes now route through the SAME runtime ns
+  (`re-frame2-pair.runtime`): read-dom emits
+  `(re-frame2-pair.runtime/dom-read {...})` and read-ui emits
+  `(re-frame2-pair.runtime/ui-read {...})`, via the SAME `eval-form` DSL
+  (`tools.eval-form`) and the SAME single-eval prelude
+  (`probe/eval-after-runtime!`). The per-node projection (tag + capped
+  text + attribute map) lives ONCE, in the runtime's `node->content`.
+
+  This folds away a maintenance hazard. read-dom previously INLINED its
+  whole browser-side core as a raw eval string, while read-ui called the
+  runtime fn — two divergent eval forms that rotted apart. rf2-w2mjm: the
+  inlined read-dom form lowered the tag with `(str/lower-case …)`, but
+  the BARE browser cljs-eval context the inlined string ran in aliases
+  NOTHING (no `:require`), so `str` was unresolved, the whole form nilled
+  out, and EVERY read-dom call came back `:read-dom-blank-result` — while
+  read-ui, calling the runtime ns (which DOES require `clojure.string`),
+  stayed green. Both ops gate on the preload runtime being present
+  (`ensure-runtime!`), so the inlining bought nothing; folding read-dom
+  onto the runtime fn removes the alias trap by construction — the core
+  now runs in a namespace with real requires.
 
   ## Naming — the `read-` verb (NAMING.md §The verb table)
 
   Named `read-dom` (not `dom-read`) to ride the catalogued `read-<thing>`
   verb prefix: a cheap reflection of already-rendered state — the render
   already happened; this is a no-recompute read of its output, never a
-  fetch that triggers a render. The verb-vocab conformance linter
+  fetch that triggers a render. (The runtime fn it calls keeps the
+  historical `dom-read` spelling — see the runtime ns's MCP-vs-runtime
+  naming table.) The verb-vocab conformance linter
   (`tools/mcp-conformance/wire-vocab`) classifies tool names by prefix;
   `read-` is conformant with zero catalogue churn.
 
@@ -37,21 +74,20 @@
 
   ## Read-only by construction
 
-  The eval form calls `querySelectorAll` and reads `textContent` /
+  The runtime fn calls `querySelectorAll` and reads `textContent` /
   attribute strings only — it never assigns a property, dispatches an
   event, or mutates a node. The descriptor carries the idempotent
   read-only annotations so agent hosts auto-approve it.
 
   ## Where the work happens — browser-side, capped at the source
 
-  The whole read is composed as a single CLJS form sent over nREPL
-  and evaluated in the browser. Crucially the per-node text cap and
-  the matched-node `:limit` are applied INSIDE that form, so only the
-  already-bounded EDN crosses the wire — a 5 MB `<pre>` blob never
-  leaves the tab. Over-cap text is replaced with the framework's
-  size-elision marker shape `{:rf.size/large-elided {...}}` (the same
-  convention `get-path` / `snapshot` emit, per rf2-urjnc) so the agent
-  recognises an elision at a glance. The wire-boundary cap step
+  The whole read runs in the runtime fn in the tab. Crucially the
+  per-node text cap and the matched-node `:limit` are applied INSIDE that
+  fn, so only the already-bounded EDN crosses the wire — a 5 MB `<pre>`
+  blob never leaves the tab. Over-cap text is replaced with the
+  framework's size-elision marker shape `{:rf.size/large-elided {...}}`
+  (the same convention `get-path` / `snapshot` emit, per rf2-urjnc) so
+  the agent recognises an elision at a glance. The wire-boundary cap step
   (`tools.cljs` §`:apply-cap`) remains the backstop.
 
   ## Wire contract
@@ -97,6 +133,7 @@
   {:ok? false :reason :rf.error/read-dom-no-document}."
   (:require [clojure.string :as str]
             [re-frame2-pair-mcp.tools.wire :as wire]
+            [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 (def default-limit
@@ -111,20 +148,11 @@
   slots (rf2-urjnc), so the agent recognises an elision uniformly."
   2000)
 
-(def ^:private default-attrs
-  "Curated default attribute set when the caller omits `:attrs`. The
-  structural attrs that carry rendered identity / state, plus a
-  `data-*` / `aria-*` prefix sweep applied browser-side (see
-  `read-dom-form`). Kept small so the common read stays terse; callers
-  wanting an exact set pass `:attrs` explicitly."
-  ["id" "class" "role" "type" "name" "value" "href" "title" "placeholder"
-   "disabled" "checked" "selected" "hidden"])
-
 (defn- parse-attrs-arg
   "Normalise the `:attrs` arg into a vector of attribute-name strings,
-  or nil when omitted (⇒ the curated default set rides browser-side).
-  Accepts a JS array, a CLJS vector, or a comma / whitespace-separated
-  string."
+  or nil when omitted (⇒ the curated default set + a `data-*` / `aria-*`
+  sweep rides runtime-side). Accepts a JS array, a CLJS vector, or a
+  comma / whitespace-separated string."
   [raw]
   (cond
     (nil? raw)        nil
@@ -138,82 +166,33 @@
     :else             nil))
 
 (defn- read-dom-form
-  "Build the browser-side CLJS eval form (rf2-nfjil). The whole read —
-  querySelectorAll, per-node text cap, attribute collection, node
-  `:limit` — runs in the tab so only bounded EDN crosses the wire.
+  "Compose a single `(re-frame2-pair.runtime/dom-read {...})` form via the
+  shared `eval-form` DSL (rf2-q0r7e) — the SAME plumbing read-ui uses. The
+  runtime fn does the whole read (querySelectorAll, per-node text cap,
+  attribute collection, node `:limit`) in the tab, so only bounded EDN
+  crosses the wire.
 
-  `attrs` is either an explicit vector of attribute-name strings or nil
-  (⇒ the default set + a `data-*` / `aria-*` prefix sweep). The form is
-  read-only: it only reads `textContent` and attribute strings."
+  Only present keys ride: an explicit `attrs` vector ⇒ exactly those
+  names (no `data-*`/`aria-*` sweep); omitting it (nil) ⇒ the curated
+  default set + the sweep, resolved runtime-side. The runtime fn is
+  read-only (querySelectorAll + textContent + attribute strings)."
   [selector sub-selector limit max-text attrs]
-  (let [;; Either the explicit attr vector or the curated default. Both
-        ;; emitted as EDN literals via pr-str so the browser-side form
-        ;; gets a clean CLJS vector.
-        attr-list      (or attrs default-attrs)
-        attr-edn       (pr-str (vec attr-list))
-        ;; When no explicit :attrs was passed, also sweep every data-* /
-        ;; aria-* attribute the node carries — the view-plane idiom for
-        ;; surfacing rendered state. With an explicit list the caller is
-        ;; in control, so we do NOT add the sweep.
-        prefix-sweep?  (nil? attrs)]
-    (str
-      "(let [doc (and (exists? js/document) js/document)]"
-      "  (if-not doc"
-      "    {:ok? false :reason :rf.error/read-dom-no-document}"
-      "    (try"
-      "      (let [sel " (pr-str selector)
-      "            nodes (array-seq (.querySelectorAll doc sel))"
-      "            scoped (if " (pr-str (some? sub-selector))
-      "                     (mapcat (fn [n] (array-seq (.querySelectorAll n " (pr-str (or sub-selector "")) "))) nodes)"
-      "                     nodes)"
-      "            total (count scoped)"
-      "            lim " limit
-      "            want (take lim scoped)"
-      "            max-text " max-text
-      "            attr-names " attr-edn
-      "            read-attr (fn [el nm] (when (.hasAttribute el nm) [nm (.getAttribute el nm)]))"
-      "            named-attrs (fn [el] (into {} (keep #(read-attr el %) attr-names)))"
-      "            prefix-attrs (fn [el]"
-      "                           (if-not " (pr-str prefix-sweep?) " {}"
-      "                             (into {}"
-      "                               (keep (fn [a]"
-      "                                       (let [nm (.-name a)]"
-      "                                         (when (or (.startsWith nm \"data-\")"
-      "                                                   (.startsWith nm \"aria-\"))"
-      "                                           [nm (.-value a)])))"
-      "                                     (array-seq (.-attributes el))))))"
-      "            node->edn (fn [el]"
-      "                        (let [t (.-textContent el)"
-      "                              t (if (string? t) t \"\")"
-      "                              tn (count t)"
-      "                              text (if (> tn max-text)"
-      "                                     {:rf.size/large-elided"
-      "                                      {:type :dom-text :chars tn"
-      "                                       :preview (subs t 0 (min tn 120))}}"
-      "                                     t)]"
-      "                          {:tag (.toLowerCase (or (.-tagName el) \"\"))"
-      "                           :text text"
-      "                           :attrs (merge (named-attrs el) (prefix-attrs el))}))]"
-      "        {:ok? true"
-      "         :selector sel"
-      (when sub-selector
-        (str "         :sub-selector " (pr-str sub-selector)))
-      "         :count total"
-      "         :truncated? (> total (count want))"
-      "         :nodes (mapv node->edn want)})"
-      "      (catch :default e"
-      "        {:ok? false"
-      "         :reason :rf.error/read-dom-bad-selector"
-      "         :selector " (pr-str selector)
-      "         :message (.-message e)}))))")))
+  (let [opts (cond-> {:selector selector
+                      :limit    limit
+                      :max-text max-text}
+               (some? sub-selector) (assoc :sub-selector sub-selector)
+               (some? attrs)        (assoc :attrs attrs))]
+    (ef/emit (ef/rt-call 'dom-read opts))))
 
 (defn read-dom-tool
-  "MCP `read-dom` handler. Reads rendered DOM content by CSS selector
-  and returns capped per-node text + attrs as EDN. Read-only.
+  "MCP `read-dom` handler — the raw DOM plane. Reads rendered DOM content
+  by CSS selector and returns capped per-node text + attrs as EDN.
+  Read-only.
 
-  See the ns docstring for the full wire contract. The eval form runs
-  browser-side (caps applied at the source); the wire-boundary cap step
-  in `tools.cljs` is the backstop."
+  See the ns docstring for the full wire contract. The form is a thin
+  `(re-frame2-pair.runtime/dom-read {...})` call (shared `eval-form`
+  plumbing with read-ui); the runtime fn applies caps at the source and
+  the wire-boundary cap step in `tools.cljs` is the backstop."
   [conn raw-args]
   (let [selector     (wire/arg raw-args :selector)
         sub-selector (let [s (wire/arg raw-args :sub-selector)]
@@ -236,7 +215,7 @@
         (probe/eval-after-runtime!
           conn build-id form :read-dom-failed
           (fn [envelope]
-            ;; The browser-side form ALWAYS returns a map (a `{:ok? ...}`
+            ;; The runtime's `dom-read` ALWAYS returns a map (a `{:ok? ...}`
             ;; envelope or the no-document / bad-selector error). A nil /
             ;; non-map here means the eval came back BLANK —
             ;; `cljs-eval-value` reads a blank shadow result as `nil`
@@ -256,14 +235,12 @@
                  :selector selector
                  :hint     (str "read-dom's browser eval returned a blank / "
                                 "non-map value. This is almost always the "
-                                "FORM, not the connection: if the runtime were "
-                                "absent the eval would error rather than return "
-                                "blank, and the form's own no-document / "
-                                "bad-selector branches both return maps. A "
-                                "blank result means the form evaluated to nil — "
-                                "typically an unresolved symbol in the inlined "
-                                "eval string (the browser cljs-eval context "
-                                "aliases nothing beyond cljs.core + JS interop). "
-                                "Reloading the tab will NOT help. If you suspect "
-                                "the connection instead, run discover-app to "
-                                "confirm :liveness :fresh.")}))))))))
+                                "connection, not the form: read-dom calls the "
+                                "preloaded runtime fn (re-frame2-pair.runtime/"
+                                "dom-read) — the same shared plumbing read-ui "
+                                "uses — so an unresolved-alias miss can no "
+                                "longer nil it out. A blank result means the "
+                                "runtime did not answer the eval (a dropped "
+                                "WebSocket, or the preload was wiped by a full "
+                                "page refresh). Run discover-app to confirm "
+                                ":liveness :fresh, then retry.")}))))))))

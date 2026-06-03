@@ -1,14 +1,17 @@
 (ns re-frame2-pair-mcp.read-dom-test
-  "Unit tests for the read-dom view-plane read tool (rf2-nfjil).
+  "Unit tests for the read-dom raw-DOM-plane read tool (rf2-nfjil).
 
   Two layers:
 
     1. Form composition — `read-dom-form` builds the browser-side CLJS
-       source. We assert it carries the load-bearing pieces
-       (`querySelectorAll`, the literal selector, the per-node text cap,
-       the `:rf.size/large-elided` elision marker, the matched-node
-       `:limit`) and stays READ-ONLY (no `.setAttribute` / `set!` /
-       `.dispatchEvent` host-mutation forms).
+       source. Since rf2-q0r7e it is a THIN runtime call —
+       `(re-frame2-pair.runtime/dom-read {...})` — composed via the shared
+       `eval-form` DSL (the SAME plumbing read-ui uses), not an inlined
+       raw eval string. We assert it carries the load-bearing pieces (the
+       runtime `dom-read` call, the literal selector, the `:limit` /
+       `:max-text` knobs, the sub-selector + explicit-attrs slots) and
+       that it depends only on cljs.core + JS interop + the runtime ns
+       (the alias-trap regression guard below).
 
     2. Tool wiring — `read-dom-tool` threads args, runs the preflight,
        and forwards the browser-side envelope. We stub
@@ -18,7 +21,7 @@
        bad-selector error reason.
 
   The browser-side semantics (does querySelectorAll actually find the
-  node? does textContent cap correctly?) are exercised by the eval form
+  node? does textContent cap correctly?) are exercised by the runtime fn
   running in a real tab — out of scope for a node-runtime unit suite;
   the conformance corpus pins the outer wire shape, this suite pins the
   form's internal contract."
@@ -29,95 +32,91 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.read-dom :as read-dom]))
+            [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.read-dom :as read-dom]
+            [re-frame2-pair-mcp.tools.read-ui :as read-ui]))
 
 ;; ---------------------------------------------------------------------------
 ;; Form composition — the browser-side source contract.
 ;; ---------------------------------------------------------------------------
 
-(deftest form-carries-load-bearing-pieces
+(deftest form-is-thin-runtime-call
+  ;; rf2-q0r7e — read-dom no longer inlines its DOM-read core as a raw
+  ;; eval string; it emits `(re-frame2-pair.runtime/dom-read {...})` via
+  ;; the shared `eval-form` DSL, the SAME plumbing read-ui uses. The
+  ;; per-node projection lives in the runtime's `node->content`, shared
+  ;; with ui-read.
   (let [form (#'read-dom/read-dom-form "#app .counter" nil
                                        read-dom/default-limit
                                        read-dom/default-max-text
                                        nil)]
-    (testing "the query + selector + cap machinery is present"
-      (is (str/includes? form "querySelectorAll"))
+    (testing "the runtime dom-read call + selector + knobs are present"
+      (is (str/includes? form "re-frame2-pair.runtime/dom-read")
+          "calls the shared runtime dom-read fn")
+      (is (str/includes? form ":selector") "selector opt slot present")
       (is (str/includes? form "#app .counter") "literal selector embedded")
-      (is (str/includes? form ":rf.size/large-elided") "text elision marker")
-      (is (str/includes? form (str read-dom/default-max-text)) "per-node text cap")
-      (is (str/includes? form (str read-dom/default-limit)) "matched-node limit"))))
+      (is (str/includes? form (str ":max-text " read-dom/default-max-text)) "per-node text cap rides")
+      (is (str/includes? form (str ":limit " read-dom/default-limit)) "matched-node limit rides"))))
 
 (deftest form-is-read-only
-  ;; READ-ONLY by construction — the form must never carry a DOM
-  ;; mutation host-form. A regression that started writing back to the
-  ;; node (e.g. a normalisation pass) would surface here.
+  ;; READ-ONLY by construction — the THIN form must never carry a DOM
+  ;; mutation host-form. (The runtime fn it calls is itself read-only by
+  ;; construction; this guards the tool-composed form against a future
+  ;; edit slipping a mutation into the opts.)
   (let [form (#'read-dom/read-dom-form "div" ".x" 10 100 ["id" "class"])]
     (doseq [mutator [".setAttribute" ".removeAttribute" ".dispatchEvent"
                      "set! (.-" ".innerHTML" ".click" ".remove("]]
       (is (not (str/includes? form mutator))
           (str "read-dom form must be read-only — found mutator " mutator)))))
 
-(deftest form-uses-js-tolowercase-not-namespaced-alias
-  ;; rf2-5ffuv — REGRESSION GUARD. The inlined eval string is sent over
-  ;; nREPL and evaluated in the BROWSER cljs-eval context, which aliases
-  ;; NOTHING beyond cljs.core + JS interop (it is not a namespace that
-  ;; :requires anything). The original form lowered the tag with
-  ;; `(str/lower-case ...)` — `str` is unresolved there, so the whole form
-  ;; evaluated to nil (a compile-level unresolved-alias miss, NOT a caught
-  ;; error), and EVERY read-dom call came back :read-dom-blank-result. The
-  ;; tag must be lowered with the JS-native `.toLowerCase`, and the form
-  ;; must carry no bare `namespace/sym` alias at all.
-  (let [forms (for [attrs [nil ["id" "class"]]
-                    sub   [nil ".title"]]
-                (#'read-dom/read-dom-form "div" sub 10 100 attrs))]
-    (doseq [form forms]
-      (is (str/includes? form "(.toLowerCase")
-          "tag is lowered via JS .toLowerCase (no clojure.string alias needed)")
-      ;; Broader guard against the latent bug class: the inlined eval
-      ;; string must not lean on ANY require-only SYMBOL alias — those
-      ;; resolve in a namespace that :requires them, but NOT in the bare
-      ;; browser cljs-eval context (it aliases nothing beyond cljs.core +
-      ;; JS interop). Keyword namespaces (`:rf.error/…`, `:rf.size/…`) and
-      ;; JS interop (`js/document`) are legitimate; only a SYMBOL alias is
-      ;; the unresolved-symbol trap. The aliases this ns carries are the
-      ;; suspects worth pinning.
-      (doseq [alias ["str/" "wire/" "probe/" "j/"]]
-        (is (not (str/includes? form alias))
-            (str "the inlined eval form must depend only on cljs.core + JS "
-                 "interop — found require-only alias " alias))))))
-
 ;; ---------------------------------------------------------------------------
-;; rf2-w2mjm — GENERAL unresolved-symbol guard (the alias-trap bug CLASS).
+;; rf2-w2mjm / rf2-q0r7e — the unresolved-symbol-alias guard, now over the
+;; SHARED form (covers BOTH read-dom AND read-ui).
 ;;
-;; rf2-5ffuv pinned the ONE alias that had bitten (`str/lower-case`) via a
-;; substring blocklist of the four aliases this ns happens to carry
-;; (`str/ wire/ probe/ j/`). That blocklist is brittle: a future edit that
-;; reaches for a DIFFERENT require-only symbol — `set/union`,
-;; `walk/postwalk`, a freshly-aliased helper — would sail past it and
-;; re-introduce the exact failure mode (the whole inlined form is sent to
-;; the browser cljs-eval context, which aliases NOTHING beyond cljs.core +
-;; JS interop; an unresolved symbol there makes the entire form evaluate to
-;; nil — a compile-level miss the inner try/catch cannot trap — and EVERY
-;; read-dom call comes back :rf.error/read-dom-blank-result, while read-ui,
-;; which calls a runtime fn rather than inlining source, stays unaffected).
+;; The bug it pins: the inlined eval string is sent over nREPL and
+;; evaluated in the BROWSER cljs-eval context, which aliases NOTHING
+;; beyond cljs.core + JS interop (it is not a namespace that :requires
+;; anything). rf2-5ffuv: the original read-dom form lowered the tag with
+;; `(str/lower-case ...)` — `str` is unresolved there, so the whole form
+;; evaluated to nil (a compile-level miss, NOT a caught error), and EVERY
+;; read-dom call came back :read-dom-blank-result, while read-ui — which
+;; called a runtime fn rather than inlining source — stayed green.
 ;;
-;; This guard parses the generated form and asserts every PLAIN symbol in
-;; it resolves to one of: a special form, a `cljs.core` name, a JS-interop
-;; form (`js/…`, `.method`, `.-field`), or a local binding introduced by
-;; the form's own `let` / `fn` / `fn*`. Any residual symbol is a
-;; require-only alias that will nil the form out at runtime — the test
-;; fails BY NAME on the offender, no blocklist to keep in sync.
+;; rf2-w2mjm generalised the guard from a brittle alias BLOCKLIST to a
+;; PARSE-and-prove approach: parse the generated form, assert every PLAIN
+;; symbol resolves to a special form, a `cljs.core` name, a JS-interop
+;; form, a local binding, OR the runtime-ns-qualified call (the runtime
+;; preload provides that ns). Any residual require-only alias fails the
+;; test BY NAME.
+;;
+;; rf2-q0r7e folded read-dom onto the SAME runtime-call plumbing read-ui
+;; uses, so a SINGLE guard now covers BOTH ops: a fix or a break on the
+;; shared eval-form path cannot diverge between them. The guard runs over
+;; read-dom-form AND read-ui-form variants, and an adversarial case below
+;; proves it FIRES on an alias trap injected into either op's form — so it
+;; cannot silently rot into a no-op.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private cljs-core+special
-  "The special forms + `cljs.core` names the read-dom form may use. A
-  symbol outside this set (and not JS-interop, and not a local binding) is
-  a require-only alias — the unresolved-symbol trap that nils the form."
-  '#{;; special forms / macros the form leans on
-     let if-not if try catch fn fn* when or and do quote recur
-     ;; cljs.core fns/macros used by the form
+  "The special forms + `cljs.core` names a thin runtime-call form may use.
+  A symbol outside this set (and not JS-interop, not a local binding, not
+  the runtime-ns-qualified call) is a require-only alias — the
+  unresolved-symbol trap that nils the form."
+  '#{;; special forms / macros a form may lean on
+     let if-not if try catch fn fn* when or and do quote recur cond
+     ;; cljs.core fns/macros
      exists? array-seq mapcat count take into keep merge mapv
-     string? subs min pr-str = > some? nil? not vec})
+     string? subs min pr-str = > some? nil? not vec assoc cond->})
+
+(defn- runtime-call-symbol?
+  "True for a symbol qualified to the runtime ns the preload provides
+  (`re-frame2-pair.runtime/dom-read`, `…/ui-read`). That ns IS loaded in
+  the eval context (it's the preloaded runtime), so a call into it is
+  legitimate — it is NOT the require-only-alias trap. Pinned to the
+  `eval-form` `runtime-ns` constant so a runtime rename doesn't strand the
+  guard."
+  [s]
+  (= (namespace s) ef/runtime-ns))
 
 (defn- interop-symbol?
   "True for a symbol that resolves in the BARE browser cljs-eval context
@@ -170,51 +169,96 @@
       parsed)
     @acc))
 
+(defn- unresolved-alias-suspects
+  "The core of the guard, factored so the adversarial negative case can
+  drive it directly. Parses `form` and returns the set of symbols that
+  resolve to NOTHING in the bare browser cljs-eval context — i.e. that are
+  neither a special form / `cljs.core` name, JS-interop, a local binding,
+  nor a runtime-ns-qualified call. A non-empty set is the alias trap."
+  [form]
+  (let [;; `cljs.tools.reader` (not `cljs.reader`) — it supports the
+        ;; `#(…)` anonymous-fn literal a form might carry, reading it as
+        ;; `(fn* [p__N] …)`.
+        parsed (tr/read-string form)
+        locals (collect-locals parsed)]
+    (->> (collect-symbols parsed)
+         (remove cljs-core+special)
+         (remove interop-symbol?)
+         (remove runtime-call-symbol?)
+         (remove locals)
+         set)))
+
 (deftest form-carries-no-unresolved-symbol-alias
-  ;; rf2-w2mjm — the bug-class guard. Parses each generated variant and
-  ;; asserts no symbol escapes (cljs.core ∪ special-forms ∪ JS-interop ∪
-  ;; locals). A residual symbol is the alias trap that nils the form.
-  (doseq [[label form] [["default"        (#'read-dom/read-dom-form "#app .counter" nil
-                                                                    read-dom/default-limit
-                                                                    read-dom/default-max-text nil)]
-                        ["explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"])]
-                        ["sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil)]]]
-    (let [;; `cljs.tools.reader` (not `cljs.reader`) — it supports the
-          ;; `#(…)` anonymous-fn literal the form carries (`#(read-attr el %)`),
-          ;; reading it as `(fn* [p__N] …)`.
-          parsed   (tr/read-string form)
-          locals   (collect-locals parsed)
-          suspects (->> (collect-symbols parsed)
-                        (remove cljs-core+special)
-                        (remove interop-symbol?)
-                        (remove locals)
-                        set)]
+  ;; The bug-class guard, over the SHARED form for BOTH ops (rf2-q0r7e).
+  ;; A residual symbol is the alias trap that nils the form out.
+  (doseq [[label form]
+          [;; read-dom variants (raw DOM plane).
+           ["read-dom default"        (#'read-dom/read-dom-form "#app .counter" nil
+                                                                read-dom/default-limit
+                                                                read-dom/default-max-text nil)]
+           ["read-dom explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"])]
+           ["read-dom sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil)]
+           ;; read-ui variants (re-frame2 view plane) — the SAME guard now
+           ;; covers them, since read-ui rides the same eval-form plumbing.
+           ["read-ui view-id"         (#'read-ui/read-ui-form :my.app/counter nil nil 2000 nil)]
+           ["read-ui point+frame"     (#'read-ui/read-ui-form nil {:x 12 :y 34} nil 100 ":stories")]
+           ["read-ui selector"        (#'read-ui/read-ui-form nil nil "#save" 2000 nil)]]]
+    (let [suspects (unresolved-alias-suspects form)]
       (is (empty? suspects)
-          (str "read-dom-form (" label ") must depend only on cljs.core + JS "
-               "interop — these symbols resolve to NOTHING in the browser "
-               "cljs-eval context and would nil the whole form out "
-               "(:rf.error/read-dom-blank-result on every call): "
+          (str label " form must depend only on cljs.core + JS interop + "
+               "the preloaded runtime ns — these symbols resolve to NOTHING "
+               "in the browser cljs-eval context and would nil the whole "
+               "form out (a :*-blank-result on every call): "
                (sort suspects))))))
+
+(deftest guard-fires-on-injected-alias-trap
+  ;; ADVERSARIAL — proves the guard is not a no-op (rf2-q0r7e). We forge
+  ;; the EXACT rf2-w2mjm failure on the SHARED eval-form path: a require-
+  ;; only alias (`str/lower-case`) reaching into either op's emitted form
+  ;; via the `rt-raw` escape hatch (the realistic vector — a hand-built raw
+  ;; source fragment that reaches for an aliased symbol). The guard MUST
+  ;; surface `str/lower-case` (and the bare `sel`) as suspects for both the
+  ;; dom-read- and ui-read-shaped injections — if it didn't, the live
+  ;; regression guard above would silently pass a nilled form.
+  (doseq [[label rt-fn]
+          [["dom-read-shaped" 'dom-read]
+           ["ui-read-shaped"  'ui-read]]]
+    (let [;; A form that looks like the real thing but smuggles an
+          ;; unresolved alias into the call via the raw escape hatch —
+          ;; `(re-frame2-pair.runtime/<fn> (str/lower-case sel))`. `rt-raw`
+          ;; inlines the fragment verbatim, exactly how an alias would slip
+          ;; into a generated form.
+          poisoned (ef/emit (ef/rt-call rt-fn (ef/rt-raw "(str/lower-case sel)")))
+          suspects (unresolved-alias-suspects poisoned)]
+      (is (contains? suspects 'str/lower-case)
+          (str label ": the guard MUST flag the injected require-only alias "
+               "`str/lower-case` — otherwise it would silently pass the exact "
+               "rf2-w2mjm form-nilling bug. Suspects: " (sort suspects)))
+      ;; `sel` is an unbound symbol here too (not a local in this forged
+      ;; form), so it's also caught — confirming the parse reaches inside
+      ;; the runtime call args, not just the head symbol.
+      (is (contains? suspects 'sel)
+          (str label ": the guard reaches inside the runtime-call args "
+               "(the bare `sel` symbol is flagged).")))))
 
 (deftest form-embeds-sub-selector-when-supplied
   (let [with-sub (#'read-dom/read-dom-form "div" ".title" 10 100 nil)
         no-sub   (#'read-dom/read-dom-form "div" nil 10 100 nil)]
     (is (str/includes? with-sub ".title") "sub-selector embedded")
-    (is (str/includes? with-sub ":sub-selector") "sub-selector slot in result")
+    (is (str/includes? with-sub ":sub-selector") "sub-selector opt slot present")
     (is (not (str/includes? no-sub ":sub-selector"))
-        "no :sub-selector slot when none supplied")))
+        "no :sub-selector opt when none supplied")))
 
-(deftest form-prefix-sweep-only-with-default-attrs
-  ;; When :attrs is omitted (nil), the form sweeps data-*/aria-*. With an
-  ;; explicit attr list the caller is in control — no prefix sweep.
+(deftest form-embeds-attrs-only-when-explicit
+  ;; When :attrs is omitted (nil), the opts carry NO :attrs key — the
+  ;; runtime fn then rides the curated default set + a data-*/aria- sweep.
+  ;; With an explicit attr list the names ride and the runtime reads only
+  ;; those (no sweep).
   (let [default-attrs  (#'read-dom/read-dom-form "div" nil 10 100 nil)
         explicit-attrs (#'read-dom/read-dom-form "div" nil 10 100 ["id"])]
-    (is (str/includes? default-attrs "data-") "default rides the data-* sweep")
-    (is (str/includes? default-attrs "aria-") "default rides the aria-* sweep")
-    ;; The explicit-attrs form still mentions the prefix-attrs fn, but
-    ;; gated by `prefix-sweep?` false, so it returns {} — assert the
-    ;; literal flag is false in the explicit form and true in the default.
-    (is (str/includes? default-attrs "true") "default form enables the sweep")
+    (is (not (str/includes? default-attrs ":attrs"))
+        "no :attrs opt when omitted ⇒ runtime rides the default set + sweep")
+    (is (str/includes? explicit-attrs ":attrs") "explicit :attrs opt rides")
     (is (str/includes? explicit-attrs "\"id\"") "explicit attr name embedded")))
 
 ;; ---------------------------------------------------------------------------

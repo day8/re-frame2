@@ -165,7 +165,7 @@ Then chain:
 3. Narrate: what the component is, what props it takes, which event(s) its interactions dispatch, and which subscriptions it reads (`:subs-read` already names them). Cross-check against `handler-meta {kind: "view", id: <id>}` for registered views.
 4. If `read-ui` returns `:entity {:view-id nil :reason :no-tagged-view-root}` (a portal / fragment leaf), fall back to `eval-cljs` over `(re-frame2-pair.runtime/dom-source-at "sel")` then `(re-frame2-pair.runtime/dom-describe "sel")` to report tag/class/listeners, and ask the user to point at the source instead.
 
-To read JUST the rendered content of a node you already have a selector for (no entity provenance needed), use `read-dom {selector: "..."}` — see [ops.md §read-dom](ops.md#read-dom--rendered-content-by-explicit-css-selector-rf2-nfjil).
+To read JUST the rendered content of a node you already have a selector for (no entity provenance needed), use `read-dom {selector: "..."}` — see [ops.md §read-dom](ops.md#read-dom--raw-dom-content-by-explicit-css-selector-rf2-nfjil).
 
 This is one of the most grounding moves you can make — it turns *"that button"* into *"`re-com/button` at `app/cart/view.cljs:84`, dispatching `[:cart/checkout]`"* in one step.
 
