@@ -69,7 +69,6 @@ The framework emits errors from a fixed-but-additive set of categories. You don'
 | Frame | `:rf.error/frame-destroyed` | A dispatch / subscribe arrived against a destroyed frame. |
 | Router | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit. |
 | Machine | `:rf.error/machine-action-exception` | A machine action body threw. |
-| Machine | `:rf.error/machine-unhandled-event` | An event reached a machine with no matching transition. |
 | Routing | `:rf.error/no-such-route` / `:rf.error/missing-route-param` | A route op referenced an unknown id or omitted a required param. |
 
 Two conventions make the table navigable instead of a thing to look up every time:
