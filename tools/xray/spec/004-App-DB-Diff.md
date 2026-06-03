@@ -162,11 +162,21 @@ Two engine rules make this hold:
   removal (the "sea of red"). Collecting the union of members means a
   swapped set contributes both a `:removed` and an `:added` leaf, so the
   uniformity test correctly fails **at the set and at every ancestor**.
-- **An empty↔populated set replace expands per-member.** When one side is
-  the *empty* set Editscript falls back to a whole-value `:r` (the same
-  pathology as the empty map, rf2-9d4j8); the projection pre-expands it
-  into per-member `:+` / `:-` edits so `#{} → #{:a}` and `#{:a} → #{}`
-  classify member-level rather than as a single opaque `:modified`.
+- **A whole-set `:r` replace expands into the membership delta — for ANY
+  member count (rf2-4vp8c).** Editscript emits per-member `:+` / `:-`
+  edits for a *single*-member swap, but crosses its A* cost threshold and
+  falls back to a whole-value `:r` once *multiple* members change at once
+  (`#{:a :b :c} → #{:a :d :e}` ⇒ `[[] :r #{:a :d :e}]`) — and for the
+  empty↔populated edge (`#{} → #{:a}`, the same pathology as the empty
+  map, rf2-9d4j8). The projection catches every set `:r` and pre-expands
+  it into the membership delta (members only-in-before ⇒ `:-`,
+  only-in-after ⇒ `:+`, in-both ⇒ unchanged) so a multi-member swap reads
+  `-:b -:c +:d +:e` with `:a` intact rather than as a single opaque
+  `:modified` ("sea of red"). The empty↔populated case is the degenerate
+  one where the in-both intersection is empty. Without this, l0us2's
+  single-member fix left the *common* real-world transition — a machine
+  `:tags` set dropping and adding several tags at once — still
+  misrendering as a whole-set replacement.
 
 A set is therefore only a **wholly-changed root** when the opposite side
 is empty or absent (a genuine cold-boot `#{} → #{…}` or clear `#{…} →
