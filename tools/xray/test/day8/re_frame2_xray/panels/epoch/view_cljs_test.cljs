@@ -1391,7 +1391,23 @@
       (is (some? (th/find-by-testid tree-m "rf-xray-epoch-machine-cascade-data-write-1"))
           "DATA Δ slot renders for a data-mutating action")
       (is (some? (th/find-by-testid tree-m "rf-xray-epoch-machine-cascade-outcome-1"))
-          "the action outcome-details block is present"))
+          "the action outcome-details block is present")
+      ;; rf2-fg3c4 — the `↳ data Δ` arrow reads LIGHT GREY (`:text-tertiary`),
+      ;; the SAME token the NORMAL (non-machine) handler's `↳ :db diff` arrow
+      ;; (`sub-header-glyph-style`) uses — NOT the prior `:success` green. The
+      ;; arrow is the first `↳` span inside the data-write subtree.
+      (let [arrow-colour (some-> tree-m
+                                 (th/find-by-testid "rf-xray-epoch-machine-cascade-data-write-1")
+                                 (->> (tree-seq vector? seq)
+                                      (filter #(and (vector? %) (= "↳" (last %))))
+                                      first
+                                      th/attrs
+                                      :style
+                                      :color))]
+        (is (= (:text-tertiary tokens/tokens) arrow-colour)
+            "the machine EVENT HANDLER `data Δ` arrow uses the light-grey
+             `:text-tertiary` token (matching the normal-handler arrow), not
+             the `:success` green (rf2-fg3c4)")))
     ;; A no-op exit action whose :data is unchanged still surfaces the
     ;; slot (the inspector renders the value with no delta).
     (let [noop {:step :handler :badge :HANDLER :step-number 3
