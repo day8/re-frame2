@@ -304,15 +304,21 @@
 
   `:probed-builds` is the set of build-ids for which the re-frame2-pair runtime
   preload has been confirmed live on this socket generation (rf2-sjpx0).
-  Cleared on connect / reconnect — a full page reload destroys the CLJS
-  heap (and thus the `__re_frame2_pair_runtime` marker); we re-probe
-  on the first tool call after that boundary.
+  Cleared by `close!` (operator-initiated teardown) and reborn empty
+  whenever `ensure-connection!` builds a fresh conn for a new port — but
+  NOT on a same-port socket reopen (rf2-c3dsr; see `connect!`). The
+  `__re_frame2_pair_runtime` marker lives in the browser CLJS heap, which
+  a JVM-side socket hiccup doesn't destroy, so the cache stays valid
+  across a reopen; a page reload that DID destroy the marker leaves the
+  JVM nREPL socket up, so a negative probe re-runs downstream anyway.
 
   `:resolved-build-id` is the build-id `discover-app` last resolved
   (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
   default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
   removing the pair-debug friction of re-passing the build on every call.
-  Same reconnect-invalidation lifecycle as `:probed-builds`.
+  Same invalidation lifecycle as `:probed-builds`: cleared by `close!`
+  and by a fresh `ensure-connection!` conn, PRESERVED across a transient
+  same-port reopen (rf2-c3dsr).
 
   `:build-alias` is the forgiving-resolution cache (rf2-qda59):
   `{requested-keyword canonical-keyword}`. A `:build` arg that names a
@@ -320,9 +326,11 @@
   `:examples/machine-epochs`) resolves to the canonical running id the
   first time it's seen, and the alias is remembered so every later
   `arg-build` read returns the same canonical id without re-fetching
-  `active-builds`. Same reconnect-invalidation lifecycle as
-  `:probed-builds` — a page reload / build restart could change the
-  running set, so a stale alias must not survive it."
+  `active-builds`. Same invalidation lifecycle as `:probed-builds`:
+  cleared by `close!` and a fresh conn, preserved across a same-port
+  reopen — a genuine build restart (which changes the running set) lands
+  on a new port (fresh conn) or an operator `close!`, so a stale alias
+  never survives a real build change (rf2-c3dsr)."
   [port host]
   (atom {:port              port
          :host              (or host "127.0.0.1")
@@ -387,7 +395,37 @@
   "Open the persistent socket. Returns a Promise resolving to the
   connection atom once `connect` fires (or rejecting if it errors).
   Idempotent — if a socket is already open and healthy, resolves
-  immediately."
+  immediately.
+
+  ## Why the reopen path does NOT touch the build-id caches (rf2-c3dsr)
+
+  `connect!` is a pure *transport* concern: open the socket, reset the
+  framing buffer, wire the handlers. It must NOT clear the session
+  caches (`:probed-builds` / `:resolved-build-id` / `:build-alias`) on
+  reopen, because `send-op!` calls `connect!` on EVERY op and the
+  close/error handlers (`attach-handlers!`) flip `:closed?` true on a
+  mere transient socket hiccup WITHOUT changing the target build. The
+  next op's `connect!` would then reopen the SAME port and — if it also
+  wiped the caches — silently drop a valid same-session sticky build,
+  so a follow-up no-`:build` call falls back to `:app` (the rf2-c3dsr
+  live symptom: `orient {}` mis-routing after a successful discover).
+
+  The caches' invalidation lives with the layer that actually knows the
+  build *identity* changed:
+
+    - `close!` (operator-initiated teardown) clears all three.
+    - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
+      when shadow's nREPL port vanishes or changes — the common shape of
+      the rf2-l9ixp \"operator restarted shadow against a different
+      build\" case (a restart almost always grabs a new ephemeral port).
+
+  A same-port reopen of the SAME conn within one session is, by
+  construction, a reconnect to the SAME build — so preserving the caches
+  across it is correct. `:probed-builds` in particular stays valid: the
+  `__re_frame2_pair_runtime` marker lives in the browser's CLJS heap,
+  which a JVM-side socket drop does not destroy (only a page reload
+  does, and a page reload leaves the JVM nREPL socket — hence
+  `:closed?` — untouched). A negative probe re-runs downstream anyway."
   [conn-atom]
   (let [{:keys [socket closed?]} @conn-atom]
     (if (and socket (not closed?))
@@ -398,16 +436,13 @@
                 sock (net/createConnection #js {:host host :port port})]
             (j/call sock :on "connect"
               (fn []
-                ;; Reset `:probed-builds` on (re)connect — a page reload
-                ;; destroys the CLJS heap and the
-                ;; `__re_frame2_pair_runtime` marker with it (rf2-sjpx0).
-                ;; Drop `:resolved-build-id` too (rf2-l9ixp) — operator may
-                ;; restart shadow against a different build between
-                ;; reconnects; a stale cache would silently mis-route.
+                ;; Transport-only: swap in the live socket, clear the
+                ;; closed flag, and reset the framing buffer. The build-id
+                ;; caches are deliberately PRESERVED across a same-port
+                ;; reopen (rf2-c3dsr) — see the fn docstring for why and
+                ;; for where the genuine-different-build reset lives.
                 (swap! conn-atom assoc :socket sock :closed? false
-                       :buf (js/Buffer.alloc 0)
-                       :probed-builds #{} :resolved-build-id nil
-                       :build-alias {})
+                       :buf (js/Buffer.alloc 0))
                 (attach-handlers! conn-atom sock)
                 (resolve conn-atom)))
             (j/call sock :once "error"

@@ -19,10 +19,17 @@
   pair, the result is cached on the conn-atom (`:probed-builds`)
   for the lifetime of the socket. Subsequent `ensure-runtime!`
   calls for the same build short-circuit without an nREPL round-trip.
-  The cache resets on (re)connect — `nrepl/connect!` and `nrepl/close!`
-  both blank `:probed-builds` — so a full page reload (which destroys
-  the CLJS heap and the `__re_frame2_pair_runtime` marker) triggers a
-  fresh probe on the next tool call.
+  The cache is cleared by `nrepl/close!` (operator-initiated teardown)
+  and is reborn empty whenever `server.cljs/ensure-connection!` builds a
+  fresh conn for a new shadow port. It is deliberately PRESERVED across a
+  transient same-port socket reopen (rf2-c3dsr) — the
+  `__re_frame2_pair_runtime` marker lives in the browser CLJS heap, which
+  a JVM-side socket hiccup doesn't destroy, so re-probing would be
+  wasteful. (A full page reload DOES destroy the marker, but it leaves
+  the JVM nREPL socket UP — so it never triggered a reconnect-reset
+  before rf2-c3dsr either; this path is unchanged. Negative probes aren't
+  cached, and the diagnostic ladder surfaces a genuinely-dead marker on
+  the next eval against the build.)
 
   Negative results are NOT cached: a missing preload usually surfaces
   on the very first call, and re-probing on each subsequent call

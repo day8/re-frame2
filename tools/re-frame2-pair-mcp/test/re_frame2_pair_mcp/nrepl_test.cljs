@@ -12,6 +12,7 @@
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
             ["fs" :as fs]
+            ["net" :as net]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.shadow-discovery :as shadow-discovery]))
 
@@ -712,3 +713,213 @@
                          "nil roots-fn falls through to the cwd scan via shadow-fails")
                      (restore!)
                      (done))))))))
+
+;; ===========================================================================
+;; `connect!` reopen preserves the session build-id caches (rf2-c3dsr).
+;;
+;; THE BUG: `connect!` used to blank `:probed-builds` / `:resolved-build-id`
+;; / `:build-alias` every time it OPENED the socket (whenever `:closed?`
+;; was true). `send-op!` calls `connect!` on every nREPL op, and the
+;; close/error handlers flip `:closed? true` on a TRANSIENT socket hiccup
+;; without changing the target build — so the next op's `connect!` reopened
+;; the SAME port AND wiped a valid same-session sticky build. The next
+;; no-`:build` call then fell back to `:app` (the live orient-{} symptom).
+;;
+;; THE FIX (option a): `connect!` is transport-only — it preserves the
+;; caches across a same-port reopen. The genuine "operator restarted shadow
+;; against a DIFFERENT build" reset (rf2-l9ixp) is preserved at the layers
+;; that observe the build identity changing:
+;;   - `close!` (operator-initiated teardown) clears all three; and
+;;   - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
+;;     on a shadow port change/vanish — which is how a different build
+;;     almost always manifests (a restart grabs a new ephemeral port).
+;;
+;; These tests drive the ACTUAL `connect!` Promise with a stubbed
+;; `net.createConnection`, firing the recorded `connect` / `close` / `error`
+;; callbacks the way Node's EventEmitter would.
+;; ===========================================================================
+
+(defn- connect-fake-socket
+  "A stand-in for the `net.Socket` `net/createConnection` returns. Records
+  every `on`/`once` callback into `cbs*` keyed by event name so the test
+  can fire `connect` / `close` / `error` synthetically. `write`/`end` are
+  inert no-ops — `connect!` only wires handlers and resolves."
+  [cbs*]
+  (j/lit {:on    (fn [event cb] (swap! cbs* assoc event cb) nil)
+          :once  (fn [event cb] (swap! cbs* assoc event cb) nil)
+          :write (fn [_] nil)
+          :end   (fn [] nil)}))
+
+(defn- with-stubbed-create-connection!
+  "Install a `net.createConnection` stub that records the freshly-built
+  fake socket's event callbacks into `cbs*` and returns the fake socket.
+  Returns a 0-arity restoration thunk. Mirrors the `install-fs-stub!`
+  lifecycle pattern: the caller restores inside the final `.then` before
+  `(done)` so the next test starts pristine."
+  [cbs*]
+  (let [orig (.-createConnection net)]
+    (set! (.-createConnection net) (fn [_opts] (connect-fake-socket cbs*)))
+    (fn restore! [] (set! (.-createConnection net) orig))))
+
+(defn- fire! [cbs* event & args]
+  (apply (get @cbs* event) args))
+
+(defn- connect-then-fire!
+  "Call `connect!` (which registers the `connect` handler synchronously
+  in the Promise executor), then immediately fire the recorded `connect`
+  callback the way Node would once the socket is up. Returns the
+  `connect!` Promise so the caller can chain assertions off its resolve."
+  [conn cbs*]
+  (let [p (nrepl/connect! conn)]
+    (fire! cbs* "connect")
+    p))
+
+(deftest connect!-reopen-preserves-resolved-build-id-after-hiccup
+  ;; rf2-c3dsr core regression: a transient socket close+reopen of the
+  ;; SAME port mid-session PRESERVES the sticky `:resolved-build-id` (and
+  ;; the sibling `:probed-builds` / `:build-alias` caches). The bug wiped
+  ;; them, so a follow-up no-`:build` op fell back to `:app`.
+  (async done
+    (let [cbs*     (atom {})
+          restore! (with-stubbed-create-connection! cbs*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")]
+      ;; First connect — the socket comes up.
+      (-> (connect-then-fire! conn cbs*)
+          (.then
+            (fn [_]
+              ;; Operator discovered + stuck a build; a unique-suffix alias
+              ;; got cached; the runtime was probed live on this generation.
+              (swap! conn assoc
+                     :resolved-build-id :examples/step-deck
+                     :build-alias       {:step-deck :examples/step-deck}
+                     :probed-builds     #{:examples/step-deck})
+              ;; A transient socket hiccup: the close handler flips :closed?
+              ;; WITHOUT touching the build — shadow is still on the same build.
+              (fire! cbs* "close" nil)
+              (is (true? (:closed? @conn)) "the hiccup marked the conn closed")
+              ;; The NEXT op triggers a reopen of the SAME port.
+              (connect-then-fire! conn cbs*)))
+          (.then
+            (fn [_]
+              (is (false? (:closed? @conn)) "reopened")
+              (is (= :examples/step-deck (:resolved-build-id @conn))
+                  "the sticky build SURVIVES a same-port reopen — the rf2-c3dsr fix")
+              (is (= {:step-deck :examples/step-deck} (:build-alias @conn))
+                  "the forgiving-resolution alias survives the reopen too")
+              (is (= #{:examples/step-deck} (:probed-builds @conn))
+                  "the probe cache survives — the runtime marker outlives a socket hiccup")
+              (restore!)
+              (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest connect!-reopen-resets-framing-buffer-but-keeps-caches
+  ;; The reopen still does its transport job: a stale partial frame left in
+  ;; `:buf` from the dropped socket is cleared (a fresh socket starts a fresh
+  ;; bencode stream), even while the build-id caches are preserved.
+  (async done
+    (let [cbs*     (atom {})
+          restore! (with-stubbed-create-connection! cbs*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")]
+      (-> (connect-then-fire! conn cbs*)
+          (.then
+            (fn [_]
+              (swap! conn assoc
+                     :resolved-build-id :examples/step-deck
+                     :buf (js/Buffer.from "d3:foo" "utf8"))  ; a stale partial frame
+              (fire! cbs* "close" nil)
+              (connect-then-fire! conn cbs*)))
+          (.then
+            (fn [_]
+              (is (zero? (.-length (:buf @conn)))
+                  "the framing buffer is reset on reopen (fresh socket, fresh stream)")
+              (is (= :examples/step-deck (:resolved-build-id @conn))
+                  "the build-id cache is preserved alongside the buffer reset")
+              (restore!)
+              (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest connect!-fast-path-leaves-caches-untouched
+  ;; When the socket is already open + healthy, `connect!` short-circuits
+  ;; (no createConnection, no swap) — so the caches are trivially untouched.
+  ;; Pins that the fast path didn't acquire a reset side effect.
+  (async done
+    (let [conn (nrepl/make-conn 6001 "127.0.0.1")]
+      (swap! conn assoc :socket #js {} :closed? false
+             :resolved-build-id :examples/step-deck
+             :probed-builds #{:examples/step-deck})
+      (-> (nrepl/connect! conn)
+          (.then (fn [_]
+                   (is (= :examples/step-deck (:resolved-build-id @conn))
+                       "fast path preserves the sticky build")
+                   (is (= #{:examples/step-deck} (:probed-builds @conn)))
+                   (done)))))))
+
+;; ===========================================================================
+;; The l9ixp different-build reset is PRESERVED (rf2-c3dsr).
+;;
+;; The fix preserves the cache across a transient hiccup but must NOT
+;; regress the rf2-l9ixp guarantee that a genuine different-build reconnect
+;; clears the stale cache. That guarantee now lives in two places:
+;;
+;;   1. `close!` (operator-initiated teardown) clears all three caches —
+;;      so a reopen after an explicit close starts clean.
+;;   2. A different build almost always lands on a new shadow ephemeral
+;;      port; `server.cljs/ensure-connection!` then builds a FRESH conn
+;;      (via `make-conn`), which starts with empty caches by construction.
+;;
+;; Both are pinned here at the transport boundary.
+;; ===========================================================================
+
+(deftest different-build-reconnect-after-close-resets-caches
+  ;; The operator-teardown path: `close!` clears the caches, so a SUBSEQUENT
+  ;; reopen of the (possibly same) socket starts with no stale build —
+  ;; exactly the rf2-l9ixp "restarted shadow against a different build" guard.
+  (async done
+    (let [cbs*     (atom {})
+          restore! (with-stubbed-create-connection! cbs*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")]
+      (-> (connect-then-fire! conn cbs*)
+          (.then
+            (fn [_]
+              (swap! conn assoc
+                     :resolved-build-id :examples/old-build
+                     :build-alias       {:old :examples/old-build}
+                     :probed-builds     #{:examples/old-build})
+              ;; Operator-initiated teardown (NOT a transient hiccup).
+              (nrepl/close! conn)
+              (is (nil? (:resolved-build-id @conn))
+                  "close! cleared the sticky build (l9ixp operator-teardown reset)")
+              (is (= {} (:build-alias @conn)) "close! cleared the alias cache")
+              (is (= #{} (:probed-builds @conn)) "close! cleared the probe cache")
+              ;; Reopen — starts clean; no stale build carried across.
+              (connect-then-fire! conn cbs*)))
+          (.then
+            (fn [_]
+              (is (nil? (:resolved-build-id @conn))
+                  "post-close reopen carries NO stale build — l9ixp preserved")
+              (restore!)
+              (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest fresh-conn-for-new-port-starts-with-empty-caches
+  ;; The port-change path (the common shape of a different-build restart):
+  ;; `ensure-connection!` discards the old conn and builds a fresh one for
+  ;; the new ephemeral port. A fresh conn has empty build-id caches by
+  ;; construction — so the new build is re-discovered, never inheriting the
+  ;; old build's sticky id (l9ixp preserved without relying on connect!).
+  (let [old-conn (nrepl/make-conn 6001 "127.0.0.1")]
+    (swap! old-conn assoc
+           :resolved-build-id :examples/old-build
+           :build-alias       {:old :examples/old-build}
+           :probed-builds     #{:examples/old-build})
+    ;; Shadow restarted on a new port → a brand-new conn (what
+    ;; new-conn-for-port / make-conn yields).
+    (let [new-conn (nrepl/make-conn 6002 "127.0.0.1")]
+      (is (= 6002 (:port @new-conn)) "the new conn targets the new port")
+      (is (nil? (:resolved-build-id @new-conn))
+          "a fresh conn for the new port carries NO sticky build from the old session")
+      (is (= {} (:build-alias @new-conn)))
+      (is (= #{} (:probed-builds @new-conn)))
+      ;; And the old conn is untouched — they're independent atoms.
+      (is (= :examples/old-build (:resolved-build-id @old-conn))
+          "the discarded conn keeps its state — no cross-conn mutation"))))

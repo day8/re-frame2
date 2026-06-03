@@ -272,8 +272,19 @@
   1. First call (or after invalidation) — runs `discover-and-cache!`.
   2. Cached + port-file still resolves to the same port — fast path,
      returns the cached conn atom.
-  3. Cached + port-file content changed — shadow was restarted; close
-     the stale socket, swap in a new conn for the new port.
+  3. Cached + port-file content changed (or vanished) — shadow was
+     restarted; close the stale socket, swap in a NEW conn for the new
+     port (or force re-discovery).
+
+  Path 3 is where the genuine rf2-l9ixp \"operator restarted shadow
+  against a different build\" reset happens: a restart almost always
+  grabs a new ephemeral port, so the new conn from `new-conn-for-port`
+  starts with EMPTY build-id caches (`:probed-builds` /
+  `:resolved-build-id` / `:build-alias`). The transport-layer
+  `nrepl/connect!` deliberately does NOT clear those caches on a
+  same-port reopen (rf2-c3dsr) — that would wipe a valid sticky build on
+  a transient socket hiccup — so this layer (which actually observes the
+  port change) owns the invalidation, alongside operator `close!`.
 
   Returns a Promise resolving to the live conn atom, or rejecting with
   the cached/structured discovery error."

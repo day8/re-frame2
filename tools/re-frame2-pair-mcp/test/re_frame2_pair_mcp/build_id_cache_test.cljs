@@ -2,8 +2,10 @@
   "Unit tests for the session-scoped `:resolved-build-id` cache (rf2-l9ixp).
 
   Adjacent to `probe_test.cljs`, which pins the `:probed-builds` cache
-  (rf2-sjpx0). The two caches share a lifecycle (reset on (re)connect
-  and `close!`); their semantics differ:
+  (rf2-sjpx0). The two caches share a lifecycle (cleared by `close!` and
+  reborn empty on a fresh `ensure-connection!` conn, but PRESERVED across
+  a transient same-port socket reopen — rf2-c3dsr); their semantics
+  differ:
 
     - `:probed-builds` is a set keyed by build-id, tracking which builds
       have had their `__re_frame2_pair_runtime` marker confirmed live.
@@ -23,7 +25,8 @@
     2. `wire/arg-build` consults the cache before the env-var fallback
        when no explicit `:build` arg is passed.
     3. An explicit `:build` arg always wins (no surprise).
-    4. nREPL `connect!` / `close!` clear the cache."
+    4. nREPL `close!` clears the cache (a transport-only `connect!`
+       reopen of the same port deliberately PRESERVES it — rf2-c3dsr)."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
