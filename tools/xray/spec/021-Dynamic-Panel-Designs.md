@@ -1699,6 +1699,26 @@ the defmachine DEFINITION:
   emitted (same data the FX step's `:attributed-to` chip surfaces,
   now visible IN the action's row).
 
+> **No-info-loss anchor (rf2-akvfe).** The `↳ data Δ` on the entry-action
+> row (`:count-open` → `{:opened-count 1}`) is exactly the data-delta the
+> retired up/down structured-cascade block (§Transition row, below) used to
+> restate. With the block removed, this `↳ data Δ` is the single surviving
+> place the entry action's data-delta renders — satisfying the rework's
+> no-info-loss guard (the exit action, the entry action, and the data-delta
+> all live on their own numbered pipeline rows).
+
+**EVENT HANDLER section layout (rf2-akvfe).** The machine EVENT HANDLER
+section renders as: (1) the structured **orientation line** under the
+heading — `Processing [TRIGGER] ‹vec› for [MACHINE] ‹id› in [STATE]
+‹pre-transition-state›`, grey chip-labels + code-formatted values
+(§9.1.6.4) — over (2) the cascade rows laid out as a **nested
+pipeline-of-boxes** mirroring the OUTER stage pipeline (`[DISPATCH] →
+[EVENT HANDLER] → …`): a vertical rail (`machine-cascade-rail-style`) runs
+behind the numbered `[1][2][3]` ordinal chips so the inner steps read as
+one connected pipeline rather than a flat stack. The ordinal numbering is
+retained; the rail is the inner analogue of `pipeline-view`'s rail + step
+wrappers.
+
 A THREW action surfaces NO per-row threw chrome (rf2-4yrr6 retired the
 prior `✗ threw — <message>` outcome-detail line AND the duplicate `✗ threw`
 outcome chip above). The pink "Exception Thrown" card + the row pink-wash
@@ -1747,58 +1767,44 @@ structured before→after state object.
   false — only `:data` or `:rf/*` bookkeeping moved), the box is elided
   entirely; the headline verb stays.
 
-**Transition row — STRUCTURED entry/exit cascade (rf2-52u5n).** Below
-the logical-state delta box, the transition row renders the **structured
-cascade** — the step-by-step explanation of HOW the macrostep reached
-its after-state, replacing the old "`{from}→{to}` + `{n} microstep(s)`"
-opacity. The data is the `:cascade` tag the substrate emits on the
+**Transition row — the rf2-52u5n up/down structured-cascade BLOCK is
+REMOVED (rf2-akvfe).** The transition row formerly rendered, below the
+logical-state delta box, a **structured-cascade block** — the up/down
+`↑ exited-state / <exit-action> / ↓ entered-state / <entry-action> /
+{data-delta}` walk (`view/structured-cascade-body`). rf2-akvfe removes
+that rendered block: it **duplicated the EVENT HANDLER cascade pipeline**.
+The exit-phase and entry-phase actions are ALREADY their own numbered
+cascade rows (`[1] :clear-hold` exit-action, `[2]` the TRANSITION,
+`[3] :count-open` entry-action), each carrying its source and — for the
+entry action — its `↳ data Δ` (e.g. `{:opened-count 1}`). So the exit
+action, the entry action, AND the data-delta all survive on the pipeline
+rows (the rf2-akvfe **no-info-loss guard**). The pipeline is the single
+canonical place the cascade is shown.
+
+**The structured `:cascade` data STAYS — as the projection's order
+oracle.** The `:cascade` tag the substrate emits on the
 `:rf.machine/transition` trace (rf2-n9f4z; Spec 005 §The structured
 transition cascade) — a vector of self-describing step maps
 `{:kind <:exit|:action|:entry|:microstep> :state <path> :region
 <name-or-nil> :action <id-or-nil> :data-delta <changed-keys>}` in
-EXECUTION order (exit deepest-first → transition `:action` @ LCA → entry
-shallowest-first + initial-descent → one `:microstep` per `:always`
-iteration). The projection (`machine-transition-row` /
-`transition-cascade-row`) threads this onto the transition row's
-`:cascade` slot; `projection/cascade-regions` / `cascade-microsteps` /
-`parallel-cascade?` / `cascade-step-count` group it for the view.
+EXECUTION order — is still threaded onto the transition row's `:cascade`
+slot, and `projection/cascade-regions` / `cascade-microsteps` /
+`parallel-cascade?` / `cascade-step-count` still group it. The
+`machine_epochs` harness reads those projection helpers as the
+**cascade-ORDER oracle** for its assertions (exit deepest-first →
+transition `:action` @ LCA → entry shallowest-first + initial-descent →
+one `:microstep` per `:always` iteration). Only the *rendered* up/down
+view block is gone; the data layer + the order contract are unchanged.
 
-Rendered shape (`view/structured-cascade-body`):
+> **Action-free boundaries.** The retired block could surface action-free
+> boundaries (e.g. exiting `:idle` / `:off`, or the HVAC LCA walk) that the
+> per-EMIT `:rf.machine/action-ran` stream cannot. Per rf2-akvfe (Mike,
+> door-deck authority 2026-06-04) that block is removed wholesale as a
+> duplicate of the pipeline; the structured `:cascade` remains queryable as
+> projection data + the cascade-order oracle, and the Machine Inspector
+> (003) carries the full configuration-walk view.
 
-- **The ordered ENTRY/EXIT CASCADE.** One row per structural step:
-  `<kind-glyph> <state-path> <action-id | (no action)> <data Δ>`. The
-  glyph reads the boundary kind (`↑` exit / `•` action / `↓` entry); the
-  state-path is the LCA-relative path exited/entered (the action's
-  decl-path for `:action`); the action-id names the fired action, or an
-  explicit muted `(no action)` for an action-free boundary (so the
-  COMPLETE configuration walk is legible — the per-EMIT
-  `:rf.machine/action-ran` stream above can NOT show these, since an
-  action-free `:idle` / `:off` exit declares no action and emits no
-  trace). The `:data-delta` (changed `:data` keys only — never the whole
-  snapshot, so no large-payload leak) renders inline through the
-  edn-inspector when non-empty.
-- **Per-`:region` grouping (parallel machines).** When the cascade spans
-  more than one `:region` (`parallel-cascade?`), the steps render in
-  per-region columns (each headed `region <name>`) in declaration order
-  (climate before fan), so a parallel broadcast reads region-by-region
-  rather than as one opaque map diff. A flat / compound machine's steps
-  all carry `:region nil` → one ungrouped column, no region label.
-- **`:always` microsteps sectioned.** Each eventless microstep renders
-  as its OWN section headed `microstep N · <from> → <to>` over its
-  nested exit/action/entry `:steps`, so the `:always` stream is
-  EXPLAINABLE (not just a count). This composes with the per-microstep
-  `:rf.machine.microstep/transition` stream (that stays the per-microstep
-  marker; `:cascade` is the macrostep-level structured rollup).
-- **Fallback.** A `:rf.machine/transition` trace with NO structured
-  `:cascade` (older traces / non-structured fixtures) renders no
-  structured body — the `{from}→{to}` headline verb + the logical-state
-  delta box remain (graceful degradation). The grouping helpers degrade
-  to `[]` / `nil` on a nil cascade.
-
-This makes the cascade observable WITHOUT any app-level workaround the
-`machine_epochs` testbed once used to read the order by hand (rf2-52u5n live
-finding, machine-epochs :8033). It is the consumer of the rf2-n9f4z
-instrumentation contract per
+The cascade is the consumer of the rf2-n9f4z instrumentation contract per
 [003-Machine-Inspector §The EVENT HANDLER machine cascade](003-Machine-Inspector.md).
 
 The `machine_epochs` testbed (:8033) is now the **assertion-backed render
@@ -2423,50 +2429,61 @@ machine-action `:dispatch-later` variant alike),
 (the spawn fx stamps `:source :machine-spawn`). The substrate-side
 contract is the closed set documented in §9.1.10.1's table.
 
-#### §9.1.6.4 Machine-event DISPATCH gloss (rf2-18oe3)
+#### §9.1.6.4 Machine-event EVENT HANDLER orientation line (rf2-akvfe, supersedes rf2-18oe3)
 
 A re-frame2 machine **is** an event handler addressed by its id
 (`reg-machine :door/main spec` ≈ `reg-event-fx :door/main …`);
-dispatching `[:door/main [:door/insert-coin]]` routes the **inner
-trigger** `[:door/insert-coin]` through the machine's `:on` map. The
-raw event vector reads as opaque nesting — `[:machine-id
-[inner-trigger]]` — so the DISPATCH step renders a small **additive
-helper sub-line** just under the boxed event vector that decodes the
-shape in plain English:
+dispatching `[:door/main [:door/close]]` routes the **inner trigger**
+`[:door/close]` through the machine's `:on` map. The raw event vector
+reads as opaque nesting — `[:machine-id [inner-trigger]]` — so the
+operator needs orienting: *which* machine, on *what* trigger, from
+*what* starting state.
 
-| Dispatched event                       | Gloss sub-line                                                              |
-|----------------------------------------|-----------------------------------------------------------------------------|
-| `[:door/main [:door/insert-coin]]`     | *this means the machine `:door/main` received the trigger `:door/insert-coin`* |
-| `[:door/main [:rf.machine/start]]`     | *the machine `:door/main` was created / initialised*                        |
+**Superseded design (rf2-18oe3 DISPATCH gloss — REMOVED).** The prior
+design rendered a muted italic sub-line under the **DISPATCH** step
+(*"this means the machine `:door/main` received the trigger
+`:door/close`"*). rf2-akvfe removes it. The narration moves to the
+**EVENT HANDLER** step — a better location (it is the handler that
+processes the trigger) and a more scannable shape that also carries the
+**starting STATE** the gloss never showed.
 
-**Start special case.** The reserved `[:rf.machine/start]` marker is a
-**creation kick** — per F‴ (rf2-gl588) it runs the initial-entry
-cascade then STOPS (a pure init-kick — xstate's `createActor(m).start()`
-/ `xstate.init`), **not** a real trigger (see
-`ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1). So
-the gloss for the start marker is phrased as creation (*"was created /
-initialised"*), never *"received the trigger"*.
+**The orientation line.** Immediately under the EVENT HANDLER heading,
+ONE structured line:
 
-**Formatter.** `fmt/machine-event-gloss` (`panels/epoch/format.cljc`)
-is the pure-data string builder — it accepts the dispatched event
-vector, returns the gloss string for the `[<machine-id>
-[<inner-trigger> …]]` shape (start special-cased via
-`fmt/machine-start-marker`), and returns `nil` for any other shape
-(single-element events, scalar args, empty inner vectors, non-2-tuples).
+> Processing `[TRIGGER]` *‹trigger-vector›* for `[MACHINE]` *‹machine-id›*
+> in `[STATE]` *‹pre-transition-state›*
 
-**View gate.** The sub-line renders ONLY when the dispatch actually
-targets a machine — the view checks `rf/handler-meta :event
-<machine-id>` for `:rf/machine? true` (`machine-dispatch?`) — OR when
-the inner trigger is the reserved `:rf.machine/start` marker (which
-is self-identifying: a reserved `:rf.machine/*` trigger only ever rides
-a machine dispatch, so the creation gloss renders even when runtime
-registration meta is unavailable, e.g. fixtures / production builds).
-An ordinary `reg-event-fx` whose arg merely happens to be a vector gets
-no gloss. The existing event-vector rendering is untouched — the gloss
-is purely additive.
+where `[TRIGGER]` / `[MACHINE]` / `[STATE]` render as small **grey
+chip-labels** and the values follow each chip, **code-formatted** (mono):
 
-**Test surface.** `data-testid` `rf-xray-epoch-dispatch-machine-gloss`
-(the sub-line; absent when no gloss applies).
+| Slot        | Value                                                                |
+|-------------|----------------------------------------------------------------------|
+| `[TRIGGER]` | the full inner trigger event vector incl. args, e.g. `[:door/close]` |
+| `[MACHINE]` | the machine id, e.g. `:door/main`                                    |
+| `[STATE]`   | the machine **pre-transition** logical state, e.g. `:closed`         |
+
+**Start special case.** A pure `[:rf.machine/start]` creation kick — per
+F‴ (rf2-gl588) it runs the initial-entry cascade then STOPS (a pure
+init-kick — xstate's `createActor(m).start()` / `xstate.init`), **not** a
+real trigger (see
+`ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1) —
+produces a cascade with only a `[START]` row (no transition / no-op), so
+the orientation line is **suppressed**: the birth story rides the
+`[START]` cascade row, not a "Processing …" line.
+
+**Projection.** `projection/machine-event-orientation` (pure-data,
+`panels/epoch/projection.cljc`) reads the orientation triple directly off
+the already-projected cascade rows — `:trigger` (the `:transition` / `:no-op`
+row's `:event` tag, the inner trigger), `:machine-id` (the row's
+`:machine-id`, backstopped by the HANDLER step's `:event-id`), `:state`
+(the `:transition` row's `:from-state`, else the `:no-op` row's `:state`).
+Returns `nil` for a cascade with no transition / no-op row (a pure creation
+kick, or a non-machine handler). `fmt/orientation-value` formats each value
+(keyword → `ns-keyword`; vector → `pr-str`; `nil` → em-dash).
+
+**Test surface.** `data-testid` `rf-xray-epoch-event-handler-orientation`
+(the line; absent for a pure creation kick) + the per-value testids
+`…-orientation-trigger` / `…-orientation-machine` / `…-orientation-state`.
 
 ### §9.1.7 Composition with the edn-inspector widget
 

@@ -332,14 +332,16 @@
                                first)]
         (is (contains? (:data-delta enter-heating) :trail)
             "the entry step carries its :data delta (the trail key)"))
-      ;; And the VIEW renders it — the structured body + per-region groups.
-      ;; The transition body embeds edn-inspectors (the per-step :data delta),
-      ;; which subscribe against the surrounding frame — render under `:rf/xray`.
+      ;; rf2-akvfe — the VIEW no longer renders the up/down structured-cascade
+      ;; BLOCK inside the transition row (it duplicated the EVENT HANDLER
+      ;; pipeline). The structured `:cascade` stays the ORDER ORACLE for the
+      ;; projection assertions above; the per-EMIT exit/entry ACTION rows ARE
+      ;; the canonical pipeline render, and the up/down block testid is GONE.
+      ;; The transition body embeds edn-inspectors that subscribe against the
+      ;; surrounding frame — render under `:rf/xray`.
       (frame/reg-frame :rf/xray {})
       (let [rows   (cascade record)
             tx-row (first (rows-of-kind rows :transition))
-            ;; the transition row's :step is renumbered over the full
-            ;; canonical cascade — the structured-body testids embed it.
             sp     (str "rf-xray-epoch-machine-cascade-structured-" (:step tx-row))
             tree   (rf/with-frame :rf/xray
                      (view/render-handler-step
@@ -348,12 +350,19 @@
                         :fx [] :machine {:cascade rows
                                          :transition nil :guards []
                                          :lifecycle [] :timers []}}))]
-        (is (some? (th/find-by-testid tree sp))
-            "the structured cascade body renders in the EVENT HANDLER view")
-        (is (some? (th/find-by-testid tree (str sp "-region-climate")))
-            ":climate region group renders")
-        (is (some? (th/find-by-testid tree (str sp "-region-fan")))
-            ":fan region group renders")))))
+        (is (nil? (th/find-by-testid tree sp))
+            "rf2-akvfe — the up/down structured-cascade block no longer renders")
+        ;; The EVENT HANDLER renders as a nested pipeline — the rail + the
+        ;; orientation line for this real `[:hvac/power-cycle]` macrostep.
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+            "the nested-pipeline rail renders")
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
+            "the EVENT HANDLER orientation line renders")
+        ;; No-info-loss: the per-EMIT exit/entry action rows survive and carry
+        ;; their action verbs (the cascade the removed block restated).
+        (is (some? (th/find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
+                                                 (:step tx-row))))
+            "the transition row survives in the pipeline")))))
 
 ;; ============================================================================
 ;; CASE 1 + 3 — DEEP COMPOUND nesting + the multi-level LCA cascade ORDER

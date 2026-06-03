@@ -3228,146 +3228,129 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
           "the event handler's source block is unaffected"))))
 
-;; ---- rf2-52u5n — STRUCTURED transition cascade renders under EVENT HANDLER
+;; ---- rf2-akvfe — EVENT HANDLER rework (supersedes the rf2-52u5n up/down block)
+;;
+;; The rf2-52u5n STRUCTURED-cascade view tests (the up/down `↑ exit / • action
+;; / ↓ entry` block rendered INSIDE the transition row, testids
+;; `…-machine-cascade-structured-…`) are RETIRED with `structured-cascade-body`.
+;; That block duplicated the EVENT HANDLER cascade pipeline; the tests below
+;; assert the rework: (1) the block is GONE, the entry-action's data-delta
+;; survives on its own pipeline row (no-info-loss guard); (2) the structured
+;; orientation line renders under EVENT HANDLER; (3) the cascade rows render
+;; as a nested numbered pipeline (rail behind the [N] ordinals).
 
-(def ^:private view-hvac-power-cycle-cascade
-  [{:kind :exit   :state [:idle]   :region :climate :action nil :data-delta {}}
-   {:kind :action :state [:idle]   :region :climate :action :enter-running       :data-delta {:trail [:action:power-on]}}
-   {:kind :entry  :state [:running] :region :climate :action :enter-running-level :data-delta {:trail [:action:power-on :entry:running]}}
-   {:kind :entry  :state [:running :conditioning] :region :climate :action :enter-conditioning :data-delta {:trail [:action:power-on :entry:running :entry:conditioning]}}
-   {:kind :entry  :state [:running :conditioning :heating] :region :climate :action :enter-heating :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating]}}
-   {:kind :exit   :state [:off]    :region :fan :action nil :data-delta {}}
-   {:kind :action :state [:off]    :region :fan :action :fan-on        :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on]}}
-   {:kind :entry  :state [:on]     :region :fan :action :enter-fan-on  :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on :entry:fan-on]}}])
-
-(defn- machine-step-with-cascade
-  "Build a HANDLER step whose machine cascade carries ONE transition row
-  bearing the structured `:cascade` (the rf2-52u5n render surface)."
-  [event-id structured-cascade]
+(defn- machine-step-with-rows
+  "Build a HANDLER step whose machine cascade carries the given `rows`
+  (the per-EMIT cascade rows the EVENT HANDLER pipeline renders)."
+  [event-id rows]
   {:step :handler :badge :HANDLER :step-number 3
    :flavour :reg-machine :event-id event-id
    :fx []
-   :machine {:cascade [{:kind :transition :step 1 :machine-id event-id
-                        :from-state {:climate :idle :fan :off}
-                        :to-state   {:climate [:running :conditioning :heating] :fan :on}
-                        :before {:state {:climate :idle :fan :off}}
-                        :after  {:state {:climate [:running :conditioning :heating] :fan :on}}
-                        :microsteps 0
-                        :cascade structured-cascade}]
+   :machine {:cascade rows
              :transition nil :guards [] :lifecycle [] :timers []}})
 
-(deftest structured-cascade-renders-ordered-per-region-test
-  (testing "rf2-52u5n — the HVAC `[:hvac/power-cycle]` deep-compound+parallel
-            transition renders the STRUCTURED entry/exit cascade under EVENT
-            HANDLER (not just `{from}→{to} + count`): per-region grouped, each
-            step naming its kind / state-path / action-id / data delta."
+;; The door `[:door/push]` macrostep ( :closed ──► :open ): exit-action
+;; :clear-hold, the TRANSITION, the entry-action :count-open whose data-delta
+;; bumps :opened-count. The pre-rf2-akvfe transition row carried an up/down
+;; structured-cascade block restating exactly this; now the per-EMIT rows ARE
+;; the canonical pipeline.
+(def ^:private door-push-cascade-rows
+  [{:kind :action :step 1 :phase :exit :machine-id :door/main
+    :action-id :clear-hold :outcome :ok
+    :data-before {:held-open? true} :data-write {:held-open? false}}
+   {:kind :transition :step 2 :machine-id :door/main :event [:door/push]
+    :from-state :closed :to-state :open
+    :before {:state :closed} :after {:state :open}
+    :cascade [{:kind :exit  :state [:closed] :region nil :action :clear-hold :data-delta {}}
+              {:kind :entry :state [:open]   :region nil :action :count-open :data-delta {:opened-count 1}}]}
+   {:kind :action :step 3 :phase :entry :machine-id :door/main
+    :action-id :count-open :outcome :ok
+    :data-before {:opened-count 0} :data-write {:opened-count 1}}])
+
+(deftest event-handler-up-down-block-removed-test
+  (testing "rf2-akvfe item 4 — the up/down structured-cascade block (the
+            `↑ exit / • action / ↓ entry` walk inside the transition row) is
+            GONE. NO `…-machine-cascade-structured-…` element renders."
     (let [tree (view/render-handler-step
-                 (machine-step-with-cascade :hvac/controller view-hvac-power-cycle-cascade))
-          root (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1")]
-      (is (some? root)
-          "the structured cascade body renders under the transition row")
-      (is (= "true" (-> root th/attrs :data-cascade-parallel))
-          "the parallel flag is set (climate + fan regions)")
-      ;; Per-region grouping — both regions render, climate before fan.
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-climate"))
-          "the :climate region group renders")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-fan"))
-          "the :fan region group renders")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-climate-label"))
-          "a parallel machine labels each region")
-      ;; The ordered steps render — climate exit :idle → action → 3 entries.
-      (let [climate-step0 (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-climate-step-0")
-            climate-step0-kind (-> climate-step0 th/attrs :data-cascade-step-kind)]
-        (is (= "exit" climate-step0-kind)
-            "the first climate step is the (action-free) :idle exit"))
-      ;; The deep entry action surfaces with its action-id.
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-region-climate-step-4") "")
-            ":enter-heating")
-          "the deepest entry step names :enter-heating")
-      ;; The fan region's entry action surfaces — proof the broadcast hit both.
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-region-fan-step-2") "")
-            ":enter-fan-on")
-          "the fan region's entry action renders — one event, both regions")
-      ;; Action-free boundaries are explicit (the complete walk).
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-region-climate-step-0") "")
-            "(no action)")
-          "the action-free :idle exit renders an explicit '(no action)' marker")
-      ;; The step-count attribute totals the 8 structural steps.
-      (is (= "8" (-> root th/attrs :data-cascade-step-count))
-          "the cascade step-count totals all 8 structural steps"))))
-
-(deftest structured-cascade-flat-transition-renders-minimal-test
-  (testing "rf2-52u5n — a flat single-step transition renders its minimal
-            cascade (exit → action → entry) ungrouped, with NO region label
-            (the single nil region needs no header)."
-    (let [flat [{:kind :exit   :state [:a] :region nil :action nil     :data-delta {}}
-                {:kind :action :state [:a] :region nil :action :go-act :data-delta {:went true}}
-                {:kind :entry  :state [:b] :region nil :action nil     :data-delta {}}]
-          tree (view/render-handler-step (machine-step-with-cascade :casc/flat flat))
-          root (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1")]
-      (is (some? root) "the structured cascade renders for a flat transition")
-      (is (= "false" (-> root th/attrs :data-cascade-parallel))
-          "a single-region cascade is not parallel")
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-_-label"))
-          "no region label for the single nil region (would be noise)")
-      (is (= "exit"   (-> (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-_-step-0") th/attrs :data-cascade-step-kind)))
-      (is (= "action" (-> (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-_-step-1") th/attrs :data-cascade-step-kind)))
-      (is (= "entry"  (-> (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-region-_-step-2") th/attrs :data-cascade-step-kind)))
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-region-_-step-1") "")
-            ":go-act")
-          "the transition action names :go-act"))))
-
-(deftest structured-cascade-always-microsteps-render-test
-  (testing "rf2-52u5n — an `:always`-bearing transition renders its microsteps
-            sectioned per `:microstep-index`, each with its nested steps, so
-            the eventless stream is explainable (not just counted)."
-    (let [always [{:kind :action :state [:asking] :region nil :action :count :data-delta {:correct 10}}
-                  {:kind :microstep :region nil :microstep-index 0 :from :asking :to :winner
-                   :steps [{:kind :exit   :state [:asking] :region nil :action nil :data-delta {}}
-                           {:kind :action :state [:asking] :region nil :action :win :data-delta {:won true}}
-                           {:kind :entry  :state [:winner] :region nil :action nil :data-delta {}}]}]
-          tree (view/render-handler-step (machine-step-with-cascade :casc/quiz always))]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-microsteps"))
-          "the microsteps section renders")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1-microstep-0"))
-          "the microstep is sectioned per its index")
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-microstep-0") "")
-            ":win")
-          "the eventless transition's :win action is explainable inside the microstep")
-      ;; The headline event-driven :count action renders in the top column.
-      (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-machine-cascade-structured-1-region-_-step-0") "")
-            ":count")
-          "the headline event-driven action renders above the microstep"))))
-
-(deftest structured-cascade-absent-falls-back-to-summary-test
-  (testing "rf2-52u5n negative guard — a transition row with NO structured
-            `:cascade` (older trace / non-structured fixture) renders NO
-            structured cascade body; the `{from}→{to}` summary + logical-state
-            delta box remain (graceful fallback)."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/conn
-                :fx []
-                :machine {:cascade [{:kind :transition :step 1 :machine-id :ws/conn
-                                     :from-state [:idle] :to-state [:active]
-                                     :before {:state [:idle]} :after {:state [:active]}
-                                     :microsteps 1}] ;; NO :cascade slot
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-1"))
-          "no structured cascade body when the trace carried no :cascade")
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-structured-2"))
+          "the up/down transition block no longer renders")
       ;; The transition row itself + its `{from}→{to}` verb still render.
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
-          "the transition row still renders (the summary path)")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-2"))
+          "the transition row still renders")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-2") "")
+            "→")
+          "the `{from}→{to}` summary verb remains the transition headline"))))
+
+(deftest event-handler-data-delta-survives-in-pipeline-test
+  (testing "rf2-akvfe no-info-loss GUARD — with the up/down block removed, the
+            exit action (:clear-hold), the entry action (:count-open), AND the
+            entry action's data-delta ({:opened-count 1}) all SURVIVE on their
+            own numbered cascade rows in the EVENT HANDLER pipeline."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      ;; The exit action row carries :clear-hold.
       (is (string/includes?
             (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1") "")
-            "→")
-          "the `{from}→{to}` summary verb remains the header"))))
+            ":clear-hold")
+          "the exit action :clear-hold survives on its own pipeline row")
+      ;; The entry action row carries :count-open.
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-3") "")
+            ":count-open")
+          "the entry action :count-open survives on its own pipeline row")
+      ;; The entry action's data-delta survives — the `data Δ` slot renders
+      ;; the {:opened-count …} write on the :count-open row (step 3).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-data-write-3"))
+          "the entry action's data Δ renders on its row")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-machine-cascade-data-write-3") "")
+            ":opened-count")
+          "the data-delta {:opened-count 1} survives in the pipeline (no info lost)"))))
+
+(deftest event-handler-orientation-line-renders-test
+  (testing "rf2-akvfe item 2 — the structured orientation line renders under
+            EVENT HANDLER: `Processing [TRIGGER] <vec> for [MACHINE] <id> in
+            [STATE] <pre-transition-state>` — trigger vector, machine id, and
+            PRE-transition state, each code-formatted."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
+          "the orientation line renders")
+      (is (= "[:door/push]"
+             (text-of tree "rf-xray-epoch-event-handler-orientation-trigger"))
+          "the TRIGGER value is the full inner trigger vector")
+      (is (= ":door/main"
+             (text-of tree "rf-xray-epoch-event-handler-orientation-machine"))
+          "the MACHINE value is the machine id")
+      (is (= ":closed"
+             (text-of tree "rf-xray-epoch-event-handler-orientation-state"))
+          "the STATE value is the PRE-transition (from) state, not the after-state")))
+  (testing "rf2-akvfe — a pure `[:rf.machine/start]` creation kick (a cascade
+            with only a :start row, no transition / no-op) renders NO
+            orientation line (the birth rides the [START] cascade row)."
+    (let [start-rows [{:kind :start :step 1 :machine-id :door/main :cause :explicit
+                       :data {:opened-count 0}}]
+          tree (view/render-handler-step (machine-step-with-rows :door/main start-rows))]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
+          "no orientation line for a pure creation kick"))))
+
+(deftest event-handler-nested-pipeline-rail-renders-test
+  (testing "rf2-akvfe item 3 — the EVENT HANDLER inner cascade rows render as a
+            nested pipeline: the numbered [1][2][3] ordinals are retained AND a
+            vertical rail runs behind them (mirroring the outer stage pipeline)."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+          "the nested-pipeline vertical rail renders")
+      ;; The [1][2][3] ordinals are retained on each row.
+      (is (= "1" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-1"))
+          "ordinal [1] retained")
+      (is (= "2" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-2"))
+          "ordinal [2] retained")
+      (is (= "3" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-3"))
+          "ordinal [3] retained"))))
 
 ;; ---- Part 3 — a threw ACTION row shows exactly ONE threw signal -----------
 

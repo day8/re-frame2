@@ -2,14 +2,21 @@
 
 > **See also**: [`021-Dynamic-Panel-Designs.md` §6](021-Dynamic-Panel-Designs.md#6-the-machines-panel-topology--overlay) for the canonical content design layered onto the topology view.
 
-> **The EVENT HANDLER machine cascade (rf2-52u5n) lives in the Epoch
-> panel, not here.** Spec 005 §The structured transition cascade names
-> "Xray's epoch panel" as the consumer of the `:cascade` tag on the
-> `:rf.machine/transition` trace (rf2-n9f4z); the step-by-step
-> entry/exit cascade render — the ordered exit/action/entry steps +
-> `:always` microsteps, grouped per-region for parallel machines —
-> is specified in
-> [`021-Dynamic-Panel-Designs.md` §Transition row — STRUCTURED entry/exit cascade](021-Dynamic-Panel-Designs.md#machine-cascade-rf2-u69j7).
+> **The EVENT HANDLER machine cascade lives in the Epoch panel, not
+> here.** Spec 005 §The structured transition cascade names "Xray's epoch
+> panel" as the consumer of the `:cascade` tag on the
+> `:rf.machine/transition` trace (rf2-n9f4z). Per rf2-akvfe the Epoch
+> panel's EVENT HANDLER section narrates a machine event as: a structured
+> **orientation line** (`Processing [TRIGGER] ‹vec› for [MACHINE] ‹id› in
+> [STATE] ‹pre-transition-state›`) over the **numbered cascade pipeline**
+> (one row per emit — guard / exit-action / TRANSITION / entry-action / …,
+> each carrying its source + per-action `↳ data Δ`). The prior rf2-52u5n
+> up/down `↑ exit / ↓ entry` structured-cascade BLOCK is REMOVED (it
+> duplicated the pipeline); the structured `:cascade` survives as
+> projection data + the cascade-order oracle the `machine_epochs` harness
+> asserts against. Spec'd in
+> [`021-Dynamic-Panel-Designs.md` §Transition row](021-Dynamic-Panel-Designs.md#machine-cascade-rf2-u69j7)
+> + [§9.1.6.4 orientation line](021-Dynamic-Panel-Designs.md#9164-machine-event-event-handler-orientation-line-rf2-akvfe-supersedes-rf2-18oe3).
 > This file (003) covers the Machines TAB's topology chart + focused-
 > transition lens; the Epoch panel's EVENT HANDLER section is the
 > cascade narration.

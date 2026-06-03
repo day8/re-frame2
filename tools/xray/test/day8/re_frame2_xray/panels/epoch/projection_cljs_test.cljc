@@ -2568,31 +2568,54 @@
     (is (= ":my/foo"    (fmt/ns-keyword :my/foo)))
     (is (= "non-kw"     (fmt/ns-keyword "non-kw")))))
 
-(deftest machine-event-gloss-test
-  (testing "rf2-18oe3 — a machine trigger glosses as 'machine <id> received the trigger <trigger>'"
-    (is (= "this means the machine :door/main received the trigger :door/insert-coin"
-           (fmt/machine-event-gloss [:door/main [:door/insert-coin]])))
-    (is (= "this means the machine :traffic/light received the trigger :tick"
-           (fmt/machine-event-gloss [:traffic/light [:tick]]))
-        "unqualified inner trigger keyword renders without a leading slash"))
-  (testing "rf2-18oe3 / rf2-gl588 — the reserved start marker is creation, NOT 'received the trigger'"
-    (is (= "the machine :door/main was created / initialised"
-           (fmt/machine-event-gloss [:door/main [:rf.machine/start]])))
-    (is (= "the machine :traffic/light was created / initialised"
-           (fmt/machine-event-gloss [:traffic/light [:rf.machine/start]])))
+(deftest machine-event-orientation-test
+  (testing "rf2-akvfe — the EVENT HANDLER orientation triple is projected off
+            the cascade: the inner TRIGGER vector, the MACHINE id, and the
+            PRE-transition STATE."
+    (let [rows [{:kind :action :step 1 :phase :exit :machine-id :door/main
+                 :action-id :clear-hold}
+                {:kind :transition :step 2 :machine-id :door/main
+                 :event [:door/close] :from-state :open :to-state :closed
+                 :before {:state :open} :after {:state :closed}}
+                {:kind :action :step 3 :phase :entry :machine-id :door/main
+                 :action-id :count-open :data-write {:opened-count 1}}]]
+      (is (= {:trigger [:door/close] :machine-id :door/main :state :open}
+             (proj/machine-event-orientation rows))
+          "trigger = inner trigger vector; machine-id off the row; state = pre-transition (from)")))
+  (testing "rf2-akvfe — a guarded-BLOCKED / unhandled event produces a :no-op
+            row (no transition); the orientation reads off it."
+    (let [rows [{:kind :guard :step 1 :machine-id :door/main :guard-id :may-close? :outcome :fail}
+                {:kind :no-op :step 2 :machine-id :door/main :event [:door/close] :state :open}]]
+      (is (= {:trigger [:door/close] :machine-id :door/main :state :open}
+             (proj/machine-event-orientation rows))
+          "no-op row supplies the trigger + pre-event state when no transition fired")))
+  (testing "rf2-akvfe — the machine-id arg backstops a row that stamped none."
+    (let [rows [{:kind :transition :step 1 :event [:tick] :from-state :red :to-state :green
+                 :before {:state :red} :after {:state :green}}]]
+      (is (= :traffic/light (:machine-id (proj/machine-event-orientation rows :traffic/light)))
+          "falls back to the explicit machine-id (the HANDLER step's event-id)")))
+  (testing "rf2-akvfe — nil for a cascade with no transition / no-op row (a
+            pure :start creation kick, or a non-machine handler)."
+    (is (nil? (proj/machine-event-orientation
+                [{:kind :start :step 1 :machine-id :door/main :cause :explicit}]))
+        "a pure creation kick carries only a :start row → no orientation line")
+    (is (nil? (proj/machine-event-orientation []))
+        "empty cascade → nil")))
+
+(deftest orientation-value-test
+  (testing "rf2-akvfe — orientation VALUES render code-formatted"
+    (is (= "[:door/close]"   (fmt/orientation-value [:door/close]))
+        "a trigger vector renders via pr-str (args included)")
+    (is (= "[:door/close 42]" (fmt/orientation-value [:door/close 42]))
+        "args ride the trigger vector")
+    (is (= ":door/main"      (fmt/orientation-value :door/main))
+        "a keyword renders via ns-keyword")
+    (is (= ":closed"         (fmt/orientation-value :closed)))
+    (is (= "—"               (fmt/orientation-value nil))
+        "nil renders the muted em-dash placeholder"))
+  (testing "rf2-gl588 — the reserved start-marker constant is unchanged"
     (is (= :rf.machine/start fmt/machine-start-marker)
-        "the marker constant is the reserved :rf.machine/start keyword"))
-  (testing "rf2-18oe3 — nil for shapes that are not [<machine-id> [<inner-trigger> ...]]"
-    (is (nil? (fmt/machine-event-gloss [:counter-inc]))
-        "single-element event (no inner vector)")
-    (is (nil? (fmt/machine-event-gloss [:set-name "Ada"]))
-        "scalar arg, not a nested trigger vector")
-    (is (nil? (fmt/machine-event-gloss [:door/main []]))
-        "empty inner vector carries no trigger")
-    (is (nil? (fmt/machine-event-gloss [:a [:b] :extra]))
-        "3-element vector is not the 2-tuple machine-dispatch shape")
-    (is (nil? (fmt/machine-event-gloss nil)))
-    (is (nil? (fmt/machine-event-gloss "not-a-vector")))))
+        "the marker constant is the reserved :rf.machine/start keyword")))
 
 (deftest truncate-test
   (testing "truncate keeps short strings + ellipsises long ones"

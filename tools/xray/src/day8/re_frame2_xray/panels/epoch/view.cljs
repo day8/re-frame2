@@ -245,17 +245,11 @@
 (def ^:private dispatch-verb-style
   {:display "inline-flex" :align-items "center" :gap "4px"})
 
-(def ^:private dispatch-machine-gloss-style
-  "rf2-18oe3 — the additive helper sub-line under a machine dispatch that
-  decodes the `[<machine-id> [<inner-trigger>]]` shape into plain English
-  ('this means the machine :door/main received the trigger
-  :door/insert-coin', or the start-creation phrasing). Muted italic
-  sans, sitting just below the boxed event vector — a gloss, not a chip."
-  {:margin-top  "4px"
-   :font-family sans-stack
-   :font-size   "12px"
-   :font-style  "italic"
-   :color       text-tertiary-colour})
+;; rf2-akvfe — `dispatch-machine-gloss-style` RETIRED with the rf2-18oe3
+;; DISPATCH gloss sub-line. The machine-event narration moved to the
+;; structured EVENT HANDLER orientation line (`orientation-*` styles below,
+;; near the HANDLER step) — chip-labels + code-formatted values, a better
+;; location than a muted italic gloss under DISPATCH.
 
 (def ^:private link-button-style
   {:background            "transparent"
@@ -587,95 +581,13 @@
 
 ;; ---- structured transition cascade (rf2-52u5n) --------------------------
 ;;
-;; The transition row's body renders the STRUCTURED `:cascade` (the ordered
-;; exit/action/entry/microstep step vector off the `:rf.machine/transition`
-;; trace, rf2-n9f4z) under the `{from}→{to}` headline + the logical-state
-;; delta box — the step-by-step "how the machine got there" the operator
-;; previously had to reconstruct from a `:data :trail` workaround. The idiom
-;; mirrors the per-EMIT cascade rows (rf2-u69j7) — a thin left-rail kind
-;; chrome + monospace verb + inline `:data` delta — but rendered from the
-;; COMPLETE configuration walk (action-free boundaries included) and grouped
-;; PER REGION for parallel machines.
-
-(def ^:private structured-cascade-root-style
-  {:margin-top     "6px"
-   :display        "flex"
-   :flex-direction "column"
-   :gap            "6px"})
-
-(def ^:private structured-cascade-region-style
-  {:display        "flex"
-   :flex-direction "column"
-   :border-left    border-subtle-1px
-   :padding-left   "8px"})
-
-(def ^:private structured-cascade-region-label-style
-  {:font-family    mono-stack
-   :font-size      "10px"
-   :font-weight    700
-   :letter-spacing "0.04em"
-   :color          text-tertiary-colour
-   :margin-bottom  "2px"})
-
-(def ^:private structured-cascade-step-row-style
-  {:display     "flex"
-   :align-items "flex-start"
-   :gap         "6px"
-   :padding     "2px 0"
-   :font-family mono-stack
-   :font-size   "11px"})
-
-;; Per-step :kind glyph + tone — exit (leave), action (the change), entry
-;; (arrive). The exit/entry arrows give the cascade an at-a-glance up/down
-;; read; the action dot marks the LCA state-change boundary.
-(def ^:private structured-cascade-kind->glyph
-  {:exit "↑" :action "•" :entry "↓"})
-
-(def ^:private structured-cascade-kind->tone
-  {:exit  text-secondary-colour
-   :action (badge/cascade-kind-colour :transition)
-   :entry  success-colour})
-
-(def ^:private structured-cascade-kind-glyph-style
-  {:font-weight 700
-   :min-width   "10px"
-   :text-align  "center"})
-
-(def ^:private structured-cascade-state-style
-  {:color       text-primary-colour
-   :white-space "nowrap"})
-
-(def ^:private structured-cascade-action-chip-style
-  {:color        accent-colour
-   :margin-left  "4px"})
-
-(def ^:private structured-cascade-noaction-style
-  {:color       text-tertiary-colour
-   :font-style  "italic"
-   :margin-left "4px"})
-
-(def ^:private structured-cascade-delta-style
-  {:flex      1
-   :min-width 0})
-
-(def ^:private structured-cascade-microsteps-style
-  {:display        "flex"
-   :flex-direction "column"
-   :gap            "4px"
-   :margin-top     "2px"})
-
-(def ^:private structured-cascade-microstep-style
-  {:display        "flex"
-   :flex-direction "column"
-   :border-left    (str "2px solid " (badge/cascade-kind-colour :transition))
-   :padding-left   "8px"})
-
-(def ^:private structured-cascade-microstep-header-style
-  {:font-family mono-stack
-   :font-size   "10px"
-   :font-weight 700
-   :color       (badge/cascade-kind-colour :transition)
-   :margin-bottom "1px"})
+;; rf2-akvfe — the up/down exit/action/entry step-walk styles (root / region
+;; / region-label / step-row / kind->glyph / kind->tone / kind-glyph / state
+;; / action-chip / noaction / delta / microsteps / microstep / step-source-
+;; chip) RETIRED with `structured-cascade-body` + its step/microstep
+;; renderers. That block duplicated the EVENT HANDLER cascade pipeline; the
+;; HISTORY restore/record banner is the only structured-cascade surface that
+;; survives (its styles are kept below).
 
 ;; rf2-mle6e.5 — HISTORY restore / record banner. A history restore/record is
 ;; benign observability (Spec 009 §History trace events — op-type :rf.machine,
@@ -706,21 +618,11 @@
    :min-width   "12px"
    :text-align  "center"})
 
-;; The per-`:entry`-step history origin chip — `from history` (recorded) or
-;; `default` (the compound was never exited / dangling). Marks WHICH entry
-;; steps in the cascade came from a restore vs an ordinary :initial descent
-;; (Spec 009 line 291 — the additive cascade-step :source field).
-(def ^:private structured-cascade-step-source-chip-style
-  {:font-family    mono-stack
-   :font-size      "9px"
-   :font-weight    700
-   :letter-spacing "0.03em"
-   :margin-left    "4px"
-   :padding        "0 4px"
-   :border-radius  "3px"
-   :border         (str "1px solid " accent-colour)
-   :color          accent-colour
-   :white-space    "nowrap"})
+;; rf2-akvfe — `structured-cascade-step-source-chip-style` (the per-`:entry`-
+;; step `from history` / `default` origin chip) RETIRED with the step-walk
+;; renderer. The history restore/record BANNER above the cascade still carries
+;; the restore/record headline; the per-step origin chip rode the removed
+;; up/down step rows.
 
 ;; rf2-4yrr6 — `cascade-detail-threw-row-style` / `cascade-threw-glyph-style`
 ;; / `cascade-threw-label-style` / `cascade-threw-message-style` RETIRED with
@@ -790,11 +692,84 @@
    :font-style  "italic"
    :color       text-tertiary-colour})
 
+;; rf2-akvfe — the EVENT HANDLER inner cascade rows render as a NESTED
+;; pipeline-of-boxes, mirroring the OUTER stage pipeline ([DISPATCH] →
+;; [EVENT HANDLER] → …): a single vertical rail runs behind the numbered
+;; [1][2][3] ordinal chips so the inner steps read as one connected
+;; pipeline rather than a flat stack. The rail is `position: relative` on
+;; the rows host + an absolutely-positioned line behind the ordinals;
+;; `padding-left` opens the gutter the rail + ordinals sit in.
 (def ^:private machine-cascade-rows-style
-  {:display        "flex"
+  {:position       "relative"
+   :display        "flex"
    :flex-direction "column"
    :border-top     border-subtle-1px
-   :margin-top     "3px"})
+   :margin-top     "3px"
+   :padding-left   "14px"})
+
+;; The nested-pipeline vertical rail — a thin line behind the [N] ordinal
+;; chips, the inner counterpart to `pipeline-rail-style`. Sits in the
+;; padding-left gutter, spanning the row stack so the numbered steps read
+;; as one pipeline. `top` / `bottom` inset it to the first / last ordinal.
+(def ^:private machine-cascade-rail-style
+  {:position       "absolute"
+   :left           "4px"
+   :top            "12px"
+   :bottom         "12px"
+   :width          "1px"
+   :background     border-default-colour
+   :pointer-events "none"})
+
+;; Each cascade row is position-relative so its leading [N] ordinal chip
+;; anchors on the rail (the inner analogue of `pipeline-step-style`).
+(def ^:private machine-cascade-row-wrap-style
+  {:position "relative"})
+
+;; -- EVENT HANDLER orientation line (rf2-akvfe) ---------------------------
+;;
+;; A single structured orientation line under the EVENT HANDLER heading —
+;;   Processing [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>
+;; — REPLACING the retired rf2-18oe3 DISPATCH gloss. `[TRIGGER]` /
+;; `[MACHINE]` / `[STATE]` are small grey chip-labels; the values follow
+;; each chip, code-formatted (mono). One scannable line orienting the
+;; operator: what trigger, which machine, what starting state.
+
+(def ^:private orientation-line-style
+  {:display     "flex"
+   :align-items "baseline"
+   :flex-wrap   "wrap"
+   :gap         "5px"
+   :margin-top  "6px"
+   :font-family sans-stack
+   :font-size   "12px"
+   :color       text-secondary-colour})
+
+(def ^:private orientation-connective-style
+  {:color text-tertiary-colour})
+
+;; The small grey chip-label ([TRIGGER] / [MACHINE] / [STATE]) — a muted
+;; uppercase pill, the same grey-on-bg-3 idiom the cascade ordinal uses.
+(def ^:private orientation-chip-style
+  {:display         "inline-flex"
+   :align-items     "center"
+   :padding         "1px 5px"
+   :background      bg-3-colour
+   :color           text-tertiary-colour
+   :font-family     mono-stack
+   :font-size       "9px"
+   :font-weight     700
+   :letter-spacing  "0.04em"
+   :text-transform  "uppercase"
+   :border-radius   "2px"
+   :white-space     "nowrap"})
+
+;; The code-formatted value following each chip (the trigger vector, the
+;; machine id, the pre-transition state).
+(def ^:private orientation-value-style
+  {:font-family mono-stack
+   :font-size   "11px"
+   :color       text-primary-colour
+   :white-space "nowrap"})
 
 ;; -- handler verb-link / source ------------------------------------------
 
@@ -1880,51 +1855,11 @@
 
 ;; ---- DISPATCH step -------------------------------------------------------
 
-(defn- machine-dispatch?
-  "True iff the dispatched `event`'s `<machine-id>` (the first element)
-  names a REGISTERED machine — a `reg-event-fx` carrying `:rf/machine?
-  true` (rf2-18oe3). The machine IS the event handler addressed by its id
-  (registration.cljc), so `rf/handler-meta :event <id>` carries the
-  machine flag. Degrades to false on any non-keyword id, unregistered id,
-  or lookup throw (production builds, fixture shapes) — the gloss is
-  additive, never a hard dependency.
-
-  NOTE the reserved `:rf.machine/start` marker is handled by the caller
-  WITHOUT this gate: it is unambiguous (a reserved `:rf.machine/*` trigger
-  only ever rides a machine dispatch), so the creation gloss renders even
-  when the runtime registration meta is unavailable."
-  [event]
-  (boolean
-    (let [machine-id (first event)]
-      (when (keyword? machine-id)
-        (let [m (try (rf/handler-meta :event machine-id)
-                     (catch :default _ nil))]
-          (true? (:rf/machine? m)))))))
-
-(defn- machine-event-gloss-line
-  "Additive helper sub-line under a machine DISPATCH (rf2-18oe3). Decodes
-  the `[<machine-id> [<inner-trigger>]]` shape into plain English:
-
-    [:door/main [:door/insert-coin]]
-      → 'this means the machine :door/main received the trigger
-         :door/insert-coin'
-    [:door/main [:rf.machine/start]]
-      → 'the machine :door/main was created / initialised'
-
-  `fmt/machine-event-gloss` is the pure-data string builder; this fn is
-  the VIEW gate — it renders the gloss ONLY when the dispatch actually
-  targets a machine (runtime `handler-meta` lookup, `machine-dispatch?`)
-  OR the inner trigger is the reserved `:rf.machine/start` marker
-  (self-identifying — see `machine-dispatch?` NOTE). Non-machine events
-  (an ordinary `reg-event-fx` whose arg happens to be a vector) get no
-  gloss. Returns nil to render nothing."
-  [event]
-  (when-let [gloss (fmt/machine-event-gloss event)]
-    (let [start? (= fmt/machine-start-marker (first (second event)))]
-      (when (or start? (machine-dispatch? event))
-        [:div {:data-testid "rf-xray-epoch-dispatch-machine-gloss"
-               :style       dispatch-machine-gloss-style}
-         gloss]))))
+;; rf2-akvfe — `machine-dispatch?` + `machine-event-gloss-line` RETIRED with
+;; the rf2-18oe3 DISPATCH gloss. The DISPATCH step body is now the boxed
+;; event vector ONLY; the machine-event narration (which machine, which
+;; trigger, what starting state) moved to the structured EVENT HANDLER
+;; orientation line (`event-handler-orientation-line`, near the HANDLER step).
 
 (defn dispatch-body
   "Render the DISPATCH step's expanded body — the event vector via the
@@ -1949,8 +1884,7 @@
      [:div {:style dispatch-body-style}
       [ei/edn-inspector event {:site-id "epoch-dispatch-event"
                                :card?   false
-                               :zoomable? true}]]
-     (machine-event-gloss-line event)]))
+                               :zoomable? true}]]]))
 
 (defn- dispatch-source-label
   "Render the dispatch source label — `<source>` text. When the
@@ -2819,80 +2753,18 @@
            (some? before-ls) (assoc :before before-ls))]]])))
 
 ;; ---- structured transition cascade render (rf2-52u5n) -------------------
-
-(defn- structured-cascade-step-row
-  "Render ONE structural cascade step (`:exit` / `:action` / `:entry`)
-  off the structured `:cascade` (rf2-52u5n). Layout:
-
-      <glyph> <state-path>  <action-id | (no action)>   { :data Δ … }
-
-  - the glyph + tone read the boundary KIND (↑ exit / • action / ↓ entry);
-  - the state-path is the LCA-relative path the step exited/entered (the
-    transition action's decl-path for `:action`);
-  - the action-id chip names the fired action, or a muted '(no action)'
-    when the boundary declared none (the complete-walk action-free
-    boundaries — e.g. exiting `:idle`);
-  - the `:data-delta` (changed `:data` keys only) renders inline through
-    the edn-inspector when non-empty, so the operator sees exactly what
-    that step contributed without expanding the whole snapshot;
-  - rf2-mle6e.5 — a HISTORY-driven `:entry` step additively carries
-    `:source :recorded | :default` (Spec 009 line 291); a small chip
-    (`from history` / `default`) marks it so the viewer sees WHICH entry
-    steps came from a history restore vs an ordinary `:initial` descent.
-    Absent on every non-history step (no chip rendered)."
-  [testid-prefix idx {:keys [kind state action data-delta source]}]
-  (let [glyph (get structured-cascade-kind->glyph kind "·")
-        tone  (get structured-cascade-kind->tone kind text-secondary-colour)]
-    [:div {:key         (str testid-prefix "-step-" idx)
-           :data-testid (str testid-prefix "-step-" idx)
-           :data-cascade-step-kind (when (keyword? kind) (name kind))
-           :data-cascade-step-source (when (keyword? source) (name source))
-           :style       structured-cascade-step-row-style}
-     [:span {:aria-hidden true
-             :style (assoc structured-cascade-kind-glyph-style :color tone)}
-      glyph]
-     [:span {:style structured-cascade-state-style}
-      (pr-str state)]
-     ;; rf2-mle6e.5 — the additive history `:source` on an :entry step.
-     (when (and (= :entry kind) (keyword? source))
-       [:span {:data-testid (str testid-prefix "-step-" idx "-source")
-               :title (if (= :recorded source)
-                        "this leaf came from the recorded history config"
-                        "this leaf came from the :default-target / :initial fallback")
-               :style structured-cascade-step-source-chip-style}
-        (if (= :recorded source) "from history" "default")])
-     (if (some? action)
-       [:span {:data-testid (str testid-prefix "-step-" idx "-action")
-               :style structured-cascade-action-chip-style}
-        (fmt/ns-keyword action)]
-       [:span {:style structured-cascade-noaction-style} "(no action)"])
-     (when (seq data-delta)
-       [:span {:data-testid (str testid-prefix "-step-" idx "-delta")
-               :style structured-cascade-delta-style}
-        [ei/edn-inspector data-delta
-         {:site-id                [:rf.xray.epoch/structured-cascade-delta testid-prefix idx]
-          :card?                  false
-          :default-expanded-depth 2}]])]))
-
-(defn- structured-cascade-microstep
-  "Render ONE `:always` microstep section (rf2-52u5n) — a header naming the
-  eventless step (`microstep N · <from> → <to>`) over its OWN nested
-  exit/action/entry steps, so the `:always` stream is explainable
-  alongside the headline transition rather than a bare count."
-  [testid-prefix {:keys [microstep-index from to steps]}]
-  [:div {:key         (str testid-prefix "-microstep-" microstep-index)
-         :data-testid (str testid-prefix "-microstep-" microstep-index)
-         :style       structured-cascade-microstep-style}
-   [:div {:style structured-cascade-microstep-header-style}
-    (str "microstep " microstep-index
-         (when (or (some? from) (some? to))
-           (str " · " (pr-str from) " → " (pr-str to))))]
-   (into [:div]
-         (map-indexed
-           (fn [i step]
-             (structured-cascade-step-row
-               (str testid-prefix "-microstep-" microstep-index) i step))
-           (filterv #(contains? #{:exit :action :entry} (:kind %)) steps)))])
+;;
+;; rf2-akvfe — `structured-cascade-step-row` + `structured-cascade-microstep`
+;; + `structured-cascade-body` (the up/down `↑ exit / • action / ↓ entry`
+;; walk rendered inside the transition row) RETIRED. They DUPLICATED the
+;; EVENT HANDLER cascade pipeline: the exit-phase + entry-phase actions are
+;; already their own numbered cascade rows, each carrying its source + (for
+;; the entry action) its `data Δ`, so the exit action, entry action, AND the
+;; data-delta all survive in the pipeline (the rf2-akvfe no-info-loss guard).
+;; The HISTORY restore/record banner (`structured-cascade-history-banner`,
+;; below) was NOT part of the removed block and stays. The projection-side
+;; structured-cascade helpers (`proj/cascade-regions` etc.) also stay — the
+;; machine-epochs harness reads them as the cascade-ORDER oracle.
 
 (defn- structured-cascade-history-banner
   "Render the HISTORY restore / record banner for a `:transition` cascade row
@@ -2930,53 +2802,10 @@
           [:span (fmt/history-recorded-headline rec)]])
        history-recorded)]))
 
-(defn- structured-cascade-body
-  "Render the STRUCTURED transition cascade (rf2-52u5n) for a `:transition`
-  cascade row — the ordered exit/action/entry steps + the `:always`
-  microstep sections, grouped PER REGION for parallel machines.
-
-  This is the headline rf2-52u5n surface: under the `{from}→{to}` verb +
-  the logical-state delta box, the operator reads the step-by-step
-  ENTRY/EXIT CASCADE — states exited (deepest-first) and entered
-  (shallowest-first + initial-descent), each with its action id + that
-  step's `:data` delta — and the `:always` microsteps sectioned per index.
-
-  Falls back to nil (the caller renders only the summary) when the row
-  carries no structured `:cascade` (older traces / non-machine fixtures)."
-  [{:keys [step cascade] :as _row}]
-  (when (seq cascade)
-    (let [regions    (proj/cascade-regions cascade)
-          microsteps (proj/cascade-microsteps cascade)
-          parallel?  (proj/parallel-cascade? cascade)
-          prefix     (str "rf-xray-epoch-machine-cascade-structured-" step)]
-      [:div {:data-testid prefix
-             :data-cascade-parallel (str (boolean parallel?))
-             :data-cascade-step-count (str (or (proj/cascade-step-count cascade) 0))
-             :style structured-cascade-root-style}
-       ;; Per-region (parallel) or single ungrouped (flat/compound) columns.
-       (for [{:keys [region steps]} regions
-             :let [region-prefix (str prefix "-region-"
-                                      (if region (name region) "_"))]]
-         ^{:key region-prefix}
-         [:div {:data-testid region-prefix
-                :data-cascade-region (when region (name region))
-                :style (if parallel?
-                         structured-cascade-region-style
-                         {:display "flex" :flex-direction "column"})}
-          ;; Region label only for genuine parallel machines (a flat/compound
-          ;; machine's single nil region needs no header — noise otherwise).
-          (when (and parallel? region)
-            [:div {:data-testid (str region-prefix "-label")
-                   :style structured-cascade-region-label-style}
-             (str "region " (name region))])
-          (map-indexed
-            (fn [i s] (structured-cascade-step-row region-prefix i s))
-            steps)])
-       ;; The `:always` microstep sections (sectioned per :microstep-index).
-       (when (seq microsteps)
-         (into [:div {:data-testid (str prefix "-microsteps")
-                      :style structured-cascade-microsteps-style}]
-               (map #(structured-cascade-microstep prefix %) microsteps)))])))
+;; rf2-akvfe — `structured-cascade-body` RETIRED (see the retirement note
+;; above `structured-cascade-history-banner`). It rendered the up/down
+;; exit/action/entry walk that the EVENT HANDLER cascade pipeline already
+;; shows row-by-row; the data-delta survives on the entry-action row.
 
 (defn- cascade-row-start-body
   "Render the `[START]` row's body (rf2-it4vt) — the machine's INITIAL
@@ -3038,22 +2867,29 @@
     ;; rf2-iwy0c part A — transition rows show the logical-state delta,
     ;; NOT the transition map literal. Self/internal transitions (no
     ;; logical change) elide the box entirely.
-    ;; rf2-52u5n — under the delta box, render the STRUCTURED entry/exit
-    ;; cascade (the ordered exit/action/entry steps + the `:always`
-    ;; microsteps, per-region for parallel machines) so EVENT HANDLER
-    ;; explains HOW the macrostep reached its after-state — not just
-    ;; `{from}→{to} + {n} microstep(s)`. Falls back to the delta box
-    ;; alone when the trace carried no structured `:cascade`.
+    ;;
+    ;; rf2-akvfe — the rf2-52u5n STRUCTURED entry/exit cascade BLOCK (the
+    ;; `↑ <exited-state> / <exit-action> / ↓ <entered-state> / <entry-action>
+    ;; / {data-delta}` up/down walk, `structured-cascade-body`) is REMOVED
+    ;; from the transition row. It DUPLICATED what the EVENT HANDLER cascade
+    ;; pipeline already shows: the exit-phase + entry-phase ACTION rows are
+    ;; their own numbered cascade steps (each carrying its `:clear-hold` /
+    ;; `:count-open` source + the entry action's `data Δ` — e.g.
+    ;; `{:opened-count 1}` — via `cascade-row-action-outcome-details`), so
+    ;; the exit action, the entry action, AND the data-delta all survive in
+    ;; the pipeline (rf2-akvfe no-info-loss guard). The pipeline is now the
+    ;; single canonical place that cascade is shown. The logical-state DELTA
+    ;; box (`{:state :tags}` before → after) + the HISTORY restore/record
+    ;; banner stay — neither was part of the removed block (the banner is the
+    ;; restore/record headline; the delta box is the {:state :tags} summary).
     (= :transition (:kind row))
-    (let [delta      (cascade-row-transition-delta row)
-          history    (structured-cascade-history-banner row)
-          structured (structured-cascade-body row)]
-      (when (or delta history structured)
+    (let [delta   (cascade-row-transition-delta row)
+          history (structured-cascade-history-banner row)]
+      (when (or delta history)
         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-body-"
                                  (:step row))}
          delta
-         history
-         structured]))
+         history]))
 
     (contains? #{:action :guard} (:kind row))
     (let [src-str (source-form->string source-form)]
@@ -3270,7 +3106,13 @@
   for the per-row layout grammar. (rf2-nhovk dropped the redundant
   `cascade — N step(s)` summary header; the rows below already show
   the steps plainly. That line also carried the cascade total-ms —
-  re-surface the total elsewhere later if wanted.)"
+  re-surface the total elsewhere later if wanted.)
+
+  rf2-akvfe — the rows render as a NESTED pipeline-of-boxes mirroring
+  the outer stage pipeline: a vertical rail (`machine-cascade-rail-style`)
+  runs behind the numbered [1][2][3] ordinal chips, and each row is wrapped
+  position-relative so the ordinals read as connected pipeline nodes (the
+  inner analogue of `pipeline-view`'s rail + step wrappers)."
   [machine-meta cascade-rows]
   (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
@@ -3281,9 +3123,56 @@
               :style machine-cascade-empty-style}
         "— (no machine cascade events fired)"]
        (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
-                    :style machine-cascade-rows-style}]
+                    :style machine-cascade-rows-style}
+              ;; The nested pipeline rail — runs behind the [N] ordinals so
+              ;; the inner steps read as one connected pipeline (rf2-akvfe).
+              [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rail"
+                     :aria-hidden true
+                     :style machine-cascade-rail-style}]]
              (for [row cascade-rows]
-               (cascade-row-view machine-meta row))))]))
+               ^{:key (str "cascade-wrap-" (:step row))}
+               [:div {:style machine-cascade-row-wrap-style}
+                (cascade-row-view machine-meta row)])))]))
+
+(defn- event-handler-orientation-line
+  "Render the EVENT HANDLER orientation line (rf2-akvfe) — ONE structured
+  line under the EVENT HANDLER heading that REPLACES the retired rf2-18oe3
+  DISPATCH gloss:
+
+      Processing [TRIGGER] <trigger-vector> for [MACHINE] <machine-id>
+                 in [STATE] <pre-transition-state>
+
+  `[TRIGGER]` / `[MACHINE]` / `[STATE]` paint as small grey chip-labels;
+  the values follow each chip, code-formatted (the full trigger vector
+  incl. args, the machine id, the pre-transition logical state). It
+  orients the operator at a glance — what trigger, which machine, what
+  starting state — in a better location than a muted gloss under DISPATCH
+  and carrying the STATE the gloss never showed.
+
+  Reads the pure-data orientation triple off the cascade
+  (`proj/machine-event-orientation`); returns nil (renders nothing) for a
+  cascade with no transition / no-op row — e.g. a pure `[:rf.machine/start]`
+  creation kick, whose birth story rides the `[START]` cascade row."
+  [cascade event-id]
+  (when-let [{:keys [trigger machine-id state]}
+             (proj/machine-event-orientation cascade event-id)]
+    [:div {:data-testid "rf-xray-epoch-event-handler-orientation"
+           :style orientation-line-style}
+     [:span {:style orientation-connective-style} "Processing"]
+     [:span {:style orientation-chip-style} "trigger"]
+     [:span {:data-testid "rf-xray-epoch-event-handler-orientation-trigger"
+             :style orientation-value-style}
+      (fmt/orientation-value trigger)]
+     [:span {:style orientation-connective-style} "for"]
+     [:span {:style orientation-chip-style} "machine"]
+     [:span {:data-testid "rf-xray-epoch-event-handler-orientation-machine"
+             :style orientation-value-style}
+      (fmt/orientation-value machine-id)]
+     [:span {:style orientation-connective-style} "in"]
+     [:span {:style orientation-chip-style} "state"]
+     [:span {:data-testid "rf-xray-epoch-event-handler-orientation-state"
+             :style orientation-value-style}
+      (fmt/orientation-value state)]]))
 
 (defn- machine-block
   "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
@@ -3323,9 +3212,14 @@
   ;; click-to-source coords resolve.
   (let [machine-meta (when (some? event-id)
                        (try (rf/handler-meta :event event-id)
-                            (catch :default _ nil)))]
+                            (catch :default _ nil)))
+        cascade      (or cascade [])]
     [:div {:data-testid "rf-xray-epoch-handler-machine"}
-     (machine-cascade-view machine-meta (or cascade []))]))
+     ;; rf2-akvfe — the structured orientation line leads the EVENT HANDLER
+     ;; section (what trigger, which machine, what starting state), then the
+     ;; numbered cascade pipeline below.
+     (event-handler-orientation-line cascade event-id)
+     (machine-cascade-view machine-meta cascade)]))
 
 ;; ---- handler source --------------------------------------------------
 ;;
