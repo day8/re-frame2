@@ -55,11 +55,10 @@
              :as parallel-region-node]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [Handle pos-top pos-right pos-bottom pos-left
-                     chart-constants]]
+                     chart-constants palette-of]]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
-             :as tokens
-             :refer [mono-stack sans-stack]]))
+             :refer [sans-stack chart-label-stack]]))
 
 ;; ---- density-resolved constants -----------------------------------------
 ;;
@@ -87,25 +86,38 @@
 ;; pin) and the renderer reads them via `projection/<name>`.
 
 ;; ---- helpers ------------------------------------------------------------
+;;
+;; rf2-az6e2 — the structured grammar reads STRUCTURE, not annotation
+;; colour: a resting state node is neutral (body bg + neutral border),
+;; and runtime state (active / focused-event lens / sim) drives the
+;; BORDER + HEADER + GLOW, NOT the whole fill. So `node-border` swaps the
+;; resting border for the runtime accent while the body fill stays
+;; neutral; only `state-header-bg` picks up a faint runtime tint so the
+;; title strip reads as "this is where we are".
 
-(defn- node-fill
-  [{:keys [active? from-highlight? to-highlight? sim?]}]
+(defn- node-border
+  "rf2-az6e2 — the resting border is the neutral structural colour; a
+  runtime state (active / focus lens / sim) swaps it for the runtime
+  accent so the border carries the signal, not the fill."
+  [ct {:keys [active? from-highlight? to-highlight? sim?]}]
   (cond
-    sim?            (tokens/with-alpha :yellow         0.18)
-    to-highlight?   (tokens/with-alpha :info           0.22)
-    from-highlight? (tokens/with-alpha :accent  0.14)
-    active?         (tokens/with-alpha :info           0.18)
-    :else           (:bg-2 tokens/tokens)))
+    sim?            (:sim ct)
+    to-highlight?   (:active ct)
+    from-highlight? (:focus ct)
+    active?         (:active ct)
+    :else           (:state-border ct)))
 
-(defn- node-stroke
-  [{:keys [active? from-highlight? to-highlight? sim? final?]}]
+(defn- header-bg
+  "rf2-az6e2 — the title strip's fill. Neutral by default; a faint
+  runtime wash when active / focused so the header reads the runtime
+  signal without flooding the whole node fill."
+  [ct {:keys [active? from-highlight? to-highlight? sim?]}]
   (cond
-    sim?            (:yellow tokens/tokens)
-    to-highlight?   (:info tokens/tokens)
-    from-highlight? (:accent tokens/tokens)
-    active?         (:info tokens/tokens)
-    final?          (:green tokens/tokens)
-    :else           (:border-default tokens/tokens)))
+    sim?            (:sim-wash ct)
+    to-highlight?   (:active-wash ct)
+    from-highlight? (:focus-wash ct)
+    active?         (:active-wash ct)
+    :else           (:state-header-bg ct)))
 
 (defn- tag-title-attr
   "Compose a state's `:tags` set (Spec 005 user-declared semantic
@@ -127,23 +139,20 @@
          (str/join " "))))
 
 (defn- tag-pill
-  "rf2-a2b55 — render a single state-tag pill positioned BELOW the
-  state name per Stately graph view convention. Hiccup. Geometry +
-  typography read off the resolved density `vc` map (height / pad-x
-  / px / radius / gap) so the chrome scales with `:density`. Colour
-  comes from the deterministic `tokens/tag-pill-color` rotation so a
-  given tag id paints the same hue across renders.
+  "rf2-az6e2 — render a single state-tag chip in ONE NEUTRAL style.
+  Structure wins over annotation colour: the prior deterministic colour
+  rotation (rf2-a2b55) is dropped for the topology view so the eye reads
+  the chart's STRUCTURE (containment + transition flow), not a rainbow
+  of tag hues. Tag IDENTITY is preserved in the `data-tag` / `title`
+  attrs + the state-node's `data-tags` + the inspector surfaces, so host
+  introspection + hover still resolve every tag.
 
-  Pre-rf2-so5b0 the pill row sat ABOVE the label and the diagnostic
-  in that bead misread the resulting clutter as ancestor-path tag
-  chips. Stately's graph view paints descriptive tags BELOW the
-  state name as a quiet pill row — rf2-a2b55 follows that pattern."
-  [tag {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
-               tag-pill-radius tag-pill-gap]}]
-  (let [label   (if (keyword? tag) (name tag) (str tag))
-        token-k (tokens/tag-pill-color tag)
-        fill    (tokens/with-alpha token-k 0.18)
-        stroke  (get tokens/tokens token-k)]
+  Geometry + typography read off the resolved density `vc` map; colour
+  is the neutral container-header fill + the structural border + the
+  secondary text colour from the active-theme `ct` map."
+  [tag ct {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
+                  tag-pill-radius tag-pill-gap]}]
+  (let [label (if (keyword? tag) (name tag) (str tag))]
     [:span {:key   label
             :title (str tag)
             :data-testid (str "rf-mv-chart-state-tag-" label)
@@ -153,77 +162,99 @@
                     :height           (str tag-pill-height "px")
                     :padding          (str "0 " tag-pill-pad-x "px")
                     :margin-right     (str tag-pill-gap "px")
-                    :background       fill
-                    :border           (str "1px solid " stroke)
+                    :background       (:container-header-bg ct)
+                    :border           (str "1px solid " (:state-border ct))
                     :border-radius    (str tag-pill-radius "px")
-                    :font-family      sans-stack
+                    :font-family      chart-label-stack
                     :font-size        (str tag-pill-px "px")
-                    :font-weight      600
-                    :color            stroke
+                    :font-weight      500
+                    :color            (:text-secondary ct)
                     :line-height      "1"
                     :white-space      "nowrap"}}
      label]))
 
-(defn- action-pill
-  "rf2-a2b55 — render an entry / exit action as a `+ <name>` (entry)
-  or `- <name>` (exit) pill, the Stately graph view convention for
-  state-actions. Geometry + typography read off the resolved density
-  `vc` map. Colour uses the `:advisory` token so the pill reads as
-  a subordinate annotation against the state name."
-  [{:keys [kind name-str vc]}]
+(defn- action-row
+  "rf2-az6e2 — render an entry / exit action METADATA ROW: a quiet
+  section caption (\"Entry actions\" / \"Exit actions\") plus a subdued
+  action chip carrying a bolt glyph + the action name. The chip stays
+  SUBORDINATE to the state title (quieter colour + smaller type). Reads
+  geometry/typography off the resolved density `vc` map and colour off
+  the active-theme `ct`."
+  [{:keys [kind name-str vc ct]}]
   (let [{:keys [action-pill-height action-pill-pad-x action-pill-px
-                action-pill-radius action-pill-gap]} vc
-        prefix (case kind :entry "+ " :exit "- ")]
-    [:span {:data-testid (case kind
-                           :entry "rf-mv-chart-state-entry"
-                           :exit  "rf-mv-chart-state-exit")
-            (case kind :entry :data-entry :exit :data-exit) name-str
-            :style {:display          "inline-flex"
-                    :align-items      "center"
-                    :height           (str action-pill-height "px")
-                    :padding          (str "0 " action-pill-pad-x "px")
-                    :margin-right     (str action-pill-gap "px")
-                    :background       (tokens/with-alpha :advisory 0.18)
-                    :border           (str "1px solid "
-                                            (tokens/with-alpha :advisory 0.6))
-                    :border-radius    (str action-pill-radius "px")
-                    :font-family      mono-stack
-                    :font-size        (str action-pill-px "px")
-                    :font-weight      500
-                    :color            (:advisory tokens/tokens)
-                    :line-height      "1"
-                    :white-space      "nowrap"}}
-     (str prefix name-str)]))
+                action-pill-radius action-caption-px action-caption-gap]} vc
+        caption (case kind :entry "Entry actions" :exit "Exit actions")]
+    [:div {:data-testid (case kind
+                          :entry "rf-mv-chart-state-entry"
+                          :exit  "rf-mv-chart-state-exit")
+           (case kind :entry :data-entry :exit :data-exit) name-str
+           :style {:display        "flex"
+                   :flex-direction "column"
+                   :gap            (str action-caption-gap "px")}}
+     [:span {:style {:font-family    chart-label-stack
+                     :font-size      (str action-caption-px "px")
+                     :font-weight    600
+                     :letter-spacing "0.04em"
+                     :text-transform "uppercase"
+                     :color          (:text-tertiary ct)
+                     :line-height     "1"}}
+      caption]
+     [:span {:style {:display       "inline-flex"
+                     :align-items   "center"
+                     :gap           "3px"
+                     :align-self    "flex-start"
+                     :height        (str action-pill-height "px")
+                     :padding       (str "0 " action-pill-pad-x "px")
+                     :background    (:container-header-bg ct)
+                     :border        (str "1px solid " (:state-border ct))
+                     :border-radius (str action-pill-radius "px")
+                     :font-family   chart-label-stack
+                     :font-size     (str action-pill-px "px")
+                     :font-weight   500
+                     :color         (:text-secondary ct)
+                     :line-height   "1"
+                     :white-space   "nowrap"}}
+      ;; subordinate bolt/action glyph (text convention — no icon dep)
+      [:span {:style {:opacity 0.7}} "⚡"]
+      name-str]]))
 
 ;; ---- state node ---------------------------------------------------------
 
 (defn state-node
-  "Reagent component for a standard state node. xyflow invokes this
-  via the `nodeTypes={:state state-node}` map. xyflow passes a single
-  `props` argument; we read `:data` off it (an object whose keys are
-  the CLJS payload the projector emitted).
+  "rf2-az6e2 — Reagent component for a leaf state node, rendered as a
+  STRUCTURED TITLE/BODY BOX (not a centred rounded pill). xyflow invokes
+  this via `nodeTypes={:state state-node}`; we read the projected `:data`
+  off the JS props.
 
-  Visual identity:
+  Structure:
 
-    - Rounded-rect body, corner-radius 6 (the rf2-g6cig lock).
-    - Mono state label centred at the top.
-    - User-declared `:tags` (Spec 005) render as a pill row directly
-      BELOW the state name (rf2-a2b55, Stately graph view convention)
-      with deterministic per-tag colours from `tokens/tag-pill-color`.
-      The same set surfaces on the state-node's `:data-tags` +
-      `:title` attrs (rf2-so5b0 contract) so host introspection +
-      hover tooltips still resolve the tag set in bulk.
-    - Active state: cyan tint + emphasised stroke.
-    - From-highlight (focused-event lens origin): violet dashed.
-    - To-highlight (focused-event lens landing): emphasised cyan.
-    - Final state: doubled border + small check glyph.
-    - Entry / exit actions render as `+ <name>` (entry) / `- <name>`
-      (exit) pills BELOW the tag row (rf2-a2b55 — Stately graph view
-      `Entry actions` convention; replaces the prior `entry / <name>`
-      text rows from rf2-ee38b.21)."
+    - Square-ish box, low radius (the rf2-g6cig 6px lock).
+    - A full-width TITLE STRIP carrying the state label, LEFT-aligned,
+      sans font (`chart-label-stack`).
+    - A title/body DIVIDER (hairline) when body content exists.
+    - A BODY area holding neutral tag chips + quiet entry/exit action
+      rows, also left-aligned. Absent entirely when the state has no
+      tags + no actions (then the title strip IS the box).
+
+  Runtime affordance (structure-first — the runtime signal rides the
+  BORDER + HEADER + GLOW, NOT the whole fill):
+
+    - active / to-highlight: runtime accent border + faint header wash +
+      glow ring.
+    - from-highlight (focus lens origin): focus accent border + wash.
+    - sim: amber accent.
+    - final: a QUIET double border (outer ring). The prior ✓ check glyph
+      is DROPPED (rf2-az6e2 decision recorded in the bead) — the doubled
+      border is the unambiguous final-state signal and the glyph competed
+      with the title for attention.
+
+  Tag identity (`data-tags` / per-chip `data-tag` / `title`) + the
+  `data-active*` / `data-state-path` attrs are PRESERVED for the DOM
+  test suite + host introspection."
   [^js props]
   (let [d              (.-data props)
         vc             (chart-constants d)
+        ct             (palette-of d)
         label          (or (.-label d) "")
         path           (.-path d)
         active?        (boolean (.-active d))
@@ -232,44 +263,36 @@
         sim?           (boolean (.-sim d))
         final?         (boolean (.-final d))
         tags           (js->clj (.-tags d))
-        ;; rf2-so5b0 + rf2-a2b55 — tags surface BOTH as a visible pill
-        ;; row BELOW the state name (Stately graph view convention,
-        ;; restored in rf2-a2b55) AND as the sorted space-joined
-        ;; tooltip / data-attr surface rf2-so5b0 added for host
-        ;; introspection. `tags-attr` is nil when the state has no
-        ;; tags so the title attr is simply omitted.
         tags-attr      (tag-title-attr tags)
         entry          (.-entry d)
         exit           (.-exit d)
         on-click       (.-onClick d)
         emphasised?    (or active? from-highlight? to-highlight?)
         active-affordance? (or active? to-highlight?)
-        styled         {:active?        active?
+        styled         {:active?         active?
                         :from-highlight? from-highlight?
-                        :to-highlight?  to-highlight?
-                        :sim?           sim?
-                        :final?         final?}
-        fill           (node-fill styled)
-        stroke         (node-stroke styled)
-        ;; rf2-k647w — stroke widths read off the resolved density.
-        ;; The active-affordance stroke sits one notch above the
-        ;; emphasis stroke (active-affordance = emphasis + 0.75,
-        ;; preserving the shipped regular relationship 2.5 → 3.25).
+                        :to-highlight?   to-highlight?
+                        :sim?            sim?}
+        border-col     (node-border ct styled)
+        header-fill    (header-bg ct styled)
         {:keys [corner-radius stroke-width stroke-width-emphasis
-                state-label-px final-glyph-px]} vc
+                state-title-height state-title-pad-x state-title-px
+                state-body-pad-x state-body-pad-y state-body-gap
+                state-divider-width state-shadow-blur
+                tag-pill-row-gap]} vc
         stroke-w       (cond
                          active-affordance? (+ stroke-width-emphasis 0.75)
                          emphasised?        stroke-width-emphasis
-                         :else              stroke-width)]
+                         :else              stroke-width)
+        has-body?      (or (seq tags) entry exit)]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-node-" (.-id props))
              :data-active (str active?)
              :data-from-highlight (str from-highlight?)
              :data-to-highlight (str to-highlight?)
              :data-active-affordance (str active-affordance?)
+             :data-final (str final?)
              :data-state-path (when path (pr-str (js->clj path)))
-             ;; rf2-so5b0 — user-declared `:tags` exposed for DOM tests +
-             ;; host introspection without visible chart chrome.
              :data-tags (or tags-attr "")
              :data-tag-count (count (or tags []))
              :title (or tags-attr (when on-click "Click for details"))
@@ -279,81 +302,72 @@
              :style {:position         "relative"
                      :display          "flex"
                      :flex-direction   "column"
-                     :align-items      "center"
-                     :justify-content  "center"
+                     :align-items      "stretch"
                      :min-width        (str projection/state-node-min-width "px")
                      :min-height       (str projection/state-node-min-height "px")
-                     :padding          "8px 12px"
-                     :background       fill
-                     :border           (str stroke-w "px solid " stroke)
+                     :background       (:state-body-bg ct)
+                     :border           (str stroke-w "px solid " border-col)
                      :border-radius    (str corner-radius "px")
-                     :font-family      mono-stack
-                     :font-size        (str state-label-px "px")
-                     :font-weight      (if emphasised? 600 400)
-                     :color            (if emphasised?
-                                         (:text-primary tokens/tokens)
-                                         (:text-secondary tokens/tokens))
+                     :overflow         "hidden"
+                     :font-family      chart-label-stack
+                     :color            (:text-secondary ct)
                      :cursor           (if on-click "pointer" "default")
                      :user-select      "none"
-                     :box-shadow       (when active-affordance?
-                                         (str "0 0 0 2px "
-                                              (tokens/with-alpha :info 0.18)))
+                     :box-shadow       (if active-affordance?
+                                         (str "0 0 0 2px " (:glow ct))
+                                         (str "0 1px " state-shadow-blur "px rgba(0,0,0,0.25)"))
                      :transition       "border-color 120ms ease, background 120ms ease"}}
-       ;; Final-state double-ring (outer)
+       ;; Final-state QUIET double-ring (outer). The ✓ glyph is dropped.
        (when final?
-         [:div {:style {:position      "absolute"
-                       :top           "-3px"
-                       :left          "-3px"
-                       :right         "-3px"
-                       :bottom        "-3px"
-                       :border        (str "1px solid " (:green tokens/tokens))
-                       ;; outer ring sits 1px proud of the node corner
-                       :border-radius (str (inc corner-radius) "px")
-                       :pointer-events "none"}}])
-       ;; Label
-       [:div {:style {:line-height "1.2"}} label]
-       ;; rf2-a2b55 — tag pill row positioned BELOW the state name
-       ;; (Stately graph view convention). Pre-rf2-so5b0 the row sat
-       ;; ABOVE the label; that bead diagnosed the resulting clutter
-       ;; as ancestor-path tag chips and retired the row. rf2-a2b55
-       ;; reinstates the row in its Stately-canonical position.
-       (when (seq tags)
-         [:div {:data-testid "rf-mv-chart-state-tags"
-                :style {:display        "flex"
-                        :flex-wrap      "wrap"
-                        :justify-content "center"
-                        :align-items    "center"
-                        :margin-top     (str (:tag-pill-row-gap vc) "px")
-                        :gap            "0"}}
-          (->> tags
-               sort
-               (map (fn [t] (tag-pill t vc))))])
-       ;; rf2-a2b55 — :entry / :exit actions render as `+ <name>` /
-       ;; `- <name>` pills BELOW the tag row (Stately graph view
-       ;; `Entry actions` convention; replaces the prior `entry /
-       ;; <name>` text rows shipped by rf2-ee38b.21).
-       (when (or entry exit)
-         [:div {:data-testid "rf-mv-chart-state-actions"
-                :style {:display        "flex"
-                        :flex-direction "row"
-                        :flex-wrap      "wrap"
-                        :justify-content "center"
-                        :align-items    "center"
-                        :margin-top     (str (:action-pill-row-gap vc) "px")
-                        :gap            "0"}}
+         [:div {:data-testid (str "rf-mv-chart-node-final-ring-" (.-id props))
+                :style {:position      "absolute"
+                        :top           "-3px"
+                        :left          "-3px"
+                        :right         "-3px"
+                        :bottom        "-3px"
+                        :border        (str "1px solid " border-col)
+                        :border-radius (str (inc corner-radius) "px")
+                        :pointer-events "none"}}])
+       ;; TITLE STRIP — full-width, left-aligned label.
+       [:div {:data-testid (str "rf-mv-chart-state-title-" (.-id props))
+              :style {:display        "flex"
+                      :align-items    "center"
+                      :min-height     (str state-title-height "px")
+                      :padding        (str "0 " state-title-pad-x "px")
+                      :background      header-fill
+                      :border-bottom   (if has-body?
+                                         (str state-divider-width "px solid "
+                                              (:divider ct))
+                                         "none")
+                      :font-size      (str state-title-px "px")
+                      :font-weight    (if emphasised? 600 500)
+                      :color          (if emphasised?
+                                        (:text-primary ct)
+                                        (:text-secondary ct))
+                      :white-space    "nowrap"
+                      :overflow       "hidden"
+                      :text-overflow  "ellipsis"}}
+        label]
+       ;; BODY — neutral tag chips + quiet entry/exit action rows.
+       (when has-body?
+         [:div {:style {:display         "flex"
+                        :flex-direction  "column"
+                        :gap             (str state-body-gap "px")
+                        :padding         (str state-body-pad-y "px "
+                                              state-body-pad-x "px")}}
+          (when (seq tags)
+            [:div {:data-testid "rf-mv-chart-state-tags"
+                   :style {:display    "flex"
+                           :flex-wrap  "wrap"
+                           :align-items "center"
+                           :row-gap    (str tag-pill-row-gap "px")}}
+             (->> tags
+                  sort
+                  (map (fn [t] (tag-pill t ct vc))))])
           (when entry
-            (action-pill {:kind :entry :name-str entry :vc vc}))
+            (action-row {:kind :entry :name-str entry :vc vc :ct ct}))
           (when exit
-            (action-pill {:kind :exit  :name-str exit  :vc vc}))])
-       ;; Final-state check glyph
-       (when final?
-         [:div {:style {:position    "absolute"
-                       :top         "4px"
-                       :right       "8px"
-                       :font-family mono-stack
-                       :font-size   (str final-glyph-px "px")
-                       :color       (:green tokens/tokens)}}
-          "✓"])
+            (action-row {:kind :exit :name-str exit :vc vc :ct ct}))])
        ;; xyflow attachment points (invisible — edges connect here)
        [:> Handle {:type "target" :position pos-top
                    :style {:opacity 0}}]
@@ -396,17 +410,22 @@
   [^js props]
   (let [d     (.-data props)
         vc    (chart-constants d)
+        ct    (palette-of d)
         label (or (.-label d) "")
         path  (.-path d)
-        ;; rf2-80rm2 (G4) — for self-consistency with the active-region
-        ;; chrome, a compound CONTAINER whose active descendant leaf lit it
-        ;; (the projector folds that into `:active` via the `:parent-id`
-        ;; chain) also gets active chrome: a solid (not dashed) accent border
-        ;; + the `:info` active-token glow ring — the same active affordance
-        ;; state nodes and active regions use. Minimal: only the boundary
-        ;; firms up and the glow appears; inactive compounds are unchanged.
+        ;; rf2-80rm2 (G4) — a compound CONTAINER whose active descendant
+        ;; leaf lit it (the projector folds that into `:active` via the
+        ;; `:parent-id` chain) gets active chrome: the runtime accent
+        ;; border + glow ring. Inactive compounds read NEUTRAL.
         active? (boolean (.-active d))
-        {:keys [compound-pad-y compound-radius compound-title-px]} vc]
+        {:keys [compound-radius container-title-height container-title-pad-x
+                container-title-px container-divider-width
+                stroke-width stroke-width-emphasis]} vc
+        ;; rf2-az6e2 — solid SUBTLE NEUTRAL border by default (no dashed,
+        ;; no accent wash — dashed/accent is reserved for parallel
+        ;; regions + runtime state). Active swaps to the runtime accent.
+        border-col  (if active? (:active ct) (:container-border ct))
+        border-w    (if active? stroke-width-emphasis stroke-width)]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-compound-" (.-id props))
              :data-node-id (.-id props)
@@ -417,30 +436,42 @@
                      :height           "100%"
                      :min-width        (str projection/compound-node-min-width "px")
                      :min-height       (str projection/compound-node-min-height "px")
-                     :padding-top      (str compound-pad-y "px")
-                     :background       (tokens/with-alpha :accent (if active? 0.10 0.06))
-                     :border           (str (if active? "1.5px solid " "1px dashed ")
-                                            (:accent tokens/tokens))
+                     :background       (:container-body-bg ct)
+                     :border           (str border-w "px solid " border-col)
                      :border-radius    (str compound-radius "px")
                      :box-shadow       (when active?
-                                         (str "0 0 0 2px "
-                                              (tokens/with-alpha :info 0.18)))
-                     ;; rf2-shv82 — `pointer-events: auto` only on the
-                     ;; handles (set per-handle below). The body stays
-                     ;; pointer-events-transparent so clicks pass through to
-                     ;; nested leaves.
+                                         (str "0 0 0 2px " (:glow ct)))
+                     ;; rf2-shv82 — body stays pointer-transparent so
+                     ;; clicks pass through to nested leaves.
                      :pointer-events   "none"}}
-       [:div {:style {:position    "absolute"
-                     :top         "4px"
-                     :left        "10px"
-                     :font-family sans-stack
-                     :font-size   (str compound-title-px "px")
-                     :font-weight 600
-                     :color       (:accent tokens/tokens)}}
+       ;; FULL-WIDTH TITLE STRIP at top — solid neutral header band.
+       [:div {:data-testid (str "rf-mv-chart-compound-title-" (.-id props))
+              :style {:position    "absolute"
+                      :top         0
+                      :left        0
+                      :right       0
+                      :display     "flex"
+                      :align-items "center"
+                      :height      (str container-title-height "px")
+                      :padding     (str "0 " container-title-pad-x "px")
+                      :background    (if active?
+                                       (:active-wash ct)
+                                       (:container-header-bg ct))
+                      :border-bottom (str container-divider-width "px solid "
+                                          (:divider ct))
+                      :border-top-left-radius  (str compound-radius "px")
+                      :border-top-right-radius (str compound-radius "px")
+                      :font-family sans-stack
+                      :font-size   (str container-title-px "px")
+                      :font-weight 600
+                      :color       (if active?
+                                     (:text-primary ct)
+                                     (:text-secondary ct))
+                      :white-space "nowrap"
+                      :overflow    "hidden"
+                      :text-overflow "ellipsis"}}
         label]
-       ;; rf2-shv82 — invisible xyflow attachment points. Edges with a
-       ;; compound endpoint anchor to one of these; without them xyflow
-       ;; silently drops the edge (the bug rf2-shv82 closes).
+       ;; rf2-shv82 — invisible xyflow attachment points.
        [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
        [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
        [:> Handle {:type "target" :position pos-left   :id "left"
@@ -451,38 +482,86 @@
 ;; ---- initial marker node ------------------------------------------------
 
 (defn initial-marker
-  "Reagent component for the machine's initial-state marker — a filled
-  dot followed by the `↳` glyph (Stately graph view convention,
-  rf2-qo5xy). Rendered as a tiny xyflow node with an outgoing edge
+  "rf2-az6e2 — Reagent component for the machine's initial-state pseudo-
+  state marker. A small NEUTRAL filled dot (the SCXML/xstate initial
+  pseudo-state convention), NOT an accent-blue runtime marker: the
+  initial pseudo-state is STATIC topology, so it reads in the neutral
+  pseudo-state colour (`:pseudo-marker`), reserving accent/active for
+  runtime state. Rendered as a tiny xyflow node with an outgoing edge
   into the initial state.
 
-  Pre-rf2-qo5xy the marker was JUST the filled dot; the bead's
-  paradigm-shift checklist calls for the `↳` glyph as an additional
-  affordance an operator who knows xstate/Stately reads in 30
-  seconds — 'this is THE initial state' rather than 'a state node
-  with an upstream marker'. Composing the glyph on the marker
-  (rather than as separate node) keeps the topology hop short and
-  the elk layered layout pleasant."
-  [^js _props]
-  (r/as-element
-    [:div {:data-testid "rf-mv-chart-initial-marker"
-           :style {:display          "inline-flex"
-                   :align-items      "center"
-                   :gap              "4px"}}
-     [:div {:data-testid "rf-mv-chart-initial-marker-dot"
-            :style {:width            "10px"
-                    :height           "10px"
-                    :border-radius    "50%"
-                    :background       (:accent tokens/tokens)}}]
-     [:span {:data-testid "rf-mv-chart-initial-marker-glyph"
-             :style {:font-family   mono-stack
-                     :font-size     "14px"
-                     :font-weight   600
-                     :line-height   "1"
-                     :color         (:accent tokens/tokens)}}
-      "↳"]
-     [:> Handle {:type "source" :position pos-right
-                 :style {:opacity 0}}]]))
+  Geometry reads off the resolved density (`:pseudo-size` /
+  `:pseudo-radius`)."
+  [^js props]
+  (let [d   (.-data props)
+        vc  (chart-constants d)
+        ct  (palette-of d)
+        {:keys [pseudo-size]} vc]
+    (r/as-element
+      [:div {:data-testid "rf-mv-chart-initial-marker"
+             :data-pseudo-kind "initial"
+             :style {:display     "inline-flex"
+                     :align-items "center"}}
+       [:div {:data-testid "rf-mv-chart-initial-marker-dot"
+              :style {:width         (str pseudo-size "px")
+                      :height        (str pseudo-size "px")
+                      :border-radius "50%"
+                      :background    (:pseudo-marker ct)}}]
+       [:> Handle {:type "source" :position pos-right
+                   :style {:opacity 0}}]])))
+
+;; ---- history pseudo-state renderer (rf2-az6e2 — HOOK ONLY) --------------
+;;
+;; rf2-az6e2 — the bead defines the VISUAL rendering of history pseudo-
+;; states (shallow `H` / deep `H*`, small symbolic node inside the owning
+;; compound, direct incoming transitions, NO normal state-box styling)
+;; for parsed topology that ALREADY contains pseudo-state data. The
+;; current `chart.layout/parse-definition` does NOT yet emit history
+;; pseudo-state nodes (no `:history` key in the parsed node shape), and
+;; the bead is explicit that it "must not add statechart history
+;; semantics to re-frame2". So this renderer is a HOOK: it is shaped to
+;; the grammar + wired into the node-types map below, but the projector
+;; never emits a `history-marker` node today. When the parse + Spec 005
+;; history semantics land (follow-on bead rf2-az6e2-history-render),
+;; flip the projector to emit `{:type "history-marker" :data {:deep?
+;; …}}` and this renderer paints it. Constants (`:pseudo-*`) already
+;; carry the variant.
+
+(defn history-marker
+  "rf2-az6e2 — small symbolic pseudo-state node for a history marker.
+  Shallow history renders `H`; deep history renders `H*`. Reads
+  `:data {:deep? <bool>}`. NOT a normal state box — a small neutral
+  rounded square so it reads as a pseudo-state inside its owning
+  compound. HOOK ONLY today (see the section comment above): no
+  projector path emits it until history topology data exists."
+  [^js props]
+  (let [d   (.-data props)
+        vc  (chart-constants d)
+        ct  (palette-of d)
+        deep? (boolean (.-deep d))
+        {:keys [pseudo-size pseudo-radius pseudo-px]} vc
+        side (+ pseudo-size 6)]
+    (r/as-element
+      [:div {:data-testid (str "rf-mv-chart-history-" (.-id props))
+             :data-pseudo-kind (if deep? "history-deep" "history-shallow")
+             :style {:display         "inline-flex"
+                     :align-items     "center"
+                     :justify-content "center"
+                     :width           (str side "px")
+                     :height          (str side "px")
+                     :border          (str "1px solid " (:pseudo-marker ct))
+                     :border-radius   (str pseudo-radius "px")
+                     :background      (:state-body-bg ct)
+                     :font-family     chart-label-stack
+                     :font-size       (str pseudo-px "px")
+                     :font-weight     700
+                     :color           (:pseudo-marker ct)
+                     :line-height     "1"
+                     :user-select     "none"}}
+       (if deep? "H*" "H")
+       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
+       [:> Handle {:type "target" :position pos-left :id "left"
+                   :style {:opacity 0}}]])))
 
 ;; rf2-ee38b.21 — the dead `final-marker` component + its node-type
 ;; registration were removed. The projector only ever emits
@@ -508,4 +587,8 @@
        "compound"        compound-node
        "parallel-region" parallel-region-node/parallel-region-node
        "initial-marker"  initial-marker
+       ;; rf2-az6e2 — history pseudo-state renderer registered as a HOOK
+       ;; (the projector emits no `history-marker` node until history
+       ;; topology data lands; see `history-marker` docstring).
+       "history-marker"  history-marker
        "rf2-event"       event-node/event-node})

@@ -18,6 +18,7 @@
   it sits below them and depends only on `@xyflow/react` + the pure
   `visual-constants`."
   (:require ["@xyflow/react" :as xyflow]
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- xyflow Handle adapter ----------------------------------------------
@@ -50,3 +51,16 @@
     (if (some? c)
       (js->clj c :keywordize-keys true)
       vc/chart-regular)))
+
+(defn palette-of
+  "rf2-az6e2 — recover the resolved chart-semantic token map off a
+  node's `:data` (`(.-palette d)`). The projector threads
+  `theme/tokens/chart-tokens` of the active `:theme` palette here; xyflow
+  `clj->js`-es it into a JS object so we `js->clj` it back with keyword
+  keys. Returns `(tokens/chart-tokens)` (the dark surface) when absent so
+  a theme-less / directly-constructed node still paints the dark grammar."
+  [^js d]
+  (let [p (.-palette d)]
+    (if (some? p)
+      (js->clj p :keywordize-keys true)
+      (tokens/chart-tokens))))
