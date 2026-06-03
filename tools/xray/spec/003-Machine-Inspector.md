@@ -1537,11 +1537,13 @@ action-attribution half.
   `:rf.xray/*` registry ids for the Machines tab.
 - [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — Sim
   mode + Mode A/B/C dynamic instance test rows.
-- **Render regression harness (rf2-g27vv; runner-shaped rf2-kipb5).** The
-  `machine_epochs` testbed (:8033) is the assertion-backed harness that pins
-  this spec's cascade-render contract against reality — driven through the
-  shared queued-step runner (`runner.core`), its step matrix walks the full
-  feature × render-surface matrix (plain / entry-exit / guards / internal / fx /
+- **Render regression harness (rf2-g27vv; runner-shaped rf2-kipb5;
+  step-driver rewrite rf2-5sjbg).** The `machine_epochs` testbed (:8033) is
+  the assertion-backed harness that pins this spec's cascade-render contract
+  against reality — driven through the shared step-driver runner
+  (`runner.core` — cursor in app-db `:step`, a `[:run-step n]` event, no
+  Reagent atom), its step matrix walks the full feature × render-surface
+  matrix (plain / entry-exit / guards / internal / fx /
   unhandled-no-op / root-`:on` resolution; parallel regions + history +
   member-level tag-set delta; `:always` microsteps; `:after` timer + cancel;
   spawn / `:final?` / `:on-done` / destroy lifecycle; `:*` wildcard throw;

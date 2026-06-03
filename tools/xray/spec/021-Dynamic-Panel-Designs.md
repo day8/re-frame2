@@ -1803,9 +1803,11 @@ consumer of the rf2-n9f4z instrumentation contract per
 
 The `machine_epochs` testbed (:8033) is now the **assertion-backed render
 regression harness** for this whole cascade-render contract (rf2-g27vv;
-runner-shaped rf2-kipb5). Driven through the shared queued-step runner
-(`runner.core`), its step matrix drives the full FEATURE × RENDER-SURFACE
-matrix — plain /
+runner-shaped rf2-kipb5; step-driver rewrite rf2-5sjbg). Driven through the
+shared step-driver runner (`runner.core` — cursor in app-db `:step`, moved
+by a `[:run-step n]` event that dispatches the step's machine event into the
+host-frame, NO Reagent atom), its step matrix drives the full FEATURE ×
+RENDER-SURFACE matrix — plain /
 entry-exit / transition-action / guard pass+fail / internal / fx /
 unhandled-no-op / root-`:on` resolution (door); parallel regions + history +
 member-level tag-set delta (traffic); `:always` **microsteps** that settle
