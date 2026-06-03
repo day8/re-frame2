@@ -402,22 +402,106 @@
     :tweak-fan             (trail-action 'tweak-fan             :action:tweak)}})
 
 ;; ============================================================================
-;; HISTORY (gap 8) — the rejection probe
+;; MACHINE 8 — :media/deep + :media/shallow  (HISTORY: shallow + deep restore)
 ;; ============================================================================
 ;;
-;; re-frame2 currently REJECTS `:history` at registration time
-;; (`:rf.error/machine-grammar-not-in-v1`, Spec 005 §Substitutes; rf2-rkkag).
-;; This spec is NOT registered at load (it would throw); it is the subject of
-;; the rejection probe. When `:history` lands, this becomes a live machine
-;; and the placeholder rungs activate.
+;; gap 8 — first-class history states (rf2-mle6e). A media-player compound
+;; `:player` owns a `:type :history` pseudo-state `:hist`. From `:stopped`,
+;; `:play` targets `[:player :hist]` → re-entry RESTORES the recorded (or
+;; default) configuration beneath `:player`. The cascade carries the
+;; `:rf.machine.history/restored` trace + the per-`:entry`-step `:source`
+;; (`:recorded` | `:default`); exiting `:player` (the `:stop` transition to
+;; `:stopped` stays WITHIN `:player`, so it does NOT record — the model exits
+;; the compound by going to the sibling `:stopped`, which is inside `:player`,
+;; so we record on the OUTER `:eject` to the root-sibling `:tray`).
+;;
+;; Two variants, mirroring the engine smoke (`machine_history_smoke_test`):
+;;   :media/deep    — `:deep? true`  → restores the FULL nested leaf path.
+;;   :media/shallow — shallow        → restores the recorded DIRECT CHILD then
+;;                                      descends its `:initial` chain.
+;;
+;; The `:player` compound is nested under a root so an OUTER state (`:tray`)
+;; exists to exit `:player` entirely (recording) and re-enter it via the
+;; history pseudo-state (restoring). `:eject` leaves `:player` → `:tray`
+;; (records `:player`'s last config); `:insert` returns `:tray` →
+;; `[:player :hist]` (restores it).
+
+(defn- media-player-spec
+  "Build a media-player history machine. `deep?` selects deep vs shallow
+  history. The `:player` compound owns the `:hist` pseudo-state; the OUTER
+  `:tray` state is the off-compound resting place so `:eject` / `:insert`
+  exit + re-enter `:player` (record + restore). Every action trail-appends so
+  the harness order-oracle reads the cascade order."
+  [deep?]
+  {:initial :tray
+   :data    {:trail []}
+
+   :actions
+   {:enter-player  (trail-action 'enter-player  :entry:player)
+    :exit-player   (trail-action 'exit-player   :exit:player)
+    :enter-playing (trail-action 'enter-playing :entry:playing)
+    :enter-paused  (trail-action 'enter-paused  :entry:paused)
+    :seek-track    (trail-action 'seek-track    :action:seek)}
+
+   :states
+   {;; OFF-compound resting place — exiting :player to here records history;
+    ;; :insert re-enters :player via the history pseudo-state (restores).
+    :tray
+    {:tags #{:media/tray}
+     :on   {:insert [:player :hist]}}
+
+    :player
+    {:tags    #{:media/player}
+     :initial :stopped
+     :entry   :enter-player
+     :exit    :exit-player
+     :on      {:eject :tray}
+     :states
+     {:stopped {:tags #{:media/stopped}
+                :on   {:play [:player :playing]}}
+
+      :hist    (cond-> {:type :history :default-target :playing}
+                 deep? (assoc :deep? true))
+
+      :playing {:tags    #{:media/playing}
+                :initial :at-start
+                :entry   :enter-playing
+                :on      {:stop  [:player :stopped]
+                          :pause [:player :paused]}
+                :states  {:at-start  {:tags #{:media/at-start}
+                                      :on   {:seek {:target :mid-track :action :seek-track}}}
+                          :mid-track {:tags #{:media/mid-track}
+                                      :on   {:stop [:player :stopped]}}}}
+
+      :paused  {:tags  #{:media/paused}
+                :entry :enter-paused
+                :on    {:resume [:player :playing]}}}}}})
+
+(defmachine media-deep-machine
+  "DEEP history media player — `:insert` from `:tray` restores the FULL nested
+  leaf path the player occupied when last ejected."
+  (media-player-spec true))
+
+(defmachine media-shallow-machine
+  "SHALLOW history media player — `:insert` from `:tray` restores the recorded
+  DIRECT CHILD of `:player`, then descends its `:initial` chain (so a deep
+  exit-leaf restores only to the child's `:initial`)."
+  (media-player-spec false))
+
+;; ----------------------------------------------------------------------------
+;; HISTORY PLACEMENT probe — the misplaced-history rejection (rung #24).
+;; ----------------------------------------------------------------------------
+;;
+;; History is first-class (rf2-mle6e) but a `:type :history` pseudo-state MUST
+;; have an owning compound — a machine ROOT cannot be one. This probe confirms
+;; the placement constraint still fires (NOT the old not-in-v1 deferral).
 
 (def history-machine-spec
-  "A ROOT `:type :history` machine — still rejected, now for PLACEMENT:
-  history is first-class (rf2-mle6e) but a `:type :history` pseudo-state MUST
-  have an owning compound, so a machine root cannot be one. The probe
-  registers it to confirm the misplaced-history error fires. (A WELL-PLACED
-  history machine registers cleanly — wiring the live history deck +
-  placeholder rungs is rf2-mle6e.5's job.)"
+  "A ROOT `:type :history` machine — rejected for PLACEMENT (a pseudo-state
+  must have an owning compound, so a machine root cannot be one). The probe
+  registers it to confirm `:rf.error/machine-history-misplaced` fires. (A
+  WELL-PLACED history machine — `media-deep-machine` / `media-shallow-machine`
+  above — registers cleanly and drives the live history deck.)"
   {:type    :history
    :initial :a
    :states  {:a {}}})
@@ -443,8 +527,8 @@
 (defn register-all!
   "Register every NON-throwing-at-registration machine in the deck. Called by
   the deck mount AND by the assertion harness so both drive the identical
-  specs. (The `:history` machine is NOT registered — it throws by design; the
-  rejection probe registers it on demand.)"
+  specs. (The ROOT `:type :history` probe is NOT registered — it throws by
+  design; the placement-rejection probe registers it on demand.)"
   []
   (rf/reg-machine :door/main        door-machine)
   (rf/reg-machine :traffic/light    traffic-machine)
@@ -453,4 +537,6 @@
   (rf/reg-machine :session/login    session-login-machine)
   (rf/reg-machine :session/flow     session-flow-machine)
   (rf/reg-machine :fuse/box         fuse-machine)
-  (rf/reg-machine :hvac/controller  hvac-controller-machine))
+  (rf/reg-machine :hvac/controller  hvac-controller-machine)
+  (rf/reg-machine :media/deep       media-deep-machine)
+  (rf/reg-machine :media/shallow    media-shallow-machine))

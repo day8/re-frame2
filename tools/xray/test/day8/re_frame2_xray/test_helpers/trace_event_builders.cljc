@@ -378,6 +378,35 @@
        :event      event
        :state      state}))
 
+(defn machine-history-restored-ev
+  "`:rf.machine.history/restored` trace (rf2-mle6e.5, spec/009 §History trace
+  events) — a transition resolved a `:type :history` pseudo-state. Op-type
+  `:rf.machine` (benign activity, NOT a severity). On the `:recorded` path
+  pass `:restored-config`; on the `:default` path pass `:fallback` and omit
+  `:restored-config`."
+  [{:keys [machine-id compound-path kind source fallback restored-config resolved-leaf]}]
+  (ev :rf.machine :rf.machine.history/restored
+      (cond-> {:machine-id    machine-id
+               :compound-path compound-path
+               :kind          kind
+               :source        source
+               :resolved-leaf resolved-leaf}
+        (= :default source)    (assoc :fallback fallback)
+        (not= :default source) (assoc :restored-config restored-config))))
+
+(defn machine-history-recorded-ev
+  "`:rf.machine.history/recorded` trace (rf2-mle6e.5, spec/009 §History trace
+  events) — a history-bearing compound's exit wrote its config into
+  `:rf/history`. Op-type `:rf.machine`. `:prev-config` is OMITTED on the
+  first-ever recording (pass nil)."
+  [{:keys [machine-id compound-path kind recorded-config prev-config]}]
+  (ev :rf.machine :rf.machine.history/recorded
+      (cond-> {:machine-id      machine-id
+               :compound-path   compound-path
+               :kind            kind
+               :recorded-config recorded-config}
+        (some? prev-config) (assoc :prev-config prev-config))))
+
 (defn machine-action-exception-ev
   "`:rf.error/machine-action-exception` trace (rf2-e7yhv) — a machine
   action threw during a transition. Mirrors the emit shape in

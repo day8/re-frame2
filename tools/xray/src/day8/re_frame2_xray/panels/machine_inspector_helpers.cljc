@@ -570,6 +570,60 @@
       (seq guards)  (assoc :guards guards)
       (seq actions) (assoc :actions actions))))
 
+;; ---- history restore / record (rf2-mle6e.5) -----------------------------
+;;
+;; Per Spec 009 §History trace events, a transition that resolves a history
+;; pseudo-state emits `:rf.machine.history/restored`; the exit that wrote a
+;; history-bearing compound's config emits `:rf.machine.history/recorded`.
+;; Both share the cascade's `:rf.trace/dispatch-id` with the macrostep's
+;; `:rf.machine/transition` and carry `:machine-id`. The focused-event lens
+;; surfaces them on the per-machine transition record so the Machine
+;; Inspector renders WHY a re-entry landed where it did — distinguishing a
+;; history restore from an ordinary descent (spec/003 §Machine-Inspector).
+
+(def history-restored-operation :rf.machine.history/restored)
+(def history-recorded-operation :rf.machine.history/recorded)
+
+(defn- history-restored-record [ev]
+  (let [tags (get ev :tags {})]
+    {:compound-path   (:compound-path tags)
+     :kind            (:kind tags)
+     :source          (:source tags)
+     :fallback        (:fallback tags)
+     :restored-config (:restored-config tags)
+     :resolved-leaf   (:resolved-leaf tags)}))
+
+(defn- history-recorded-record [ev]
+  (let [tags (get ev :tags {})]
+    {:compound-path   (:compound-path tags)
+     :kind            (:kind tags)
+     :recorded-config (:recorded-config tags)
+     :prev-config     (:prev-config tags)}))
+
+(defn- attach-history
+  "Attach the history restore / record records for `transition-record`'s
+  machine (keyed by `:machine-id`) off the cascade-window `events`
+  (rf2-mle6e.5). A transition that resolved a history pseudo-state carries
+  `:history-restored [<record> …]`; one whose macrostep exited a
+  history-bearing compound carries `:history-recorded [<record> …]`. Neither
+  key is present on an ordinary (non-history) transition, so the inspector's
+  history surface is absent for those."
+  [transition-record events]
+  (let [mid      (:machine-id transition-record)
+        restored (->> events
+                      (filter (fn [ev]
+                                (and (= history-restored-operation (:operation ev))
+                                     (= mid (machine-id-of ev)))))
+                      (mapv history-restored-record))
+        recorded (->> events
+                      (filter (fn [ev]
+                                (and (= history-recorded-operation (:operation ev))
+                                     (= mid (machine-id-of ev)))))
+                      (mapv history-recorded-record))]
+    (cond-> transition-record
+      (seq restored) (assoc :history-restored restored)
+      (seq recorded) (assoc :history-recorded recorded))))
+
 (defn project-focused-event-transitions
   "Project the focused epoch's cascade window into a vector of
   per-machine-transition records the Machines panel's focused-event
@@ -602,7 +656,11 @@
        :microstep?   <bool>
        :definition   <machine-def-or-nil>
        :guards       [<guard-record>...]
-       :actions      [<action-record>...]}
+       :actions      [<action-record>...]
+       :history-restored [<restore-record>...]  ;; rf2-mle6e.5, only when a
+                                                 ;; history pseudo-state resolved
+       :history-recorded [<record-record>...]}  ;; rf2-mle6e.5, only when a
+                                                 ;; history-bearing compound exited
 
   Returns `[]` when no machine-transition trace fired in the cascade —
   the silent-by-default branch the view honours per rf2-g3ghh.
@@ -622,7 +680,9 @@
                  (let [base (transition-record-from-trace ev)
                        mid  (:machine-id base)
                        defn-> (get defs mid)]
-                   (cond-> (attach-guards-and-actions base events)
+                   (cond-> (-> base
+                               (attach-guards-and-actions events)
+                               (attach-history events))
                      defn-> (assoc :definition defn->)))))
           ;; Drop records whose machine-id couldn't be resolved — a
           ;; malformed trace shouldn't surface a section with no
