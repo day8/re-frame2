@@ -245,6 +245,18 @@
 (def ^:private dispatch-verb-style
   {:display "inline-flex" :align-items "center" :gap "4px"})
 
+(def ^:private dispatch-machine-gloss-style
+  "rf2-18oe3 — the additive helper sub-line under a machine dispatch that
+  decodes the `[<machine-id> [<inner-trigger>]]` shape into plain English
+  ('this means the machine :door/main received the trigger
+  :door/insert-coin', or the bootstrap-creation phrasing). Muted italic
+  sans, sitting just below the boxed event vector — a gloss, not a chip."
+  {:margin-top  "4px"
+   :font-family sans-stack
+   :font-size   "12px"
+   :font-style  "italic"
+   :color       text-tertiary-colour})
+
 (def ^:private link-button-style
   {:background            "transparent"
    :border                "none"
@@ -1843,6 +1855,52 @@
 
 ;; ---- DISPATCH step -------------------------------------------------------
 
+(defn- machine-dispatch?
+  "True iff the dispatched `event`'s `<machine-id>` (the first element)
+  names a REGISTERED machine — a `reg-event-fx` carrying `:rf/machine?
+  true` (rf2-18oe3). The machine IS the event handler addressed by its id
+  (registration.cljc), so `rf/handler-meta :event <id>` carries the
+  machine flag. Degrades to false on any non-keyword id, unregistered id,
+  or lookup throw (production builds, fixture shapes) — the gloss is
+  additive, never a hard dependency.
+
+  NOTE the reserved `:rf.machine/bootstrap` marker is handled by the
+  caller WITHOUT this gate: it is unambiguous (a reserved `:rf.machine/*`
+  trigger only ever rides a machine dispatch), so the creation gloss
+  renders even when the runtime registration meta is unavailable."
+  [event]
+  (boolean
+    (let [machine-id (first event)]
+      (when (keyword? machine-id)
+        (let [m (try (rf/handler-meta :event machine-id)
+                     (catch :default _ nil))]
+          (true? (:rf/machine? m)))))))
+
+(defn- machine-event-gloss-line
+  "Additive helper sub-line under a machine DISPATCH (rf2-18oe3). Decodes
+  the `[<machine-id> [<inner-trigger>]]` shape into plain English:
+
+    [:door/main [:door/insert-coin]]
+      → 'this means the machine :door/main received the trigger
+         :door/insert-coin'
+    [:door/main [:rf.machine/bootstrap]]
+      → 'the machine :door/main was created / initialised'
+
+  `fmt/machine-event-gloss` is the pure-data string builder; this fn is
+  the VIEW gate — it renders the gloss ONLY when the dispatch actually
+  targets a machine (runtime `handler-meta` lookup, `machine-dispatch?`)
+  OR the inner trigger is the reserved `:rf.machine/bootstrap` marker
+  (self-identifying — see `machine-dispatch?` NOTE). Non-machine events
+  (an ordinary `reg-event-fx` whose arg happens to be a vector) get no
+  gloss. Returns nil to render nothing."
+  [event]
+  (when-let [gloss (fmt/machine-event-gloss event)]
+    (let [bootstrap? (= fmt/machine-bootstrap-marker (first (second event)))]
+      (when (or bootstrap? (machine-dispatch? event))
+        [:div {:data-testid "rf-xray-epoch-dispatch-machine-gloss"
+               :style       dispatch-machine-gloss-style}
+         gloss]))))
+
 (defn dispatch-body
   "Render the DISPATCH step's expanded body — the event vector via the
   canonical edn-inspector widget. Per the bead body's §DISPATCH
@@ -1862,11 +1920,12 @@
   Epoch panel (plain) for the same value."
   [{:keys [event]}]
   (when (vector? event)
-    [:div {:data-testid "rf-xray-epoch-dispatch-event"
-           :style dispatch-body-style}
-     [ei/edn-inspector event {:site-id "epoch-dispatch-event"
-                              :card?   false
-                              :zoomable? true}]]))
+    [:div {:data-testid "rf-xray-epoch-dispatch-event"}
+     [:div {:style dispatch-body-style}
+      [ei/edn-inspector event {:site-id "epoch-dispatch-event"
+                               :card?   false
+                               :zoomable? true}]]
+     (machine-event-gloss-line event)]))
 
 (defn- dispatch-source-label
   "Render the dispatch source label — `<source>` text. When the

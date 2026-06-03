@@ -2487,6 +2487,32 @@
     (is (= ":my/foo"    (fmt/ns-keyword :my/foo)))
     (is (= "non-kw"     (fmt/ns-keyword "non-kw")))))
 
+(deftest machine-event-gloss-test
+  (testing "rf2-18oe3 — a machine trigger glosses as 'machine <id> received the trigger <trigger>'"
+    (is (= "this means the machine :door/main received the trigger :door/insert-coin"
+           (fmt/machine-event-gloss [:door/main [:door/insert-coin]])))
+    (is (= "this means the machine :traffic/light received the trigger :tick"
+           (fmt/machine-event-gloss [:traffic/light [:tick]]))
+        "unqualified inner trigger keyword renders without a leading slash"))
+  (testing "rf2-18oe3 — the reserved bootstrap marker is creation, NOT 'received the trigger'"
+    (is (= "the machine :door/main was created / initialised"
+           (fmt/machine-event-gloss [:door/main [:rf.machine/bootstrap]])))
+    (is (= "the machine :traffic/light was created / initialised"
+           (fmt/machine-event-gloss [:traffic/light [:rf.machine/bootstrap]])))
+    (is (= :rf.machine/bootstrap fmt/machine-bootstrap-marker)
+        "the marker constant is the reserved :rf.machine/bootstrap keyword"))
+  (testing "rf2-18oe3 — nil for shapes that are not [<machine-id> [<inner-trigger> ...]]"
+    (is (nil? (fmt/machine-event-gloss [:counter-inc]))
+        "single-element event (no inner vector)")
+    (is (nil? (fmt/machine-event-gloss [:set-name "Ada"]))
+        "scalar arg, not a nested trigger vector")
+    (is (nil? (fmt/machine-event-gloss [:door/main []]))
+        "empty inner vector carries no trigger")
+    (is (nil? (fmt/machine-event-gloss [:a [:b] :extra]))
+        "3-element vector is not the 2-tuple machine-dispatch shape")
+    (is (nil? (fmt/machine-event-gloss nil)))
+    (is (nil? (fmt/machine-event-gloss "not-a-vector")))))
+
 (deftest truncate-test
   (testing "truncate keeps short strings + ellipsises long ones"
     (is (= "abc"  (fmt/truncate "abc" 5)))
