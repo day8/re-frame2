@@ -1239,7 +1239,11 @@
 
 (deftest cascade-row-label-test
   (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
-    (is (= "guard :ready?"
+    ;; rf2-h710p item B — the GUARD verb is JUST the guard-id; the leading
+    ;; "guard" word DUPLICATED the `[GUARD]` kind-pill and is dropped (the
+    ;; gated state rides the view's `for <state>` clause). The header reads
+    ;; `[GUARD] for <state> :ready?`, not `[GUARD] guard :ready?`.
+    (is (= ":ready?"
            (fmt/cascade-row-label {:kind :guard :guard-id :ready?})))
     ;; rf2-nhovk — the ACTION verb is JUST the action-id; the kind-pill +
     ;; phase chip already convey kind + phase, so the redundant
@@ -1261,6 +1265,21 @@
                                     :machine-id :ws/conn
                                     :from-state [:idle]
                                     :to-state   [:connecting]})))))
+
+(deftest cascade-guard-for-state-test
+  (testing "rf2-h710p item B — `cascade-guard-for-state` resolves the state a
+            guard gates (the transition's `:source-state`), for the GUARD row's
+            ` for <state> ` clause (`[GUARD] for :open :may-close?`)."
+    (is (= :open
+           (fmt/cascade-guard-for-state {:kind :guard :guard-id :may-close?
+                                         :source-state :open :target-state :closed}))
+        "the gated state is the transition's :source-state (the state whose :on map carries the guard)")
+    (is (= :closed
+           (fmt/cascade-guard-for-state {:kind :guard :guard-id :ready?
+                                         :target-state :closed}))
+        "falls back to :target-state when no :source-state was stamped")
+    (is (nil? (fmt/cascade-guard-for-state {:kind :guard :guard-id :ready?}))
+        "nil when neither state was stamped — the view omits the clause (no dangling `for`)")))
 
 (deftest cascade-row-source-key-test
   (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path

@@ -243,7 +243,12 @@
   [{:keys [kind action-id guard-id from-state to-state state reason
            machine-id show-machine-name? cause]}]
   (case kind
-    :guard       (str "guard " (ns-keyword guard-id))
+    ;; rf2-h710p item B — the GUARD verb is JUST the guard-id. The leading
+    ;; "guard" word DUPLICATED the `[GUARD]` kind-pill (which already says
+    ;; GUARD), so it is dropped. The state the guard gates rides the
+    ;; `for <state>` clause (the item-6 pattern; `cascade-guard-for-state`)
+    ;; rendered alongside the verb in the view — `[GUARD] for :open :may-close?`.
+    :guard       (ns-keyword guard-id)
     ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
     ;; phase, so the verb is JUST the action-id (empty for an anonymous
     ;; action — the pill + chip + source body carry it). The redundant
@@ -439,6 +444,20 @@
     (if exit-phase?
       (or source-state target-state)
       (or target-state source-state))))
+
+(defn cascade-guard-for-state
+  "The state a `:guard` cascade row gates (rf2-h710p item B), for the
+  ` for <state> ` clause of the GUARD-row header — `[GUARD] for <state>
+  <guard-name>` (e.g. `[GUARD] for :open :may-close?`). A guard gates the
+  ENTRY into / fire of a transition OUT OF its source state, so the
+  belongs-to state is the transition's `:source-state` (the state whose
+  `:on` map carries the guard — the same slot `enrich-cascade-rows` stamps
+  off the surrounding `:transition`'s `:from-state`). Falls back to
+  `:target-state` when no source was stamped (best-effort enrichment).
+  Returns nil when neither state was stamped — the view then omits the
+  ` for <state> ` clause and renders just the guard name. Pure-data."
+  [{:keys [source-state target-state]}]
+  (or source-state target-state))
 
 (defn history-kind-label
   "Render a history `:kind` keyword (`:shallow` / `:deep`) as a UI label."

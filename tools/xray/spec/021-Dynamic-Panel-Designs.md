@@ -1582,28 +1582,47 @@ rather than collapsing to a plain `reg-event-db` handler.
   `spawned`, off the `:rf.machine/started` trace's `:cause`. The `lazy`
   cause is the ordering-smell flag (warning tone); `explicit` / `spawned`
   ride the muted neutral tone.
-- **`for <state>` clause** (`:action` rows only — rf2-2hj0h item 6) — after
-  the merged action badge the header reads ` for <state> ` then the action
-  name (the verb), e.g. `[EXIT ACTION] for :closed :clear-hold` /
-  `[ENTRY ACTION] for :open :count-open`. `<state>` is the state the action
-  BELONGS TO — the EXITED (`:source-state`) state for an exit-phase action,
-  the ENTERED (`:target-state`) state for an entry-phase action (the LCA
-  `:transition`-phase action anchors on the source state). It reads off the
-  `:source-state` / `:target-state` slots `enrich-cascade-rows` stamps
-  (`format/cascade-action-for-state`); the clause is OMITTED (no dangling
-  `for`) when no state was stamped.
+- **`for <state>` clause** (`:action` AND `:guard` rows — rf2-2hj0h item 6
+  + rf2-h710p item B) — after the kind pill / merged action badge the header
+  reads ` for <state> ` then the verb (the action-id / guard-id), e.g.
+  `[EXIT ACTION] for :closed :clear-hold` / `[ENTRY ACTION] for :open
+  :count-open` / `[GUARD] for :open :may-close?`. `<state>` is the state the
+  row BELONGS TO:
+  - For an `:action` row — the EXITED (`:source-state`) state for an
+    exit-phase action, the ENTERED (`:target-state`) state for an
+    entry-phase action (the LCA `:transition`-phase action anchors on the
+    source state); `format/cascade-action-for-state`.
+  - For a `:guard` row — the GATED state, i.e. the transition's
+    `:source-state` (the state whose `:on` map carries the guard);
+    `format/cascade-guard-for-state`.
+
+  Both read off the `:source-state` / `:target-state` slots
+  `enrich-cascade-rows` stamps off the surrounding `:transition` row. The
+  clause is OMITTED (no dangling `for`) when no state was stamped. Rendered
+  by the kind-agnostic `cascade-for-state-clause` (the caller picks the
+  resolved state per kind).
 - **Verb** — the action-id / guard-id / transition headline / timer
   state, rendered as a click-to-source button when a `{:file :line}`
   coord resolves for the row (a named guard/action reads its co-located
   `:source-coords`; a reference-site `[:states ...]` key reads the
   `:source-coords` off the nearest enclosing `:states`-tree map node —
   rf2-vqja2). Falls back to a plain coloured span when no coord was
-  captured.
+  captured. **For a `:guard` row the verb is the bare guard-id** (rf2-h710p
+  item B) — the leading `guard` word that prefixed it pre-rf2-h710p was
+  redundant (the `[GUARD]` kind pill already names the kind), so it is
+  dropped; the gated state rides the `for <state>` clause above.
 - **Duration chip** — right-aligned monospace; paints long-step
   warning chrome (`▲` + warning tone) when `:duration-ms` exceeds
   `projection/long-step-threshold-ms` (16ms — one 60Hz frame).
-- **Outcome chip** — kind-specific:
-  - `:guard` → `✓ pass / ▲ fail / ✗ threw`
+- **Outcome chip** — kind-specific. Right-aligned (in the duration-chip
+  slot) for `:transition` / `:timer`; **INLINE** (in the header flow,
+  straight after the verb + its click-to-source glyph) for `:guard`:
+  - `:guard` → `✓ pass / ▲ fail / ✗ threw`, rendered **INLINE** after the
+    guard name + source glyph (`[GUARD] for :open :may-close? ↗ pass` —
+    rf2-h710p item C), NOT right-aligned. The guard pass/fail is MEANINGFUL
+    (it decides the branch — distinct from the rf2-2hj0h item-7 ACTION
+    ok-tick that was removed), so it stays; keeping it inline puts the
+    verdict beside the predicate that produced it.
   - `:action` → **NO outcome chip** (rf2-2hj0h item 7 — success is CLEAN, no
     `✓ ok` tick; the prior tick was redundant chrome in the normal case).
     Failure is the **EXCEPTION BOX** below the code (item 8 — see §Per-row
