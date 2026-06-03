@@ -115,6 +115,65 @@
     (is (nil? (:pulse-duration-ms tokens/motion))
         "pulse-duration-ms removed (rf2-2sez0)")))
 
+;; ---- chart semantic tokens + theme resolution (rf2-az6e2) --------------
+
+(deftest theme-palette-resolves-dark-and-light
+  (testing "rf2-az6e2 — `theme-palette` maps the `:theme` prop keyword
+            to its base palette; nil / unknown falls back to the dark
+            palette (the Xray default surface)."
+    (is (= tokens/dark-palette  (tokens/theme-palette :dark)))
+    (is (= tokens/light-palette (tokens/theme-palette :light)))
+    (is (= tokens/dark-palette  (tokens/theme-palette nil)))
+    (is (= tokens/dark-palette  (tokens/theme-palette :sepia)))))
+
+(deftest chart-tokens-is-a-map-of-strings
+  (testing "rf2-az6e2 — `chart-tokens` resolves every semantic chart
+            role to a non-nil hex / rgba string. A nil here would
+            propagate a literal 'null' into a node/edge inline style."
+    (doseq [palette [tokens/dark-palette tokens/light-palette]]
+      (let [ct (tokens/chart-tokens palette)]
+        (is (map? ct))
+        (is (every? string? (vals ct))
+            "every chart-token role resolves to a string")))))
+
+(deftest chart-tokens-default-is-dark
+  (testing "rf2-az6e2 — the no-arg arity resolves the dark surface so a
+            renderer that never threads a palette still paints dark."
+    (is (= (tokens/chart-tokens) (tokens/chart-tokens tokens/dark-palette)))))
+
+(deftest chart-tokens-theme-differs-between-palettes
+  (testing "rf2-az6e2 — theme support is REAL: the resolved chart-token
+            map differs between dark and light (a renderer reading the
+            active palette paints the active theme, not a hardwired dark
+            alias). The :state-body-bg role tracks the palette's bg-2,
+            which inverts between themes."
+    (let [dark  (tokens/chart-tokens tokens/dark-palette)
+          light (tokens/chart-tokens tokens/light-palette)]
+      (is (not= (:state-body-bg dark) (:state-body-bg light)))
+      (is (= (:bg-2 tokens/dark-palette)  (:state-body-bg dark)))
+      (is (= (:bg-2 tokens/light-palette) (:state-body-bg light))))))
+
+(deftest chart-tokens-runtime-accents-reserved
+  (testing "rf2-az6e2 — structure wins over annotation colour: the
+            STATIC structural roles (container/region border, state
+            border, event-chip) are neutral (palette border/bg tokens),
+            while the accent (`:focus`) + active (`:active`) roles are
+            reserved for RUNTIME state. The container border MUST NOT be
+            the accent hue (no saturated accent wash on a resting
+            compound)."
+    (let [ct (tokens/chart-tokens tokens/dark-palette)]
+      (is (= (:border-default tokens/dark-palette) (:container-border ct)))
+      (is (= (:border-default tokens/dark-palette) (:region-border ct)))
+      (is (= (:info tokens/dark-palette)   (:active ct)))
+      (is (= (:accent tokens/dark-palette) (:focus ct)))
+      (is (not= (:accent tokens/dark-palette) (:container-border ct))))))
+
+(deftest chart-label-stack-is-sans
+  (testing "rf2-az6e2 — the chart-label font token is sans (structure-
+            first reading); recorded decision: mono retained only for
+            the raw-EDN context panel."
+    (is (= tokens/sans-stack tokens/chart-label-stack))))
+
 ;; ---- tag-pill colour rotation (rf2-m1b88; rf2-a2b55 restored) ----------
 
 (deftest tag-pill-color-is-deterministic

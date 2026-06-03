@@ -153,6 +153,44 @@
    :action-pill-gap        4
    :action-pill-row-gap    4
 
+   ;; ── structured topology grammar (rf2-az6e2) ──────────────────
+   ;; State title/body box geometry.
+   :state-title-height     24    ;; full-width title strip height
+   :state-title-pad-x      10
+   :state-title-px         13    ;; title font-size (sans, structure-first)
+   :state-body-pad-x       10
+   :state-body-pad-y       8
+   :state-body-gap         4     ;; vertical gap between body rows
+   :state-divider-width    1     ;; title/body hairline divider
+   :state-shadow-blur      6     ;; resting drop-shadow blur radius
+   ;; Compound container chrome.
+   :container-title-height 26
+   :container-title-pad-x  12
+   :container-body-pad     14    ;; inset around children below the strip
+   :container-divider-width 1
+   ;; Parallel-region chrome.
+   :region-title-height    24
+   :region-title-pad-x     10
+   ;; Action-section caption ("Entry actions" / "Exit actions").
+   :action-caption-px      8
+   :action-caption-gap     2
+   ;; Event route chip.
+   :event-chip-min-w       92
+   :event-chip-min-h       32
+   :event-chip-pad-x       10
+   :event-chip-pad-y       4
+   :event-chip-radius      5
+   :event-chip-px          11    ;; event label / guard font-size
+   :event-chip-action-px   9     ;; action-row font-size
+   ;; Pseudo-state markers (initial dot, history H/H* hook).
+   :pseudo-size            12
+   :pseudo-radius          6
+   :pseudo-px              8
+   ;; Root chrome (title strip + context panel).
+   :root-title-height      30
+   :root-title-px          14
+   :root-context-pad       8
+
    ;; ── dot-grid background (rf2-m4nj4) ──────────────────────────
    :dot-grid-spacing-px    16
    :dot-grid-radius-px     1.0
@@ -208,6 +246,37 @@
    :action-pill-gap        3
    :action-pill-row-gap    3
 
+   ;; ── structured topology grammar (rf2-az6e2 — ~25% tighter) ───
+   :state-title-height     20
+   :state-title-pad-x      8
+   :state-title-px         11
+   :state-body-pad-x       8
+   :state-body-pad-y       6
+   :state-body-gap         3
+   :state-divider-width    1
+   :state-shadow-blur      4
+   :container-title-height 22
+   :container-title-pad-x  10
+   :container-body-pad     11
+   :container-divider-width 1
+   :region-title-height    20
+   :region-title-pad-x     8
+   :action-caption-px      7
+   :action-caption-gap     2
+   :event-chip-min-w       76
+   :event-chip-min-h       26
+   :event-chip-pad-x       8
+   :event-chip-pad-y       3
+   :event-chip-radius      4
+   :event-chip-px          9
+   :event-chip-action-px   7
+   :pseudo-size            10
+   :pseudo-radius          5
+   :pseudo-px              7
+   :root-title-height      26
+   :root-title-px          12
+   :root-context-pad       6
+
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    12
    :dot-grid-radius-px     0.85
@@ -260,6 +329,37 @@
    :action-pill-radius     8
    :action-pill-gap        5
    :action-pill-row-gap    5
+
+   ;; ── structured topology grammar (rf2-az6e2 — ~25% looser) ────
+   :state-title-height     28
+   :state-title-pad-x      12
+   :state-title-px         15
+   :state-body-pad-x       12
+   :state-body-pad-y       10
+   :state-body-gap         5
+   :state-divider-width    1
+   :state-shadow-blur      8
+   :container-title-height 30
+   :container-title-pad-x  14
+   :container-body-pad     18
+   :container-divider-width 1
+   :region-title-height    28
+   :region-title-pad-x     12
+   :action-caption-px      9
+   :action-caption-gap     3
+   :event-chip-min-w       108
+   :event-chip-min-h       38
+   :event-chip-pad-x       12
+   :event-chip-pad-y       5
+   :event-chip-radius      6
+   :event-chip-px          13
+   :event-chip-action-px   11
+   :pseudo-size            14
+   :pseudo-radius          7
+   :pseudo-px              9
+   :root-title-height      34
+   :root-title-px          16
+   :root-context-pad       10
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    20
