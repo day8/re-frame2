@@ -369,7 +369,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
 
 ### See also
 
-- [02 — Views](02-views.md) for `reg-view*` in detail, the `view` lookup form, and the substrate-agnostic ergonomic surface (`dispatcher`, `subscriber`, `with-frame`).
+- [02 — Views](02-views.md) for `reg-view*` in detail, the `view` lookup form, and the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn`, `with-frame`).
 - [03 — Effects and interceptors](03-effects.md) for what the `reg-event-fx` handler's return value can carry.
 - [12 — Registrar](12-registrar.md) for the read-side of the registrar — `registrations`, `handler-ids`, `handler-meta`.
 
@@ -507,7 +507,7 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 
 ### See also
 
-- [02 — Views](02-views.md) — `dispatcher` and `subscriber` capture the current frame at call time and return frame-bound fns that survive callbacks where the dynamic-var binding has unwound.
+- [02 — Views](02-views.md) — `frame-handle` and `frame-bound-fn` capture the current frame at creation time and return frame-bound ops/fns that survive callbacks where the dynamic-var binding has unwound.
 - [03 — Effects and interceptors](03-effects.md) — the effect map's `:fx` vector is how event handlers schedule more dispatches.
 
 ## Frames: the scoping primitive

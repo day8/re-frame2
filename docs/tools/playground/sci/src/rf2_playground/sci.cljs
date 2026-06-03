@@ -73,9 +73,10 @@
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event-db, reg-event-fx,
 ;; reg-sub, reg-fx, reg-cofx, ...), plus init!, configure, clear-event,
-;; current-frame, dispatcher, subscriber, etc. The macro-only public
-;; names (dispatch/dispatch-sync/subscribe/inject-cofx) have no
-;; same-named runtime var so they are NOT in the copy; we add them below.
+;; current-frame-id, frame-handle, frame-bound-fn*, app-db-value, etc.
+;; The macro-only public names (dispatch/dispatch-sync/subscribe/
+;; inject-cofx) have no same-named runtime var so they are NOT in the
+;; copy; we add them below.
 ;;
 ;; Machines (rf2-ldgpd): `reg-machine` is also a JVM-only macro on the
 ;; public surface (per-element source-coord stamping at expansion time);

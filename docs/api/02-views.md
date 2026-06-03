@@ -1,8 +1,8 @@
 # 02 — Views
 
-Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the same `reg-view` registration works against Reagent, UIx, and Helix; the same `dispatcher` and `subscriber` helpers compose across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
+Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the same `reg-view` registration works against Reagent, UIx, and Helix; the same `frame-handle` and `frame-bound-fn` helpers compose across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
 
-This chapter covers the registration surface (`reg-view`, `reg-view*`, `view`), the substrate-agnostic ergonomic surface (`dispatcher`, `subscriber`, `with-frame`, `bound-fn`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+This chapter covers the registration surface (`reg-view`, `reg-view*`, `view`), the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
 
 ## The view registry
 
@@ -98,7 +98,7 @@ Bare keyword-tagged hiccup (`[:my-view "args"]`) is **removed in v2** — it was
 
 ## The substrate-agnostic ergonomic surface
 
-These five surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom.
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider`, `with-frame` / `with-new-frame`), **hold** (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
@@ -119,58 +119,76 @@ These five surfaces work the same across Reagent, UIx, and Helix. They're how vi
   ```
 - **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
-### `bound-fn`
+### `frame-handle`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (frame-handle)          → {:frame :dispatch :dispatch-sync :subscribe}
+  (frame-handle frame-id) → {:frame :dispatch :dispatch-sync :subscribe}
+  ```
+- **Description**: The keystone affordance. Captures the active frame at CREATION time and returns an **operation bundle** whose `:dispatch` / `:dispatch-sync` / `:subscribe` ops always target the captured frame — they survive async boundaries (`Promise.then`, `setTimeout`, WebSocket `onmessage`, observer callbacks) where the ambient frame lookup would have unwound. The handle is *locked* to one frame: a per-call `:frame` opt MUST NOT override it. It's an operation bundle, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
+- **Example**:
+  ```clojure
+  (rf/reg-view stream-view []
+    (let [{:keys [dispatch]} (rf/frame-handle)]          ;; captures the render frame
+      (ws/subscribe! (fn [msg] (dispatch [::incoming msg]))) ;; fires LATER, but bound
+      [:div "streaming…"]))
+  ```
+
+### `frame-bound-fn`
 
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (bound-fn [args] body)
+  (frame-bound-fn [args] body)
   ```
-- **Description**: "Capture the current dynamic-var bindings (frame, registrar, etc.) into a closure that will be invoked later, possibly after the calling stack has unwound." CLJS-only macro. Use for event-callback wiring where Promise / setTimeout / IntersectionObserver / WebSocket message handlers run outside the original render call.
+- **Description**: The `fn`-syntax twin of `frame-handle` for the case where the value you carry across the boundary isn't a dispatch/subscribe op but an arbitrary fn whose body re-establishes the frame (an async result handler, an interval handle, a fn that calls `current-frame-id` internally). Captures the active frame at the lexical-binding moment; when the returned fn is later invoked, it runs in a `binding [*current-frame* <captured-frame>]` block, so plain `dispatch` / `subscribe` inside the body pick up the right frame regardless of when the call fires. CLJS-only macro.
+- **Example**:
+  ```clojure
+  (rf/reg-view alert-widget []
+    [:button {:on-click (rf/frame-bound-fn [_]                ;; captures NOW
+                          (.then (fetch "/notify")
+                                 (fn [_] (rf/dispatch [::notified]))))} ;; runs LATER, but bound
+     "Notify"])
+  ```
 
-### `dispatcher`
+### `frame-bound-fn*`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (dispatcher) → (fn [event] ...)
+  (frame-bound-fn* f)          → frame-bound fn
+  (frame-bound-fn* frame-id f) → frame-bound fn
   ```
-- **Description**: "Hand me a frame-bound dispatch function I can call later." Captures the current frame at call time and returns a closure that dispatches against that frame. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound.
-
-### `subscriber`
-
-- **Kind**: function
-- **Signature**:
+- **Description**: The `*`-twin of `frame-bound-fn` — wraps an existing fn value (or one returned by another helper / library) rather than taking `fn`-syntax. The 2-arity form takes an explicit `frame-id`, so no surrounding `with-frame` / `frame-provider` is needed at wrap time — useful at module top level, in `install!` routines, and in module helpers.
+- **Example**:
   ```clojure
-  (subscriber) → (fn [query-v] ...)
+  ;; wrap an existing fn — captures the ambient frame
+  (rf/frame-bound-fn* (fn [msg] (rf/dispatch [::incoming msg])))
+
+  ;; wrap with an explicit frame-id — no ambient frame needed
+  (rf/frame-bound-fn* :rf/xray
+    (fn [_e mode] (rf/dispatch [::set-mode mode])))
   ```
-- **Description**: "Hand me a frame-bound subscribe function I can call later." Companion to `dispatcher` for the subscribe side.
 
-### When to use `dispatcher` / `subscriber` instead of `dispatch` / `subscribe`
+### When to reach for `frame-handle` / `frame-bound-fn`
 
-The verbs `dispatch` and `subscribe` read the current frame from the dynamic-var stack at call time. That's fine when the call sits *inside* the cascade — inside a render, an event handler, a sub computation. It breaks when the call sits *outside* the cascade — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the dynamic-var binding has unwound, and `(rf/dispatch [::foo])` will hit the default frame (or throw, depending on the substrate).
+The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context → `:rf/default`) at call time. That's fine when the call sits *inside* the cascade — inside a render, an event handler, a sub computation. It breaks when the call sits *outside* the cascade — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient binding has unwound, and a bare `(rf/dispatch [::foo])` falls through to `:rf/default` (and trips the `:rf.warning/dispatch-from-async-callback-fell-through-to-default` warning).
 
-The fix is to capture the frame *at the point you have it* and use the captured closure later:
+The fix is to capture the frame *at the point you have it* and carry it as a value:
 
-```clojure
-(rf/reg-view alert-widget []
-  (let [dispatch (rf/dispatcher)]                          ;; captures NOW
-    [:button {:on-click
-              (fn [_]
-                (.then (fetch "/notify")
-                       (fn [_] (dispatch [::notified]))))} ;; runs LATER, but bound
-     "Notify"]))
-```
-
-The pattern composes inside `with-frame`:
+- **`frame-handle`** — the common case. You need a `:dispatch` / `:subscribe` op to hand to a callback or an async library. Build it inside a render body or under `with-frame`; store the bundle; invoke its ops from any later async context.
+- **`frame-bound-fn` / `frame-bound-fn*`** — when the value crossing the boundary is an arbitrary fn whose body must re-establish the frame (so plain `dispatch` / `subscribe` *inside that fn* resolve correctly), not a single dispatch/subscribe op. The macro takes `fn`-syntax; the `*`-twin wraps an existing fn and accepts an explicit `frame-id`.
 
 ```clojure
+;; frame-handle composes inside with-frame
 (rf/with-frame :tool
-  (let [dispatch (rf/dispatcher)]              ;; captures :tool frame
-    (js/setTimeout #(dispatch [::tick]) 1000))) ;; fires :tool even after with-frame unwinds
+  (let [{:keys [dispatch]} (rf/frame-handle)]   ;; captures :tool frame
+    (js/setTimeout #(dispatch [::tick]) 1000)))  ;; fires :tool even after with-frame unwinds
 ```
 
-`bound-fn` is the broader hammer — it captures *every* dynamic-var binding into the closure, not just the frame. Use `dispatcher` / `subscriber` for the common frame-capture case; reach for `bound-fn` when the closure needs to honour other bindings (interceptor overrides, the dev-time trace context, etc.).
+Full async-boundary contract (the four routing patterns and the React click-handler case): [Spec 002 §React click-handler routing](../../spec/002-Frames.md#react-click-handler-routing--the-canonical-pattern).
 
 ### `with-frame` and `with-new-frame` — the sibling pair
 
@@ -237,11 +255,11 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
   (use-subscribe query-v) → value
   (use-subscribe frame-kw query-v) → value
   ```
-- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/dispatcher)` directly.
+- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/frame-handle)` directly.
 - **Example**:
   ```clojure
   (let [count    (uix-adapter/use-subscribe [:count])
-        dispatch (rf/dispatcher)]
+        {:keys [dispatch]} (rf/frame-handle)]
     ($ :button {:on-click #(dispatch [:inc])} count))
   ```
 - **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
@@ -308,6 +326,6 @@ Full contract: [Spec 006 §Source-coord annotation](../../spec/006-ReactiveSubst
 
 ## See also
 
-- [01 — Core](01-core.md) — `dispatch`, `subscribe`, `reg-view` rowed in registration.
+- [01 — Core](01-core.md) — `dispatch`, `subscribe`, `reg-view`, and the `{:frame …}` override opt rowed in registration.
 - [03 — Effects and interceptors](03-effects.md) — `with-fx-overrides` for scoping fx behaviour inside a view's event handlers.
 - [14 — Adapters](14-adapters.md) — full per-substrate surface tables.

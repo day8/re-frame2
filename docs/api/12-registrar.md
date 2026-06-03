@@ -83,14 +83,14 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```
 - **Description**: "What did `reg-frame` / `make-frame` stamp at this frame?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
 
-### `get-frame-db`
+### `app-db-value`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (get-frame-db frame-id) → app-db value (plain map)
+  (app-db-value frame-id) → app-db value (plain map)
   ```
-- **Description**: "What's the current `app-db` for this frame?" Returns `nil` for an unknown / destroyed frame.
+- **Description**: "What's the current `app-db` value for this frame?" Returns the deref'd `app-db` map (a plain value, not the container) — `nil` for an unknown / destroyed frame. The internal container accessor is `re-frame.frame/app-db-container`; app and tool code want the value, so reach for `app-db-value`.
 
 ### `snapshot-of`
 
@@ -100,7 +100,7 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   (snapshot-of path)
   (snapshot-of path opts)
   ```
-- **Description**: "What's at this path in `app-db` right now?" Convenience over `get-frame-db` + `get-in`.
+- **Description**: "What's at this path in `app-db` right now?" Convenience over `app-db-value` + `get-in`.
 
 ## Sub graph
 
@@ -152,7 +152,7 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
 
 The pair-tool surfaces all share a common behaviour against destroyed frames, documented at [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames):
 
-- `get-frame-db` → `nil`
+- `app-db-value` → `nil`
 - `epoch-history` → `[]`
 - `restore-epoch` → `false` (and emits `:rf.error/no-such-handler` of kind `:frame`)
 - `reset-frame-db!` → `false` (same error)
