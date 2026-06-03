@@ -212,7 +212,23 @@ convention while keeping every event independently click-addressable.
 later **retired** in rf2-0xbgx — events-as-nodes (rf2-qo5xy) moved
 labels onto event-nodes, leaving the edge-label sweep inert; elk
 layout + events-as-nodes makes label-on-node-body collisions a
-non-issue.)
+non-issue.) **rf2-rlq97** then closed the remaining d9ro2 follow-on
+class — d9ro2 sized the node BOXES from their measured DOM, but the
+edges + their clearances were not yet fully ELK-budgeted, so arrows
+could still clip node boxes and densely-packed event-nodes could crowd.
+The fix fed the edges into the ELK graph through the pure
+`chart.projection/->elk-edges` and added edge-to-node / edge-to-edge
+clearance + edge-label-placement keys to `default-elk-options`
+(`elk.spacing.edgeNode`, `elk.layered.spacing.edgeNodeBetweenLayers`,
+`elk.spacing.edgeEdge`, `elk.edgeLabels.placement CENTER`,
+`elk.spacing.edgeLabel`), so ORTHOGONAL routes go AROUND node boxes and
+ELK places any labelled edge's text in a reserved channel — the
+renderer reads ELK's computed label position (`:edge-labels` →
+`:data {:labelPos}`) instead of the middle-segment-midpoint heuristic.
+This stays the deterministic d9ro2 two-pass (measure → one relayout); no
+convergence loop. Self-loops are already dissolved by events-as-nodes
+(a spec self-transition is `state → event-node → state`, two ordinary
+ELK-routed edges), so the renderer-side self-loop fan is fallback-only.
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -224,7 +240,7 @@ new), and the parity-bar row it serves.
 | # | Gap | Severity | Serves bar | Bead |
 |---|---|---|---|---|
 | **G1** | ✅ **CLOSED (rf2-yoe6e / rf2-g2svr).** Was: a parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returned nil for a map, so the chart highlighted **none** (or only a degenerate single id). Now: `highlight-ids` resolves the whole `:state` (flat / compound / region-map, nested values → deepest leaf) to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so all N regions light up at once — Stately's §1.2 read. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e ✅ · **impl:** rf2-g2svr ✅ |
-| **G2** | ✅ **CLOSED (rf2-cz8v6).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. Now: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). Self-loops keep their loop path; no-route edges fall back to the bezier; G1's active-edge highlight survives the new path. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ |
+| **G2** | ✅ **CLOSED (rf2-cz8v6) → HARDENED (rf2-rlq97).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. rf2-cz8v6: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). rf2-rlq97 (d9ro2 follow-on): the edges are fed into the ELK graph through the pure `chart.projection/->elk-edges`, and `default-elk-options` gained edge-to-node / edge-to-edge **clearance** (`elk.spacing.edgeNode`, `elk.layered.spacing.edgeNodeBetweenLayers`, `elk.spacing.edgeEdge`) so routes keep a gap from node boxes (kills the "arrows over states" residue) **plus** label-placement keys (`elk.edgeLabels.placement CENTER`, `elk.spacing.edgeLabel`) so ELK *places* any labelled edge's text in a reserved channel (`:edge-labels` → `:data {:labelPos}`), the renderer painting ELK's position instead of the midpoint heuristic. Self-loops are dissolved by events-as-nodes (`state → event-node → state`), so the renderer-side loop path is fallback-only; no-route edges fall back to the bezier; G1's active-edge highlight survives. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ · **harden:** rf2-rlq97 ✅ |
 | **G3** | ✅ **CLOSED (rf2-8jzm1 + rf2-qeemm).** Was: to highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping had to mint the **same** `edge-id` `chart.layout` mints, and the ids weren't wired through to the canvas. Now: `extract-fired-edge-ids` (rf2-8jzm1) projects the definition through the public `parse-definition` and reads ids off the projected edges — they agree with the live chart **by construction**; rf2-qeemm threads them as `:fired-edge-ids` (set) into `MachineChart`, the projector marks each matching edge `:fired`, and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) on the live canvas. Matches the EDGE directly so every traversed arm (microsteps, guard-fork candidates) lights up. **Palette delegated to Figma.** | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 ✅ · **wire:** rf2-qeemm ✅ |
 | **G4** | ✅ **CLOSED (rf2-80rm2).** Was: once G1 lit N region LEAVES, the **region CONTAINER** still read structural-only — an active region was indistinguishable from an inactive one at the zone level. Now: `xyflow-graph` folds a container (region OR compound) into `:active` when any descendant leaf is active — walked UP the `:parent-id` chain every node already carries (reuses the G1 active set; no path-prefix reimplementation). `parallel-region-node` / `compound-node` paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so each active region reads as active at a glance and the N active regions read as a set. **Palette delegated to Figma.** | **Low–Medium** | §1.2 | **impl:** rf2-80rm2 ✅ |
 | **G5** | ✅ **CLOSED (rf2-gpa9k).** Was: elk routes cross-hierarchy edges only when the switch is activated on the top level (§1.7), and while `->elk-input` already set it, **nothing asserted it** — drop the line and no test would catch the regression. Now: the cross-hierarchy switch is `elk.hierarchyHandling INCLUDE_CHILDREN` on the root `layoutOptions`, set by the pure `chart.cljs/elk-layout-options` whenever the graph nests (`:parallel?` OR some node has a `:parent-id` — compound substate or parallel-region leaf); it is what lets the Layered algorithm route edges ACROSS nesting levels (its default `SEPARATE_CHILDREN` lays each level out independently and never routes cross-hierarchy edges). So an edge from a deeply-nested leaf to a top-level state routes cleanly, and G2's bend-points (rf2-cz8v6) come back as legible absolute coords. The capability rode in with G2; rf2-gpa9k extracted the option-computation into the assertable `elk-layout-options` and added the regression guard (nested/parallel ⇒ switch present, flat ⇒ absent, G2 routing keys pinned). | **Low** | §1.7 | **impl:** rf2-cz8v6 ✅ (capability) · **assert:** rf2-gpa9k ✅ |
@@ -319,6 +335,34 @@ not **which colour**.
   renders a **rounded poly-path** through the bend points instead of a
   single bezier between handles. This is what stops an edge cutting
   across a nested container at machine sizes (§1.7).
+- ✅ **Feed edges + clear + place labels in ELK (rf2-rlq97/G2 harden —
+  DONE; d9ro2 follow-on).** The edges are projected into the ELK graph
+  by the pure `chart.projection/->elk-edges` (lifted out of the inline
+  JS-side `mapcat` so the edge-feed is JVM-pinnable, mirroring
+  `->elk-children`), and `default-elk-options` gained the **clearance**
+  keys `elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers`
+  / `elk.spacing.edgeEdge`. ORTHOGONAL routing alone draws Manhattan
+  routes but, with no edge-to-node spacing, lets a passing route hug or
+  clip a node box — the "arrows route OVER state nodes" residue d9ro2's
+  node-measure (node↔node sizing) could not converge. The clearance keys
+  reserve the channel so routes go AROUND nodes. For LABELS, ELK now owns
+  placement (`elk.edgeLabels.placement CENTER` + `elk.spacing.edgeLabel`):
+  `->elk-edge` feeds each edge a `:labels` entry carrying the **measured**
+  label box (the edge-label analogue of d9ro2's node measure) when an
+  edge renders its own label; `elk-result->positions` lifts ELK's
+  computed position into `:edge-labels` (`{elk-edge-id {:x :y}}`, the
+  LABEL analogue of `:edge-points`); the projector threads it onto
+  `:data {:labelPos}`; and `edges.cljs/edge-path` anchors the label at
+  ELK's position rather than the middle-segment-midpoint heuristic.
+  **Under events-as-nodes the transition text is on the event-NODE**
+  (already ELK-measured + -placed by d9ro2's measure pass), so the
+  `__in` / `__out` edges carry empty labels, `:edge-labels` is empty, and
+  the midpoint heuristic survives only as the no-ELK-label fallback —
+  but the clearance keys still apply to every route. Stays the
+  deterministic d9ro2 two-pass (measure → one relayout); no convergence
+  loop. The renderer-side self-loop fan is fallback-only (a spec
+  self-transition routes as `state → event-node → state`, two ordinary
+  ELK edges).
 - ✅ **Assert cross-hierarchy edge routing (rf2-gpa9k/G5 — DONE).** The
   top-level cross-hierarchy switch is `elk.hierarchyHandling
   INCLUDE_CHILDREN` on the root `layoutOptions`, set by

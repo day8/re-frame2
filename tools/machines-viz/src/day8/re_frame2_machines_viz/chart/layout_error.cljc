@@ -34,7 +34,7 @@
         bloat the bus.
 
     - `(layout-error-result err parsed direction layout-options)`
-        → `{:positions {} :edge-points {}
+        → `{:positions {} :edge-points {} :edge-labels {}
             :layout-error {:error <error-data>
                            :input-summary <summary>}}`
         The callback result-map handed to `done-fn` on failure. The
@@ -90,12 +90,17 @@
 
 (defn layout-error-result
   "Build the result-map the layout callback receives on ELK failure.
-  Empty `:positions` + `:edge-points` (the projector still renders,
-  every node at default origin — same as a pre-layout commit) plus
-  `:layout-error` so the chart can paint the in-panel indicator
-  banner. Pure fn."
+  Empty `:positions` + `:edge-points` + `:edge-labels` (the projector
+  still renders, every node at default origin — same as a pre-layout
+  commit) plus `:layout-error` so the chart can paint the in-panel
+  indicator banner. Pure fn.
+
+  rf2-rlq97 — `:edge-labels` mirrors the success-path
+  `elk-result->positions` shape (elk's computed edge-label positions);
+  empty on failure, same as `:edge-points`."
   [error parsed direction layout-options]
   {:positions    {}
    :edge-points  {}
+   :edge-labels  {}
    :layout-error {:error         (error->data error)
                   :input-summary (input-summary parsed direction layout-options)}})

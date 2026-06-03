@@ -60,7 +60,7 @@ registry).
 | `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a state node; `path` is the clicked node's path. No-op'd when `:read-only?` is true. |
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
 | `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom; `:lr` left-to-right. Fed to elkjs as `elk.direction`. |
-| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
+| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). `default-elk-options` carries `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT` (G2 bend-point routing) plus the edge-clearance keys (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` / `elk.spacing.edgeEdge`) and label-placement keys (`elk.edgeLabels.placement CENTER` / `elk.spacing.edgeLabel`) so ELK routes edges *around* nodes and *places* labels in reserved channels (rf2-rlq97). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
 | `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. |
 | `:height` | no | `"100%"` | Outer wrapper height (CSS string). xyflow requires a non-zero parent height. |
 | `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |
@@ -342,6 +342,34 @@ falls back to the bezier. *(Before rf2-r636q the consumer looked up the
 bare `<spec-edge-id>`, which the producer never emits post-rf2-qo5xy, so
 G2 routing was silently dead — every edge fell back to a straight
 bezier.)*
+
+**Edges + labels are ELK-routed/-placed, not renderer-drawn
+(rf2-rlq97).** The edges are *fed into* the ELK graph
+(`chart.projection/->elk-edges` — the pure projector lifted out of
+`chart.cljs/->elk-input`, JVM-pinnable like the node feed), and the root
+`default-elk-options` carry the edge-clearance keys
+(`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` /
+`elk.spacing.edgeEdge`) so the `ORTHOGONAL` routing goes *around* node
+boxes instead of clipping them (closes the "arrows route over states"
+class d9ro2's node-measure did not). ELK also owns edge-LABEL
+PLACEMENT: `default-elk-options` sets `elk.edgeLabels.placement CENTER`
++ `elk.spacing.edgeLabel`, `->elk-edge` feeds each edge a `:labels`
+entry (carrying the MEASURED label box — the edge-label analogue of
+d9ro2's node measure — when an edge renders its own label), and
+`elk-result->positions` lifts ELK's computed position into the
+`:edge-labels` map (`{elk-edge-id {:x :y}}`, the LABEL analogue of
+`:edge-points`). The projector threads it onto the edge `:data
+{:labelPos}` and `chart.edges/edge-path` anchors the label THERE
+instead of the old middle-segment-midpoint heuristic. **Under
+events-as-nodes the transition text rides on the event-NODE** (already
+ELK-measured + -placed via `elk-event-child` + the d9ro2 measure pass),
+so the `__in` / `__out` edges carry an empty label, `:edge-labels` is
+empty, and the geometric midpoint anchor remains only as the
+no-ELK-label fallback. There is also no live self-loop edge to special-
+case: a spec self-transition projects as `state → event-node → state`
+(two ordinary edges, both ELK-routed), so the renderer-side self-loop
+fan + the cross-hierarchy source-bend anchor in `chart.edges` are
+fallback-only paths, never hit by the live chart.
 
 elkjs lays out event-nodes as siblings of their source state's
 parent container: an event declared inside a compound substate nests

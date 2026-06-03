@@ -1072,6 +1072,148 @@
         (is (every? #(= projection/state-node-min-width (:width %)) leaves)
             "every leaf at the width floor when unmeasured")))))
 
+;; ---- ->elk-edge / ->elk-edges (rf2-rlq97) ------------------------------
+;;
+;; The edges ARE fed into the ELK graph (this is what lets the Layered
+;; algorithm route them AROUND node boxes instead of the renderer drawing
+;; geometric paths that cut across states). `->elk-edge` is the pure
+;; projector for one transition's `__in` / `__out` ELK edge pair, lifted
+;; out of the inline `mapcat` that used to live JS-side in
+;; `chart.cljs/->elk-input` so the edge-feed is pinnable at the JVM layer.
+
+(deftest elk-edge-emits-in-and-out-for-external-transition
+  (testing "rf2-rlq97 — an external transition (has :target) feeds TWO
+            ELK edges: source-state → event-node (__in) and event-node →
+            target-state (__out), so ELK routes both segments around any
+            intervening node"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          start    (->> (:edges parsed)
+                        (filter #(= idle-id (:source %)))
+                        first)
+          ev-id    (projection/event-node-id start)
+          elk-eds  (projection/->elk-edge start)]
+      (is (= 2 (count elk-eds)) "external transition → __in + __out")
+      (let [in-e  (first (filter #(= (str (:id start) "__in")  (:id %)) elk-eds))
+            out-e (first (filter #(= (str (:id start) "__out") (:id %)) elk-eds))]
+        (is (some? in-e))  (is (some? out-e))
+        (is (= [idle-id] (:sources in-e)) "__in source is the source state")
+        (is (= [ev-id]   (:targets in-e)) "__in target is the event-node")
+        (is (= [ev-id]   (:sources out-e)) "__out source is the event-node")
+        (is (= [(:target start)] (:targets out-e))
+            "__out target is the transition target state")))))
+
+(deftest elk-edge-omits-out-for-internal-transition
+  (testing "rf2-rlq97 — an internal transition (no :target) feeds ONLY
+            the __in ELK edge; the event-node hangs with no outgoing
+            arrow (Stately convention)"
+    (let [parsed  (layout/parse-definition internal-self-machine)
+          tick    (first (:edges parsed))
+          elk-eds (projection/->elk-edge tick)]
+      (is (true? (:internal? tick)) "fixture is an internal transition")
+      (is (= 1 (count elk-eds)) "internal transition → __in only")
+      (is (= (str (:id tick) "__in") (:id (first elk-eds)))))))
+
+(deftest elk-edge-carries-labels-array
+  (testing "rf2-rlq97 — every ELK edge carries a :labels array (ELK
+            requires one). Under events-as-nodes the transition text is
+            on the event-NODE so the edge label text is empty + carries
+            NO measured dims (feeding dims on both the node AND its edges
+            would double-budget the same text)"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          start    (->> (:edges parsed)
+                        (filter #(= idle-id (:source %)))
+                        first)
+          elk-eds  (projection/->elk-edge start)]
+      (doseq [e elk-eds]
+        (is (vector? (:labels e)) "labels is a vector")
+        (is (= 1 (count (:labels e))) "exactly one label entry")
+        (is (= "" (:text (first (:labels e)))) "empty text (label on node)")
+        (is (not (contains? (first (:labels e)) :width))
+            "no measured width fed (no double-budget)")))))
+
+(deftest elk-edge-label-feeds-measured-dims-when-present
+  (testing "rf2-rlq97 — a labelled edge (one whose label-dims map carries
+            its elk-edge-id) gets its MEASURED width/height fed into the
+            ELK label so ELK reserves a placement channel — the edge-label
+            analogue of d9ro2's node measure"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          start    (->> (:edges parsed)
+                        (filter #(= idle-id (:source %)))
+                        first)
+          in-id    (str (:id start) "__in")
+          dims     {in-id {:width 88 :height 18}}
+          elk-eds  (projection/->elk-edge start dims)
+          in-e     (first (filter #(= in-id (:id %)) elk-eds))
+          lbl      (first (:labels in-e))]
+      (is (= 88 (:width lbl)) "measured label width fed to ELK")
+      (is (= 18 (:height lbl)) "measured label height fed to ELK"))))
+
+(deftest elk-edge-label-ignores-zero-dims
+  (testing "rf2-rlq97 — a zero-size measured label (a node still awaiting
+            measurement) is treated as no label so ELK reserves nothing"
+    (is (= [{:text ""}] (projection/elk-edge-label "" {:width 0 :height 0})))
+    (is (= [{:text ""}] (projection/elk-edge-label "" nil)))))
+
+(deftest elk-edges-flattens-all-transitions
+  (testing "rf2-rlq97 — `->elk-edges` flattens every parsed transition's
+            __in/__out pair into the flat ELK `edges` vector
+            `->elk-input` clj->js-es onto the root graph. The id set
+            matches the `:edge-points` producer/consumer key scheme
+            (`<spec-id>__in` / `__out`)"
+    (let [parsed   (layout/parse-definition idle-loading)
+          elk-eds  (projection/->elk-edges parsed)
+          ids      (set (map :id elk-eds))
+          ;; idle-loading: :start (external), :after (external), :always
+          ;; (external) — all have targets, so 3 transitions × 2 = 6 edges.
+          n-ext    (count (remove :internal? (:edges parsed)))
+          n-int    (count (filter :internal? (:edges parsed)))]
+      (is (= (+ (* 2 n-ext) n-int) (count elk-eds))
+          "each external transition → 2 ELK edges, each internal → 1")
+      (is (every? #(or (re-find #"__in$" %) (re-find #"__out$" %)) ids)
+          "every ELK edge id ends in __in or __out (the route key scheme)")
+      (is (= (count elk-eds) (count ids)) "no duplicate edge ids"))))
+
+;; ---- :edge-labels → :data {:labelPos} (rf2-rlq97) ----------------------
+;;
+;; ELK owns edge-label PLACEMENT now (the edge-label analogue of ELK
+;; owning node placement). The projector attaches ELK's computed label
+;; position to the labelled edge's `:data {:labelPos}` so the renderer
+;; paints where ELK reserved a collision-free channel instead of a
+;; renderer-side midpoint heuristic.
+
+(deftest xyflow-graph-attaches-elk-label-position-to-edge-data
+  (testing "rf2-rlq97 — when :edge-labels carries an ELK-computed
+            position for an edge, the projector threads it onto that
+            edge's :data {:labelPos}; an edge with no entry gets nil"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          start    (->> (:edges parsed)
+                        (filter #(= idle-id (:source %)))
+                        first)
+          in-id    (str (:id start) "__in")
+          out-id   (str (:id start) "__out")
+          graph    (projection/xyflow-graph
+                     parsed {}
+                     {:edge-labels {in-id {:x 42 :y 99}}})
+          xy-in    (edge-by-id graph in-id)
+          xy-out   (edge-by-id graph out-id)]
+      (is (= {:x 42 :y 99} (:labelPos (:data xy-in)))
+          "ELK label position threaded onto the inbound edge")
+      (is (nil? (:labelPos (:data xy-out)))
+          "an edge with no ELK label position gets nil (geometric fallback)"))))
+
+(deftest xyflow-graph-edge-labels-defaults-empty
+  (testing "rf2-rlq97 — omitting :edge-labels (events-as-nodes default)
+            leaves every edge's :labelPos nil so the renderer keeps its
+            geometric anchor"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (every? #(nil? (:labelPos (:data %))) (:edges graph))
+          "no ELK labels fed → every edge :labelPos nil"))))
+
 ;; ---- initial-state markers + self-loops (rf2-54s5a) --------------------
 
 (deftest xyflow-graph-emits-initial-marker-node-and-entry-edge

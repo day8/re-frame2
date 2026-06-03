@@ -107,14 +107,52 @@
       per-container origin. xyflow hands the custom edge component
       ABSOLUTE `sourceX`/`sourceY`/… so the lifted bend-points must be
       in the same frame; `ROOT` makes elk do that rebasing for us
-      (added ELK 0.9; elkjs 0.11 wraps a newer core)."
+      (added ELK 0.9; elkjs 0.11 wraps a newer core).
+
+  rf2-rlq97 — edge-CLEARANCE + label-placement keys. ORTHOGONAL routing
+  (above) computes Manhattan routes, but without dedicated edge-to-node
+  spacing elk lets a route hug — or clip — a node box it passes, which
+  is the 'arrows route OVER state nodes' symptom Mike reported. Three
+  spacing knobs reserve the channels:
+
+    - `elk.spacing.edgeNode` (24) — the minimum gap elk keeps between an
+      edge segment and ANY node box it routes past. This is the key that
+      pushes a passing route AROUND a node instead of across it.
+    - `elk.layered.spacing.edgeNodeBetweenLayers` (24) — the same
+      clearance applied between layers (the Layered algorithm's
+      per-layer analogue of `spacing.edgeNode`).
+    - `elk.spacing.edgeEdge` (16) — minimum gap between two parallel
+      edge segments so bundled routes (several transitions between the
+      same layers) read as distinct lines, not one fused thick stroke.
+
+  And the label-placement keys (the edge-label analogue of d9ro2's
+  node-measure feed; today the transition text is on the event-NODE so
+  edges carry empty labels, but the keys make elk reserve a channel for
+  any MEASURED edge label `projection/->elk-edge` feeds in future):
+
+    - `elk.edgeLabels.placement` (CENTER) — elk places a non-empty edge
+      label on the route, centred, and budgets space for it so two
+      labels never overlap (the renderer then reads elk's computed label
+      position instead of the old middle-segment-midpoint heuristic).
+    - `elk.spacing.edgeLabel` (6) — gap between a label box and its
+      edge."
   {"elk.algorithm"                              "layered"
    "elk.direction"                              "DOWN"
    "elk.spacing.nodeNode"                       "40"
    "elk.layered.spacing.nodeNodeBetweenLayers"  "70"
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
    "elk.edgeRouting"                            "ORTHOGONAL"
-   "elk.json.edgeCoords"                        "ROOT"})
+   "elk.json.edgeCoords"                        "ROOT"
+   ;; rf2-rlq97 — edge-to-node + edge-to-edge clearance so ORTHOGONAL
+   ;; routes go AROUND node boxes (kills arrows-over-states) and bundled
+   ;; edges stay visually distinct.
+   "elk.spacing.edgeNode"                       "24"
+   "elk.layered.spacing.edgeNodeBetweenLayers"  "24"
+   "elk.spacing.edgeEdge"                       "16"
+   ;; rf2-rlq97 — elk places + reserves space for any non-empty edge
+   ;; label (the renderer reads back elk's position; see `chart.edges`).
+   "elk.edgeLabels.placement"                   "CENTER"
+   "elk.spacing.edgeLabel"                      "6"})
 
 (defn elk-direction-str
   "Map the chart's `:lr` / `:tb` direction keyword to elk's
@@ -178,30 +216,29 @@
   render) is threaded into `projection/->elk-children` so leaf states +
   event-nodes lay out at their REAL size, floored by the min constants.
   nil on the first pass; the measure-then-relayout lifecycle in
-  `MachineChart` supplies it on the second pass."
-  [{:keys [edges] :as parsed} direction layout-options measured-dims]
+  `MachineChart` supplies it on the second pass.
+
+  rf2-rlq97 — the EDGES are projected by the pure
+  `projection/->elk-edges` (lifted out of an inline `mapcat` here so the
+  JVM corpus pins the edge-feed). They carry the events-as-nodes
+  `__in` / `__out` split + optional MEASURED edge-label dims (the
+  edge-label analogue of d9ro2's node measure; nil today since the
+  transition text rides on the event-NODE — see `projection/->elk-edge`).
+  Feeding edges INTO elk (alongside the spacing + label-placement keys in
+  `default-elk-options`) is what makes elk's Layered algorithm route the
+  edges AROUND node boxes instead of the renderer drawing geometric paths
+  that cut across states."
+  [parsed direction layout-options measured-dims]
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
        :children (clj->js (projection/->elk-children parsed measured-dims))
-       :edges (clj->js
-                (vec
-                  (mapcat
-                    (fn [e]
-                      (let [ev-id (projection/event-node-id e)]
-                        (cond-> [{:id      (str (:id e) "__in")
-                                  :sources [(:source e)]
-                                  :targets [ev-id]
-                                  :labels  [{:text ""}]}]
-                          ;; Internal self-transitions (omit :target) have
-                          ;; no outgoing edge — the event-node 'hangs and
-                          ;; ends' per the Stately convention.
-                          (not (:internal? e))
-                          (conj {:id      (str (:id e) "__out")
-                                 :sources [ev-id]
-                                 :targets [(:target e)]
-                                 :labels  [{:text ""}]}))))
-                    edges)))})
+       ;; rf2-rlq97 — edge-label dims share the `measured-dims` map (it is
+       ;; keyed by elk-edge-id for any labelled edge); under events-as-nodes
+       ;; the transition text is on the event-node so this is normally a
+       ;; no-op, but threading it keeps the edge-feed symmetric with the
+       ;; node-feed and ready for a labelled edge type.
+       :edges (clj->js (projection/->elk-edges parsed measured-dims))})
 
 (defn elk-edge-points
   "rf2-cz8v6 (G2) — lift one elk edge's routed bend-points into a flat
@@ -237,9 +274,40 @@
     (when (> (count pts) 1)
       (vec pts))))
 
+(defn elk-edge-label-pos
+  "rf2-rlq97 — lift an elk edge's COMPUTED label position into a
+  `{:x :y}` map (absolute / flow coords under `elk.json.edgeCoords
+  ROOT`), or nil when elk placed no label (the events-as-nodes default,
+  where the transition text rides on the event-NODE so the edge's label
+  is empty and elk reserves no slot for it).
+
+  elk attaches the placed label as the first entry of the edge's
+  `labels` array with an `x` / `y` it computed (centred on the route per
+  `elk.edgeLabels.placement CENTER`). A label with no `x` (elk did not
+  place it — empty text) lifts to nil so the renderer keeps its
+  geometric anchor. This is the LABEL analogue of `elk-edge-points`: elk
+  owns label PLACEMENT, the renderer just paints where elk says, killing
+  the old middle-segment-midpoint heuristic for any labelled edge."
+  [^js edge]
+  (let [labels (or (.-labels edge) #js [])]
+    (when (pos? (alength labels))
+      (let [^js l (aget labels 0)
+            x     (.-x l)
+            y     (.-y l)]
+        (when (and (number? x) (number? y))
+          {:x x :y y})))))
+
 (defn elk-result->positions
   "Adapter: elk.js JS result → `{:positions {node-id {:x :y :width
-  :height}} :edge-points {edge-id [{:x :y} …]}}`.
+  :height}} :edge-points {edge-id [{:x :y} …]} :edge-labels {edge-id
+  {:x :y}}}`.
+
+  rf2-rlq97 — `:edge-labels` carries elk's COMPUTED label position per
+  edge (the LABEL analogue of `:edge-points`'s routed bend-points). It is
+  empty under events-as-nodes (the transition text rides on the
+  event-NODE so edges carry no label for elk to place); a labelled edge
+  type would populate it and the renderer would paint at elk's position
+  instead of the geometric midpoint.
 
   Public-by-convention as a test seam (mirrors `elk-edge-points` /
   `invoke-elk-layout!`): the rf2-r636q regression bridges this PRODUCER
@@ -277,15 +345,25 @@
   path."
   [elk-result]
   (let [positions   (atom {})
-        edge-points (atom {})]
+        edge-points (atom {})
+        ;; rf2-rlq97 — elk's COMPUTED edge-label positions (keyed by elk
+        ;; edge id), the label analogue of `:edge-points`. Empty under
+        ;; events-as-nodes (the transition text is on the event-node so
+        ;; edges carry no label for elk to place); populated for any
+        ;; labelled edge so the renderer reads elk's position rather than
+        ;; the geometric midpoint heuristic.
+        edge-labels (atom {})]
     (letfn [(collect-edges! [^js node]
               (let [edges (or (.-edges node) #js [])
                     n     (alength edges)]
                 (dotimes [i n]
                   (let [e   (aget edges i)
-                        pts (elk-edge-points e)]
+                        pts (elk-edge-points e)
+                        lp  (elk-edge-label-pos e)]
                     (when pts
-                      (swap! edge-points assoc (.-id e) pts))))))
+                      (swap! edge-points assoc (.-id e) pts))
+                    (when lp
+                      (swap! edge-labels assoc (.-id e) lp))))))
             (walk! [^js node]
               (collect-edges! node)
               (let [children (or (.-children node) #js [])
@@ -300,7 +378,8 @@
                     (walk! c)))))]
       (walk! elk-result))
     {:positions   @positions
-     :edge-points @edge-points}))
+     :edge-points @edge-points
+     :edge-labels @edge-labels}))
 
 ;; ---- error reporting (rf2-4lyvh) ----------------------------------------
 ;;
@@ -717,7 +796,9 @@
         ;; route edges around nested containers. Starts empty (no
         ;; positions, no routes) — the pre-layout render falls back to
         ;; origin + bezier until the async elk pass resolves.
-        layout-state  (r/atom {:positions {} :edge-points {}})
+        ;; rf2-rlq97 — `:edge-labels` (elk's computed label positions)
+        ;; joins the same atom; empty until the async elk pass resolves.
+        layout-state  (r/atom {:positions {} :edge-points {} :edge-labels {}})
         layout-key    (r/atom nil)
         ;; rf2-set3x — auto-fit lifecycle.
         ;;
@@ -953,7 +1034,8 @@
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
                 edge-callback     (when-not read-only? on-edge-click)
-                {:keys [positions edge-points layout-error]} @layout-state
+                {:keys [positions edge-points edge-labels layout-error]}
+                @layout-state
                 {:keys [nodes edges]}
                 (projection/xyflow-graph parsed
                               positions
@@ -967,6 +1049,12 @@
                                ;; points; the projector attaches each
                                ;; edge's route to its :data {:points}.
                                :edge-points       edge-points
+                               ;; rf2-rlq97 — elk's computed label
+                               ;; positions; the projector attaches each
+                               ;; labelled edge's position to :data
+                               ;; {:labelPos} (empty under events-as-nodes,
+                               ;; where the label rides on the event-node).
+                               :edge-labels       edge-labels
                                ;; rf2-qeemm (G3) — the fired-this-epoch
                                ;; edge-id set; the projector marks each
                                ;; matching edge :fired. nil → #{} default.

@@ -128,6 +128,9 @@
       (is (map? result) "result is a map (so `when result` reset!s)")
       (is (= {} (:positions result)) "positions empty on failure")
       (is (= {} (:edge-points result)) "edge-points empty on failure")
+      ;; rf2-rlq97 — :edge-labels mirrors :edge-points (ELK's computed
+      ;; label positions); empty on failure, same as the routes.
+      (is (= {} (:edge-labels result)) "edge-labels empty on failure")
       (is (some? (:layout-error result)) ":layout-error slot present")
       (is (= "bad input"
              (get-in result [:layout-error :error :message]))
