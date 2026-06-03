@@ -1396,18 +1396,31 @@
       ;; the SAME token the NORMAL (non-machine) handler's `↳ :db diff` arrow
       ;; (`sub-header-glyph-style`) uses — NOT the prior `:success` green. The
       ;; arrow is the first `↳` span inside the data-write subtree.
-      (let [arrow-colour (some-> tree-m
-                                 (th/find-by-testid "rf-xray-epoch-machine-cascade-data-write-1")
-                                 (->> (tree-seq vector? seq)
-                                      (filter #(and (vector? %) (= "↳" (last %))))
-                                      first
-                                      th/attrs
-                                      :style
-                                      :color))]
+      (let [data-write-node (th/find-by-testid tree-m "rf-xray-epoch-machine-cascade-data-write-1")
+            arrow-colour    (some-> data-write-node
+                                    (->> (tree-seq vector? seq)
+                                         (filter #(and (vector? %) (= "↳" (last %))))
+                                         first
+                                         th/attrs
+                                         :style
+                                         :color))]
         (is (= (:text-tertiary tokens/tokens) arrow-colour)
             "the machine EVENT HANDLER `data Δ` arrow uses the light-grey
              `:text-tertiary` token (matching the normal-handler arrow), not
-             the `:success` green (rf2-fg3c4)")))
+             the `:success` green (rf2-fg3c4)")
+        ;; rf2-32kyr — the redundant "data Δ" CAPTION text is GONE; the row
+        ;; reads `<arrow> <edn-inspector value>`. The arrow (`↳`) and the
+        ;; inspector value remain; only the label literal is removed.
+        (is (some? data-write-node)
+            "rf2-32kyr — the data-delta row (arrow + edn-inspector value) still renders")
+        (is (some #(and (vector? %) (= "↳" (last %)))
+                  (tree-seq vector? seq data-write-node))
+            "rf2-32kyr — the `↳` arrow is KEPT")
+        (is (not (string/includes? (or (th/text-content data-write-node) "") "data Δ"))
+            "rf2-32kyr — the redundant `data Δ` caption text is REMOVED")
+        ;; The edn-inspector value still renders (the written `:opened-count`).
+        (is (string/includes? (or (th/text-content data-write-node) "") "opened-count")
+            "rf2-32kyr — the edn-inspector value is KEPT (arrow → value, no caption)")))
     ;; A no-op exit action whose :data is unchanged still surfaces the
     ;; slot (the inspector renders the value with no delta).
     (let [noop {:step :handler :badge :HANDLER :step-number 3
@@ -1422,6 +1435,46 @@
           tree-n (view/render-handler-step noop)]
       (is (some? (th/find-by-testid tree-n "rf-xray-epoch-machine-cascade-data-write-1"))
           "DATA Δ slot renders even for a no-op action (no delta shown)"))))
+
+(deftest machine-handler-cascade-step-content-aligns-to-badge-left-test
+  (testing "rf2-4b6im — ALL of a step's subsequent content (source body +
+            outcome details, which carries the data-delta + fx sub-lines)
+            left-aligns to the BADGE left edge, NOT the `[N]` ordinal right
+            edge. The badge sits one header `:gap` (6px) past the ordinal
+            chip's outer width; the ordinal carries `box-sizing: border-box`
+            so its rendered width is EXACTLY its declared `min-width` (21px),
+            making the `padding-left` (21 + 6 = 27px) land on the badge left
+            edge. Corrects rf2-2hj0h item 3, whose 27px constant under-shot
+            because the content-box ordinal rendered ~29px wide (the bug Mike
+            observed: content hung at the ordinal right edge)."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :door/main
+                :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :count-open
+                                     :phase :entry
+                                     :source-code "(fn count-open [ctx] ...)"
+                                     :data-before {:opened-count 0}
+                                     :data-write  {:opened-count 1}}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)
+          ;; The ordinal box: deterministic outer width via border-box.
+          ordinal-style  (style-of tree "rf-xray-epoch-machine-cascade-ordinal-1")
+          ;; The two sub-content slots that must align to the badge left.
+          source-style   (style-of tree "rf-xray-epoch-machine-cascade-source-1")
+          outcome-style  (style-of tree "rf-xray-epoch-machine-cascade-outcome-1")
+          ;; The expected badge-left indent: ordinal-box-width (21) + gap (6).
+          expected-indent "27px"]
+      (is (some? ordinal-style) "the ordinal chip renders")
+      (is (= "border-box" (:box-sizing ordinal-style))
+          "the ordinal box is `border-box` so its outer width == min-width")
+      (is (= "21px" (:min-width ordinal-style))
+          "the ordinal box width is 21px (the indent's ordinal constituent)")
+      (is (= expected-indent (:padding-left source-style))
+          "the SOURCE BODY aligns to the badge left edge (21px ordinal + 6px gap)")
+      (is (string/includes? (str (:padding outcome-style)) expected-indent)
+          "the OUTCOME DETAILS (data-delta + fx sub-lines) align to the SAME
+           badge left edge as the source body — one left-aligned column"))))
 
 (deftest machine-handler-cascade-transition-row-renders-states-test
   (testing "rf2-ge6uj ISSUE 3 — the `:transition` row collapses to ONE
