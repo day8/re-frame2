@@ -161,12 +161,13 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'],
     servedPath: 'testbeds/routes-epochs',
   },
-  // rf2-w06op — machine-epochs deck (the STATE-MACHINE step-up tester). A
-  // single-frame numbered-button ladder over the real `reg-machine` +
-  // machine-event-routing surface, driving the Xray Machine Inspector
-  // (`rf-xray-machine-inspector`). Served from the deck's own hand-written
-  // index.html (source dir first, like the 8033 :dev-http entry); the
-  // compiled main.js falls through to out/examples/machine-epochs.
+  // rf2-w06op + rf2-kipb5 — machine-epochs deck (the STATE-MACHINE tester),
+  // converted to the shared queued-step runner (`runner.core`). A single-frame
+  // step matrix over the real `reg-machine` + machine-event-routing surface,
+  // driving the Xray Machine Inspector (`rf-xray-machine-inspector`). Served
+  // from the deck's own hand-written index.html (source dir first, like the
+  // 8033 :dev-http entry); the compiled main.js falls through to
+  // out/examples/machine-epochs.
   {
     build: 'examples/machine-epochs',
     bundleDir: ['out', 'examples', 'machine-epochs'],
@@ -2889,10 +2890,14 @@ async function runRoutesEpochs(page, state) {
   };
 }
 
-// rf2-w06op — machine-epochs state-machine step-up deck. Walks the deck's
-// numbered ladder top-to-bottom and asserts each rung's machine feature
-// landed, then opens the Xray Machine Inspector (`rf-xray-machine-
-// inspector`) and confirms the panel mounts on the focused machine event.
+// rf2-w06op + rf2-kipb5 — machine-epochs state-machine deck, converted to the
+// shared queued-step runner (`runner.core`). Walks the deck's step matrix
+// top-to-bottom (via the runner's per-step RUN-THIS-STEP buttons) and asserts
+// each step's machine feature landed, then opens the Xray Machine Inspector
+// (`rf-xray-machine-inspector`) and confirms the panel mounts on the focused
+// machine event. The final handoff re-drives a few steps OUT OF ORDER (the
+// fresh-transition / unhandled-no-op / wildcard-throw contrast) — the random-
+// access addressing the runner's per-step run button provides.
 //
 // What this scenario can / cannot assert:
 // —————————————————————————————————————————————————————————————
@@ -2918,10 +2923,26 @@ async function runRoutesEpochs(page, state) {
 // deck's job is the real-machine-feature step-up surface, asserted through
 // the snapshot mirror + the panel handoff.
 
-// Click a deck ladder rung by its per-rung data-testid
-// (`machine-epochs-rung-<n>`, outside Xray chrome).
+// Drive a deck step by its (1-based) ladder rung number.
+//
+// rf2-kipb5 — the deck was converted to the shared queued-step runner
+// (`runner.core`). It no longer mounts a bespoke `machine-epochs-rung-<n>`
+// button per rung; instead the runner renders one step row per step, and
+// each row's index is a RANDOM-ACCESS RUN-THIS-STEP button
+// (`machine-epochs-step-<n>-run`, n = 0-based step index). The runner's
+// per-step run affordance is exactly the random-access addressing this
+// scenario needs — it drives steps OUT OF ORDER at the end (re-driving the
+// fresh-transition / unhandled-no-op / wildcard-throw steps for the
+// Inspector + throw/no-op-contrast handoff), which the runner's sequential
+// cursor alone could not provide.
+//
+// The scenario keeps the historical 1-based rung vocabulary (rung 1 = the
+// first step) and maps it onto the 0-based runner step index here, so every
+// call site below reads unchanged. The step ORDER is identical to the old
+// ladder (same events, same machine features); only the driving affordance
+// moved to the runner.
 async function clickMachineRung(page, n) {
-  await clickTestId(page, `machine-epochs-rung-${n}`);
+  await clickTestId(page, `machine-epochs-step-${n - 1}-run`);
 }
 
 // Read both machines' state + the door's :data off the deck's status
@@ -3200,7 +3221,11 @@ async function runMachineEpochs(page, state) {
   //     throw and the door stays put. The rejection shape is asserted in the
   //     CLJS harness; here we confirm the rung does not crash the deck.
   await clickMachineRung(page, 24);
-  // #25 / #26 are DISABLED placeholders (history deferred) — not clickable.
+  // #25 (SHALLOW history restore) / #26 (DEEP history restore) are LIVE steps
+  // (rf2-mle6e.5); their full restore-cascade render assertions live in the
+  // CLJS harness (`history-shallow-restore-...` / `history-deep-restore-...`),
+  // which drives the substrate directly. The browser scenario does not need to
+  // re-drive them here — the harness owns that coverage.
 
   // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
@@ -3440,16 +3465,19 @@ const SCENARIOS = [
     run: runRoutesEpochs,
   },
   {
-    // rf2-w06op + rf2-g27vv — machine-epochs assertion-backed render harness.
-    // Drives the real `reg-machine` + machine-event-routing surface for the
-    // FULL feature x Xray-cascade-render matrix and asserts each rung's
-    // machine FEATURE landed via the host's snapshot mirror: door (plain ·
-    // entry/exit · guards allowed/blocked · internal · effect · unhandled
-    // no-op · root-:on RESOLUTION), traffic (parallel regions · history ·
-    // tag-set member swap), quiz (:always MICROSTEPS), brew (:after TIMER +
-    // cancel), session (SPAWN · child :final · :on-done · DESTROY), fuse (:*
-    // wildcard THROW), hvac (deep compound · LCA cascade · self-transitions),
-    // history (reject-now). Then opens the Xray Machine Inspector
+    // rf2-w06op + rf2-g27vv + rf2-kipb5 — machine-epochs assertion-backed
+    // render harness, runner-shaped (driven through `runner.core`'s per-step
+    // RUN-THIS-STEP buttons). Drives the real `reg-machine` + machine-event-
+    // routing surface for the FULL feature x Xray-cascade-render matrix and
+    // asserts each step's machine FEATURE landed via the host's snapshot
+    // mirror: door (plain · entry/exit · guards allowed/blocked · internal ·
+    // effect · unhandled no-op · root-:on RESOLUTION), traffic (parallel
+    // regions · history · tag-set member swap), quiz (:always MICROSTEPS),
+    // brew (:after TIMER + cancel), session (SPAWN · child :final · :on-done ·
+    // DESTROY), fuse (:* wildcard THROW), hvac (deep compound · LCA cascade ·
+    // self-transitions), history (placement reject + live shallow/deep restore
+    // — the restore-cascade render is asserted in the CLJS harness). Then opens
+    // the Xray Machine Inspector
     // (`rf-xray-machine-inspector`) and confirms the panel mounts on a
     // focused machine event + the no-op/throw trace contrast. The deep
     // RENDER-FIDELITY assertions (cascade kinds/order, microsteps, timer-
