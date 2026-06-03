@@ -196,3 +196,144 @@
               (is (= :stale-build (:liveness token))
                   "token-from-health threads the browser load time into the stale check")
               (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Actionable liveness on a quiet runtime (rf2-jkwu4).
+;;
+;; A `:liveness :unknown` / `:no-runtime` verdict is the agent's ONLY
+;; early warning before a later read returns blank — and the agent can't
+;; reload a browser itself. So a non-fresh hint must name the EXACT next
+;; HUMAN step: reload `http://localhost:<port>` when the port is known,
+;; else restart `shadow-cljs watch <build>`. The `:port` rides into
+;; `assemble` (4-arity) / `token-from-health` (4-arity) via the opts map.
+;; ---------------------------------------------------------------------------
+
+(deftest unknown-hint-names-the-port-when-known
+  (async done
+    (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
+          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
+        (.then
+          (fn [token]
+            (is (= :unknown (:liveness token)))
+            (is (= 8033 (:port token)) "port rides on the token for the agent to relay")
+            (is (re-find #"LIVENESS UNKNOWN" (:hint token)))
+            (is (re-find #"ACTION" (:hint token)) "the hint is explicitly actionable")
+            (is (re-find #"http://localhost:8033" (:hint token))
+                "names the EXACT URL the human reloads")
+            (is (re-find #"shadow-cljs watch" (:hint token))
+                "names the watch restart as the escalation")
+            (done))))))
+
+(deftest unknown-hint-degrades-to-build-name-without-a-port
+  (async done
+    (-> (with-jvm-half! nil
+          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half)))
+        (.then
+          (fn [token]
+            (is (= :unknown (:liveness token)))
+            (is (not (contains? token :port)) "no port arg ⇒ no :port slot")
+            (is (re-find #"ACTION" (:hint token)))
+            ;; With no port, the hint still names the build for the watch restart.
+            (is (re-find #":examples/machine-epochs" (:hint token))
+                "names the build so `shadow-cljs watch <build>` is unambiguous")
+            (done))))))
+
+(deftest no-runtime-hint-is-actionable-with-the-port
+  ;; The repro's quiet-runtime case: the WS heartbeat went stale → the
+  ;; verdict is :no-runtime. The hint must tell the human to reload the
+  ;; exact URL, then re-run discover-app.
+  (async done
+    (-> (with-jvm-half! {:compile-cycle 3
+                         :build-flushed-at 500
+                         :runtime-count 1
+                         :heartbeat-age-ms 60000} ; stale heartbeat ⇒ :no-runtime
+          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
+        (.then
+          (fn [token]
+            (is (= :no-runtime (:liveness token)))
+            (is (re-find #"NO RUNTIME" (:hint token)))
+            (is (re-find #"http://localhost:8033" (:hint token))
+                ":no-runtime hint names the EXACT URL to reload")
+            (is (re-find #"discover-app" (:hint token))
+                "tells the agent to re-confirm liveness after the reload")
+            (done))))))
+
+(deftest token-from-health-threads-the-port
+  ;; The discover-app path uses token-from-health; its 4-arity must carry
+  ;; the port through to the hint.
+  (async done
+    (let [health {:ok? true :runtime-instance-id "uuid-q" :runtime-loaded-at 1 :read-at 2}]
+      (-> (with-jvm-half! nil
+            (fn [] (fresh/token-from-health nil :examples/machine-epochs health {:port 8033})))
+          (.then
+            (fn [token]
+              (is (= :unknown (:liveness token)))
+              (is (= 8033 (:port token)))
+              (is (re-find #"http://localhost:8033" (:hint token)))
+              (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; retry-once-on-nil — one retry before degrading to :unknown (rf2-jkwu4).
+;;
+;; A nil first read of the build-worker state is most often a transient
+;; socket hiccup, not a genuinely-unreadable old shadow. One retry
+;; recovers the common case so the operator sees the true :fresh /
+;; :stale-build / :no-runtime verdict instead of a degraded :unknown. The
+;; retry pays a single extra round-trip only on the cold/degraded path.
+;;
+;; The combinator is pure (takes a Promise-returning thunk), so these
+;; tests need NO global var stub — sidestepping the rf2-wb06a
+;; .finally-after-done stub-leak race entirely.
+;; ---------------------------------------------------------------------------
+
+(deftest retry-once-recovers-a-transient-blank
+  (async done
+    (let [calls (atom 0)
+          read! (fn []
+                  (swap! calls inc)
+                  (js/Promise.resolve
+                    (if (= 1 @calls)
+                      nil ; blank first read (transient hiccup)
+                      {:compile-cycle 5 :build-flushed-at 100
+                       :runtime-count 1 :heartbeat-age-ms 50})))]
+      (-> (fresh/retry-once-on-nil read!)
+          (.then
+            (fn [half]
+              (is (= 2 @calls) "retried exactly once after a blank first read")
+              (is (map? half) "the retry recovered the JVM half")
+              (is (= 5 (:compile-cycle half)))
+              (done)))))))
+
+(deftest retry-once-no-retry-on-first-success
+  (async done
+    (let [calls (atom 0)
+          read! (fn []
+                  (swap! calls inc)
+                  (js/Promise.resolve {:compile-cycle 7 :runtime-count 1 :heartbeat-age-ms 10}))]
+      (-> (fresh/retry-once-on-nil read!)
+          (.then
+            (fn [half]
+              (is (= 1 @calls) "a map-valued first read pays NO retry round-trip")
+              (is (= 7 (:compile-cycle half)))
+              (done)))))))
+
+(deftest retry-once-persistent-blank-resolves-nil
+  (async done
+    (let [calls (atom 0)
+          read! (fn [] (swap! calls inc) (js/Promise.resolve nil))]
+      (-> (fresh/retry-once-on-nil read!)
+          (.then
+            (fn [half]
+              (is (= 2 @calls) "retried once; a persistent blank then degrades")
+              (is (nil? half) "two blanks ⇒ nil ⇒ caller degrades to :unknown")
+              (done)))))))
+
+(deftest jvm-build-freshness-skips-retry-without-a-socket
+  ;; A conn with no live socket short-circuits to nil with NO round-trip
+  ;; (and so no retry) — preserved from the original contract.
+  (async done
+    (let [conn (atom {:socket nil :closed? true})]
+      (-> (fresh/jvm-build-freshness conn :app)
+          (.then (fn [half]
+                   (is (nil? half) "no socket ⇒ nil, never a TCP connect")
+                   (done)))))))

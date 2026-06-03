@@ -120,9 +120,15 @@
   payload-shaping fn `shape` takes the freshness-annotated health map
   and returns the final MCP envelope. On a stale-BUILD verdict the
   `:warning` is promoted to `:stale-build` (unless a louder warning is
-  already set) so the alarm rides at the top level too."
-  [conn build-id health shape]
-  (-> (freshness/token-from-health conn build-id health)
+  already set) so the alarm rides at the top level too.
+
+  `opts` carries the optional `:port` (the browser URL port discover-app
+  resolved the build from, rf2-jkwu4) so a non-fresh hint names the EXACT
+  `http://localhost:<port>` the human reloads to wake / refresh a quiet
+  runtime — the agent can't reload a browser, so this is the early,
+  actionable, human-in-the-loop signal."
+  [conn build-id health opts shape]
+  (-> (freshness/token-from-health conn build-id health opts)
       (.then
         (fn [token]
           (let [stale?     (freshness/stale-build? token)
@@ -136,7 +142,23 @@
                              (assoc :warning :stale-build))]
             (shape annotated))))))
 
+(defn- port-opts
+  "Build the freshness `opts` map carrying the browser URL `:port` the
+  caller passed (rf2-jkwu4), or nil when no `:port` arg is present. The
+  port lets a non-fresh liveness hint name the EXACT
+  `http://localhost:<port>` the human reloads to wake a quiet runtime.
+  The port may arrive as a string off the MCP wire; coerce to an int so
+  the hint reads `http://localhost:8033`, not `http://localhost:\"8033\"`."
+  [args]
+  (when-let [raw (wire/arg args :port)]
+    (let [p (cond
+              (number? raw) (long raw)
+              (string? raw) (let [n (js/parseInt raw 10)] (when-not (js/isNaN n) n))
+              :else         nil)]
+      (when (some? p) {:port p}))))
+
 (defn discover-app [conn args]
+  (let [opts (port-opts args)]
   (-> (resolve-build-id conn args)
    (.then
     (fn [{:keys [build-id auto-selected? error]}]
@@ -185,6 +207,7 @@
                                            "or run `frames/select` first. "
                                            "(`:rf/*` tool frames are excluded "
                                            "from this list.)"))
+                  opts
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
 
               (not (:coord-annotation-enabled? health))
@@ -198,6 +221,7 @@
                                            "DOM->source ops will degrade. Enable "
                                            "(rf/configure! :source-coords {:annotate-dom? true}) "
                                            "or use re-com with :src (at)."))
+                  opts
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
 
               :else
@@ -218,5 +242,6 @@
                   (with-frame-resolution (assoc health :ok? true
                                                        :build-id build-id
                                                        :build    build-id))
+                  opts
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id))))))))
-        (.catch (fn [err] (probe/err->result :discover-failed err)))))))))
+        (.catch (fn [err] (probe/err->result :discover-failed err))))))))))
